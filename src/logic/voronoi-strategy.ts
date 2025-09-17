@@ -13,15 +13,23 @@ export class VoronoiStrategy {
   }
 
   getBestMove(gameState: GameState, ourTeam?: TeamInfo): Direction {
+    const result = this.getBestMoveWithDebug(gameState, ourTeam);
+    return result.move;
+  }
+
+  getBestMoveWithDebug(gameState: GameState, ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
     const startTime = Date.now();
     const possibleMoves = this.getSafeMoves(gameState);
+    const scores = new Map<Direction, number>();
     
     if (possibleMoves.length === 0) {
-      return 'up'; // Fallback if no safe moves
+      console.warn('No safe moves found! Defaulting to up');
+      return { move: 'up', safeMoves: [], scores }; // Fallback if no safe moves
     }
     
     if (possibleMoves.length === 1) {
-      return possibleMoves[0];
+      scores.set(possibleMoves[0], 1);
+      return { move: possibleMoves[0], safeMoves: possibleMoves, scores };
     }
 
     // Evaluate each possible move using Voronoi territory simulation with time bounds
@@ -38,13 +46,15 @@ export class VoronoiStrategy {
 
       const remainingTime = this.config.maxEvaluationTimeMs - elapsedTime;
       const score = this.evaluateMove(gameState, move, ourTeam, remainingTime);
+      scores.set(move, score);
+      
       if (score > bestScore) {
         bestScore = score;
         bestMove = move;
       }
     }
 
-    return bestMove;
+    return { move: bestMove, safeMoves: possibleMoves, scores };
   }
 
   private getSafeMoves(gameState: GameState): Direction[] {

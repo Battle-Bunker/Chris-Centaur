@@ -3,6 +3,7 @@ import path from 'path';
 import { GameState, MoveResponse, SnakeInfoResponse } from './types/battlesnake';
 import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { TeamDetector } from './logic/team-detector';
+import { GameLogger } from './utils/logger';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -12,6 +13,7 @@ app.use(express.static(path.join(__dirname, '../src/web')));
 
 const voronoiStrategy = new VoronoiStrategy();
 const teamDetector = new TeamDetector();
+const logger = new GameLogger();
 
 // Battlesnake info endpoint
 app.get('/', (req, res) => {
@@ -29,7 +31,7 @@ app.get('/', (req, res) => {
 // Game start endpoint
 app.post('/start', (req, res) => {
   const gameState: GameState = req.body;
-  console.log(`Game ${gameState.game.id} started!`);
+  logger.startGame(gameState);
   res.status(200).send('ok');
 });
 
@@ -42,18 +44,20 @@ app.post('/move', (req, res) => {
     const teams = teamDetector.detectTeams(gameState.board.snakes);
     const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === gameState.you.id));
     
-    // Get best move using Voronoi strategy
-    const move = voronoiStrategy.getBestMove(gameState, ourTeam);
+    // Get best move using Voronoi strategy with logging
+    const result = voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+    
+    // Log the decision
+    logger.logMove(gameState, result.safeMoves, result.move, result.scores);
     
     const response: MoveResponse = {
-      move,
+      move: result.move,
       shout: `Team territory strategy! Turn ${gameState.turn}`
     };
     
-    console.log(`Turn ${gameState.turn}: Moving ${move}`);
     res.json(response);
   } catch (error) {
-    console.error('Error in move calculation:', error);
+    logger.logError('Error in move calculation', error);
     // Fallback to safe move
     const response: MoveResponse = {
       move: 'up',
@@ -66,7 +70,7 @@ app.post('/move', (req, res) => {
 // Game end endpoint
 app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
-  console.log(`Game ${gameState.game.id} ended!`);
+  logger.endGame(gameState);
   res.status(200).send('ok');
 });
 
