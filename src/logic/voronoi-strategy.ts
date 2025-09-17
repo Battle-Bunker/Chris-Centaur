@@ -231,9 +231,21 @@ export class VoronoiStrategy {
       food.x === newHead.x && food.y === newHead.y
     );
     
+    // Calculate nearest food distance from the new head position
+    let nearestFoodDistance = Number.MAX_VALUE;
+    for (const food of gameState.board.food) {
+      const distance = this.manhattanDistance(newHead, food);
+      if (distance < nearestFoodDistance) {
+        nearestFoodDistance = distance;
+      }
+    }
+    // If no food on board, use a default high distance
+    if (gameState.board.food.length === 0) {
+      nearestFoodDistance = 100;
+    }
+    
     // Calculate average fertile score from simulations
     let totalFertileScore = 0;
-    let totalFoodDistance = 0;
     const maxSimulations = Math.min(this.config.maxSimulations, this.config.numRandomMoves);
     
     // Dynamically adjust simulation count based on remaining time
@@ -257,22 +269,19 @@ export class VoronoiStrategy {
       if (ourTeam) {
         const teamKey = this.getTeamKey(gameState.you);
         totalFertileScore += voronoiResult.teamFertileScores?.get(teamKey) || 0;
-        totalFoodDistance += voronoiResult.teamFoodDistances?.get(teamKey) || 100; // Default high distance if no data
       } else {
         totalFertileScore += voronoiResult.fertileScores?.get(gameState.you.id) || 0;
-        totalFoodDistance += voronoiResult.foodDistances?.get(gameState.you.id) || 100;
       }
       
       actualSimulations++;
     }
 
     const avgFertileScore = actualSimulations > 0 ? totalFertileScore / actualSimulations : 0;
-    const avgFoodDistance = actualSimulations > 0 ? totalFoodDistance / actualSimulations : 100;
     
     return {
       fertileScore: avgFertileScore,
       eatsFood: eatsFood,
-      foodDistance: avgFoodDistance
+      foodDistance: nearestFoodDistance  // Use the actual nearest food distance from new head
     };
   }
 
