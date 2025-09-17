@@ -38,7 +38,7 @@ export class VoronoiStrategy {
     });
   }
 
-  getBestMove(gameState: GameState, ourTeam?: TeamInfo): Direction {
+  getBestMove(gameState: GameState, _ourTeam?: TeamInfo): Direction {
     // Use new evaluator to get best move
     console.log(`\n=== TURN ${gameState.turn} ===`);
     console.log(`Current position: (${gameState.you.head.x}, ${gameState.you.head.y})`);
@@ -53,9 +53,9 @@ export class VoronoiStrategy {
     return bestMove;
   }
 
-  getBestMoveWithDebug(gameState: GameState, ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
+  getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
     // This method is kept for backwards compatibility but delegates to getBestMove
-    const move = this.getBestMove(gameState, ourTeam);
+    const move = this.getBestMove(gameState, _ourTeam);
     const safeMoves = this.getSafeMoves(gameState);
     const scores = new Map<Direction, number>();
     scores.set(move, 1);
@@ -92,7 +92,7 @@ export class VoronoiStrategy {
     }
   }
 
-  private evaluateMoveRisk(position: Coord, move: Direction, gameState: GameState): { isSafe: boolean; riskScore: number; hasHazard: boolean } {
+  private evaluateMoveRisk(position: Coord, _move: Direction, gameState: GameState): { isSafe: boolean; riskScore: number; hasHazard: boolean } {
     const { board } = gameState;
     
     // Check board boundaries
@@ -186,7 +186,7 @@ export class VoronoiStrategy {
     return moveRisk.isSafe;
   }
 
-  private evaluateMoveWithFood(gameState: GameState, move: Direction, ourTeam?: TeamInfo, remainingTimeMs?: number): { fertileScore: number; eatsFood: boolean; foodDistance: number } {
+  private evaluateMoveWithFood(gameState: GameState, move: Direction, _ourTeam?: TeamInfo, remainingTimeMs?: number): { fertileScore: number; eatsFood: boolean; foodDistance: number } {
     // Check if this move eats food
     const newHead = this.getNewHeadPosition(gameState.you.head, move);
     const eatsFood = gameState.board.food.some(food => 
@@ -226,9 +226,9 @@ export class VoronoiStrategy {
       }
 
       const simulatedState = this.simulateGameState(gameState, move);
-      const voronoiResult = this.calculateFertileVoronoiTerritories(simulatedState, ourTeam);
+      const voronoiResult = this.calculateFertileVoronoiTerritories(simulatedState, _ourTeam);
       
-      if (ourTeam) {
+      if (_ourTeam) {
         const teamKey = this.getTeamKey(gameState.you);
         totalFertileScore += voronoiResult.teamFertileScores?.get(teamKey) || 0;
       } else {
@@ -247,7 +247,7 @@ export class VoronoiStrategy {
     };
   }
 
-  private evaluateMove(gameState: GameState, move: Direction, ourTeam?: TeamInfo, remainingTimeMs?: number): number {
+  private evaluateMove(gameState: GameState, move: Direction, _ourTeam?: TeamInfo, remainingTimeMs?: number): number {
     let totalScore = 0;
     const maxSimulations = Math.min(this.config.maxSimulations, this.config.numRandomMoves);
     
@@ -267,9 +267,9 @@ export class VoronoiStrategy {
       }
 
       const simulatedState = this.simulateGameState(gameState, move);
-      const voronoiResult = this.calculateVoronoiTerritories(simulatedState, ourTeam);
+      const voronoiResult = this.calculateVoronoiTerritories(simulatedState, _ourTeam);
       
-      if (ourTeam) {
+      if (_ourTeam) {
         const teamKey = this.getTeamKey(gameState.you);
         totalScore += voronoiResult.teamTerritories.get(teamKey) || 0;
       } else {
@@ -416,7 +416,7 @@ export class VoronoiStrategy {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
   }
 
-  private calculateFertileVoronoiTerritories(gameState: GameState, ourTeam?: TeamInfo): VoronoiResult {
+  private calculateFertileVoronoiTerritories(gameState: GameState, _ourTeam?: TeamInfo): VoronoiResult {
     const { board } = gameState;
     const territories = new Map<string, number>();
     const teamTerritories = new Map<string, number>();
@@ -545,7 +545,7 @@ export class VoronoiStrategy {
     return { territories, teamTerritories, fertileScores, teamFertileScores, foodControlled, teamFoodControlled, foodDistances, teamFoodDistances };
   }
 
-  private calculateVoronoiTerritories(gameState: GameState, ourTeam?: TeamInfo): VoronoiResult {
+  private calculateVoronoiTerritories(gameState: GameState, _ourTeam?: TeamInfo): VoronoiResult {
     const { board } = gameState;
     const territories = new Map<string, number>();
     const teamTerritories = new Map<string, number>();

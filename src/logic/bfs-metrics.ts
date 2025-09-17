@@ -1,4 +1,4 @@
-import { Board, Coord, Snake } from '../types/battlesnake';
+import { Board, Snake } from '../types/battlesnake';
 
 export interface TerritoryMetrics {
   perSnakeMetrics: Map<string, SnakeMetrics>;
@@ -254,7 +254,7 @@ export class MultiHeadMetricsBFS {
     }
     
     // Calculate fertile scores
-    for (const [snakeId, metrics] of perSnakeMetrics.entries()) {
+    for (const [, metrics] of perSnakeMetrics.entries()) {
       metrics.fertileScore = metrics.territory + (metrics.foodCount * this.FOOD_BONUS);
     }
     

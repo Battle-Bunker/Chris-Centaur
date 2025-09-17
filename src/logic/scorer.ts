@@ -23,7 +23,7 @@ export class Scorer {
    */
   public calculateScore(
     metrics: TerritoryMetrics,
-    gameState: GameState,
+    _gameState: GameState,
     ourSnakeId: string,
     aliveSnakes?: any[]
   ): number {

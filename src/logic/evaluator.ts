@@ -1,5 +1,5 @@
 import { Direction, GameState } from '../types/battlesnake';
-import { MoveEnumerator, MoveSet } from './move-enumerator';
+import { MoveEnumerator } from './move-enumerator';
 import { Simulator } from './simulator';
 import { MultiHeadMetricsBFS } from './bfs-metrics';
 import { Scorer } from './scorer';

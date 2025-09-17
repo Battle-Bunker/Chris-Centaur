@@ -44,7 +44,7 @@ export class Simulator {
     }
     
     // Step 2: Resolve head-to-head collisions
-    for (const [posKey, snakeIds] of headCollisions.entries()) {
+    for (const [, snakeIds] of headCollisions.entries()) {
       if (snakeIds.length > 1) {
         // Multiple snakes moved to same position
         const collidingSnakes = snakeIds.map(id => 
