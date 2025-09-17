@@ -43,7 +43,7 @@ export class TeamDetector {
   }
 
   private getTeamKey(snake: Snake): string {
-    // Use squad field for team detection, fallback to color
-    return snake.squad || snake.customizations.color;
+    // Use squad field for team detection, fallback to color, then to snake ID
+    return snake.squad || snake.customizations?.color || snake.id;
   }
 }

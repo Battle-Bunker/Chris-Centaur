@@ -60,18 +60,15 @@ export class Evaluator {
     // Get our valid moves
     const ourValidMoves = this.getValidMoves(gameState.you, gameState);
     if (ourValidMoves.length === 0) {
-      console.log('No valid moves available, defaulting to up');
-      return 'up';
+      return { bestMove: 'up', evaluations: new Map() };
     }
     
     if (ourValidMoves.length === 1) {
-      console.log(`Only one valid move: ${ourValidMoves[0]}`);
-      return ourValidMoves[0];
+      return { bestMove: ourValidMoves[0], evaluations: new Map() };
     }
     
     // Enumerate all possible move sets
     const moveSets = this.moveEnumerator.enumerateMoveSets(gameState, startTime);
-    console.log(`Enumerated ${moveSets.length} move sets`);
     
     // Evaluate each of our moves
     const moveEvaluations = new Map<Direction, MoveEvaluation>();
@@ -86,7 +83,6 @@ export class Evaluator {
       
       // Early abort if this move leads to immediate death
       if (relevantMoveSets.length === 0) {
-        console.log(`Move ${ourMove} has no valid scenarios`);
         moveEvaluations.set(ourMove, {
           move: ourMove,
           averageScore: -Infinity,
@@ -99,7 +95,6 @@ export class Evaluator {
       for (const moveSet of relevantMoveSets) {
         // Check time budget
         if (Date.now() - startTime > this.config.timeoutMs) {
-          console.log('Time budget exceeded during evaluation');
           break;
         }
         
@@ -120,11 +115,7 @@ export class Evaluator {
               teamFoodCount: 0,
               teamLength: 0
             },
-            weights: {
-              foodDistance: this.scorer['config'].weightFood,
-              fertileTerritory: this.scorer['config'].weightFertile,
-              teamLength: this.scorer['config'].weightTeamLength
-            },
+            weights: this.scorer.getWeights(),
             weighted: {
               foodDistanceScore: 0,
               fertileScore: 0,
@@ -169,8 +160,7 @@ export class Evaluator {
       }
     }
     
-    const timeTaken = Date.now() - startTime;
-    console.log(`Selected move ${bestMove} with score ${bestScore.toFixed(2)} in ${timeTaken}ms`);
+    // const timeTaken = Date.now() - startTime;
     
     return { bestMove, evaluations: moveEvaluations };
   }
@@ -279,7 +269,7 @@ export class Evaluator {
         // Allow moving into own tail if not eating
         if (otherSnake.id === snake.id && i === otherSnake.body.length - 1) {
           // Check if snake will eat at its NEW position
-          const onFood = gameState.board.food.some(f => 
+          const onFood = (gameState.board.food ?? []).some(f => 
             f.x === coord.x && f.y === coord.y
           );
           if (!onFood) continue;

@@ -61,8 +61,8 @@ app.post('/move', (req, res) => {
     // Get best move using Voronoi strategy with logging
     const result = voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
     
-    // Log the decision
-    logger.logMove(gameState, result.safeMoves, result.move, result.scores);
+    // Old logger disabled - new format logging happens in strategy
+    // logger.logMove(gameState, result.safeMoves, result.move, result.scores);
     
     const response: MoveResponse = {
       move: result.move,

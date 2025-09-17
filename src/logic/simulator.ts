@@ -94,7 +94,7 @@ export class Simulator {
           if (i === snake.body.length - 1) {
             // Check if snake will eat at its NEW position
             const snakeNewHead = newHeadPositions.get(snake.id);
-            const willEat = snakeNewHead ? gameState.board.food.some(f => 
+            const willEat = snakeNewHead ? (gameState.board.food ?? []).some(f => 
               f.x === snakeNewHead.x && f.y === snakeNewHead.y
             ) : false;
             
@@ -190,19 +190,19 @@ export class Simulator {
     return {
       height: board.height,
       width: board.width,
-      food: board.food.map(f => ({ x: f.x, y: f.y })),
-      hazards: board.hazards.map(h => ({ x: h.x, y: h.y })),
-      snakes: board.snakes.map(snake => ({
+      food: (board.food ?? []).map(f => ({ x: f.x, y: f.y })),
+      hazards: (board.hazards ?? []).map(h => ({ x: h.x, y: h.y })),
+      snakes: (board.snakes ?? []).map(snake => ({
         id: snake.id,
         name: snake.name,
         latency: snake.latency,
         health: snake.health,
-        body: snake.body.map(b => ({ x: b.x, y: b.y })),
+        body: (snake.body ?? []).map(b => ({ x: b.x, y: b.y })),
         head: { x: snake.head.x, y: snake.head.y },
         length: snake.length,
         shout: snake.shout,
         squad: snake.squad,
-        customizations: { ...snake.customizations }
+        customizations: { ...(snake.customizations ?? {}) }
       }))
     };
   }

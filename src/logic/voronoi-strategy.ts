@@ -57,19 +57,19 @@ export class VoronoiStrategy {
     console.log(`Safe moves: ${safeMoves.join(', ')}`);
     
     // Log detailed breakdown for each move
-    for (const [move, eval] of evaluations.entries()) {
-      if (eval.averageScore === -Infinity) {
+    for (const [move, evaluation] of evaluations.entries()) {
+      if (evaluation.averageScore === -Infinity) {
         console.log(`\nMove ${move}: DEATH (no valid scenarios)`);
         continue;
       }
       
-      const breakdown = eval.averageBreakdown;
+      const breakdown = evaluation.averageBreakdown;
       if (!breakdown) {
-        console.log(`\nMove ${move}: Score ${eval.averageScore.toFixed(2)} (no breakdown available)`);
+        console.log(`\nMove ${move}: Score ${evaluation.averageScore.toFixed(2)} (no breakdown available)`);
         continue;
       }
       
-      console.log(`\nMove ${move}: Total Score = ${breakdown.total.toFixed(2)} (${eval.numStates} states evaluated)`);
+      console.log(`\nMove ${move}: Total Score = ${breakdown.total.toFixed(2)} (${evaluation.numStates} states evaluated)`);
       console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
       console.log('│ Component           │  Average │ × Weight │  = Score │');
       console.log('├─────────────────────┼──────────┼──────────┼──────────┤');
@@ -150,7 +150,7 @@ export class VoronoiStrategy {
     let hasHazard = false;
 
     // Check hazards (not immediately deadly but risky)
-    for (const hazard of board.hazards) {
+    for (const hazard of (board.hazards ?? [])) {
       if (position.x === hazard.x && position.y === hazard.y) {
         hasHazard = true;
         riskScore += 15; // Hazard cost
@@ -175,7 +175,7 @@ export class VoronoiStrategy {
       const tail = snake.body[snake.body.length - 1];
       if (position.x === tail.x && position.y === tail.y) {
         // Check if this snake might eat food this turn
-        const snakeCouldEatFood = board.food.some(food => 
+        const snakeCouldEatFood = (board.food ?? []).some(food => 
           this.manhattanDistance(snake.head, food) <= 1
         );
         if (snakeCouldEatFood) {

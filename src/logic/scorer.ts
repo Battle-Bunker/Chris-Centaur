@@ -33,6 +33,13 @@ export interface ScoreBreakdown {
 export class Scorer {
   private readonly config: ScorerConfig;
 
+  /**
+   * Get scorer weights for external use
+   */
+  public getWeights(): { weightFood: number; weightFertile: number; weightTeamLength: number } {
+    return { ...this.config };
+  }
+
   constructor(config: Partial<ScorerConfig> = {}) {
     this.config = {
       weightFood: config.weightFood ?? 10,
