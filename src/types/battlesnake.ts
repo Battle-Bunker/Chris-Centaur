@@ -72,6 +72,12 @@ export interface TeamInfo {
 export interface VoronoiResult {
   territories: Map<string, number>;
   teamTerritories: Map<string, number>;
+  fertileScores?: Map<string, number>;
+  teamFertileScores?: Map<string, number>;
+  foodControlled?: Map<string, number>;
+  teamFoodControlled?: Map<string, number>;
+  foodDistances?: Map<string, number>;
+  teamFoodDistances?: Map<string, number>;
 }
 
 export interface SimulationConfig {
