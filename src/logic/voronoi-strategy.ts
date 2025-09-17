@@ -231,16 +231,16 @@ export class VoronoiStrategy {
       food.x === newHead.x && food.y === newHead.y
     );
     
-    // Calculate nearest food distance from the new head position
-    let nearestFoodDistance = Number.MAX_VALUE;
-    for (const food of gameState.board.food) {
-      const distance = this.manhattanDistance(newHead, food);
-      if (distance < nearestFoodDistance) {
-        nearestFoodDistance = distance;
-      }
-    }
-    // If no food on board, use a default high distance
-    if (gameState.board.food.length === 0) {
+    // Get path-based food distance from BFS calculation
+    // First, we need to get the food distance map for the current board state
+    const { foodDistanceMap } = this.calculateEnhancedDistanceMapBFS(gameState.board);
+    const newHeadKey = `${newHead.x},${newHead.y}`;
+    
+    // Get the actual path distance to nearest food from the new head position
+    let nearestFoodDistance = foodDistanceMap.get(newHeadKey) || Number.MAX_VALUE;
+    
+    // If no food on board or unreachable, use a default high distance
+    if (gameState.board.food.length === 0 || nearestFoodDistance === Number.MAX_VALUE) {
       nearestFoodDistance = 100;
     }
     
@@ -701,10 +701,14 @@ export class VoronoiStrategy {
   } {
     const distanceMap = new Map<string, { distance: number; closestSnake: Snake | null }>();
     const foodDistanceMap = new Map<string, number>();
-    const queue: Array<{ x: number; y: number; distance: number; snake: Snake }> = [];
-    const foodQueue: Array<{ x: number; y: number; distance: number }> = [];
+    const queue: Array<{ x: number; y: number; distance: number; snake: Snake; nearestFoodDist: number }> = [];
     const visited = new Set<string>();
-    const foodVisited = new Set<string>();
+    
+    // Pre-calculate which cells contain food for quick lookup
+    const foodPositions = new Set<string>();
+    for (const food of board.food) {
+      foodPositions.add(`${food.x},${food.y}`);
+    }
     
     // Initialize BFS from all snake heads for territory calculation
     for (const snake of board.snakes) {
@@ -712,18 +716,14 @@ export class VoronoiStrategy {
       const key = `${head.x},${head.y}`;
       
       if (!this.isPositionHazard(head, board.hazards)) {
-        queue.push({ x: head.x, y: head.y, distance: 0, snake });
+        // Check if head is on food
+        const nearestFoodDist = foodPositions.has(key) ? 0 : Number.MAX_VALUE;
+        
+        queue.push({ x: head.x, y: head.y, distance: 0, snake, nearestFoodDist });
         distanceMap.set(key, { distance: 0, closestSnake: snake });
+        foodDistanceMap.set(key, nearestFoodDist);
         visited.add(key);
       }
-    }
-    
-    // Initialize BFS from all food positions for food distance calculation
-    for (const food of board.food) {
-      const key = `${food.x},${food.y}`;
-      foodQueue.push({ x: food.x, y: food.y, distance: 0 });
-      foodDistanceMap.set(key, 0);
-      foodVisited.add(key);
     }
     
     const directions = [
@@ -733,7 +733,7 @@ export class VoronoiStrategy {
       { dx: -1, dy: 0 }  // left
     ];
     
-    // Multi-source BFS for territory calculation
+    // Multi-source BFS for territory calculation and food distance tracking
     let queueIndex = 0;
     while (queueIndex < queue.length) {
       const current = queue[queueIndex++];
@@ -763,23 +763,56 @@ export class VoronoiStrategy {
         const isHazardous = this.isPositionHazard(newPos, board.hazards);
         const hazardPenalty = isHazardous ? 2 : 0;
         const newDistance = current.distance + 1 + hazardPenalty;
+        
+        // Calculate nearest food distance for this new position
+        let newNearestFoodDist = current.nearestFoodDist;
+        if (foodPositions.has(key)) {
+          // This cell contains food - path distance is the distance we traveled to get here
+          newNearestFoodDist = newDistance;
+        } else if (current.nearestFoodDist !== Number.MAX_VALUE) {
+          // We've seen food before, increment the distance
+          newNearestFoodDist = current.nearestFoodDist + 1 + hazardPenalty;
+        }
+        
         const existingInfo = distanceMap.get(key);
         
         // If unvisited or this is a shorter path, update
         if (!existingInfo || newDistance < existingInfo.distance) {
           distanceMap.set(key, { distance: newDistance, closestSnake: current.snake });
-          queue.push({ x: newX, y: newY, distance: newDistance, snake: current.snake });
+          foodDistanceMap.set(key, newNearestFoodDist);
+          queue.push({ x: newX, y: newY, distance: newDistance, snake: current.snake, nearestFoodDist: newNearestFoodDist });
           visited.add(key);
         } else if (existingInfo && newDistance === existingInfo.distance) {
           // Tie-breaking: prefer our snake, then by snake ID for consistency
           if (this.shouldPreferSnake(current.snake, existingInfo.closestSnake)) {
             distanceMap.set(key, { distance: newDistance, closestSnake: current.snake });
+            // Also update food distance if this path is better
+            const currentFoodDist = foodDistanceMap.get(key);
+            if (!currentFoodDist || newNearestFoodDist < currentFoodDist) {
+              foodDistanceMap.set(key, newNearestFoodDist);
+            }
           }
         }
       }
     }
     
-    // Multi-source BFS for food distance calculation
+    // Now do a reverse BFS from food to fill in any cells we might have missed
+    // This ensures every reachable cell has a food distance
+    const foodQueue: Array<{ x: number; y: number; distance: number }> = [];
+    const foodVisited = new Set<string>();
+    
+    // Initialize from all food positions
+    for (const food of board.food) {
+      const key = `${food.x},${food.y}`;
+      foodQueue.push({ x: food.x, y: food.y, distance: 0 });
+      foodVisited.add(key);
+      // Update the food distance map for food cells themselves
+      if (!foodDistanceMap.has(key) || foodDistanceMap.get(key)! > 0) {
+        foodDistanceMap.set(key, 0);
+      }
+    }
+    
+    // BFS from food to calculate distances to all reachable cells
     let foodQueueIndex = 0;
     while (foodQueueIndex < foodQueue.length) {
       const current = foodQueue[foodQueueIndex++];
@@ -809,7 +842,12 @@ export class VoronoiStrategy {
         const hazardPenalty = isHazardous ? 2 : 0;
         const newDistance = current.distance + 1 + hazardPenalty;
         
-        foodDistanceMap.set(key, newDistance);
+        // Update food distance if this path is shorter or if no distance was set
+        const currentDist = foodDistanceMap.get(key);
+        if (!currentDist || currentDist === Number.MAX_VALUE || newDistance < currentDist) {
+          foodDistanceMap.set(key, newDistance);
+        }
+        
         foodQueue.push({ x: newX, y: newY, distance: newDistance });
         foodVisited.add(key);
       }
