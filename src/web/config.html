@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Snek Bot Configuration</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .config-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px 0;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .info {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐍 Team Snek Bot Configuration</h1>
+        
+        <div class="info">
+            <h3>Strategy: Voronoi Territory Maximization</h3>
+            <p>This bot uses advanced Voronoi territory calculation to maximize your team's controlled area. Teams are identified by snake color, and the bot evaluates moves based on potential territory gain.</p>
+        </div>
+
+        <div class="config-section">
+            <h3>Simulation Parameters</h3>
+            
+            <label for="maxDistance">Maximum Distance for Opponent Simulation:</label>
+            <input type="number" id="maxDistance" value="3" min="1" max="10">
+            <small>How far away enemy snakes can be to include in detailed simulation (1-10)</small>
+            
+            <label for="numRandomMoves">Random Moves per Simulation:</label>
+            <input type="number" id="numRandomMoves" value="10" min="1" max="50">
+            <small>Number of random move combinations to test per evaluation (1-50)</small>
+            
+            <label for="maxSimulations">Maximum Simulations:</label>
+            <input type="number" id="maxSimulations" value="100" min="10" max="500">
+            <small>Maximum number of game state simulations per move (10-500)</small>
+        </div>
+
+        <div class="config-section">
+            <h3>Snake Appearance</h3>
+            
+            <label for="color">Snake Color:</label>
+            <select id="color">
+                <option value="#FFD700">Gold</option>
+                <option value="#FF0000">Red</option>
+                <option value="#00FF00">Green</option>
+                <option value="#0000FF">Blue</option>
+                <option value="#FF00FF">Magenta</option>
+                <option value="#00FFFF">Cyan</option>
+                <option value="#FFA500">Orange</option>
+                <option value="#800080">Purple</option>
+            </select>
+            
+            <label for="head">Head Style:</label>
+            <select id="head">
+                <option value="default">Default</option>
+                <option value="beluga">Beluga</option>
+                <option value="bendr">Bendr</option>
+                <option value="dead">Dead</option>
+                <option value="evil">Evil</option>
+                <option value="fang">Fang</option>
+                <option value="pixel">Pixel</option>
+                <option value="safe">Safe</option>
+                <option value="sand-worm">Sand Worm</option>
+                <option value="shades">Shades</option>
+                <option value="smile">Smile</option>
+                <option value="tongue">Tongue</option>
+            </select>
+            
+            <label for="tail">Tail Style:</label>
+            <select id="tail">
+                <option value="default">Default</option>
+                <option value="block-bum">Block Bum</option>
+                <option value="bolt">Bolt</option>
+                <option value="curled">Curled</option>
+                <option value="fat-rattle">Fat Rattle</option>
+                <option value="freckled">Freckled</option>
+                <option value="hook">Hook</option>
+                <option value="pixel">Pixel</option>
+                <option value="round-bum">Round Bum</option>
+                <option value="sharp">Sharp</option>
+                <option value="skinny">Skinny</option>
+                <option value="small-rattle">Small Rattle</option>
+            </select>
+        </div>
+
+        <div class="config-section">
+            <h3>Current Status</h3>
+            <p><strong>Bot URL:</strong> <span id="botUrl">Loading...</span></p>
+            <p><strong>Team Strategy:</strong> Voronoi Territory Maximization</p>
+            <p><strong>Algorithm:</strong> Monte Carlo Tree Search with BFS territory calculation</p>
+        </div>
+
+        <div class="info">
+            <h3>How it Works</h3>
+            <ul>
+                <li><strong>Team Detection:</strong> Groups snakes by color to form teams</li>
+                <li><strong>Territory Calculation:</strong> Uses BFS to calculate Voronoi diagrams for territory control</li>
+                <li><strong>Move Simulation:</strong> Tests possible moves against predicted opponent actions</li>
+                <li><strong>Optimization:</strong> Chooses moves that maximize team territory in simulated futures</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Set the bot URL
+        document.getElementById('botUrl').textContent = window.location.origin;
+        
+        // Configuration saving would go here in a full implementation
+        console.log('Team Snek Bot Configuration Page Loaded');
+    </script>
+</body>
+</html>
