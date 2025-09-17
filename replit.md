@@ -18,7 +18,9 @@ Preferred communication style: Simple, everyday language.
 ### Core Game Logic Architecture
 - **Strategy Pattern** - Main game logic separated into pluggable strategy classes, currently implementing `VoronoiStrategy`
 - **Team Detection System** - Automatic team identification using squad fields or color matching as fallback
-- **Territory Analysis** - Voronoi diagram calculations to determine controlled territory and optimal move selection
+- **Fertile Voronoi Territory Analysis** - Enhanced Voronoi diagram calculations that weight food-controlled territories higher (territory + food × 10) to prioritize areas with resources
+- **Path-based Food Distance Calculation** - BFS algorithm tracks actual path distances to nearest food considering obstacles like snake bodies, replacing less accurate Manhattan distance
+- **Smart Move Selection** - Considers all moves within 20% of best fertile voronoi score as candidates, with tiebreaking based on food consumption and path distance to nearest food
 - **Time-bounded Evaluation** - Move evaluation with configurable time limits to respect Battlesnake's 500ms response requirement
 
 ### Key Architectural Decisions
