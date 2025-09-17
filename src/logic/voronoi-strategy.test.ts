@@ -63,7 +63,7 @@ describe('VoronoiStrategy', () => {
   }
 
   describe('Boundary Detection', () => {
-    test('should not move out of bounds when snake is at top edge', () => {
+    test('should not move out of bounds when snake is at bottom edge', () => {
       const gameState = createBasicGameState({
         head: { x: 5, y: 0 },
         body: [{ x: 5, y: 0 }, { x: 5, y: 1 }, { x: 5, y: 2 }]
@@ -71,12 +71,12 @@ describe('VoronoiStrategy', () => {
 
       const result = strategy.getBestMoveWithDebug(gameState);
       
-      // Should not move up when at y=0
-      expect(result.move).not.toBe('up');
-      expect(result.safeMoves).not.toContain('up');
+      // Should not move down when at y=0 (bottom of board)
+      expect(result.move).not.toBe('down');
+      expect(result.safeMoves).not.toContain('down');
     });
 
-    test('should not move out of bounds when snake is at bottom edge', () => {
+    test('should not move out of bounds when snake is at top edge', () => {
       const gameState = createBasicGameState({
         head: { x: 5, y: 10 },
         body: [{ x: 5, y: 10 }, { x: 5, y: 9 }, { x: 5, y: 8 }]
@@ -84,9 +84,9 @@ describe('VoronoiStrategy', () => {
 
       const result = strategy.getBestMoveWithDebug(gameState);
       
-      // Should not move down when at y=10 (board height is 11, so max y is 10)
-      expect(result.move).not.toBe('down');
-      expect(result.safeMoves).not.toContain('down');
+      // Should not move up when at y=10 (board height is 11, so max y is 10)
+      expect(result.move).not.toBe('up');
+      expect(result.safeMoves).not.toContain('up');
     });
 
     test('should not move out of bounds when snake is at left edge', () => {
@@ -116,29 +116,29 @@ describe('VoronoiStrategy', () => {
     });
 
     test('should handle corner positions correctly', () => {
-      // Top-left corner
-      const topLeft = createBasicGameState({
+      // Bottom-left corner (y=0 is bottom)
+      const bottomLeft = createBasicGameState({
         head: { x: 0, y: 0 },
         body: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]
       });
 
-      const topLeftResult = strategy.getBestMoveWithDebug(topLeft);
-      expect(topLeftResult.safeMoves).not.toContain('up');
-      expect(topLeftResult.safeMoves).not.toContain('left');
-      expect(topLeftResult.safeMoves).toContain('down');
-      // Right might be blocked by body
+      const bottomLeftResult = strategy.getBestMoveWithDebug(bottomLeft);
+      expect(bottomLeftResult.safeMoves).not.toContain('down');  // Cannot go below y=0
+      expect(bottomLeftResult.safeMoves).not.toContain('left');  // Cannot go below x=0
+      expect(bottomLeftResult.safeMoves).toContain('up');  // Can go up from bottom
+      // Right might be blocked by body at (1,0)
 
-      // Bottom-right corner
-      const bottomRight = createBasicGameState({
+      // Top-right corner (y=10 is top for board height 11)
+      const topRight = createBasicGameState({
         head: { x: 10, y: 10 },
         body: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }]
       });
 
-      const bottomRightResult = strategy.getBestMoveWithDebug(bottomRight);
-      expect(bottomRightResult.safeMoves).not.toContain('down');
-      expect(bottomRightResult.safeMoves).not.toContain('right');
-      expect(bottomRightResult.safeMoves).toContain('up');
-      // Left might be blocked by body
+      const topRightResult = strategy.getBestMoveWithDebug(topRight);
+      expect(topRightResult.safeMoves).not.toContain('up');  // Cannot go above y=10
+      expect(topRightResult.safeMoves).not.toContain('right');  // Cannot go beyond x=10
+      expect(topRightResult.safeMoves).toContain('down');  // Can go down from top
+      // Left might be blocked by body at (9,10)
     });
   });
 
@@ -148,8 +148,8 @@ describe('VoronoiStrategy', () => {
         head: { x: 5, y: 5 },
         body: [
           { x: 5, y: 5 }, // head
-          { x: 5, y: 6 }, // body
-          { x: 4, y: 6 }, // body
+          { x: 5, y: 4 }, // body (blocks DOWN since down goes to y-1)
+          { x: 4, y: 4 }, // body
           { x: 4, y: 5 }  // body (blocks left)
         ]
       });
@@ -158,7 +158,7 @@ describe('VoronoiStrategy', () => {
       
       // Should not move left into own body at (4,5)
       expect(result.safeMoves).not.toContain('left');
-      // Should not move down into own body at (5,6)
+      // Should not move down into own body at (5,4) - down decreases y
       expect(result.safeMoves).not.toContain('down');
     });
 

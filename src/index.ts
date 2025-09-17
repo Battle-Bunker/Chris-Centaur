@@ -9,6 +9,20 @@ const app = express();
 const port = parseInt(process.env.PORT || '5000');
 
 app.use(express.json());
+
+// Request logging middleware - log ALL incoming requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.body && Object.keys(req.body).length > 0) {
+    if (req.body.you) {
+      console.log(`  Snake position: (${req.body.you.head.x}, ${req.body.you.head.y})`);
+      console.log(`  Board size: ${req.body.board?.width}x${req.body.board?.height}`);
+      console.log(`  Turn: ${req.body.turn}`);
+    }
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '../src/web')));
 
 const voronoiStrategy = new VoronoiStrategy();

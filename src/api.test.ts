@@ -245,9 +245,14 @@ describe('Battlesnake API', () => {
       
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('move');
-      // Should not move up or left from (0,0) corner
-      expect(response.body.move).not.toBe('up');
-      expect(response.body.move).not.toBe('left');
+      // With correct coordinate system: (0,0) is bottom-left
+      // Cannot move down (would go to y=-1) or left (would go to x=-1)
+      // Cannot move right (body at x=1,y=0)
+      // CAN move up (would go to y=1)
+      expect(response.body.move).not.toBe('down');  // FIXED: down is out of bounds
+      expect(response.body.move).not.toBe('left');  // left is out of bounds
+      // The only valid move should be 'up'
+      expect(response.body.move).toBe('up');
     });
 
     test('should handle multiple snakes correctly', async () => {

@@ -76,9 +76,12 @@ export class VoronoiStrategy {
   }
 
   private getNewHeadPosition(head: Coord, direction: Direction): Coord {
+    // CRITICAL FIX: Battlesnake coordinate system has y=0 at BOTTOM
+    // 'up' increases y (moves away from bottom)
+    // 'down' decreases y (moves toward bottom)
     switch (direction) {
-      case 'up': return { x: head.x, y: head.y - 1 };
-      case 'down': return { x: head.x, y: head.y + 1 };
+      case 'up': return { x: head.x, y: head.y + 1 };  // FIXED: up increases y
+      case 'down': return { x: head.x, y: head.y - 1 };  // FIXED: down decreases y
       case 'left': return { x: head.x - 1, y: head.y };
       case 'right': return { x: head.x + 1, y: head.y };
     }

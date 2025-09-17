@@ -80,9 +80,10 @@ export class GameLogger {
   }
 
   private getNewPosition(head: Coord, direction: Direction): Coord {
+    // FIXED: Battlesnake coordinate system has y=0 at BOTTOM
     switch (direction) {
-      case 'up': return { x: head.x, y: head.y - 1 };
-      case 'down': return { x: head.x, y: head.y + 1 };
+      case 'up': return { x: head.x, y: head.y + 1 };  // up increases y
+      case 'down': return { x: head.x, y: head.y - 1 };  // down decreases y
       case 'left': return { x: head.x - 1, y: head.y };
       case 'right': return { x: head.x + 1, y: head.y };
     }
