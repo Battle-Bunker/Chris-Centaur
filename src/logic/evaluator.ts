@@ -2,7 +2,7 @@ import { Direction, GameState } from '../types/battlesnake';
 import { MoveEnumerator } from './move-enumerator';
 import { Simulator } from './simulator';
 import { MultiHeadMetricsBFS } from './bfs-metrics';
-import { Scorer } from './scorer';
+import { Scorer, ScoreBreakdown } from './scorer';
 
 export interface EvaluatorConfig {
   maxNearbyDistance: number;
@@ -19,6 +19,7 @@ export interface MoveEvaluation {
   move: Direction;
   averageScore: number;
   numStates: number;
+  averageBreakdown?: ScoreBreakdown;
 }
 
 export class Evaluator {
@@ -48,9 +49,12 @@ export class Evaluator {
   }
 
   /**
-   * Evaluate all possible moves and return the best one
+   * Evaluate all moves with detailed breakdown for logging
    */
-  public evaluateMoves(gameState: GameState): Direction {
+  public evaluateMovesWithBreakdown(gameState: GameState): { 
+    bestMove: Direction; 
+    evaluations: Map<Direction, MoveEvaluation> 
+  } {
     const startTime = Date.now();
     
     // Get our valid moves
@@ -73,7 +77,7 @@ export class Evaluator {
     const moveEvaluations = new Map<Direction, MoveEvaluation>();
     
     for (const ourMove of ourValidMoves) {
-      const scores: number[] = [];
+      const scoreBreakdowns: ScoreBreakdown[] = [];
       
       // Filter move sets that start with our move
       const relevantMoveSets = moveSets.filter(moveSet => 
@@ -104,7 +108,29 @@ export class Evaluator {
         
         // Skip if we died in this simulation
         if (simulatedState.deadSnakeIds.has(gameState.you.id)) {
-          scores.push(-Infinity);
+          // Add death score breakdown
+          scoreBreakdowns.push({
+            total: -10000,
+            components: {
+              foodDistance: 1000,
+              myTerritory: 0,
+              myFoodCount: 0,
+              myLength: 0,
+              teamTerritory: 0,
+              teamFoodCount: 0,
+              teamLength: 0
+            },
+            weights: {
+              foodDistance: this.scorer['config'].weightFood,
+              fertileTerritory: this.scorer['config'].weightFertile,
+              teamLength: this.scorer['config'].weightTeamLength
+            },
+            weighted: {
+              foodDistanceScore: 0,
+              fertileScore: 0,
+              teamLengthScore: 0
+            }
+          });
           continue;
         }
         
@@ -114,24 +140,22 @@ export class Evaluator {
         );
         const metrics = this.bfsMetrics.computeMetrics(simulatedState.board, aliveSnakes);
         
-        // Calculate score
-        const score = this.scorer.calculateScore(metrics, gameState, gameState.you.id, aliveSnakes);
-        scores.push(score);
+        // Calculate score breakdown
+        const scoreBreakdown = this.scorer.calculateScoreBreakdown(metrics, gameState, gameState.you.id, aliveSnakes);
+        scoreBreakdowns.push(scoreBreakdown);
       }
       
-      // Calculate average score for this move
-      const validScores = scores.filter(s => s !== -Infinity);
-      const averageScore = validScores.length > 0 ?
-        validScores.reduce((a, b) => a + b, 0) / validScores.length :
-        -Infinity;
+      // Calculate average breakdown for this move
+      const validBreakdowns = scoreBreakdowns.filter(s => s.total !== -10000);
+      const averageBreakdown = this.averageBreakdowns(validBreakdowns);
+      const averageScore = averageBreakdown?.total ?? -Infinity;
       
       moveEvaluations.set(ourMove, {
         move: ourMove,
         averageScore,
-        numStates: scores.length
+        numStates: scoreBreakdowns.length,
+        averageBreakdown
       });
-      
-      console.log(`Move ${ourMove}: avg score ${averageScore.toFixed(2)} from ${scores.length} states`);
     }
     
     // Select the move with highest average score
@@ -148,7 +172,71 @@ export class Evaluator {
     const timeTaken = Date.now() - startTime;
     console.log(`Selected move ${bestMove} with score ${bestScore.toFixed(2)} in ${timeTaken}ms`);
     
-    return bestMove;
+    return { bestMove, evaluations: moveEvaluations };
+  }
+
+  /**
+   * Evaluate all possible moves and return the best one
+   */
+  public evaluateMoves(gameState: GameState): Direction {
+    return this.evaluateMovesWithBreakdown(gameState).bestMove;
+  }
+
+  /**
+   * Average multiple score breakdowns
+   */
+  private averageBreakdowns(breakdowns: ScoreBreakdown[]): ScoreBreakdown | undefined {
+    if (breakdowns.length === 0) return undefined;
+    
+    const avg: ScoreBreakdown = {
+      total: 0,
+      components: {
+        foodDistance: 0,
+        myTerritory: 0,
+        myFoodCount: 0,
+        myLength: 0,
+        teamTerritory: 0,
+        teamFoodCount: 0,
+        teamLength: 0
+      },
+      weights: breakdowns[0].weights, // Weights are the same for all
+      weighted: {
+        foodDistanceScore: 0,
+        fertileScore: 0,
+        teamLengthScore: 0
+      }
+    };
+    
+    // Sum all components
+    for (const breakdown of breakdowns) {
+      avg.total += breakdown.total;
+      avg.components.foodDistance += breakdown.components.foodDistance;
+      avg.components.myTerritory += breakdown.components.myTerritory;
+      avg.components.myFoodCount += breakdown.components.myFoodCount;
+      avg.components.myLength += breakdown.components.myLength;
+      avg.components.teamTerritory += breakdown.components.teamTerritory;
+      avg.components.teamFoodCount += breakdown.components.teamFoodCount;
+      avg.components.teamLength += breakdown.components.teamLength;
+      avg.weighted.foodDistanceScore += breakdown.weighted.foodDistanceScore;
+      avg.weighted.fertileScore += breakdown.weighted.fertileScore;
+      avg.weighted.teamLengthScore += breakdown.weighted.teamLengthScore;
+    }
+    
+    // Average all values
+    const count = breakdowns.length;
+    avg.total /= count;
+    avg.components.foodDistance /= count;
+    avg.components.myTerritory /= count;
+    avg.components.myFoodCount /= count;
+    avg.components.myLength /= count;
+    avg.components.teamTerritory /= count;
+    avg.components.teamFoodCount /= count;
+    avg.components.teamLength /= count;
+    avg.weighted.foodDistanceScore /= count;
+    avg.weighted.fertileScore /= count;
+    avg.weighted.teamLengthScore /= count;
+    
+    return avg;
   }
 
   /**

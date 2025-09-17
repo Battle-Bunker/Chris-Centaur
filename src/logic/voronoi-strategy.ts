@@ -39,18 +39,63 @@ export class VoronoiStrategy {
   }
 
   getBestMove(gameState: GameState, _ourTeam?: TeamInfo): Direction {
-    // Use new evaluator to get best move
-    console.log(`\n=== TURN ${gameState.turn} ===`);
-    console.log(`Current position: (${gameState.you.head.x}, ${gameState.you.head.y})`);
-    console.log(`Health: ${gameState.you.health}`);
+    // Use new evaluator to get best move with detailed breakdown
+    const { bestMove, evaluations } = this.evaluator.evaluateMovesWithBreakdown(gameState);
     
-    const bestMove = this.evaluator.evaluateMoves(gameState);
-    
-    console.log(`CHOSEN MOVE: ${bestMove}`);
-    const newHead = this.getNewHeadPosition(gameState.you.head, bestMove);
-    console.log(`Next position will be: (${newHead.x}, ${newHead.y})`);
+    // Format and log the turn info
+    this.logTurnInfo(gameState, evaluations, bestMove);
     
     return bestMove;
+  }
+
+  private logTurnInfo(gameState: GameState, evaluations: Map<Direction, any>, bestMove: Direction): void {
+    const turn = gameState.turn + 1; // Start counting from 1
+    const safeMoves = this.getSafeMoves(gameState);
+    
+    console.log(`\n=== TURN ${turn} ===`);
+    console.log(`Position: (${gameState.you.head.x}, ${gameState.you.head.y}), Health: ${gameState.you.health}`);
+    console.log(`Safe moves: ${safeMoves.join(', ')}`);
+    
+    // Log detailed breakdown for each move
+    for (const [move, eval] of evaluations.entries()) {
+      if (eval.averageScore === -Infinity) {
+        console.log(`\nMove ${move}: DEATH (no valid scenarios)`);
+        continue;
+      }
+      
+      const breakdown = eval.averageBreakdown;
+      if (!breakdown) {
+        console.log(`\nMove ${move}: Score ${eval.averageScore.toFixed(2)} (no breakdown available)`);
+        continue;
+      }
+      
+      console.log(`\nMove ${move}: Total Score = ${breakdown.total.toFixed(2)} (${eval.numStates} states evaluated)`);
+      console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
+      console.log('│ Component           │  Average │ × Weight │  = Score │');
+      console.log('├─────────────────────┼──────────┼──────────┼──────────┤');
+      
+      // Food distance (inverse)
+      const invFoodDist = breakdown.components.foodDistance >= 1000 ? 0 : 1 / (breakdown.components.foodDistance + 1);
+      console.log(`│ Food Distance       │ ${breakdown.components.foodDistance.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodDistance.toString().padStart(7)} │ ${breakdown.weighted.foodDistanceScore.toFixed(2).padStart(8)} │`);
+      console.log(`│   (1/(dist+1))      │ ${invFoodDist.toFixed(3).padStart(8)} │          │          │`);
+      
+      // My territory and food
+      console.log(`│ My Territory        │ ${breakdown.components.myTerritory.toFixed(1).padStart(8)} │          │          │`);
+      console.log(`│ My Food Count       │ ${breakdown.components.myFoodCount.toFixed(1).padStart(8)} │          │          │`);
+      
+      // Team territory and food (fertile score)
+      const teamFertile = breakdown.components.teamTerritory + (breakdown.components.teamFoodCount * 10);
+      console.log(`│ Team Territory      │ ${breakdown.components.teamTerritory.toFixed(1).padStart(8)} │          │          │`);
+      console.log(`│ Team Food Count     │ ${breakdown.components.teamFoodCount.toFixed(1).padStart(8)} │          │          │`);
+      console.log(`│ Team Fertile Score  │ ${teamFertile.toFixed(1).padStart(8)} │ ×${breakdown.weights.fertileTerritory.toString().padStart(7)} │ ${breakdown.weighted.fertileScore.toFixed(2).padStart(8)} │`);
+      
+      // Snake lengths
+      console.log(`│ My Length           │ ${breakdown.components.myLength.toFixed(1).padStart(8)} │          │          │`);
+      console.log(`│ Team Length         │ ${breakdown.components.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
+      console.log('└─────────────────────┴──────────┴──────────┴──────────┘');
+    }
+    
+    console.log(`\nCHOSEN: ${bestMove.toUpperCase()}`);
   }
 
   getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
