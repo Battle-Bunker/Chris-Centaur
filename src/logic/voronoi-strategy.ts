@@ -1,103 +1,65 @@
 import { GameState, Direction, Coord, Snake, Board, TeamInfo, VoronoiResult, SimulationConfig } from '../types/battlesnake';
+import { Evaluator } from './evaluator';
 
 export class VoronoiStrategy {
+  private evaluator: Evaluator;
   private config: SimulationConfig = {
     maxDistance: 3,
     numRandomMoves: 10,
-    maxSimulations: 100,
+    maxSimulations: 729,
     maxEvaluationTimeMs: 400  // Leave buffer before 500ms timeout
   };
 
+  constructor() {
+    this.evaluator = new Evaluator({
+      maxNearbyDistance: this.config.maxDistance,
+      maxStates: this.config.maxSimulations,
+      timeoutMs: this.config.maxEvaluationTimeMs,
+      scorerConfig: {
+        weightFood: 10,
+        weightFertile: 1,
+        weightTeamLength: 2
+      }
+    });
+  }
+
   setConfig(config: Partial<SimulationConfig>) {
     this.config = { ...this.config, ...config };
+    // Recreate evaluator with new config
+    this.evaluator = new Evaluator({
+      maxNearbyDistance: this.config.maxDistance,
+      maxStates: this.config.maxSimulations,
+      timeoutMs: this.config.maxEvaluationTimeMs,
+      scorerConfig: {
+        weightFood: 10,
+        weightFertile: 1,
+        weightTeamLength: 2
+      }
+    });
   }
 
   getBestMove(gameState: GameState, ourTeam?: TeamInfo): Direction {
-    const result = this.getBestMoveWithDebug(gameState, ourTeam);
-    return result.move;
+    // Use new evaluator to get best move
+    console.log(`\n=== TURN ${gameState.turn} ===`);
+    console.log(`Current position: (${gameState.you.head.x}, ${gameState.you.head.y})`);
+    console.log(`Health: ${gameState.you.health}`);
+    
+    const bestMove = this.evaluator.evaluateMoves(gameState);
+    
+    console.log(`CHOSEN MOVE: ${bestMove}`);
+    const newHead = this.getNewHeadPosition(gameState.you.head, bestMove);
+    console.log(`Next position will be: (${newHead.x}, ${newHead.y})`);
+    
+    return bestMove;
   }
 
   getBestMoveWithDebug(gameState: GameState, ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
-    const startTime = Date.now();
-    const possibleMoves = this.getSafeMoves(gameState);
+    // This method is kept for backwards compatibility but delegates to getBestMove
+    const move = this.getBestMove(gameState, ourTeam);
+    const safeMoves = this.getSafeMoves(gameState);
     const scores = new Map<Direction, number>();
-    const moveDetails = new Map<Direction, { fertileScore: number; eatsFood: boolean; foodDistance: number }>();
-    
-    if (possibleMoves.length === 0) {
-      console.warn('No safe moves found! Defaulting to up');
-      return { move: 'up', safeMoves: [], scores }; // Fallback if no safe moves
-    }
-    
-    if (possibleMoves.length === 1) {
-      scores.set(possibleMoves[0], 1);
-      return { move: possibleMoves[0], safeMoves: possibleMoves, scores };
-    }
-
-    // Evaluate each possible move using Fertile Voronoi territory simulation
-    let bestFertileScore = -Infinity;
-
-    for (const move of possibleMoves) {
-      // Check if we're running out of time
-      const elapsedTime = Date.now() - startTime;
-      if (elapsedTime > this.config.maxEvaluationTimeMs) {
-        console.log(`Time limit reached after ${elapsedTime}ms, using best move found so far`);
-        break;
-      }
-
-      const remainingTime = this.config.maxEvaluationTimeMs - elapsedTime;
-      const details = this.evaluateMoveWithFood(gameState, move, ourTeam, remainingTime);
-      scores.set(move, details.fertileScore);
-      moveDetails.set(move, details);
-      
-      if (details.fertileScore > bestFertileScore) {
-        bestFertileScore = details.fertileScore;
-      }
-    }
-
-    // Find all moves within 20% of the best fertile score
-    const threshold = bestFertileScore * 0.8; // Within 20% means at least 80% of best
-    const candidateMoves: Direction[] = [];
-    
-    for (const [move, details] of moveDetails) {
-      if (details.fertileScore >= threshold) {
-        candidateMoves.push(move);
-        console.log(`Candidate move ${move}: fertile score=${details.fertileScore.toFixed(2)}, eats food=${details.eatsFood}, food distance=${details.foodDistance}`);
-      }
-    }
-
-    // Select best move from candidates based on food criteria
-    let bestMove = candidateMoves[0];
-    if (candidateMoves.length > 1) {
-      // First priority: moves that eat food
-      const foodEatingMoves = candidateMoves.filter(m => moveDetails.get(m)!.eatsFood);
-      
-      if (foodEatingMoves.length > 0) {
-        // Among food-eating moves, prefer highest fertile score
-        bestMove = foodEatingMoves.reduce((a, b) => 
-          moveDetails.get(a)!.fertileScore > moveDetails.get(b)!.fertileScore ? a : b
-        );
-        console.log(`Choosing ${bestMove} because it eats food`);
-      } else {
-        // Second priority: moves that minimize distance to nearest food
-        bestMove = candidateMoves.reduce((a, b) => {
-          const detailsA = moveDetails.get(a)!;
-          const detailsB = moveDetails.get(b)!;
-          
-          // Lower food distance is better
-          if (detailsA.foodDistance !== detailsB.foodDistance) {
-            return detailsA.foodDistance < detailsB.foodDistance ? a : b;
-          }
-          
-          // If equal distance, prefer higher fertile score
-          return detailsA.fertileScore > detailsB.fertileScore ? a : b;
-        });
-        console.log(`Choosing ${bestMove} with food distance ${moveDetails.get(bestMove)!.foodDistance}`);
-      }
-    } else {
-      console.log(`Only one candidate move within threshold: ${bestMove}`);
-    }
-
-    return { move: bestMove, safeMoves: possibleMoves, scores };
+    scores.set(move, 1);
+    return { move, safeMoves, scores };
   }
 
   private getSafeMoves(gameState: GameState): Direction[] {

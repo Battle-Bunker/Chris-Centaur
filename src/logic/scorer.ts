@@ -24,19 +24,20 @@ export class Scorer {
   public calculateScore(
     metrics: TerritoryMetrics,
     gameState: GameState,
-    ourSnakeId: string
+    ourSnakeId: string,
+    aliveSnakes?: any[]
   ): number {
     const ourMetrics = metrics.perSnakeMetrics.get(ourSnakeId);
     if (!ourMetrics) {
       // Snake is dead in this simulation
-      return -Infinity;
+      return -10000;
     }
     
     // Calculate team metrics
-    const teamMetrics = this.calculateTeamMetrics(metrics, ourMetrics.teamId);
+    const teamMetrics = this.calculateTeamMetrics(metrics, ourMetrics.teamId, aliveSnakes);
     
-    // Calculate inverse food distance (avoid division by zero)
-    const foodScore = ourMetrics.nearestFoodDistance === Number.MAX_VALUE ? 
+    // Calculate inverse food distance (zero benefit when unreachable)
+    const foodScore = (ourMetrics.nearestFoodDistance >= 1000) ? 
       0 : 1 / (ourMetrics.nearestFoodDistance + 1);
     
     // Calculate weighted score
@@ -53,7 +54,8 @@ export class Scorer {
    */
   private calculateTeamMetrics(
     metrics: TerritoryMetrics,
-    teamId: string
+    teamId: string,
+    aliveSnakes?: any[]
   ): { totalFertileScore: number; totalLength: number } {
     let totalFertileScore = 0;
     let totalLength = 0;
@@ -61,9 +63,16 @@ export class Scorer {
     for (const [snakeId, snakeMetrics] of metrics.perSnakeMetrics.entries()) {
       if (snakeMetrics.teamId === teamId) {
         totalFertileScore += snakeMetrics.fertileScore;
-        // Note: Length is tracked in the actual snake object, not in metrics
-        // We'll need to pass this information through or track it differently
-        totalLength += 3; // Default length, will be updated with actual implementation
+        
+        // Find the actual snake to get its length
+        if (aliveSnakes) {
+          const snake = aliveSnakes.find(s => s.id === snakeId);
+          if (snake) {
+            totalLength += snake.length;
+          }
+        } else {
+          totalLength += 3; // Default fallback
+        }
       }
     }
     

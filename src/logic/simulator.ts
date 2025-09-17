@@ -92,12 +92,15 @@ export class Simulator {
           
           // Skip tail if it's about to move (and snake isn't eating)
           if (i === snake.body.length - 1) {
-            const isEating = gameState.board.food.some(f => 
-              f.x === snake.head.x && f.y === snake.head.y
-            );
-            if (!isEating && snake.id !== snakeId) continue;
+            // Check if snake will eat at its NEW position
+            const snakeNewHead = newHeadPositions.get(snake.id);
+            const willEat = snakeNewHead ? gameState.board.food.some(f => 
+              f.x === snakeNewHead.x && f.y === snakeNewHead.y
+            ) : false;
+            
+            if (!willEat && snake.id !== snakeId) continue;
             // Allow moving into own tail if not eating
-            if (snake.id === snakeId && !isEating) continue;
+            if (snake.id === snakeId && !willEat) continue;
           }
           
           if (segment.x === newHead.x && segment.y === newHead.y) {

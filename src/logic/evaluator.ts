@@ -115,7 +115,7 @@ export class Evaluator {
         const metrics = this.bfsMetrics.computeMetrics(simulatedState.board, aliveSnakes);
         
         // Calculate score
-        const score = this.scorer.calculateScore(metrics, gameState, gameState.you.id);
+        const score = this.scorer.calculateScore(metrics, gameState, gameState.you.id, aliveSnakes);
         scores.push(score);
       }
       
@@ -190,8 +190,9 @@ export class Evaluator {
         
         // Allow moving into own tail if not eating
         if (otherSnake.id === snake.id && i === otherSnake.body.length - 1) {
+          // Check if snake will eat at its NEW position
           const onFood = gameState.board.food.some(f => 
-            f.x === snake.head.x && f.y === snake.head.y
+            f.x === coord.x && f.y === coord.y
           );
           if (!onFood) continue;
         }

@@ -117,9 +117,9 @@ export class MoveEnumerator {
         
         // Allow moving into own tail if not eating
         if (otherSnake.id === snake.id && i === otherSnake.body.length - 1) {
-          // Check if snake is about to eat
+          // Check if snake will eat at its NEW position
           const onFood = gameState.board.food.some(f => 
-            f.x === snake.head.x && f.y === snake.head.y
+            f.x === coord.x && f.y === coord.y
           );
           if (!onFood) continue;
         }

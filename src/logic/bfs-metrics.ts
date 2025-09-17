@@ -32,8 +32,8 @@ export class MultiHeadMetricsBFS {
     
     // Initialize arrays
     owners.fill(-1); // -1 = unassigned
-    distances.fill(Number.MAX_SAFE_INTEGER);
-    foodDistances.fill(Number.MAX_SAFE_INTEGER);
+    distances.fill(32767); // Use smaller value to avoid overflow
+    foodDistances.fill(32767); // Use smaller value to avoid overflow
     
     // Create snake index map for quick lookup
     const snakeIndexMap = new Map<string, number>();
@@ -222,7 +222,7 @@ export class MultiHeadMetricsBFS {
       queue.push({ x: head.x, y: head.y, dist: 0 });
       visited.add(headPos);
       
-      let minFoodDist = Number.MAX_SAFE_INTEGER;
+      let minFoodDist = 32767; // Use value matching array initialization
       let queueIndex = 0;
       
       while (queueIndex < queue.length) {
@@ -297,8 +297,8 @@ export class MultiHeadMetricsBFS {
         territory: 0,
         foodCount: 0,
         fertileScore: 0,
-        nearestFoodDistance: foodDistances[headPos] === Number.MAX_SAFE_INTEGER ? 
-          Number.MAX_VALUE : foodDistances[headPos],
+        nearestFoodDistance: (foodDistances[headPos] === 32767 || foodDistances[headPos] === Number.MAX_SAFE_INTEGER) ? 
+          1000 : foodDistances[headPos], // Use large but not infinite value
         teamId: snake.squad || snake.id // Use squad as team ID, fallback to snake ID
       });
     }
