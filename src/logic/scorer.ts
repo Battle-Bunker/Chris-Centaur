@@ -36,8 +36,12 @@ export class Scorer {
   /**
    * Get scorer weights for external use
    */
-  public getWeights(): { weightFood: number; weightFertile: number; weightTeamLength: number } {
-    return { ...this.config };
+  public getWeights(): { foodDistance: number; fertileTerritory: number; teamLength: number } {
+    return {
+      foodDistance: this.config.weightFood,
+      fertileTerritory: this.config.weightFertile,
+      teamLength: this.config.weightTeamLength
+    };
   }
 
   constructor(config: Partial<ScorerConfig> = {}) {
