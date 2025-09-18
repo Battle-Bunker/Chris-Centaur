@@ -186,7 +186,7 @@ export class DecisionLogger {
   }
 
   // Get distinct games
-  public async getGames(): Promise<{ game_id: string; snake_id: string; snake_name: string; min_turn: number; max_turn: number; count: number }[]> {
+  public async getGames(): Promise<{ game_id: string; snake_id: string; snake_name: string; min_turn: number; max_turn: number; count: number; timestamp: string; turns: number }[]> {
     try {
       await this.initialize();
       
@@ -197,7 +197,9 @@ export class DecisionLogger {
           snake_name,
           MIN(turn) as min_turn,
           MAX(turn) as max_turn,
-          COUNT(*) as count
+          COUNT(*) as count,
+          MAX(turn) - MIN(turn) + 1 as turns,
+          MAX(timestamp) as timestamp
         FROM decision_logs
         GROUP BY game_id, snake_id, snake_name
         ORDER BY MAX(timestamp) DESC

@@ -1,939 +1,963 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battlesnake Decision History</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a1a;
-            color: #e0e0e0;
-            display: flex;
-            height: 100vh;
-        }
-        
-        /* Left sidebar for game list */
-        .sidebar {
-            width: 350px;
-            background: #252525;
-            padding: 20px;
-            overflow-y: auto;
-            border-right: 1px solid #333;
-        }
-        
-        .sidebar h2 {
-            margin-bottom: 20px;
-            color: #FFD700;
-        }
-        
-        .game-item {
-            background: #333;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-        }
-        
-        .game-item:hover {
-            background: #3a3a3a;
-            border-color: #FFD700;
-        }
-        
-        .game-item.selected {
-            background: #404040;
-            border-color: #FFD700;
-        }
-        
-        .game-item .game-id {
-            font-size: 12px;
-            color: #888;
-            margin-top: 5px;
-            word-break: break-all;
-        }
-        
-        .game-item .snake-info {
-            display: flex;
-            align-items: center;
-            margin-top: 8px;
-        }
-        
-        .snake-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            margin-right: 10px;
-            border: 1px solid #555;
-        }
-        
-        .game-item .turns {
-            color: #aaa;
-            font-size: 14px;
-            margin-top: 5px;
-        }
-        
-        .game-item .timestamp {
-            color: #888;
-            font-size: 12px;
-            margin-top: 5px;
-        }
-        
-        /* Main viewer area */
-        .main-viewer {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-            overflow: hidden;
-        }
-        
-        /* Turn slider */
-        .turn-control {
-            background: #252525;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        
-        .turn-slider {
-            width: 100%;
-            margin: 10px 0;
-        }
-        
-        .turn-info {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .turn-buttons {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-        
-        .turn-buttons button {
-            background: #333;
-            color: #e0e0e0;
-            border: 1px solid #555;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .turn-buttons button:hover {
-            background: #444;
-            border-color: #FFD700;
-        }
-        
-        .turn-buttons button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        /* Board and details container */
-        .viewer-content {
-            flex: 1;
-            display: flex;
-            gap: 20px;
-            overflow: hidden;
-        }
-        
-        /* Board visualization */
-        .board-container {
-            background: #252525;
-            padding: 20px;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            min-width: 400px;
-        }
-        
-        .board-canvas {
-            background: #000;
-            border: 2px solid #444;
-            border-radius: 4px;
-            cursor: crosshair;
-        }
-        
-        .board-legend {
-            margin-top: 15px;
-            padding: 10px;
-            background: #1a1a1a;
-            border-radius: 4px;
-        }
-        
-        .board-legend h4 {
-            margin-bottom: 10px;
-            color: #FFD700;
-        }
-        
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin: 5px 0;
-            font-size: 14px;
-        }
-        
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            margin-right: 10px;
-            border-radius: 3px;
-            border: 1px solid #555;
-        }
-        
-        /* Move details */
-        .move-details {
-            flex: 1;
-            background: #252525;
-            padding: 20px;
-            border-radius: 8px;
-            overflow-y: auto;
-        }
-        
-        .move-details h3 {
-            color: #FFD700;
-            margin-bottom: 15px;
-        }
-        
-        .move-selector {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .move-button {
-            padding: 10px 20px;
-            background: #333;
-            border: 2px solid #555;
-            color: #e0e0e0;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .move-button.selected {
-            background: #404040;
-            border-color: #FFD700;
-            color: #FFD700;
-        }
-        
-        .move-button:hover {
-            background: #3a3a3a;
-        }
-        
-        .move-score {
-            font-size: 12px;
-            margin-top: 5px;
-            opacity: 0.8;
-        }
-        
-        /* Score breakdown table */
-        .score-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        
-        .score-table th,
-        .score-table td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #444;
-        }
-        
-        .score-table th {
-            background: #333;
-            color: #FFD700;
-            font-weight: 600;
-        }
-        
-        .score-table tr:hover {
-            background: #2a2a2a;
-        }
-        
-        .score-table .number {
-            text-align: right;
-            font-family: 'Courier New', monospace;
-        }
-        
-        .total-row {
-            font-weight: bold;
-            background: #333;
-            color: #FFD700;
-        }
-        
-        /* Loading and error states */
-        .loading {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            color: #888;
-        }
-        
-        .error {
-            color: #ff6b6b;
-            padding: 20px;
-            text-align: center;
-            background: #2a1515;
-            border-radius: 8px;
-            border: 1px solid #ff6b6b;
-        }
-        
-        .no-data {
-            color: #888;
-            text-align: center;
-            padding: 40px;
-        }
-        
-        /* Play controls */
-        .play-control {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .play-speed {
-            width: 100px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game History</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background-color: #1a1a1a;
+      color: #e0e0e0;
+      overflow-x: hidden;
+      padding-top: 60px;
+    }
+    
+    /* Header */
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: #2a2a2a;
+      border-bottom: 1px solid #444;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      z-index: 1000;
+    }
+    
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      flex: 1;
+      text-align: center;
+    }
+    
+    .menu-button {
+      background: #444;
+      border: none;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+    }
+    
+    .menu-button:hover {
+      background: #555;
+    }
+    
+    /* Game List Overlay */
+    .game-list-overlay {
+      position: fixed;
+      top: 60px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 900;
+      display: none;
+    }
+    
+    .game-list-overlay.active {
+      display: block;
+    }
+    
+    .game-list {
+      position: fixed;
+      top: 60px;
+      left: -100%;
+      width: 85%;
+      max-width: 350px;
+      bottom: 0;
+      background: #2a2a2a;
+      border-right: 1px solid #444;
+      transition: left 0.3s ease;
+      z-index: 950;
+      overflow-y: auto;
+    }
+    
+    .game-list.active {
+      left: 0;
+    }
+    
+    .game-item {
+      padding: 15px;
+      border-bottom: 1px solid #444;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .game-item:hover {
+      background: #333;
+    }
+    
+    .game-item.active {
+      background: #3a4a5a;
+      border-left: 3px solid #4CAF50;
+    }
+    
+    .game-item-header {
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    
+    .game-item-id {
+      font-size: 10px;
+      color: #888;
+      font-weight: normal;
+    }
+    
+    .game-item-details {
+      font-size: 12px;
+      color: #888;
+      line-height: 1.4;
+    }
+    
+    /* Main Content */
+    .main-content {
+      padding: 20px 15px;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+    
+    /* Board Container */
+    .board-container {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .board-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .turn-info {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .health-display {
+      font-size: 14px;
+      color: #4CAF50;
+    }
+    
+    .canvas-wrapper {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 15px;
+    }
+    
+    #gameCanvas {
+      border: 2px solid #444;
+      background: #1a1a1a;
+      max-width: 100%;
+      height: auto;
+    }
+    
+    /* Snake Info */
+    .snake-info-container {
+      margin-bottom: 20px;
+    }
+    
+    .snake-info-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+    
+    .snake-info-item {
+      background: #2a2a2a;
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .snake-color-box {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 2px solid #444;
+      flex-shrink: 0;
+    }
+    
+    .snake-details {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .snake-name {
+      font-weight: 600;
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .snake-stats {
+      font-size: 12px;
+      color: #888;
+      display: flex;
+      gap: 8px;
+    }
+    
+    /* Turn Controls */
+    .turn-controls {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .turn-slider {
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .control-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .control-buttons button {
+      background: #444;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .control-buttons button:hover {
+      background: #555;
+    }
+    
+    /* Move Selection */
+    .move-selection {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .move-selection h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #4CAF50;
+    }
+    
+    .move-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    
+    .move-button {
+      padding: 10px;
+      background: #333;
+      color: white;
+      border: 2px solid #444;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    
+    .move-button:hover {
+      background: #444;
+    }
+    
+    .move-button.selected {
+      background: #3a4a5a;
+      border-color: #4CAF50;
+    }
+    
+    .move-button.chosen {
+      background: #2a5a2a;
+      border-color: #4CAF50;
+      font-weight: 600;
+    }
+    
+    .move-button .score {
+      font-size: 12px;
+      color: #888;
+      display: block;
+      margin-top: 4px;
+    }
+    
+    /* Decision Stats Table */
+    .decision-stats {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 15px;
+      overflow-x: auto;
+    }
+    
+    .decision-stats h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #4CAF50;
+    }
+    
+    .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    
+    .stats-table th,
+    .stats-table td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #444;
+    }
+    
+    .stats-table th {
+      background: #333;
+      font-weight: 600;
+    }
+    
+    .stats-table tr:last-child td {
+      border-bottom: none;
+    }
+    
+    .stats-table .total-row {
+      font-weight: 600;
+      background: #333;
+    }
+    
+    /* Loading State */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+    }
+    
+    /* Desktop Styles */
+    @media (min-width: 768px) {
+      .main-content {
+        max-width: 1200px;
+        padding: 20px;
+      }
+      
+      .game-list {
+        width: 320px;
+      }
+      
+      .board-container {
+        display: flex;
+        gap: 20px;
+      }
+      
+      .board-left {
+        flex: 1;
+      }
+      
+      .board-right {
+        width: 300px;
+      }
+      
+      #gameCanvas {
+        max-width: 500px;
+      }
+    }
+    
+    /* Range Slider Styling */
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #444;
+      outline: none;
+    }
+    
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #4CAF50;
+      cursor: pointer;
+    }
+    
+    input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #4CAF50;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <!-- Game List Sidebar -->
-    <div class="sidebar">
-        <h2>Game History</h2>
-        <div id="gameList" class="game-list">
-            <div class="loading">Loading games...</div>
+  <div class="header">
+    <button class="menu-button" onclick="toggleGameList()">☰</button>
+    <h1>Game History</h1>
+    <div style="width: 40px;"></div>
+  </div>
+  
+  <div class="game-list-overlay" onclick="closeGameList()"></div>
+  <div class="game-list" id="gameList">
+    <div class="loading">Loading games...</div>
+  </div>
+  
+  <div class="main-content">
+    <div class="board-container">
+      <div class="board-left">
+        <div class="board-header">
+          <div class="turn-info">Turn: <span id="currentTurn">0</span> / <span id="totalTurns">0</span></div>
+          <div class="health-display">Health: <span id="healthDisplay">100</span></div>
         </div>
+        
+        <div class="canvas-wrapper">
+          <canvas id="gameCanvas" width="400" height="400"></canvas>
+        </div>
+      </div>
     </div>
     
-    <!-- Main Viewer Area -->
-    <div class="main-viewer">
-        <div id="noGameSelected" class="no-data">
-            Select a game from the list to view decision history
-        </div>
-        
-        <div id="gameViewer" style="display: none;">
-            <!-- Turn Control -->
-            <div class="turn-control">
-                <div class="turn-info">
-                    <h3>Turn <span id="currentTurn">1</span> / <span id="maxTurn">100</span></h3>
-                    <div>Health: <span id="snakeHealth">100</span></div>
-                </div>
-                <input type="range" id="turnSlider" class="turn-slider" min="1" max="100" value="1">
-                <div class="turn-buttons">
-                    <button id="prevTurn">← Previous</button>
-                    <button id="nextTurn">Next →</button>
-                    <div class="play-control">
-                        <button id="playPause">▶ Play</button>
-                        <input type="range" id="playSpeed" class="play-speed" min="100" max="2000" value="500" title="Speed">
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Content Area -->
-            <div class="viewer-content">
-                <!-- Board Visualization -->
-                <div class="board-container">
-                    <canvas id="boardCanvas" class="board-canvas"></canvas>
-                    <div class="board-legend">
-                        <h4>Legend</h4>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background: #FFD700;"></div>
-                            <span>Our Snake</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background: #ff6b6b;"></div>
-                            <span>Enemy Snakes</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background: #4CAF50;"></div>
-                            <span>Food</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00);"></div>
-                            <span>Move Scores (Red→Yellow→Green)</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Move Details -->
-                <div class="move-details">
-                    <h3>Move Analysis</h3>
-                    <div class="move-selector" id="moveSelector">
-                        <!-- Move buttons will be populated here -->
-                    </div>
-                    
-                    <div id="moveBreakdown">
-                        <!-- Score breakdown table will be populated here -->
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="snake-info-container">
+      <div class="snake-info-list" id="snakeInfoList">
+        <!-- Snake info will be populated here -->
+      </div>
     </div>
     
-    <script>
-        // Global state
-        let currentGameData = null;
-        let currentTurnData = null;
-        let selectedMove = null;
-        let isPlaying = false;
-        let playInterval = null;
+    <div class="turn-controls">
+      <input type="range" id="turnSlider" class="turn-slider" min="0" max="0" value="0">
+      <div class="control-buttons">
+        <button onclick="previousTurn()">◀ Previous</button>
+        <button onclick="togglePlay()" id="playButton">▶ Play</button>
+        <button onclick="nextTurn()">Next ▶</button>
+      </div>
+    </div>
+    
+    <div class="move-selection">
+      <h3>Move Analysis</h3>
+      <div class="move-buttons" id="moveButtons">
+        <!-- Move buttons will be populated here -->
+      </div>
+    </div>
+    
+    <div class="decision-stats">
+      <h3>Decision Breakdown</h3>
+      <div id="statsTableContainer">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Value</th>
+              <th>Weight</th>
+              <th>Weighted</th>
+            </tr>
+          </thead>
+          <tbody id="statsTableBody">
+            <tr>
+              <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    let currentGame = null;
+    let currentTurn = 0;
+    let turnData = [];
+    let playInterval = null;
+    let selectedMove = null;
+    
+    // Toggle game list
+    function toggleGameList() {
+      const gameList = document.getElementById('gameList');
+      const overlay = document.querySelector('.game-list-overlay');
+      gameList.classList.toggle('active');
+      overlay.classList.toggle('active');
+    }
+    
+    function closeGameList() {
+      const gameList = document.getElementById('gameList');
+      const overlay = document.querySelector('.game-list-overlay');
+      gameList.classList.remove('active');
+      overlay.classList.remove('active');
+    }
+    
+    // Fetch and display games
+    async function loadGames() {
+      try {
+        const response = await fetch('/api/logs/games');
+        const games = await response.json();
         
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            loadGames();
-            setupEventListeners();
-        });
+        const gameList = document.getElementById('gameList');
         
-        // Load list of games
-        async function loadGames() {
-            try {
-                const response = await fetch('/api/logs/games');
-                const games = await response.json();
-                
-                if (games.length === 0) {
-                    document.getElementById('gameList').innerHTML = '<div class="no-data">No games recorded yet</div>';
-                    return;
-                }
-                
-                renderGameList(games);
-            } catch (error) {
-                console.error('Failed to load games:', error);
-                document.getElementById('gameList').innerHTML = '<div class="error">Failed to load games</div>';
-            }
+        if (games.length === 0) {
+          gameList.innerHTML = '<div class="loading">No games recorded yet</div>';
+          return;
         }
         
-        // Render game list
-        function renderGameList(games) {
-            const gameList = document.getElementById('gameList');
-            gameList.innerHTML = '';
+        gameList.innerHTML = games.map(game => {
+          const timestamp = game.timestamp ? new Date(game.timestamp).toLocaleString() : 'No timestamp';
+          return `
+            <div class="game-item" data-game-id="${game.game_id}" data-snake-id="${game.snake_id}" 
+                 onclick="loadGame('${game.game_id}', '${game.snake_id}', '${game.snake_name || 'Unknown'}')">
+              <div class="game-item-header">
+                <span>${game.snake_name || 'Unknown Snake'}</span>
+                <span class="game-item-id">${game.snake_id}</span>
+              </div>
+              <div class="game-item-details">
+                Turns: ${game.turns}<br>
+                ${timestamp}
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (error) {
+        console.error('Error loading games:', error);
+      }
+    }
+    
+    // Load specific game
+    async function loadGame(gameId, snakeId, snakeName) {
+      currentGame = gameId;
+      closeGameList();
+      
+      // Update active state
+      document.querySelectorAll('.game-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.dataset.gameId === gameId && item.dataset.snakeId === snakeId) {
+          item.classList.add('active');
+        }
+      });
+      
+      try {
+        const response = await fetch(`/api/logs?game_id=${gameId}&snake_id=${snakeId}`);
+        const data = await response.json();
+        
+        if (data.decisions && data.decisions.length > 0) {
+          turnData = data.decisions;
+          currentTurn = 0;
+          
+          // Update slider
+          const slider = document.getElementById('turnSlider');
+          slider.max = turnData.length - 1;
+          slider.value = 0;
+          
+          // Update total turns
+          document.getElementById('totalTurns').textContent = turnData.length;
+          
+          // Render first turn
+          renderTurn(0);
+        }
+      } catch (error) {
+        console.error('Error loading game:', error);
+      }
+    }
+    
+    // Render specific turn
+    function renderTurn(turnIndex) {
+      if (!turnData || turnIndex < 0 || turnIndex >= turnData.length) return;
+      
+      const turn = turnData[turnIndex];
+      currentTurn = turnIndex;
+      
+      // Update UI
+      document.getElementById('currentTurn').textContent = turn.turn;
+      document.getElementById('turnSlider').value = turnIndex;
+      document.getElementById('healthDisplay').textContent = turn.health;
+      
+      // Render board
+      renderBoard(turn);
+      
+      // Render snake info
+      renderSnakeInfo(turn);
+      
+      // Render move buttons
+      renderMoveButtons(turn);
+      
+      // Clear stats table
+      selectedMove = null;
+      updateStatsTable(null);
+    }
+    
+    // Render the game board
+    function renderBoard(turn) {
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const gameState = turn.game_state;
+      
+      if (!gameState || !gameState.board) return;
+      
+      const board = gameState.board;
+      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      
+      // Clear canvas
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw grid
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= board.width; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * cellSize, 0);
+        ctx.lineTo(x * cellSize, board.height * cellSize);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= board.height; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * cellSize);
+        ctx.lineTo(board.width * cellSize, y * cellSize);
+        ctx.stroke();
+      }
+      
+      // Draw food
+      ctx.fillStyle = '#ff6b6b';
+      board.food.forEach(food => {
+        const x = food.x * cellSize;
+        const y = (board.height - 1 - food.y) * cellSize;
+        ctx.beginPath();
+        ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      
+      // Draw snakes with connected segments
+      board.snakes.forEach(snake => {
+        const snakeColor = snake.customizations?.color || snake.color || '#888888';
+        
+        // Draw body segments as connected path
+        if (snake.body.length > 1) {
+          ctx.strokeStyle = snakeColor;
+          ctx.lineWidth = cellSize * 0.6;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          
+          ctx.beginPath();
+          for (let i = 0; i < snake.body.length; i++) {
+            const segment = snake.body[i];
+            const x = segment.x * cellSize + cellSize/2;
+            const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
             
-            games.forEach(game => {
-                const gameItem = document.createElement('div');
-                gameItem.className = 'game-item';
-                gameItem.dataset.gameId = game.game_id;
-                gameItem.dataset.snakeId = game.snake_id;
-                
-                // Parse timestamp
-                const date = new Date(game.max_turn); // Assuming max_turn contains timestamp
-                const formattedDate = date.toLocaleString();
-                
-                gameItem.innerHTML = `
-                    <div class="snake-info">
-                        <div class="snake-color" style="background: #FFD700;"></div>
-                        <strong>${game.snake_name || 'Unknown Snake'}</strong>
-                    </div>
-                    <div class="game-id">Game: ${game.game_id}</div>
-                    <div class="turns">Turns: ${game.min_turn} - ${game.max_turn} (${game.count} logs)</div>
-                    <div class="timestamp">${formattedDate}</div>
-                `;
-                
-                gameItem.addEventListener('click', () => loadGame(game.game_id, game.snake_id));
-                gameList.appendChild(gameItem);
-            });
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
         }
         
-        // Load specific game
-        async function loadGame(gameId, snakeId) {
-            try {
-                // Update UI
-                document.querySelectorAll('.game-item').forEach(item => {
-                    item.classList.remove('selected');
-                });
-                document.querySelector(`[data-game-id="${gameId}"]`).classList.add('selected');
-                
-                // Fetch game data
-                const response = await fetch(`/api/logs?gameId=${gameId}&snakeId=${snakeId}`);
-                currentGameData = await response.json();
-                
-                if (currentGameData.length === 0) {
-                    alert('No data found for this game');
-                    return;
-                }
-                
-                // Sort by turn
-                currentGameData.sort((a, b) => a.turn - b.turn);
-                
-                // Show viewer
-                document.getElementById('noGameSelected').style.display = 'none';
-                document.getElementById('gameViewer').style.display = 'block';
-                
-                // Setup turn slider
-                const minTurn = currentGameData[0].turn;
-                const maxTurn = currentGameData[currentGameData.length - 1].turn;
-                const turnSlider = document.getElementById('turnSlider');
-                turnSlider.min = minTurn;
-                turnSlider.max = maxTurn;
-                turnSlider.value = minTurn;
-                
-                document.getElementById('maxTurn').textContent = maxTurn;
-                
-                // Load first turn
-                loadTurn(minTurn);
-            } catch (error) {
-                console.error('Failed to load game:', error);
-                alert('Failed to load game data');
-            }
+        // Draw head
+        const head = snake.body[0];
+        if (head) {
+          const x = head.x * cellSize;
+          const y = (board.height - 1 - head.y) * cellSize;
+          
+          ctx.fillStyle = snakeColor;
+          ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+          
+          // Add border to head
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
         }
         
-        // Load specific turn
-        function loadTurn(turnNumber) {
-            const turnData = currentGameData.find(d => d.turn === parseInt(turnNumber));
-            if (!turnData) {
-                console.error('Turn data not found:', turnNumber);
-                return;
-            }
-            
-            currentTurnData = turnData;
-            
-            // Update UI
-            document.getElementById('currentTurn').textContent = turnNumber;
-            document.getElementById('snakeHealth').textContent = turnData.health;
-            document.getElementById('turnSlider').value = turnNumber;
-            
-            // Draw board
-            drawBoard(turnData);
-            
-            // Update move selector
-            updateMoveSelector(turnData);
-            
-            // Select the chosen move by default
-            selectMove(turnData.chosen_move);
-        }
-        
-        // Draw board with game state
-        function drawBoard(turnData) {
-            const canvas = document.getElementById('boardCanvas');
-            const ctx = canvas.getContext('2d');
-            
-            // Parse game state
-            const gameState = turnData.game_state;
-            if (!gameState || !gameState.board) {
-                console.error('Invalid game state');
-                return;
-            }
-            
-            const board = gameState.board;
-            const cellSize = 25;
-            canvas.width = board.width * cellSize;
-            canvas.height = board.height * cellSize;
-            
-            // Clear canvas
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw grid
-            ctx.strokeStyle = '#222';
-            ctx.lineWidth = 1;
-            for (let x = 0; x <= board.width; x++) {
-                ctx.beginPath();
-                ctx.moveTo(x * cellSize, 0);
-                ctx.lineTo(x * cellSize, canvas.height);
-                ctx.stroke();
-            }
-            for (let y = 0; y <= board.height; y++) {
-                ctx.beginPath();
-                ctx.moveTo(0, y * cellSize);
-                ctx.lineTo(canvas.width, y * cellSize);
-                ctx.stroke();
-            }
-            
-            // Draw move evaluations as colored cells
-            if (turnData.move_evaluations) {
-                const evaluations = turnData.move_evaluations;
-                const scores = evaluations.map(e => e.score).filter(s => s !== -Infinity);
-                const minScore = Math.min(...scores);
-                const maxScore = Math.max(...scores);
-                const scoreRange = maxScore - minScore || 1;
-                
-                const head = gameState.you.head;
-                
-                evaluations.forEach(evalData => {
-                    if (evalData.score === -Infinity) return;
-                    
-                    let newX = head.x;
-                    let newY = head.y;
-                    
-                    switch (evalData.move) {
-                        case 'up': newY += 1; break;
-                        case 'down': newY -= 1; break;
-                        case 'left': newX -= 1; break;
-                        case 'right': newX += 1; break;
-                    }
-                    
-                    if (newX >= 0 && newX < board.width && newY >= 0 && newY < board.height) {
-                        // Calculate color based on score
-                        const normalizedScore = (evalData.score - minScore) / scoreRange;
-                        const color = getScoreColor(normalizedScore);
-                        
-                        ctx.fillStyle = color;
-                        ctx.globalAlpha = 0.5;
-                        ctx.fillRect(newX * cellSize, (board.height - 1 - newY) * cellSize, cellSize, cellSize);
-                        ctx.globalAlpha = 1.0;
-                        
-                        // Draw score text
-                        ctx.fillStyle = '#fff';
-                        ctx.font = '10px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(
-                            evalData.score.toFixed(0),
-                            newX * cellSize + cellSize/2,
-                            (board.height - 1 - newY) * cellSize + cellSize/2
-                        );
-                    }
-                });
-            }
-            
-            // Draw food
-            ctx.fillStyle = '#4CAF50';
-            board.food.forEach(food => {
-                ctx.beginPath();
-                ctx.arc(
-                    food.x * cellSize + cellSize/2,
-                    (board.height - 1 - food.y) * cellSize + cellSize/2,
-                    cellSize/3,
-                    0, 2 * Math.PI
-                );
-                ctx.fill();
-            });
-            
-            // Draw snakes
-            board.snakes.forEach(snake => {
-                const isOurSnake = snake.id === gameState.you.id;
-                
-                // Draw body
-                snake.body.forEach((segment, index) => {
-                    ctx.fillStyle = isOurSnake ? '#FFD700' : '#ff6b6b';
-                    if (index === 0) {
-                        // Head
-                        ctx.fillRect(
-                            segment.x * cellSize + 2,
-                            (board.height - 1 - segment.y) * cellSize + 2,
-                            cellSize - 4,
-                            cellSize - 4
-                        );
-                        // Draw eyes for head
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(
-                            segment.x * cellSize + 5,
-                            (board.height - 1 - segment.y) * cellSize + 5,
-                            3, 3
-                        );
-                        ctx.fillRect(
-                            segment.x * cellSize + cellSize - 8,
-                            (board.height - 1 - segment.y) * cellSize + 5,
-                            3, 3
-                        );
-                    } else {
-                        // Body segment
-                        ctx.fillRect(
-                            segment.x * cellSize + 4,
-                            (board.height - 1 - segment.y) * cellSize + 4,
-                            cellSize - 8,
-                            cellSize - 8
-                        );
-                    }
-                });
-            });
+        // Highlight our snake
+        if (snake.id === turn.snake_id) {
+          const head = snake.body[0];
+          if (head) {
+            const x = head.x * cellSize;
+            const y = (board.height - 1 - head.y) * cellSize;
             
             // Draw chosen move arrow
-            if (turnData.chosen_move) {
-                const head = gameState.you.head;
-                ctx.strokeStyle = '#FFD700';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                
-                const centerX = head.x * cellSize + cellSize/2;
-                const centerY = (board.height - 1 - head.y) * cellSize + cellSize/2;
-                
-                let endX = centerX;
-                let endY = centerY;
-                
-                switch (turnData.chosen_move) {
-                    case 'up': endY -= cellSize * 0.8; break;
-                    case 'down': endY += cellSize * 0.8; break;
-                    case 'left': endX -= cellSize * 0.8; break;
-                    case 'right': endX += cellSize * 0.8; break;
-                }
-                
-                // Draw arrow
-                ctx.moveTo(centerX, centerY);
-                ctx.lineTo(endX, endY);
-                ctx.stroke();
-                
-                // Draw arrowhead
-                const angle = Math.atan2(endY - centerY, endX - centerX);
-                ctx.beginPath();
-                ctx.moveTo(endX, endY);
-                ctx.lineTo(endX - 10 * Math.cos(angle - Math.PI/6), endY - 10 * Math.sin(angle - Math.PI/6));
-                ctx.moveTo(endX, endY);
-                ctx.lineTo(endX - 10 * Math.cos(angle + Math.PI/6), endY - 10 * Math.sin(angle + Math.PI/6));
-                ctx.stroke();
+            if (turn.chosen_move) {
+              ctx.strokeStyle = '#4CAF50';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              
+              const centerX = x + cellSize/2;
+              const centerY = y + cellSize/2;
+              let endX = centerX;
+              let endY = centerY;
+              
+              switch(turn.chosen_move) {
+                case 'up': endY -= cellSize * 0.7; break;
+                case 'down': endY += cellSize * 0.7; break;
+                case 'left': endX -= cellSize * 0.7; break;
+                case 'right': endX += cellSize * 0.7; break;
+              }
+              
+              ctx.moveTo(centerX, centerY);
+              ctx.lineTo(endX, endY);
+              ctx.stroke();
+              
+              // Draw arrowhead
+              const angle = Math.atan2(endY - centerY, endX - centerX);
+              ctx.beginPath();
+              ctx.moveTo(endX, endY);
+              ctx.lineTo(endX - 10 * Math.cos(angle - Math.PI/6), endY - 10 * Math.sin(angle - Math.PI/6));
+              ctx.lineTo(endX - 10 * Math.cos(angle + Math.PI/6), endY - 10 * Math.sin(angle + Math.PI/6));
+              ctx.closePath();
+              ctx.fillStyle = '#4CAF50';
+              ctx.fill();
             }
+          }
         }
+      });
+      
+      // Draw move scores if available and a move is selected
+      if (selectedMove && turn.move_evaluations) {
+        const moves = turn.move_evaluations;
+        const moveData = moves[selectedMove];
         
-        // Get color for score (red to green gradient)
-        function getScoreColor(normalizedScore) {
-            // 0 = red, 0.5 = yellow, 1 = green
-            if (normalizedScore < 0.5) {
-                const ratio = normalizedScore * 2;
-                const r = 255;
-                const g = Math.floor(255 * ratio);
-                return `rgb(${r}, ${g}, 0)`;
-            } else {
-                const ratio = (normalizedScore - 0.5) * 2;
-                const r = Math.floor(255 * (1 - ratio));
-                const g = 255;
-                return `rgb(${r}, ${g}, 0)`;
+        if (moveData && moveData.board_scores) {
+          // Find max and min scores for color scaling
+          let maxScore = -Infinity;
+          let minScore = Infinity;
+          
+          for (let y = 0; y < board.height; y++) {
+            for (let x = 0; x < board.width; x++) {
+              const score = moveData.board_scores[y]?.[x];
+              if (score !== undefined && score !== null) {
+                maxScore = Math.max(maxScore, score);
+                minScore = Math.min(minScore, score);
+              }
             }
-        }
-        
-        // Update move selector buttons
-        function updateMoveSelector(turnData) {
-            const selector = document.getElementById('moveSelector');
-            selector.innerHTML = '';
-            
-            const moves = ['up', 'down', 'left', 'right'];
-            const evaluations = turnData.move_evaluations || [];
-            
-            moves.forEach(move => {
-                const evalData = evaluations.find(e => e.move === move);
-                const button = document.createElement('div');
-                button.className = 'move-button';
-                if (move === turnData.chosen_move) {
-                    button.classList.add('chosen');
-                }
+          }
+          
+          // Draw score overlay
+          for (let y = 0; y < board.height; y++) {
+            for (let x = 0; x < board.width; x++) {
+              const score = moveData.board_scores[y]?.[x];
+              if (score !== undefined && score !== null) {
+                const normalized = (score - minScore) / (maxScore - minScore) || 0;
+                const hue = normalized * 120; // 0 (red) to 120 (green)
                 
-                const score = evalData ? evalData.score : 'N/A';
-                const scoreText = score === -Infinity ? 'DEATH' : 
-                                 typeof score === 'number' ? score.toFixed(1) : score;
-                
-                button.innerHTML = `
-                    <div>${move.toUpperCase()}</div>
-                    <div class="move-score">Score: ${scoreText}</div>
-                `;
-                
-                button.addEventListener('click', () => selectMove(move));
-                selector.appendChild(button);
-            });
-        }
-        
-        // Select and display move details
-        function selectMove(move) {
-            selectedMove = move;
-            
-            // Update button styles
-            document.querySelectorAll('.move-button').forEach((btn, index) => {
-                const moves = ['up', 'down', 'left', 'right'];
-                if (moves[index] === move) {
-                    btn.classList.add('selected');
-                } else {
-                    btn.classList.remove('selected');
-                }
-            });
-            
-            // Find evaluation data
-            const evalData = currentTurnData.move_evaluations.find(e => e.move === move);
-            if (!evalData) {
-                document.getElementById('moveBreakdown').innerHTML = '<div class="no-data">No evaluation data for this move</div>';
-                return;
+                ctx.fillStyle = `hsla(${hue}, 70%, 50%, 0.3)`;
+                ctx.fillRect(
+                  x * cellSize,
+                  (board.height - 1 - y) * cellSize,
+                  cellSize,
+                  cellSize
+                );
+              }
             }
-            
-            // Display breakdown
-            displayMoveBreakdown(evalData);
+          }
+        }
+      }
+    }
+    
+    // Render snake info below board
+    function renderSnakeInfo(turn) {
+      const container = document.getElementById('snakeInfoList');
+      const gameState = turn.game_state;
+      
+      if (!gameState || !gameState.board) {
+        container.innerHTML = '';
+        return;
+      }
+      
+      const snakes = gameState.board.snakes;
+      container.innerHTML = snakes.map(snake => {
+        const isOurSnake = snake.id === turn.snake_id;
+        const snakeColor = snake.customizations?.color || snake.color || '#888888';
+        return `
+          <div class="snake-info-item">
+            <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
+            <div class="snake-details">
+              <div class="snake-name">${snake.name}${isOurSnake ? ' (You)' : ''}</div>
+              <div class="snake-stats">
+                <span>❤️ ${snake.health}</span>
+                <span>📏 ${snake.body.length}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    // Render move buttons
+    function renderMoveButtons(turn) {
+      const container = document.getElementById('moveButtons');
+      const moves = turn.move_evaluations;
+      
+      if (!moves) {
+        container.innerHTML = '<div style="text-align: center; color: #888;">No move data available</div>';
+        return;
+      }
+      
+      const moveOrder = ['up', 'down', 'left', 'right'];
+      container.innerHTML = moveOrder.map(direction => {
+        const moveData = moves[direction];
+        if (!moveData) {
+          return `
+            <button class="move-button" disabled>
+              ${direction.toUpperCase()}
+              <span class="score">Not evaluated</span>
+            </button>
+          `;
         }
         
-        // Display move breakdown table
-        function displayMoveBreakdown(evalData) {
-            const breakdown = document.getElementById('moveBreakdown');
-            
-            if (evalData.score === -Infinity) {
-                breakdown.innerHTML = '<div class="error">This move results in death</div>';
-                return;
-            }
-            
-            if (!evalData.breakdown) {
-                breakdown.innerHTML = `
-                    <div>
-                        <strong>Total Score:</strong> ${evalData.score.toFixed(2)}<br>
-                        <strong>States Evaluated:</strong> ${evalData.numStates || 0}<br>
-                        <em>Detailed breakdown not available</em>
-                    </div>
-                `;
-                return;
-            }
-            
-            const b = evalData.breakdown;
-            
-            breakdown.innerHTML = `
-                <div>
-                    <strong>States Evaluated:</strong> ${evalData.numStates || 0}
-                </div>
-                <table class="score-table">
-                    <thead>
-                        <tr>
-                            <th>Component</th>
-                            <th class="number">Value</th>
-                            <th class="number">Weight</th>
-                            <th class="number">Score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Food Distance</td>
-                            <td class="number">${b.foodDistance.toFixed(1)}</td>
-                            <td class="number">×${b.weights?.foodDistance || 0}</td>
-                            <td class="number">${b.weighted?.foodDistanceScore?.toFixed(2) || '0.00'}</td>
-                        </tr>
-                        <tr>
-                            <td>Food Distance (Inverse)</td>
-                            <td class="number">${b.foodDistanceInverse.toFixed(3)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>My Territory</td>
-                            <td class="number">${b.myTerritory.toFixed(1)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>My Food Count</td>
-                            <td class="number">${b.myFoodCount.toFixed(1)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>Team Territory</td>
-                            <td class="number">${b.teamTerritory.toFixed(1)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>Team Food Count</td>
-                            <td class="number">${b.teamFoodCount.toFixed(1)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>Team Fertile Score</td>
-                            <td class="number">${b.teamFertileScore.toFixed(1)}</td>
-                            <td class="number">×${b.weights?.fertileTerritory || 0}</td>
-                            <td class="number">${b.weighted?.fertileScore?.toFixed(2) || '0.00'}</td>
-                        </tr>
-                        <tr>
-                            <td>My Length</td>
-                            <td class="number">${b.myLength.toFixed(1)}</td>
-                            <td class="number">-</td>
-                            <td class="number">-</td>
-                        </tr>
-                        <tr>
-                            <td>Team Length</td>
-                            <td class="number">${b.teamLength.toFixed(1)}</td>
-                            <td class="number">×${b.weights?.teamLength || 0}</td>
-                            <td class="number">${b.weighted?.teamLengthScore?.toFixed(2) || '0.00'}</td>
-                        </tr>
-                        <tr class="total-row">
-                            <td>Total Score</td>
-                            <td class="number" colspan="2"></td>
-                            <td class="number">${evalData.score.toFixed(2)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            `;
-        }
+        const isChosen = direction === turn.chosen_move;
+        const isSafe = turn.safe_moves && turn.safe_moves.includes(direction);
         
-        // Setup event listeners
-        function setupEventListeners() {
-            // Turn slider
-            document.getElementById('turnSlider').addEventListener('input', (e) => {
-                loadTurn(parseInt(e.target.value));
-            });
-            
-            // Previous/Next buttons
-            document.getElementById('prevTurn').addEventListener('click', () => {
-                const slider = document.getElementById('turnSlider');
-                const newValue = Math.max(parseInt(slider.min), parseInt(slider.value) - 1);
-                slider.value = newValue;
-                loadTurn(newValue);
-            });
-            
-            document.getElementById('nextTurn').addEventListener('click', () => {
-                const slider = document.getElementById('turnSlider');
-                const newValue = Math.min(parseInt(slider.max), parseInt(slider.value) + 1);
-                slider.value = newValue;
-                loadTurn(newValue);
-            });
-            
-            // Play/Pause button
-            document.getElementById('playPause').addEventListener('click', () => {
-                if (isPlaying) {
-                    stopPlaying();
-                } else {
-                    startPlaying();
-                }
-            });
-            
-            // Keyboard controls
-            document.addEventListener('keydown', (e) => {
-                if (!currentGameData) return;
-                
-                if (e.key === 'ArrowLeft') {
-                    document.getElementById('prevTurn').click();
-                } else if (e.key === 'ArrowRight') {
-                    document.getElementById('nextTurn').click();
-                } else if (e.key === ' ') {
-                    e.preventDefault();
-                    document.getElementById('playPause').click();
-                }
-            });
+        return `
+          <button class="move-button ${isChosen ? 'chosen' : ''}" 
+                  onclick="selectMove('${direction}')"
+                  style="${!isSafe ? 'opacity: 0.5;' : ''}">
+            ${direction.toUpperCase()} ${isChosen ? '✓' : ''}
+            <span class="score">Score: ${moveData.total_score?.toFixed(2) || 'N/A'}</span>
+          </button>
+        `;
+      }).join('');
+    }
+    
+    // Select a move to show details
+    function selectMove(direction) {
+      selectedMove = direction;
+      
+      // Update button states
+      document.querySelectorAll('.move-button').forEach(btn => {
+        btn.classList.remove('selected');
+        if (btn.textContent.toLowerCase().includes(direction)) {
+          btn.classList.add('selected');
         }
-        
-        // Auto-play functionality
-        function startPlaying() {
-            isPlaying = true;
-            document.getElementById('playPause').textContent = '⏸ Pause';
-            
-            const speed = parseInt(document.getElementById('playSpeed').value);
-            
-            playInterval = setInterval(() => {
-                const slider = document.getElementById('turnSlider');
-                const currentValue = parseInt(slider.value);
-                const maxValue = parseInt(slider.max);
-                
-                if (currentValue >= maxValue) {
-                    stopPlaying();
-                } else {
-                    const newValue = currentValue + 1;
-                    slider.value = newValue;
-                    loadTurn(newValue);
-                }
-            }, speed);
+      });
+      
+      // Update stats table
+      const turn = turnData[currentTurn];
+      if (turn && turn.move_evaluations && turn.move_evaluations[direction]) {
+        updateStatsTable(turn.move_evaluations[direction]);
+      }
+      
+      // Re-render board to show scores
+      renderTurn(currentTurn);
+    }
+    
+    // Update stats table
+    function updateStatsTable(moveData) {
+      const tbody = document.getElementById('statsTableBody');
+      
+      if (!moveData || !moveData.components) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
+          </tr>
+        `;
+        return;
+      }
+      
+      const components = moveData.components;
+      let rows = [];
+      let totalWeighted = 0;
+      
+      // Add component rows
+      Object.entries(components).forEach(([key, data]) => {
+        if (key !== 'total' && data) {
+          const weighted = (data.value * data.weight) || 0;
+          totalWeighted += weighted;
+          
+          rows.push(`
+            <tr>
+              <td>${key.replace(/_/g, ' ')}</td>
+              <td>${data.value?.toFixed(3) || '0'}</td>
+              <td>${data.weight?.toFixed(2) || '0'}</td>
+              <td>${weighted.toFixed(3)}</td>
+            </tr>
+          `);
         }
-        
-        function stopPlaying() {
-            isPlaying = false;
-            document.getElementById('playPause').textContent = '▶ Play';
-            
-            if (playInterval) {
-                clearInterval(playInterval);
-                playInterval = null;
-            }
-        }
-    </script>
+      });
+      
+      // Add total row
+      rows.push(`
+        <tr class="total-row">
+          <td>Total Score</td>
+          <td colspan="2">States: ${moveData.states_evaluated || 0}</td>
+          <td>${moveData.total_score?.toFixed(3) || totalWeighted.toFixed(3)}</td>
+        </tr>
+      `);
+      
+      tbody.innerHTML = rows.join('');
+    }
+    
+    // Navigation controls
+    function previousTurn() {
+      if (currentTurn > 0) {
+        renderTurn(currentTurn - 1);
+      }
+    }
+    
+    function nextTurn() {
+      if (currentTurn < turnData.length - 1) {
+        renderTurn(currentTurn + 1);
+      }
+    }
+    
+    function togglePlay() {
+      const button = document.getElementById('playButton');
+      if (playInterval) {
+        clearInterval(playInterval);
+        playInterval = null;
+        button.textContent = '▶ Play';
+      } else {
+        button.textContent = '⏸ Pause';
+        playInterval = setInterval(() => {
+          if (currentTurn < turnData.length - 1) {
+            renderTurn(currentTurn + 1);
+          } else {
+            clearInterval(playInterval);
+            playInterval = null;
+            button.textContent = '▶ Play';
+          }
+        }, 500);
+      }
+    }
+    
+    // Slider control
+    document.getElementById('turnSlider').addEventListener('input', (e) => {
+      renderTurn(parseInt(e.target.value));
+    });
+    
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') previousTurn();
+      if (e.key === 'ArrowRight') nextTurn();
+      if (e.key === ' ') {
+        e.preventDefault();
+        togglePlay();
+      }
+    });
+    
+    // Initialize
+    loadGames();
+  </script>
 </body>
 </html>

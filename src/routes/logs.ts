@@ -19,16 +19,36 @@ router.get('/api/logs/games', async (req, res) => {
 router.get('/api/logs', async (req, res) => {
   try {
     const filters = {
-      gameId: req.query.gameId as string,
-      snakeId: req.query.snakeId as string,
+      gameId: req.query.game_id as string || req.query.gameId as string,
+      snakeId: req.query.snake_id as string || req.query.snakeId as string,
       startTurn: req.query.startTurn ? parseInt(req.query.startTurn as string, 10) : undefined,
       endTurn: req.query.endTurn ? parseInt(req.query.endTurn as string, 10) : undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0
     };
     
     const logs = await logger.queryLogs(filters);
-    res.json(logs);
+    
+    // Format response with decision data
+    res.json({
+      decisions: logs.map(log => ({
+        turn: log.turn,
+        snake_id: log.snake_id,
+        snake_name: log.snake_name,
+        position_x: log.position_x,
+        position_y: log.position_y,
+        health: log.health,
+        safe_moves: log.safe_moves,
+        chosen_move: log.chosen_move,
+        move_evaluations: typeof log.move_evaluations === 'string' 
+          ? JSON.parse(log.move_evaluations)
+          : log.move_evaluations,
+        game_state: typeof log.game_state === 'string'
+          ? JSON.parse(log.game_state)
+          : log.game_state,
+        timestamp: log.timestamp
+      }))
+    });
   } catch (error) {
     console.error('Error querying logs:', error);
     res.status(500).json({ error: 'Failed to query logs' });
