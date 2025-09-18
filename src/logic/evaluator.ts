@@ -136,10 +136,14 @@ export class Evaluator {
         scoreBreakdowns.push(scoreBreakdown);
       }
       
-      // Calculate average breakdown for this move
-      const validBreakdowns = scoreBreakdowns.filter(s => s.total !== -10000);
-      const averageBreakdown = this.averageBreakdowns(validBreakdowns);
+      // Calculate average breakdown for this move, INCLUDING death scenarios
+      // This ensures moves with death risk are properly penalized
+      const averageBreakdown = this.averageBreakdowns(scoreBreakdowns);
       const averageScore = averageBreakdown?.total ?? -Infinity;
+      
+      // Also track death probability for additional safety
+      const deathCount = scoreBreakdowns.filter(s => s.total === -10000).length;
+      const deathProbability = scoreBreakdowns.length > 0 ? deathCount / scoreBreakdowns.length : 0;
       
       moveEvaluations.set(ourMove, {
         move: ourMove,
@@ -278,6 +282,31 @@ export class Evaluator {
         if (segment.x === coord.x && segment.y === coord.y) {
           return false;
         }
+      }
+    }
+    
+    // Check for head-to-head collision risks with enemy snakes
+    for (const enemySnake of gameState.board.snakes) {
+      if (enemySnake.id === snake.id) continue;
+      if (enemySnake.health <= 0) continue;
+      
+      // Check if enemy snake's head is adjacent to this position
+      const enemyHead = enemySnake.head;
+      const distance = Math.abs(enemyHead.x - coord.x) + Math.abs(enemyHead.y - coord.y);
+      
+      if (distance === 1) {
+        // Enemy could move to this position next turn
+        // Head-to-head collision rules:
+        // - Longer snake wins
+        // - Equal length = both die (avoid!)
+        // - Shorter snake loses (avoid!)
+        
+        if (snake.length <= enemySnake.length) {
+          // We would lose or tie (both die) - mark as unsafe
+          return false;
+        }
+        // If we're longer, it's risky but not immediately unsafe
+        // The simulator will handle the actual collision
       }
     }
     

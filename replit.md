@@ -2,7 +2,7 @@
 
 ## Overview
 
-Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticated team-based strategy using Voronoi territory analysis. The bot is designed to compete in Battlesnake games where multiple snakes can form teams and work together to control territory and eliminate opponents. The core strategy focuses on maximizing controlled territory through Voronoi diagrams while coordinating with teammates and avoiding collisions.
+Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticated team-based strategy using Voronoi territory analysis. The bot is designed to compete in a **custom Battlesnake engine that allows both human players and AI bots to compete in the same game** - a unique testing environment where humans can directly challenge and analyze bot behavior. The bot uses team-based coordination (when teams are present) and focuses on maximizing controlled territory through Voronoi diagrams while avoiding fatal collisions, particularly head-to-head encounters with larger snakes.
 
 ## User Preferences
 
