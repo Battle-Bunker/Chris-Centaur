@@ -88,9 +88,31 @@ export class MoveEnumerator {
       { dir: 'right', coord: { x: head.x + 1, y: head.y } }
     ];
     
+    // First pass: get safe moves (avoiding certain death)
     for (const move of moves) {
       if (this.isSafeMove(move.coord, snake, gameState)) {
         validMoves.push(move.dir);
+      }
+    }
+    
+    // For our snake only: filter out risky head-to-head moves unless no other choice
+    if (snake.id === gameState.you.id && validMoves.length > 0) {
+      const nonRiskyMoves: Direction[] = [];
+      
+      for (const dir of validMoves) {
+        const coord = dir === 'up' ? { x: head.x, y: head.y + 1 } :
+                      dir === 'down' ? { x: head.x, y: head.y - 1 } :
+                      dir === 'left' ? { x: head.x - 1, y: head.y } :
+                      { x: head.x + 1, y: head.y };
+        
+        if (!this.isRiskyHeadToHead(coord, snake, gameState)) {
+          nonRiskyMoves.push(dir);
+        }
+      }
+      
+      // Use non-risky moves if available, otherwise use all valid moves
+      if (nonRiskyMoves.length > 0) {
+        return nonRiskyMoves;
       }
     }
     

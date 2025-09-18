@@ -65,7 +65,7 @@ export class Scorer {
     if (!ourMetrics) {
       // Snake is dead in this simulation
       return {
-        total: -10000,
+        total: -500,  // Reduced death penalty for better tree search compatibility
         components: {
           foodDistance: 1000,
           myTerritory: 0,

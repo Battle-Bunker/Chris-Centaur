@@ -105,7 +105,7 @@ export class Evaluator {
         if (simulatedState.deadSnakeIds.has(gameState.you.id)) {
           // Add death score breakdown
           scoreBreakdowns.push({
-            total: -10000,
+            total: -500,  // Reduced death penalty for better tree search compatibility
             components: {
               foodDistance: 1000,
               myTerritory: 0,
@@ -142,7 +142,7 @@ export class Evaluator {
       const averageScore = averageBreakdown?.total ?? -Infinity;
       
       // Also track death probability for additional safety
-      const deathCount = scoreBreakdowns.filter(s => s.total === -10000).length;
+      const deathCount = scoreBreakdowns.filter(s => s.total === -500).length;
       const deathProbability = scoreBreakdowns.length > 0 ? deathCount / scoreBreakdowns.length : 0;
       
       moveEvaluations.set(ourMove, {
@@ -285,31 +285,8 @@ export class Evaluator {
       }
     }
     
-    // Check for head-to-head collision risks with enemy snakes
-    for (const enemySnake of gameState.board.snakes) {
-      if (enemySnake.id === snake.id) continue;
-      if (enemySnake.health <= 0) continue;
-      
-      // Check if enemy snake's head is adjacent to this position
-      const enemyHead = enemySnake.head;
-      const distance = Math.abs(enemyHead.x - coord.x) + Math.abs(enemyHead.y - coord.y);
-      
-      if (distance === 1) {
-        // Enemy could move to this position next turn
-        // Head-to-head collision rules:
-        // - Longer snake wins
-        // - Equal length = both die (avoid!)
-        // - Shorter snake loses (avoid!)
-        
-        if (snake.length <= enemySnake.length) {
-          // We would lose or tie (both die) - mark as unsafe
-          return false;
-        }
-        // If we're longer, it's risky but not immediately unsafe
-        // The simulator will handle the actual collision
-      }
-    }
-    
+    // Head-to-head filtering is now handled by move-enumerator for our snake only
+    // This allows other snakes (potentially human allies) to coordinate
     return true;
   }
 }
