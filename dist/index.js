@@ -7,12 +7,26 @@ const express_1 = __importDefault(require("express"));
 const path_1 = __importDefault(require("path"));
 const voronoi_strategy_1 = require("./logic/voronoi-strategy");
 const team_detector_1 = require("./logic/team-detector");
+const logger_1 = require("./utils/logger");
 const app = (0, express_1.default)();
 const port = parseInt(process.env.PORT || '5000');
 app.use(express_1.default.json());
+// Request logging middleware - log ALL incoming requests
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    if (req.body && Object.keys(req.body).length > 0) {
+        if (req.body.you) {
+            console.log(`  Snake position: (${req.body.you.head.x}, ${req.body.you.head.y})`);
+            console.log(`  Board size: ${req.body.board?.width}x${req.body.board?.height}`);
+            console.log(`  Turn: ${req.body.turn}`);
+        }
+    }
+    next();
+});
 app.use(express_1.default.static(path_1.default.join(__dirname, '../src/web')));
 const voronoiStrategy = new voronoi_strategy_1.VoronoiStrategy();
 const teamDetector = new team_detector_1.TeamDetector();
+const logger = new logger_1.GameLogger();
 // Battlesnake info endpoint
 app.get('/', (req, res) => {
     const info = {
@@ -28,7 +42,7 @@ app.get('/', (req, res) => {
 // Game start endpoint
 app.post('/start', (req, res) => {
     const gameState = req.body;
-    console.log(`Game ${gameState.game.id} started!`);
+    logger.startGame(gameState);
     res.status(200).send('ok');
 });
 // Move endpoint - core logic
@@ -38,17 +52,18 @@ app.post('/move', (req, res) => {
         // Detect teams based on color
         const teams = teamDetector.detectTeams(gameState.board.snakes);
         const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === gameState.you.id));
-        // Get best move using Voronoi strategy
-        const move = voronoiStrategy.getBestMove(gameState, ourTeam);
+        // Get best move using Voronoi strategy with logging
+        const result = voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+        // Old logger disabled - new format logging happens in strategy
+        // logger.logMove(gameState, result.safeMoves, result.move, result.scores);
         const response = {
-            move,
+            move: result.move,
             shout: `Team territory strategy! Turn ${gameState.turn}`
         };
-        console.log(`Turn ${gameState.turn}: Moving ${move}`);
         res.json(response);
     }
     catch (error) {
-        console.error('Error in move calculation:', error);
+        logger.logError('Error in move calculation', error);
         // Fallback to safe move
         const response = {
             move: 'up',
@@ -60,7 +75,7 @@ app.post('/move', (req, res) => {
 // Game end endpoint
 app.post('/end', (req, res) => {
     const gameState = req.body;
-    console.log(`Game ${gameState.game.id} ended!`);
+    logger.endGame(gameState);
     res.status(200).send('ok');
 });
 // Simple web interface

@@ -1,45 +1,94 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VoronoiStrategy = void 0;
+const evaluator_1 = require("./evaluator");
 class VoronoiStrategy {
     constructor() {
         this.config = {
             maxDistance: 3,
             numRandomMoves: 10,
-            maxSimulations: 100,
+            maxSimulations: 729,
             maxEvaluationTimeMs: 400 // Leave buffer before 500ms timeout
         };
+        this.evaluator = new evaluator_1.Evaluator({
+            maxNearbyDistance: this.config.maxDistance,
+            maxStates: this.config.maxSimulations,
+            timeoutMs: this.config.maxEvaluationTimeMs,
+            scorerConfig: {
+                weightFood: 10,
+                weightFertile: 1,
+                weightTeamLength: 2
+            }
+        });
     }
     setConfig(config) {
         this.config = { ...this.config, ...config };
+        // Recreate evaluator with new config
+        this.evaluator = new evaluator_1.Evaluator({
+            maxNearbyDistance: this.config.maxDistance,
+            maxStates: this.config.maxSimulations,
+            timeoutMs: this.config.maxEvaluationTimeMs,
+            scorerConfig: {
+                weightFood: 10,
+                weightFertile: 1,
+                weightTeamLength: 2
+            }
+        });
     }
-    getBestMove(gameState, ourTeam) {
-        const startTime = Date.now();
-        const possibleMoves = this.getSafeMoves(gameState);
-        if (possibleMoves.length === 0) {
-            return 'up'; // Fallback if no safe moves
-        }
-        if (possibleMoves.length === 1) {
-            return possibleMoves[0];
-        }
-        // Evaluate each possible move using Voronoi territory simulation with time bounds
-        let bestMove = possibleMoves[0];
-        let bestScore = -Infinity;
-        for (const move of possibleMoves) {
-            // Check if we're running out of time
-            const elapsedTime = Date.now() - startTime;
-            if (elapsedTime > this.config.maxEvaluationTimeMs) {
-                console.log(`Time limit reached after ${elapsedTime}ms, using best move found so far`);
-                break;
-            }
-            const remainingTime = this.config.maxEvaluationTimeMs - elapsedTime;
-            const score = this.evaluateMove(gameState, move, ourTeam, remainingTime);
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = move;
-            }
-        }
+    getBestMove(gameState, _ourTeam) {
+        // Use new evaluator to get best move with detailed breakdown
+        const { bestMove, evaluations } = this.evaluator.evaluateMovesWithBreakdown(gameState);
+        // Format and log the turn info
+        this.logTurnInfo(gameState, evaluations, bestMove);
         return bestMove;
+    }
+    logTurnInfo(gameState, evaluations, bestMove) {
+        const turn = gameState.turn + 1; // Start counting from 1
+        const safeMoves = this.getSafeMoves(gameState);
+        console.log(`\n=== TURN ${turn} ===`);
+        console.log(`Position: (${gameState.you.head.x}, ${gameState.you.head.y}), Health: ${gameState.you.health}`);
+        console.log(`Safe moves: ${safeMoves.join(', ')}`);
+        // Log detailed breakdown for each move
+        for (const [move, evaluation] of evaluations.entries()) {
+            if (evaluation.averageScore === -Infinity) {
+                console.log(`\nMove ${move}: DEATH (no valid scenarios)`);
+                continue;
+            }
+            const breakdown = evaluation.averageBreakdown;
+            if (!breakdown) {
+                console.log(`\nMove ${move}: Score ${evaluation.averageScore.toFixed(2)} (no breakdown available)`);
+                continue;
+            }
+            console.log(`\nMove ${move}: Total Score = ${breakdown.total.toFixed(2)} (${evaluation.numStates} states evaluated)`);
+            console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
+            console.log('│ Component           │  Average │ × Weight │  = Score │');
+            console.log('├─────────────────────┼──────────┼──────────┼──────────┤');
+            // Food distance (inverse)
+            const invFoodDist = breakdown.components.foodDistance >= 1000 ? 0 : 1 / (breakdown.components.foodDistance + 1);
+            console.log(`│ Food Distance       │ ${breakdown.components.foodDistance.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodDistance.toString().padStart(7)} │ ${breakdown.weighted.foodDistanceScore.toFixed(2).padStart(8)} │`);
+            console.log(`│   (1/(dist+1))      │ ${invFoodDist.toFixed(3).padStart(8)} │          │          │`);
+            // My territory and food
+            console.log(`│ My Territory        │ ${breakdown.components.myTerritory.toFixed(1).padStart(8)} │          │          │`);
+            console.log(`│ My Food Count       │ ${breakdown.components.myFoodCount.toFixed(1).padStart(8)} │          │          │`);
+            // Team territory and food (fertile score)
+            const teamFertile = breakdown.components.teamTerritory + (breakdown.components.teamFoodCount * 10);
+            console.log(`│ Team Territory      │ ${breakdown.components.teamTerritory.toFixed(1).padStart(8)} │          │          │`);
+            console.log(`│ Team Food Count     │ ${breakdown.components.teamFoodCount.toFixed(1).padStart(8)} │          │          │`);
+            console.log(`│ Team Fertile Score  │ ${teamFertile.toFixed(1).padStart(8)} │ ×${breakdown.weights.fertileTerritory.toString().padStart(7)} │ ${breakdown.weighted.fertileScore.toFixed(2).padStart(8)} │`);
+            // Snake lengths
+            console.log(`│ My Length           │ ${breakdown.components.myLength.toFixed(1).padStart(8)} │          │          │`);
+            console.log(`│ Team Length         │ ${breakdown.components.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
+            console.log('└─────────────────────┴──────────┴──────────┴──────────┘');
+        }
+        console.log(`\nCHOSEN: ${bestMove.toUpperCase()}`);
+    }
+    getBestMoveWithDebug(gameState, _ourTeam) {
+        // This method is kept for backwards compatibility but delegates to getBestMove
+        const move = this.getBestMove(gameState, _ourTeam);
+        const safeMoves = this.getSafeMoves(gameState);
+        const scores = new Map();
+        scores.set(move, 1);
+        return { move, safeMoves, scores };
     }
     getSafeMoves(gameState) {
         const head = gameState.you.head;
@@ -56,14 +105,17 @@ class VoronoiStrategy {
         return safeMoves.length > 0 ? safeMoves : allMoves; // Fallback to any move if all moves are risky
     }
     getNewHeadPosition(head, direction) {
+        // CRITICAL FIX: Battlesnake coordinate system has y=0 at BOTTOM
+        // 'up' increases y (moves away from bottom)
+        // 'down' decreases y (moves toward bottom)
         switch (direction) {
-            case 'up': return { x: head.x, y: head.y - 1 };
-            case 'down': return { x: head.x, y: head.y + 1 };
+            case 'up': return { x: head.x, y: head.y + 1 }; // FIXED: up increases y
+            case 'down': return { x: head.x, y: head.y - 1 }; // FIXED: down decreases y
             case 'left': return { x: head.x - 1, y: head.y };
             case 'right': return { x: head.x + 1, y: head.y };
         }
     }
-    evaluateMoveRisk(position, move, gameState) {
+    evaluateMoveRisk(position, _move, gameState) {
         const { board } = gameState;
         // Check board boundaries
         if (position.x < 0 || position.x >= board.width ||
@@ -73,7 +125,7 @@ class VoronoiStrategy {
         let riskScore = 0;
         let hasHazard = false;
         // Check hazards (not immediately deadly but risky)
-        for (const hazard of board.hazards) {
+        for (const hazard of (board.hazards ?? [])) {
             if (position.x === hazard.x && position.y === hazard.y) {
                 hasHazard = true;
                 riskScore += 15; // Hazard cost
@@ -96,7 +148,7 @@ class VoronoiStrategy {
             const tail = snake.body[snake.body.length - 1];
             if (position.x === tail.x && position.y === tail.y) {
                 // Check if this snake might eat food this turn
-                const snakeCouldEatFood = board.food.some(food => this.manhattanDistance(snake.head, food) <= 1);
+                const snakeCouldEatFood = (board.food ?? []).some(food => this.manhattanDistance(snake.head, food) <= 1);
                 if (snakeCouldEatFood) {
                     return { isSafe: false, riskScore: 800, hasHazard };
                 }
@@ -143,7 +195,54 @@ class VoronoiStrategy {
         const moveRisk = this.evaluateMoveRisk(position, 'up', gameState); // Direction doesn't matter for basic safety
         return moveRisk.isSafe;
     }
-    evaluateMove(gameState, move, ourTeam, remainingTimeMs) {
+    evaluateMoveWithFood(gameState, move, _ourTeam, remainingTimeMs) {
+        // Check if this move eats food
+        const newHead = this.getNewHeadPosition(gameState.you.head, move);
+        const eatsFood = gameState.board.food.some(food => food.x === newHead.x && food.y === newHead.y);
+        // Get path-based food distance from BFS calculation
+        // First, we need to get the food distance map for the current board state
+        const { foodDistanceMap } = this.calculateEnhancedDistanceMapBFS(gameState.board);
+        const newHeadKey = `${newHead.x},${newHead.y}`;
+        // Get the actual path distance to nearest food from the new head position
+        let nearestFoodDistance = foodDistanceMap.get(newHeadKey) || Number.MAX_VALUE;
+        // If no food on board or unreachable, use a default high distance
+        if (gameState.board.food.length === 0 || nearestFoodDistance === Number.MAX_VALUE) {
+            nearestFoodDistance = 100;
+        }
+        // Calculate average fertile score from simulations
+        let totalFertileScore = 0;
+        const maxSimulations = Math.min(this.config.maxSimulations, this.config.numRandomMoves);
+        // Dynamically adjust simulation count based on remaining time
+        const timePerSimulation = 2; // Estimated ms per simulation
+        const timeBasedMaxSims = remainingTimeMs ? Math.floor(remainingTimeMs / timePerSimulation) : maxSimulations;
+        const simulations = Math.min(maxSimulations, timeBasedMaxSims, 50); // Cap at 50 for safety
+        const startTime = Date.now();
+        let actualSimulations = 0;
+        for (let i = 0; i < simulations; i++) {
+            // Check time budget for each simulation
+            if (remainingTimeMs && (Date.now() - startTime) > remainingTimeMs * 0.8) {
+                console.log(`Breaking evaluation early after ${actualSimulations} simulations due to time constraint`);
+                break;
+            }
+            const simulatedState = this.simulateGameState(gameState, move);
+            const voronoiResult = this.calculateFertileVoronoiTerritories(simulatedState, _ourTeam);
+            if (_ourTeam) {
+                const teamKey = this.getTeamKey(gameState.you);
+                totalFertileScore += voronoiResult.teamFertileScores?.get(teamKey) || 0;
+            }
+            else {
+                totalFertileScore += voronoiResult.fertileScores?.get(gameState.you.id) || 0;
+            }
+            actualSimulations++;
+        }
+        const avgFertileScore = actualSimulations > 0 ? totalFertileScore / actualSimulations : 0;
+        return {
+            fertileScore: avgFertileScore,
+            eatsFood: eatsFood,
+            foodDistance: nearestFoodDistance // Use the actual nearest food distance from new head
+        };
+    }
+    evaluateMove(gameState, move, _ourTeam, remainingTimeMs) {
         let totalScore = 0;
         const maxSimulations = Math.min(this.config.maxSimulations, this.config.numRandomMoves);
         // Dynamically adjust simulation count based on remaining time
@@ -159,8 +258,8 @@ class VoronoiStrategy {
                 break;
             }
             const simulatedState = this.simulateGameState(gameState, move);
-            const voronoiResult = this.calculateVoronoiTerritories(simulatedState, ourTeam);
-            if (ourTeam) {
+            const voronoiResult = this.calculateVoronoiTerritories(simulatedState, _ourTeam);
+            if (_ourTeam) {
                 const teamKey = this.getTeamKey(gameState.you);
                 totalScore += voronoiResult.teamTerritories.get(teamKey) || 0;
             }
@@ -278,7 +377,117 @@ class VoronoiStrategy {
     manhattanDistance(a, b) {
         return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
     }
-    calculateVoronoiTerritories(gameState, ourTeam) {
+    calculateFertileVoronoiTerritories(gameState, _ourTeam) {
+        const { board } = gameState;
+        const territories = new Map();
+        const teamTerritories = new Map();
+        const foodControlled = new Map();
+        const teamFoodControlled = new Map();
+        const fertileScores = new Map();
+        const teamFertileScores = new Map();
+        const foodDistances = new Map();
+        const teamFoodDistances = new Map();
+        // Initialize counts
+        for (const snake of board.snakes) {
+            territories.set(snake.id, 0);
+            foodControlled.set(snake.id, 0);
+            fertileScores.set(snake.id, 0);
+            foodDistances.set(snake.id, 0);
+            const teamKey = this.getTeamKey(snake);
+            if (!teamTerritories.has(teamKey)) {
+                teamTerritories.set(teamKey, 0);
+                teamFoodControlled.set(teamKey, 0);
+                teamFertileScores.set(teamKey, 0);
+                teamFoodDistances.set(teamKey, 0);
+            }
+        }
+        // Use enhanced BFS to calculate territories and food distances
+        const { distanceMap, foodDistanceMap } = this.calculateEnhancedDistanceMapBFS(board);
+        // Sanity check: Ensure distanceMap has data
+        if (distanceMap.size === 0) {
+            console.warn('Warning: DistanceMap is empty, BFS may have failed to seed properly');
+            // Return minimal territories for all snakes to avoid complete failure
+            for (const snake of board.snakes) {
+                territories.set(snake.id, 1);
+                fertileScores.set(snake.id, 1);
+                const teamKey = this.getTeamKey(snake);
+                teamTerritories.set(teamKey, (teamTerritories.get(teamKey) || 0) + 1);
+                teamFertileScores.set(teamKey, (teamFertileScores.get(teamKey) || 0) + 1);
+            }
+            return { territories, teamTerritories, fertileScores, teamFertileScores, foodControlled, teamFoodControlled, foodDistances, teamFoodDistances };
+        }
+        // Count territories and food control
+        let totalCellsAssigned = 0;
+        let unassignedCells = 0;
+        const snakeFoodDistanceSum = new Map();
+        const snakeFoodDistanceCount = new Map();
+        // First pass: count territories and check food control
+        for (let x = 0; x < board.width; x++) {
+            for (let y = 0; y < board.height; y++) {
+                const key = `${x},${y}`;
+                const cellInfo = distanceMap.get(key);
+                if (cellInfo && cellInfo.closestSnake) {
+                    const snakeId = cellInfo.closestSnake.id;
+                    const teamKey = this.getTeamKey(cellInfo.closestSnake);
+                    // Count territory
+                    territories.set(snakeId, (territories.get(snakeId) || 0) + 1);
+                    teamTerritories.set(teamKey, (teamTerritories.get(teamKey) || 0) + 1);
+                    // Track food distance for this cell
+                    const foodDist = foodDistanceMap.get(key) || 100;
+                    snakeFoodDistanceSum.set(snakeId, (snakeFoodDistanceSum.get(snakeId) || 0) + foodDist);
+                    snakeFoodDistanceCount.set(snakeId, (snakeFoodDistanceCount.get(snakeId) || 0) + 1);
+                    // Check if this cell contains food
+                    const isFood = board.food.some(food => food.x === x && food.y === y);
+                    if (isFood) {
+                        foodControlled.set(snakeId, (foodControlled.get(snakeId) || 0) + 1);
+                        teamFoodControlled.set(teamKey, (teamFoodControlled.get(teamKey) || 0) + 1);
+                    }
+                    totalCellsAssigned++;
+                }
+                else {
+                    unassignedCells++;
+                }
+            }
+        }
+        // Calculate average food distances
+        for (const [snakeId, sum] of snakeFoodDistanceSum) {
+            const count = snakeFoodDistanceCount.get(snakeId) || 1;
+            foodDistances.set(snakeId, sum / count);
+        }
+        // Aggregate team food distances
+        for (const snake of board.snakes) {
+            const snakeId = snake.id;
+            const teamKey = this.getTeamKey(snake);
+            const snakeDist = foodDistances.get(snakeId) || 100;
+            const currentTeamDist = teamFoodDistances.get(teamKey) || 0;
+            const teamSnakeCount = board.snakes.filter(s => this.getTeamKey(s) === teamKey).length;
+            // Average the food distances for team snakes
+            teamFoodDistances.set(teamKey, currentTeamDist + (snakeDist / teamSnakeCount));
+        }
+        // Calculate fertile scores (territory + food bonus)
+        const FOOD_BONUS_MULTIPLIER = 10; // Each food adds 10 to the territory value
+        for (const snake of board.snakes) {
+            const snakeId = snake.id;
+            const teamKey = this.getTeamKey(snake);
+            const territory = territories.get(snakeId) || 0;
+            const food = foodControlled.get(snakeId) || 0;
+            const fertileScore = territory + (food * FOOD_BONUS_MULTIPLIER);
+            fertileScores.set(snakeId, fertileScore);
+            teamFertileScores.set(teamKey, (teamFertileScores.get(teamKey) || 0) + fertileScore);
+        }
+        // Log summary for debugging
+        if (totalCellsAssigned > 0) {
+            console.log(`Fertile Voronoi: ${totalCellsAssigned} cells assigned, ${unassignedCells} unassigned`);
+            for (const [snakeId, score] of fertileScores) {
+                const territory = territories.get(snakeId) || 0;
+                const food = foodControlled.get(snakeId) || 0;
+                const foodDist = foodDistances.get(snakeId) || 0;
+                console.log(`Snake ${snakeId}: territory=${territory}, food=${food}, fertile=${score.toFixed(0)}, avgFoodDist=${foodDist.toFixed(1)}`);
+            }
+        }
+        return { territories, teamTerritories, fertileScores, teamFertileScores, foodControlled, teamFoodControlled, foodDistances, teamFoodDistances };
+    }
+    calculateVoronoiTerritories(gameState, _ourTeam) {
         const { board } = gameState;
         const territories = new Map();
         const teamTerritories = new Map();
@@ -292,23 +501,71 @@ class VoronoiStrategy {
         }
         // Use multi-source BFS to calculate proper Voronoi territories
         const distanceMap = this.calculateDistanceMapBFS(board);
+        // Sanity check: Ensure distanceMap has data
+        if (distanceMap.size === 0) {
+            console.warn('Warning: DistanceMap is empty, BFS may have failed to seed properly');
+            // Return minimal territories for all snakes to avoid complete failure
+            for (const snake of board.snakes) {
+                territories.set(snake.id, 1);
+                const teamKey = this.getTeamKey(snake);
+                teamTerritories.set(teamKey, (teamTerritories.get(teamKey) || 0) + 1);
+            }
+            return { territories, teamTerritories };
+        }
         // Count territories based on closest snake
+        let totalCellsAssigned = 0;
+        let unassignedCells = 0;
         for (let x = 0; x < board.width; x++) {
             for (let y = 0; y < board.height; y++) {
-                const position = { x, y };
                 const key = `${x},${y}`;
                 const cellInfo = distanceMap.get(key);
                 if (cellInfo && cellInfo.closestSnake) {
                     territories.set(cellInfo.closestSnake.id, (territories.get(cellInfo.closestSnake.id) || 0) + 1);
                     const teamKey = this.getTeamKey(cellInfo.closestSnake);
                     teamTerritories.set(teamKey, (teamTerritories.get(teamKey) || 0) + 1);
+                    totalCellsAssigned++;
+                }
+                else {
+                    unassignedCells++;
                 }
             }
+        }
+        // Sanity checks
+        const totalBoardCells = board.width * board.height;
+        const calculatedTotal = totalCellsAssigned + unassignedCells;
+        if (calculatedTotal !== totalBoardCells) {
+            console.warn(`Territory calculation error: calculated ${calculatedTotal} cells, expected ${totalBoardCells}`);
+        }
+        if (totalCellsAssigned === 0) {
+            console.warn('Warning: No territories assigned to any snakes! Voronoi calculation may have failed');
+        }
+        // Validate all territory counts are non-negative
+        for (const [snakeId, territory] of territories) {
+            if (territory < 0) {
+                console.warn(`Invalid territory count for snake ${snakeId}: ${territory}`);
+                territories.set(snakeId, 0);
+            }
+        }
+        // Log territory summary for debugging
+        if (totalCellsAssigned > 0) {
+            console.log(`Voronoi territories: ${totalCellsAssigned} cells assigned, ${unassignedCells} unassigned (${board.snakes.length} snakes)`);
         }
         return { territories, teamTerritories };
     }
     isPositionOccupied(position, snakes) {
         for (const snake of snakes) {
+            for (const bodyPart of snake.body) {
+                if (position.x === bodyPart.x && position.y === bodyPart.y) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    isPositionOccupiedByOtherSnakes(position, snakes, excludeSnake) {
+        for (const snake of snakes) {
+            if (snake.id === excludeSnake.id)
+                continue; // Skip the excluded snake
             for (const bodyPart of snake.body) {
                 if (position.x === bodyPart.x && position.y === bodyPart.y) {
                     return true;
@@ -324,6 +581,140 @@ class VoronoiStrategy {
         // Use squad field for team detection, fallback to color
         return snake.squad || snake.customizations.color;
     }
+    calculateEnhancedDistanceMapBFS(board) {
+        const distanceMap = new Map();
+        const foodDistanceMap = new Map();
+        const queue = [];
+        const visited = new Set();
+        // Pre-calculate which cells contain food for quick lookup
+        const foodPositions = new Set();
+        for (const food of board.food) {
+            foodPositions.add(`${food.x},${food.y}`);
+        }
+        // Initialize BFS from all snake heads for territory calculation
+        for (const snake of board.snakes) {
+            const head = snake.head;
+            const key = `${head.x},${head.y}`;
+            if (!this.isPositionHazard(head, board.hazards)) {
+                // Check if head is on food
+                const nearestFoodDist = foodPositions.has(key) ? 0 : Number.MAX_VALUE;
+                queue.push({ x: head.x, y: head.y, distance: 0, snake, nearestFoodDist });
+                distanceMap.set(key, { distance: 0, closestSnake: snake });
+                foodDistanceMap.set(key, nearestFoodDist);
+                visited.add(key);
+            }
+        }
+        const directions = [
+            { dx: 0, dy: 1 }, // up
+            { dx: 0, dy: -1 }, // down
+            { dx: 1, dy: 0 }, // right
+            { dx: -1, dy: 0 } // left
+        ];
+        // Multi-source BFS for territory calculation and food distance tracking
+        let queueIndex = 0;
+        while (queueIndex < queue.length) {
+            const current = queue[queueIndex++];
+            for (const dir of directions) {
+                const newX = current.x + dir.dx;
+                const newY = current.y + dir.dy;
+                const newPos = { x: newX, y: newY };
+                const key = `${newX},${newY}`;
+                // Check bounds
+                if (newX < 0 || newX >= board.width || newY < 0 || newY >= board.height) {
+                    continue;
+                }
+                // Skip if position is occupied by snake bodies
+                if (this.isPositionOccupied(newPos, board.snakes)) {
+                    continue;
+                }
+                // Skip if already visited
+                if (visited.has(key)) {
+                    continue;
+                }
+                // Calculate distance with hazard penalty
+                const isHazardous = this.isPositionHazard(newPos, board.hazards);
+                const hazardPenalty = isHazardous ? 2 : 0;
+                const newDistance = current.distance + 1 + hazardPenalty;
+                // Calculate nearest food distance for this new position
+                let newNearestFoodDist = current.nearestFoodDist;
+                if (foodPositions.has(key)) {
+                    // This cell contains food - path distance is the distance we traveled to get here
+                    newNearestFoodDist = newDistance;
+                }
+                else if (current.nearestFoodDist !== Number.MAX_VALUE) {
+                    // We've seen food before, increment the distance
+                    newNearestFoodDist = current.nearestFoodDist + 1 + hazardPenalty;
+                }
+                const existingInfo = distanceMap.get(key);
+                // If unvisited or this is a shorter path, update
+                if (!existingInfo || newDistance < existingInfo.distance) {
+                    distanceMap.set(key, { distance: newDistance, closestSnake: current.snake });
+                    foodDistanceMap.set(key, newNearestFoodDist);
+                    queue.push({ x: newX, y: newY, distance: newDistance, snake: current.snake, nearestFoodDist: newNearestFoodDist });
+                    visited.add(key);
+                }
+                else if (existingInfo && newDistance === existingInfo.distance) {
+                    // Tie-breaking: prefer our snake, then by snake ID for consistency
+                    if (this.shouldPreferSnake(current.snake, existingInfo.closestSnake)) {
+                        distanceMap.set(key, { distance: newDistance, closestSnake: current.snake });
+                        // Also update food distance if this path is better
+                        const currentFoodDist = foodDistanceMap.get(key);
+                        if (!currentFoodDist || newNearestFoodDist < currentFoodDist) {
+                            foodDistanceMap.set(key, newNearestFoodDist);
+                        }
+                    }
+                }
+            }
+        }
+        // Now do a reverse BFS from food to fill in any cells we might have missed
+        // This ensures every reachable cell has a food distance
+        const foodQueue = [];
+        const foodVisited = new Set();
+        // Initialize from all food positions
+        for (const food of board.food) {
+            const key = `${food.x},${food.y}`;
+            foodQueue.push({ x: food.x, y: food.y, distance: 0 });
+            foodVisited.add(key);
+            // Update the food distance map for food cells themselves
+            if (!foodDistanceMap.has(key) || foodDistanceMap.get(key) > 0) {
+                foodDistanceMap.set(key, 0);
+            }
+        }
+        // BFS from food to calculate distances to all reachable cells
+        let foodQueueIndex = 0;
+        while (foodQueueIndex < foodQueue.length) {
+            const current = foodQueue[foodQueueIndex++];
+            for (const dir of directions) {
+                const newX = current.x + dir.dx;
+                const newY = current.y + dir.dy;
+                const key = `${newX},${newY}`;
+                // Check bounds
+                if (newX < 0 || newX >= board.width || newY < 0 || newY >= board.height) {
+                    continue;
+                }
+                // Skip if already visited for food distance
+                if (foodVisited.has(key)) {
+                    continue;
+                }
+                // Skip if position is occupied by snake bodies (can't reach food through bodies)
+                if (this.isPositionOccupied({ x: newX, y: newY }, board.snakes)) {
+                    continue;
+                }
+                // Calculate distance with hazard penalty
+                const isHazardous = this.isPositionHazard({ x: newX, y: newY }, board.hazards);
+                const hazardPenalty = isHazardous ? 2 : 0;
+                const newDistance = current.distance + 1 + hazardPenalty;
+                // Update food distance if this path is shorter or if no distance was set
+                const currentDist = foodDistanceMap.get(key);
+                if (!currentDist || currentDist === Number.MAX_VALUE || newDistance < currentDist) {
+                    foodDistanceMap.set(key, newDistance);
+                }
+                foodQueue.push({ x: newX, y: newY, distance: newDistance });
+                foodVisited.add(key);
+            }
+        }
+        return { distanceMap, foodDistanceMap };
+    }
     calculateDistanceMapBFS(board) {
         const distanceMap = new Map();
         const queue = [];
@@ -332,7 +723,9 @@ class VoronoiStrategy {
         for (const snake of board.snakes) {
             const head = snake.head;
             const key = `${head.x},${head.y}`;
-            if (!this.isPositionOccupied(head, board.snakes) && !this.isPositionHazard(head, board.hazards)) {
+            // Always seed snake heads, but check for hazards
+            // Snake heads can be on their own body, but we still want to start territory calculation from them
+            if (!this.isPositionHazard(head, board.hazards)) {
                 queue.push({ x: head.x, y: head.y, distance: 0, snake });
                 distanceMap.set(key, { distance: 0, closestSnake: snake });
                 visited.add(key);
@@ -357,15 +750,18 @@ class VoronoiStrategy {
                 if (newX < 0 || newX >= board.width || newY < 0 || newY >= board.height) {
                     continue;
                 }
-                // Skip if position is occupied or hazardous
-                if (this.isPositionOccupied(newPos, board.snakes) || this.isPositionHazard(newPos, board.hazards)) {
+                // Skip if position is occupied by snake bodies
+                if (this.isPositionOccupied(newPos, board.snakes)) {
                     continue;
                 }
                 // Skip if already visited
                 if (visited.has(key)) {
                     continue;
                 }
-                const newDistance = current.distance + 1;
+                // Calculate distance with hazard penalty
+                const isHazardous = this.isPositionHazard(newPos, board.hazards);
+                const hazardPenalty = isHazardous ? 2 : 0; // Hazards cost 3 instead of 1 (1 + 2 penalty)
+                const newDistance = current.distance + 1 + hazardPenalty;
                 const existingInfo = distanceMap.get(key);
                 // If unvisited or this is a shorter path, update
                 if (!existingInfo || newDistance < existingInfo.distance) {
