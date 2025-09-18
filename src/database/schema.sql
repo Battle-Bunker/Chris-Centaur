@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS decision_logs (
   -- Move evaluation data (stored as JSONB for flexibility)
   move_evaluations JSONB NOT NULL,
   
+  -- Full game state for reconstruction (stored as JSONB)
+  game_state JSONB NOT NULL,
+  
   -- Indexes for efficient querying
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

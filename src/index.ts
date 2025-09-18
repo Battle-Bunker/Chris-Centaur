@@ -4,6 +4,7 @@ import { GameState, MoveResponse, SnakeInfoResponse } from './types/battlesnake'
 import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
+import logsRouter from './routes/logs';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -88,9 +89,17 @@ app.post('/end', (req, res) => {
   res.status(200).send('ok');
 });
 
+// API Routes
+app.use(logsRouter);
+
 // Simple web interface
 app.get('/config', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
+});
+
+// Game history viewer
+app.get('/history', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });
 
 app.listen(port, '0.0.0.0', () => {

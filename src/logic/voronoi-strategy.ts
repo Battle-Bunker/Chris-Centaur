@@ -151,7 +151,8 @@ export class VoronoiStrategy {
       health: gameState.you.health,
       safeMoves,
       chosenMove: bestMove,
-      moveEvaluations
+      moveEvaluations,
+      gameState // Include the full game state for reconstruction
     }).catch(error => {
       console.error('[VoronoiStrategy] Failed to log decision:', error);
     });

@@ -42,6 +42,7 @@ export interface DecisionLogEntry {
       };
     };
   }[];
+  gameState: any; // Full game state from the API
 }
 
 export class DecisionLogger {
@@ -76,6 +77,7 @@ export class DecisionLogger {
           safe_moves TEXT[],
           chosen_move VARCHAR(10) NOT NULL,
           move_evaluations JSONB NOT NULL,
+          game_state JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
@@ -103,8 +105,8 @@ export class DecisionLogger {
         INSERT INTO decision_logs (
           game_id, snake_id, snake_name, turn,
           position_x, position_y, health,
-          safe_moves, chosen_move, move_evaluations
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          safe_moves, chosen_move, move_evaluations, game_state
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       `;
       
       const values = [
@@ -117,7 +119,8 @@ export class DecisionLogger {
         entry.health,
         entry.safeMoves,
         entry.chosenMove,
-        JSON.stringify(entry.moveEvaluations)
+        JSON.stringify(entry.moveEvaluations),
+        JSON.stringify(entry.gameState)
       ];
       
       await pool.query(query, values);
