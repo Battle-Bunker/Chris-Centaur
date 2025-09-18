@@ -135,6 +135,30 @@ export class MoveEnumerator {
   }
 
   /**
+   * Check if a move is risky due to possible head-to-head collision
+   * Returns true if the move could result in death from head-to-head with equal/larger snake
+   */
+  private isRiskyHeadToHead(coord: Coord, snake: Snake, gameState: GameState): boolean {
+    for (const enemySnake of gameState.board.snakes) {
+      if (enemySnake.id === snake.id) continue;
+      if (!this.isAlive(enemySnake)) continue;
+      
+      // Check if enemy snake's head is adjacent to this position
+      const enemyHead = enemySnake.head;
+      const distance = Math.abs(enemyHead.x - coord.x) + Math.abs(enemyHead.y - coord.y);
+      
+      if (distance === 1) {
+        // Enemy could move to this position next turn
+        // This is risky if we would lose or tie in head-to-head
+        if (snake.length <= enemySnake.length) {
+          return true; // Risky move
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * Generate Cartesian product of moves recursively
    */
   private generateCartesianProduct(
