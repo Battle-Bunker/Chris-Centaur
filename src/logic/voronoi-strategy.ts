@@ -1,8 +1,10 @@
 import { GameState, Direction, Coord, Snake, Board, TeamInfo, VoronoiResult, SimulationConfig } from '../types/battlesnake';
 import { Evaluator } from './evaluator';
+import { DecisionLogger } from './decision-logger';
 
 export class VoronoiStrategy {
   private evaluator: Evaluator;
+  private decisionLogger: DecisionLogger;
   private config: SimulationConfig = {
     maxDistance: 3,
     numRandomMoves: 10,
@@ -21,6 +23,7 @@ export class VoronoiStrategy {
         weightTeamLength: 2
       }
     });
+    this.decisionLogger = DecisionLogger.getInstance();
   }
 
   setConfig(config: Partial<SimulationConfig>) {
@@ -99,12 +102,66 @@ export class VoronoiStrategy {
   }
 
   getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): { move: Direction; safeMoves: Direction[]; scores: Map<Direction, number> } {
-    // This method is kept for backwards compatibility but delegates to getBestMove
-    const move = this.getBestMove(gameState, _ourTeam);
+    // Get the evaluations with detailed breakdown
+    const { bestMove, evaluations } = this.evaluator.evaluateMovesWithBreakdown(gameState);
+    
+    // Format and log the turn info to console
+    this.logTurnInfo(gameState, evaluations, bestMove);
+    
+    // Prepare decision data for database logging
+    const moveEvaluations = [];
+    for (const [move, evaluation] of evaluations.entries()) {
+      if (evaluation.averageBreakdown) {
+        const breakdown = evaluation.averageBreakdown;
+        moveEvaluations.push({
+          move,
+          score: evaluation.averageScore,
+          numStates: evaluation.numStates,
+          breakdown: {
+            foodDistance: breakdown.components.foodDistance,
+            foodDistanceInverse: breakdown.components.foodDistance >= 1000 ? 0 : 1 / (breakdown.components.foodDistance + 1),
+            myTerritory: breakdown.components.myTerritory,
+            myFoodCount: breakdown.components.myFoodCount,
+            teamTerritory: breakdown.components.teamTerritory,
+            teamFoodCount: breakdown.components.teamFoodCount,
+            teamFertileScore: breakdown.components.teamTerritory + (breakdown.components.teamFoodCount * 10),
+            myLength: breakdown.components.myLength,
+            teamLength: breakdown.components.teamLength,
+            weights: breakdown.weights,
+            weighted: breakdown.weighted
+          }
+        });
+      } else {
+        moveEvaluations.push({
+          move,
+          score: evaluation.averageScore,
+          numStates: evaluation.numStates
+        });
+      }
+    }
+    
+    // Log the decision to database
     const safeMoves = this.getSafeMoves(gameState);
+    this.decisionLogger.logDecision({
+      gameId: gameState.game.id,
+      snakeId: gameState.you.id,
+      snakeName: gameState.you.name,
+      turn: gameState.turn + 1,
+      position: gameState.you.head,
+      health: gameState.you.health,
+      safeMoves,
+      chosenMove: bestMove,
+      moveEvaluations
+    }).catch(error => {
+      console.error('[VoronoiStrategy] Failed to log decision:', error);
+    });
+    
+    // Return for backwards compatibility
     const scores = new Map<Direction, number>();
-    scores.set(move, 1);
-    return { move, safeMoves, scores };
+    for (const [move, evaluation] of evaluations.entries()) {
+      scores.set(move, evaluation.averageScore);
+    }
+    return { move: bestMove, safeMoves, scores };
   }
 
   private getSafeMoves(gameState: GameState): Direction[] {

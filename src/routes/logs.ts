@@ -1,0 +1,50 @@
+import express from 'express';
+import { DecisionLogger } from '../logic/decision-logger';
+
+const router = express.Router();
+const logger = DecisionLogger.getInstance();
+
+// Get list of games with metadata
+router.get('/api/logs/games', async (req, res) => {
+  try {
+    const games = await logger.getGames();
+    res.json(games);
+  } catch (error) {
+    console.error('Error fetching games:', error);
+    res.status(500).json({ error: 'Failed to fetch games' });
+  }
+});
+
+// Query logs with filters
+router.get('/api/logs', async (req, res) => {
+  try {
+    const filters = {
+      gameId: req.query.gameId as string,
+      snakeId: req.query.snakeId as string,
+      startTurn: req.query.startTurn ? parseInt(req.query.startTurn as string, 10) : undefined,
+      endTurn: req.query.endTurn ? parseInt(req.query.endTurn as string, 10) : undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0
+    };
+    
+    const logs = await logger.queryLogs(filters);
+    res.json(logs);
+  } catch (error) {
+    console.error('Error querying logs:', error);
+    res.status(500).json({ error: 'Failed to query logs' });
+  }
+});
+
+// Clear old logs (admin endpoint)
+router.delete('/api/logs/old', async (req, res) => {
+  try {
+    const daysToKeep = req.query.days ? parseInt(req.query.days as string, 10) : 7;
+    await logger.clearOldLogs(daysToKeep);
+    res.json({ message: `Cleared logs older than ${daysToKeep} days` });
+  } catch (error) {
+    console.error('Error clearing old logs:', error);
+    res.status(500).json({ error: 'Failed to clear old logs' });
+  }
+});
+
+export default router;
