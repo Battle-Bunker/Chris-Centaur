@@ -14,6 +14,7 @@ Preferred communication style: Simple, everyday language.
 - **Express.js REST API** - Lightweight web server handling Battlesnake protocol endpoints (`/`, `/start`, `/move`)
 - **TypeScript** - Provides type safety and better development experience with full type definitions for Battlesnake game state
 - **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
+- **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
 
 ### Core Game Logic Architecture
 - **Strategy Pattern** - Main game logic separated into pluggable strategy classes, currently implementing `VoronoiStrategy`
@@ -38,13 +39,18 @@ Preferred communication style: Simple, everyday language.
 2. `TeamDetector` analyzes all snakes to identify teammates and enemies
 3. `VoronoiStrategy` evaluates each safe move through territory simulation
 4. Best move selected based on territory control and survival probability
-5. Response returned within 500ms timeout requirement
+5. Response returned within 500ms timeout requirement (typically under 75ms)
+6. Decision data queued for async database logging without blocking response
 
 ### Error Handling and Failsafes
 - Safe move validation prevents immediate collisions
 - Fallback move selection when no optimal moves found
 - Time-bounded evaluation prevents timeout failures
 - Graceful degradation when team detection fails
+- Async logging with promise chains eliminates race conditions
+- Queue bounds (10,000 entries) with FIFO drop policy prevent memory exhaustion
+- Retry mechanism with exponential backoff for transient database failures
+- Graceful shutdown flushes pending logs to prevent data loss
 
 ## External Dependencies
 

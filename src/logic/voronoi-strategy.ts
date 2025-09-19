@@ -140,7 +140,7 @@ export class VoronoiStrategy {
       }
     }
     
-    // Log the decision to database
+    // Log the decision to database (non-blocking)
     const safeMoves = this.getSafeMoves(gameState);
     this.decisionLogger.logDecision({
       gameId: gameState.game.id,
@@ -153,8 +153,6 @@ export class VoronoiStrategy {
       chosenMove: bestMove,
       moveEvaluations,
       gameState // Include the full game state for reconstruction
-    }).catch(error => {
-      console.error('[VoronoiStrategy] Failed to log decision:', error);
     });
     
     // Return for backwards compatibility

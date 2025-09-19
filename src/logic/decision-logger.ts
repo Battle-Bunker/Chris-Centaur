@@ -1,11 +1,5 @@
 import { Pool } from 'pg';
-import { MoveEvaluation } from './evaluator';
 import { Direction } from '../types/battlesnake';
-
-// Initialize PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 export interface DecisionLogEntry {
   gameId: string;
@@ -42,14 +36,38 @@ export interface DecisionLogEntry {
       };
     };
   }[];
-  gameState: any; // Full game state from the API
+  gameState: any;
+}
+
+interface QueuedEntry extends DecisionLogEntry {
+  retries: number;
 }
 
 export class DecisionLogger {
   private static instance: DecisionLogger;
+  private pool: Pool;
   private isInitialized = false;
+  
+  // Promise chain for sequential async processing (prevents race conditions)
+  private processingChain: Promise<void> = Promise.resolve();
+  
+  // Queue configuration
+  private readonly MAX_QUEUE_SIZE = 10000;
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = 100;
+  private queue: QueuedEntry[] = [];
+  private droppedCount = 0;
 
-  private constructor() {}
+  private constructor() {
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    
+    // Initialize schema on startup
+    this.initialize().catch(error => {
+      console.error('[DecisionLogger] Failed to initialize on startup:', error);
+    });
+  }
 
   public static getInstance(): DecisionLogger {
     if (!DecisionLogger.instance) {
@@ -58,8 +76,7 @@ export class DecisionLogger {
     return DecisionLogger.instance;
   }
 
-  // Initialize the database schema
-  public async initialize(): Promise<void> {
+  private async initialize(): Promise<void> {
     if (this.isInitialized) return;
     
     try {
@@ -88,48 +105,100 @@ export class DecisionLogger {
         CREATE INDEX IF NOT EXISTS idx_decision_logs_game_snake_turn ON decision_logs(game_id, snake_id, turn);
       `;
       
-      await pool.query(schemaSQL);
+      await this.pool.query(schemaSQL);
       this.isInitialized = true;
       console.log('[DecisionLogger] Database schema initialized');
     } catch (error) {
       console.error('[DecisionLogger] Failed to initialize schema:', error);
+      throw error;
     }
   }
 
-  // Log a decision
-  public async logDecision(entry: DecisionLogEntry): Promise<void> {
+  // Non-blocking log decision with queue management
+  public logDecision(entry: DecisionLogEntry): void {
+    // Check queue size limit
+    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+      // Drop oldest entries (FIFO) and warn
+      const dropped = this.queue.shift();
+      this.droppedCount++;
+      
+      if (this.droppedCount % 100 === 0) {
+        console.warn(`[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: game=${dropped?.gameId}, turn=${dropped?.turn}`);
+      }
+    }
+    
+    // Add to queue with retry counter
+    const queuedEntry: QueuedEntry = { ...entry, retries: 0 };
+    this.queue.push(queuedEntry);
+    
+    // Chain the processing (ensures sequential order and prevents race conditions)
+    this.processingChain = this.processingChain
+      .then(() => this.processNextEntry())
+      .catch(error => {
+        console.error('[DecisionLogger] Processing chain error:', error);
+      });
+  }
+
+  private async processNextEntry(): Promise<void> {
+    const entry = this.queue.shift();
+    if (!entry) return;
+    
     try {
-      await this.initialize();
-      
-      const query = `
-        INSERT INTO decision_logs (
-          game_id, snake_id, snake_name, turn,
-          position_x, position_y, health,
-          safe_moves, chosen_move, move_evaluations, game_state
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      `;
-      
-      const values = [
-        entry.gameId,
-        entry.snakeId,
-        entry.snakeName,
-        entry.turn,
-        entry.position.x,
-        entry.position.y,
-        entry.health,
-        entry.safeMoves,
-        entry.chosenMove,
-        JSON.stringify(entry.moveEvaluations),
-        JSON.stringify(entry.gameState)
-      ];
-      
-      await pool.query(query, values);
+      await this.insertEntry(entry);
     } catch (error) {
-      console.error('[DecisionLogger] Failed to log decision:', error);
+      await this.handleInsertError(entry, error);
     }
   }
 
-  // Query logs with filters
+  private async insertEntry(entry: QueuedEntry): Promise<void> {
+    await this.initialize(); // Ensure schema exists
+    
+    const query = `
+      INSERT INTO decision_logs (
+        game_id, snake_id, snake_name, turn,
+        position_x, position_y, health,
+        safe_moves, chosen_move, move_evaluations, game_state
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `;
+    
+    const values = [
+      entry.gameId,
+      entry.snakeId,
+      entry.snakeName,
+      entry.turn,
+      entry.position.x,
+      entry.position.y,
+      entry.health,
+      entry.safeMoves,
+      entry.chosenMove,
+      JSON.stringify(entry.moveEvaluations),
+      JSON.stringify(entry.gameState)
+    ];
+    
+    await this.pool.query(query, values);
+    console.log(`[DecisionLogger] Logged turn ${entry.turn} for game ${entry.gameId}`);
+  }
+
+  private async handleInsertError(entry: QueuedEntry, error: any): Promise<void> {
+    entry.retries++;
+    
+    if (entry.retries <= this.MAX_RETRIES) {
+      // Exponential backoff with jitter
+      const delay = this.RETRY_DELAY_MS * Math.pow(2, entry.retries - 1) * (0.5 + Math.random() * 0.5);
+      
+      console.warn(`[DecisionLogger] Insert failed, retry ${entry.retries}/${this.MAX_RETRIES} after ${Math.round(delay)}ms:`, error.message);
+      
+      // Re-queue for retry with delay
+      await new Promise(resolve => setTimeout(resolve, delay));
+      this.queue.unshift(entry); // Put back at front to maintain order
+    } else {
+      // Max retries exceeded, drop the entry
+      console.error(`[DecisionLogger] Failed to log after ${this.MAX_RETRIES} retries. Dropping entry for game ${entry.gameId}, turn ${entry.turn}:`, error);
+      this.droppedCount++;
+    }
+  }
+
+  // Query logs with filters (ensures schema exists first)
   public async queryLogs(filters: {
     gameId?: string;
     snakeId?: string;
@@ -139,7 +208,7 @@ export class DecisionLogger {
     offset?: number;
   }): Promise<any[]> {
     try {
-      await this.initialize();
+      await this.initialize(); // Ensure schema exists
       
       let query = 'SELECT * FROM decision_logs WHERE 1=1';
       const values: any[] = [];
@@ -177,7 +246,7 @@ export class DecisionLogger {
         values.push(filters.offset);
       }
       
-      const result = await pool.query(query, values);
+      const result = await this.pool.query(query, values);
       return result.rows;
     } catch (error) {
       console.error('[DecisionLogger] Failed to query logs:', error);
@@ -185,10 +254,10 @@ export class DecisionLogger {
     }
   }
 
-  // Get distinct games
+  // Get distinct games (ensures schema exists first)
   public async getGames(): Promise<{ game_id: string; snake_id: string; snake_name: string; min_turn: number; max_turn: number; count: number; timestamp: string; turns: number }[]> {
     try {
-      await this.initialize();
+      await this.initialize(); // Ensure schema exists
       
       const query = `
         SELECT 
@@ -206,7 +275,7 @@ export class DecisionLogger {
         LIMIT 100
       `;
       
-      const result = await pool.query(query);
+      const result = await this.pool.query(query);
       return result.rows;
     } catch (error) {
       console.error('[DecisionLogger] Failed to get games:', error);
@@ -214,20 +283,48 @@ export class DecisionLogger {
     }
   }
 
-  // Clear old logs (optional cleanup)
+  // Clear old logs (ensures schema exists first)
   public async clearOldLogs(daysToKeep: number = 7): Promise<void> {
     try {
-      await this.initialize();
+      await this.initialize(); // Ensure schema exists
       
       const query = `
         DELETE FROM decision_logs 
         WHERE timestamp < NOW() - INTERVAL '${daysToKeep} days'
       `;
       
-      await pool.query(query);
+      await this.pool.query(query);
       console.log(`[DecisionLogger] Cleared logs older than ${daysToKeep} days`);
     } catch (error) {
       console.error('[DecisionLogger] Failed to clear old logs:', error);
     }
+  }
+
+  // Graceful shutdown - wait for pending logs to complete
+  public async shutdown(): Promise<void> {
+    console.log('[DecisionLogger] Shutting down, flushing queue...');
+    
+    // Wait for the processing chain to complete
+    await this.processingChain;
+    
+    // Process any remaining items
+    while (this.queue.length > 0) {
+      await this.processNextEntry();
+    }
+    
+    if (this.droppedCount > 0) {
+      console.warn(`[DecisionLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
+    }
+    
+    await this.pool.end();
+  }
+  
+  // Get queue stats for monitoring
+  public getQueueStats(): { queueSize: number; droppedCount: number; maxQueueSize: number } {
+    return {
+      queueSize: this.queue.length,
+      droppedCount: this.droppedCount,
+      maxQueueSize: this.MAX_QUEUE_SIZE
+    };
   }
 }

@@ -4,6 +4,7 @@ import { GameState, MoveResponse, SnakeInfoResponse } from './types/battlesnake'
 import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
+import { DecisionLogger } from './logic/decision-logger';
 import logsRouter from './routes/logs';
 
 const app = express();
@@ -102,8 +103,29 @@ app.get('/history', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });
 
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
   console.log(`Visit http://localhost:${port} for snake info`);
   console.log(`Visit http://localhost:${port}/config for configuration`);
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  const logger = DecisionLogger.getInstance();
+  await logger.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  const logger = DecisionLogger.getInstance();
+  await logger.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
