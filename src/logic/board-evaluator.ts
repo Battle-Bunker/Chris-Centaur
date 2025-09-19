@@ -173,13 +173,20 @@ export class BoardEvaluator {
       }
     }
     
-    // Check if we just ate food (health is 100)
-    const justAteFood = ourSnake.health === 100;
+    // Check if we're currently on a food cell (about to eat it) or just ate (tail duplicated)
+    const onFood = board.food.some((f: Coord) => 
+      f.x === ourSnake.head.x && f.y === ourSnake.head.y
+    );
     
-    // Calculate food distance - 0 if just ate, otherwise use BFS
+    // Check if we just ate food (tail segments are duplicated - happens after eating)
+    const justAteFood = ourSnake.body.length >= 2 && 
+      ourSnake.body[ourSnake.body.length - 1].x === ourSnake.body[ourSnake.body.length - 2].x &&
+      ourSnake.body[ourSnake.body.length - 1].y === ourSnake.body[ourSnake.body.length - 2].y;
+    
+    // Calculate food distance - 0 if on food or just ate, otherwise use BFS
     let foodDistance: number;
-    if (justAteFood) {
-      foodDistance = 0; // Just ate food, distance is 0
+    if (onFood || justAteFood) {
+      foodDistance = 0; // Currently on food or just ate
     } else {
       foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
     }
