@@ -6,12 +6,25 @@
 import { GameState, Snake, Coord } from '../types/battlesnake';
 
 export interface HeuristicStats {
-  fertileTerritory: number;  // Territory cells weighted by nearby food
+  // My snake stats
+  myLength: number;           // Our snake's length
+  myTerritory: number;        // Our snake's voronoi territory cells
+  myControlledFood: number;   // Food cells within our voronoi territory
+  
+  // Team stats (includes our snake)
   teamLength: number;         // Combined length of team snakes
+  teamTerritory: number;      // Team voronoi territory cells
+  teamControlledFood: number; // Food cells within team voronoi territory
+  
+  // Distance/proximity metrics
   foodDistance: number;       // Distance to nearest food (1000 if none reachable) - raw unweighted
   foodProximity: number;      // 1/foodDistance or 10 if just ate - this is what gets weighted
+  
+  // Enemy stats
   enemyTerritory: number;     // Enemy controlled territory
   enemyLength: number;        // Combined length of enemy snakes
+  
+  // Life/death tracking
   kills: number;              // Number of enemy snakes that died
   deaths: number;             // Number of team snakes that died (including self)
 }
@@ -24,21 +37,47 @@ export interface BoardEvaluation {
 }
 
 export interface HeuristicWeights {
-  fertileTerritory: number;
+  // My snake weights
+  myLength: number;
+  myTerritory: number;
+  myControlledFood: number;
+  
+  // Team weights
   teamLength: number;
+  teamTerritory: number;
+  teamControlledFood: number;
+  
+  // Distance/proximity weights
   foodProximity: number;      // Weight for food proximity (1/distance)
+  
+  // Enemy weights
   enemyTerritory: number;
   enemyLength: number;
+  
+  // Life/death weights
   kills: number;
   deaths: number;
 }
 
 export interface WeightedScores {
-  fertileScore: number;
+  // My snake weighted scores
+  myLengthScore: number;
+  myTerritoryScore: number;
+  myControlledFoodScore: number;
+  
+  // Team weighted scores
   teamLengthScore: number;
+  teamTerritoryScore: number;
+  teamControlledFoodScore: number;
+  
+  // Distance/proximity weighted scores
   foodProximityScore: number;  // Weighted food proximity score
+  
+  // Enemy weighted scores
   enemyTerritoryScore: number;
   enemyLengthScore: number;
+  
+  // Life/death weighted scores
   killsScore: number;
   deathsScore: number;
 }
@@ -49,13 +88,26 @@ export class BoardEvaluator {
   constructor() {
     // Default weights for each heuristic
     this.weights = {
-      fertileTerritory: 1.0,
-      teamLength: 2.0,
-      foodProximity: 10.0,  // Weight for food proximity (1/distance)
-      enemyTerritory: 0,    // Currently not used but tracked
-      enemyLength: 0,       // Currently not used but tracked
-      kills: 0,             // Currently not used but tracked
-      deaths: -500          // Heavy penalty for death
+      // My snake weights
+      myLength: 10.0,           // High weight for staying alive
+      myTerritory: 1.0,         // Basic territory value
+      myControlledFood: 10.0,   // High value for controlling food
+      
+      // Team weights
+      teamLength: 10.0,         // Increased from 2 to 10 per user request
+      teamTerritory: 1.0,       // Basic territory value
+      teamControlledFood: 10.0, // High value for controlling food
+      
+      // Distance/proximity weights
+      foodProximity: 10.0,      // Weight for food proximity (1/distance)
+      
+      // Enemy weights
+      enemyTerritory: 0,        // Currently not used but tracked
+      enemyLength: 0,           // Currently not used but tracked
+      
+      // Life/death weights
+      kills: 0,                 // Currently not used but tracked
+      deaths: -500              // Heavy penalty for death
     };
   }
   
@@ -87,8 +139,12 @@ export class BoardEvaluator {
     const isDead = !ourSnake || ourSnake.health <= 0;
     if (isDead) {
       return {
-        fertileTerritory: 0,
+        myLength: 0,
+        myTerritory: 0,
+        myControlledFood: 0,
         teamLength: 0,
+        teamTerritory: 0,
+        teamControlledFood: 0,
         foodDistance: 1000,
         foodProximity: 0,
         enemyTerritory: 0,
@@ -98,8 +154,8 @@ export class BoardEvaluator {
       };
     }
     
-    // Calculate fertile territory using Voronoi
-    const territoryData = this.calculateFertileTerritory(gameState, teamSnakeIds);
+    // Calculate voronoi territory and controlled food
+    const territoryData = this.calculateVoronoiTerritory(gameState, teamSnakeIds, ourSnakeId);
     
     // Calculate team and enemy lengths
     let teamLength = 0;
@@ -133,8 +189,12 @@ export class BoardEvaluator {
     }
     
     return {
-      fertileTerritory: territoryData.teamTerritory,
+      myLength: ourSnake.length,
+      myTerritory: territoryData.myTerritory,
+      myControlledFood: territoryData.myControlledFood,
       teamLength,
+      teamTerritory: territoryData.teamTerritory,
+      teamControlledFood: territoryData.teamControlledFood,
       foodDistance,  // Raw unweighted distance
       foodProximity, // 1/distance or 10 if just ate
       enemyTerritory: territoryData.enemyTerritory,
@@ -145,13 +205,16 @@ export class BoardEvaluator {
   }
   
   /**
-   * Calculate fertile territory (Voronoi cells weighted by food).
+   * Calculate voronoi territory and controlled food separately.
    */
-  private calculateFertileTerritory(gameState: GameState, teamSnakeIds: Set<string>): 
-    { teamTerritory: number; enemyTerritory: number } {
+  private calculateVoronoiTerritory(gameState: GameState, teamSnakeIds: Set<string>, ourSnakeId: string): 
+    { myTerritory: number; myControlledFood: number; teamTerritory: number; teamControlledFood: number; enemyTerritory: number } {
     
     const { board } = gameState;
+    let myTerritory = 0;
+    let myControlledFood = 0;
     let teamTerritory = 0;
+    let teamControlledFood = 0;
     let enemyTerritory = 0;
     
     // For each cell on the board
@@ -174,26 +237,26 @@ export class BoardEvaluator {
         }
         
         if (closestSnakeId && minDistance < 1000) {
-          // Calculate cell value (higher if near food)
-          let cellValue = 1;
-          
-          // Add food bonus
+          // Check if this cell has food
           const hasFood = board.food.some((f: Coord) => f.x === x && f.y === y);
-          if (hasFood) {
-            cellValue += 10; // Fertile bonus for food cells
+          
+          // Track territory and food separately
+          if (closestSnakeId === ourSnakeId) {
+            myTerritory += 1;
+            if (hasFood) myControlledFood += 1;
           }
           
-          // Assign to team or enemy
           if (teamSnakeIds.has(closestSnakeId)) {
-            teamTerritory += cellValue;
+            teamTerritory += 1;
+            if (hasFood) teamControlledFood += 1;
           } else {
-            enemyTerritory += cellValue;
+            enemyTerritory += 1;
           }
         }
       }
     }
     
-    return { teamTerritory, enemyTerritory };
+    return { myTerritory, myControlledFood, teamTerritory, teamControlledFood, enemyTerritory };
   }
   
   /**
@@ -312,8 +375,12 @@ export class BoardEvaluator {
    */
   private calculateWeightedScores(stats: HeuristicStats): WeightedScores {
     return {
-      fertileScore: stats.fertileTerritory * this.weights.fertileTerritory,
+      myLengthScore: stats.myLength * this.weights.myLength,
+      myTerritoryScore: stats.myTerritory * this.weights.myTerritory,
+      myControlledFoodScore: stats.myControlledFood * this.weights.myControlledFood,
       teamLengthScore: stats.teamLength * this.weights.teamLength,
+      teamTerritoryScore: stats.teamTerritory * this.weights.teamTerritory,
+      teamControlledFoodScore: stats.teamControlledFood * this.weights.teamControlledFood,
       foodProximityScore: stats.foodProximity * this.weights.foodProximity,
       enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
@@ -326,8 +393,12 @@ export class BoardEvaluator {
    * Calculate total score from weighted scores.
    */
   private calculateTotalScore(weighted: WeightedScores): number {
-    return weighted.fertileScore +
+    return weighted.myLengthScore +
+           weighted.myTerritoryScore +
+           weighted.myControlledFoodScore +
            weighted.teamLengthScore +
+           weighted.teamTerritoryScore +
+           weighted.teamControlledFoodScore +
            weighted.foodProximityScore +
            weighted.enemyTerritoryScore +
            weighted.enemyLengthScore +

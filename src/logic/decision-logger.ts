@@ -15,35 +15,38 @@ export interface DecisionLogEntry {
     score: number;
     numStates: number;
     breakdown?: {
-      foodDistance: number;
-      foodDistanceInverse: number;
-      myTerritory: number;
-      myFoodCount: number;
-      teamTerritory: number;
-      teamFoodCount: number;
-      teamFertileScore: number;
+      // My snake metrics
       myLength: number;
+      myTerritory: number;
+      myControlledFood: number;
+      
+      // Team metrics
       teamLength: number;
-      weights: {
-        foodProximity?: number;     // New field
-        foodDistance?: number;      // Keep for backward compatibility
-        fertileTerritory: number;
-        teamLength: number;
-        enemyTerritory?: number;
-        enemyLength?: number;
-        kills?: number;
-        deaths?: number;
-      };
-      weighted: {
-        foodProximityScore?: number; // New field
-        foodDistanceScore?: number;  // Keep for backward compatibility
-        fertileScore: number;
-        teamLengthScore: number;
-        enemyTerritoryScore?: number;
-        enemyLengthScore?: number;
-        killsScore?: number;
-        deathsScore?: number;
-      };
+      teamTerritory: number;
+      teamControlledFood: number;
+      
+      // Distance/proximity metrics
+      foodDistance: number;
+      foodProximity: number;
+      
+      // Enemy metrics
+      enemyTerritory?: number;
+      enemyLength?: number;
+      
+      // Life/death metrics
+      kills?: number;
+      deaths?: number;
+      
+      // Legacy fields for backward compatibility
+      fertileTerritory?: number;
+      foodDistanceInverse?: number;
+      myFoodCount?: number;
+      teamFoodCount?: number;
+      teamFertileScore?: number;
+      
+      // Weights and weighted scores
+      weights: any;  // Use any for flexibility with old/new formats
+      weighted: any;  // Use any for flexibility with old/new formats
     };
   }[];
   gameState: any;

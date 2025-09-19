@@ -319,8 +319,12 @@ export class DecisionEngine {
     
     // Sum all stats
     const sumStats = {
-      fertileTerritory: 0,
+      myLength: 0,
+      myTerritory: 0,
+      myControlledFood: 0,
       teamLength: 0,
+      teamTerritory: 0,
+      teamControlledFood: 0,
       foodDistance: 0,
       foodProximity: 0,
       enemyTerritory: 0,
@@ -330,8 +334,12 @@ export class DecisionEngine {
     };
     
     const sumWeighted = {
-      fertileScore: 0,
+      myLengthScore: 0,
+      myTerritoryScore: 0,
+      myControlledFoodScore: 0,
       teamLengthScore: 0,
+      teamTerritoryScore: 0,
+      teamControlledFoodScore: 0,
       foodProximityScore: 0,
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
@@ -343,8 +351,12 @@ export class DecisionEngine {
     
     for (const evaluation of evaluations) {
       // Sum stats
-      sumStats.fertileTerritory += evaluation.stats.fertileTerritory;
+      sumStats.myLength += evaluation.stats.myLength;
+      sumStats.myTerritory += evaluation.stats.myTerritory;
+      sumStats.myControlledFood += evaluation.stats.myControlledFood;
       sumStats.teamLength += evaluation.stats.teamLength;
+      sumStats.teamTerritory += evaluation.stats.teamTerritory;
+      sumStats.teamControlledFood += evaluation.stats.teamControlledFood;
       sumStats.foodDistance += evaluation.stats.foodDistance;
       sumStats.foodProximity += evaluation.stats.foodProximity;
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
@@ -353,8 +365,12 @@ export class DecisionEngine {
       sumStats.deaths += evaluation.stats.deaths;
       
       // Sum weighted scores
-      sumWeighted.fertileScore += evaluation.weighted.fertileScore;
+      sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
+      sumWeighted.myTerritoryScore += evaluation.weighted.myTerritoryScore;
+      sumWeighted.myControlledFoodScore += evaluation.weighted.myControlledFoodScore;
       sumWeighted.teamLengthScore += evaluation.weighted.teamLengthScore;
+      sumWeighted.teamTerritoryScore += evaluation.weighted.teamTerritoryScore;
+      sumWeighted.teamControlledFoodScore += evaluation.weighted.teamControlledFoodScore;
       sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
@@ -370,8 +386,12 @@ export class DecisionEngine {
     return {
       score: totalScore / count,
       stats: {
-        fertileTerritory: sumStats.fertileTerritory / count,
+        myLength: sumStats.myLength / count,
+        myTerritory: sumStats.myTerritory / count,
+        myControlledFood: sumStats.myControlledFood / count,
         teamLength: sumStats.teamLength / count,
+        teamTerritory: sumStats.teamTerritory / count,
+        teamControlledFood: sumStats.teamControlledFood / count,
         foodDistance: sumStats.foodDistance / count,
         foodProximity: sumStats.foodProximity / count,
         enemyTerritory: sumStats.enemyTerritory / count,
@@ -381,8 +401,12 @@ export class DecisionEngine {
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
-        fertileScore: sumWeighted.fertileScore / count,
+        myLengthScore: sumWeighted.myLengthScore / count,
+        myTerritoryScore: sumWeighted.myTerritoryScore / count,
+        myControlledFoodScore: sumWeighted.myControlledFoodScore / count,
         teamLengthScore: sumWeighted.teamLengthScore / count,
+        teamTerritoryScore: sumWeighted.teamTerritoryScore / count,
+        teamControlledFoodScore: sumWeighted.teamControlledFoodScore / count,
         foodProximityScore: sumWeighted.foodProximityScore / count,
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,

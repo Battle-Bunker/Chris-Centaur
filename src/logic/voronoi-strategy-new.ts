@@ -69,24 +69,27 @@ export class VoronoiStrategy {
       score: evaluation.averageScore,
       numStates: evaluation.numStates,
       breakdown: {
-        fertileTerritory: evaluation.averageBreakdown.stats.fertileTerritory,
+        // New separate fields  
+        myLength: evaluation.averageBreakdown.stats.myLength,
+        myTerritory: evaluation.averageBreakdown.stats.myTerritory,
+        myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
         teamLength: evaluation.averageBreakdown.stats.teamLength,
+        teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
+        teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
         foodDistance: evaluation.averageBreakdown.stats.foodDistance,
+        foodProximity: evaluation.averageBreakdown.stats.foodProximity,
         enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
         enemyLength: evaluation.averageBreakdown.stats.enemyLength,
         kills: evaluation.averageBreakdown.stats.kills,
         deaths: evaluation.averageBreakdown.stats.deaths,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
-        // Legacy fields for compatibility
-        myTerritory: evaluation.averageBreakdown.stats.fertileTerritory,
-        teamTerritory: evaluation.averageBreakdown.stats.fertileTerritory,
-        teamFertileScore: evaluation.averageBreakdown.stats.fertileTerritory,
-        myLength: evaluation.averageBreakdown.stats.teamLength,
-        foodDistanceInverse: evaluation.averageBreakdown.stats.foodDistance >= 1000 ? 0 : 
-                            1 / (evaluation.averageBreakdown.stats.foodDistance + 1),
-        myFoodCount: 0,
-        teamFoodCount: 0
+        // Legacy fields for compatibility with old logs
+        fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,
+        foodDistanceInverse: evaluation.averageBreakdown.stats.foodProximity,
+        myFoodCount: evaluation.averageBreakdown.stats.myControlledFood,
+        teamFoodCount: evaluation.averageBreakdown.stats.teamControlledFood,
+        teamFertileScore: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10
       }
     }));
     
@@ -138,11 +141,15 @@ export class VoronoiStrategy {
       console.log('│ Component           │  Average │ × Weight │  = Score │');
       console.log('├─────────────────────┼──────────┼──────────┤');
       
-      // Fertile Territory
-      console.log(`│ Fertile Territory   │ ${breakdown.stats.fertileTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.fertileTerritory.toString().padStart(7)} │ ${breakdown.weighted.fertileScore.toFixed(2).padStart(8)} │`);
+      // My Snake Stats
+      console.log(`│ My Length           │ ${breakdown.stats.myLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.myLength.toString().padStart(7)} │ ${breakdown.weighted.myLengthScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ My Territory        │ ${breakdown.stats.myTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.myTerritory.toString().padStart(7)} │ ${breakdown.weighted.myTerritoryScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ My Controlled Food  │ ${breakdown.stats.myControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFood.toString().padStart(7)} │ ${breakdown.weighted.myControlledFoodScore.toFixed(2).padStart(8)} │`);
       
-      // Team Length
+      // Team Stats
       console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ Team Territory      │ ${breakdown.stats.teamTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamTerritory.toString().padStart(7)} │ ${breakdown.weighted.teamTerritoryScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ Team Controlled Food│ ${breakdown.stats.teamControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamControlledFood.toString().padStart(7)} │ ${breakdown.weighted.teamControlledFoodScore.toFixed(2).padStart(8)} │`);
       
       // Food Distance and Proximity
       console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
