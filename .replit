@@ -40,5 +40,5 @@ externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["node", "dist/index.js"]
+run = ["npm", "start"]
 build = ["npm", "run", "build"]
