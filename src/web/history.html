@@ -168,6 +168,7 @@
       display: flex;
       justify-content: center;
       margin-bottom: 15px;
+      position: relative;
     }
     
     #gameCanvas {
@@ -175,6 +176,36 @@
       background: #1a1a1a;
       max-width: 100%;
       height: auto;
+    }
+    
+    /* Clickable overlay for board cells */
+    #boardOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+    
+    .cell-button {
+      position: absolute;
+      background: transparent;
+      border: 2px solid transparent;
+      cursor: pointer;
+      pointer-events: auto;
+      transition: all 0.2s;
+    }
+    
+    .cell-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .cell-button.candidate {
+      border-color: rgba(76, 175, 80, 0.5);
+    }
+    
+    .cell-button.selected {
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.2);
     }
     
     /* Snake Info */
@@ -291,7 +322,7 @@
       transition: all 0.2s;
     }
     
-    .move-button:hover {
+    .move-button:hover:not(:disabled) {
       background: #444;
     }
     
@@ -306,9 +337,40 @@
       font-weight: 600;
     }
     
+    .move-button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    
+    .move-button.not-evaluated {
+      background: #2a2a2a;
+      color: #666;
+    }
+    
+    /* Color coding for move attractiveness */
+    .move-button.best {
+      background: linear-gradient(135deg, #2e7d32, #1b5e20);
+      border-color: #4CAF50;
+    }
+    
+    .move-button.good {
+      background: linear-gradient(135deg, #388e3c, #2e7d32);
+      border-color: #66bb6a;
+    }
+    
+    .move-button.neutral {
+      background: linear-gradient(135deg, #616161, #424242);
+      border-color: #757575;
+    }
+    
+    .move-button.bad {
+      background: linear-gradient(135deg, #d32f2f, #b71c1c);
+      border-color: #f44336;
+    }
+    
     .move-button .score {
       font-size: 12px;
-      color: #888;
+      color: #aaa;
       display: block;
       margin-top: 4px;
     }
@@ -441,6 +503,7 @@
         
         <div class="canvas-wrapper">
           <canvas id="gameCanvas" width="400" height="400"></canvas>
+          <div id="boardOverlay"></div>
         </div>
       </div>
     </div>
@@ -490,11 +553,19 @@
   </div>
   
   <script>
+    // Global state
     let currentGame = null;
     let currentTurn = 0;
     let turnData = [];
     let playInterval = null;
-    let selectedMove = null;
+    
+    // Shared state for move selection
+    let moveState = {
+      selectedMove: null,
+      evaluatedMoves: {},
+      candidateCells: {},
+      safeMoves: []
+    };
     
     // Toggle game list
     function toggleGameList() {
@@ -582,12 +653,84 @@
       }
     }
     
+    // Process move evaluations from array to object
+    function processMoveEvaluations(turn) {
+      moveState.evaluatedMoves = {};
+      moveState.candidateCells = {};
+      moveState.safeMoves = turn.safe_moves || [];
+      
+      if (turn.move_evaluations && Array.isArray(turn.move_evaluations)) {
+        // Convert array to object indexed by direction
+        turn.move_evaluations.forEach(evalData => {
+          moveState.evaluatedMoves[evalData.move] = evalData;
+          
+          // Calculate candidate cell position
+          const head = turn.game_state.you.head;
+          let candidatePos = null;
+          
+          switch(evalData.move) {
+            case 'up': candidatePos = {x: head.x, y: head.y + 1}; break;
+            case 'down': candidatePos = {x: head.x, y: head.y - 1}; break;
+            case 'left': candidatePos = {x: head.x - 1, y: head.y}; break;
+            case 'right': candidatePos = {x: head.x + 1, y: head.y}; break;
+          }
+          
+          if (candidatePos) {
+            const key = `${candidatePos.x},${candidatePos.y}`;
+            moveState.candidateCells[key] = {
+              position: candidatePos,
+              direction: evalData.move,
+              score: evalData.score,
+              isSafe: moveState.safeMoves.includes(evalData.move)
+            };
+          }
+        });
+      }
+    }
+    
+    // Get move quality class based on score
+    function getMoveQuality(score, allScores) {
+      if (score == null || allScores.length === 0) return 'not-evaluated';
+      
+      const maxScore = Math.max(...allScores);
+      const minScore = Math.min(...allScores);
+      const range = maxScore - minScore;
+      
+      if (range === 0) return 'neutral';
+      
+      const normalized = (score - minScore) / range;
+      
+      if (normalized >= 0.8) return 'best';
+      if (normalized >= 0.5) return 'good';
+      if (normalized >= 0.2) return 'neutral';
+      return 'bad';
+    }
+    
+    // Get color for score
+    function getScoreColor(score, allScores) {
+      if (score == null || allScores.length === 0) return 'rgba(100, 100, 100, 0.3)';
+      
+      const maxScore = Math.max(...allScores);
+      const minScore = Math.min(...allScores);
+      const range = maxScore - minScore;
+      
+      if (range === 0) return 'rgba(100, 100, 100, 0.3)';
+      
+      const normalized = (score - minScore) / range;
+      const hue = normalized * 120; // 0 (red) to 120 (green)
+      
+      return `hsla(${hue}, 70%, 50%, 0.3)`;
+    }
+    
     // Render specific turn
     function renderTurn(turnIndex) {
       if (!turnData || turnIndex < 0 || turnIndex >= turnData.length) return;
       
       const turn = turnData[turnIndex];
       currentTurn = turnIndex;
+      
+      // Process move evaluations into shared state
+      processMoveEvaluations(turn);
       
       // Update UI
       document.getElementById('currentTurn').textContent = turn.turn;
@@ -604,7 +747,7 @@
       renderMoveButtons(turn);
       
       // Clear stats table
-      selectedMove = null;
+      moveState.selectedMove = null;
       updateStatsTable(null);
     }
     
@@ -637,6 +780,26 @@
         ctx.moveTo(0, y * cellSize);
         ctx.lineTo(board.width * cellSize, y * cellSize);
         ctx.stroke();
+      }
+      
+      // Draw candidate cells with color coding
+      if (Object.keys(moveState.candidateCells).length > 0) {
+        const allScores = Object.values(moveState.candidateCells).map(c => c.score);
+        
+        for (const [key, cellData] of Object.entries(moveState.candidateCells)) {
+          const x = cellData.position.x * cellSize;
+          const y = (board.height - 1 - cellData.position.y) * cellSize;
+          
+          ctx.fillStyle = getScoreColor(cellData.score, allScores);
+          ctx.fillRect(x, y, cellSize, cellSize);
+          
+          // Highlight selected move's target cell
+          if (moveState.selectedMove === cellData.direction) {
+            ctx.strokeStyle = '#4CAF50';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+          }
+        }
       }
       
       // Draw food
@@ -733,45 +896,59 @@
         }
       });
       
-      // Draw move scores if available and a move is selected
-      if (selectedMove && turn.move_evaluations) {
-        const moves = turn.move_evaluations;
-        const moveData = moves[selectedMove];
+      // Create clickable overlay for candidate cells
+      createBoardOverlay(board, cellSize);
+    }
+    
+    // Create clickable overlay for board cells
+    function createBoardOverlay(board, cellSize) {
+      const overlay = document.getElementById('boardOverlay');
+      const canvas = document.getElementById('gameCanvas');
+      
+      overlay.innerHTML = '';
+      
+      // Use client dimensions for responsive layouts
+      const displayWidth = canvas.clientWidth || canvas.width;
+      const displayHeight = canvas.clientHeight || canvas.height;
+      overlay.style.width = displayWidth + 'px';
+      overlay.style.height = displayHeight + 'px';
+      
+      // Calculate display cell size based on actual display dimensions
+      const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
+      
+      // Create buttons for candidate cells
+      for (const [key, cellData] of Object.entries(moveState.candidateCells)) {
+        const button = document.createElement('button');
+        button.className = 'cell-button';
         
-        if (moveData && moveData.board_scores) {
-          // Find max and min scores for color scaling
-          let maxScore = -Infinity;
-          let minScore = Infinity;
-          
-          for (let y = 0; y < board.height; y++) {
-            for (let x = 0; x < board.width; x++) {
-              const score = moveData.board_scores[y]?.[x];
-              if (score !== undefined && score !== null) {
-                maxScore = Math.max(maxScore, score);
-                minScore = Math.min(minScore, score);
-              }
-            }
-          }
-          
-          // Draw score overlay
-          for (let y = 0; y < board.height; y++) {
-            for (let x = 0; x < board.width; x++) {
-              const score = moveData.board_scores[y]?.[x];
-              if (score !== undefined && score !== null) {
-                const normalized = (score - minScore) / (maxScore - minScore) || 0;
-                const hue = normalized * 120; // 0 (red) to 120 (green)
-                
-                ctx.fillStyle = `hsla(${hue}, 70%, 50%, 0.3)`;
-                ctx.fillRect(
-                  x * cellSize,
-                  (board.height - 1 - y) * cellSize,
-                  cellSize,
-                  cellSize
-                );
-              }
-            }
-          }
+        if (cellData.isSafe) {
+          button.className += ' candidate';
         }
+        
+        if (moveState.selectedMove === cellData.direction) {
+          button.className += ' selected';
+        }
+        
+        // Use display cell size for positioning
+        const x = cellData.position.x * displayCellSize;
+        const y = (board.height - 1 - cellData.position.y) * displayCellSize;
+        
+        button.style.left = x + 'px';
+        button.style.top = y + 'px';
+        button.style.width = displayCellSize + 'px';
+        button.style.height = displayCellSize + 'px';
+        
+        // Only allow clicking safe moves for better UX
+        if (cellData.isSafe) {
+          button.onclick = () => selectMove(cellData.direction);
+          button.title = `${cellData.direction.toUpperCase()} - Score: ${cellData.score != null ? cellData.score.toFixed(2) : 'N/A'}`;
+        } else {
+          button.style.cursor = 'not-allowed';
+          button.style.opacity = '0.3';
+          button.title = `${cellData.direction.toUpperCase()} - UNSAFE`;
+        }
+        
+        overlay.appendChild(button);
       }
     }
     
@@ -804,22 +981,20 @@
       }).join('');
     }
     
-    // Render move buttons
+    // Render move buttons with color coding
     function renderMoveButtons(turn) {
       const container = document.getElementById('moveButtons');
-      const moves = turn.move_evaluations;
-      
-      if (!moves) {
-        container.innerHTML = '<div style="text-align: center; color: #888;">No move data available</div>';
-        return;
-      }
-      
       const moveOrder = ['up', 'down', 'left', 'right'];
+      const allScores = Object.values(moveState.evaluatedMoves)
+        .filter(m => m.score != null)
+        .map(m => m.score);
+      
       container.innerHTML = moveOrder.map(direction => {
-        const moveData = moves[direction];
+        const moveData = moveState.evaluatedMoves[direction];
+        
         if (!moveData) {
           return `
-            <button class="move-button" disabled>
+            <button class="move-button not-evaluated" disabled>
               ${direction.toUpperCase()}
               <span class="score">Not evaluated</span>
             </button>
@@ -827,14 +1002,19 @@
         }
         
         const isChosen = direction === turn.chosen_move;
-        const isSafe = turn.safe_moves && turn.safe_moves.includes(direction);
+        const isSafe = moveState.safeMoves.includes(direction);
+        const quality = getMoveQuality(moveData.score, allScores);
+        
+        let classes = ['move-button', quality];
+        if (isChosen) classes.push('chosen');
+        if (moveState.selectedMove === direction) classes.push('selected');
         
         return `
-          <button class="move-button ${isChosen ? 'chosen' : ''}" 
-                  onclick="selectMove('${direction}')"
-                  style="${!isSafe ? 'opacity: 0.5;' : ''}">
+          <button class="${classes.join(' ')}" 
+                  ${isSafe ? `onclick="selectMove('${direction}')"` : 'disabled'}
+                  ${!isSafe ? 'style="cursor: not-allowed;"' : ''}>
             ${direction.toUpperCase()} ${isChosen ? '✓' : ''}
-            <span class="score">Score: ${moveData.total_score?.toFixed(2) || 'N/A'}</span>
+            <span class="score">Score: ${moveData.score != null ? moveData.score.toFixed(2) : 'N/A'}</span>
           </button>
         `;
       }).join('');
@@ -842,31 +1022,24 @@
     
     // Select a move to show details
     function selectMove(direction) {
-      selectedMove = direction;
+      moveState.selectedMove = direction;
       
-      // Update button states
-      document.querySelectorAll('.move-button').forEach(btn => {
-        btn.classList.remove('selected');
-        if (btn.textContent.toLowerCase().includes(direction)) {
-          btn.classList.add('selected');
-        }
-      });
+      // Re-render to update visuals
+      renderMoveButtons(turnData[currentTurn]);
+      renderBoard(turnData[currentTurn]);
       
       // Update stats table
-      const turn = turnData[currentTurn];
-      if (turn && turn.move_evaluations && turn.move_evaluations[direction]) {
-        updateStatsTable(turn.move_evaluations[direction]);
+      const moveData = moveState.evaluatedMoves[direction];
+      if (moveData && moveData.breakdown) {
+        updateStatsTable(moveData);
       }
-      
-      // Re-render board to show scores
-      renderTurn(currentTurn);
     }
     
     // Update stats table
     function updateStatsTable(moveData) {
       const tbody = document.getElementById('statsTableBody');
       
-      if (!moveData || !moveData.components) {
+      if (!moveData || !moveData.breakdown) {
         tbody.innerHTML = `
           <tr>
             <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
@@ -875,33 +1048,45 @@
         return;
       }
       
-      const components = moveData.components;
+      const breakdown = moveData.breakdown;
       let rows = [];
-      let totalWeighted = 0;
       
-      // Add component rows
-      Object.entries(components).forEach(([key, data]) => {
-        if (key !== 'total' && data) {
-          const weighted = (data.value * data.weight) || 0;
-          totalWeighted += weighted;
-          
-          rows.push(`
-            <tr>
-              <td>${key.replace(/_/g, ' ')}</td>
-              <td>${data.value?.toFixed(3) || '0'}</td>
-              <td>${data.weight?.toFixed(2) || '0'}</td>
-              <td>${weighted.toFixed(3)}</td>
-            </tr>
-          `);
-        }
-      });
+      // Food Distance
+      rows.push(`
+        <tr>
+          <td>Food Distance</td>
+          <td>${breakdown.foodDistance || 'N/A'}</td>
+          <td>${breakdown.weights?.foodDistance || 10}</td>
+          <td>${breakdown.weighted?.foodDistanceScore?.toFixed(3) || '0.000'}</td>
+        </tr>
+      `);
+      
+      // Fertile Territory
+      rows.push(`
+        <tr>
+          <td>Fertile Territory</td>
+          <td>${breakdown.teamFertileScore || breakdown.myTerritory || 0}</td>
+          <td>${breakdown.weights?.fertileTerritory || 1}</td>
+          <td>${breakdown.weighted?.fertileScore?.toFixed(3) || '0.000'}</td>
+        </tr>
+      `);
+      
+      // Team Length
+      rows.push(`
+        <tr>
+          <td>Team Length</td>
+          <td>${breakdown.teamLength || breakdown.myLength || 0}</td>
+          <td>${breakdown.weights?.teamLength || 2}</td>
+          <td>${breakdown.weighted?.teamLengthScore?.toFixed(3) || '0.000'}</td>
+        </tr>
+      `);
       
       // Add total row
       rows.push(`
         <tr class="total-row">
           <td>Total Score</td>
-          <td colspan="2">States: ${moveData.states_evaluated || 0}</td>
-          <td>${moveData.total_score?.toFixed(3) || totalWeighted.toFixed(3)}</td>
+          <td colspan="2">States: ${moveData.numStates || 1}</td>
+          <td>${moveData.score?.toFixed(3) || '0.000'}</td>
         </tr>
       `);
       
