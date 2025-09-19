@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { GameState, MoveResponse, SnakeInfoResponse } from './types/battlesnake';
-import { VoronoiStrategy } from './logic/voronoi-strategy';
+import { VoronoiStrategy } from './logic/voronoi-strategy-new';
 import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
 import { DecisionLogger } from './logic/decision-logger';
