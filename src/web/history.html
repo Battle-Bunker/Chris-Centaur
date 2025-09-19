@@ -562,7 +562,7 @@
     }
     
     // Fetch and display games
-    async function loadGames() {
+    async function loadGames(autoLoadMostRecent = true) {
       try {
         const response = await fetch('/api/logs/games');
         const games = await response.json();
@@ -590,6 +590,12 @@
             </div>
           `;
         }).join('');
+        
+        // Automatically load the most recent game if requested
+        if (autoLoadMostRecent && games.length > 0) {
+          const mostRecent = games[0]; // Games are already sorted by timestamp DESC
+          loadGame(mostRecent.game_id, mostRecent.snake_id, mostRecent.snake_name || 'Unknown');
+        }
       } catch (error) {
         console.error('Error loading games:', error);
       }
