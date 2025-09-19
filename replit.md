@@ -36,6 +36,30 @@ Preferred communication style: Simple, everyday language.
 
 Remember: A change isn't complete until it works in the user-facing UI, not just in the logs!
 
+## Known Replit Platform Issues
+
+### Broken run_test Tool (Beta) - Critical Testing Limitation
+
+**Issue**: The Replit run_test tool for browser-based UI testing is fundamentally broken and cannot be used reliably.
+
+**Observed Behavior**:
+- Tool appears temporarily when app testing is toggled on/off but disappears immediately on subsequent conversation turns
+- Even when present in the tool list, attempting to invoke it fails silently or with errors
+- Tool injection appears to happen only on the exact turn when app testing is toggled, not persisting beyond that
+- System prompt continues to reference the tool even when it's not available in the actual tool set
+- Switching between Plan/Build modes does not restore the tool
+- Disabling "high power mode" does not fix the issue
+
+**Workaround Policy**: 
+- **DO NOT attempt to use run_test tool** - it will waste time and credits
+- **For UI testing of the Game History viewer**: Request manual screenshots from the user
+- **Required screenshots for validation**:
+  1. Game History viewer with a recent game loaded showing the decision breakdown
+  2. Verification that new fields (My Territory, My Controlled Food) display correctly
+  3. Confirmation that weighted scores calculate and display properly
+  4. Check that totals add up correctly in the UI
+- **Always ask user for manual testing** before declaring success on any UI-affecting changes
+
 ## System Architecture
 
 ### Backend Framework
