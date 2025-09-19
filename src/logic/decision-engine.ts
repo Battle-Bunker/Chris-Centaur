@@ -26,6 +26,24 @@ export interface DecisionConfig {
   timeoutMs: number;
   nearbyDistance: number;  // Distance to consider a snake "nearby" for full enumeration
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
+  weights?: {
+    // My snake weights
+    myLength?: number;
+    myTerritory?: number;
+    myControlledFood?: number;
+    // Team weights
+    teamLength?: number;
+    teamTerritory?: number;
+    teamControlledFood?: number;
+    // Distance/proximity weights
+    foodProximity?: number;
+    // Enemy weights
+    enemyTerritory?: number;
+    enemyLength?: number;
+    // Life/death weights
+    kills?: number;
+    deaths?: number;
+  };
 }
 
 export class DecisionEngine {
@@ -44,7 +62,7 @@ export class DecisionEngine {
     };
     
     this.moveAnalyzer = new MoveAnalyzer(this.config.tailSafetyRule);
-    this.boardEvaluator = new BoardEvaluator();
+    this.boardEvaluator = new BoardEvaluator(this.config.weights);
     this.simulator = new Simulator();
   }
   

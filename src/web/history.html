@@ -1127,7 +1127,7 @@
           name: 'Food Proximity',
           value: breakdown.foodProximity !== undefined ? breakdown.foodProximity.toFixed(3) : 
                  (breakdown.foodDistanceInverse !== undefined ? breakdown.foodDistanceInverse.toFixed(3) : '0.000'),
-          weight: breakdown.weights?.foodProximity ?? 10,
+          weight: breakdown.weights?.foodProximity ?? 50,
           weightedScore: breakdown.weighted?.foodProximityScore ?? 0
         },
         // Enemy stats

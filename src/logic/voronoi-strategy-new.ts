@@ -14,21 +14,53 @@ export class VoronoiStrategy {
   private teamDetector: TeamDetector;
   
   constructor() {
+    // Get weights from environment variables or use defaults
+    const weights = {
+      myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
+      myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
+      myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+      teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
+      teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
+      teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
+      foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
+      enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
+      enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
+      kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
+      deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
+    };
+    
     this.decisionEngine = new DecisionEngine({
       maxSimulationDepth: 1,
       timeoutMs: 400,
-      nearbyDistance: 3
+      nearbyDistance: 3,
+      weights
     });
     this.decisionLogger = DecisionLogger.getInstance();
     this.teamDetector = new TeamDetector();
   }
   
   setConfig(config: Partial<SimulationConfig>) {
+    // Get weights from environment variables or use defaults
+    const weights = {
+      myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
+      myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
+      myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+      teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
+      teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
+      teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
+      foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
+      enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
+      enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
+      kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
+      deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
+    };
+    
     // Update decision engine config
     this.decisionEngine = new DecisionEngine({
       maxSimulationDepth: 1,
       timeoutMs: config.maxEvaluationTimeMs || 400,
-      nearbyDistance: config.maxDistance || 3
+      nearbyDistance: config.maxDistance || 3,
+      weights
     });
   }
   

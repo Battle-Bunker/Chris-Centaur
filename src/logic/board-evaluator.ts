@@ -85,8 +85,8 @@ export interface WeightedScores {
 export class BoardEvaluator {
   private weights: HeuristicWeights;
   
-  constructor() {
-    // Default weights for each heuristic
+  constructor(weights?: Partial<HeuristicWeights>) {
+    // Default weights for each heuristic (can be overridden)
     this.weights = {
       // My snake weights
       myLength: 10.0,           // High weight for staying alive
@@ -94,12 +94,12 @@ export class BoardEvaluator {
       myControlledFood: 10.0,   // High value for controlling food
       
       // Team weights
-      teamLength: 10.0,         // Increased from 2 to 10 per user request
+      teamLength: 10.0,         // Team coordination value
       teamTerritory: 1.0,       // Basic territory value
       teamControlledFood: 10.0, // High value for controlling food
       
       // Distance/proximity weights
-      foodProximity: 10.0,      // Weight for food proximity (1/distance)
+      foodProximity: 50.0,      // Increased weight for food proximity (1/distance)
       
       // Enemy weights
       enemyTerritory: 0,        // Currently not used but tracked
@@ -107,7 +107,10 @@ export class BoardEvaluator {
       
       // Life/death weights
       kills: 0,                 // Currently not used but tracked
-      deaths: -500              // Heavy penalty for death
+      deaths: -500,             // Heavy penalty for death
+      
+      // Override with provided weights
+      ...weights
     };
   }
   
@@ -170,22 +173,23 @@ export class BoardEvaluator {
       }
     }
     
-    // Calculate food distance using BFS
-    const foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
+    // Check if we just ate food (health is 100)
+    const justAteFood = ourSnake.health === 100;
     
-    // Check if we just ate food (on a food cell now)
-    const justAteFood = board.food.some((f: Coord) => 
-      f.x === ourSnake.head.x && f.y === ourSnake.head.y
-    );
-    
-    // Calculate food proximity
-    let foodProximity: number;
+    // Calculate food distance - 0 if just ate, otherwise use BFS
+    let foodDistance: number;
     if (justAteFood) {
-      foodProximity = 10; // Special case: just ate food
-    } else if (foodDistance >= 1000) {
+      foodDistance = 0; // Just ate food, distance is 0
+    } else {
+      foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
+    }
+    
+    // Calculate food proximity using consistent formula
+    let foodProximity: number;
+    if (foodDistance >= 1000) {
       foodProximity = 0; // No reachable food
     } else {
-      foodProximity = 1 / (foodDistance + 1); // Normal proximity calculation
+      foodProximity = 1 / (foodDistance + 1); // Consistent proximity calculation
     }
     
     return {
