@@ -204,8 +204,8 @@
     }
     
     .cell-button.selected {
-      border-color: #4CAF50;
-      background: rgba(76, 175, 80, 0.2);
+      border-color: #9C27B0; /* Purple for selection */
+      background: rgba(156, 39, 176, 0.2); /* Purple background */
     }
     
     /* Snake Info */
@@ -328,7 +328,7 @@
     
     .move-button.selected {
       background: #3a4a5a;
-      border-color: #4CAF50;
+      border-color: #9C27B0; /* Purple for selection */
     }
     
     .move-button.chosen {
@@ -560,10 +560,10 @@
     let playInterval = null;
     
     // Shared state for move selection
+    // Unified move state tracking
     let moveState = {
       selectedMove: null,
-      evaluatedMoves: {},
-      candidateCells: {},
+      moves: {}, // Single source of truth for all move data
       safeMoves: []
     };
     
@@ -653,39 +653,69 @@
       }
     }
     
-    // Process move evaluations from array to object
+    // Process and unify all move data in a single state
     function processMoveEvaluations(turn) {
-      moveState.evaluatedMoves = {};
-      moveState.candidateCells = {};
+      moveState.moves = {};
       moveState.safeMoves = turn.safe_moves || [];
       
+      const head = turn.game_state.you.head;
+      const directions = ['up', 'down', 'left', 'right'];
+      const evaluationsMap = {};
+      
+      // First, map evaluations by direction
       if (turn.move_evaluations && Array.isArray(turn.move_evaluations)) {
-        // Convert array to object indexed by direction
         turn.move_evaluations.forEach(evalData => {
-          moveState.evaluatedMoves[evalData.move] = evalData;
-          
-          // Calculate candidate cell position
-          const head = turn.game_state.you.head;
-          let candidatePos = null;
-          
-          switch(evalData.move) {
-            case 'up': candidatePos = {x: head.x, y: head.y + 1}; break;
-            case 'down': candidatePos = {x: head.x, y: head.y - 1}; break;
-            case 'left': candidatePos = {x: head.x - 1, y: head.y}; break;
-            case 'right': candidatePos = {x: head.x + 1, y: head.y}; break;
-          }
-          
-          if (candidatePos) {
-            const key = `${candidatePos.x},${candidatePos.y}`;
-            moveState.candidateCells[key] = {
-              position: candidatePos,
-              direction: evalData.move,
-              score: evalData.score,
-              isSafe: moveState.safeMoves.includes(evalData.move)
-            };
-          }
+          evaluationsMap[evalData.move] = evalData;
         });
       }
+      
+      // Build unified move data for all directions
+      directions.forEach(direction => {
+        let candidatePos = null;
+        switch(direction) {
+          case 'up': candidatePos = {x: head.x, y: head.y + 1}; break;
+          case 'down': candidatePos = {x: head.x, y: head.y - 1}; break;
+          case 'left': candidatePos = {x: head.x - 1, y: head.y}; break;
+          case 'right': candidatePos = {x: head.x + 1, y: head.y}; break;
+        }
+        
+        const isSafe = moveState.safeMoves.includes(direction);
+        const evalData = evaluationsMap[direction];
+        
+        // Create unified move data
+        moveState.moves[direction] = {
+          direction: direction,
+          position: candidatePos,
+          positionKey: candidatePos ? `${candidatePos.x},${candidatePos.y}` : null,
+          isSafe: isSafe,
+          isChosen: direction === turn.chosen_move,
+          isEvaluated: !!evalData,
+          score: evalData?.score ?? null,
+          breakdown: evalData?.breakdown ?? null,
+          numStates: evalData?.numStates ?? null,
+          // For safe moves without evaluation, use a minimal score
+          // This ensures they're still visible/selectable
+          displayScore: evalData?.score ?? (isSafe ? 0 : null),
+          quality: null, // Will be calculated after all moves are processed
+          color: null // Will be calculated after all moves are processed
+        };
+      });
+      
+      // Calculate quality and colors based on scores
+      const scoredMoves = Object.values(moveState.moves)
+        .filter(m => m.displayScore != null);
+      const allScores = scoredMoves.map(m => m.displayScore);
+      
+      // Assign quality and color to each move
+      Object.values(moveState.moves).forEach(move => {
+        if (move.displayScore != null && allScores.length > 0) {
+          move.quality = getMoveQuality(move.displayScore, allScores);
+          move.color = getScoreColor(move.displayScore, allScores);
+        } else {
+          move.quality = 'not-evaluated';
+          move.color = 'rgba(100, 100, 100, 0.3)';
+        }
+      });
     }
     
     // Get move quality class based on score
@@ -782,25 +812,24 @@
         ctx.stroke();
       }
       
-      // Draw candidate cells with color coding
-      if (Object.keys(moveState.candidateCells).length > 0) {
-        const allScores = Object.values(moveState.candidateCells).map(c => c.score);
-        
-        for (const [key, cellData] of Object.entries(moveState.candidateCells)) {
-          const x = cellData.position.x * cellSize;
-          const y = (board.height - 1 - cellData.position.y) * cellSize;
+      // Draw candidate cells with unified color coding
+      Object.values(moveState.moves).forEach(move => {
+        if (move.position && (move.isSafe || move.isEvaluated)) {
+          const x = move.position.x * cellSize;
+          const y = (board.height - 1 - move.position.y) * cellSize;
           
-          ctx.fillStyle = getScoreColor(cellData.score, allScores);
+          // Use the pre-calculated color from unified state
+          ctx.fillStyle = move.color;
           ctx.fillRect(x, y, cellSize, cellSize);
           
-          // Highlight selected move's target cell
-          if (moveState.selectedMove === cellData.direction) {
-            ctx.strokeStyle = '#4CAF50';
+          // Purple outline for selected move (distinct from green quality)
+          if (moveState.selectedMove === move.direction) {
+            ctx.strokeStyle = '#9C27B0'; // Purple
             ctx.lineWidth = 3;
             ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
           }
         }
-      }
+      })
       
       // Draw food
       ctx.fillStyle = '#ff6b6b';
@@ -900,7 +929,7 @@
       createBoardOverlay(board, cellSize);
     }
     
-    // Create clickable overlay for board cells
+    // Create clickable overlay for board cells using unified state
     function createBoardOverlay(board, cellSize) {
       const overlay = document.getElementById('boardOverlay');
       const canvas = document.getElementById('gameCanvas');
@@ -916,40 +945,43 @@
       // Calculate display cell size based on actual display dimensions
       const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
       
-      // Create buttons for candidate cells
-      for (const [key, cellData] of Object.entries(moveState.candidateCells)) {
+      // Create buttons from unified move state
+      Object.values(moveState.moves).forEach(move => {
+        if (!move.position || (!move.isSafe && !move.isEvaluated)) return;
+        
         const button = document.createElement('button');
         button.className = 'cell-button';
         
-        if (cellData.isSafe) {
+        if (move.isSafe) {
           button.className += ' candidate';
         }
         
-        if (moveState.selectedMove === cellData.direction) {
+        if (moveState.selectedMove === move.direction) {
           button.className += ' selected';
         }
         
         // Use display cell size for positioning
-        const x = cellData.position.x * displayCellSize;
-        const y = (board.height - 1 - cellData.position.y) * displayCellSize;
+        const x = move.position.x * displayCellSize;
+        const y = (board.height - 1 - move.position.y) * displayCellSize;
         
         button.style.left = x + 'px';
         button.style.top = y + 'px';
         button.style.width = displayCellSize + 'px';
         button.style.height = displayCellSize + 'px';
         
-        // Only allow clicking safe moves for better UX
-        if (cellData.isSafe) {
-          button.onclick = () => selectMove(cellData.direction);
-          button.title = `${cellData.direction.toUpperCase()} - Score: ${cellData.score != null ? cellData.score.toFixed(2) : 'N/A'}`;
+        // Only allow clicking safe or evaluated moves
+        if (move.isSafe || move.isEvaluated) {
+          button.onclick = () => selectMove(move.direction);
+          const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
+          button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
         } else {
           button.style.cursor = 'not-allowed';
           button.style.opacity = '0.3';
-          button.title = `${cellData.direction.toUpperCase()} - UNSAFE`;
+          button.title = `${move.direction.toUpperCase()} - UNSAFE`;
         }
         
         overlay.appendChild(button);
-      }
+      });
     }
     
     // Render snake info below board
@@ -981,40 +1013,30 @@
       }).join('');
     }
     
-    // Render move buttons with color coding
+    // Render move buttons using unified state
     function renderMoveButtons(turn) {
       const container = document.getElementById('moveButtons');
       const moveOrder = ['up', 'down', 'left', 'right'];
-      const allScores = Object.values(moveState.evaluatedMoves)
-        .filter(m => m.score != null)
-        .map(m => m.score);
       
       container.innerHTML = moveOrder.map(direction => {
-        const moveData = moveState.evaluatedMoves[direction];
+        const move = moveState.moves[direction];
+        if (!move) return '';
         
-        if (!moveData) {
-          return `
-            <button class="move-button not-evaluated" disabled>
-              ${direction.toUpperCase()}
-              <span class="score">Not evaluated</span>
-            </button>
-          `;
-        }
-        
-        const isChosen = direction === turn.chosen_move;
-        const isSafe = moveState.safeMoves.includes(direction);
-        const quality = getMoveQuality(moveData.score, allScores);
-        
-        let classes = ['move-button', quality];
-        if (isChosen) classes.push('chosen');
+        let classes = ['move-button', move.quality];
+        if (move.isChosen) classes.push('chosen');
         if (moveState.selectedMove === direction) classes.push('selected');
+        
+        const canInteract = move.isSafe || move.isEvaluated;
+        const scoreText = move.score != null ? 
+          `Score: ${move.score.toFixed(2)}` : 
+          (move.isSafe ? 'Score: 0.00' : 'Not evaluated');
         
         return `
           <button class="${classes.join(' ')}" 
-                  ${isSafe ? `onclick="selectMove('${direction}')"` : 'disabled'}
-                  ${!isSafe ? 'style="cursor: not-allowed;"' : ''}>
-            ${direction.toUpperCase()} ${isChosen ? '✓' : ''}
-            <span class="score">Score: ${moveData.score != null ? moveData.score.toFixed(2) : 'N/A'}</span>
+                  ${canInteract ? `onclick="selectMove('${direction}')"` : 'disabled'}
+                  ${!canInteract ? 'style="cursor: not-allowed;"' : ''}>
+            ${direction.toUpperCase()} ${move.isChosen ? '✓' : ''}
+            <span class="score">${scoreText}</span>
           </button>
         `;
       }).join('');
@@ -1029,17 +1051,17 @@
       renderBoard(turnData[currentTurn]);
       
       // Update stats table
-      const moveData = moveState.evaluatedMoves[direction];
-      if (moveData && moveData.breakdown) {
-        updateStatsTable(moveData);
+      const move = moveState.moves[direction];
+      if (move) {
+        updateStatsTable(move);
       }
     }
     
     // Update stats table
-    function updateStatsTable(moveData) {
+    function updateStatsTable(move) {
       const tbody = document.getElementById('statsTableBody');
       
-      if (!moveData || !moveData.breakdown) {
+      if (!move || !move.breakdown) {
         tbody.innerHTML = `
           <tr>
             <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
@@ -1048,45 +1070,80 @@
         return;
       }
       
-      const breakdown = moveData.breakdown;
-      let rows = [];
+      const breakdown = move.breakdown;
+      let metrics = [];
       
-      // Food Distance
-      rows.push(`
-        <tr>
-          <td>Food Distance</td>
-          <td>${breakdown.foodDistance || 'N/A'}</td>
-          <td>${breakdown.weights?.foodDistance || 10}</td>
-          <td>${breakdown.weighted?.foodDistanceScore?.toFixed(3) || '0.000'}</td>
-        </tr>
-      `);
+      // Define all metrics with their values, weights, and weighted scores
+      const metricsConfig = [
+        {
+          name: 'Fertile Territory',
+          value: breakdown.teamFertileScore ?? breakdown.myTerritory ?? breakdown.fertileTerritory ?? 0,
+          weight: breakdown.weights?.fertileTerritory ?? 1,
+          weightedScore: breakdown.weighted?.fertileScore ?? 0
+        },
+        {
+          name: 'Team Length',
+          value: breakdown.teamLength ?? breakdown.myLength ?? 0,
+          weight: breakdown.weights?.teamLength ?? 2,
+          weightedScore: breakdown.weighted?.teamLengthScore ?? 0
+        },
+        {
+          name: 'Food Distance',
+          value: breakdown.foodDistance ?? 'N/A',
+          weight: breakdown.weights?.foodDistance ?? 10,
+          weightedScore: breakdown.weighted?.foodDistanceScore ?? 0
+        },
+        {
+          name: 'Enemy Territory',
+          value: breakdown.enemyTerritory ?? 0,
+          weight: breakdown.weights?.enemyTerritory ?? 0,
+          weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0
+        },
+        {
+          name: 'Enemy Length',
+          value: breakdown.enemyLength ?? 0,
+          weight: breakdown.weights?.enemyLength ?? 0,
+          weightedScore: breakdown.weighted?.enemyLengthScore ?? 0
+        },
+        {
+          name: 'Kills',
+          value: breakdown.kills ?? 0,
+          weight: breakdown.weights?.kills ?? 0,
+          weightedScore: breakdown.weighted?.killsScore ?? 0
+        },
+        {
+          name: 'Deaths',
+          value: breakdown.deaths ?? 0,
+          weight: breakdown.weights?.deaths ?? 0,
+          weightedScore: breakdown.weighted?.deathsScore ?? 0
+        }
+      ];
       
-      // Fertile Territory
-      rows.push(`
-        <tr>
-          <td>Fertile Territory</td>
-          <td>${breakdown.teamFertileScore || breakdown.myTerritory || 0}</td>
-          <td>${breakdown.weights?.fertileTerritory || 1}</td>
-          <td>${breakdown.weighted?.fertileScore?.toFixed(3) || '0.000'}</td>
-        </tr>
-      `);
+      // Sort by weighted score descending
+      metricsConfig.sort((a, b) => b.weightedScore - a.weightedScore);
       
-      // Team Length
-      rows.push(`
-        <tr>
-          <td>Team Length</td>
-          <td>${breakdown.teamLength || breakdown.myLength || 0}</td>
-          <td>${breakdown.weights?.teamLength || 2}</td>
-          <td>${breakdown.weighted?.teamLengthScore?.toFixed(3) || '0.000'}</td>
-        </tr>
-      `);
+      // Build rows
+      let rows = metricsConfig.map(metric => {
+        const weightDisplay = metric.weight > 0 ? metric.weight : '';
+        const scoreDisplay = metric.weightedScore > 0 ? metric.weightedScore.toFixed(3) : 
+                           (metric.weight > 0 ? '0.000' : '');
+        
+        return `
+          <tr>
+            <td>${metric.name}</td>
+            <td>${metric.value}</td>
+            <td>${weightDisplay}</td>
+            <td>${scoreDisplay}</td>
+          </tr>
+        `;
+      });
       
       // Add total row
       rows.push(`
         <tr class="total-row">
           <td>Total Score</td>
-          <td colspan="2">States: ${moveData.numStates || 1}</td>
-          <td>${moveData.score?.toFixed(3) || '0.000'}</td>
+          <td colspan="2">States: ${move.numStates || 1}</td>
+          <td>${move.score?.toFixed(3) || '0.000'}</td>
         </tr>
       `);
       
