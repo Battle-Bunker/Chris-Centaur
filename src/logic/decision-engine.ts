@@ -65,15 +65,16 @@ export class DecisionEngine {
     }
     
     if (ourMoves.length === 1) {
-      // Only one move available
+      // Only one move available - still evaluate it properly
+      const evaluation = this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds);
       return {
         move: ourMoves[0],
         candidateMoves: ourMoves,
         evaluations: [{
           move: ourMoves[0],
-          averageScore: 0,
+          averageScore: evaluation.score,  // Use actual score, not 0!
           numStates: 1,
-          averageBreakdown: this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds)
+          averageBreakdown: evaluation
         }]
       };
     }

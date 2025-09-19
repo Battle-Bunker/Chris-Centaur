@@ -297,8 +297,11 @@
     
     .move-buttons {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
       gap: 10px;
+      max-width: 300px;
+      margin: 0 auto;
     }
     
     .move-button {
@@ -318,9 +321,11 @@
     }
     
     .move-button.selected {
-      background: rgba(156, 39, 176, 0.2); /* Purple tinted background */
-      border: 3px solid #9C27B0; /* Purple border for selection */
-      box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); /* Purple glow */
+      background: rgba(156, 39, 176, 0.2) !important; /* Purple tinted background */
+      border: 5px solid #9C27B0 !important; /* Thicker purple border for selection */
+      box-shadow: 0 0 15px rgba(156, 39, 176, 0.8), inset 0 0 10px rgba(156, 39, 176, 0.3) !important; /* Enhanced glow */
+      z-index: 10;
+      position: relative;
     }
     
     .move-button.chosen {
@@ -339,26 +344,8 @@
       color: #666;
     }
     
-    /* Color coding for move attractiveness */
-    .move-button.best {
-      background: linear-gradient(135deg, #2e7d32, #1b5e20);
-      border-color: #4CAF50;
-    }
-    
-    .move-button.good {
-      background: linear-gradient(135deg, #388e3c, #2e7d32);
-      border-color: #66bb6a;
-    }
-    
-    .move-button.neutral {
-      background: linear-gradient(135deg, #616161, #424242);
-      border-color: #757575;
-    }
-    
-    .move-button.bad {
-      background: linear-gradient(135deg, #d32f2f, #b71c1c);
-      border-color: #f44336;
-    }
+    /* Color coding for move attractiveness - removed, using dynamic colors */
+    /* Quality classes now use dynamic HSL colors from getScoreColor */
     
     .move-button .score {
       font-size: 12px;
@@ -728,7 +715,7 @@
       return 'bad';
     }
     
-    // Get color for score
+    // Get color for score - using red to green spectrum via orange and yellow
     function getScoreColor(score, allScores) {
       if (score == null || allScores.length === 0) return 'rgba(100, 100, 100, 0.3)';
       
@@ -736,7 +723,12 @@
       const minScore = Math.min(...allScores);
       const range = maxScore - minScore;
       
-      if (range === 0) return 'rgba(100, 100, 100, 0.3)';
+      // Special case: single evaluated move or no range
+      if (range === 0 || allScores.length === 1) {
+        // For single move, use yellow/green based on absolute score
+        const hue = score > 0 ? 90 : (score < 0 ? 0 : 60);
+        return `hsla(${hue}, 70%, 50%, 0.3)`;
+      }
       
       const normalized = (score - minScore) / range;
       const hue = normalized * 120; // 0 (red) to 120 (green)
@@ -1005,16 +997,25 @@
       }).join('');
     }
     
-    // Render move buttons using unified state
+    // Render move buttons using unified state with keyboard layout
     function renderMoveButtons(turn) {
       const container = document.getElementById('moveButtons');
-      const moveOrder = ['up', 'down', 'left', 'right'];
       
-      container.innerHTML = moveOrder.map(direction => {
+      // Keyboard-style layout: up on top row middle, left/down/right on bottom
+      const buttonLayout = [
+        null, 'up', null,    // Top row
+        'left', 'down', 'right'  // Bottom row
+      ];
+      
+      container.innerHTML = buttonLayout.map(direction => {
+        if (!direction) {
+          return '<div style="grid-column: span 1;"></div>'; // Empty spacer
+        }
+        
         const move = moveState.moves[direction];
         if (!move) return '';
         
-        let classes = ['move-button', move.quality];
+        let classes = ['move-button'];
         if (move.isChosen) classes.push('chosen');
         if (moveState.selectedMove === direction) classes.push('selected');
         
@@ -1023,10 +1024,14 @@
           `Score: ${move.score.toFixed(2)}` : 
           (move.isSafe ? 'Score: 0.00' : 'Not evaluated');
         
+        // Use the same color calculation as cells
+        const bgColor = move.color || 'rgba(100, 100, 100, 0.3)';
+        const solidColor = bgColor.replace('0.3)', '0.8)'); // More opaque for buttons
+        
         return `
           <button class="${classes.join(' ')}" 
                   ${canInteract ? `onclick="selectMove('${direction}')"` : 'disabled'}
-                  ${!canInteract ? 'style="cursor: not-allowed;"' : ''}>
+                  style="background: ${solidColor}; ${!canInteract ? 'cursor: not-allowed;' : ''}">
             ${direction.toUpperCase()} ${move.isChosen ? '✓' : ''}
             <span class="score">${scoreText}</span>
           </button>
