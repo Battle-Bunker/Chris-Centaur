@@ -322,6 +322,7 @@ export class DecisionEngine {
       fertileTerritory: 0,
       teamLength: 0,
       foodDistance: 0,
+      foodProximity: 0,
       enemyTerritory: 0,
       enemyLength: 0,
       kills: 0,
@@ -331,7 +332,7 @@ export class DecisionEngine {
     const sumWeighted = {
       fertileScore: 0,
       teamLengthScore: 0,
-      foodDistanceScore: 0,
+      foodProximityScore: 0,
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
       killsScore: 0,
@@ -345,6 +346,7 @@ export class DecisionEngine {
       sumStats.fertileTerritory += evaluation.stats.fertileTerritory;
       sumStats.teamLength += evaluation.stats.teamLength;
       sumStats.foodDistance += evaluation.stats.foodDistance;
+      sumStats.foodProximity += evaluation.stats.foodProximity;
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
       sumStats.enemyLength += evaluation.stats.enemyLength;
       sumStats.kills += evaluation.stats.kills;
@@ -353,7 +355,7 @@ export class DecisionEngine {
       // Sum weighted scores
       sumWeighted.fertileScore += evaluation.weighted.fertileScore;
       sumWeighted.teamLengthScore += evaluation.weighted.teamLengthScore;
-      sumWeighted.foodDistanceScore += evaluation.weighted.foodDistanceScore;
+      sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
       sumWeighted.killsScore += evaluation.weighted.killsScore;
@@ -371,6 +373,7 @@ export class DecisionEngine {
         fertileTerritory: sumStats.fertileTerritory / count,
         teamLength: sumStats.teamLength / count,
         foodDistance: sumStats.foodDistance / count,
+        foodProximity: sumStats.foodProximity / count,
         enemyTerritory: sumStats.enemyTerritory / count,
         enemyLength: sumStats.enemyLength / count,
         kills: sumStats.kills / count,
@@ -380,7 +383,7 @@ export class DecisionEngine {
       weighted: {
         fertileScore: sumWeighted.fertileScore / count,
         teamLengthScore: sumWeighted.teamLengthScore / count,
-        foodDistanceScore: sumWeighted.foodDistanceScore / count,
+        foodProximityScore: sumWeighted.foodProximityScore / count,
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
         killsScore: sumWeighted.killsScore / count,

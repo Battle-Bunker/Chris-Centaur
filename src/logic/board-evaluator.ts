@@ -8,7 +8,8 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 export interface HeuristicStats {
   fertileTerritory: number;  // Territory cells weighted by nearby food
   teamLength: number;         // Combined length of team snakes
-  foodDistance: number;       // Distance to nearest food (1000 if none reachable)
+  foodDistance: number;       // Distance to nearest food (1000 if none reachable) - raw unweighted
+  foodProximity: number;      // 1/foodDistance or 10 if just ate - this is what gets weighted
   enemyTerritory: number;     // Enemy controlled territory
   enemyLength: number;        // Combined length of enemy snakes
   kills: number;              // Number of enemy snakes that died
@@ -25,7 +26,7 @@ export interface BoardEvaluation {
 export interface HeuristicWeights {
   fertileTerritory: number;
   teamLength: number;
-  foodDistance: number;
+  foodProximity: number;      // Weight for food proximity (1/distance)
   enemyTerritory: number;
   enemyLength: number;
   kills: number;
@@ -35,7 +36,7 @@ export interface HeuristicWeights {
 export interface WeightedScores {
   fertileScore: number;
   teamLengthScore: number;
-  foodDistanceScore: number;
+  foodProximityScore: number;  // Weighted food proximity score
   enemyTerritoryScore: number;
   enemyLengthScore: number;
   killsScore: number;
@@ -50,11 +51,11 @@ export class BoardEvaluator {
     this.weights = {
       fertileTerritory: 1.0,
       teamLength: 2.0,
-      foodDistance: 10.0,
-      enemyTerritory: 0,  // Currently not used but tracked
-      enemyLength: 0,      // Currently not used but tracked
-      kills: 0,            // Currently not used but tracked
-      deaths: -500         // Heavy penalty for death
+      foodProximity: 10.0,  // Weight for food proximity (1/distance)
+      enemyTerritory: 0,    // Currently not used but tracked
+      enemyLength: 0,       // Currently not used but tracked
+      kills: 0,             // Currently not used but tracked
+      deaths: -500          // Heavy penalty for death
     };
   }
   
@@ -89,6 +90,7 @@ export class BoardEvaluator {
         fertileTerritory: 0,
         teamLength: 0,
         foodDistance: 1000,
+        foodProximity: 0,
         enemyTerritory: 0,
         enemyLength: 0,
         kills: 0,
@@ -115,10 +117,26 @@ export class BoardEvaluator {
     // Calculate food distance using BFS
     const foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
     
+    // Check if we just ate food (on a food cell now)
+    const justAteFood = board.food.some((f: Coord) => 
+      f.x === ourSnake.head.x && f.y === ourSnake.head.y
+    );
+    
+    // Calculate food proximity
+    let foodProximity: number;
+    if (justAteFood) {
+      foodProximity = 10; // Special case: just ate food
+    } else if (foodDistance >= 1000) {
+      foodProximity = 0; // No reachable food
+    } else {
+      foodProximity = 1 / (foodDistance + 1); // Normal proximity calculation
+    }
+    
     return {
       fertileTerritory: territoryData.teamTerritory,
       teamLength,
-      foodDistance,
+      foodDistance,  // Raw unweighted distance
+      foodProximity, // 1/distance or 10 if just ate
       enemyTerritory: territoryData.enemyTerritory,
       enemyLength,
       kills: 0,  // Would need before/after comparison to calculate
@@ -293,13 +311,10 @@ export class BoardEvaluator {
    * Calculate weighted scores for each heuristic.
    */
   private calculateWeightedScores(stats: HeuristicStats): WeightedScores {
-    // Food distance uses inverse (closer is better)
-    const foodDistanceInverse = stats.foodDistance >= 1000 ? 0 : 1 / (stats.foodDistance + 1);
-    
     return {
       fertileScore: stats.fertileTerritory * this.weights.fertileTerritory,
       teamLengthScore: stats.teamLength * this.weights.teamLength,
-      foodDistanceScore: foodDistanceInverse * this.weights.foodDistance,
+      foodProximityScore: stats.foodProximity * this.weights.foodProximity,
       enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
       killsScore: stats.kills * this.weights.kills,
@@ -313,7 +328,7 @@ export class BoardEvaluator {
   private calculateTotalScore(weighted: WeightedScores): number {
     return weighted.fertileScore +
            weighted.teamLengthScore +
-           weighted.foodDistanceScore +
+           weighted.foodProximityScore +
            weighted.enemyTerritoryScore +
            weighted.enemyLengthScore +
            weighted.killsScore +

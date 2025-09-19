@@ -25,7 +25,8 @@ export interface DecisionLogEntry {
       myLength: number;
       teamLength: number;
       weights: {
-        foodDistance: number;
+        foodProximity?: number;     // New field
+        foodDistance?: number;      // Keep for backward compatibility
         fertileTerritory: number;
         teamLength: number;
         enemyTerritory?: number;
@@ -34,7 +35,8 @@ export interface DecisionLogEntry {
         deaths?: number;
       };
       weighted: {
-        foodDistanceScore: number;
+        foodProximityScore?: number; // New field
+        foodDistanceScore?: number;  // Keep for backward compatibility
         fertileScore: number;
         teamLengthScore: number;
         enemyTerritoryScore?: number;

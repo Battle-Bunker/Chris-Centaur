@@ -144,10 +144,9 @@ export class VoronoiStrategy {
       // Team Length
       console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
       
-      // Food Distance (inverse)
-      const invFoodDist = breakdown.stats.foodDistance >= 1000 ? 0 : 1 / (breakdown.stats.foodDistance + 1);
-      console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodDistance.toString().padStart(7)} │ ${breakdown.weighted.foodDistanceScore.toFixed(2).padStart(8)} │`);
-      console.log(`│   (1/(dist+1))      │ ${invFoodDist.toFixed(3).padStart(8)} │          │          │`);
+      // Food Distance and Proximity
+      console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
+      console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
       
       // Enemy stats (currently zero weight but tracked)
       if (breakdown.weights.enemyTerritory > 0 || breakdown.weights.enemyLength > 0) {
