@@ -4,6 +4,7 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
+import { TurnStateManager } from './turn-state';
 
 export interface MoveAnalysis {
   safe: Direction[];   // Moves that definitely won't cause death
@@ -11,11 +12,23 @@ export interface MoveAnalysis {
 }
 
 export class MoveAnalyzer {
+  private tailSafetyRule: 'official' | 'custom';
+  
+  constructor(tailSafetyRule: 'official' | 'custom' = 'custom') {
+    this.tailSafetyRule = tailSafetyRule;
+  }
   /**
    * Analyzes available moves for a snake and categorizes them as safe or risky.
    * This is the single source of truth for move safety in the entire codebase.
    */
   public analyzeMoves(snake: Snake, gameState: GameState): MoveAnalysis {
+    // Update turn state to track which snakes ate food
+    const turnStateManager = TurnStateManager.getInstance();
+    const snakesAteLastTurn = turnStateManager.updateState(
+      gameState.game.id, 
+      gameState.turn, 
+      gameState.board.snakes.map(s => ({id: s.id, length: s.length}))
+    );
     const head = snake.head;
     const allDirections: Direction[] = ['up', 'down', 'left', 'right'];
     const safe: Direction[] = [];
@@ -63,16 +76,28 @@ export class MoveAnalyzer {
       for (let i = 0; i < otherSnake.body.length; i++) {
         const segment = otherSnake.body[i];
         
-        // Special case: we can move into our own tail if we're not about to eat
-        if (otherSnake.id === snake.id && i === otherSnake.body.length - 1) {
-          // Check if snake would eat food at the new position
-          const wouldEat = board.food.some(food => 
-            food.x === position.x && food.y === position.y
-          );
+        // Check if this is a tail position
+        if (i === otherSnake.body.length - 1) {
+          // Get snakes that ate last turn from turn state
+          const turnStateManager = TurnStateManager.getInstance();
+          const snakesAteLastTurn = turnStateManager.getSnakesAteLastTurn(gameState.game.id);
           
-          // If not eating, tail will move out of the way
-          if (!wouldEat) {
-            continue;
+          // Determine if tail is safe based on rule variant
+          let tailIsSafe = false;
+          
+          if (this.tailSafetyRule === 'official') {
+            // Official rules: tail stays in place if snake eats this turn
+            const wouldEatThisTurn = board.food.some(food => 
+              food.x === position.x && food.y === position.y
+            );
+            tailIsSafe = !wouldEatThisTurn;
+          } else {
+            // Custom rules: tail stays if snake ate last turn (grows this turn)
+            tailIsSafe = !snakesAteLastTurn.has(otherSnake.id);
+          }
+          
+          if (tailIsSafe) {
+            continue; // Tail will move out of the way
           }
         }
         

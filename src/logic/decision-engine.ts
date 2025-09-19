@@ -25,6 +25,7 @@ export interface DecisionConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;  // Distance to consider a snake "nearby" for full enumeration
+  tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
 }
 
 export class DecisionEngine {
@@ -34,16 +35,17 @@ export class DecisionEngine {
   private config: DecisionConfig;
   
   constructor(config?: Partial<DecisionConfig>) {
-    this.moveAnalyzer = new MoveAnalyzer();
-    this.boardEvaluator = new BoardEvaluator();
-    this.simulator = new Simulator();
-    
     this.config = {
       maxSimulationDepth: 1,
       timeoutMs: 400,
       nearbyDistance: 5,
+      tailSafetyRule: 'custom',
       ...config
     };
+    
+    this.moveAnalyzer = new MoveAnalyzer(this.config.tailSafetyRule);
+    this.boardEvaluator = new BoardEvaluator();
+    this.simulator = new Simulator();
   }
   
   /**
