@@ -5,7 +5,7 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, MoveAnalysis } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
 
 export interface MoveDecision {
@@ -51,6 +51,7 @@ export class DecisionEngine {
   private boardEvaluator: BoardEvaluator;
   private simulator: Simulator;
   private config: DecisionConfig;
+  private lastFoodSetByGameId: Map<string, Set<string>> = new Map();
   
   constructor(config?: Partial<DecisionConfig>) {
     this.config = {
@@ -71,6 +72,16 @@ export class DecisionEngine {
    */
   public decide(gameState: GameState, teamSnakeIds: Set<string>): MoveDecision {
     const startTime = Date.now();
+    const gameId = gameState.game.id;
+    
+    // Get previous food positions for this game
+    const prevFoodSet = this.lastFoodSetByGameId.get(gameId);
+    
+    // Build current food set for simulated evaluations
+    const currentFoodSet = new Set<string>();
+    for (const food of gameState.board.food) {
+      currentFoodSet.add(`${food.x},${food.y}`);
+    }
     
     // Get candidate moves for our snake
     const ourMoves = this.getOurCandidateMoves(gameState.you, gameState);
@@ -86,7 +97,16 @@ export class DecisionEngine {
     
     if (ourMoves.length === 1) {
       // Only one move available - still evaluate it properly
-      const evaluation = this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds);
+      const evaluation = this.boardEvaluator.evaluateBoard(
+        gameState, 
+        gameState.you.id, 
+        teamSnakeIds,
+        { prevFoodSet }
+      );
+      
+      // Update food set for next turn
+      this.lastFoodSetByGameId.set(gameId, currentFoodSet);
+      
       return {
         move: ourMoves[0],
         candidateMoves: ourMoves,
@@ -116,7 +136,12 @@ export class DecisionEngine {
           move,
           averageScore: -1000,
           numStates: 0,
-          averageBreakdown: this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds)
+          averageBreakdown: this.boardEvaluator.evaluateBoard(
+            gameState, 
+            gameState.you.id, 
+            teamSnakeIds,
+            { prevFoodSet }
+          )
         });
         continue;
       }
@@ -126,7 +151,12 @@ export class DecisionEngine {
       const allEvaluations: BoardEvaluation[] = [];
       
       for (const state of moveStates) {
-        const evaluation = this.boardEvaluator.evaluateBoard(state.gameState, gameState.you.id, teamSnakeIds);
+        const evaluation = this.boardEvaluator.evaluateBoard(
+          state.gameState, 
+          gameState.you.id, 
+          teamSnakeIds,
+          { prevFoodSet: currentFoodSet }  // Current food is "previous" from simulated state's perspective
+        );
         totalScore += evaluation.score;
         allEvaluations.push(evaluation);
       }
@@ -148,6 +178,9 @@ export class DecisionEngine {
         bestMove = move;
       }
     }
+    
+    // Update food set for next turn
+    this.lastFoodSetByGameId.set(gameId, currentFoodSet);
     
     return {
       move: bestMove,

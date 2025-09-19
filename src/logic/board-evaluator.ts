@@ -36,6 +36,10 @@ export interface BoardEvaluation {
   weighted: WeightedScores;   // Individual weighted scores
 }
 
+export interface EvaluationContext {
+  prevFoodSet?: Set<string>;  // Food positions from previous board state
+}
+
 export interface HeuristicWeights {
   // My snake weights
   myLength: number;
@@ -118,8 +122,8 @@ export class BoardEvaluator {
    * The single unified scoring function for any board state.
    * All board evaluations in the codebase must go through this function.
    */
-  public evaluateBoard(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>): BoardEvaluation {
-    const stats = this.calculateStats(gameState, ourSnakeId, teamSnakeIds);
+  public evaluateBoard(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): BoardEvaluation {
+    const stats = this.calculateStats(gameState, ourSnakeId, teamSnakeIds, ctx);
     const weighted = this.calculateWeightedScores(stats);
     const score = this.calculateTotalScore(weighted);
     
@@ -134,7 +138,7 @@ export class BoardEvaluator {
   /**
    * Calculate all heuristic statistics for the board state.
    */
-  private calculateStats(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>): HeuristicStats {
+  private calculateStats(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): HeuristicStats {
     const { board } = gameState;
     const ourSnake = board.snakes.find((s: Snake) => s.id === ourSnakeId);
     
@@ -173,20 +177,19 @@ export class BoardEvaluator {
       }
     }
     
-    // Check if we're currently on a food cell (about to eat it) or just ate (tail duplicated)
-    const onFood = board.food.some((f: Coord) => 
+    // Check if we just ate food (our head is where food was in previous state)
+    const headKey = `${ourSnake.head.x},${ourSnake.head.y}`;
+    const justAte = !!ctx?.prevFoodSet?.has(headKey);
+    
+    // Check if we're currently on a food cell (about to eat it)
+    const onFoodNow = board.food.some((f: Coord) => 
       f.x === ourSnake.head.x && f.y === ourSnake.head.y
     );
     
-    // Check if we just ate food (tail segments are duplicated - happens after eating)
-    const justAteFood = ourSnake.body.length >= 2 && 
-      ourSnake.body[ourSnake.body.length - 1].x === ourSnake.body[ourSnake.body.length - 2].x &&
-      ourSnake.body[ourSnake.body.length - 1].y === ourSnake.body[ourSnake.body.length - 2].y;
-    
-    // Calculate food distance - 0 if on food or just ate, otherwise use BFS
+    // Calculate food distance - 0 if on food now or just ate, otherwise use BFS
     let foodDistance: number;
-    if (onFood || justAteFood) {
-      foodDistance = 0; // Currently on food or just ate
+    if (onFoodNow || justAte) {
+      foodDistance = 0; // Currently on food or just ate from previous state
     } else {
       foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
     }
