@@ -28,11 +28,19 @@ export interface DecisionLogEntry {
         foodDistance: number;
         fertileTerritory: number;
         teamLength: number;
+        enemyTerritory?: number;
+        enemyLength?: number;
+        kills?: number;
+        deaths?: number;
       };
       weighted: {
         foodDistanceScore: number;
         fertileScore: number;
         teamLengthScore: number;
+        enemyTerritoryScore?: number;
+        enemyLengthScore?: number;
+        killsScore?: number;
+        deathsScore?: number;
       };
     };
   }[];
