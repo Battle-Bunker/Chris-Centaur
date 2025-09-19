@@ -8,6 +8,34 @@ Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticat
 
 Preferred communication style: Simple, everyday language.
 
+## Critical System Synchronization Notes
+
+**IMPORTANT: When making changes to the Battlesnake AI system, ensure ALL components remain synchronized:**
+
+1. **Backend-Frontend Data Flow**: Changes to data structures in the backend (board-evaluator.ts, decision-engine.ts, voronoi-strategy-new.ts) MUST be reflected in:
+   - Decision logger database schema (decision-logger.ts)
+   - Frontend UI display logic (src/web/history.html)
+   - Any API response formats
+
+2. **Field Name Changes**: If renaming or restructuring fields (e.g., fertileTerritory → myTerritory + myControlledFood):
+   - Update TypeScript interfaces in ALL files
+   - Update database logging to use new field names
+   - Update frontend JavaScript to read and display new field names
+   - Ensure backward compatibility for existing logged data
+
+3. **Testing Must Be End-to-End**: 
+   - Don't just check console logs or API responses
+   - ALWAYS open the Game History viewer UI to verify changes are displayed correctly
+   - Test with actual game data from the database, not just curl commands
+
+4. **Common Failure Points**:
+   - Frontend UI still using old field names while backend uses new ones
+   - Weighted score calculations not matching between backend and frontend
+   - Database schema out of sync with logged data structure
+   - Total scores not adding up correctly in the UI
+
+Remember: A change isn't complete until it works in the user-facing UI, not just in the logs!
+
 ## System Architecture
 
 ### Backend Framework

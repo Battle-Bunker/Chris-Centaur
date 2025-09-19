@@ -1072,24 +1072,59 @@
       
       // Define all metrics with their values, weights, and weighted scores
       const metricsConfig = [
+        // My Snake stats
         {
-          name: 'Fertile Territory',
-          value: breakdown.teamFertileScore ?? breakdown.myTerritory ?? breakdown.fertileTerritory ?? 0,
-          weight: breakdown.weights?.fertileTerritory ?? 1,
-          weightedScore: breakdown.weighted?.fertileScore ?? 0
+          name: 'My Length',
+          value: breakdown.myLength ?? 0,
+          weight: breakdown.weights?.myLength ?? 10,
+          weightedScore: breakdown.weighted?.myLengthScore ?? 0
         },
         {
+          name: 'My Territory',
+          value: breakdown.myTerritory ?? 0,
+          weight: breakdown.weights?.myTerritory ?? 1,
+          weightedScore: breakdown.weighted?.myTerritoryScore ?? 0
+        },
+        {
+          name: 'My Controlled Food',
+          value: breakdown.myControlledFood ?? breakdown.myFoodCount ?? 0,
+          weight: breakdown.weights?.myControlledFood ?? 10,
+          weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0
+        },
+        // Team stats
+        {
           name: 'Team Length',
-          value: breakdown.teamLength ?? breakdown.myLength ?? 0,
-          weight: breakdown.weights?.teamLength ?? 2,
+          value: breakdown.teamLength ?? 0,
+          weight: breakdown.weights?.teamLength ?? 10,
           weightedScore: breakdown.weighted?.teamLengthScore ?? 0
         },
         {
+          name: 'Team Territory',
+          value: breakdown.teamTerritory ?? 0,
+          weight: breakdown.weights?.teamTerritory ?? 1,
+          weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0
+        },
+        {
+          name: 'Team Controlled Food',
+          value: breakdown.teamControlledFood ?? breakdown.teamFoodCount ?? 0,
+          weight: breakdown.weights?.teamControlledFood ?? 10,
+          weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0
+        },
+        // Distance and proximity
+        {
           name: 'Food Distance',
           value: breakdown.foodDistance ?? 'N/A',
-          weight: breakdown.weights?.foodDistance ?? 10,
-          weightedScore: breakdown.weighted?.foodDistanceScore ?? 0
+          weight: 0,  // Raw distance is not weighted
+          weightedScore: 0
         },
+        {
+          name: 'Food Proximity',
+          value: breakdown.foodProximity !== undefined ? breakdown.foodProximity.toFixed(3) : 
+                 (breakdown.foodDistanceInverse !== undefined ? breakdown.foodDistanceInverse.toFixed(3) : '0.000'),
+          weight: breakdown.weights?.foodProximity ?? 10,
+          weightedScore: breakdown.weighted?.foodProximityScore ?? 0
+        },
+        // Enemy stats
         {
           name: 'Enemy Territory',
           value: breakdown.enemyTerritory ?? 0,
@@ -1102,6 +1137,7 @@
           weight: breakdown.weights?.enemyLength ?? 0,
           weightedScore: breakdown.weighted?.enemyLengthScore ?? 0
         },
+        // Life/death
         {
           name: 'Kills',
           value: breakdown.kills ?? 0,
@@ -1113,7 +1149,14 @@
           value: breakdown.deaths ?? 0,
           weight: breakdown.weights?.deaths ?? 0,
           weightedScore: breakdown.weighted?.deathsScore ?? 0
-        }
+        },
+        // Legacy compatibility - only show if present and new fields aren't
+        ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory ? [{
+          name: 'Fertile Territory',
+          value: breakdown.fertileTerritory ?? 0,
+          weight: breakdown.weights?.fertileTerritory ?? 1,
+          weightedScore: breakdown.weighted?.fertileScore ?? 0
+        }] : [])
       ];
       
       // Sort by weighted score descending
