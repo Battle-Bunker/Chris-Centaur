@@ -16,12 +16,14 @@ Preferred communication style: Simple, everyday language.
 - **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
 - **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
 
-### Core Game Logic Architecture
-- **Strategy Pattern** - Main game logic separated into pluggable strategy classes, currently implementing `VoronoiStrategy`
+### Core Game Logic Architecture (Clean Architecture - Updated 2025-09-19)
+- **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
+- **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function with structured statistics (fertile territory, team length, food distance, enemy stats, kills/deaths)
+- **Decision Engine Orchestration** - `DecisionEngine` coordinates clean flow: enumeration → candidate selection → simulation → evaluation → aggregation → decision
+- **Strategy Pattern** - Main game logic in `VoronoiStrategy` uses new clean architecture components for principled decision making
 - **Team Detection System** - Automatic team identification using squad fields or color matching as fallback
 - **Fertile Voronoi Territory Analysis** - Enhanced Voronoi diagram calculations that weight food-controlled territories higher (territory + food × 10) to prioritize areas with resources
-- **Path-based Food Distance Calculation** - BFS algorithm tracks actual path distances to nearest food considering obstacles like snake bodies, replacing less accurate Manhattan distance
-- **Smart Move Selection** - Considers all moves within 20% of best fertile voronoi score as candidates, with tiebreaking based on food consumption and path distance to nearest food
+- **Consistent Move Selection** - Uses safe moves when available, otherwise all risky moves as candidates; only evaluates and logs actual candidate moves
 - **Time-bounded Evaluation** - Move evaluation with configurable time limits to respect Battlesnake's 500ms response requirement
 
 ### Key Architectural Decisions

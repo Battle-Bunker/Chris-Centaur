@@ -1,5 +1,7 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { MoveSet } from './move-enumerator';
+
+// MoveSet type definition (previously from move-enumerator)
+export type MoveSet = Map<string, Direction>;
 
 export interface SimulatedBoardState {
   board: Board;
