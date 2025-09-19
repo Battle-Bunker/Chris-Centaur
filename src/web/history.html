@@ -189,7 +189,7 @@
     .cell-button {
       position: absolute;
       background: transparent;
-      border: 2px solid transparent;
+      border: none; /* No borders - use background color only */
       cursor: pointer;
       pointer-events: auto;
       transition: all 0.2s;
@@ -197,15 +197,6 @@
     
     .cell-button:hover {
       background: rgba(255, 255, 255, 0.1);
-    }
-    
-    .cell-button.candidate {
-      border-color: rgba(76, 175, 80, 0.5);
-    }
-    
-    .cell-button.selected {
-      border-color: #9C27B0; /* Purple for selection */
-      background: rgba(156, 39, 176, 0.2); /* Purple background */
     }
     
     /* Snake Info */
@@ -327,8 +318,9 @@
     }
     
     .move-button.selected {
-      background: #3a4a5a;
-      border-color: #9C27B0; /* Purple for selection */
+      background: rgba(156, 39, 176, 0.2); /* Purple tinted background */
+      border: 3px solid #9C27B0; /* Purple border for selection */
+      box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); /* Purple glow */
     }
     
     .move-button.chosen {
