@@ -123,4 +123,3 @@ class GameLogger {
     }
 }
 exports.GameLogger = GameLogger;
-//# sourceMappingURL=logger.js.map

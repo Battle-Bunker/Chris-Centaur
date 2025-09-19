@@ -1,0 +1,174 @@
+"use strict";
+/**
+ * Voronoi Strategy using the new clean architecture.
+ * This replaces the old fragmented implementation with the principled approach.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.VoronoiStrategy = void 0;
+const decision_engine_1 = require("./decision-engine");
+const decision_logger_1 = require("./decision-logger");
+const team_detector_1 = require("./team-detector");
+class VoronoiStrategy {
+    constructor() {
+        // Get weights from environment variables or use defaults
+        const weights = {
+            myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
+            myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
+            myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+            teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
+            teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
+            teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
+            foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
+            enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
+            enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
+            kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
+            deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
+        };
+        this.decisionEngine = new decision_engine_1.DecisionEngine({
+            maxSimulationDepth: 1,
+            timeoutMs: 400,
+            nearbyDistance: 3,
+            weights
+        });
+        this.decisionLogger = decision_logger_1.DecisionLogger.getInstance();
+        this.teamDetector = new team_detector_1.TeamDetector();
+    }
+    setConfig(config) {
+        // Get weights from environment variables or use defaults
+        const weights = {
+            myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
+            myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
+            myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+            teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
+            teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
+            teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
+            foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
+            enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
+            enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
+            kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
+            deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
+        };
+        // Update decision engine config
+        this.decisionEngine = new decision_engine_1.DecisionEngine({
+            maxSimulationDepth: 1,
+            timeoutMs: config.maxEvaluationTimeMs || 400,
+            nearbyDistance: config.maxDistance || 3,
+            weights
+        });
+    }
+    getBestMove(gameState, _ourTeam) {
+        // Detect teams
+        const teams = this.teamDetector.detectTeams(gameState.board.snakes);
+        const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
+        const teamSnakeIds = new Set(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
+        // Use decision engine to get best move
+        const decision = this.decisionEngine.decide(gameState, teamSnakeIds);
+        // Log turn info
+        this.logTurnInfo(gameState, decision);
+        return decision.move;
+    }
+    getBestMoveWithDebug(gameState, _ourTeam) {
+        // Detect teams
+        const teams = this.teamDetector.detectTeams(gameState.board.snakes);
+        const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
+        const teamSnakeIds = new Set(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
+        // Use decision engine to get best move
+        const decision = this.decisionEngine.decide(gameState, teamSnakeIds);
+        // Log turn info to console
+        this.logTurnInfo(gameState, decision);
+        // Prepare decision data for database logging
+        const moveEvaluations = decision.evaluations.map(evaluation => ({
+            move: evaluation.move,
+            score: evaluation.averageScore,
+            numStates: evaluation.numStates,
+            breakdown: {
+                // New separate fields  
+                myLength: evaluation.averageBreakdown.stats.myLength,
+                myTerritory: evaluation.averageBreakdown.stats.myTerritory,
+                myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
+                teamLength: evaluation.averageBreakdown.stats.teamLength,
+                teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
+                teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
+                foodDistance: evaluation.averageBreakdown.stats.foodDistance,
+                foodProximity: evaluation.averageBreakdown.stats.foodProximity,
+                enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
+                enemyLength: evaluation.averageBreakdown.stats.enemyLength,
+                kills: evaluation.averageBreakdown.stats.kills,
+                deaths: evaluation.averageBreakdown.stats.deaths,
+                weights: evaluation.averageBreakdown.weights,
+                weighted: evaluation.averageBreakdown.weighted,
+                // Legacy fields for compatibility with old logs
+                fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,
+                foodDistanceInverse: evaluation.averageBreakdown.stats.foodProximity,
+                myFoodCount: evaluation.averageBreakdown.stats.myControlledFood,
+                teamFoodCount: evaluation.averageBreakdown.stats.teamControlledFood,
+                teamFertileScore: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10
+            }
+        }));
+        // Log the decision to database (non-blocking)
+        // IMPORTANT: Only log the actual candidate moves, not all possible moves
+        this.decisionLogger.logDecision({
+            gameId: gameState.game.id,
+            snakeId: gameState.you.id,
+            snakeName: gameState.you.name,
+            turn: gameState.turn + 1,
+            position: gameState.you.head,
+            health: gameState.you.health,
+            safeMoves: decision.candidateMoves, // Only the moves we actually evaluated!
+            chosenMove: decision.move,
+            moveEvaluations,
+            gameState
+        });
+        // Return for backwards compatibility
+        const scores = new Map();
+        for (const evaluation of decision.evaluations) {
+            scores.set(evaluation.move, evaluation.averageScore);
+        }
+        return {
+            move: decision.move,
+            safeMoves: decision.candidateMoves, // Return actual candidate moves
+            scores
+        };
+    }
+    logTurnInfo(gameState, decision) {
+        const turn = gameState.turn + 1;
+        console.log(`\n=== TURN ${turn} ===`);
+        console.log(`Position: (${gameState.you.head.x}, ${gameState.you.head.y}), Health: ${gameState.you.health}`);
+        console.log(`Candidate moves: ${decision.candidateMoves.join(', ')}`);
+        // Log detailed breakdown for each evaluated move
+        for (const evaluation of decision.evaluations) {
+            if (evaluation.averageScore === -Infinity) {
+                console.log(`\nMove ${evaluation.move}: DEATH (no valid scenarios)`);
+                continue;
+            }
+            const breakdown = evaluation.averageBreakdown;
+            console.log(`\nMove ${evaluation.move}: Total Score = ${breakdown.score.toFixed(2)} (${evaluation.numStates} states evaluated)`);
+            console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
+            console.log('│ Component           │  Average │ × Weight │  = Score │');
+            console.log('├─────────────────────┼──────────┼──────────┤');
+            // My Snake Stats
+            console.log(`│ My Length           │ ${breakdown.stats.myLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.myLength.toString().padStart(7)} │ ${breakdown.weighted.myLengthScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ My Territory        │ ${breakdown.stats.myTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.myTerritory.toString().padStart(7)} │ ${breakdown.weighted.myTerritoryScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ My Controlled Food  │ ${breakdown.stats.myControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFood.toString().padStart(7)} │ ${breakdown.weighted.myControlledFoodScore.toFixed(2).padStart(8)} │`);
+            // Team Stats
+            console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ Team Territory      │ ${breakdown.stats.teamTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamTerritory.toString().padStart(7)} │ ${breakdown.weighted.teamTerritoryScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ Team Controlled Food│ ${breakdown.stats.teamControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamControlledFood.toString().padStart(7)} │ ${breakdown.weighted.teamControlledFoodScore.toFixed(2).padStart(8)} │`);
+            // Food Distance and Proximity
+            console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
+            console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
+            // Enemy stats (currently zero weight but tracked)
+            if (breakdown.weights.enemyTerritory > 0 || breakdown.weights.enemyLength > 0) {
+                console.log(`│ Enemy Territory     │ ${breakdown.stats.enemyTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.enemyTerritory.toString().padStart(7)} │ ${breakdown.weighted.enemyTerritoryScore.toFixed(2).padStart(8)} │`);
+                console.log(`│ Enemy Length        │ ${breakdown.stats.enemyLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.enemyLength.toString().padStart(7)} │ ${breakdown.weighted.enemyLengthScore.toFixed(2).padStart(8)} │`);
+            }
+            // Deaths penalty
+            if (breakdown.stats.deaths > 0) {
+                console.log(`│ Deaths              │ ${breakdown.stats.deaths.toFixed(1).padStart(8)} │ ×${breakdown.weights.deaths.toString().padStart(7)} │ ${breakdown.weighted.deathsScore.toFixed(2).padStart(8)} │`);
+            }
+            console.log('└─────────────────────┴──────────┴──────────┴──────────┘');
+        }
+        console.log(`\nCHOSEN: ${decision.move.toUpperCase()}`);
+    }
+}
+exports.VoronoiStrategy = VoronoiStrategy;

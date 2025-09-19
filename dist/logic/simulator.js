@@ -175,4 +175,3 @@ class Simulator {
     }
 }
 exports.Simulator = Simulator;
-//# sourceMappingURL=simulator.js.map

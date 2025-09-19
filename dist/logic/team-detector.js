@@ -39,4 +39,3 @@ class TeamDetector {
     }
 }
 exports.TeamDetector = TeamDetector;
-//# sourceMappingURL=team-detector.js.map

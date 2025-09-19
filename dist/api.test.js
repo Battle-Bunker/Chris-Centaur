@@ -339,4 +339,3 @@ describe('Battlesnake API', () => {
         });
     });
 });
-//# sourceMappingURL=api.test.js.map

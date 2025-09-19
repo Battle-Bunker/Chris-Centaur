@@ -5,9 +5,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const path_1 = __importDefault(require("path"));
-const voronoi_strategy_1 = require("./logic/voronoi-strategy");
+const voronoi_strategy_new_1 = require("./logic/voronoi-strategy-new");
 const team_detector_1 = require("./logic/team-detector");
 const logger_1 = require("./utils/logger");
+const decision_logger_1 = require("./logic/decision-logger");
+const logs_1 = __importDefault(require("./routes/logs"));
 const app = (0, express_1.default)();
 const port = parseInt(process.env.PORT || '5000');
 app.use(express_1.default.json());
@@ -24,7 +26,7 @@ app.use((req, res, next) => {
     next();
 });
 app.use(express_1.default.static(path_1.default.join(__dirname, '../src/web')));
-const voronoiStrategy = new voronoi_strategy_1.VoronoiStrategy();
+const voronoiStrategy = new voronoi_strategy_new_1.VoronoiStrategy();
 const teamDetector = new team_detector_1.TeamDetector();
 const logger = new logger_1.GameLogger();
 // Battlesnake info endpoint
@@ -78,13 +80,37 @@ app.post('/end', (req, res) => {
     logger.endGame(gameState);
     res.status(200).send('ok');
 });
+// API Routes
+app.use(logs_1.default);
 // Simple web interface
 app.get('/config', (req, res) => {
     res.sendFile(path_1.default.join(__dirname, '../src/web/config.html'));
 });
-app.listen(port, '0.0.0.0', () => {
+// Game history viewer
+app.get('/history', (req, res) => {
+    res.sendFile(path_1.default.join(__dirname, '../src/web/history.html'));
+});
+const server = app.listen(port, '0.0.0.0', () => {
     console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
     console.log(`Visit http://localhost:${port} for snake info`);
     console.log(`Visit http://localhost:${port}/config for configuration`);
 });
-//# sourceMappingURL=index.js.map
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    const logger = decision_logger_1.DecisionLogger.getInstance();
+    await logger.shutdown();
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+});
+process.on('SIGINT', async () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    const logger = decision_logger_1.DecisionLogger.getInstance();
+    await logger.shutdown();
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+});
