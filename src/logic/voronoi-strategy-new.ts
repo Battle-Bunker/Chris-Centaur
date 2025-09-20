@@ -68,6 +68,9 @@ export class VoronoiStrategy {
       enemyLength: config.enemyLength,
       edgePenalty: config.edgePenalty,
       spaceAvailable: config.spaceAvailable,
+      selfEnoughSpace: config.selfEnoughSpace,
+      alliesEnoughSpace: config.alliesEnoughSpace,
+      opponentsEnoughSpace: config.opponentsEnoughSpace,
       kills: config.kills,
       deaths: config.deaths
     };

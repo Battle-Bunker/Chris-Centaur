@@ -23,7 +23,12 @@ export interface GameConfig {
   
   // Safety weights
   edgePenalty: number;
-  spaceAvailable: number;
+  spaceAvailable: number;  // DEPRECATED: Replaced by enhanced space detection
+  
+  // Enhanced space detection weights
+  selfEnoughSpace: number;
+  alliesEnoughSpace: number;
+  opponentsEnoughSpace: number;
   
   // Life/death weights
   kills: number;
@@ -55,7 +60,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   
   // Safety weights
   edgePenalty: 50.0,
-  spaceAvailable: 5.0,
+  spaceAvailable: 0,  // DEPRECATED: Replaced by enhanced space detection
+  
+  // Enhanced space detection weights
+  selfEnoughSpace: 10.0,
+  alliesEnoughSpace: 5.0,
+  opponentsEnoughSpace: -5.0,
   
   // Life/death weights
   kills: 0,
