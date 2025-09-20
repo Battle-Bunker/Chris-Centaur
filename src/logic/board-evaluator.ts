@@ -29,7 +29,12 @@ export interface HeuristicStats {
   
   // Safety heuristics
   edgePenalty: number;        // Penalty for being on edge of board (-1 if on edge, 0 otherwise)
-  spaceAvailable: number;     // Floodfill safety score: 10 if enough space, -10 + 5*reachable_enemy_tails otherwise
+  spaceAvailable: number;     // DEPRECATED: Old floodfill safety score
+  
+  // Enhanced space detection heuristics
+  selfEnoughSpace: number;    // Space score for our snake: 3 if enough space, -3 if not, +1 per reachable non-self tail
+  alliesEnoughSpace: number;  // Sum of space scores for allied snakes
+  opponentsEnoughSpace: number; // Sum of space scores for opponent snakes
   
   // Life/death tracking
   kills: number;              // Number of enemy snakes that died
@@ -67,7 +72,12 @@ export interface HeuristicWeights {
   
   // Safety weights
   edgePenalty: number;        // Weight for edge penalty
-  spaceAvailable: number;     // Weight for floodfill safety
+  spaceAvailable: number;     // DEPRECATED: Weight for old floodfill safety
+  
+  // Enhanced space detection weights
+  selfEnoughSpace: number;    // Weight for our snake's space score
+  alliesEnoughSpace: number;  // Weight for allies' space scores
+  opponentsEnoughSpace: number; // Weight for opponents' space scores (negative to encourage trapping)
   
   // Life/death weights
   kills: number;
@@ -94,7 +104,12 @@ export interface WeightedScores {
   
   // Safety weighted scores
   edgePenaltyScore: number;   // Weighted edge penalty score
-  spaceAvailableScore: number;  // Weighted floodfill safety score
+  spaceAvailableScore: number;  // DEPRECATED: Weighted old floodfill safety score
+  
+  // Enhanced space detection weighted scores
+  selfEnoughSpaceScore: number;    // Weighted our snake's space score
+  alliesEnoughSpaceScore: number;  // Weighted allies' space scores
+  opponentsEnoughSpaceScore: number; // Weighted opponents' space scores
   
   // Life/death weighted scores
   killsScore: number;
@@ -127,7 +142,12 @@ export class BoardEvaluator {
       
       // Safety weights
       edgePenalty: 50.0,        // Penalty for being on edge of board
-      spaceAvailable: 5.0,      // Weight for floodfill safety check
+      spaceAvailable: 0,        // DEPRECATED: Replaced by enhanced space detection
+      
+      // Enhanced space detection weights
+      selfEnoughSpace: 10.0,    // Weight for our snake's space availability
+      alliesEnoughSpace: 5.0,   // Weight for allies having space (positive = good teamwork)
+      opponentsEnoughSpace: -5.0, // Weight for opponents having space (negative = encourage trapping)
       
       // Life/death weights
       kills: 0,                 // Currently not used but tracked
@@ -184,6 +204,9 @@ export class BoardEvaluator {
         enemyLength: 0,
         edgePenalty: 0,
         spaceAvailable: -10,
+        selfEnoughSpace: -3,
+        alliesEnoughSpace: 0,
+        opponentsEnoughSpace: 0,
         kills: 0,
         deaths: 1
       };
@@ -246,7 +269,10 @@ export class BoardEvaluator {
     // Calculate edge penalty: -1 if on edge, 0 otherwise
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
     
-    // Calculate space available using floodfill from our head
+    // Calculate enhanced space detection for all snakes
+    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds);
+    
+    // Keep old spaceAvailable for backward compatibility (deprecated)
     const spaceAvailable = this.calculateSpaceAvailable(graph, ourSnake, board.snakes);
     
     return {
@@ -261,7 +287,10 @@ export class BoardEvaluator {
       enemyTerritory: bfsResult.enemyTerritory,
       enemyLength,
       edgePenalty,   // -1 if on edge, 0 otherwise
-      spaceAvailable, // Floodfill safety score
+      spaceAvailable, // DEPRECATED: Old floodfill safety score
+      selfEnoughSpace: spaceScores.self,
+      alliesEnoughSpace: spaceScores.allies,
+      opponentsEnoughSpace: spaceScores.opponents,
       kills: 0,  // Would need before/after comparison to calculate
       deaths: isDead ? 1 : 0
     };
@@ -277,6 +306,108 @@ export class BoardEvaluator {
   }
   
   /**
+   * Calculate enhanced space detection for all snakes
+   * Returns scores for self, allies, and opponents
+   */
+  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>): 
+    { self: number; allies: number; opponents: number } {
+    
+    let selfScore = 0;
+    let alliesScore = 0;
+    let opponentsScore = 0;
+    
+    for (const snake of allSnakes) {
+      if (snake.health <= 0) continue; // Skip dead snakes
+      
+      // Calculate space score for this snake
+      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes);
+      
+      // Categorize and accumulate scores
+      if (snake.id === ourSnakeId) {
+        selfScore = spaceScore;
+      } else if (teamSnakeIds.has(snake.id)) {
+        alliesScore += spaceScore;
+      } else {
+        opponentsScore += spaceScore;
+      }
+    }
+    
+    return { self: selfScore, allies: alliesScore, opponents: opponentsScore };
+  }
+  
+  /**
+   * Calculate space score for a single snake using floodfill.
+   * Returns:
+   * - 3 if enough space (can reach own tail or cells >= length)
+   * - -3 if not enough space
+   * - +1 for each reachable non-self tail
+   */
+  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[]): number {
+    const startPos = snake.head;
+    const snakeLength = snake.length;
+    const snakeTailKey = graph.coordToKey(snake.body[snake.body.length - 1]);
+    
+    // Track visited cells and queue for BFS floodfill
+    const visited = new Set<string>();
+    const queue: Coord[] = [startPos];
+    visited.add(graph.coordToKey(startPos));
+    
+    let cellsFound = 0;
+    let reachableNonSelfTails = 0;
+    let foundOwnTail = false;
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      cellsFound++;
+      
+      // Check if we reached our own tail
+      const currentKey = graph.coordToKey(current);
+      if (currentKey === snakeTailKey) {
+        foundOwnTail = true;
+      }
+      
+      // Check neighbors
+      const neighbors = graph.getNeighbors(current);
+      for (const neighbor of neighbors) {
+        const neighborKey = graph.coordToKey(neighbor);
+        
+        // Skip if already visited
+        if (visited.has(neighborKey)) continue;
+        
+        // Check if this cell is passable (not blocked by snake body)
+        if (!graph.isPassable(neighbor)) {
+          // Check if this is a tail (will move next turn)
+          for (const otherSnake of allSnakes) {
+            if (otherSnake.health <= 0) continue;
+            
+            const tail = otherSnake.body[otherSnake.body.length - 1];
+            if (tail.x === neighbor.x && tail.y === neighbor.y) {
+              // This is a tail
+              if (otherSnake.id !== snake.id) {
+                // Non-self tail - counts as reachable and adds bonus
+                reachableNonSelfTails++;
+              }
+              // Add tail position to queue (it will be free next turn)
+              visited.add(neighborKey);
+              queue.push(neighbor);
+              break;
+            }
+          }
+          continue;
+        }
+        
+        visited.add(neighborKey);
+        queue.push(neighbor);
+      }
+    }
+    
+    // Calculate score based on space found
+    const baseScore = (cellsFound >= snakeLength || foundOwnTail) ? 3 : -3;
+    return baseScore + reachableNonSelfTails;
+  }
+  
+  /**
+   * DEPRECATED: Old space calculation method, kept for backward compatibility.
    * Calculate space available using floodfill from snake head.
    * Returns:
    * - 10 if enough space (including if our tail is reachable)
@@ -364,6 +495,9 @@ export class BoardEvaluator {
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
       edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
       spaceAvailableScore: stats.spaceAvailable * this.weights.spaceAvailable,
+      selfEnoughSpaceScore: stats.selfEnoughSpace * this.weights.selfEnoughSpace,
+      alliesEnoughSpaceScore: stats.alliesEnoughSpace * this.weights.alliesEnoughSpace,
+      opponentsEnoughSpaceScore: stats.opponentsEnoughSpace * this.weights.opponentsEnoughSpace,
       killsScore: stats.kills * this.weights.kills,
       deathsScore: stats.deaths * this.weights.deaths
     };
@@ -384,6 +518,9 @@ export class BoardEvaluator {
            weighted.enemyLengthScore +
            weighted.edgePenaltyScore +
            weighted.spaceAvailableScore +
+           weighted.selfEnoughSpaceScore +
+           weighted.alliesEnoughSpaceScore +
+           weighted.opponentsEnoughSpaceScore +
            weighted.killsScore +
            weighted.deathsScore;
   }
