@@ -1093,7 +1093,6 @@
           enemyTerritoryScore: 0,
           enemyLengthScore: 0,
           edgePenaltyScore: 0,
-          spaceAvailableScore: 0,
           killsScore: 0,
           deathsScore: 0,
           fertileScore: 0
@@ -1113,7 +1112,6 @@
             weightedSums.enemyTerritoryScore += weighted.enemyTerritoryScore ?? 0;
             weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
             weightedSums.edgePenaltyScore += weighted.edgePenaltyScore ?? 0;
-            weightedSums.spaceAvailableScore += weighted.spaceAvailableScore ?? 0;
             weightedSums.killsScore += weighted.killsScore ?? 0;
             weightedSums.deathsScore += weighted.deathsScore ?? 0;
             weightedSums.fertileScore += weighted.fertileScore ?? 0;
@@ -1223,13 +1221,6 @@
           weight: breakdown.weights?.edgePenalty ?? 50,
           weightedScore: breakdown.weighted?.edgePenaltyScore ?? 0,
           averageWeighted: averageWeighted.edgePenaltyScore ?? 0
-        },
-        {
-          name: 'Space Available',
-          value: breakdown.spaceAvailable ?? (breakdown.stats?.spaceAvailable ?? 0),
-          weight: breakdown.weights?.spaceAvailable ?? 5,
-          weightedScore: breakdown.weighted?.spaceAvailableScore ?? 0,
-          averageWeighted: averageWeighted.spaceAvailableScore ?? 0
         },
         // Life/death
         {
