@@ -68,13 +68,15 @@ Remember: A change isn't complete until it works in the user-facing UI, not just
 - **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
 - **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
 
-### Core Game Logic Architecture (Clean Architecture - Updated 2025-09-19)
+### Core Game Logic Architecture (Clean Architecture - Updated 2025-09-20)
+- **Board Graph Abstraction** - `BoardGraph` class provides unified graph representation with configurable passability rules, handling tail growth timing variants ("grow-same-turn" vs "grow-next-turn")
+- **Single-Pass Multi-Source BFS** - `MultiSourceBFS` replaces multiple O(S × (W×H)²) implementations with single O(W×H) pass, computing Voronoi territories with tie-awareness (neutralizing equidistant cells)
 - **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
-- **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function with structured statistics (fertile territory, team length, food distance, enemy stats, kills/deaths)
+- **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function using the efficient multi-source BFS for territory, food control, and distance calculations
 - **Decision Engine Orchestration** - `DecisionEngine` coordinates clean flow: enumeration → candidate selection → simulation → evaluation → aggregation → decision
 - **Strategy Pattern** - Main game logic in `VoronoiStrategy` uses new clean architecture components for principled decision making
 - **Team Detection System** - Automatic team identification using squad fields or color matching as fallback
-- **Fertile Voronoi Territory Analysis** - Enhanced Voronoi diagram calculations that weight food-controlled territories higher (territory + food × 10) to prioritize areas with resources
+- **Accurate Territory Analysis** - Fixed critical bug where snake reported 60+ controlled cells when actually controlling ~1; now correctly computes Voronoi territories with tie-handling
 - **Consistent Move Selection** - Uses safe moves when available, otherwise all risky moves as candidates; only evaluates and logs actual candidate moves
 - **Time-bounded Evaluation** - Move evaluation with configurable time limits to respect Battlesnake's 500ms response requirement
 
