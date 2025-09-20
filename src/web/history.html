@@ -519,11 +519,12 @@
               <th>Value</th>
               <th>Weight</th>
               <th>Weighted</th>
+              <th>Impact</th>
             </tr>
           </thead>
           <tbody id="statsTableBody">
             <tr>
-              <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
+              <td colspan="5" style="text-align: center; color: #888;">Select a move to see breakdown</td>
             </tr>
           </tbody>
         </table>
@@ -1067,129 +1068,219 @@
       if (!move || !move.breakdown) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="4" style="text-align: center; color: #888;">Select a move to see breakdown</td>
+            <td colspan="5" style="text-align: center; color: #888;">Select a move to see breakdown</td>
           </tr>
         `;
         return;
       }
       
       const breakdown = move.breakdown;
-      let metrics = [];
       
-      // Define all metrics with their values, weights, and weighted scores
+      // Calculate averages across all candidate moves for marginal impact
+      const candidateMoves = Object.values(moveState.moves).filter(m => m.isEvaluated || m.isSafe);
+      const averageWeighted = {};
+      
+      if (candidateMoves.length > 0) {
+        // Initialize sums
+        const weightedSums = {
+          myLengthScore: 0,
+          myTerritoryScore: 0,
+          myControlledFoodScore: 0,
+          teamLengthScore: 0,
+          teamTerritoryScore: 0,
+          teamControlledFoodScore: 0,
+          foodProximityScore: 0,
+          enemyTerritoryScore: 0,
+          enemyLengthScore: 0,
+          killsScore: 0,
+          deathsScore: 0,
+          fertileScore: 0
+        };
+        
+        // Sum up weighted scores across candidate moves
+        candidateMoves.forEach(candidateMove => {
+          if (candidateMove.breakdown?.weighted) {
+            const weighted = candidateMove.breakdown.weighted;
+            weightedSums.myLengthScore += weighted.myLengthScore ?? 0;
+            weightedSums.myTerritoryScore += weighted.myTerritoryScore ?? 0;
+            weightedSums.myControlledFoodScore += weighted.myControlledFoodScore ?? 0;
+            weightedSums.teamLengthScore += weighted.teamLengthScore ?? 0;
+            weightedSums.teamTerritoryScore += weighted.teamTerritoryScore ?? 0;
+            weightedSums.teamControlledFoodScore += weighted.teamControlledFoodScore ?? 0;
+            weightedSums.foodProximityScore += weighted.foodProximityScore ?? 0;
+            weightedSums.enemyTerritoryScore += weighted.enemyTerritoryScore ?? 0;
+            weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
+            weightedSums.killsScore += weighted.killsScore ?? 0;
+            weightedSums.deathsScore += weighted.deathsScore ?? 0;
+            weightedSums.fertileScore += weighted.fertileScore ?? 0;
+          }
+        });
+        
+        // Calculate averages
+        const count = candidateMoves.length;
+        for (const key in weightedSums) {
+          averageWeighted[key] = weightedSums[key] / count;
+        }
+      }
+      
+      // Helper function to format numeric values to 2 decimal places
+      function formatValue(value) {
+        if (typeof value === 'number') {
+          // For integer-like values (length, territory counts), show without decimals if whole
+          if (Number.isInteger(value)) {
+            return value.toString();
+          }
+          // For decimal values, show up to 2 decimal places
+          return value.toFixed(2);
+        }
+        return value;
+      }
+      
+      // Define all metrics with their values, weights, weighted scores, and marginal impact
       const metricsConfig = [
         // My Snake stats
         {
           name: 'My Length',
           value: breakdown.myLength ?? 0,
           weight: breakdown.weights?.myLength ?? 10,
-          weightedScore: breakdown.weighted?.myLengthScore ?? 0
+          weightedScore: breakdown.weighted?.myLengthScore ?? 0,
+          averageWeighted: averageWeighted.myLengthScore ?? 0
         },
         {
           name: 'My Territory',
           value: breakdown.myTerritory ?? 0,
           weight: breakdown.weights?.myTerritory ?? 1,
-          weightedScore: breakdown.weighted?.myTerritoryScore ?? 0
+          weightedScore: breakdown.weighted?.myTerritoryScore ?? 0,
+          averageWeighted: averageWeighted.myTerritoryScore ?? 0
         },
         {
           name: 'My Controlled Food',
           value: breakdown.myControlledFood ?? breakdown.myFoodCount ?? 0,
           weight: breakdown.weights?.myControlledFood ?? 10,
-          weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0
+          weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0,
+          averageWeighted: averageWeighted.myControlledFoodScore ?? 0
         },
         // Team stats
         {
           name: 'Team Length',
           value: breakdown.teamLength ?? 0,
           weight: breakdown.weights?.teamLength ?? 10,
-          weightedScore: breakdown.weighted?.teamLengthScore ?? 0
+          weightedScore: breakdown.weighted?.teamLengthScore ?? 0,
+          averageWeighted: averageWeighted.teamLengthScore ?? 0
         },
         {
           name: 'Team Territory',
           value: breakdown.teamTerritory ?? 0,
           weight: breakdown.weights?.teamTerritory ?? 1,
-          weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0
+          weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0,
+          averageWeighted: averageWeighted.teamTerritoryScore ?? 0
         },
         {
           name: 'Team Controlled Food',
           value: breakdown.teamControlledFood ?? breakdown.teamFoodCount ?? 0,
           weight: breakdown.weights?.teamControlledFood ?? 10,
-          weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0
+          weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0,
+          averageWeighted: averageWeighted.teamControlledFoodScore ?? 0
         },
         // Distance and proximity
         {
           name: 'Food Distance',
           value: breakdown.foodDistance ?? 'N/A',
           weight: 0,  // Raw distance is not weighted
-          weightedScore: 0
+          weightedScore: 0,
+          averageWeighted: 0
         },
         {
           name: 'Food Proximity',
-          value: breakdown.foodProximity !== undefined ? breakdown.foodProximity.toFixed(3) : 
-                 (breakdown.foodDistanceInverse !== undefined ? breakdown.foodDistanceInverse.toFixed(3) : '0.000'),
+          value: breakdown.foodProximity ?? breakdown.foodDistanceInverse ?? 0,
           weight: breakdown.weights?.foodProximity ?? 50,
-          weightedScore: breakdown.weighted?.foodProximityScore ?? 0
+          weightedScore: breakdown.weighted?.foodProximityScore ?? 0,
+          averageWeighted: averageWeighted.foodProximityScore ?? 0
         },
         // Enemy stats
         {
           name: 'Enemy Territory',
           value: breakdown.enemyTerritory ?? 0,
           weight: breakdown.weights?.enemyTerritory ?? 0,
-          weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0
+          weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0,
+          averageWeighted: averageWeighted.enemyTerritoryScore ?? 0
         },
         {
           name: 'Enemy Length',
           value: breakdown.enemyLength ?? 0,
           weight: breakdown.weights?.enemyLength ?? 0,
-          weightedScore: breakdown.weighted?.enemyLengthScore ?? 0
+          weightedScore: breakdown.weighted?.enemyLengthScore ?? 0,
+          averageWeighted: averageWeighted.enemyLengthScore ?? 0
         },
         // Life/death
         {
           name: 'Kills',
           value: breakdown.kills ?? 0,
           weight: breakdown.weights?.kills ?? 0,
-          weightedScore: breakdown.weighted?.killsScore ?? 0
+          weightedScore: breakdown.weighted?.killsScore ?? 0,
+          averageWeighted: averageWeighted.killsScore ?? 0
         },
         {
           name: 'Deaths',
           value: breakdown.deaths ?? 0,
           weight: breakdown.weights?.deaths ?? 0,
-          weightedScore: breakdown.weighted?.deathsScore ?? 0
+          weightedScore: breakdown.weighted?.deathsScore ?? 0,
+          averageWeighted: averageWeighted.deathsScore ?? 0
         },
         // Legacy compatibility - only show if present and new fields aren't
         ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory ? [{
           name: 'Fertile Territory',
           value: breakdown.fertileTerritory ?? 0,
           weight: breakdown.weights?.fertileTerritory ?? 1,
-          weightedScore: breakdown.weighted?.fertileScore ?? 0
+          weightedScore: breakdown.weighted?.fertileScore ?? 0,
+          averageWeighted: averageWeighted.fertileScore ?? 0
         }] : [])
       ];
       
-      // Sort by weighted score descending
-      metricsConfig.sort((a, b) => b.weightedScore - a.weightedScore);
+      // Calculate marginal impact for each metric
+      metricsConfig.forEach(metric => {
+        metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
+      });
+      
+      // Sort by absolute marginal impact descending
+      metricsConfig.sort((a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact));
       
       // Build rows
       let rows = metricsConfig.map(metric => {
         const weightDisplay = metric.weight > 0 ? metric.weight : '';
-        const scoreDisplay = metric.weightedScore > 0 ? metric.weightedScore.toFixed(3) : 
-                           (metric.weight > 0 ? '0.000' : '');
+        const scoreDisplay = metric.weight > 0 ? metric.weightedScore.toFixed(2) : '';
+        const impactDisplay = metric.weight > 0 ? 
+          (metric.marginalImpact >= 0 ? '+' : '') + metric.marginalImpact.toFixed(2) : '';
+        
+        // Color code the impact based on its value
+        let impactColor = '#888';
+        if (metric.marginalImpact > 0) {
+          impactColor = '#4CAF50'; // Green for positive
+        } else if (metric.marginalImpact < 0) {
+          impactColor = '#f44336'; // Red for negative
+        }
         
         return `
           <tr>
             <td>${metric.name}</td>
-            <td>${metric.value}</td>
+            <td>${formatValue(metric.value)}</td>
             <td>${weightDisplay}</td>
             <td>${scoreDisplay}</td>
+            <td style="color: ${impactColor}; font-weight: 600;">${impactDisplay}</td>
           </tr>
         `;
       });
       
       // Add total row
+      const totalMarginalImpact = move.score - (candidateMoves.reduce((sum, m) => sum + (m.score ?? 0), 0) / candidateMoves.length);
       rows.push(`
         <tr class="total-row">
           <td>Total Score</td>
           <td colspan="2">States: ${move.numStates || 1}</td>
-          <td>${move.score?.toFixed(3) || '0.000'}</td>
+          <td>${(move.score ?? 0).toFixed(2)}</td>
+          <td style="color: ${totalMarginalImpact >= 0 ? '#4CAF50' : '#f44336'}; font-weight: 600;">
+            ${totalMarginalImpact >= 0 ? '+' : ''}${totalMarginalImpact.toFixed(2)}
+          </td>
         </tr>
       `);
       
