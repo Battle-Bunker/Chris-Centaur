@@ -26,6 +26,7 @@ export interface DecisionConfig {
   timeoutMs: number;
   nearbyDistance: number;  // Distance to consider a snake "nearby" for full enumeration
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
+  tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
     // My snake weights
     myLength?: number;
@@ -59,11 +60,15 @@ export class DecisionEngine {
       timeoutMs: 400,
       nearbyDistance: 5,
       tailSafetyRule: 'custom',
+      tailGrowthTiming: 'grow-next-turn',
       ...config
     };
     
     this.moveAnalyzer = new MoveAnalyzer(this.config.tailSafetyRule);
-    this.boardEvaluator = new BoardEvaluator(this.config.weights);
+    this.boardEvaluator = new BoardEvaluator(
+      this.config.weights,
+      { tailGrowthTiming: this.config.tailGrowthTiming }
+    );
     this.simulator = new Simulator();
   }
   

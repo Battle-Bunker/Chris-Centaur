@@ -1,9 +1,12 @@
 /**
  * Unified board evaluator that provides a single scoring function for board states.
  * Returns both a score and structured statistics for each heuristic.
+ * Now uses single-pass multi-source BFS for O(W×H) complexity.
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
+import { BoardGraph, BoardGraphConfig } from './board-graph';
+import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
 
 export interface HeuristicStats {
   // My snake stats
@@ -88,8 +91,9 @@ export interface WeightedScores {
 
 export class BoardEvaluator {
   private weights: HeuristicWeights;
+  private graphConfig: BoardGraphConfig;
   
-  constructor(weights?: Partial<HeuristicWeights>) {
+  constructor(weights?: Partial<HeuristicWeights>, graphConfig?: Partial<BoardGraphConfig>) {
     // Default weights for each heuristic (can be overridden)
     this.weights = {
       // My snake weights
@@ -116,6 +120,11 @@ export class BoardEvaluator {
       // Override with provided weights
       ...weights
     };
+    
+    this.graphConfig = {
+      tailGrowthTiming: 'grow-next-turn' as const,
+      ...graphConfig
+    };
   }
   
   /**
@@ -137,6 +146,7 @@ export class BoardEvaluator {
   
   /**
    * Calculate all heuristic statistics for the board state.
+   * Now uses single-pass multi-source BFS for efficiency.
    */
   private calculateStats(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): HeuristicStats {
     const { board } = gameState;
@@ -161,8 +171,21 @@ export class BoardEvaluator {
       };
     }
     
-    // Calculate voronoi territory and controlled food
-    const territoryData = this.calculateVoronoiTerritory(gameState, teamSnakeIds, ourSnakeId);
+    // Build graph and run single-pass multi-source BFS
+    const graph = new BoardGraph(gameState, this.graphConfig);
+    const bfs = new MultiSourceBFS(graph);
+    
+    // Prepare BFS sources
+    const sources: BFSSource[] = board.snakes
+      .filter((s: Snake) => s.health > 0)
+      .map((s: Snake) => ({
+        id: s.id,
+        position: s.head,
+        isTeam: teamSnakeIds.has(s.id)
+      }));
+    
+    // Run the single-pass BFS
+    const bfsResult = bfs.compute(sources, board.food);
     
     // Calculate team and enemy lengths
     let teamLength = 0;
@@ -178,7 +201,7 @@ export class BoardEvaluator {
     }
     
     // Check if we just ate food (our head is where food was in previous state)
-    const headKey = `${ourSnake.head.x},${ourSnake.head.y}`;
+    const headKey = graph.coordToKey(ourSnake.head);
     const justAte = !!ctx?.prevFoodSet?.has(headKey);
     
     // Check if we're currently on a food cell (about to eat it)
@@ -186,12 +209,12 @@ export class BoardEvaluator {
       f.x === ourSnake.head.x && f.y === ourSnake.head.y
     );
     
-    // Calculate food distance - 0 if on food now or just ate, otherwise use BFS
+    // Get food distance from BFS result
     let foodDistance: number;
     if (onFoodNow || justAte) {
       foodDistance = 0; // Currently on food or just ate from previous state
     } else {
-      foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
+      foodDistance = bfsResult.nearestFoodDistance.get(ourSnakeId) || 1000;
     }
     
     // Calculate food proximity using consistent formula
@@ -204,202 +227,18 @@ export class BoardEvaluator {
     
     return {
       myLength: ourSnake.length,
-      myTerritory: territoryData.myTerritory,
-      myControlledFood: territoryData.myControlledFood,
+      myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
+      myControlledFood: bfsResult.controlledFood.get(ourSnakeId) || 0,
       teamLength,
-      teamTerritory: territoryData.teamTerritory,
-      teamControlledFood: territoryData.teamControlledFood,
+      teamTerritory: bfsResult.teamTerritory,
+      teamControlledFood: bfsResult.teamControlledFood,
       foodDistance,  // Raw unweighted distance
       foodProximity, // 1/distance or 10 if just ate
-      enemyTerritory: territoryData.enemyTerritory,
+      enemyTerritory: bfsResult.enemyTerritory,
       enemyLength,
       kills: 0,  // Would need before/after comparison to calculate
       deaths: isDead ? 1 : 0
     };
-  }
-  
-  /**
-   * Calculate voronoi territory and controlled food separately.
-   */
-  private calculateVoronoiTerritory(gameState: GameState, teamSnakeIds: Set<string>, ourSnakeId: string): 
-    { myTerritory: number; myControlledFood: number; teamTerritory: number; teamControlledFood: number; enemyTerritory: number } {
-    
-    const { board } = gameState;
-    let myTerritory = 0;
-    let myControlledFood = 0;
-    let teamTerritory = 0;
-    let teamControlledFood = 0;
-    let enemyTerritory = 0;
-    
-    // For each cell on the board
-    for (let x = 0; x < board.width; x++) {
-      for (let y = 0; y < board.height; y++) {
-        const cell = { x, y };
-        
-        // Find closest snake to this cell
-        let minDistance = Infinity;
-        let closestSnakeId: string | null = null;
-        
-        for (const snake of board.snakes) {
-          if (snake.health <= 0) continue;
-          
-          const distance = this.bfsDistance(snake.head, cell, gameState);
-          if (distance < minDistance) {
-            minDistance = distance;
-            closestSnakeId = snake.id;
-          }
-        }
-        
-        if (closestSnakeId && minDistance < 1000) {
-          // Check if this cell has food
-          const hasFood = board.food.some((f: Coord) => f.x === x && f.y === y);
-          
-          // Track territory and food separately
-          if (closestSnakeId === ourSnakeId) {
-            myTerritory += 1;
-            if (hasFood) myControlledFood += 1;
-          }
-          
-          if (teamSnakeIds.has(closestSnakeId)) {
-            teamTerritory += 1;
-            if (hasFood) teamControlledFood += 1;
-          } else {
-            enemyTerritory += 1;
-          }
-        }
-      }
-    }
-    
-    return { myTerritory, myControlledFood, teamTerritory, teamControlledFood, enemyTerritory };
-  }
-  
-  /**
-   * Calculate distance to nearest food using BFS.
-   */
-  private calculateFoodDistance(head: Coord, gameState: GameState): number {
-    const { board } = gameState;
-    
-    if (board.food.length === 0) {
-      return 1000; // No food available
-    }
-    
-    // BFS to find nearest food
-    const visited = new Set<string>();
-    const queue: { pos: Coord; dist: number }[] = [{ pos: head, dist: 0 }];
-    visited.add(`${head.x},${head.y}`);
-    
-    while (queue.length > 0) {
-      const { pos, dist } = queue.shift()!;
-      
-      // Check if this position has food
-      if (board.food.some((f: Coord) => f.x === pos.x && f.y === pos.y)) {
-        return dist;
-      }
-      
-      // Explore neighbors
-      const neighbors = [
-        { x: pos.x, y: pos.y + 1 },
-        { x: pos.x, y: pos.y - 1 },
-        { x: pos.x - 1, y: pos.y },
-        { x: pos.x + 1, y: pos.y }
-      ];
-      
-      for (const next of neighbors) {
-        // Check bounds
-        if (next.x < 0 || next.x >= board.width ||
-            next.y < 0 || next.y >= board.height) {
-          continue;
-        }
-        
-        const key = `${next.x},${next.y}`;
-        if (visited.has(key)) continue;
-        
-        // Check if blocked by snake body
-        let blocked = false;
-        for (const snake of board.snakes) {
-          if (snake.health <= 0) continue;
-          
-          // Don't count tail as blocking (it will move)
-          for (let i = 0; i < snake.body.length - 1; i++) {
-            const segment = snake.body[i];
-            if (segment.x === next.x && segment.y === next.y) {
-              blocked = true;
-              break;
-            }
-          }
-          if (blocked) break;
-        }
-        
-        if (!blocked) {
-          visited.add(key);
-          queue.push({ pos: next, dist: dist + 1 });
-        }
-      }
-    }
-    
-    return 1000; // No reachable food
-  }
-  
-  /**
-   * Calculate BFS distance between two points considering obstacles.
-   */
-  private bfsDistance(from: Coord, to: Coord, gameState: GameState): number {
-    const { board } = gameState;
-    
-    const visited = new Set<string>();
-    const queue: { pos: Coord; dist: number }[] = [{ pos: from, dist: 0 }];
-    visited.add(`${from.x},${from.y}`);
-    
-    while (queue.length > 0) {
-      const { pos, dist } = queue.shift()!;
-      
-      // Reached target
-      if (pos.x === to.x && pos.y === to.y) {
-        return dist;
-      }
-      
-      // Explore neighbors
-      const neighbors = [
-        { x: pos.x, y: pos.y + 1 },
-        { x: pos.x, y: pos.y - 1 },
-        { x: pos.x - 1, y: pos.y },
-        { x: pos.x + 1, y: pos.y }
-      ];
-      
-      for (const next of neighbors) {
-        // Check bounds
-        if (next.x < 0 || next.x >= board.width ||
-            next.y < 0 || next.y >= board.height) {
-          continue;
-        }
-        
-        const key = `${next.x},${next.y}`;
-        if (visited.has(key)) continue;
-        
-        // Check if blocked by snake body
-        let blocked = false;
-        for (const snake of board.snakes) {
-          if (snake.health <= 0) continue;
-          
-          // Don't count tail as blocking (it will move)
-          for (let i = 0; i < snake.body.length - 1; i++) {
-            const segment = snake.body[i];
-            if (segment.x === next.x && segment.y === next.y) {
-              blocked = true;
-              break;
-            }
-          }
-          if (blocked) break;
-        }
-        
-        if (!blocked) {
-          visited.add(key);
-          queue.push({ pos: next, dist: dist + 1 });
-        }
-      }
-    }
-    
-    return 1000; // Unreachable
   }
   
   /**
