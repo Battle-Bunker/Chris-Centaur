@@ -1285,9 +1285,9 @@
       
       // Build rows
       let rows = metricsConfig.map(metric => {
-        const weightDisplay = metric.weight > 0 ? metric.weight : '';
-        const scoreDisplay = metric.weight > 0 ? metric.weightedScore.toFixed(2) : '';
-        const impactDisplay = metric.weight > 0 ? 
+        const weightDisplay = metric.weight !== 0 ? metric.weight : '';
+        const scoreDisplay = metric.weight !== 0 ? metric.weightedScore.toFixed(2) : '';
+        const impactDisplay = metric.weight !== 0 ? 
           (metric.marginalImpact >= 0 ? '+' : '') + metric.marginalImpact.toFixed(2) : '';
         
         // Color code the impact based on its value
