@@ -386,7 +386,6 @@ export class DecisionEngine {
       enemyTerritory: 0,
       enemyLength: 0,
       edgePenalty: 0,
-      spaceAvailable: 0,
       selfEnoughSpace: 0,
       alliesEnoughSpace: 0,
       opponentsEnoughSpace: 0,
@@ -405,7 +404,6 @@ export class DecisionEngine {
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
       edgePenaltyScore: 0,
-      spaceAvailableScore: 0,
       selfEnoughSpaceScore: 0,
       alliesEnoughSpaceScore: 0,
       opponentsEnoughSpaceScore: 0,
@@ -428,7 +426,6 @@ export class DecisionEngine {
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
       sumStats.enemyLength += evaluation.stats.enemyLength;
       sumStats.edgePenalty += evaluation.stats.edgePenalty;
-      sumStats.spaceAvailable += evaluation.stats.spaceAvailable;
       sumStats.selfEnoughSpace += evaluation.stats.selfEnoughSpace;
       sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
       sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
@@ -446,7 +443,6 @@ export class DecisionEngine {
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
       sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
-      sumWeighted.spaceAvailableScore += evaluation.weighted.spaceAvailableScore;
       sumWeighted.selfEnoughSpaceScore += evaluation.weighted.selfEnoughSpaceScore;
       sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
       sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
@@ -473,7 +469,6 @@ export class DecisionEngine {
         enemyTerritory: sumStats.enemyTerritory / count,
         enemyLength: sumStats.enemyLength / count,
         edgePenalty: sumStats.edgePenalty / count,
-        spaceAvailable: sumStats.spaceAvailable / count,
         selfEnoughSpace: sumStats.selfEnoughSpace / count,
         alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
         opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
@@ -492,7 +487,6 @@ export class DecisionEngine {
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
         edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
-        spaceAvailableScore: sumWeighted.spaceAvailableScore / count,
         selfEnoughSpaceScore: sumWeighted.selfEnoughSpaceScore / count,
         alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
         opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
