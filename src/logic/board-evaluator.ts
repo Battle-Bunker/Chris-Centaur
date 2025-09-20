@@ -376,8 +376,26 @@ export class BoardEvaluator {
         const key = `${next.x},${next.y}`;
         if (visited.has(key)) continue;
         
-        visited.add(key);
-        queue.push({ pos: next, dist: dist + 1 });
+        // Check if blocked by snake body
+        let blocked = false;
+        for (const snake of board.snakes) {
+          if (snake.health <= 0) continue;
+          
+          // Don't count tail as blocking (it will move)
+          for (let i = 0; i < snake.body.length - 1; i++) {
+            const segment = snake.body[i];
+            if (segment.x === next.x && segment.y === next.y) {
+              blocked = true;
+              break;
+            }
+          }
+          if (blocked) break;
+        }
+        
+        if (!blocked) {
+          visited.add(key);
+          queue.push({ pos: next, dist: dist + 1 });
+        }
       }
     }
     
