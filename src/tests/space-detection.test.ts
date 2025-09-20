@@ -155,7 +155,7 @@ describe('Enhanced Space Detection', () => {
 
   describe('Opponent Space Detection', () => {
     it('should detect when opponent is trapped', () => {
-      // Enemy snake trapped with only 1 space left
+      // Enemy snake truly trapped in a small area with our snake boxing it in
       const gameState: GameState = {
         game: {
           id: 'test',
@@ -174,12 +174,21 @@ describe('Enhanced Space Detection', () => {
               name: 'Our Snake',
               health: 100,
               body: [
-                { x: 5, y: 5 },
-                { x: 4, y: 5 },
-                { x: 3, y: 5 }
+                { x: 3, y: 3 },  // Our head
+                { x: 3, y: 2 },  // Our body forming a wall
+                { x: 3, y: 1 },
+                { x: 3, y: 0 },
+                { x: 2, y: 0 },
+                { x: 1, y: 0 },
+                { x: 0, y: 0 },
+                { x: 0, y: 1 },
+                { x: 0, y: 2 },
+                { x: 0, y: 3 },
+                { x: 1, y: 3 },
+                { x: 2, y: 3 }   // Our tail completes the box
               ],
-              head: { x: 5, y: 5 },
-              length: 3,
+              head: { x: 3, y: 3 },
+              length: 12,
               latency: '0',
               shout: '',
               squad: '',
@@ -190,11 +199,13 @@ describe('Enhanced Space Detection', () => {
               name: 'Enemy',
               health: 100,
               body: [
-                { x: 1, y: 1 },  // Head with limited space
-                { x: 0, y: 1 }   // Body blocking escape
+                { x: 1, y: 1 },  // Enemy head trapped inside our box
+                { x: 2, y: 1 },  // Enemy body
+                { x: 2, y: 2 },
+                { x: 1, y: 2 }   // Enemy tail
               ],
               head: { x: 1, y: 1 },
-              length: 2,
+              length: 4,
               latency: '0',
               shout: '',
               squad: '',
@@ -209,12 +220,21 @@ describe('Enhanced Space Detection', () => {
           name: 'Our Snake',
           health: 100,
           body: [
-            { x: 5, y: 5 },
-            { x: 4, y: 5 },
-            { x: 3, y: 5 }
+            { x: 3, y: 3 },
+            { x: 3, y: 2 },
+            { x: 3, y: 1 },
+            { x: 3, y: 0 },
+            { x: 2, y: 0 },
+            { x: 1, y: 0 },
+            { x: 0, y: 0 },
+            { x: 0, y: 1 },
+            { x: 0, y: 2 },
+            { x: 0, y: 3 },
+            { x: 1, y: 3 },
+            { x: 2, y: 3 }
           ],
-          head: { x: 5, y: 5 },
-          length: 3,
+          head: { x: 3, y: 3 },
+          length: 12,
           latency: '0',
           shout: '',
           squad: '',

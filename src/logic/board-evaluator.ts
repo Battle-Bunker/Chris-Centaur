@@ -410,8 +410,13 @@ export class BoardEvaluator {
       }
     }
     
-    // Base: +3 if enough space (cells >= length OR reached own tail), -3 if not
-    const baseScore = (cellsFound >= snakeLength || foundOwnTail) ? 3 : -3;
+    // Base: +3 if enough space, -3 if not
+    // Having enough space means EITHER:
+    // 1. Can reach at least as many cells as our length
+    // 2. Can reach our own tail AND have reasonable space (at least half our length)
+    const hasEnoughSpace = cellsFound >= snakeLength || 
+                          (foundOwnTail && cellsFound >= Math.max(3, Math.floor(snakeLength / 2)));
+    const baseScore = hasEnoughSpace ? 3 : -3;
     return baseScore;
   }
   
