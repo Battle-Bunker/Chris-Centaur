@@ -382,12 +382,44 @@
                         </div>
                         
                         <div class="config-item">
-                            <label for="spaceAvailable">Space Available Weight</label>
+                            <label for="spaceAvailable">Space Available Weight (Deprecated)</label>
                             <div class="input-group">
                                 <input type="range" id="spaceAvailable_slider" min="0" max="100" step="1">
                                 <input type="number" id="spaceAvailable" min="0" max="100" step="1">
                             </div>
-                            <div class="description">Value of having escape space (floodfill check)</div>
+                            <div class="description">DEPRECATED: Replaced by enhanced space detection</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Enhanced Space Detection -->
+                    <div class="config-section">
+                        <h3><span>🎯</span>Enhanced Space Detection</h3>
+                        
+                        <div class="config-item">
+                            <label for="selfEnoughSpace">Self Enough Space Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="selfEnoughSpace_slider" min="-50" max="50" step="1">
+                                <input type="number" id="selfEnoughSpace" min="-50" max="50" step="1">
+                            </div>
+                            <div class="description">Your snake's space availability (+3 if enough, -3 if trapped, +1 per reachable tail)</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="alliesEnoughSpace">Allies Enough Space Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="alliesEnoughSpace_slider" min="-50" max="50" step="1">
+                                <input type="number" id="alliesEnoughSpace" min="-50" max="50" step="1">
+                            </div>
+                            <div class="description">Allies having space (positive = good teamwork)</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="opponentsEnoughSpace">Opponents Enough Space Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="opponentsEnoughSpace_slider" min="-50" max="50" step="1">
+                                <input type="number" id="opponentsEnoughSpace" min="-50" max="50" step="1">
+                            </div>
+                            <div class="description">Opponents having space (negative = encourage trapping)</div>
                         </div>
                     </div>
                     
@@ -444,6 +476,7 @@
             'foodProximity',
             'enemyTerritory', 'enemyLength',
             'edgePenalty', 'spaceAvailable',
+            'selfEnoughSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
