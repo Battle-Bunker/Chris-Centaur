@@ -424,6 +424,122 @@ describe('Territory Calculation Tests', () => {
     expect(food2).toBe(1);
   });
 
+  test('Neutral cells should not propagate territory', () => {
+    // Test that neutralized cells don't allow expansion beyond them
+    const gameState: GameState = {
+      game: {
+        id: 'test-neutral-propagation',
+        ruleset: { name: 'standard', version: '1.0.0', settings: {} },
+        map: 'standard',
+        timeout: 500,
+        source: 'test'
+      },
+      turn: 10,
+      board: {
+        width: 8,  // Even width to ensure symmetric tie
+        height: 5,
+        snakes: [
+          {
+            id: 'snake1',
+            name: 'Snake 1',
+            health: 100,
+            body: [
+              { x: 0, y: 2 },  // Left edge
+              { x: 0, y: 1 },
+              { x: 0, y: 0 }
+            ],
+            head: { x: 0, y: 2 },
+            length: 3,
+            latency: '0',
+            shout: '',
+            squad: '',
+            customizations: { color: '#FF0000', head: 'default', tail: 'default' }
+          },
+          {
+            id: 'snake2',
+            name: 'Snake 2',
+            health: 100,
+            body: [
+              { x: 7, y: 2 },  // Right edge
+              { x: 7, y: 1 },
+              { x: 7, y: 0 }
+            ],
+            head: { x: 7, y: 2 },
+            length: 3,
+            latency: '0',
+            shout: '',
+            squad: '',
+            customizations: { color: '#0000FF', head: 'default', tail: 'default' }
+          }
+        ],
+        food: [],
+        hazards: []
+      },
+      you: {
+        id: 'snake1',
+        name: 'Snake 1',
+        health: 100,
+        body: [
+          { x: 0, y: 2 },
+          { x: 0, y: 1 },
+          { x: 0, y: 0 }
+        ],
+        head: { x: 0, y: 2 },
+        length: 3,
+        latency: '0',
+        shout: '',
+        squad: '',
+        customizations: { color: '#FF0000', head: 'default', tail: 'default' }
+      }
+    };
+
+    const graph = new BoardGraph(gameState);
+    const bfs = new MultiSourceBFS(graph);
+    
+    const sources = [
+      {
+        id: 'snake1',
+        position: { x: 0, y: 2 },
+        isTeam: true
+      },
+      {
+        id: 'snake2',
+        position: { x: 7, y: 2 },
+        isTeam: false
+      }
+    ];
+    
+    const result = bfs.compute(sources, []);
+    
+    // Check that middle cells (x=3 and x=4) are neutral
+    const middle1 = graph.coordToKey({ x: 3, y: 2 });
+    const middle2 = graph.coordToKey({ x: 4, y: 2 });
+    
+    const cellInfo1 = result.cellInfo.get(middle1);
+    const cellInfo2 = result.cellInfo.get(middle2);
+    
+    console.log('Middle cell 1 owner:', cellInfo1?.closestSourceId);
+    console.log('Middle cell 2 owner:', cellInfo2?.closestSourceId);
+    
+    // Both middle cells should be neutral (equidistant from both snakes)
+    expect(cellInfo1?.closestSourceId).toBeNull();
+    expect(cellInfo2?.closestSourceId).toBeNull();
+    
+    // Territory should be roughly equal for both snakes
+    const territory1 = result.territoryCounts.get('snake1') || 0;
+    const territory2 = result.territoryCounts.get('snake2') || 0;
+    
+    console.log('Snake 1 territory:', territory1);
+    console.log('Snake 2 territory:', territory2);
+    
+    // Since the board is symmetric, territories should be equal
+    expect(territory1).toBe(territory2);
+    
+    // No cell beyond the neutral zone should be owned
+    // (In this case, the neutral zone splits the board perfectly)
+    expect(territory1).toBeLessThanOrEqual(20);  // Half of 40 cells (8x5 board)
+  });
+
   test('Food distance calculation should be accurate', () => {
     const gameState: GameState = {
       game: {

@@ -113,6 +113,19 @@ export class MultiSourceBFS {
     while (queueHead < queue.length) {
       const current = queue[queueHead++];
       
+      // Check if current cell has been neutralized - if so, don't expand from it
+      const currentKey = this.graph.coordToKey(current.position);
+      const currentCellInfo = cellInfo.get(currentKey);
+      if (currentCellInfo && currentCellInfo.closestSourceId === null) {
+        // This cell was neutralized, don't expand from it
+        continue;
+      }
+      
+      // Also skip if this cell is now owned by a different source (shouldn't happen but be safe)
+      if (currentCellInfo && currentCellInfo.closestSourceId !== current.sourceId) {
+        continue;
+      }
+      
       // Get passable neighbors
       const neighbors = this.graph.getNeighbors(current.position);
       
