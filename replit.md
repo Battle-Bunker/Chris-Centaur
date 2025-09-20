@@ -8,6 +8,14 @@ Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticat
 
 Preferred communication style: Simple, everyday language.
 
+## Recent Architecture Changes (2025-09-20)
+
+### Removed Deprecated Parameters
+- **spaceAvailable**: Completely removed the deprecated `spaceAvailable` parameter from the codebase. This old floodfill-based safety score has been fully replaced by the enhanced space detection system which provides more nuanced scoring:
+  - `selfEnoughSpace`: Evaluates your snake's available space (+3 if enough, -3 if trapped, +1 per reachable non-self tail)
+  - `alliesEnoughSpace`: Evaluates allies' space availability (positive values encourage teamwork)
+  - `opponentsEnoughSpace`: Evaluates opponents' space availability (negative values encourage trapping strategies)
+
 ## Critical System Synchronization Notes
 
 **IMPORTANT: When making changes to the Battlesnake AI system, ensure ALL components remain synchronized:**
