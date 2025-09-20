@@ -6,15 +6,8 @@ Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticat
 
 ## User Preferences
 
-Preferred communication style: Simple, everyday language.
-
-## Recent Architecture Changes (2025-09-20)
-
-### Removed Deprecated Parameters
-- **spaceAvailable**: Completely removed the deprecated `spaceAvailable` parameter from the codebase. This old floodfill-based safety score has been fully replaced by the enhanced space detection system which provides more nuanced scoring:
-  - `selfEnoughSpace`: Evaluates your snake's available space (+3 if enough, -3 if trapped, +1 per reachable non-self tail)
-  - `alliesEnoughSpace`: Evaluates allies' space availability (positive values encourage teamwork)
-  - `opponentsEnoughSpace`: Evaluates opponents' space availability (negative values encourage trapping strategies)
+- Preferred communication style: Simple, everyday language.
+- **Technical Debt Policy**: Prioritize minimizing technical debt over backwards compatibility. Clean, maintainable code is more important than supporting deprecated features since there are no external users.
 
 ## Critical System Synchronization Notes
 
@@ -25,22 +18,30 @@ Preferred communication style: Simple, everyday language.
    - Frontend UI display logic (src/web/history.html)
    - Any API response formats
 
-2. **Field Name Changes**: If renaming or restructuring fields (e.g., fertileTerritory → myTerritory + myControlledFood):
+2. **Adding New Heuristics Pattern**: When adding ANY new heuristic to the snake AI:
+   - Add to core logic (board-evaluator.ts, decision-engine.ts)
+   - Add to configuration interface (src/web/config.html)
+   - **MUST ALSO** add to history viewer (src/web/history.html) for display
+   - Update both weighted sums initialization AND display metrics config
+   - Failure to update BOTH config and history will result in incomplete UI
+
+3. **Field Name Changes**: If renaming or restructuring fields (e.g., fertileTerritory → myTerritory + myControlledFood):
    - Update TypeScript interfaces in ALL files
    - Update database logging to use new field names
    - Update frontend JavaScript to read and display new field names
    - Ensure backward compatibility for existing logged data
 
-3. **Testing Must Be End-to-End**: 
+4. **Testing Must Be End-to-End**: 
    - Don't just check console logs or API responses
    - ALWAYS open the Game History viewer UI to verify changes are displayed correctly
    - Test with actual game data from the database, not just curl commands
 
-4. **Common Failure Points**:
+5. **Common Failure Points**:
    - Frontend UI still using old field names while backend uses new ones
    - Weighted score calculations not matching between backend and frontend
    - Database schema out of sync with logged data structure
    - Total scores not adding up correctly in the UI
+   - **New heuristics missing from history viewer while present in config**
 
 Remember: A change isn't complete until it works in the user-facing UI, not just in the logs!
 
