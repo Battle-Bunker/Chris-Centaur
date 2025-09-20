@@ -6,6 +6,7 @@ import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
 import { DecisionLogger } from './logic/decision-logger';
 import logsRouter from './routes/logs';
+import configRouter from './routes/config';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -92,6 +93,7 @@ app.post('/end', (req, res) => {
 
 // API Routes
 app.use(logsRouter);
+app.use(configRouter);
 
 // Simple web interface
 app.get('/config', (req, res) => {

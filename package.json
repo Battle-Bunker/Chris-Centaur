@@ -24,6 +24,7 @@
   "license": "ISC",
   "description": "TypeScript Battlesnake AI using Voronoi territory maximization",
   "dependencies": {
+    "@google-cloud/storage": "^7.17.1",
     "express": "^5.1.0",
     "pg": "^8.16.3"
   },
