@@ -1,38 +1,38 @@
-import { Storage } from '@google-cloud/storage';
-
-// Replit object storage configuration
-const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
-
-const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
-      },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+import { Pool } from 'pg';
 
 /**
- * Simple key-value store for configuration using Replit's object storage
- * Stores config values as JSON in object storage
+ * Configuration store using PostgreSQL database
+ * Stores configuration values as key-value pairs in a simple table
  */
 export class ConfigStore {
-  private bucketName: string;
-  private configFile = 'battlesnake-config.json';
+  private pool: Pool;
 
   constructor() {
-    // Extract bucket name from PRIVATE_OBJECT_DIR if available
-    const privateDir = process.env.PRIVATE_OBJECT_DIR || '/default-bucket';
-    this.bucketName = privateDir.split('/')[1] || 'default-bucket';
+    // Use the existing database connection
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
+    });
+    
+    // Initialize the config table if it doesn't exist
+    this.initTable();
+  }
+
+  /**
+   * Initialize the configuration table if it doesn't exist
+   */
+  private async initTable(): Promise<void> {
+    try {
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS config_store (
+          key VARCHAR(255) PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } catch (error) {
+      console.error('Error creating config table:', error);
+    }
   }
 
   /**
@@ -40,19 +40,20 @@ export class ConfigStore {
    */
   async getAll(): Promise<Record<string, any>> {
     try {
-      const bucket = objectStorageClient.bucket(this.bucketName);
-      const file = bucket.file(this.configFile);
+      const result = await this.pool.query('SELECT key, value FROM config_store');
+      const config: Record<string, any> = {};
       
-      const [exists] = await file.exists();
-      if (!exists) {
-        console.log('Config file does not exist in object storage, returning empty config');
-        return {};
+      for (const row of result.rows) {
+        try {
+          config[row.key] = JSON.parse(row.value);
+        } catch {
+          config[row.key] = row.value;
+        }
       }
-
-      const [contents] = await file.download();
-      return JSON.parse(contents.toString());
+      
+      return config;
     } catch (error) {
-      console.error('Error reading config from object storage:', error);
+      console.error('Error reading config from database:', error);
       return {};
     }
   }
@@ -62,25 +63,17 @@ export class ConfigStore {
    */
   async set(key: string, value: any): Promise<void> {
     try {
-      const bucket = objectStorageClient.bucket(this.bucketName);
-      const file = bucket.file(this.configFile);
-      
-      // Get existing config
-      const config = await this.getAll();
-      
-      // Update config
-      config[key] = value;
-      
-      // Save back to object storage
-      await file.save(JSON.stringify(config, null, 2), {
-        metadata: {
-          contentType: 'application/json',
-        },
-      });
-      
+      const jsonValue = JSON.stringify(value);
+      await this.pool.query(
+        `INSERT INTO config_store (key, value, updated_at) 
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (key) 
+         DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+        [key, jsonValue]
+      );
       console.log(`Config updated: ${key} = ${value}`);
     } catch (error) {
-      console.error('Error saving config to object storage:', error);
+      console.error('Error saving config to database:', error);
       throw error;
     }
   }
@@ -89,27 +82,29 @@ export class ConfigStore {
    * Set multiple configuration values at once
    */
   async setMultiple(updates: Record<string, any>): Promise<void> {
+    const client = await this.pool.connect();
     try {
-      const bucket = objectStorageClient.bucket(this.bucketName);
-      const file = bucket.file(this.configFile);
+      await client.query('BEGIN');
       
-      // Get existing config
-      const config = await this.getAll();
+      for (const [key, value] of Object.entries(updates)) {
+        const jsonValue = JSON.stringify(value);
+        await client.query(
+          `INSERT INTO config_store (key, value, updated_at) 
+           VALUES ($1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (key) 
+           DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+          [key, jsonValue]
+        );
+      }
       
-      // Update config
-      Object.assign(config, updates);
-      
-      // Save back to object storage
-      await file.save(JSON.stringify(config, null, 2), {
-        metadata: {
-          contentType: 'application/json',
-        },
-      });
-      
+      await client.query('COMMIT');
       console.log(`Config updated with ${Object.keys(updates).length} values`);
     } catch (error) {
-      console.error('Error saving config to object storage:', error);
+      await client.query('ROLLBACK');
+      console.error('Error saving config to database:', error);
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -117,8 +112,25 @@ export class ConfigStore {
    * Get a specific configuration value
    */
   async get(key: string): Promise<any> {
-    const config = await this.getAll();
-    return config[key];
+    try {
+      const result = await this.pool.query(
+        'SELECT value FROM config_store WHERE key = $1',
+        [key]
+      );
+      
+      if (result.rows.length === 0) {
+        return undefined;
+      }
+      
+      try {
+        return JSON.parse(result.rows[0].value);
+      } catch {
+        return result.rows[0].value;
+      }
+    } catch (error) {
+      console.error('Error getting config from database:', error);
+      return undefined;
+    }
   }
 
   /**
@@ -126,15 +138,7 @@ export class ConfigStore {
    */
   async clear(): Promise<void> {
     try {
-      const bucket = objectStorageClient.bucket(this.bucketName);
-      const file = bucket.file(this.configFile);
-      
-      await file.save(JSON.stringify({}, null, 2), {
-        metadata: {
-          contentType: 'application/json',
-        },
-      });
-      
+      await this.pool.query('DELETE FROM config_store');
       console.log('Config cleared');
     } catch (error) {
       console.error('Error clearing config:', error);
