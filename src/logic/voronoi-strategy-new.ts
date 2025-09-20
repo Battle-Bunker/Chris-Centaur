@@ -253,6 +253,22 @@ export class VoronoiStrategy {
       console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
       console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
       
+      // Enhanced Space Detection
+      if (breakdown.stats.selfEnoughSpace !== undefined && breakdown.weights.selfEnoughSpace !== undefined) {
+        console.log(`│ Self Space          │ ${(breakdown.stats.selfEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.selfEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.selfEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
+      }
+      if (breakdown.stats.alliesEnoughSpace !== undefined && breakdown.weights.alliesEnoughSpace !== undefined) {
+        console.log(`│ Allies Space        │ ${(breakdown.stats.alliesEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.alliesEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.alliesEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
+      }
+      if (breakdown.stats.opponentsEnoughSpace !== undefined && breakdown.weights.opponentsEnoughSpace !== undefined) {
+        console.log(`│ Opponents Space     │ ${(breakdown.stats.opponentsEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.opponentsEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.opponentsEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
+      }
+      
+      // Edge Penalty
+      if (breakdown.stats.edgePenalty !== 0) {
+        console.log(`│ Edge Penalty        │ ${breakdown.stats.edgePenalty.toFixed(1).padStart(8)} │ ×${breakdown.weights.edgePenalty.toString().padStart(7)} │ ${breakdown.weighted.edgePenaltyScore.toFixed(2).padStart(8)} │`);
+      }
+      
       // Enemy stats (currently zero weight but tracked)
       if (breakdown.weights.enemyTerritory > 0 || breakdown.weights.enemyLength > 0) {
         console.log(`│ Enemy Territory     │ ${breakdown.stats.enemyTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.enemyTerritory.toString().padStart(7)} │ ${breakdown.weighted.enemyTerritoryScore.toFixed(2).padStart(8)} │`);

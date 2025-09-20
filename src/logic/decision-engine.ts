@@ -387,6 +387,9 @@ export class DecisionEngine {
       enemyLength: 0,
       edgePenalty: 0,
       spaceAvailable: 0,
+      selfEnoughSpace: 0,
+      alliesEnoughSpace: 0,
+      opponentsEnoughSpace: 0,
       kills: 0,
       deaths: 0
     };
@@ -403,6 +406,9 @@ export class DecisionEngine {
       enemyLengthScore: 0,
       edgePenaltyScore: 0,
       spaceAvailableScore: 0,
+      selfEnoughSpaceScore: 0,
+      alliesEnoughSpaceScore: 0,
+      opponentsEnoughSpaceScore: 0,
       killsScore: 0,
       deathsScore: 0
     };
@@ -423,6 +429,9 @@ export class DecisionEngine {
       sumStats.enemyLength += evaluation.stats.enemyLength;
       sumStats.edgePenalty += evaluation.stats.edgePenalty;
       sumStats.spaceAvailable += evaluation.stats.spaceAvailable;
+      sumStats.selfEnoughSpace += evaluation.stats.selfEnoughSpace;
+      sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
+      sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
       sumStats.kills += evaluation.stats.kills;
       sumStats.deaths += evaluation.stats.deaths;
       
@@ -438,6 +447,9 @@ export class DecisionEngine {
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
       sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
       sumWeighted.spaceAvailableScore += evaluation.weighted.spaceAvailableScore;
+      sumWeighted.selfEnoughSpaceScore += evaluation.weighted.selfEnoughSpaceScore;
+      sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
+      sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
       sumWeighted.killsScore += evaluation.weighted.killsScore;
       sumWeighted.deathsScore += evaluation.weighted.deathsScore;
       
@@ -462,6 +474,9 @@ export class DecisionEngine {
         enemyLength: sumStats.enemyLength / count,
         edgePenalty: sumStats.edgePenalty / count,
         spaceAvailable: sumStats.spaceAvailable / count,
+        selfEnoughSpace: sumStats.selfEnoughSpace / count,
+        alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
+        opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
         kills: sumStats.kills / count,
         deaths: sumStats.deaths / count
       },
@@ -478,6 +493,9 @@ export class DecisionEngine {
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
         edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
         spaceAvailableScore: sumWeighted.spaceAvailableScore / count,
+        selfEnoughSpaceScore: sumWeighted.selfEnoughSpaceScore / count,
+        alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
+        opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
         killsScore: sumWeighted.killsScore / count,
         deathsScore: sumWeighted.deathsScore / count
       }
