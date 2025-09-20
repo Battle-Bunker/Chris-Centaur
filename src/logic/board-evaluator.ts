@@ -331,7 +331,7 @@ export class BoardEvaluator {
    * Returns:
    * - 3 if enough space (can reach cells >= length OR can reach own tail)
    * - -3 if not enough space  
-   * - +1 for each reachable non-self tail
+   * Note: +1 per reachable non-self tail bonus is not yet implemented
    */
   private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[], width: number, height: number): number {
     const startPos = snake.head;
@@ -344,7 +344,6 @@ export class BoardEvaluator {
     visited.add(graph.coordToKey(startPos));
     
     let cellsFound = 1; // Start with 1 for the head position
-    let reachableNonSelfTails = 0;
     let foundOwnTail = false;
     
     // Create a set of all snake bodies (excluding tails for movement next turn)
@@ -356,15 +355,6 @@ export class BoardEvaluator {
         const segment = otherSnake.body[i];
         blockedCells.add(graph.coordToKey(segment));
       }
-    }
-    
-    // Track tails separately for bonus scoring
-    const tailMap = new Map<string, string>(); // key -> snake id
-    for (const otherSnake of allSnakes) {
-      if (otherSnake.health <= 0) continue;
-      const tail = otherSnake.body[otherSnake.body.length - 1];
-      const tailKey = graph.coordToKey(tail);
-      tailMap.set(tailKey, otherSnake.id);
     }
     
     while (queue.length > 0) {
@@ -402,26 +392,14 @@ export class BoardEvaluator {
           foundOwnTail = true;
         }
         
-        // Check if this is a non-self tail for bonus
-        const snakeIdAtTail = tailMap.get(neighborKey);
-        if (snakeIdAtTail && snakeIdAtTail !== snake.id) {
-          reachableNonSelfTails++;
-        }
-        
         // Continue searching from this cell
         queue.push(neighbor);
       }
     }
     
-    // Calculate score: base score PLUS tail bonus (separate components)
     // Base: +3 if enough space (cells >= length OR reached own tail), -3 if not
     const baseScore = (cellsFound >= snakeLength || foundOwnTail) ? 3 : -3;
-    
-    // CRITICAL BUG FIX: Return base score and tail bonus as SEPARATE values
-    // The weighted scores expect these to be separate, not combined
-    // Otherwise we get 0 when trapped (-3) but can reach 3 tails (+3)
-    return baseScore; // For now, just return base score without tail bonus
-    // TODO: We need to restructure to track tail bonus separately
+    return baseScore;
   }
   
   /**
