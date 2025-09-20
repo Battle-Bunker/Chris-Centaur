@@ -346,15 +346,28 @@ export class BoardEvaluator {
     let cellsFound = 1; // Start with 1 for the head position
     let foundOwnTail = false;
     
-    // Create a set of all snake bodies (excluding tails for movement next turn)
+    // Create a set of all snake bodies - we need to be careful about tails
+    // For space detection, only our own tail should be considered reachable
     const blockedCells = new Set<string>();
     for (const otherSnake of allSnakes) {
       if (otherSnake.health <= 0) continue;
-      // Add all body segments except the tail (which will move)
-      for (let i = 0; i < otherSnake.body.length - 1; i++) {
+      // For our own snake, block all segments except our tail
+      // For other snakes, block all segments except their tails (since they'll move)
+      const excludeTail = true; // Always exclude the tail from blocked cells
+      const endIdx = excludeTail ? otherSnake.body.length - 1 : otherSnake.body.length;
+      for (let i = 0; i < endIdx; i++) {
         const segment = otherSnake.body[i];
         blockedCells.add(graph.coordToKey(segment));
       }
+    }
+    
+    // Now add all OTHER snakes' tails as blocked (not our own)
+    // This prevents floodfill from escaping through enemy tail positions
+    for (const otherSnake of allSnakes) {
+      if (otherSnake.health <= 0) continue;
+      if (otherSnake.id === snake.id) continue; // Skip our own tail
+      const tail = otherSnake.body[otherSnake.body.length - 1];
+      blockedCells.add(graph.coordToKey(tail));
     }
     
     while (queue.length > 0) {

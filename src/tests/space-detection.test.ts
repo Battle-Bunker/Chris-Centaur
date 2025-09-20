@@ -78,7 +78,7 @@ describe('Enhanced Space Detection', () => {
     });
 
     it('should return -3 when snake is trapped', () => {
-      // Snake boxed in a corner with no escape
+      // Snake truly trapped in a closed loop with no escape
       const gameState: GameState = {
         game: {
           id: 'test',
@@ -96,13 +96,20 @@ describe('Enhanced Space Detection', () => {
             name: 'Test Snake',
             health: 100,
             body: [
-              { x: 0, y: 0 },  // Head in corner
+              { x: 1, y: 1 },  // Head trapped inside
+              { x: 2, y: 1 },  // Body forms walls
+              { x: 2, y: 2 },
+              { x: 2, y: 3 },
+              { x: 1, y: 3 },
+              { x: 0, y: 3 },
+              { x: 0, y: 2 },
+              { x: 0, y: 1 },
+              { x: 0, y: 0 },
               { x: 1, y: 0 },
-              { x: 1, y: 1 },
-              { x: 0, y: 1 }   // Tail blocks escape
+              { x: 2, y: 0 }   // Tail completes the box
             ],
-            head: { x: 0, y: 0 },
-            length: 4,
+            head: { x: 1, y: 1 },
+            length: 11,
             latency: '0',
             shout: '',
             squad: '',
@@ -116,13 +123,20 @@ describe('Enhanced Space Detection', () => {
           name: 'Test Snake',
           health: 100,
           body: [
+            { x: 1, y: 1 },
+            { x: 2, y: 1 },
+            { x: 2, y: 2 },
+            { x: 2, y: 3 },
+            { x: 1, y: 3 },
+            { x: 0, y: 3 },
+            { x: 0, y: 2 },
+            { x: 0, y: 1 },
             { x: 0, y: 0 },
             { x: 1, y: 0 },
-            { x: 1, y: 1 },
-            { x: 0, y: 1 }
+            { x: 2, y: 0 }
           ],
-          head: { x: 0, y: 0 },
-          length: 4,
+          head: { x: 1, y: 1 },
+          length: 11,
           latency: '0',
           shout: '',
           squad: '',
