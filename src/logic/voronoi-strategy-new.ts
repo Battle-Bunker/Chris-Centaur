@@ -108,6 +108,10 @@ export class VoronoiStrategy {
       foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
       enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
       enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
+      edgePenalty: parseFloat(process.env.WEIGHT_EDGE_PENALTY || '0'),
+      selfEnoughSpace: parseFloat(process.env.WEIGHT_SELF_ENOUGH_SPACE || '20'),
+      alliesEnoughSpace: parseFloat(process.env.WEIGHT_ALLIES_ENOUGH_SPACE || '10'),
+      opponentsEnoughSpace: parseFloat(process.env.WEIGHT_OPPONENTS_ENOUGH_SPACE || '-15'),
       kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
       deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
     };
