@@ -74,15 +74,26 @@ describe('Territory Calculation Tests', () => {
     const result = bfs.compute(sources, []);
     
     // Single snake should control most of the board (11x11 = 121 cells)
-    // Snake body blocks 2 cells (excluding head which is passable)
-    // With level-by-level BFS, we get more accurate territory counting
+    // In grow-next-turn mode, for a 3-segment snake:
+    // - Head (index 0): not blocked, it's the BFS starting point
+    // - Body (index 1): blocked
+    // - Tail (index 2): not blocked (will move next turn)
+    // So only 1 cell is blocked, territory = 121 - 1 = 120
     const territory = result.territoryCounts.get('snake1') || 0;
     console.log('Single snake territory:', territory);
     
-    // Snake should control a significant portion but not all cells
-    // Body segments block some areas from being reached
-    expect(territory).toBeGreaterThan(60);  // Should control majority of board
-    expect(territory).toBeLessThanOrEqual(121);  // Maximum possible cells on board
+    // Snake should control all passable cells
+    expect(territory).toBe(120);  // All cells except 1 blocked body segment
+    
+    // Verify no cells are marked as neutral in single-source case
+    let neutralCount = 0;
+    for (const [_, info] of result.cellInfo) {
+      if (info.closestSourceId === null) {
+        neutralCount++;
+      }
+    }
+    console.log('Neutral cells in single-snake case:', neutralCount);
+    expect(neutralCount).toBe(0);  // No cells should be neutral with only one snake
   });
 
   test('Two snakes at equal distance should have tied cells neutralized', () => {

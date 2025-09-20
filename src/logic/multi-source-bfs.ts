@@ -90,8 +90,8 @@ export class MultiSourceBFS {
     
     // Process all levels
     while (currentLevel.length > 0) {
-      // Track cells reached at this distance by each source
-      const cellsReachedThisLevel = new Map<CellKey, string[]>();
+      // Track cells reached at this distance by each source (using Set to deduplicate)
+      const cellsReachedThisLevel = new Map<CellKey, Set<string>>();
       
       // First pass: identify all cells reached at this distance
       for (const item of currentLevel) {
@@ -111,20 +111,23 @@ export class MultiSourceBFS {
             nearestFoodDistance.set(item.sourceId, 0);
           }
         } else {
-          // For distance > 0, track which sources reach this cell
+          // For distance > 0, track which sources reach this cell (deduplicated)
           if (!cellsReachedThisLevel.has(key)) {
-            cellsReachedThisLevel.set(key, []);
+            cellsReachedThisLevel.set(key, new Set<string>());
           }
-          cellsReachedThisLevel.get(key)!.push(item.sourceId);
+          cellsReachedThisLevel.get(key)!.add(item.sourceId);
         }
       }
       
       // Second pass: assign ownership or mark as neutral for cells at this distance
-      for (const [cellKey, sourceIds] of cellsReachedThisLevel) {
+      for (const [cellKey, sourceIdSet] of cellsReachedThisLevel) {
         // Skip if already visited (shouldn't happen but be safe)
         if (cellInfo.has(cellKey)) {
           continue;
         }
+        
+        // Convert Set to array for easier handling
+        const sourceIds = Array.from(sourceIdSet);
         
         if (sourceIds.length === 1) {
           // Single source reaches this cell - it owns it
