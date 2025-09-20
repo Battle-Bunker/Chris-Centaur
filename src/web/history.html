@@ -1093,6 +1093,9 @@
           enemyTerritoryScore: 0,
           enemyLengthScore: 0,
           edgePenaltyScore: 0,
+          selfEnoughSpaceScore: 0,
+          alliesEnoughSpaceScore: 0,
+          opponentsEnoughSpaceScore: 0,
           killsScore: 0,
           deathsScore: 0,
           fertileScore: 0
@@ -1112,6 +1115,9 @@
             weightedSums.enemyTerritoryScore += weighted.enemyTerritoryScore ?? 0;
             weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
             weightedSums.edgePenaltyScore += weighted.edgePenaltyScore ?? 0;
+            weightedSums.selfEnoughSpaceScore += weighted.selfEnoughSpaceScore ?? 0;
+            weightedSums.alliesEnoughSpaceScore += weighted.alliesEnoughSpaceScore ?? 0;
+            weightedSums.opponentsEnoughSpaceScore += weighted.opponentsEnoughSpaceScore ?? 0;
             weightedSums.killsScore += weighted.killsScore ?? 0;
             weightedSums.deathsScore += weighted.deathsScore ?? 0;
             weightedSums.fertileScore += weighted.fertileScore ?? 0;
@@ -1221,6 +1227,28 @@
           weight: breakdown.weights?.edgePenalty ?? 50,
           weightedScore: breakdown.weighted?.edgePenaltyScore ?? 0,
           averageWeighted: averageWeighted.edgePenaltyScore ?? 0
+        },
+        // Enhanced Space Detection
+        {
+          name: 'Self Space',
+          value: breakdown.selfEnoughSpace ?? (breakdown.stats?.selfEnoughSpace ?? 0),
+          weight: breakdown.weights?.selfEnoughSpace ?? 10,
+          weightedScore: breakdown.weighted?.selfEnoughSpaceScore ?? 0,
+          averageWeighted: averageWeighted.selfEnoughSpaceScore ?? 0
+        },
+        {
+          name: 'Allies Space',
+          value: breakdown.alliesEnoughSpace ?? (breakdown.stats?.alliesEnoughSpace ?? 0),
+          weight: breakdown.weights?.alliesEnoughSpace ?? 5,
+          weightedScore: breakdown.weighted?.alliesEnoughSpaceScore ?? 0,
+          averageWeighted: averageWeighted.alliesEnoughSpaceScore ?? 0
+        },
+        {
+          name: 'Opponents Space',
+          value: breakdown.opponentsEnoughSpace ?? (breakdown.stats?.opponentsEnoughSpace ?? 0),
+          weight: breakdown.weights?.opponentsEnoughSpace ?? -5,
+          weightedScore: breakdown.weighted?.opponentsEnoughSpaceScore ?? 0,
+          averageWeighted: averageWeighted.opponentsEnoughSpaceScore ?? 0
         },
         // Life/death
         {
