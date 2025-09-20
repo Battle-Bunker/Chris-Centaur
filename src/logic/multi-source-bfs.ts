@@ -1,6 +1,7 @@
 /**
  * Multi-source BFS implementation for efficient board analysis.
  * Computes voronoi territories, distances, and food control in a single pass.
+ * Processes cells level-by-level to properly detect ties.
  */
 
 import { Coord } from '../types/battlesnake';
@@ -47,7 +48,7 @@ export class MultiSourceBFS {
   /**
    * Run multi-source BFS from all snake heads in a single pass.
    * O(W×H) complexity - each cell visited at most once.
-   * Handles ties by marking equidistant cells as neutral.
+   * Processes level-by-level to properly handle ties.
    */
   compute(sources: BFSSource[], foodPositions: Coord[]): BFSResult {
     // Initialize result structure
@@ -68,132 +69,137 @@ export class MultiSourceBFS {
       foodPositions.map(f => this.graph.coordToKey(f))
     );
     
-    // Initialize BFS queue with all sources
+    // Process BFS level by level for proper tie detection
     interface QueueItem {
       position: Coord;
       sourceId: string;
-      distance: number;
     }
     
-    // Use array-based queue with head pointer for O(1) dequeue
-    const queue: QueueItem[] = [];
-    let queueHead = 0;
+    // Current level being processed
+    let currentLevel: QueueItem[] = [];
+    let nextLevel: QueueItem[] = [];
+    let currentDistance = 0;
     
-    // Track cells that have been reached but might be tied
-    const reachedCells = new Map<CellKey, { sourceId: string, distance: number }>();
-    
-    // Add all sources to queue
+    // Initialize with source positions
     for (const source of sources) {
-      const key = this.graph.coordToKey(source.position);
-      queue.push({
+      currentLevel.push({
         position: source.position,
-        sourceId: source.id,
-        distance: 0
+        sourceId: source.id
       });
-      
-      // Mark source position as owned by this source
-      cellInfo.set(key, {
-        closestSourceId: source.id,
-        distance: 0
-      });
-      
-      reachedCells.set(key, { sourceId: source.id, distance: 0 });
-      
-      // Count this cell for territory
-      territoryCounts.set(source.id, territoryCounts.get(source.id)! + 1);
-      
-      // Check if source is on food
-      if (foodSet.has(key)) {
-        controlledFood.set(source.id, controlledFood.get(source.id)! + 1);
-        nearestFoodDistance.set(source.id, 0);
-      }
     }
     
-    // Process BFS queue
-    while (queueHead < queue.length) {
-      const current = queue[queueHead++];
+    // Process all levels
+    while (currentLevel.length > 0) {
+      // Track cells reached at this distance by each source
+      const cellsReachedThisLevel = new Map<CellKey, string[]>();
       
-      // Check if current cell has been neutralized - if so, don't expand from it
-      const currentKey = this.graph.coordToKey(current.position);
-      const currentCellInfo = cellInfo.get(currentKey);
-      if (currentCellInfo && currentCellInfo.closestSourceId === null) {
-        // This cell was neutralized, don't expand from it
-        continue;
-      }
-      
-      // Also skip if this cell is now owned by a different source (shouldn't happen but be safe)
-      if (currentCellInfo && currentCellInfo.closestSourceId !== current.sourceId) {
-        continue;
-      }
-      
-      // Get passable neighbors
-      const neighbors = this.graph.getNeighbors(current.position);
-      
-      for (const neighbor of neighbors) {
-        const neighborKey = this.graph.coordToKey(neighbor);
-        const newDistance = current.distance + 1;
+      // First pass: identify all cells reached at this distance
+      for (const item of currentLevel) {
+        const key = this.graph.coordToKey(item.position);
         
-        // Check if this cell has been reached before
-        const previousReach = reachedCells.get(neighborKey);
-        
-        if (previousReach) {
-          // Cell was reached before - check for tie
-          if (previousReach.distance === newDistance && previousReach.sourceId !== current.sourceId) {
-            // Tie detected! Mark as neutral if not already
-            const existingInfo = cellInfo.get(neighborKey);
-            if (existingInfo && existingInfo.closestSourceId !== null) {
-              // Was owned by someone, now neutral
-              const previousOwner = existingInfo.closestSourceId;
-              
-              // Decrement territory count for previous owner
-              territoryCounts.set(previousOwner, territoryCounts.get(previousOwner)! - 1);
-              
-              // If this cell had food, decrement food count for previous owner
-              if (foodSet.has(neighborKey)) {
-                controlledFood.set(previousOwner, controlledFood.get(previousOwner)! - 1);
-              }
-              
-              // Mark as neutral
-              cellInfo.set(neighborKey, {
-                closestSourceId: null,
-                distance: newDistance
-              });
-            }
+        // For distance 0 (sources), directly add to cellInfo
+        if (currentDistance === 0) {
+          cellInfo.set(key, {
+            closestSourceId: item.sourceId,
+            distance: 0
+          });
+          territoryCounts.set(item.sourceId, 1);
+          
+          // Check if source is on food
+          if (foodSet.has(key)) {
+            controlledFood.set(item.sourceId, controlledFood.get(item.sourceId)! + 1);
+            nearestFoodDistance.set(item.sourceId, 0);
           }
-          // If already reached at shorter distance or already neutral, skip
+        } else {
+          // For distance > 0, track which sources reach this cell
+          if (!cellsReachedThisLevel.has(key)) {
+            cellsReachedThisLevel.set(key, []);
+          }
+          cellsReachedThisLevel.get(key)!.push(item.sourceId);
+        }
+      }
+      
+      // Second pass: assign ownership or mark as neutral for cells at this distance
+      for (const [cellKey, sourceIds] of cellsReachedThisLevel) {
+        // Skip if already visited (shouldn't happen but be safe)
+        if (cellInfo.has(cellKey)) {
           continue;
         }
         
-        // First time reaching this cell
-        reachedCells.set(neighborKey, { sourceId: current.sourceId, distance: newDistance });
-        
-        // Record cell info
-        cellInfo.set(neighborKey, {
-          closestSourceId: current.sourceId,
-          distance: newDistance
-        });
-        
-        // Update territory count
-        territoryCounts.set(current.sourceId, territoryCounts.get(current.sourceId)! + 1);
-        
-        // Check if this cell has food
-        if (foodSet.has(neighborKey)) {
-          controlledFood.set(current.sourceId, controlledFood.get(current.sourceId)! + 1);
+        if (sourceIds.length === 1) {
+          // Single source reaches this cell - it owns it
+          const sourceId = sourceIds[0];
+          cellInfo.set(cellKey, {
+            closestSourceId: sourceId,
+            distance: currentDistance
+          });
           
-          // Update nearest food distance if this is closer
-          const currentNearestFood = nearestFoodDistance.get(current.sourceId)!;
-          if (newDistance < currentNearestFood) {
-            nearestFoodDistance.set(current.sourceId, newDistance);
+          // Update territory count
+          territoryCounts.set(sourceId, territoryCounts.get(sourceId)! + 1);
+          
+          // Check if this cell has food
+          if (foodSet.has(cellKey)) {
+            controlledFood.set(sourceId, controlledFood.get(sourceId)! + 1);
+            
+            // Update nearest food distance
+            const currentNearestFood = nearestFoodDistance.get(sourceId)!;
+            if (currentDistance < currentNearestFood) {
+              nearestFoodDistance.set(sourceId, currentDistance);
+            }
+          }
+        } else {
+          // Multiple sources reach this cell at same distance - it's neutral
+          cellInfo.set(cellKey, {
+            closestSourceId: null,
+            distance: currentDistance
+          });
+          
+          // Still update nearest food distance for all sources that can reach it
+          if (foodSet.has(cellKey)) {
+            for (const sourceId of sourceIds) {
+              const currentNearestFood = nearestFoodDistance.get(sourceId)!;
+              if (currentDistance < currentNearestFood) {
+                nearestFoodDistance.set(sourceId, currentDistance);
+              }
+            }
           }
         }
-        
-        // Add to queue to explore further
-        queue.push({
-          position: neighbor,
-          sourceId: current.sourceId,
-          distance: newDistance
-        });
       }
+      
+      // Third pass: explore neighbors for next level
+      // Only explore from cells that are owned (not neutral)
+      for (const item of currentLevel) {
+        const key = this.graph.coordToKey(item.position);
+        const info = cellInfo.get(key);
+        
+        // Skip if this cell is neutral or owned by different source
+        if (!info || info.closestSourceId !== item.sourceId) {
+          continue;
+        }
+        
+        // Get passable neighbors
+        const neighbors = this.graph.getNeighbors(item.position);
+        
+        for (const neighbor of neighbors) {
+          const neighborKey = this.graph.coordToKey(neighbor);
+          
+          // Skip if already visited
+          if (cellInfo.has(neighborKey)) {
+            continue;
+          }
+          
+          // Add to next level
+          nextLevel.push({
+            position: neighbor,
+            sourceId: item.sourceId
+          });
+        }
+      }
+      
+      // Move to next level
+      currentLevel = nextLevel;
+      nextLevel = [];
+      currentDistance++;
     }
     
     // Calculate team aggregates
