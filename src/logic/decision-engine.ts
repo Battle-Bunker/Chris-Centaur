@@ -385,6 +385,8 @@ export class DecisionEngine {
       foodProximity: 0,
       enemyTerritory: 0,
       enemyLength: 0,
+      edgePenalty: 0,
+      spaceAvailable: 0,
       kills: 0,
       deaths: 0
     };
@@ -399,6 +401,8 @@ export class DecisionEngine {
       foodProximityScore: 0,
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
+      edgePenaltyScore: 0,
+      spaceAvailableScore: 0,
       killsScore: 0,
       deathsScore: 0
     };
@@ -417,6 +421,8 @@ export class DecisionEngine {
       sumStats.foodProximity += evaluation.stats.foodProximity;
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
       sumStats.enemyLength += evaluation.stats.enemyLength;
+      sumStats.edgePenalty += evaluation.stats.edgePenalty;
+      sumStats.spaceAvailable += evaluation.stats.spaceAvailable;
       sumStats.kills += evaluation.stats.kills;
       sumStats.deaths += evaluation.stats.deaths;
       
@@ -430,6 +436,8 @@ export class DecisionEngine {
       sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
+      sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
+      sumWeighted.spaceAvailableScore += evaluation.weighted.spaceAvailableScore;
       sumWeighted.killsScore += evaluation.weighted.killsScore;
       sumWeighted.deathsScore += evaluation.weighted.deathsScore;
       
@@ -452,6 +460,8 @@ export class DecisionEngine {
         foodProximity: sumStats.foodProximity / count,
         enemyTerritory: sumStats.enemyTerritory / count,
         enemyLength: sumStats.enemyLength / count,
+        edgePenalty: sumStats.edgePenalty / count,
+        spaceAvailable: sumStats.spaceAvailable / count,
         kills: sumStats.kills / count,
         deaths: sumStats.deaths / count
       },
@@ -466,6 +476,8 @@ export class DecisionEngine {
         foodProximityScore: sumWeighted.foodProximityScore / count,
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
+        edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
+        spaceAvailableScore: sumWeighted.spaceAvailableScore / count,
         killsScore: sumWeighted.killsScore / count,
         deathsScore: sumWeighted.deathsScore / count
       }
