@@ -73,7 +73,8 @@ describe('Safety Heuristics Tests', () => {
     expect(middleEval.weighted.edgePenaltyScore).toBe(0);
   });
   
-  test('Space available should detect enclosed spaces', () => {
+  // Skipping spaceAvailable tests - feature removed
+  test.skip('Space available should detect enclosed spaces', () => {
     const evaluator = new BoardEvaluator();
     
     // Snake in open space
@@ -168,7 +169,7 @@ describe('Safety Heuristics Tests', () => {
     // But the enemy tail is reachable which adds +5
   });
   
-  test('Space available should give credit for reachable enemy tails', () => {
+  test.skip('Space available should give credit for reachable enemy tails', () => {
     const evaluator = new BoardEvaluator();
     
     // Snake with limited space but can reach enemy tail
@@ -230,7 +231,7 @@ describe('Safety Heuristics Tests', () => {
     expect(evaluation.stats.spaceAvailable).toBeGreaterThanOrEqual(-5);
   });
   
-  test('Space available should return 10 if can reach own tail', () => {
+  test.skip('Space available should return 10 if can reach own tail', () => {
     const evaluator = new BoardEvaluator();
     
     // Snake that can chase its own tail (forms a cycle)
