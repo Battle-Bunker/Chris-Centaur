@@ -53,7 +53,7 @@ app.post('/start', (req, res) => {
 });
 
 // Move endpoint - core logic
-app.post('/move', (req, res) => {
+app.post('/move', async (req, res) => {
   const gameState: GameState = req.body;
   
   try {
@@ -61,8 +61,8 @@ app.post('/move', (req, res) => {
     const teams = teamDetector.detectTeams(gameState.board.snakes);
     const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === gameState.you.id));
     
-    // Get best move using Voronoi strategy with logging
-    const result = voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+    // Get best move using Voronoi strategy with logging (now async)
+    const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
     
     // Old logger disabled - new format logging happens in strategy
     // logger.logMove(gameState, result.safeMoves, result.move, result.scores);

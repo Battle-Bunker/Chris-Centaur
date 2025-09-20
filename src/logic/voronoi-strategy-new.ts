@@ -7,36 +7,91 @@ import { GameState, Direction, TeamInfo, SimulationConfig } from '../types/battl
 import { DecisionEngine, MoveDecision } from './decision-engine';
 import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
+import { ConfigStore } from '../server/configStore';
+import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
   private decisionLogger: DecisionLogger;
   private teamDetector: TeamDetector;
+  private configStore: ConfigStore;
+  private cachedConfig: GameConfig | null = null;
+  private configCacheTime: number = 0;
+  private CACHE_DURATION_MS = 1000; // Cache config for 1 second
   
   constructor() {
-    // Get weights from environment variables or use defaults
-    const weights = {
-      myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
-      myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
-      myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
-      teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
-      teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
-      teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
-      foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
-      enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
-      enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
-      kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
-      deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
-    };
-    
-    this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: 1,
-      timeoutMs: 400,
-      nearbyDistance: 3,
-      weights
-    });
+    this.configStore = new ConfigStore();
     this.decisionLogger = DecisionLogger.getInstance();
     this.teamDetector = new TeamDetector();
+    
+    // Initialize with defaults
+    this.decisionEngine = new DecisionEngine({
+      maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
+      timeoutMs: DEFAULT_CONFIG.timeoutMs,
+      nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
+      weights: this.extractWeights(DEFAULT_CONFIG)
+    });
+    
+    // Load config asynchronously (don't block constructor)
+    this.loadConfig();
+  }
+  
+  private async loadConfig(): Promise<void> {
+    try {
+      const storedConfig = await this.configStore.getAll();
+      const mergedConfig = {
+        ...DEFAULT_CONFIG,
+        ...storedConfig
+      };
+      this.cachedConfig = mergedConfig;
+      this.configCacheTime = Date.now();
+      
+      // Update decision engine with loaded config
+      this.updateDecisionEngine(mergedConfig);
+    } catch (error) {
+      console.error('Error loading config from store, using defaults:', error);
+      this.cachedConfig = DEFAULT_CONFIG;
+      this.configCacheTime = Date.now();
+    }
+  }
+  
+  private extractWeights(config: GameConfig) {
+    return {
+      myLength: config.myLength,
+      myTerritory: config.myTerritory,
+      myControlledFood: config.myControlledFood,
+      teamLength: config.teamLength,
+      teamTerritory: config.teamTerritory,
+      teamControlledFood: config.teamControlledFood,
+      foodProximity: config.foodProximity,
+      enemyTerritory: config.enemyTerritory,
+      enemyLength: config.enemyLength,
+      edgePenalty: config.edgePenalty,
+      spaceAvailable: config.spaceAvailable,
+      kills: config.kills,
+      deaths: config.deaths
+    };
+  }
+  
+  private updateDecisionEngine(config: GameConfig): void {
+    this.decisionEngine = new DecisionEngine({
+      maxSimulationDepth: config.maxSimulationDepth,
+      timeoutMs: config.timeoutMs,
+      nearbyDistance: config.nearbyDistance,
+      weights: this.extractWeights(config)
+    });
+  }
+  
+  private async getConfig(): Promise<GameConfig> {
+    // Check if cache is still valid
+    const now = Date.now();
+    if (this.cachedConfig && (now - this.configCacheTime) < this.CACHE_DURATION_MS) {
+      return this.cachedConfig;
+    }
+    
+    // Reload config
+    await this.loadConfig();
+    return this.cachedConfig || DEFAULT_CONFIG;
   }
   
   setConfig(config: Partial<SimulationConfig>) {
@@ -64,7 +119,11 @@ export class VoronoiStrategy {
     });
   }
   
-  getBestMove(gameState: GameState, _ourTeam?: TeamInfo): Direction {
+  async getBestMove(gameState: GameState, _ourTeam?: TeamInfo): Promise<Direction> {
+    // Reload config if needed (cached for 1 second)
+    const config = await this.getConfig();
+    this.updateDecisionEngine(config);
+    
     // Detect teams
     const teams = this.teamDetector.detectTeams(gameState.board.snakes);
     const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
@@ -79,11 +138,15 @@ export class VoronoiStrategy {
     return decision.move;
   }
   
-  getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): { 
+  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): Promise<{ 
     move: Direction; 
     safeMoves: Direction[]; 
     scores: Map<Direction, number> 
-  } {
+  }> {
+    // Reload config if needed (cached for 1 second)
+    const config = await this.getConfig();
+    this.updateDecisionEngine(config);
+    
     // Detect teams
     const teams = this.teamDetector.detectTeams(gameState.board.snakes);
     const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
