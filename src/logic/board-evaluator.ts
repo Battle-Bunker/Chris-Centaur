@@ -27,6 +27,10 @@ export interface HeuristicStats {
   enemyTerritory: number;     // Enemy controlled territory
   enemyLength: number;        // Combined length of enemy snakes
   
+  // Safety heuristics
+  edgePenalty: number;        // Penalty for being on edge of board (-1 if on edge, 0 otherwise)
+  spaceAvailable: number;     // Floodfill safety score: 10 if enough space, -10 + 5*reachable_enemy_tails otherwise
+  
   // Life/death tracking
   kills: number;              // Number of enemy snakes that died
   deaths: number;             // Number of team snakes that died (including self)
@@ -61,6 +65,10 @@ export interface HeuristicWeights {
   enemyTerritory: number;
   enemyLength: number;
   
+  // Safety weights
+  edgePenalty: number;        // Weight for edge penalty
+  spaceAvailable: number;     // Weight for floodfill safety
+  
   // Life/death weights
   kills: number;
   deaths: number;
@@ -83,6 +91,10 @@ export interface WeightedScores {
   // Enemy weighted scores
   enemyTerritoryScore: number;
   enemyLengthScore: number;
+  
+  // Safety weighted scores
+  edgePenaltyScore: number;   // Weighted edge penalty score
+  spaceAvailableScore: number;  // Weighted floodfill safety score
   
   // Life/death weighted scores
   killsScore: number;
@@ -112,6 +124,10 @@ export class BoardEvaluator {
       // Enemy weights
       enemyTerritory: 0,        // Currently not used but tracked
       enemyLength: 0,           // Currently not used but tracked
+      
+      // Safety weights
+      edgePenalty: 50.0,        // Penalty for being on edge of board
+      spaceAvailable: 5.0,      // Weight for floodfill safety check
       
       // Life/death weights
       kills: 0,                 // Currently not used but tracked
@@ -166,6 +182,8 @@ export class BoardEvaluator {
         foodProximity: 0,
         enemyTerritory: 0,
         enemyLength: 0,
+        edgePenalty: 0,
+        spaceAvailable: -10,
         kills: 0,
         deaths: 1
       };
@@ -225,6 +243,12 @@ export class BoardEvaluator {
       foodProximity = 1 / (foodDistance + 1); // Consistent proximity calculation
     }
     
+    // Calculate edge penalty: -1 if on edge, 0 otherwise
+    const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
+    
+    // Calculate space available using floodfill from our head
+    const spaceAvailable = this.calculateSpaceAvailable(graph, ourSnake, board.snakes);
+    
     return {
       myLength: ourSnake.length,
       myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
@@ -236,9 +260,92 @@ export class BoardEvaluator {
       foodProximity, // 1/distance or 10 if just ate
       enemyTerritory: bfsResult.enemyTerritory,
       enemyLength,
+      edgePenalty,   // -1 if on edge, 0 otherwise
+      spaceAvailable, // Floodfill safety score
       kills: 0,  // Would need before/after comparison to calculate
       deaths: isDead ? 1 : 0
     };
+  }
+  
+  /**
+   * Calculate edge penalty: returns -1 if head is on board edge, 0 otherwise.
+   */
+  private calculateEdgePenalty(head: Coord, width: number, height: number): number {
+    const isOnEdge = head.x === 0 || head.x === width - 1 || 
+                     head.y === 0 || head.y === height - 1;
+    return isOnEdge ? -1 : 0;
+  }
+  
+  /**
+   * Calculate space available using floodfill from snake head.
+   * Returns:
+   * - 10 if enough space (including if our tail is reachable)
+   * - -10 + 5 * number_of_reachable_enemy_tails if not enough space
+   */
+  private calculateSpaceAvailable(graph: BoardGraph, ourSnake: Snake, allSnakes: Snake[]): number {
+    const startPos = ourSnake.head;
+    const ourLength = ourSnake.length;
+    const ourTailKey = graph.coordToKey(ourSnake.body[ourSnake.body.length - 1]);
+    
+    // Track visited cells and queue for BFS floodfill
+    const visited = new Set<string>();
+    const queue: Coord[] = [startPos];
+    visited.add(graph.coordToKey(startPos));
+    
+    let cellsFound = 0;
+    let reachableEnemyTails = 0;
+    let foundOurTail = false;
+    
+    while (queue.length > 0 && cellsFound < ourLength) {
+      const current = queue.shift()!;
+      cellsFound++;
+      
+      // Check if we reached our own tail
+      const currentKey = graph.coordToKey(current);
+      if (currentKey === ourTailKey) {
+        foundOurTail = true;
+        // If we can reach our tail, we have a cycle and infinite space
+        return 10;
+      }
+      
+      // Check neighbors
+      const neighbors = graph.getNeighbors(current);
+      for (const neighbor of neighbors) {
+        const neighborKey = graph.coordToKey(neighbor);
+        
+        // Skip if already visited
+        if (visited.has(neighborKey)) continue;
+        
+        // Check if this cell is passable (not blocked by snake body)
+        if (!graph.isPassable(neighbor)) {
+          // Check if this is an enemy tail (will move next turn)
+          for (const snake of allSnakes) {
+            if (snake.id === ourSnake.id || snake.health <= 0) continue;
+            
+            const tail = snake.body[snake.body.length - 1];
+            if (tail.x === neighbor.x && tail.y === neighbor.y) {
+              // This is an enemy tail - it will move, so we can potentially use this space
+              reachableEnemyTails++;
+              visited.add(neighborKey);
+              queue.push(neighbor);
+              break;
+            }
+          }
+          continue;
+        }
+        
+        visited.add(neighborKey);
+        queue.push(neighbor);
+      }
+    }
+    
+    // Check if we found enough space
+    if (cellsFound >= ourLength || foundOurTail) {
+      return 10; // Enough space available
+    } else {
+      // Not enough space, apply penalty but give credit for reachable enemy tails
+      return -10 + (5 * reachableEnemyTails);
+    }
   }
   
   /**
@@ -255,6 +362,8 @@ export class BoardEvaluator {
       foodProximityScore: stats.foodProximity * this.weights.foodProximity,
       enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
+      edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
+      spaceAvailableScore: stats.spaceAvailable * this.weights.spaceAvailable,
       killsScore: stats.kills * this.weights.kills,
       deathsScore: stats.deaths * this.weights.deaths
     };
@@ -273,6 +382,8 @@ export class BoardEvaluator {
            weighted.foodProximityScore +
            weighted.enemyTerritoryScore +
            weighted.enemyLengthScore +
+           weighted.edgePenaltyScore +
+           weighted.spaceAvailableScore +
            weighted.killsScore +
            weighted.deathsScore;
   }
