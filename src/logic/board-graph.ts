@@ -34,22 +34,24 @@ export class BoardGraph {
   
   /**
    * Build the graph representation with passability rules.
+   * Snake heads are NOT blocked - they are starting points for territory calculation.
+   * Only snake body segments (excluding heads and possibly tails) are blocked.
    */
   private buildGraph(gameState: GameState): void {
     const { board } = gameState;
     
-    // Create set of blocked cells (snake bodies except possibly tails)
+    // Create set of blocked cells (snake bodies except heads and possibly tails)
     const blockedCells = new Set<CellKey>();
     
     for (const snake of board.snakes) {
       if (snake.health <= 0) continue;
       
-      // Add all body segments as blocked except possibly the tail
-      for (let i = 0; i < snake.body.length; i++) {
+      // Add body segments as blocked (but NOT the head at index 0)
+      for (let i = 1; i < snake.body.length; i++) {  // Start from 1 to skip head
         const segment = snake.body[i];
         const key = this.coordToKey(segment);
         
-        // Tail special case
+        // Tail special case (last segment)
         if (i === snake.body.length - 1) {
           // Check if snake just ate (will grow)
           const justAte = this.snakeJustAte(snake, board.food);
@@ -58,15 +60,16 @@ export class BoardGraph {
             // Tail won't move this turn if snake just ate
             blockedCells.add(key);
           } else if (this.config.tailGrowthTiming === 'grow-next-turn') {
-            // In grow-next-turn mode, tail always moves unless length is 1
-            if (snake.body.length === 1) {
-              // Single segment snake - the head/tail doesn't leave a space
+            // In grow-next-turn mode, tail always moves unless it's the only body segment after head
+            // (Note: we already skip head, so length-1 here means 2 total segments)
+            if (snake.body.length === 2) {
+              // Two segment snake - tail doesn't leave a space
               blockedCells.add(key);
             }
             // Otherwise tail will move, so it's not blocked
           }
         } else {
-          // Non-tail segments are always blocked
+          // Non-tail, non-head segments are always blocked
           blockedCells.add(key);
         }
       }
