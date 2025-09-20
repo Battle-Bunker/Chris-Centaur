@@ -265,7 +265,7 @@ export class BoardEvaluator {
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
     
     // Calculate enhanced space detection for all snakes
-    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds);
+    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height);
     
     return {
       myLength: ourSnake.length,
@@ -300,7 +300,7 @@ export class BoardEvaluator {
    * Calculate enhanced space detection for all snakes
    * Returns scores for self, allies, and opponents
    */
-  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>): 
+  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, width: number, height: number): 
     { self: number; allies: number; opponents: number } {
     
     let selfScore = 0;
@@ -311,7 +311,7 @@ export class BoardEvaluator {
       if (snake.health <= 0) continue; // Skip dead snakes
       
       // Calculate space score for this snake
-      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes);
+      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes, width, height);
       
       // Categorize and accumulate scores
       if (snake.id === ourSnakeId) {
@@ -329,71 +329,85 @@ export class BoardEvaluator {
   /**
    * Calculate space score for a single snake using floodfill.
    * Returns:
-   * - 3 if enough space (can reach own tail or cells >= length)
+   * - 3 if enough space (can reach cells >= length)
    * - -3 if not enough space
    * - +1 for each reachable non-self tail
    */
-  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[]): number {
+  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[], width: number, height: number): number {
     const startPos = snake.head;
     const snakeLength = snake.length;
-    const snakeTailKey = graph.coordToKey(snake.body[snake.body.length - 1]);
     
     // Track visited cells and queue for BFS floodfill
     const visited = new Set<string>();
     const queue: Coord[] = [startPos];
     visited.add(graph.coordToKey(startPos));
     
-    let cellsFound = 0;
+    let cellsFound = 1; // Start with 1 for the head position
     let reachableNonSelfTails = 0;
-    let foundOwnTail = false;
+    
+    // Create a set of all snake bodies (excluding tails for movement next turn)
+    const blockedCells = new Set<string>();
+    for (const otherSnake of allSnakes) {
+      if (otherSnake.health <= 0) continue;
+      // Add all body segments except the tail (which will move)
+      for (let i = 0; i < otherSnake.body.length - 1; i++) {
+        const segment = otherSnake.body[i];
+        blockedCells.add(graph.coordToKey(segment));
+      }
+    }
+    
+    // Track tails separately for bonus scoring
+    const tailMap = new Map<string, string>(); // key -> snake id
+    for (const otherSnake of allSnakes) {
+      if (otherSnake.health <= 0) continue;
+      const tail = otherSnake.body[otherSnake.body.length - 1];
+      const tailKey = graph.coordToKey(tail);
+      tailMap.set(tailKey, otherSnake.id);
+    }
     
     while (queue.length > 0) {
       const current = queue.shift()!;
-      cellsFound++;
       
-      // Check if we reached our own tail
-      const currentKey = graph.coordToKey(current);
-      if (currentKey === snakeTailKey) {
-        foundOwnTail = true;
-      }
+      // Get all four potential neighbors
+      const neighbors: Coord[] = [
+        { x: current.x, y: current.y + 1 },  // up
+        { x: current.x, y: current.y - 1 },  // down
+        { x: current.x - 1, y: current.y },  // left
+        { x: current.x + 1, y: current.y }   // right
+      ];
       
-      // Check neighbors
-      const neighbors = graph.getNeighbors(current);
       for (const neighbor of neighbors) {
+        // Check bounds
+        if (neighbor.x < 0 || neighbor.x >= width || 
+            neighbor.y < 0 || neighbor.y >= height) {
+          continue;
+        }
+        
         const neighborKey = graph.coordToKey(neighbor);
         
         // Skip if already visited
         if (visited.has(neighborKey)) continue;
         
-        // Check if this cell is passable (not blocked by snake body)
-        if (!graph.isPassable(neighbor)) {
-          // Check if this is a tail (will move next turn)
-          for (const otherSnake of allSnakes) {
-            if (otherSnake.health <= 0) continue;
-            
-            const tail = otherSnake.body[otherSnake.body.length - 1];
-            if (tail.x === neighbor.x && tail.y === neighbor.y) {
-              // This is a tail
-              if (otherSnake.id !== snake.id) {
-                // Non-self tail - counts as reachable and adds bonus
-                reachableNonSelfTails++;
-              }
-              // Add tail position to queue (it will be free next turn)
-              visited.add(neighborKey);
-              queue.push(neighbor);
-              break;
-            }
-          }
-          continue;
+        // Skip if blocked by snake body (but not tails)
+        if (blockedCells.has(neighborKey)) continue;
+        
+        // Mark as visited and count
+        visited.add(neighborKey);
+        cellsFound++;
+        
+        // Check if this is a non-self tail for bonus
+        const snakeIdAtTail = tailMap.get(neighborKey);
+        if (snakeIdAtTail && snakeIdAtTail !== snake.id) {
+          reachableNonSelfTails++;
         }
         
-        visited.add(neighborKey);
+        // Continue searching from this cell
         queue.push(neighbor);
       }
     }
     
     // Calculate score based on space found
-    const baseScore = (cellsFound >= snakeLength || foundOwnTail) ? 3 : -3;
+    const baseScore = (cellsFound >= snakeLength) ? 3 : -3;
     return baseScore + reachableNonSelfTails;
   }
   
