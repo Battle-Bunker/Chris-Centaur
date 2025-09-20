@@ -142,9 +142,9 @@ export class BoardGraph {
   isPassable(coord: Coord): boolean {
     const key = this.coordToKey(coord);
     const neighbors = this.adjacencyList.get(key);
-    // A cell is passable if it exists in the graph and has been processed
-    // (blocked cells get empty neighbor sets)
-    return neighbors !== undefined;
+    // A cell is passable if it exists and has at least one neighbor
+    // (blocked cells have empty neighbor sets)
+    return neighbors !== undefined && neighbors.size > 0;
   }
   
   /**

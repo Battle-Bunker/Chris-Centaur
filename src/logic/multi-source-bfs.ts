@@ -13,7 +13,7 @@ export interface BFSSource {
 }
 
 export interface CellInfo {
-  closestSourceId: string;
+  closestSourceId: string | null;  // null for neutral/tied cells
   distance: number;
 }
 
@@ -47,6 +47,7 @@ export class MultiSourceBFS {
   /**
    * Run multi-source BFS from all snake heads in a single pass.
    * O(W×H) complexity - each cell visited at most once.
+   * Handles ties by marking equidistant cells as neutral.
    */
   compute(sources: BFSSource[], foodPositions: Coord[]): BFSResult {
     // Initialize result structure
@@ -74,8 +75,12 @@ export class MultiSourceBFS {
       distance: number;
     }
     
+    // Use array-based queue with head pointer for O(1) dequeue
     const queue: QueueItem[] = [];
-    const visited = new Set<CellKey>();
+    let queueHead = 0;
+    
+    // Track cells that have been reached but might be tied
+    const reachedCells = new Map<CellKey, { sourceId: string, distance: number }>();
     
     // Add all sources to queue
     for (const source of sources) {
@@ -86,12 +91,13 @@ export class MultiSourceBFS {
         distance: 0
       });
       
-      // Mark source position as visited and owned by this source
-      visited.add(key);
+      // Mark source position as owned by this source
       cellInfo.set(key, {
         closestSourceId: source.id,
         distance: 0
       });
+      
+      reachedCells.set(key, { sourceId: source.id, distance: 0 });
       
       // Count this cell for territory
       territoryCounts.set(source.id, territoryCounts.get(source.id)! + 1);
@@ -104,38 +110,62 @@ export class MultiSourceBFS {
     }
     
     // Process BFS queue
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    while (queueHead < queue.length) {
+      const current = queue[queueHead++];
       
       // Get passable neighbors
       const neighbors = this.graph.getNeighbors(current.position);
       
       for (const neighbor of neighbors) {
         const neighborKey = this.graph.coordToKey(neighbor);
+        const newDistance = current.distance + 1;
         
-        // Skip if already visited (another source got there first)
-        if (visited.has(neighborKey)) {
+        // Check if this cell has been reached before
+        const previousReach = reachedCells.get(neighborKey);
+        
+        if (previousReach) {
+          // Cell was reached before - check for tie
+          if (previousReach.distance === newDistance && previousReach.sourceId !== current.sourceId) {
+            // Tie detected! Mark as neutral if not already
+            const existingInfo = cellInfo.get(neighborKey);
+            if (existingInfo && existingInfo.closestSourceId !== null) {
+              // Was owned by someone, now neutral
+              const previousOwner = existingInfo.closestSourceId;
+              
+              // Decrement territory count for previous owner
+              territoryCounts.set(previousOwner, territoryCounts.get(previousOwner)! - 1);
+              
+              // If this cell had food, decrement food count for previous owner
+              if (foodSet.has(neighborKey)) {
+                controlledFood.set(previousOwner, controlledFood.get(previousOwner)! - 1);
+              }
+              
+              // Mark as neutral
+              cellInfo.set(neighborKey, {
+                closestSourceId: null,
+                distance: newDistance
+              });
+            }
+          }
+          // If already reached at shorter distance or already neutral, skip
           continue;
         }
         
-        // Mark as visited
-        visited.add(neighborKey);
+        // First time reaching this cell
+        reachedCells.set(neighborKey, { sourceId: current.sourceId, distance: newDistance });
         
         // Record cell info
-        const newDistance = current.distance + 1;
         cellInfo.set(neighborKey, {
           closestSourceId: current.sourceId,
           distance: newDistance
         });
         
         // Update territory count
-        const currentCount = territoryCounts.get(current.sourceId)!;
-        territoryCounts.set(current.sourceId, currentCount + 1);
+        territoryCounts.set(current.sourceId, territoryCounts.get(current.sourceId)! + 1);
         
         // Check if this cell has food
         if (foodSet.has(neighborKey)) {
-          const currentFoodCount = controlledFood.get(current.sourceId)!;
-          controlledFood.set(current.sourceId, currentFoodCount + 1);
+          controlledFood.set(current.sourceId, controlledFood.get(current.sourceId)! + 1);
           
           // Update nearest food distance if this is closer
           const currentNearestFood = nearestFoodDistance.get(current.sourceId)!;
@@ -201,8 +231,6 @@ export class MultiSourceBFS {
     
     if (!info || info.closestSourceId !== sourceId) {
       // This cell is not reachable by this source or is closer to another source
-      // We need to check if it's reachable at all by doing a single-source BFS
-      // For now, return 1000 (unreachable) for simplicity
       return 1000;
     }
     
