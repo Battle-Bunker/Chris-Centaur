@@ -2,11 +2,14 @@
 /**
  * Unified board evaluator that provides a single scoring function for board states.
  * Returns both a score and structured statistics for each heuristic.
+ * Now uses single-pass multi-source BFS for O(W×H) complexity.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BoardEvaluator = void 0;
+const board_graph_1 = require("./board-graph");
+const multi_source_bfs_1 = require("./multi-source-bfs");
 class BoardEvaluator {
-    constructor(weights) {
+    constructor(weights, graphConfig) {
         // Default weights for each heuristic (can be overridden)
         this.weights = {
             // My snake weights
@@ -22,11 +25,21 @@ class BoardEvaluator {
             // Enemy weights
             enemyTerritory: 0, // Currently not used but tracked
             enemyLength: 0, // Currently not used but tracked
+            // Safety weights
+            edgePenalty: 50.0, // Penalty for being on edge of board
+            // Enhanced space detection weights
+            selfEnoughSpace: 10.0, // Weight for our snake's space availability
+            alliesEnoughSpace: 5.0, // Weight for allies having space (positive = good teamwork)
+            opponentsEnoughSpace: -5.0, // Weight for opponents having space (negative = encourage trapping)
             // Life/death weights
             kills: 0, // Currently not used but tracked
             deaths: -500, // Heavy penalty for death
             // Override with provided weights
             ...weights
+        };
+        this.graphConfig = {
+            tailGrowthTiming: 'grow-next-turn',
+            ...graphConfig
         };
     }
     /**
@@ -46,6 +59,7 @@ class BoardEvaluator {
     }
     /**
      * Calculate all heuristic statistics for the board state.
+     * Now uses single-pass multi-source BFS for efficiency.
      */
     calculateStats(gameState, ourSnakeId, teamSnakeIds, ctx) {
         const { board } = gameState;
@@ -64,12 +78,27 @@ class BoardEvaluator {
                 foodProximity: 0,
                 enemyTerritory: 0,
                 enemyLength: 0,
+                edgePenalty: 0,
+                selfEnoughSpace: -3,
+                alliesEnoughSpace: 0,
+                opponentsEnoughSpace: 0,
                 kills: 0,
                 deaths: 1
             };
         }
-        // Calculate voronoi territory and controlled food
-        const territoryData = this.calculateVoronoiTerritory(gameState, teamSnakeIds, ourSnakeId);
+        // Build graph and run single-pass multi-source BFS
+        const graph = new board_graph_1.BoardGraph(gameState, this.graphConfig);
+        const bfs = new multi_source_bfs_1.MultiSourceBFS(graph);
+        // Prepare BFS sources
+        const sources = board.snakes
+            .filter((s) => s.health > 0)
+            .map((s) => ({
+            id: s.id,
+            position: s.head,
+            isTeam: teamSnakeIds.has(s.id)
+        }));
+        // Run the single-pass BFS
+        const bfsResult = bfs.compute(sources, board.food);
         // Calculate team and enemy lengths
         let teamLength = 0;
         let enemyLength = 0;
@@ -84,17 +113,17 @@ class BoardEvaluator {
             }
         }
         // Check if we just ate food (our head is where food was in previous state)
-        const headKey = `${ourSnake.head.x},${ourSnake.head.y}`;
+        const headKey = graph.coordToKey(ourSnake.head);
         const justAte = !!ctx?.prevFoodSet?.has(headKey);
         // Check if we're currently on a food cell (about to eat it)
         const onFoodNow = board.food.some((f) => f.x === ourSnake.head.x && f.y === ourSnake.head.y);
-        // Calculate food distance - 0 if on food now or just ate, otherwise use BFS
+        // Get food distance from BFS result
         let foodDistance;
         if (onFoodNow || justAte) {
             foodDistance = 0; // Currently on food or just ate from previous state
         }
         else {
-            foodDistance = this.calculateFoodDistance(ourSnake.head, gameState);
+            foodDistance = bfsResult.nearestFoodDistance.get(ourSnakeId) || 1000;
         }
         // Calculate food proximity using consistent formula
         let foodProximity;
@@ -104,162 +133,146 @@ class BoardEvaluator {
         else {
             foodProximity = 1 / (foodDistance + 1); // Consistent proximity calculation
         }
+        // Calculate edge penalty: -1 if on edge, 0 otherwise
+        const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
+        // Calculate enhanced space detection for all snakes
+        const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height);
         return {
             myLength: ourSnake.length,
-            myTerritory: territoryData.myTerritory,
-            myControlledFood: territoryData.myControlledFood,
+            myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
+            myControlledFood: bfsResult.controlledFood.get(ourSnakeId) || 0,
             teamLength,
-            teamTerritory: territoryData.teamTerritory,
-            teamControlledFood: territoryData.teamControlledFood,
+            teamTerritory: bfsResult.teamTerritory,
+            teamControlledFood: bfsResult.teamControlledFood,
             foodDistance, // Raw unweighted distance
             foodProximity, // 1/distance or 10 if just ate
-            enemyTerritory: territoryData.enemyTerritory,
+            enemyTerritory: bfsResult.enemyTerritory,
             enemyLength,
+            edgePenalty, // -1 if on edge, 0 otherwise
+            selfEnoughSpace: spaceScores.self,
+            alliesEnoughSpace: spaceScores.allies,
+            opponentsEnoughSpace: spaceScores.opponents,
             kills: 0, // Would need before/after comparison to calculate
             deaths: isDead ? 1 : 0
         };
     }
     /**
-     * Calculate voronoi territory and controlled food separately.
+     * Calculate edge penalty: returns -1 if head is on board edge, 0 otherwise.
      */
-    calculateVoronoiTerritory(gameState, teamSnakeIds, ourSnakeId) {
-        const { board } = gameState;
-        let myTerritory = 0;
-        let myControlledFood = 0;
-        let teamTerritory = 0;
-        let teamControlledFood = 0;
-        let enemyTerritory = 0;
-        // For each cell on the board
-        for (let x = 0; x < board.width; x++) {
-            for (let y = 0; y < board.height; y++) {
-                const cell = { x, y };
-                // Find closest snake to this cell
-                let minDistance = Infinity;
-                let closestSnakeId = null;
-                for (const snake of board.snakes) {
-                    if (snake.health <= 0)
-                        continue;
-                    const distance = this.bfsDistance(snake.head, cell, gameState);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestSnakeId = snake.id;
-                    }
-                }
-                if (closestSnakeId && minDistance < 1000) {
-                    // Check if this cell has food
-                    const hasFood = board.food.some((f) => f.x === x && f.y === y);
-                    // Track territory and food separately
-                    if (closestSnakeId === ourSnakeId) {
-                        myTerritory += 1;
-                        if (hasFood)
-                            myControlledFood += 1;
-                    }
-                    if (teamSnakeIds.has(closestSnakeId)) {
-                        teamTerritory += 1;
-                        if (hasFood)
-                            teamControlledFood += 1;
-                    }
-                    else {
-                        enemyTerritory += 1;
-                    }
-                }
-            }
-        }
-        return { myTerritory, myControlledFood, teamTerritory, teamControlledFood, enemyTerritory };
+    calculateEdgePenalty(head, width, height) {
+        const isOnEdge = head.x === 0 || head.x === width - 1 ||
+            head.y === 0 || head.y === height - 1;
+        return isOnEdge ? -1 : 0;
     }
     /**
-     * Calculate distance to nearest food using BFS.
+     * Calculate enhanced space detection for all snakes
+     * Returns scores for self, allies, and opponents
      */
-    calculateFoodDistance(head, gameState) {
-        const { board } = gameState;
-        if (board.food.length === 0) {
-            return 1000; // No food available
-        }
-        // BFS to find nearest food
-        const visited = new Set();
-        const queue = [{ pos: head, dist: 0 }];
-        visited.add(`${head.x},${head.y}`);
-        while (queue.length > 0) {
-            const { pos, dist } = queue.shift();
-            // Check if this position has food
-            if (board.food.some((f) => f.x === pos.x && f.y === pos.y)) {
-                return dist;
+    calculateAllSnakeSpaces(graph, allSnakes, ourSnakeId, teamSnakeIds, width, height) {
+        let selfScore = 0;
+        let alliesScore = 0;
+        let opponentsScore = 0;
+        for (const snake of allSnakes) {
+            if (snake.health <= 0)
+                continue; // Skip dead snakes
+            // Calculate space score for this snake
+            const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes, width, height);
+            // Categorize and accumulate scores
+            if (snake.id === ourSnakeId) {
+                selfScore = spaceScore;
             }
-            // Explore neighbors
-            const neighbors = [
-                { x: pos.x, y: pos.y + 1 },
-                { x: pos.x, y: pos.y - 1 },
-                { x: pos.x - 1, y: pos.y },
-                { x: pos.x + 1, y: pos.y }
-            ];
-            for (const next of neighbors) {
-                // Check bounds
-                if (next.x < 0 || next.x >= board.width ||
-                    next.y < 0 || next.y >= board.height) {
-                    continue;
-                }
-                const key = `${next.x},${next.y}`;
-                if (visited.has(key))
-                    continue;
-                // Check if blocked by snake body
-                let blocked = false;
-                for (const snake of board.snakes) {
-                    if (snake.health <= 0)
-                        continue;
-                    // Don't count tail as blocking (it will move)
-                    for (let i = 0; i < snake.body.length - 1; i++) {
-                        const segment = snake.body[i];
-                        if (segment.x === next.x && segment.y === next.y) {
-                            blocked = true;
-                            break;
-                        }
-                    }
-                    if (blocked)
-                        break;
-                }
-                if (!blocked) {
-                    visited.add(key);
-                    queue.push({ pos: next, dist: dist + 1 });
-                }
+            else if (teamSnakeIds.has(snake.id)) {
+                alliesScore += spaceScore;
+            }
+            else {
+                opponentsScore += spaceScore;
             }
         }
-        return 1000; // No reachable food
+        return { self: selfScore, allies: alliesScore, opponents: opponentsScore };
     }
     /**
-     * Calculate BFS distance between two points considering obstacles.
+     * Calculate space score for a single snake using floodfill.
+     * Returns:
+     * - 3 if enough space (can reach cells >= length OR can reach own tail)
+     * - -3 if not enough space
+     * Note: +1 per reachable non-self tail bonus is not yet implemented
      */
-    bfsDistance(from, to, gameState) {
-        const { board } = gameState;
+    calculateSnakeSpace(graph, snake, allSnakes, width, height) {
+        const startPos = snake.head;
+        const snakeLength = snake.length;
+        const snakeTailKey = graph.coordToKey(snake.body[snake.body.length - 1]);
+        // Track visited cells and queue for BFS floodfill
         const visited = new Set();
-        const queue = [{ pos: from, dist: 0 }];
-        visited.add(`${from.x},${from.y}`);
-        while (queue.length > 0) {
-            const { pos, dist } = queue.shift();
-            // Reached target
-            if (pos.x === to.x && pos.y === to.y) {
-                return dist;
-            }
-            // Explore neighbors
-            const neighbors = [
-                { x: pos.x, y: pos.y + 1 },
-                { x: pos.x, y: pos.y - 1 },
-                { x: pos.x - 1, y: pos.y },
-                { x: pos.x + 1, y: pos.y }
-            ];
-            for (const next of neighbors) {
-                // Check bounds
-                if (next.x < 0 || next.x >= board.width ||
-                    next.y < 0 || next.y >= board.height) {
-                    continue;
-                }
-                const key = `${next.x},${next.y}`;
-                if (visited.has(key))
-                    continue;
-                visited.add(key);
-                queue.push({ pos: next, dist: dist + 1 });
+        const queue = [startPos];
+        visited.add(graph.coordToKey(startPos));
+        let cellsFound = 1; // Start with 1 for the head position
+        let foundOwnTail = false;
+        // Create a set of all snake bodies - we need to be careful about tails
+        // For space detection, only our own tail should be considered reachable
+        const blockedCells = new Set();
+        for (const otherSnake of allSnakes) {
+            if (otherSnake.health <= 0)
+                continue;
+            // For our own snake, block all segments except our tail
+            // For other snakes, block all segments except their tails (since they'll move)
+            const excludeTail = true; // Always exclude the tail from blocked cells
+            const endIdx = excludeTail ? otherSnake.body.length - 1 : otherSnake.body.length;
+            for (let i = 0; i < endIdx; i++) {
+                const segment = otherSnake.body[i];
+                blockedCells.add(graph.coordToKey(segment));
             }
         }
-        return 1000; // Unreachable
+        // Now add all OTHER snakes' tails as blocked (not our own)
+        // This prevents floodfill from escaping through enemy tail positions
+        for (const otherSnake of allSnakes) {
+            if (otherSnake.health <= 0)
+                continue;
+            if (otherSnake.id === snake.id)
+                continue; // Skip our own tail
+            const tail = otherSnake.body[otherSnake.body.length - 1];
+            blockedCells.add(graph.coordToKey(tail));
+        }
+        while (queue.length > 0) {
+            const current = queue.shift();
+            // Get all four potential neighbors
+            const neighbors = [
+                { x: current.x, y: current.y + 1 }, // up
+                { x: current.x, y: current.y - 1 }, // down
+                { x: current.x - 1, y: current.y }, // left
+                { x: current.x + 1, y: current.y } // right
+            ];
+            for (const neighbor of neighbors) {
+                // Check bounds
+                if (neighbor.x < 0 || neighbor.x >= width ||
+                    neighbor.y < 0 || neighbor.y >= height) {
+                    continue;
+                }
+                const neighborKey = graph.coordToKey(neighbor);
+                // Skip if already visited
+                if (visited.has(neighborKey))
+                    continue;
+                // Skip if blocked by snake body (but not tails)
+                if (blockedCells.has(neighborKey))
+                    continue;
+                // Mark as visited and count
+                visited.add(neighborKey);
+                cellsFound++;
+                // Check if we reached our own tail
+                if (neighborKey === snakeTailKey) {
+                    foundOwnTail = true;
+                }
+                // Continue searching from this cell
+                queue.push(neighbor);
+            }
+        }
+        // Base: +3 if enough space, -3 if not
+        // Having enough space means EITHER:
+        // 1. Can reach at least as many cells as our length
+        // 2. Can reach our own tail AND have reasonable space (at least half our length)
+        const hasEnoughSpace = cellsFound >= snakeLength ||
+            (foundOwnTail && cellsFound >= Math.max(3, Math.floor(snakeLength / 2)));
+        const baseScore = hasEnoughSpace ? 3 : -3;
+        return baseScore;
     }
     /**
      * Calculate weighted scores for each heuristic.
@@ -275,6 +288,10 @@ class BoardEvaluator {
             foodProximityScore: stats.foodProximity * this.weights.foodProximity,
             enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
             enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
+            edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
+            selfEnoughSpaceScore: stats.selfEnoughSpace * this.weights.selfEnoughSpace,
+            alliesEnoughSpaceScore: stats.alliesEnoughSpace * this.weights.alliesEnoughSpace,
+            opponentsEnoughSpaceScore: stats.opponentsEnoughSpace * this.weights.opponentsEnoughSpace,
             killsScore: stats.kills * this.weights.kills,
             deathsScore: stats.deaths * this.weights.deaths
         };
@@ -292,6 +309,10 @@ class BoardEvaluator {
             weighted.foodProximityScore +
             weighted.enemyTerritoryScore +
             weighted.enemyLengthScore +
+            weighted.edgePenaltyScore +
+            weighted.selfEnoughSpaceScore +
+            weighted.alliesEnoughSpaceScore +
+            weighted.opponentsEnoughSpaceScore +
             weighted.killsScore +
             weighted.deathsScore;
     }

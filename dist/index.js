@@ -10,6 +10,7 @@ const team_detector_1 = require("./logic/team-detector");
 const logger_1 = require("./utils/logger");
 const decision_logger_1 = require("./logic/decision-logger");
 const logs_1 = __importDefault(require("./routes/logs"));
+const config_1 = __importDefault(require("./routes/config"));
 const app = (0, express_1.default)();
 const port = parseInt(process.env.PORT || '5000');
 app.use(express_1.default.json());
@@ -48,14 +49,14 @@ app.post('/start', (req, res) => {
     res.status(200).send('ok');
 });
 // Move endpoint - core logic
-app.post('/move', (req, res) => {
+app.post('/move', async (req, res) => {
     const gameState = req.body;
     try {
         // Detect teams based on color
         const teams = teamDetector.detectTeams(gameState.board.snakes);
         const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === gameState.you.id));
-        // Get best move using Voronoi strategy with logging
-        const result = voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+        // Get best move using Voronoi strategy with logging (now async)
+        const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
         // Old logger disabled - new format logging happens in strategy
         // logger.logMove(gameState, result.safeMoves, result.move, result.scores);
         const response = {
@@ -82,6 +83,7 @@ app.post('/end', (req, res) => {
 });
 // API Routes
 app.use(logs_1.default);
+app.use(config_1.default);
 // Simple web interface
 app.get('/config', (req, res) => {
     res.sendFile(path_1.default.join(__dirname, '../src/web/config.html'));

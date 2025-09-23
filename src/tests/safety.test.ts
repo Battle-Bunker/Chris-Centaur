@@ -108,11 +108,11 @@ describe('Safety Heuristics Tests', () => {
     };
     
     const openEval = evaluator.evaluateBoard(openState, 'snake1', new Set(['snake1']));
-    console.log('Space available for open snake:', openEval.stats.spaceAvailable);
+    console.log('Space available for open snake:', openEval.stats.selfEnoughSpace);
     
     // Should have plenty of space
-    expect(openEval.stats.spaceAvailable).toBe(10);
-    expect(openEval.weighted.spaceAvailableScore).toBe(50); // 10 * weight of 5
+    expect(openEval.stats.selfEnoughSpace).toBe(10);
+    expect(openEval.weighted.selfEnoughSpaceScore).toBe(50); // 10 * weight of 5
     
     // Snake completely surrounded (trapped in 2x2 area)
     const trappedState: GameState = {
@@ -161,10 +161,10 @@ describe('Safety Heuristics Tests', () => {
     };
     
     const trappedEval = evaluator.evaluateBoard(trappedState, 'snake1', new Set(['snake1']));
-    console.log('Space available for trapped snake:', trappedEval.stats.spaceAvailable);
+    console.log('Space available for trapped snake:', trappedEval.stats.selfEnoughSpace);
     
     // Should detect limited space and be negative but credit for enemy tail
-    expect(trappedEval.stats.spaceAvailable).toBeLessThan(10);
+    expect(trappedEval.stats.selfEnoughSpace).toBeLessThan(10);
     // With only ~3 cells available for a 3-length snake, might be exactly at the boundary
     // But the enemy tail is reachable which adds +5
   });
@@ -223,12 +223,12 @@ describe('Safety Heuristics Tests', () => {
     };
     
     const evaluation = evaluator.evaluateBoard(limitedState, 'snake1', new Set(['snake1']));
-    console.log('Space available with enemy tail:', evaluation.stats.spaceAvailable);
+    console.log('Space available with enemy tail:', evaluation.stats.selfEnoughSpace);
     console.log('Available cells should include credit for enemy tail movement');
     
     // If less than 4 spaces but can reach enemy tail, gets +5 credit
     // So result should be -10 + 5 = -5 or better
-    expect(evaluation.stats.spaceAvailable).toBeGreaterThanOrEqual(-5);
+    expect(evaluation.stats.selfEnoughSpace).toBeGreaterThanOrEqual(-5);
   });
   
   test.skip('Space available should return 10 if can reach own tail', () => {
@@ -267,10 +267,10 @@ describe('Safety Heuristics Tests', () => {
     };
     
     const evaluation = evaluator.evaluateBoard(cyclicState, 'snake1', new Set(['snake1']));
-    console.log('Space available for cyclic snake:', evaluation.stats.spaceAvailable);
+    console.log('Space available for cyclic snake:', evaluation.stats.selfEnoughSpace);
     
     // Should detect that tail is reachable and return 10 (infinite space via cycle)
-    expect(evaluation.stats.spaceAvailable).toBe(10);
-    expect(evaluation.weighted.spaceAvailableScore).toBe(50); // 10 * weight of 5
+    expect(evaluation.stats.selfEnoughSpace).toBe(10);
+    expect(evaluation.weighted.selfEnoughSpaceScore).toBe(50); // 10 * weight of 5
   });
 });

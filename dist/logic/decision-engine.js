@@ -16,10 +16,11 @@ class DecisionEngine {
             timeoutMs: 400,
             nearbyDistance: 5,
             tailSafetyRule: 'custom',
+            tailGrowthTiming: 'grow-next-turn',
             ...config
         };
         this.moveAnalyzer = new move_analyzer_1.MoveAnalyzer(this.config.tailSafetyRule);
-        this.boardEvaluator = new board_evaluator_1.BoardEvaluator(this.config.weights);
+        this.boardEvaluator = new board_evaluator_1.BoardEvaluator(this.config.weights, { tailGrowthTiming: this.config.tailGrowthTiming });
         this.simulator = new simulator_1.Simulator();
     }
     /**
@@ -258,6 +259,10 @@ class DecisionEngine {
             foodProximity: 0,
             enemyTerritory: 0,
             enemyLength: 0,
+            edgePenalty: 0,
+            selfEnoughSpace: 0,
+            alliesEnoughSpace: 0,
+            opponentsEnoughSpace: 0,
             kills: 0,
             deaths: 0
         };
@@ -271,6 +276,10 @@ class DecisionEngine {
             foodProximityScore: 0,
             enemyTerritoryScore: 0,
             enemyLengthScore: 0,
+            edgePenaltyScore: 0,
+            selfEnoughSpaceScore: 0,
+            alliesEnoughSpaceScore: 0,
+            opponentsEnoughSpaceScore: 0,
             killsScore: 0,
             deathsScore: 0
         };
@@ -287,6 +296,10 @@ class DecisionEngine {
             sumStats.foodProximity += evaluation.stats.foodProximity;
             sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
             sumStats.enemyLength += evaluation.stats.enemyLength;
+            sumStats.edgePenalty += evaluation.stats.edgePenalty;
+            sumStats.selfEnoughSpace += evaluation.stats.selfEnoughSpace;
+            sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
+            sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
             sumStats.kills += evaluation.stats.kills;
             sumStats.deaths += evaluation.stats.deaths;
             // Sum weighted scores
@@ -299,6 +312,10 @@ class DecisionEngine {
             sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
             sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
             sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
+            sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
+            sumWeighted.selfEnoughSpaceScore += evaluation.weighted.selfEnoughSpaceScore;
+            sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
+            sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
             sumWeighted.killsScore += evaluation.weighted.killsScore;
             sumWeighted.deathsScore += evaluation.weighted.deathsScore;
             totalScore += evaluation.score;
@@ -318,6 +335,10 @@ class DecisionEngine {
                 foodProximity: sumStats.foodProximity / count,
                 enemyTerritory: sumStats.enemyTerritory / count,
                 enemyLength: sumStats.enemyLength / count,
+                edgePenalty: sumStats.edgePenalty / count,
+                selfEnoughSpace: sumStats.selfEnoughSpace / count,
+                alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
+                opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
                 kills: sumStats.kills / count,
                 deaths: sumStats.deaths / count
             },
@@ -332,6 +353,10 @@ class DecisionEngine {
                 foodProximityScore: sumWeighted.foodProximityScore / count,
                 enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
                 enemyLengthScore: sumWeighted.enemyLengthScore / count,
+                edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
+                selfEnoughSpaceScore: sumWeighted.selfEnoughSpaceScore / count,
+                alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
+                opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
                 killsScore: sumWeighted.killsScore / count,
                 deathsScore: sumWeighted.deathsScore / count
             }
