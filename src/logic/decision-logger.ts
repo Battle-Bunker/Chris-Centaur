@@ -28,6 +28,7 @@ export interface DecisionLogEntry {
       // Distance/proximity metrics
       foodDistance: number;
       foodProximity: number;
+      foodEaten: number;
       
       // Enemy metrics
       enemyTerritory?: number;

@@ -383,6 +383,7 @@ export class DecisionEngine {
       teamControlledFood: 0,
       foodDistance: 0,
       foodProximity: 0,
+      foodEaten: 0,
       enemyTerritory: 0,
       enemyLength: 0,
       edgePenalty: 0,
@@ -401,6 +402,7 @@ export class DecisionEngine {
       teamTerritoryScore: 0,
       teamControlledFoodScore: 0,
       foodProximityScore: 0,
+      foodEatenScore: 0,
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
       edgePenaltyScore: 0,
@@ -423,6 +425,7 @@ export class DecisionEngine {
       sumStats.teamControlledFood += evaluation.stats.teamControlledFood;
       sumStats.foodDistance += evaluation.stats.foodDistance;
       sumStats.foodProximity += evaluation.stats.foodProximity;
+      sumStats.foodEaten += evaluation.stats.foodEaten;
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
       sumStats.enemyLength += evaluation.stats.enemyLength;
       sumStats.edgePenalty += evaluation.stats.edgePenalty;
@@ -440,6 +443,7 @@ export class DecisionEngine {
       sumWeighted.teamTerritoryScore += evaluation.weighted.teamTerritoryScore;
       sumWeighted.teamControlledFoodScore += evaluation.weighted.teamControlledFoodScore;
       sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
+      sumWeighted.foodEatenScore += evaluation.weighted.foodEatenScore;
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
       sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
@@ -466,6 +470,7 @@ export class DecisionEngine {
         teamControlledFood: sumStats.teamControlledFood / count,
         foodDistance: sumStats.foodDistance / count,
         foodProximity: sumStats.foodProximity / count,
+        foodEaten: sumStats.foodEaten / count,
         enemyTerritory: sumStats.enemyTerritory / count,
         enemyLength: sumStats.enemyLength / count,
         edgePenalty: sumStats.edgePenalty / count,
@@ -484,6 +489,7 @@ export class DecisionEngine {
         teamTerritoryScore: sumWeighted.teamTerritoryScore / count,
         teamControlledFoodScore: sumWeighted.teamControlledFoodScore / count,
         foodProximityScore: sumWeighted.foodProximityScore / count,
+        foodEatenScore: sumWeighted.foodEatenScore / count,
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
         edgePenaltyScore: sumWeighted.edgePenaltyScore / count,

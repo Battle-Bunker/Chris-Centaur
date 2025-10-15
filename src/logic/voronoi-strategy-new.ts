@@ -64,6 +64,7 @@ export class VoronoiStrategy {
       teamTerritory: config.teamTerritory,
       teamControlledFood: config.teamControlledFood,
       foodProximity: config.foodProximity,
+      foodEaten: config.foodEaten,
       enemyTerritory: config.enemyTerritory,
       enemyLength: config.enemyLength,
       edgePenalty: config.edgePenalty,
@@ -179,6 +180,7 @@ export class VoronoiStrategy {
         teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
         foodDistance: evaluation.averageBreakdown.stats.foodDistance,
         foodProximity: evaluation.averageBreakdown.stats.foodProximity,
+        foodEaten: evaluation.averageBreakdown.stats.foodEaten,
         enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
         enemyLength: evaluation.averageBreakdown.stats.enemyLength,
         edgePenalty: evaluation.averageBreakdown.stats.edgePenalty,
@@ -259,6 +261,7 @@ export class VoronoiStrategy {
       // Food Distance and Proximity
       console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
       console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ Food Eaten          │ ${breakdown.stats.foodEaten.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodEaten.toString().padStart(7)} │ ${breakdown.weighted.foodEatenScore.toFixed(2).padStart(8)} │`);
       
       // Enhanced Space Detection
       if (breakdown.stats.selfEnoughSpace !== undefined && breakdown.weights.selfEnoughSpace !== undefined) {
