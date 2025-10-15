@@ -364,7 +364,16 @@
                                 <input type="range" id="foodProximity_slider" min="0" max="200" step="1">
                                 <input type="number" id="foodProximity" min="0" max="200" step="1">
                             </div>
-                            <div class="description">Attraction to nearby food (1/distance)</div>
+                            <div class="description">Attraction to nearby food (normalized [0,1], zeroed when eating)</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="foodEaten">Food Eaten Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="foodEaten_slider" min="0" max="500" step="10">
+                                <input type="number" id="foodEaten" min="0" max="500" step="10">
+                            </div>
+                            <div class="description">Direct reward for actually eating food (overrides proximity)</div>
                         </div>
                     </div>
                     
@@ -464,7 +473,7 @@
         const configKeys = [
             'myLength', 'myTerritory', 'myControlledFood',
             'teamLength', 'teamTerritory', 'teamControlledFood',
-            'foodProximity',
+            'foodProximity', 'foodEaten',
             'enemyTerritory', 'enemyLength',
             'edgePenalty',
             'selfEnoughSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
@@ -528,7 +537,7 @@
                         if (key === 'deaths') {
                             slider.min = -1000;
                             slider.max = 0;
-                        } else if (key === 'kills') {
+                        } else if (key === 'kills' || key === 'foodEaten') {
                             slider.max = 500;
                         } else if (key === 'foodProximity' || key === 'edgePenalty') {
                             slider.max = 200;

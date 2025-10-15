@@ -21,7 +21,8 @@ export interface HeuristicStats {
   
   // Distance/proximity metrics
   foodDistance: number;       // Distance to nearest food (1000 if none reachable) - raw unweighted
-  foodProximity: number;      // 1/foodDistance or 10 if just ate - this is what gets weighted
+  foodProximity: number;      // Normalized linear proximity [0,1]: (boardSize - distance)/boardSize, 0 when eating
+  foodEaten: number;          // 1 if eating (justAte or onFoodNow), 0 otherwise - direct reward
   
   // Enemy stats
   enemyTerritory: number;     // Enemy controlled territory
@@ -63,7 +64,8 @@ export interface HeuristicWeights {
   teamControlledFood: number;
   
   // Distance/proximity weights
-  foodProximity: number;      // Weight for food proximity (1/distance)
+  foodProximity: number;      // Weight for food proximity (linear)
+  foodEaten: number;          // Weight for actually eating food
   
   // Enemy weights
   enemyTerritory: number;
@@ -95,6 +97,7 @@ export interface WeightedScores {
   
   // Distance/proximity weighted scores
   foodProximityScore: number;  // Weighted food proximity score
+  foodEatenScore: number;      // Weighted food eaten score
   
   // Enemy weighted scores
   enemyTerritoryScore: number;
@@ -131,7 +134,8 @@ export class BoardEvaluator {
       teamControlledFood: 10.0, // High value for controlling food
       
       // Distance/proximity weights
-      foodProximity: 50.0,      // Increased weight for food proximity (1/distance)
+      foodProximity: 50.0,      // Weight for food proximity (linear)
+      foodEaten: 200.0,         // High reward for actually eating food
       
       // Enemy weights
       enemyTerritory: 0,        // Currently not used but tracked
@@ -196,6 +200,7 @@ export class BoardEvaluator {
         teamControlledFood: 0,
         foodDistance: 1000,
         foodProximity: 0,
+        foodEaten: 0,
         enemyTerritory: 0,
         enemyLength: 0,
         edgePenalty: 0,
@@ -253,12 +258,21 @@ export class BoardEvaluator {
       foodDistance = bfsResult.nearestFoodDistance.get(ourSnakeId) || 1000;
     }
     
-    // Calculate food proximity using consistent formula
+    // Calculate food eaten reward (1 if just ate or about to eat, 0 otherwise)
+    const foodEaten = (justAte || onFoodNow) ? 1 : 0;
+    
+    // Calculate food proximity using normalized linear formula: (boardSize - distance) / boardSize
+    // This provides smooth attraction to food in range [0, 1] without the harsh 1/distance curve
+    // When eating or about to eat, proximity is zeroed so foodEaten reward dominates
+    const boardSize = Math.max(board.width, board.height);
     let foodProximity: number;
     if (foodDistance >= 1000) {
       foodProximity = 0; // No reachable food
+    } else if (justAte || onFoodNow) {
+      foodProximity = 0; // When eating/about to eat, proximity is zeroed so foodEaten reward dominates
     } else {
-      foodProximity = 1 / (foodDistance + 1); // Consistent proximity calculation
+      // Normalized linear proximity: ranges from 0 (far) to 1 (adjacent)
+      foodProximity = Math.max(0, (boardSize - foodDistance) / boardSize);
     }
     
     // Calculate edge penalty: -1 if on edge, 0 otherwise
@@ -275,7 +289,8 @@ export class BoardEvaluator {
       teamTerritory: bfsResult.teamTerritory,
       teamControlledFood: bfsResult.teamControlledFood,
       foodDistance,  // Raw unweighted distance
-      foodProximity, // 1/distance or 10 if just ate
+      foodProximity, // Normalized [0,1]: (boardSize - distance)/boardSize, 0 if eating
+      foodEaten,     // 1 if eating (justAte or onFoodNow), 0 otherwise
       enemyTerritory: bfsResult.enemyTerritory,
       enemyLength,
       edgePenalty,   // -1 if on edge, 0 otherwise
@@ -432,6 +447,7 @@ export class BoardEvaluator {
       teamTerritoryScore: stats.teamTerritory * this.weights.teamTerritory,
       teamControlledFoodScore: stats.teamControlledFood * this.weights.teamControlledFood,
       foodProximityScore: stats.foodProximity * this.weights.foodProximity,
+      foodEatenScore: stats.foodEaten * this.weights.foodEaten,
       enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
       edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
@@ -454,6 +470,7 @@ export class BoardEvaluator {
            weighted.teamTerritoryScore +
            weighted.teamControlledFoodScore +
            weighted.foodProximityScore +
+           weighted.foodEatenScore +
            weighted.enemyTerritoryScore +
            weighted.enemyLengthScore +
            weighted.edgePenaltyScore +

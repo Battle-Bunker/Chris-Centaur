@@ -1090,6 +1090,7 @@
           teamTerritoryScore: 0,
           teamControlledFoodScore: 0,
           foodProximityScore: 0,
+          foodEatenScore: 0,
           enemyTerritoryScore: 0,
           enemyLengthScore: 0,
           edgePenaltyScore: 0,
@@ -1112,6 +1113,7 @@
             weightedSums.teamTerritoryScore += weighted.teamTerritoryScore ?? 0;
             weightedSums.teamControlledFoodScore += weighted.teamControlledFoodScore ?? 0;
             weightedSums.foodProximityScore += weighted.foodProximityScore ?? 0;
+            weightedSums.foodEatenScore += weighted.foodEatenScore ?? 0;
             weightedSums.enemyTerritoryScore += weighted.enemyTerritoryScore ?? 0;
             weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
             weightedSums.edgePenaltyScore += weighted.edgePenaltyScore ?? 0;
@@ -1204,6 +1206,13 @@
           weight: breakdown.weights?.foodProximity ?? 50,
           weightedScore: breakdown.weighted?.foodProximityScore ?? 0,
           averageWeighted: averageWeighted.foodProximityScore ?? 0
+        },
+        {
+          name: 'Food Eaten',
+          value: breakdown.foodEaten ?? 0,
+          weight: breakdown.weights?.foodEaten ?? 200,
+          weightedScore: breakdown.weighted?.foodEatenScore ?? 0,
+          averageWeighted: averageWeighted.foodEatenScore ?? 0
         },
         // Enemy stats
         {

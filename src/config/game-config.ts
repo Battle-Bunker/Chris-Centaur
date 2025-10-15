@@ -16,6 +16,7 @@ export interface GameConfig {
   
   // Distance/proximity weights
   foodProximity: number;
+  foodEaten: number;         // Reward for actually eating food
   
   // Enemy weights
   enemyTerritory: number;
@@ -52,6 +53,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   
   // Distance/proximity weights
   foodProximity: 50.0,
+  foodEaten: 200.0,          // High reward for actually eating food
   
   // Enemy weights
   enemyTerritory: 0,
