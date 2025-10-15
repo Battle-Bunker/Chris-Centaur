@@ -143,6 +143,7 @@ Remember: A change isn't complete until it works in the user-facing UI, not just
 - **Express 5.1.0** - Web server framework for handling HTTP requests from Battlesnake platform
 - **TypeScript 5.9.2** - Compile-time type checking and modern JavaScript features
 - **ts-node 10.9.2** - Direct TypeScript execution for development workflow
+- **pg (PostgreSQL client)** - Database driver for decision logging
 
 ### Development Dependencies
 - **Nodemon 3.1.10** - Automatic server restart during development
@@ -150,10 +151,16 @@ Remember: A change isn't complete until it works in the user-facing UI, not just
 
 ### External Service Integration
 - **Battlesnake Platform API** - Receives game states via webhook and responds with move decisions following the official Battlesnake API v1 protocol
-- **No Database Required** - Stateless design processes each game turn independently
+- **PostgreSQL Database (Neon)** - Stores game decision logs for analysis and debugging; auto-initializes schema on first connection
 - **No Authentication Required** - Public webhook endpoint as per Battlesnake requirements
+
+### Database Schema
+- **Auto-initialization**: The `DecisionLogger` class automatically creates the `decision_logs` table and indexes on first connection
+- **Schema location**: Defined in `src/logic/decision-logger.ts` initialize() method
+- **Important fix (2025-10-15)**: Split multi-statement schema SQL into separate queries for pg client compatibility
 
 ### Deployment Requirements
 - **Port Configuration** - Configurable via PORT environment variable (defaults to 5000)
 - **Static Web Assets** - Serves configuration interface from `/src/web` directory
 - **Build Process** - TypeScript compilation to `dist/` directory for production deployment
+- **Database Environment Variables** - Automatically configured by Replit (DATABASE_URL, PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT)
