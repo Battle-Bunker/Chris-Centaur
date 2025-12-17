@@ -65,6 +65,18 @@ This bot is specifically designed to play a team-based Battlesnake variant with 
 
 Remember: A change isn't complete until it works in the user-facing UI, not just in the logs!
 
+## Game History Viewer Features
+
+### Voronoi Territory Visualization (Added 2025-12-17)
+The Game History viewer now displays Voronoi territory overlays on the game board:
+- **Territory Overlay**: Each snake's controlled territory is displayed with the snake's color at 15% opacity
+- **Click to Highlight**: Click on any snake's territory to highlight it (increases opacity to 40%)
+- **Click Again to Deselect**: Click the same territory again or click empty space to remove highlight
+- **Data Storage**: Territory cells are stored in `move_evaluations` JSONB field as `{evaluations: [...], territoryCells: {...}}`
+- **Backward Compatibility**: Frontend handles both old array format and new object format for move_evaluations
+
+**Note**: Territory visualization only appears for games logged after 2025-12-17. Older game logs don't have territory cell data.
+
 ## Known Replit Platform Issues
 
 ### Broken run_test Tool (Beta) - Critical Testing Limitation
