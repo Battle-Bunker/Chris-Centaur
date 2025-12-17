@@ -25,7 +25,7 @@ export interface MoveEvaluationResult {
 export interface DecisionConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
-  nearbyDistance: number;  // Distance to consider a snake "nearby" for full enumeration
+  nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
@@ -238,9 +238,9 @@ export class DecisionEngine {
     const results: { ourMove: Direction; gameState: GameState }[] = [];
     const { board } = gameState;
     
-    // Identify nearby and distant snakes
+    // Identify nearby snakes within focal distance for full move enumeration
+    // Distant snakes (outside nearbyDistance) are frozen and not simulated
     const nearbySnakes: Snake[] = [];
-    const distantSnakes: Snake[] = [];
     
     for (const snake of board.snakes) {
       if (snake.id === gameState.you.id || snake.health <= 0) continue;
@@ -248,9 +248,8 @@ export class DecisionEngine {
       const distance = this.manhattanDistance(gameState.you.head, snake.head);
       if (distance <= this.config.nearbyDistance) {
         nearbySnakes.push(snake);
-      } else {
-        distantSnakes.push(snake);
       }
+      // Snakes beyond nearbyDistance are frozen (not included in simulation)
     }
     
     // For each of our moves
@@ -279,14 +278,8 @@ export class DecisionEngine {
           fullMoveSet.set(snakeId, move);
         }
         
-        // Add random moves for distant snakes
-        for (const snake of distantSnakes) {
-          const moves = this.getOtherSnakeCandidateMoves(snake, gameState, graph);
-          if (moves.length > 0) {
-            const randomMove = moves[Math.floor(Math.random() * moves.length)];
-            fullMoveSet.set(snake.id, randomMove);
-          }
-        }
+        // Distant snakes are frozen (not included in move set) to avoid
+        // noise from random move selection affecting board evaluation
         
         // Simulate the board state
         const simulatedBoard = this.simulator.simulateNextBoardState(gameState, fullMoveSet);
