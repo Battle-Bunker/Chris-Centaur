@@ -16,6 +16,7 @@ export interface BoardGraphConfig {
 
 export class BoardGraph {
   private adjacencyList: Map<CellKey, Set<CellKey>>;
+  private blockedCells: Set<CellKey>;
   private width: number;
   private height: number;
   private config: BoardGraphConfig;
@@ -29,6 +30,7 @@ export class BoardGraph {
     };
     
     this.adjacencyList = new Map();
+    this.blockedCells = new Set();
     this.buildGraph(gameState);
   }
   
@@ -40,9 +42,10 @@ export class BoardGraph {
   private buildGraph(gameState: GameState): void {
     const { board } = gameState;
     
-    // Create set of blocked cells (snake bodies except heads and possibly tails)
-    const blockedCells = new Set<CellKey>();
+    // Clear and rebuild blocked cells set
+    this.blockedCells.clear();
     
+    // Add snake bodies as blocked (except heads and possibly tails)
     for (const snake of board.snakes) {
       if (snake.health <= 0) continue;
       
@@ -58,21 +61,26 @@ export class BoardGraph {
           
           if (this.config.tailGrowthTiming === 'grow-same-turn' && justAte) {
             // Tail won't move this turn if snake just ate
-            blockedCells.add(key);
+            this.blockedCells.add(key);
           } else if (this.config.tailGrowthTiming === 'grow-next-turn') {
             // In grow-next-turn mode, tail always moves unless it's the only body segment after head
             // (Note: we already skip head, so length-1 here means 2 total segments)
             if (snake.body.length === 2) {
               // Two segment snake - tail doesn't leave a space
-              blockedCells.add(key);
+              this.blockedCells.add(key);
             }
             // Otherwise tail will move, so it's not blocked
           }
         } else {
           // Non-tail, non-head segments are always blocked
-          blockedCells.add(key);
+          this.blockedCells.add(key);
         }
       }
+    }
+    
+    // Add hazards as blocked (impassable terrain)
+    for (const hazard of board.hazards) {
+      this.blockedCells.add(this.coordToKey(hazard));
     }
     
     // Build adjacency list for all cells
@@ -81,7 +89,7 @@ export class BoardGraph {
         const cellKey = this.coordToKey({ x, y });
         
         // Skip if this cell itself is blocked
-        if (blockedCells.has(cellKey)) {
+        if (this.blockedCells.has(cellKey)) {
           this.adjacencyList.set(cellKey, new Set());
           continue;
         }
@@ -106,7 +114,7 @@ export class BoardGraph {
           const neighborKey = this.coordToKey(neighbor);
           
           // Check if neighbor is blocked
-          if (!blockedCells.has(neighborKey)) {
+          if (!this.blockedCells.has(neighborKey)) {
             passableNeighbors.add(neighborKey);
           }
         }
@@ -140,14 +148,30 @@ export class BoardGraph {
   }
   
   /**
-   * Check if a cell is passable (not blocked).
+   * Check if a coordinate is within board bounds.
+   */
+  isInBounds(coord: Coord): boolean {
+    return coord.x >= 0 && coord.x < this.width &&
+           coord.y >= 0 && coord.y < this.height;
+  }
+  
+  /**
+   * Check if a cell is passable (in bounds and not blocked).
+   * This is the single source of truth for passability.
    */
   isPassable(coord: Coord): boolean {
+    if (!this.isInBounds(coord)) {
+      return false;
+    }
     const key = this.coordToKey(coord);
-    const neighbors = this.adjacencyList.get(key);
-    // A cell is passable if it exists and has at least one neighbor
-    // (blocked cells have empty neighbor sets)
-    return neighbors !== undefined && neighbors.size > 0;
+    return !this.blockedCells.has(key);
+  }
+  
+  /**
+   * Get the set of blocked cell keys (for direct iteration if needed).
+   */
+  getBlockedCells(): Set<CellKey> {
+    return this.blockedCells;
   }
   
   /**

@@ -361,14 +361,16 @@ export class BoardEvaluator {
     let cellsFound = 1; // Start with 1 for the head position
     let foundOwnTail = false;
     
-    // Create a set of all snake bodies - we need to be careful about tails
-    // For space detection, only our own tail should be considered reachable
-    const blockedCells = new Set<string>();
+    // Start with hazards from BoardGraph (single source of truth for hazard blocking)
+    const blockedCells = new Set<string>(graph.getBlockedCells());
+    
+    // Override with custom snake body/tail handling for space calculation
+    // Clear and rebuild snake blocking with special tail rules
     for (const otherSnake of allSnakes) {
       if (otherSnake.health <= 0) continue;
       // For our own snake, block all segments except our tail
       // For other snakes, block all segments except their tails (since they'll move)
-      const excludeTail = true; // Always exclude the tail from blocked cells
+      const excludeTail = true; // Always exclude the tail from blocked cells initially
       const endIdx = excludeTail ? otherSnake.body.length - 1 : otherSnake.body.length;
       for (let i = 0; i < endIdx; i++) {
         const segment = otherSnake.body[i];
@@ -397,9 +399,8 @@ export class BoardEvaluator {
       ];
       
       for (const neighbor of neighbors) {
-        // Check bounds
-        if (neighbor.x < 0 || neighbor.x >= width || 
-            neighbor.y < 0 || neighbor.y >= height) {
+        // Check bounds using BoardGraph (single source of truth)
+        if (!graph.isInBounds(neighbor)) {
           continue;
         }
         
@@ -408,7 +409,7 @@ export class BoardEvaluator {
         // Skip if already visited
         if (visited.has(neighborKey)) continue;
         
-        // Skip if blocked by snake body (but not tails)
+        // Skip if blocked (includes hazards from graph + custom snake body handling)
         if (blockedCells.has(neighborKey)) continue;
         
         // Mark as visited and count

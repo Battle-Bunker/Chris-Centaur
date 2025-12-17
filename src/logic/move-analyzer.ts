@@ -5,6 +5,7 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { TurnStateManager } from './turn-state';
+import { BoardGraph } from './board-graph';
 
 export interface MoveAnalysis {
   safe: Direction[];   // Moves that definitely won't cause death
@@ -20,11 +21,12 @@ export class MoveAnalyzer {
   /**
    * Analyzes available moves for a snake and categorizes them as safe or risky.
    * This is the single source of truth for move safety in the entire codebase.
+   * Uses BoardGraph as the single source of truth for passability.
    */
-  public analyzeMoves(snake: Snake, gameState: GameState): MoveAnalysis {
+  public analyzeMoves(snake: Snake, gameState: GameState, graph: BoardGraph): MoveAnalysis {
     // Update turn state to track which snakes ate food
     const turnStateManager = TurnStateManager.getInstance();
-    const snakesAteLastTurn = turnStateManager.updateState(
+    turnStateManager.updateState(
       gameState.game.id, 
       gameState.turn, 
       gameState.board.snakes.map(s => ({id: s.id, length: s.length}))
@@ -38,8 +40,8 @@ export class MoveAnalyzer {
     for (const direction of allDirections) {
       const newPosition = this.getNextPosition(head, direction);
       
-      // Check for certain death (walls, body collisions)
-      if (!this.isPositionSurvivable(newPosition, snake, gameState)) {
+      // Check for certain death using BoardGraph's passability (walls, bodies, hazards)
+      if (!graph.isPassable(newPosition)) {
         // This move causes certain death - exclude it entirely
         continue;
       }
@@ -53,63 +55,6 @@ export class MoveAnalyzer {
     }
     
     return { safe, risky };
-  }
-  
-  /**
-   * Checks if a position would result in certain death (wall or body collision).
-   * Does NOT consider head-to-head risks.
-   */
-  private isPositionSurvivable(position: Coord, snake: Snake, gameState: GameState): boolean {
-    const { board } = gameState;
-    
-    // Check board boundaries
-    if (position.x < 0 || position.x >= board.width ||
-        position.y < 0 || position.y >= board.height) {
-      return false; // Wall collision
-    }
-    
-    // Check collision with any snake body (including our own)
-    for (const otherSnake of board.snakes) {
-      // Skip dead snakes
-      if (otherSnake.health <= 0) continue;
-      
-      for (let i = 0; i < otherSnake.body.length; i++) {
-        const segment = otherSnake.body[i];
-        
-        // Check if this is a tail position
-        if (i === otherSnake.body.length - 1) {
-          // Get snakes that ate last turn from turn state
-          const turnStateManager = TurnStateManager.getInstance();
-          const snakesAteLastTurn = turnStateManager.getSnakesAteLastTurn(gameState.game.id);
-          
-          // Determine if tail is safe based on rule variant
-          let tailIsSafe = false;
-          
-          if (this.tailSafetyRule === 'official') {
-            // Official rules: tail stays in place if snake eats this turn
-            const wouldEatThisTurn = board.food.some(food => 
-              food.x === position.x && food.y === position.y
-            );
-            tailIsSafe = !wouldEatThisTurn;
-          } else {
-            // Custom rules: tail stays if snake ate last turn (grows this turn)
-            tailIsSafe = !snakesAteLastTurn.has(otherSnake.id);
-          }
-          
-          if (tailIsSafe) {
-            continue; // Tail will move out of the way
-          }
-        }
-        
-        // Check for collision
-        if (segment.x === position.x && segment.y === position.y) {
-          return false; // Body collision
-        }
-      }
-    }
-    
-    // Position is survivable (no certain death)
-    return true;
   }
   
   /**

@@ -7,6 +7,7 @@ import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, MoveAnalysis } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
+import { BoardGraph } from './board-graph';
 
 export interface MoveDecision {
   move: Direction;
@@ -88,8 +89,11 @@ export class DecisionEngine {
       currentFoodSet.add(`${food.x},${food.y}`);
     }
     
+    // Create BoardGraph once for this turn - single source of truth for passability
+    const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+    
     // Get candidate moves for our snake
-    const ourMoves = this.getOurCandidateMoves(gameState.you, gameState);
+    const ourMoves = this.getOurCandidateMoves(gameState.you, gameState, graph);
     
     if (ourMoves.length === 0) {
       // No moves available - we're dead
@@ -125,7 +129,7 @@ export class DecisionEngine {
     }
     
     // Enumerate possible board states
-    const boardStates = this.enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime);
+    const boardStates = this.enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime, graph);
     
     // Evaluate each of our candidate moves
     const evaluations: MoveEvaluationResult[] = [];
@@ -198,8 +202,8 @@ export class DecisionEngine {
    * Get candidate moves for our snake using the principled rule:
    * Use safe moves if available, otherwise use all risky moves.
    */
-  private getOurCandidateMoves(snake: Snake, gameState: GameState): Direction[] {
-    const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState);
+  private getOurCandidateMoves(snake: Snake, gameState: GameState, graph: BoardGraph): Direction[] {
+    const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState, graph);
     
     // Use safe moves if available, otherwise use risky moves
     if (analysis.safe.length > 0) {
@@ -213,8 +217,8 @@ export class DecisionEngine {
    * Get candidate moves for other snakes.
    * All non-death moves (safe + risky) are considered.
    */
-  private getOtherSnakeCandidateMoves(snake: Snake, gameState: GameState): Direction[] {
-    const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState);
+  private getOtherSnakeCandidateMoves(snake: Snake, gameState: GameState, graph: BoardGraph): Direction[] {
+    const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState, graph);
     
     // Other snakes consider all non-death moves
     return [...analysis.safe, ...analysis.risky];
@@ -227,7 +231,8 @@ export class DecisionEngine {
     gameState: GameState, 
     ourMoves: Direction[], 
     teamSnakeIds: Set<string>,
-    startTime: number
+    startTime: number,
+    graph: BoardGraph
   ): { ourMove: Direction; gameState: GameState }[] {
     
     const results: { ourMove: Direction; gameState: GameState }[] = [];
@@ -256,7 +261,7 @@ export class DecisionEngine {
       }
       
       // Generate move combinations for nearby snakes
-      const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState);
+      const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
       
       // For each nearby move combination
       for (const nearbyMoveSet of nearbyMoveSets) {
@@ -276,7 +281,7 @@ export class DecisionEngine {
         
         // Add random moves for distant snakes
         for (const snake of distantSnakes) {
-          const moves = this.getOtherSnakeCandidateMoves(snake, gameState);
+          const moves = this.getOtherSnakeCandidateMoves(snake, gameState, graph);
           if (moves.length > 0) {
             const randomMove = moves[Math.floor(Math.random() * moves.length)];
             fullMoveSet.set(snake.id, randomMove);
@@ -309,7 +314,8 @@ export class DecisionEngine {
    */
   private generateNearbyMoveSets(
     nearbySnakes: Snake[], 
-    gameState: GameState
+    gameState: GameState,
+    graph: BoardGraph
   ): Map<string, Direction>[] {
     
     if (nearbySnakes.length === 0) {
@@ -319,7 +325,7 @@ export class DecisionEngine {
     // Get candidate moves for each nearby snake
     const snakeMovesMap = new Map<string, Direction[]>();
     for (const snake of nearbySnakes) {
-      const moves = this.getOtherSnakeCandidateMoves(snake, gameState);
+      const moves = this.getOtherSnakeCandidateMoves(snake, gameState, graph);
       if (moves.length > 0) {
         snakeMovesMap.set(snake.id, moves);
       }
