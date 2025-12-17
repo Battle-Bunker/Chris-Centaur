@@ -46,6 +46,7 @@ export interface BoardEvaluation {
   stats: HeuristicStats;      // Individual heuristic values
   weights: HeuristicWeights;  // Weights used for scoring
   weighted: WeightedScores;   // Individual weighted scores
+  territoryCells?: Map<string, { x: number; y: number }[]>;  // Territory cells per snake for visualization
 }
 
 export interface EvaluationContext {
@@ -168,7 +169,7 @@ export class BoardEvaluator {
    * All board evaluations in the codebase must go through this function.
    */
   public evaluateBoard(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): BoardEvaluation {
-    const stats = this.calculateStats(gameState, ourSnakeId, teamSnakeIds, ctx);
+    const { stats, territoryCells } = this.calculateStatsWithTerritory(gameState, ourSnakeId, teamSnakeIds, ctx);
     const weighted = this.calculateWeightedScores(stats);
     const score = this.calculateTotalScore(weighted);
     
@@ -176,15 +177,17 @@ export class BoardEvaluator {
       score,
       stats,
       weights: { ...this.weights }, // Return copy of weights
-      weighted
+      weighted,
+      territoryCells
     };
   }
   
   /**
    * Calculate all heuristic statistics for the board state.
    * Now uses single-pass multi-source BFS for efficiency.
+   * Returns both stats and territory cells for visualization.
    */
-  private calculateStats(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): HeuristicStats {
+  private calculateStatsWithTerritory(gameState: GameState, ourSnakeId: string, teamSnakeIds: Set<string>, ctx?: EvaluationContext): { stats: HeuristicStats; territoryCells: Map<string, { x: number; y: number }[]> } {
     const { board } = gameState;
     const ourSnake = board.snakes.find((s: Snake) => s.id === ourSnakeId);
     
@@ -192,23 +195,26 @@ export class BoardEvaluator {
     const isDead = !ourSnake || ourSnake.health <= 0;
     if (isDead) {
       return {
-        myLength: 0,
-        myTerritory: 0,
-        myControlledFood: 0,
-        teamLength: 0,
-        teamTerritory: 0,
-        teamControlledFood: 0,
-        foodDistance: 1000,
-        foodProximity: 0,
-        foodEaten: 0,
-        enemyTerritory: 0,
-        enemyLength: 0,
-        edgePenalty: 0,
-        selfEnoughSpace: -3,
-        alliesEnoughSpace: 0,
-        opponentsEnoughSpace: 0,
-        kills: 0,
-        deaths: 1
+        stats: {
+          myLength: 0,
+          myTerritory: 0,
+          myControlledFood: 0,
+          teamLength: 0,
+          teamTerritory: 0,
+          teamControlledFood: 0,
+          foodDistance: 1000,
+          foodProximity: 0,
+          foodEaten: 0,
+          enemyTerritory: 0,
+          enemyLength: 0,
+          edgePenalty: 0,
+          selfEnoughSpace: -3,
+          alliesEnoughSpace: 0,
+          opponentsEnoughSpace: 0,
+          kills: 0,
+          deaths: 1
+        },
+        territoryCells: new Map()
       };
     }
     
@@ -282,23 +288,26 @@ export class BoardEvaluator {
     const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height);
     
     return {
-      myLength: ourSnake.length,
-      myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
-      myControlledFood: bfsResult.controlledFood.get(ourSnakeId) || 0,
-      teamLength,
-      teamTerritory: bfsResult.teamTerritory,
-      teamControlledFood: bfsResult.teamControlledFood,
-      foodDistance,  // Raw unweighted distance
-      foodProximity, // Normalized [0,1]: (boardSize - distance)/boardSize, 0 if eating
-      foodEaten,     // 1 if eating (justAte or onFoodNow), 0 otherwise
-      enemyTerritory: bfsResult.enemyTerritory,
-      enemyLength,
-      edgePenalty,   // -1 if on edge, 0 otherwise
-      selfEnoughSpace: spaceScores.self,
-      alliesEnoughSpace: spaceScores.allies,
-      opponentsEnoughSpace: spaceScores.opponents,
-      kills: 0,  // Would need before/after comparison to calculate
-      deaths: isDead ? 1 : 0
+      stats: {
+        myLength: ourSnake.length,
+        myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
+        myControlledFood: bfsResult.controlledFood.get(ourSnakeId) || 0,
+        teamLength,
+        teamTerritory: bfsResult.teamTerritory,
+        teamControlledFood: bfsResult.teamControlledFood,
+        foodDistance,  // Raw unweighted distance
+        foodProximity, // Normalized [0,1]: (boardSize - distance)/boardSize, 0 if eating
+        foodEaten,     // 1 if eating (justAte or onFoodNow), 0 otherwise
+        enemyTerritory: bfsResult.enemyTerritory,
+        enemyLength,
+        edgePenalty,   // -1 if on edge, 0 otherwise
+        selfEnoughSpace: spaceScores.self,
+        alliesEnoughSpace: spaceScores.allies,
+        opponentsEnoughSpace: spaceScores.opponents,
+        kills: 0,  // Would need before/after comparison to calculate
+        deaths: isDead ? 1 : 0
+      },
+      territoryCells: bfsResult.territoryCells
     };
   }
   
