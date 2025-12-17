@@ -544,7 +544,9 @@
     let moveState = {
       selectedMove: null,
       moves: {}, // Single source of truth for all move data
-      safeMoves: []
+      safeMoves: [],
+      territoryCells: {},  // Voronoi territory cells per snake for visualization
+      selectedSnake: null  // Snake ID for territory highlight
     };
     
     // Toggle game list
@@ -643,17 +645,29 @@
     function processMoveEvaluations(turn) {
       moveState.moves = {};
       moveState.safeMoves = turn.safe_moves || [];
+      moveState.territoryCells = {};  // Store territory cells for visualization
       
       const head = turn.game_state.you.head;
       const directions = ['up', 'down', 'left', 'right'];
       const evaluationsMap = {};
       
-      // First, map evaluations by direction
-      if (turn.move_evaluations && Array.isArray(turn.move_evaluations)) {
-        turn.move_evaluations.forEach(evalData => {
-          evaluationsMap[evalData.move] = evalData;
-        });
+      // Handle both old array format and new object format
+      let evaluationsArray = [];
+      if (turn.move_evaluations) {
+        if (Array.isArray(turn.move_evaluations)) {
+          // Old format: direct array
+          evaluationsArray = turn.move_evaluations;
+        } else if (turn.move_evaluations.evaluations) {
+          // New format: { evaluations: [...], territoryCells: {...} }
+          evaluationsArray = turn.move_evaluations.evaluations;
+          moveState.territoryCells = turn.move_evaluations.territoryCells || {};
+        }
       }
+      
+      // First, map evaluations by direction
+      evaluationsArray.forEach(evalData => {
+        evaluationsMap[evalData.move] = evalData;
+      });
       
       // Build unified move data for all directions
       directions.forEach(direction => {
@@ -743,6 +757,68 @@
       return `hsla(${hue}, 70%, 50%, 0.3)`;
     }
     
+    // Convert hex color to rgba
+    function hexToRgba(hex, alpha) {
+      // Handle various hex formats
+      let color = hex;
+      if (!color || typeof color !== 'string') {
+        return `rgba(136, 136, 136, ${alpha})`;
+      }
+      
+      // Remove # if present
+      color = color.replace('#', '');
+      
+      // Handle shorthand hex (#rgb)
+      if (color.length === 3) {
+        color = color.split('').map(c => c + c).join('');
+      }
+      
+      // Parse RGB values
+      const r = parseInt(color.substring(0, 2), 16) || 136;
+      const g = parseInt(color.substring(2, 4), 16) || 136;
+      const b = parseInt(color.substring(4, 6), 16) || 136;
+      
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    
+    // Handle canvas click for snake territory selection
+    function handleCanvasClick(event) {
+      if (!turnData || currentTurn < 0 || currentTurn >= turnData.length) return;
+      
+      const turn = turnData[currentTurn];
+      const canvas = document.getElementById('gameCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const board = turn.game_state.board;
+      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      
+      // Get click position in canvas coordinates
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+      
+      // Convert to board coordinates
+      const boardX = Math.floor(clickX / cellSize);
+      const boardY = board.height - 1 - Math.floor(clickY / cellSize);
+      
+      // Check if clicked on any snake's territory
+      let clickedSnake = null;
+      for (const [snakeId, cells] of Object.entries(moveState.territoryCells)) {
+        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
+          clickedSnake = snakeId;
+          break;
+        }
+      }
+      
+      // Toggle selection
+      if (clickedSnake) {
+        moveState.selectedSnake = (moveState.selectedSnake === clickedSnake) ? null : clickedSnake;
+        renderBoard(turn);
+      } else if (moveState.selectedSnake) {
+        // Click outside territory clears selection
+        moveState.selectedSnake = null;
+        renderBoard(turn);
+      }
+    }
+    
     // Render specific turn
     function renderTurn(turnIndex) {
       if (!turnData || turnIndex < 0 || turnIndex >= turnData.length) return;
@@ -767,8 +843,9 @@
       // Render move buttons
       renderMoveButtons(turn);
       
-      // Clear stats table
+      // Clear stats table and reset selections
       moveState.selectedMove = null;
+      moveState.selectedSnake = null;  // Reset territory selection on turn change
       updateStatsTable(null);
     }
     
@@ -819,6 +896,32 @@
           ctx.rect(x, y, cellSize, cellSize);
           ctx.clip();
           ctx.restore();
+        });
+      }
+      
+      // Draw Voronoi territory overlay
+      if (moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
+        // Build snake color map from game state
+        const snakeColorMap = {};
+        board.snakes.forEach(snake => {
+          snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
+        });
+        
+        // Draw territory cells for each snake
+        Object.entries(moveState.territoryCells).forEach(([snakeId, cells]) => {
+          if (!cells || cells.length === 0) return;
+          
+          const snakeColor = snakeColorMap[snakeId] || '#888888';
+          // Parse color and add transparency (0.15 default, 0.4 for selected snake)
+          const alpha = (moveState.selectedSnake === snakeId) ? 0.4 : 0.15;
+          const overlayColor = hexToRgba(snakeColor, alpha);
+          
+          ctx.fillStyle = overlayColor;
+          cells.forEach(cell => {
+            const x = cell.x * cellSize;
+            const y = (board.height - 1 - cell.y) * cellSize;
+            ctx.fillRect(x, y, cellSize, cellSize);
+          });
         });
       }
       
@@ -1400,6 +1503,9 @@
         togglePlay();
       }
     });
+    
+    // Canvas click handler for territory selection
+    document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
     
     // Initialize
     loadGames();
