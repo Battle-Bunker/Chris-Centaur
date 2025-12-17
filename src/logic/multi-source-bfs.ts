@@ -25,6 +25,9 @@ export interface BFSResult {
   // Territory counts per source
   territoryCounts: Map<string, number>;
   
+  // Territory cells per source (actual coordinates)
+  territoryCells: Map<string, Coord[]>;
+  
   // Controlled food counts per source
   controlledFood: Map<string, number>;
   
@@ -54,12 +57,14 @@ export class MultiSourceBFS {
     // Initialize result structure
     const cellInfo = new Map<CellKey, CellInfo>();
     const territoryCounts = new Map<string, number>();
+    const territoryCells = new Map<string, Coord[]>();
     const controlledFood = new Map<string, number>();
     const nearestFoodDistance = new Map<string, number>();
     
     // Initialize counters
     for (const source of sources) {
       territoryCounts.set(source.id, 0);
+      territoryCells.set(source.id, []);
       controlledFood.set(source.id, 0);
       nearestFoodDistance.set(source.id, Infinity);
     }
@@ -104,6 +109,7 @@ export class MultiSourceBFS {
             distance: 0
           });
           territoryCounts.set(item.sourceId, 1);
+          territoryCells.get(item.sourceId)!.push({ x: item.position.x, y: item.position.y });
           
           // Check if source is on food
           if (foodSet.has(key)) {
@@ -137,8 +143,10 @@ export class MultiSourceBFS {
             distance: currentDistance
           });
           
-          // Update territory count
+          // Update territory count and cells
           territoryCounts.set(sourceId, territoryCounts.get(sourceId)! + 1);
+          const cellCoord = this.graph.keyToCoord(cellKey);
+          territoryCells.get(sourceId)!.push(cellCoord);
           
           // Check if this cell has food
           if (foodSet.has(cellKey)) {
@@ -234,6 +242,7 @@ export class MultiSourceBFS {
     return {
       cellInfo,
       territoryCounts,
+      territoryCells,
       controlledFood,
       nearestFoodDistance,
       teamTerritory,
