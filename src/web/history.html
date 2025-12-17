@@ -803,6 +803,25 @@
         ctx.stroke();
       }
       
+      // Draw hazards (sauce/lava zones)
+      if (board.hazards && board.hazards.length > 0) {
+        board.hazards.forEach(hazard => {
+          const x = hazard.x * cellSize;
+          const y = (board.height - 1 - hazard.y) * cellSize;
+          
+          // Draw hazard background (dark red/brown)
+          ctx.fillStyle = 'rgba(139, 69, 19, 0.6)';
+          ctx.fillRect(x, y, cellSize, cellSize);
+          
+          // Clip to cell bounds
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, cellSize, cellSize);
+          ctx.clip();
+          ctx.restore();
+        });
+      }
+      
       // Draw candidate cells with unified color coding
       Object.values(moveState.moves).forEach(move => {
         if (move.position && (move.isSafe || move.isEvaluated)) {
