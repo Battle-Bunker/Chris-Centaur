@@ -9,6 +9,8 @@ import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
+import { BoardGraph } from './board-graph';
+import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
@@ -200,6 +202,24 @@ export class VoronoiStrategy {
       }
     }));
     
+    // Compute territory cells for current board state visualization
+    const graph = new BoardGraph(gameState);
+    const bfs = new MultiSourceBFS(graph);
+    const sources: BFSSource[] = gameState.board.snakes
+      .filter(s => s.health > 0)
+      .map(s => ({
+        id: s.id,
+        position: s.head,
+        isTeam: teamSnakeIds.has(s.id)
+      }));
+    const bfsResult = bfs.compute(sources, gameState.board.food);
+    
+    // Convert Map to plain object for JSON serialization
+    const territoryCellsObj: { [snakeId: string]: { x: number; y: number }[] } = {};
+    for (const [snakeId, cells] of bfsResult.territoryCells) {
+      territoryCellsObj[snakeId] = cells;
+    }
+    
     // Log the decision to database (non-blocking)
     // IMPORTANT: Only log the actual candidate moves, not all possible moves
     this.decisionLogger.logDecision({
@@ -212,7 +232,8 @@ export class VoronoiStrategy {
       safeMoves: decision.candidateMoves,  // Only the moves we actually evaluated!
       chosenMove: decision.move,
       moveEvaluations,
-      gameState
+      gameState,
+      territoryCells: territoryCellsObj
     });
     
     // Return for backwards compatibility

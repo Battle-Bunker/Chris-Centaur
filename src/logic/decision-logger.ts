@@ -51,6 +51,7 @@ export interface DecisionLogEntry {
     };
   }[];
   gameState: any;
+  territoryCells?: { [snakeId: string]: { x: number; y: number }[] };  // Voronoi territory cells per snake for visualization
 }
 
 interface QueuedEntry extends DecisionLogEntry {
@@ -176,6 +177,12 @@ export class DecisionLogger {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     `;
     
+    // Include territoryCells in move_evaluations for storage
+    const moveEvalWithTerritory = {
+      evaluations: entry.moveEvaluations,
+      territoryCells: entry.territoryCells || {}
+    };
+    
     const values = [
       entry.gameId,
       entry.snakeId,
@@ -186,7 +193,7 @@ export class DecisionLogger {
       entry.health,
       entry.safeMoves,
       entry.chosenMove,
-      JSON.stringify(entry.moveEvaluations),
+      JSON.stringify(moveEvalWithTerritory),
       JSON.stringify(entry.gameState)
     ];
     
