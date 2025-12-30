@@ -109,8 +109,12 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
 - **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
 - **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
 
-### Core Game Logic Architecture (Clean Architecture - Updated 2025-12-17)
-- **Board Graph Abstraction** - `BoardGraph` class is the **single source of truth for passability logic**: walls, snake bodies, and hazards. Exposes `isPassable()`, `isInBounds()`, and `getBlockedCells()` methods. Handles tail growth timing variants ("grow-same-turn" vs "grow-next-turn"). All other components defer to BoardGraph for collision checking.
+### Core Game Logic Architecture (Clean Architecture - Updated 2025-12-30)
+- **Board Graph Abstraction** - `BoardGraph` class is the **single source of truth for passability logic**: walls, snake bodies, and hazards. Exposes `isPassable()`, `isInBounds()`, `isPassableAtTurn()`, and `getBlockedCells()` methods. Handles tail growth timing variants ("grow-same-turn" vs "grow-next-turn"). All other components defer to BoardGraph for collision checking.
+- **Optimistic Passability System** - BoardGraph now calculates when each body segment will disappear:
+  - `optimisticDisappearTurn`: Turn when segment disappears if snake doesn't eat
+  - `conservativeDisappearTurn`: Accounts for food reachable within lookahead turns (configurable via `maxLookaheadTurns`, default 5)
+  - Both Voronoi BFS and Space BFS support an `optimistic` flag to consider body segments passable if they'll disappear by arrival time
 - **Single-Pass Multi-Source BFS** - `MultiSourceBFS` replaces multiple O(S × (W×H)²) implementations with single O(W×H) pass, computing Voronoi territories with tie-awareness (neutralizing equidistant cells)
 - **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
 - **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function using the efficient multi-source BFS for territory, food control, and distance calculations
