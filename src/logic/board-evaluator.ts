@@ -238,9 +238,9 @@ export class BoardEvaluator {
         isTeam: teamSnakeIds.has(s.id)
       }));
     
-    // Run the single-pass BFS (with optimistic passability if enabled)
-    const useOptimistic = ctx?.optimistic ?? false;
-    const bfsResult = bfs.compute(sources, board.food, { optimistic: useOptimistic });
+    // Run the single-pass BFS with optimistic passability
+    // Territory calculations always use optimistic mode (body segments disappear over time)
+    const bfsResult = bfs.compute(sources, board.food, { optimistic: true });
     
     // Calculate team and enemy lengths
     let teamLength = 0;
