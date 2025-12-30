@@ -1217,6 +1217,7 @@
           enemyLengthScore: 0,
           edgePenaltyScore: 0,
           selfEnoughSpaceScore: 0,
+          selfSpaceOptimisticScore: 0,
           alliesEnoughSpaceScore: 0,
           opponentsEnoughSpaceScore: 0,
           killsScore: 0,
@@ -1240,6 +1241,7 @@
             weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
             weightedSums.edgePenaltyScore += weighted.edgePenaltyScore ?? 0;
             weightedSums.selfEnoughSpaceScore += weighted.selfEnoughSpaceScore ?? 0;
+            weightedSums.selfSpaceOptimisticScore += weighted.selfSpaceOptimisticScore ?? 0;
             weightedSums.alliesEnoughSpaceScore += weighted.alliesEnoughSpaceScore ?? 0;
             weightedSums.opponentsEnoughSpaceScore += weighted.opponentsEnoughSpaceScore ?? 0;
             weightedSums.killsScore += weighted.killsScore ?? 0;
@@ -1366,6 +1368,13 @@
           weight: breakdown.weights?.selfEnoughSpace ?? 10,
           weightedScore: breakdown.weighted?.selfEnoughSpaceScore ?? 0,
           averageWeighted: averageWeighted.selfEnoughSpaceScore ?? 0
+        },
+        {
+          name: 'Self Space (Optimistic)',
+          value: breakdown.selfSpaceOptimistic ?? (breakdown.stats?.selfSpaceOptimistic ?? 0),
+          weight: breakdown.weights?.selfSpaceOptimistic ?? 5,
+          weightedScore: breakdown.weighted?.selfSpaceOptimisticScore ?? 0,
+          averageWeighted: averageWeighted.selfSpaceOptimisticScore ?? 0
         },
         {
           name: 'Allies Space',

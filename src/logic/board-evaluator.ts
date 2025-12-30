@@ -32,7 +32,8 @@ export interface HeuristicStats {
   edgePenalty: number;        // Penalty for being on edge of board (-1 if on edge, 0 otherwise)
   
   // Enhanced space detection heuristics
-  selfEnoughSpace: number;    // Space score for our snake: 3 if enough space, -3 if not, +1 per reachable non-self tail
+  selfEnoughSpace: number;    // Space score for our snake: 3 if enough space, -3 if not
+  selfSpaceOptimistic: number; // Space score using optimistic passability (body segments disappear over time)
   alliesEnoughSpace: number;  // Sum of space scores for allied snakes
   opponentsEnoughSpace: number; // Sum of space scores for opponent snakes
   
@@ -78,6 +79,7 @@ export interface HeuristicWeights {
   
   // Enhanced space detection weights
   selfEnoughSpace: number;    // Weight for our snake's space score
+  selfSpaceOptimistic: number; // Weight for optimistic space score
   alliesEnoughSpace: number;  // Weight for allies' space scores
   opponentsEnoughSpace: number; // Weight for opponents' space scores (negative to encourage trapping)
   
@@ -110,6 +112,7 @@ export interface WeightedScores {
   
   // Enhanced space detection weighted scores
   selfEnoughSpaceScore: number;    // Weighted our snake's space score
+  selfSpaceOptimisticScore: number; // Weighted optimistic space score
   alliesEnoughSpaceScore: number;  // Weighted allies' space scores
   opponentsEnoughSpaceScore: number; // Weighted opponents' space scores
   
@@ -148,6 +151,7 @@ export class BoardEvaluator {
       
       // Enhanced space detection weights
       selfEnoughSpace: 10.0,    // Weight for our snake's space availability
+      selfSpaceOptimistic: 5.0, // Weight for optimistic space availability
       alliesEnoughSpace: 5.0,   // Weight for allies having space (positive = good teamwork)
       opponentsEnoughSpace: -5.0, // Weight for opponents having space (negative = encourage trapping)
       
@@ -211,6 +215,7 @@ export class BoardEvaluator {
           enemyLength: 0,
           edgePenalty: 0,
           selfEnoughSpace: -3,
+          selfSpaceOptimistic: -3,
           alliesEnoughSpace: 0,
           opponentsEnoughSpace: 0,
           kills: 0,
@@ -287,8 +292,11 @@ export class BoardEvaluator {
     // Calculate edge penalty: -1 if on edge, 0 otherwise
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
     
-    // Calculate enhanced space detection for all snakes (with optimistic passability if enabled)
-    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height, useOptimistic);
+    // Calculate enhanced space detection for all snakes (conservative mode)
+    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height, false);
+    
+    // Calculate optimistic self space separately (always uses optimistic=true)
+    const selfSpaceOptimistic = this.calculateSnakeSpace(graph, ourSnake, board.snakes, board.width, board.height, true);
     
     return {
       stats: {
@@ -305,6 +313,7 @@ export class BoardEvaluator {
         enemyLength,
         edgePenalty,   // -1 if on edge, 0 otherwise
         selfEnoughSpace: spaceScores.self,
+        selfSpaceOptimistic,  // Optimistic space (body segments disappear over time)
         alliesEnoughSpace: spaceScores.allies,
         opponentsEnoughSpace: spaceScores.opponents,
         kills: 0,  // Would need before/after comparison to calculate
@@ -487,6 +496,7 @@ export class BoardEvaluator {
       enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
       edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
       selfEnoughSpaceScore: stats.selfEnoughSpace * this.weights.selfEnoughSpace,
+      selfSpaceOptimisticScore: stats.selfSpaceOptimistic * this.weights.selfSpaceOptimistic,
       alliesEnoughSpaceScore: stats.alliesEnoughSpace * this.weights.alliesEnoughSpace,
       opponentsEnoughSpaceScore: stats.opponentsEnoughSpace * this.weights.opponentsEnoughSpace,
       killsScore: stats.kills * this.weights.kills,
@@ -510,6 +520,7 @@ export class BoardEvaluator {
            weighted.enemyLengthScore +
            weighted.edgePenaltyScore +
            weighted.selfEnoughSpaceScore +
+           weighted.selfSpaceOptimisticScore +
            weighted.alliesEnoughSpaceScore +
            weighted.opponentsEnoughSpaceScore +
            weighted.killsScore +

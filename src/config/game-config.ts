@@ -27,6 +27,7 @@ export interface GameConfig {
   
   // Enhanced space detection weights
   selfEnoughSpace: number;
+  selfSpaceOptimistic: number;
   alliesEnoughSpace: number;
   opponentsEnoughSpace: number;
   
@@ -67,6 +68,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   
   // Enhanced space detection weights
   selfEnoughSpace: 10.0,
+  selfSpaceOptimistic: 5.0,
   alliesEnoughSpace: 5.0,
   opponentsEnoughSpace: -5.0,
   

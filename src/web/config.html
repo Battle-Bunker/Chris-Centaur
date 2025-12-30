@@ -401,7 +401,16 @@
                                 <input type="range" id="selfEnoughSpace_slider" min="-50" max="50" step="1">
                                 <input type="number" id="selfEnoughSpace" min="-50" max="50" step="1">
                             </div>
-                            <div class="description">Your snake's space availability (+3 if enough, -3 if trapped, +1 per reachable tail)</div>
+                            <div class="description">Your snake's space availability (+3 if enough, -3 if trapped)</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="selfSpaceOptimistic">Self Space Optimistic Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="selfSpaceOptimistic_slider" min="-50" max="50" step="1">
+                                <input type="number" id="selfSpaceOptimistic" min="-50" max="50" step="1">
+                            </div>
+                            <div class="description">Optimistic space (accounts for body segments disappearing over time)</div>
                         </div>
                         
                         <div class="config-item">
@@ -476,7 +485,7 @@
             'foodProximity', 'foodEaten',
             'enemyTerritory', 'enemyLength',
             'edgePenalty',
-            'selfEnoughSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
+            'selfEnoughSpace', 'selfSpaceOptimistic', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
