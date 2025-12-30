@@ -38,6 +38,9 @@ export interface GameConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;
+  
+  // Optimistic passability lookahead (turns to predict body segment disappearance)
+  maxLookaheadTurns: number;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -74,5 +77,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   // Simulation parameters
   maxSimulationDepth: 1,
   timeoutMs: 400,
-  nearbyDistance: 5  // Focal distance: snakes within this distance have all moves enumerated; snakes beyond are frozen
+  nearbyDistance: 5,  // Focal distance: snakes within this distance have all moves enumerated; snakes beyond are frozen
+  
+  // Optimistic passability lookahead
+  maxLookaheadTurns: 5
 };

@@ -51,6 +51,7 @@ export interface BoardEvaluation {
 
 export interface EvaluationContext {
   prevFoodSet?: Set<string>;  // Food positions from previous board state
+  optimistic?: boolean;       // Use optimistic passability for body segments
 }
 
 export interface HeuristicWeights {
@@ -160,6 +161,7 @@ export class BoardEvaluator {
     
     this.graphConfig = {
       tailGrowthTiming: 'grow-next-turn' as const,
+      maxLookaheadTurns: 5,
       ...graphConfig
     };
   }
@@ -231,8 +233,9 @@ export class BoardEvaluator {
         isTeam: teamSnakeIds.has(s.id)
       }));
     
-    // Run the single-pass BFS
-    const bfsResult = bfs.compute(sources, board.food);
+    // Run the single-pass BFS (with optimistic passability if enabled)
+    const useOptimistic = ctx?.optimistic ?? false;
+    const bfsResult = bfs.compute(sources, board.food, { optimistic: useOptimistic });
     
     // Calculate team and enemy lengths
     let teamLength = 0;
@@ -284,8 +287,8 @@ export class BoardEvaluator {
     // Calculate edge penalty: -1 if on edge, 0 otherwise
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
     
-    // Calculate enhanced space detection for all snakes
-    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height);
+    // Calculate enhanced space detection for all snakes (with optimistic passability if enabled)
+    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height, useOptimistic);
     
     return {
       stats: {
@@ -323,8 +326,9 @@ export class BoardEvaluator {
   /**
    * Calculate enhanced space detection for all snakes
    * Returns scores for self, allies, and opponents
+   * @param optimistic - If true, uses optimistic passability (body segments disappear over time)
    */
-  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, width: number, height: number): 
+  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, width: number, height: number, optimistic: boolean = false): 
     { self: number; allies: number; opponents: number } {
     
     let selfScore = 0;
@@ -335,7 +339,7 @@ export class BoardEvaluator {
       if (snake.health <= 0) continue; // Skip dead snakes
       
       // Calculate space score for this snake
-      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes, width, height);
+      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes, width, height, optimistic);
       
       // Categorize and accumulate scores
       if (snake.id === ourSnakeId) {
@@ -355,84 +359,105 @@ export class BoardEvaluator {
    * Returns:
    * - 3 if enough space (can reach cells >= length OR can reach own tail)
    * - -3 if not enough space  
-   * Note: +1 per reachable non-self tail bonus is not yet implemented
+   * 
+   * @param optimistic - If true, uses optimistic passability where body segments
+   *                     are considered passable if they will have disappeared by
+   *                     the turn we reach them (using conservative disappear turn).
    */
-  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[], width: number, height: number): number {
+  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[], width: number, height: number, optimistic: boolean = false): number {
     const startPos = snake.head;
     const snakeLength = snake.length;
     const snakeTailKey = graph.coordToKey(snake.body[snake.body.length - 1]);
     
-    // Track visited cells and queue for BFS floodfill
-    const visited = new Set<string>();
-    const queue: Coord[] = [startPos];
-    visited.add(graph.coordToKey(startPos));
+    // Build a set of cells that belong to our own snake's body (excluding tail)
+    // We never want to consider our own body as passable even with optimistic mode
+    const ownBodyCells = new Set<string>();
+    for (let i = 0; i < snake.body.length - 1; i++) {  // Exclude tail
+      ownBodyCells.add(graph.coordToKey(snake.body[i]));
+    }
+    
+    // Build a set of other snakes' tails to block (we can chase our own tail, not others')
+    const otherSnakeTails = new Set<string>();
+    for (const otherSnake of allSnakes) {
+      if (otherSnake.health <= 0) continue;
+      if (otherSnake.id === snake.id) continue;
+      const tail = otherSnake.body[otherSnake.body.length - 1];
+      otherSnakeTails.add(graph.coordToKey(tail));
+    }
+    
+    // Track visited cells with their arrival turn for level-based BFS
+    const visited = new Map<string, number>();  // key -> arrivalTurn
+    
+    interface QueueItem {
+      position: Coord;
+      turn: number;
+    }
+    
+    let currentLevel: QueueItem[] = [{ position: startPos, turn: 0 }];
+    visited.set(graph.coordToKey(startPos), 0);
     
     let cellsFound = 1; // Start with 1 for the head position
     let foundOwnTail = false;
     
-    // Start with hazards from BoardGraph (single source of truth for hazard blocking)
-    const blockedCells = new Set<string>(graph.getBlockedCells());
-    
-    // Override with custom snake body/tail handling for space calculation
-    // Clear and rebuild snake blocking with special tail rules
-    for (const otherSnake of allSnakes) {
-      if (otherSnake.health <= 0) continue;
-      // For our own snake, block all segments except our tail
-      // For other snakes, block all segments except their tails (since they'll move)
-      const excludeTail = true; // Always exclude the tail from blocked cells initially
-      const endIdx = excludeTail ? otherSnake.body.length - 1 : otherSnake.body.length;
-      for (let i = 0; i < endIdx; i++) {
-        const segment = otherSnake.body[i];
-        blockedCells.add(graph.coordToKey(segment));
-      }
-    }
-    
-    // Now add all OTHER snakes' tails as blocked (not our own)
-    // This prevents floodfill from escaping through enemy tail positions
-    for (const otherSnake of allSnakes) {
-      if (otherSnake.health <= 0) continue;
-      if (otherSnake.id === snake.id) continue; // Skip our own tail
-      const tail = otherSnake.body[otherSnake.body.length - 1];
-      blockedCells.add(graph.coordToKey(tail));
-    }
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    while (currentLevel.length > 0) {
+      const nextLevel: QueueItem[] = [];
       
-      // Get all four potential neighbors
-      const neighbors: Coord[] = [
-        { x: current.x, y: current.y + 1 },  // up
-        { x: current.x, y: current.y - 1 },  // down
-        { x: current.x - 1, y: current.y },  // left
-        { x: current.x + 1, y: current.y }   // right
-      ];
-      
-      for (const neighbor of neighbors) {
-        // Check bounds using BoardGraph (single source of truth)
-        if (!graph.isInBounds(neighbor)) {
-          continue;
+      for (const { position: current, turn: currentTurn } of currentLevel) {
+        const arrivalTurn = currentTurn + 1;
+        
+        // Get all four potential neighbors
+        const neighbors: Coord[] = [
+          { x: current.x, y: current.y + 1 },  // up
+          { x: current.x, y: current.y - 1 },  // down
+          { x: current.x - 1, y: current.y },  // left
+          { x: current.x + 1, y: current.y }   // right
+        ];
+        
+        for (const neighbor of neighbors) {
+          // Check bounds using BoardGraph (single source of truth)
+          if (!graph.isInBounds(neighbor)) {
+            continue;
+          }
+          
+          const neighborKey = graph.coordToKey(neighbor);
+          
+          // Skip if already visited
+          if (visited.has(neighborKey)) continue;
+          
+          // Never pass through our own body (except tail check below)
+          if (ownBodyCells.has(neighborKey)) continue;
+          
+          // Block other snakes' tails for space calculation
+          if (otherSnakeTails.has(neighborKey)) continue;
+          
+          // Check passability - either standard or optimistic
+          let isPassable: boolean;
+          if (optimistic) {
+            // Use optimistic passability - considers body segments passable
+            // if they will have disappeared by arrivalTurn
+            isPassable = graph.isPassableAtTurn(neighbor, arrivalTurn);
+          } else {
+            // Standard passability check
+            isPassable = graph.isPassable(neighbor);
+          }
+          
+          if (!isPassable) continue;
+          
+          // Mark as visited and count
+          visited.set(neighborKey, arrivalTurn);
+          cellsFound++;
+          
+          // Check if we reached our own tail
+          if (neighborKey === snakeTailKey) {
+            foundOwnTail = true;
+          }
+          
+          // Continue searching from this cell
+          nextLevel.push({ position: neighbor, turn: arrivalTurn });
         }
-        
-        const neighborKey = graph.coordToKey(neighbor);
-        
-        // Skip if already visited
-        if (visited.has(neighborKey)) continue;
-        
-        // Skip if blocked (includes hazards from graph + custom snake body handling)
-        if (blockedCells.has(neighborKey)) continue;
-        
-        // Mark as visited and count
-        visited.add(neighborKey);
-        cellsFound++;
-        
-        // Check if we reached our own tail
-        if (neighborKey === snakeTailKey) {
-          foundOwnTail = true;
-        }
-        
-        // Continue searching from this cell
-        queue.push(neighbor);
       }
+      
+      currentLevel = nextLevel;
     }
     
     // Base: +3 if enough space, -3 if not

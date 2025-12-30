@@ -1,6 +1,7 @@
 /**
  * Board graph representation for unified pathfinding.
  * Builds an unweighted graph with edges only for passable boundaries.
+ * Includes optimistic passability calculations for body segments.
  */
 
 import { GameState, Coord, Snake } from '../types/battlesnake';
@@ -12,6 +13,16 @@ export interface BoardGraphConfig {
   // 'grow-same-turn' - snake grows immediately when eating (tail doesn't move)
   // 'grow-next-turn' - snake grows on turn after eating (tail moves when eating)
   tailGrowthTiming: 'grow-same-turn' | 'grow-next-turn';
+  
+  // Maximum turns to look ahead for optimistic passability
+  maxLookaheadTurns: number;
+}
+
+export interface BodySegmentInfo {
+  snakeId: string;
+  coord: Coord;
+  optimisticDisappearTurn: number;
+  conservativeDisappearTurn: number;
 }
 
 export class BoardGraph {
@@ -21,16 +32,23 @@ export class BoardGraph {
   private height: number;
   private config: BoardGraphConfig;
   
+  private bodySegmentInfo: Map<CellKey, BodySegmentInfo>;
+  private snakeFoodReachByTurn: Map<string, number[]>;
+  
   constructor(gameState: GameState, config?: Partial<BoardGraphConfig>) {
     this.width = gameState.board.width;
     this.height = gameState.board.height;
     this.config = {
       tailGrowthTiming: 'grow-next-turn',
+      maxLookaheadTurns: 5,
       ...config
     };
     
     this.adjacencyList = new Map();
     this.blockedCells = new Set();
+    this.bodySegmentInfo = new Map();
+    this.snakeFoodReachByTurn = new Map();
+    
     this.buildGraph(gameState);
   }
   
@@ -44,15 +62,49 @@ export class BoardGraph {
     
     // Clear and rebuild blocked cells set
     this.blockedCells.clear();
+    this.bodySegmentInfo.clear();
+    this.snakeFoodReachByTurn.clear();
     
-    // Add snake bodies as blocked (except heads and possibly tails)
+    // First pass: Calculate food reachability for each snake (BFS from head)
+    this.calculateSnakeFoodReachability(gameState);
+    
+    // Second pass: Calculate body segment disappear turns and blocking
     for (const snake of board.snakes) {
       if (snake.health <= 0) continue;
       
+      // Get cumulative food reachable by turn for this snake
+      const cumulativeFoodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
+      
       // Add body segments as blocked (but NOT the head at index 0)
-      for (let i = 1; i < snake.body.length; i++) {  // Start from 1 to skip head
+      for (let i = 1; i < snake.body.length; i++) {
         const segment = snake.body[i];
         const key = this.coordToKey(segment);
+        
+        // Calculate turns from tail: body[length-1] is tail (disappears in 1 turn if not eating)
+        // body[i] disappears in (length - i) turns if not eating
+        const turnsFromTail = snake.body.length - i;
+        const optimisticDisappearTurn = turnsFromTail;
+        
+        // Conservative disappear turn: add potential food eaten within k turns
+        // where k = optimisticDisappearTurn (inclusive, because food at turn k can stall the tail)
+        let conservativeDisappearTurn = optimisticDisappearTurn;
+        if (optimisticDisappearTurn <= this.config.maxLookaheadTurns) {
+          // Sum up food reachable up to AND including optimisticDisappearTurn turns
+          // This ensures we account for food the snake could eat right before the segment disappears
+          let potentialFoodEaten = 0;
+          for (let t = 0; t <= optimisticDisappearTurn && t < cumulativeFoodByTurn.length; t++) {
+            potentialFoodEaten += cumulativeFoodByTurn[t];
+          }
+          conservativeDisappearTurn = optimisticDisappearTurn + potentialFoodEaten;
+        }
+        
+        // Store segment info
+        this.bodySegmentInfo.set(key, {
+          snakeId: snake.id,
+          coord: segment,
+          optimisticDisappearTurn,
+          conservativeDisappearTurn
+        });
         
         // Tail special case (last segment)
         if (i === snake.body.length - 1) {
@@ -64,7 +116,6 @@ export class BoardGraph {
             this.blockedCells.add(key);
           } else if (this.config.tailGrowthTiming === 'grow-next-turn') {
             // In grow-next-turn mode, tail always moves unless it's the only body segment after head
-            // (Note: we already skip head, so length-1 here means 2 total segments)
             if (snake.body.length === 2) {
               // Two segment snake - tail doesn't leave a space
               this.blockedCells.add(key);
@@ -125,6 +176,94 @@ export class BoardGraph {
   }
   
   /**
+   * Calculate food reachability from each snake's head using BFS.
+   * Stores the count of NEW food reached at each distance/turn.
+   * This is used for conservative disappear turn calculation.
+   */
+  private calculateSnakeFoodReachability(gameState: GameState): void {
+    const { board } = gameState;
+    
+    // Create a temporary blocked set for BFS (only blocked by other snake bodies)
+    const tempBlocked = new Set<CellKey>();
+    
+    for (const snake of board.snakes) {
+      if (snake.health <= 0) continue;
+      // Block all body segments except heads
+      for (let i = 1; i < snake.body.length; i++) {
+        tempBlocked.add(this.coordToKey(snake.body[i]));
+      }
+    }
+    
+    // Add hazards
+    for (const hazard of board.hazards) {
+      tempBlocked.add(this.coordToKey(hazard));
+    }
+    
+    // Create food position set
+    const foodSet = new Set<CellKey>(
+      board.food.map(f => this.coordToKey(f))
+    );
+    
+    // Run BFS from each snake's head
+    for (const snake of board.snakes) {
+      if (snake.health <= 0) continue;
+      
+      const foodByTurn: number[] = [];
+      const visited = new Set<CellKey>();
+      
+      let currentLevel: Coord[] = [snake.head];
+      visited.add(this.coordToKey(snake.head));
+      
+      // Check if head is on food
+      if (foodSet.has(this.coordToKey(snake.head))) {
+        foodByTurn.push(1);
+      } else {
+        foodByTurn.push(0);
+      }
+      
+      for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
+        const nextLevel: Coord[] = [];
+        let foodFoundThisTurn = 0;
+        
+        for (const pos of currentLevel) {
+          const neighbors: Coord[] = [
+            { x: pos.x, y: pos.y + 1 },
+            { x: pos.x, y: pos.y - 1 },
+            { x: pos.x - 1, y: pos.y },
+            { x: pos.x + 1, y: pos.y }
+          ];
+          
+          for (const neighbor of neighbors) {
+            if (neighbor.x < 0 || neighbor.x >= this.width ||
+                neighbor.y < 0 || neighbor.y >= this.height) {
+              continue;
+            }
+            
+            const neighborKey = this.coordToKey(neighbor);
+            
+            if (visited.has(neighborKey)) continue;
+            if (tempBlocked.has(neighborKey)) continue;
+            
+            visited.add(neighborKey);
+            nextLevel.push(neighbor);
+            
+            if (foodSet.has(neighborKey)) {
+              foodFoundThisTurn++;
+            }
+          }
+        }
+        
+        foodByTurn.push(foodFoundThisTurn);
+        currentLevel = nextLevel;
+        
+        if (currentLevel.length === 0) break;
+      }
+      
+      this.snakeFoodReachByTurn.set(snake.id, foodByTurn);
+    }
+  }
+  
+  /**
    * Check if a snake just ate food (head is on food).
    */
   private snakeJustAte(snake: Snake, food: Coord[]): boolean {
@@ -145,6 +284,65 @@ export class BoardGraph {
     }
     
     return Array.from(neighborKeys).map(k => this.keyToCoord(k));
+  }
+  
+  /**
+   * Get passable neighbors for a cell with optimistic passability.
+   * Considers body segments as passable if they will have disappeared by arrivalTurn.
+   */
+  getNeighborsOptimistic(coord: Coord, arrivalTurn: number): Coord[] {
+    const neighbors: Coord[] = [
+      { x: coord.x, y: coord.y + 1 },
+      { x: coord.x, y: coord.y - 1 },
+      { x: coord.x - 1, y: coord.y },
+      { x: coord.x + 1, y: coord.y }
+    ];
+    
+    const passable: Coord[] = [];
+    
+    for (const neighbor of neighbors) {
+      if (!this.isInBounds(neighbor)) continue;
+      
+      if (this.isPassableAtTurn(neighbor, arrivalTurn)) {
+        passable.push(neighbor);
+      }
+    }
+    
+    return passable;
+  }
+  
+  /**
+   * Check if a cell is passable at a given turn.
+   * For body segments, checks if the conservative disappear turn is <= arrivalTurn.
+   */
+  isPassableAtTurn(coord: Coord, arrivalTurn: number): boolean {
+    if (!this.isInBounds(coord)) {
+      return false;
+    }
+    
+    const key = this.coordToKey(coord);
+    
+    // Check if it's a body segment
+    const segmentInfo = this.bodySegmentInfo.get(key);
+    if (segmentInfo) {
+      // Only consider within lookahead range
+      if (arrivalTurn <= this.config.maxLookaheadTurns) {
+        // Cell is passable if it will have disappeared by the time we arrive
+        return segmentInfo.conservativeDisappearTurn <= arrivalTurn;
+      }
+      // Beyond lookahead range, use normal blocking
+      return !this.blockedCells.has(key);
+    }
+    
+    // For non-body-segment cells, use normal blocking
+    return !this.blockedCells.has(key);
+  }
+  
+  /**
+   * Get body segment info for a cell (if it's a body segment).
+   */
+  getBodySegmentInfo(coord: Coord): BodySegmentInfo | undefined {
+    return this.bodySegmentInfo.get(this.coordToKey(coord));
   }
   
   /**
@@ -175,6 +373,13 @@ export class BoardGraph {
   }
   
   /**
+   * Get all body segment info (for debugging/visualization).
+   */
+  getAllBodySegmentInfo(): Map<CellKey, BodySegmentInfo> {
+    return this.bodySegmentInfo;
+  }
+  
+  /**
    * Convert coordinate to string key.
    */
   coordToKey(coord: Coord): CellKey {
@@ -200,5 +405,12 @@ export class BoardGraph {
       }
     }
     return cells;
+  }
+  
+  /**
+   * Get board dimensions.
+   */
+  getDimensions(): { width: number; height: number } {
+    return { width: this.width, height: this.height };
   }
 }

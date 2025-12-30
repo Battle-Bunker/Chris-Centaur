@@ -2,6 +2,7 @@
  * Multi-source BFS implementation for efficient board analysis.
  * Computes voronoi territories, distances, and food control in a single pass.
  * Processes cells level-by-level to properly detect ties.
+ * Supports optimistic passability for body segments.
  */
 
 import { Coord } from '../types/battlesnake';
@@ -41,6 +42,10 @@ export interface BFSResult {
   enemyControlledFood: number;
 }
 
+export interface BFSOptions {
+  optimistic: boolean;
+}
+
 export class MultiSourceBFS {
   private graph: BoardGraph;
   
@@ -52,8 +57,14 @@ export class MultiSourceBFS {
    * Run multi-source BFS from all snake heads in a single pass.
    * O(W×H) complexity - each cell visited at most once.
    * Processes level-by-level to properly handle ties.
+   * 
+   * @param sources - BFS starting points (snake heads)
+   * @param foodPositions - Food locations on the board
+   * @param options - BFS options including optimistic passability
    */
-  compute(sources: BFSSource[], foodPositions: Coord[]): BFSResult {
+  compute(sources: BFSSource[], foodPositions: Coord[], options?: BFSOptions): BFSResult {
+    const useOptimistic = options?.optimistic ?? false;
+    
     // Initialize result structure
     const cellInfo = new Map<CellKey, CellInfo>();
     const territoryCounts = new Map<string, number>();
@@ -188,8 +199,12 @@ export class MultiSourceBFS {
           continue;
         }
         
-        // Get passable neighbors
-        const neighbors = this.graph.getNeighbors(item.position);
+        // Get passable neighbors - use optimistic if enabled
+        // The arrival turn is currentDistance + 1 (next level)
+        const arrivalTurn = currentDistance + 1;
+        const neighbors = useOptimistic 
+          ? this.graph.getNeighborsOptimistic(item.position, arrivalTurn)
+          : this.graph.getNeighbors(item.position);
         
         for (const neighbor of neighbors) {
           const neighborKey = this.graph.coordToKey(neighbor);
