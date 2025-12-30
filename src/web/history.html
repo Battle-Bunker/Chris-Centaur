@@ -584,9 +584,9 @@
                  onclick="loadGame('${game.game_id}', '${game.snake_id}', '${game.snake_name || 'Unknown'}')">
               <div class="game-item-header">
                 <span>${game.snake_name || 'Unknown Snake'}</span>
-                <span class="game-item-id">${game.snake_id}</span>
               </div>
               <div class="game-item-details">
+                Game: ${game.game_id}<br>
                 Turns: ${game.turns}<br>
                 ${timestamp}
               </div>
