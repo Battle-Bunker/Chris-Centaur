@@ -115,6 +115,10 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
   - `optimisticDisappearTurn`: Turn when segment disappears if snake doesn't eat
   - `conservativeDisappearTurn`: Accounts for food reachable within lookahead turns (configurable via `maxLookaheadTurns`, default 5)
   - Both Voronoi BFS and Space BFS support an `optimistic` flag to consider body segments passable if they'll disappear by arrival time
+- **Dual Space Heuristics** - Two independent space metrics for the snake:
+  - `selfEnoughSpace`: Conservative space calculation (body segments always block)
+  - `selfSpaceOptimistic`: Optimistic space calculation (body segments passable if they'll disappear by arrival time)
+  - These can be weighted independently in the config UI for fine-tuned control
 - **Single-Pass Multi-Source BFS** - `MultiSourceBFS` replaces multiple O(S × (W×H)²) implementations with single O(W×H) pass, computing Voronoi territories with tie-awareness (neutralizing equidistant cells)
 - **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
 - **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function using the efficient multi-source BFS for territory, food control, and distance calculations
