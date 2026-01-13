@@ -352,6 +352,24 @@
                             </div>
                             <div class="description">Value of enemy-controlled territory</div>
                         </div>
+                        
+                        <div class="config-item">
+                            <label for="enemyH2HRisk">Enemy H2H Risk Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="enemyH2HRisk_slider" min="-500" max="0" step="5">
+                                <input type="number" id="enemyH2HRisk" min="-500" max="0" step="5">
+                            </div>
+                            <div class="description">Penalty for head-to-head collision risk with enemies (negative)</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="allyH2HRisk">Ally H2H Risk Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="allyH2HRisk_slider" min="-500" max="0" step="5">
+                                <input type="number" id="allyH2HRisk" min="-500" max="0" step="5">
+                            </div>
+                            <div class="description">Penalty for head-to-head collision risk with allies (negative)</div>
+                        </div>
                     </div>
                     
                     <!-- Food & Proximity -->
@@ -487,6 +505,7 @@
             'edgePenalty',
             'selfEnoughSpace', 'selfSpaceOptimistic', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
+            'enemyH2HRisk', 'allyH2HRisk',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
         
@@ -545,6 +564,9 @@
                         // Set appropriate ranges for sliders
                         if (key === 'deaths') {
                             slider.min = -1000;
+                            slider.max = 0;
+                        } else if (key === 'enemyH2HRisk' || key === 'allyH2HRisk') {
+                            slider.min = -500;
                             slider.max = 0;
                         } else if (key === 'kills' || key === 'foodEaten') {
                             slider.max = 500;

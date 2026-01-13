@@ -4,15 +4,16 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { MoveAnalyzer, MoveAnalysis } from './move-analyzer';
+import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 
 export interface MoveDecision {
   move: Direction;
-  candidateMoves: Direction[];  // The actual moves we evaluated (safe OR risky, never both)
+  candidateMoves: Direction[];  // The actual moves we evaluated (all non-lethal moves)
   evaluations: MoveEvaluationResult[];
+  h2hRiskByMove: Map<Direction, H2HRiskInfo>;  // H2H risk info for each move
 }
 
 export interface MoveEvaluationResult {
@@ -45,6 +46,9 @@ export interface DecisionConfig {
     // Life/death weights
     kills?: number;
     deaths?: number;
+    // Head-to-head risk weights
+    enemyH2HRisk?: number;
+    allyH2HRisk?: number;
   };
 }
 
@@ -75,6 +79,7 @@ export class DecisionEngine {
   
   /**
    * Main decision method that selects the best move for our snake.
+   * Now considers all non-lethal moves (safe + risky) and applies h2h risk penalties.
    */
   public decide(gameState: GameState, teamSnakeIds: Set<string>): MoveDecision {
     const startTime = Date.now();
@@ -92,25 +97,36 @@ export class DecisionEngine {
     // Create BoardGraph once for this turn - single source of truth for passability
     const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
     
-    // Get candidate moves for our snake
-    const ourMoves = this.getOurCandidateMoves(gameState.you, gameState, graph);
+    // Get move analysis with h2h risk details
+    const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
+    
+    // Consider ALL non-lethal moves (safe + risky) - h2h risk is now a weighted penalty
+    const ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
     
     if (ourMoves.length === 0) {
       // No moves available - we're dead
       return {
         move: 'up',
         candidateMoves: [],
-        evaluations: []
+        evaluations: [],
+        h2hRiskByMove: new Map()
       };
     }
     
     if (ourMoves.length === 1) {
       // Only one move available - still evaluate it properly
+      const h2hRisk = moveAnalysis.h2hRiskByMove.get(ourMoves[0]);
       const evaluation = this.boardEvaluator.evaluateBoard(
         gameState, 
         gameState.you.id, 
         teamSnakeIds,
-        { prevFoodSet }
+        { 
+          prevFoodSet,
+          h2hRisk: {
+            enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
+            allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+          }
+        }
       );
       
       // Update food set for next turn
@@ -121,10 +137,11 @@ export class DecisionEngine {
         candidateMoves: ourMoves,
         evaluations: [{
           move: ourMoves[0],
-          averageScore: evaluation.score,  // Use actual score, not 0!
+          averageScore: evaluation.score,
           numStates: 1,
           averageBreakdown: evaluation
-        }]
+        }],
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove
       };
     }
     
@@ -139,6 +156,13 @@ export class DecisionEngine {
     for (const move of ourMoves) {
       const moveStates = boardStates.filter(state => state.ourMove === move);
       
+      // Get h2h risk for this move
+      const h2hRisk = moveAnalysis.h2hRiskByMove.get(move);
+      const h2hRiskCtx = {
+        enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
+        allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+      };
+      
       if (moveStates.length === 0) {
         // This shouldn't happen but handle gracefully
         evaluations.push({
@@ -149,7 +173,7 @@ export class DecisionEngine {
             gameState, 
             gameState.you.id, 
             teamSnakeIds,
-            { prevFoodSet }
+            { prevFoodSet, h2hRisk: h2hRiskCtx }
           )
         });
         continue;
@@ -164,7 +188,10 @@ export class DecisionEngine {
           state.gameState, 
           gameState.you.id, 
           teamSnakeIds,
-          { prevFoodSet: currentFoodSet }  // Current food is "previous" from simulated state's perspective
+          { 
+            prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
+            h2hRisk: h2hRiskCtx  // Pass h2h risk to evaluator
+          }
         );
         totalScore += evaluation.score;
         allEvaluations.push(evaluation);
@@ -194,7 +221,8 @@ export class DecisionEngine {
     return {
       move: bestMove,
       candidateMoves: ourMoves,
-      evaluations
+      evaluations,
+      h2hRiskByMove: moveAnalysis.h2hRiskByMove
     };
   }
   
@@ -391,7 +419,9 @@ export class DecisionEngine {
       alliesEnoughSpace: 0,
       opponentsEnoughSpace: 0,
       kills: 0,
-      deaths: 0
+      deaths: 0,
+      enemyH2HRisk: 0,
+      allyH2HRisk: 0
     };
     
     const sumWeighted = {
@@ -411,7 +441,9 @@ export class DecisionEngine {
       alliesEnoughSpaceScore: 0,
       opponentsEnoughSpaceScore: 0,
       killsScore: 0,
-      deathsScore: 0
+      deathsScore: 0,
+      enemyH2HRiskScore: 0,
+      allyH2HRiskScore: 0
     };
     
     let totalScore = 0;
@@ -436,6 +468,8 @@ export class DecisionEngine {
       sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
       sumStats.kills += evaluation.stats.kills;
       sumStats.deaths += evaluation.stats.deaths;
+      sumStats.enemyH2HRisk += evaluation.stats.enemyH2HRisk;
+      sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
       
       // Sum weighted scores
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
@@ -455,6 +489,8 @@ export class DecisionEngine {
       sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
       sumWeighted.killsScore += evaluation.weighted.killsScore;
       sumWeighted.deathsScore += evaluation.weighted.deathsScore;
+      sumWeighted.enemyH2HRiskScore += evaluation.weighted.enemyH2HRiskScore;
+      sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
       
       totalScore += evaluation.score;
     }
@@ -482,7 +518,9 @@ export class DecisionEngine {
         alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
         opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
         kills: sumStats.kills / count,
-        deaths: sumStats.deaths / count
+        deaths: sumStats.deaths / count,
+        enemyH2HRisk: sumStats.enemyH2HRisk / count,
+        allyH2HRisk: sumStats.allyH2HRisk / count
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
@@ -502,7 +540,9 @@ export class DecisionEngine {
         alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
         opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
         killsScore: sumWeighted.killsScore / count,
-        deathsScore: sumWeighted.deathsScore / count
+        deathsScore: sumWeighted.deathsScore / count,
+        enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
+        allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count
       }
     };
   }

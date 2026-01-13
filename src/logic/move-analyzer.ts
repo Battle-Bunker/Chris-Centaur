@@ -7,9 +7,17 @@ import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { TurnStateManager } from './turn-state';
 import { BoardGraph } from './board-graph';
 
+export interface H2HRiskInfo {
+  hasEnemyRisk: boolean;   // Risk of h2h with equal/larger enemy
+  hasAllyRisk: boolean;    // Risk of h2h with equal/larger ally
+  enemyRiskCount: number;  // Number of threatening enemies
+  allyRiskCount: number;   // Number of threatening allies
+}
+
 export interface MoveAnalysis {
   safe: Direction[];   // Moves that definitely won't cause death
   risky: Direction[];  // Moves that could result in head-to-head death
+  h2hRiskByMove: Map<Direction, H2HRiskInfo>;  // H2H risk details per move
 }
 
 export class MoveAnalyzer {
@@ -23,7 +31,7 @@ export class MoveAnalyzer {
    * This is the single source of truth for move safety in the entire codebase.
    * Uses BoardGraph as the single source of truth for passability.
    */
-  public analyzeMoves(snake: Snake, gameState: GameState, graph: BoardGraph): MoveAnalysis {
+  public analyzeMoves(snake: Snake, gameState: GameState, graph: BoardGraph, teamSnakeIds?: Set<string>): MoveAnalysis {
     // Update turn state to track which snakes ate food
     const turnStateManager = TurnStateManager.getInstance();
     turnStateManager.updateState(
@@ -35,6 +43,7 @@ export class MoveAnalyzer {
     const allDirections: Direction[] = ['up', 'down', 'left', 'right'];
     const safe: Direction[] = [];
     const risky: Direction[] = [];
+    const h2hRiskByMove = new Map<Direction, H2HRiskInfo>();
     
     // Analyze each possible move
     for (const direction of allDirections) {
@@ -46,15 +55,19 @@ export class MoveAnalyzer {
         continue;
       }
       
-      // Check for head-to-head risk
-      if (this.hasHeadToHeadRisk(newPosition, snake, gameState)) {
+      // Get detailed head-to-head risk information
+      const h2hRisk = this.getHeadToHeadRiskInfo(newPosition, snake, gameState, teamSnakeIds);
+      h2hRiskByMove.set(direction, h2hRisk);
+      
+      // Check for head-to-head risk (any risk = risky move)
+      if (h2hRisk.hasEnemyRisk || h2hRisk.hasAllyRisk) {
         risky.push(direction);
       } else {
         safe.push(direction);
       }
     }
     
-    return { safe, risky };
+    return { safe, risky, h2hRiskByMove };
   }
   
   /**
@@ -82,6 +95,48 @@ export class MoveAnalyzer {
     }
     
     return false; // No head-to-head risk
+  }
+  
+  /**
+   * Gets detailed head-to-head risk information for a position.
+   * Distinguishes between enemy and ally h2h risks.
+   */
+  private getHeadToHeadRiskInfo(position: Coord, snake: Snake, gameState: GameState, teamSnakeIds?: Set<string>): H2HRiskInfo {
+    const { board } = gameState;
+    const result: H2HRiskInfo = {
+      hasEnemyRisk: false,
+      hasAllyRisk: false,
+      enemyRiskCount: 0,
+      allyRiskCount: 0
+    };
+    
+    for (const otherSnake of board.snakes) {
+      // Skip ourselves and dead snakes
+      if (otherSnake.id === snake.id || otherSnake.health <= 0) continue;
+      
+      // Check if other snake's head is adjacent to our potential position
+      const otherHead = otherSnake.head;
+      const distance = Math.abs(position.x - otherHead.x) + Math.abs(position.y - otherHead.y);
+      
+      if (distance === 1) {
+        // Other snake could move to our position next turn
+        // This is risky if we would lose (smaller) or tie (same size)
+        if (snake.length <= otherSnake.length) {
+          // Determine if this is an ally or enemy
+          const isAlly = teamSnakeIds?.has(otherSnake.id) ?? false;
+          
+          if (isAlly) {
+            result.hasAllyRisk = true;
+            result.allyRiskCount++;
+          } else {
+            result.hasEnemyRisk = true;
+            result.enemyRiskCount++;
+          }
+        }
+      }
+    }
+    
+    return result;
   }
   
   /**

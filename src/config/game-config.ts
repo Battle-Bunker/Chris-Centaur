@@ -35,6 +35,10 @@ export interface GameConfig {
   kills: number;
   deaths: number;
   
+  // Head-to-head risk weights
+  enemyH2HRisk: number;  // Penalty for potential h2h with equal/larger enemies
+  allyH2HRisk: number;   // Penalty for potential h2h with equal/larger allies
+  
   // Simulation parameters
   maxSimulationDepth: number;
   timeoutMs: number;
@@ -75,6 +79,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   // Life/death weights
   kills: 0,
   deaths: -500,
+  
+  // Head-to-head risk weights
+  enemyH2HRisk: -100,  // Penalty for potential h2h with equal/larger enemies
+  allyH2HRisk: -50,    // Penalty for potential h2h with equal/larger allies
   
   // Simulation parameters
   maxSimulationDepth: 1,

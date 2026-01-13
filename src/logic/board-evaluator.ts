@@ -40,6 +40,10 @@ export interface HeuristicStats {
   // Life/death tracking
   kills: number;              // Number of enemy snakes that died
   deaths: number;             // Number of team snakes that died (including self)
+  
+  // Head-to-head risk tracking
+  enemyH2HRisk: number;       // 1 if move has h2h risk with enemy, 0 otherwise
+  allyH2HRisk: number;        // 1 if move has h2h risk with ally, 0 otherwise
 }
 
 export interface BoardEvaluation {
@@ -50,9 +54,15 @@ export interface BoardEvaluation {
   territoryCells?: Map<string, { x: number; y: number }[]>;  // Territory cells per snake for visualization
 }
 
+export interface H2HRiskContext {
+  enemyH2HRisk?: number;  // 1 if this move has h2h risk with enemy, 0 otherwise
+  allyH2HRisk?: number;   // 1 if this move has h2h risk with ally, 0 otherwise
+}
+
 export interface EvaluationContext {
   prevFoodSet?: Set<string>;  // Food positions from previous board state
   optimistic?: boolean;       // Use optimistic passability for body segments
+  h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
 }
 
 export interface HeuristicWeights {
@@ -86,6 +96,10 @@ export interface HeuristicWeights {
   // Life/death weights
   kills: number;
   deaths: number;
+  
+  // Head-to-head risk weights
+  enemyH2HRisk: number;       // Penalty for h2h risk with enemy
+  allyH2HRisk: number;        // Penalty for h2h risk with ally
 }
 
 export interface WeightedScores {
@@ -119,6 +133,10 @@ export interface WeightedScores {
   // Life/death weighted scores
   killsScore: number;
   deathsScore: number;
+  
+  // Head-to-head risk weighted scores
+  enemyH2HRiskScore: number;
+  allyH2HRiskScore: number;
 }
 
 export class BoardEvaluator {
@@ -158,6 +176,10 @@ export class BoardEvaluator {
       // Life/death weights
       kills: 0,                 // Currently not used but tracked
       deaths: -500,             // Heavy penalty for death
+      
+      // Head-to-head risk weights
+      enemyH2HRisk: -100,       // Penalty for h2h risk with enemy
+      allyH2HRisk: -50,         // Penalty for h2h risk with ally
       
       // Override with provided weights
       ...weights
@@ -219,7 +241,9 @@ export class BoardEvaluator {
           alliesEnoughSpace: 0,
           opponentsEnoughSpace: 0,
           kills: 0,
-          deaths: 1
+          deaths: 1,
+          enemyH2HRisk: 0,
+          allyH2HRisk: 0
         },
         territoryCells: new Map()
       };
@@ -317,7 +341,9 @@ export class BoardEvaluator {
         alliesEnoughSpace: spaceScores.allies,
         opponentsEnoughSpace: spaceScores.opponents,
         kills: 0,  // Would need before/after comparison to calculate
-        deaths: isDead ? 1 : 0
+        deaths: isDead ? 1 : 0,
+        enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
+        allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0     // From context, 1 if h2h risk with ally
       },
       territoryCells: bfsResult.territoryCells
     };
@@ -500,7 +526,9 @@ export class BoardEvaluator {
       alliesEnoughSpaceScore: stats.alliesEnoughSpace * this.weights.alliesEnoughSpace,
       opponentsEnoughSpaceScore: stats.opponentsEnoughSpace * this.weights.opponentsEnoughSpace,
       killsScore: stats.kills * this.weights.kills,
-      deathsScore: stats.deaths * this.weights.deaths
+      deathsScore: stats.deaths * this.weights.deaths,
+      enemyH2HRiskScore: stats.enemyH2HRisk * this.weights.enemyH2HRisk,
+      allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk
     };
   }
   
@@ -524,6 +552,8 @@ export class BoardEvaluator {
            weighted.alliesEnoughSpaceScore +
            weighted.opponentsEnoughSpaceScore +
            weighted.killsScore +
-           weighted.deathsScore;
+           weighted.deathsScore +
+           weighted.enemyH2HRiskScore +
+           weighted.allyH2HRiskScore;
   }
 }

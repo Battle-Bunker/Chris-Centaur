@@ -1222,6 +1222,8 @@
           opponentsEnoughSpaceScore: 0,
           killsScore: 0,
           deathsScore: 0,
+          enemyH2HRiskScore: 0,
+          allyH2HRiskScore: 0,
           fertileScore: 0
         };
         
@@ -1246,6 +1248,8 @@
             weightedSums.opponentsEnoughSpaceScore += weighted.opponentsEnoughSpaceScore ?? 0;
             weightedSums.killsScore += weighted.killsScore ?? 0;
             weightedSums.deathsScore += weighted.deathsScore ?? 0;
+            weightedSums.enemyH2HRiskScore += weighted.enemyH2HRiskScore ?? 0;
+            weightedSums.allyH2HRiskScore += weighted.allyH2HRiskScore ?? 0;
             weightedSums.fertileScore += weighted.fertileScore ?? 0;
           }
         });
@@ -1404,6 +1408,21 @@
           weight: breakdown.weights?.deaths ?? 0,
           weightedScore: breakdown.weighted?.deathsScore ?? 0,
           averageWeighted: averageWeighted.deathsScore ?? 0
+        },
+        // H2H Risk
+        {
+          name: 'Enemy H2H Risk',
+          value: breakdown.enemyH2HRisk ?? 0,
+          weight: breakdown.weights?.enemyH2HRisk ?? 0,
+          weightedScore: breakdown.weighted?.enemyH2HRiskScore ?? 0,
+          averageWeighted: averageWeighted.enemyH2HRiskScore ?? 0
+        },
+        {
+          name: 'Ally H2H Risk',
+          value: breakdown.allyH2HRisk ?? 0,
+          weight: breakdown.weights?.allyH2HRisk ?? 0,
+          weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0,
+          averageWeighted: averageWeighted.allyH2HRiskScore ?? 0
         },
         // Legacy compatibility - only show if present and new fields aren't
         ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory ? [{

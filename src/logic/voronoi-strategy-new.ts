@@ -75,7 +75,9 @@ export class VoronoiStrategy {
       alliesEnoughSpace: config.alliesEnoughSpace,
       opponentsEnoughSpace: config.opponentsEnoughSpace,
       kills: config.kills,
-      deaths: config.deaths
+      deaths: config.deaths,
+      enemyH2HRisk: config.enemyH2HRisk,
+      allyH2HRisk: config.allyH2HRisk
     };
   }
   
@@ -193,6 +195,8 @@ export class VoronoiStrategy {
         opponentsEnoughSpace: evaluation.averageBreakdown.stats.opponentsEnoughSpace,
         kills: evaluation.averageBreakdown.stats.kills,
         deaths: evaluation.averageBreakdown.stats.deaths,
+        enemyH2HRisk: evaluation.averageBreakdown.stats.enemyH2HRisk,
+        allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
         // Legacy fields for compatibility with old logs
