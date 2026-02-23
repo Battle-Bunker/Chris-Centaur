@@ -899,6 +899,34 @@
         });
       }
       
+      // Draw fertile tiles (wheat-colored diagonal hash pattern)
+      if (board.fertileTiles && board.fertileTiles.length > 0) {
+        board.fertileTiles.forEach(tile => {
+          const x = tile.x * cellSize;
+          const y = (board.height - 1 - tile.y) * cellSize;
+          
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, cellSize, cellSize);
+          ctx.clip();
+          
+          ctx.fillStyle = 'rgba(245, 222, 179, 0.15)';
+          ctx.fillRect(x, y, cellSize, cellSize);
+          
+          ctx.strokeStyle = 'rgba(218, 165, 32, 0.4)';
+          ctx.lineWidth = 1;
+          const spacing = 6;
+          for (let i = -cellSize; i < cellSize * 2; i += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(x + i, y);
+            ctx.lineTo(x + i + cellSize, y + cellSize);
+            ctx.stroke();
+          }
+          
+          ctx.restore();
+        });
+      }
+      
       // Draw Voronoi territory overlay
       if (moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
         // Build snake color map from game state
