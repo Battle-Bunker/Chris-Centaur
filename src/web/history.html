@@ -880,22 +880,22 @@
         ctx.stroke();
       }
       
-      // Draw hazards (sauce/lava zones)
+      // Draw hazards (red X filling cell)
       if (board.hazards && board.hazards.length > 0) {
         board.hazards.forEach(hazard => {
           const x = hazard.x * cellSize;
           const y = (board.height - 1 - hazard.y) * cellSize;
+          const pad = cellSize * 0.15;
           
-          // Draw hazard background (dark red/brown)
-          ctx.fillStyle = 'rgba(139, 69, 19, 0.6)';
-          ctx.fillRect(x, y, cellSize, cellSize);
-          
-          // Clip to cell bounds
-          ctx.save();
+          ctx.strokeStyle = 'rgba(220, 40, 40, 0.7)';
+          ctx.lineWidth = Math.max(2, cellSize * 0.12);
+          ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.rect(x, y, cellSize, cellSize);
-          ctx.clip();
-          ctx.restore();
+          ctx.moveTo(x + pad, y + pad);
+          ctx.lineTo(x + cellSize - pad, y + cellSize - pad);
+          ctx.moveTo(x + cellSize - pad, y + pad);
+          ctx.lineTo(x + pad, y + cellSize - pad);
+          ctx.stroke();
         });
       }
       
