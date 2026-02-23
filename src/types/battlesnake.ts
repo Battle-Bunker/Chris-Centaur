@@ -26,6 +26,7 @@ export interface Board {
   food: Coord[];
   hazards: Coord[];
   snakes: Snake[];
+  fertileTiles?: Coord[];
 }
 
 export interface Game {

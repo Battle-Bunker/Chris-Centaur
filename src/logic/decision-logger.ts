@@ -19,6 +19,7 @@ export interface DecisionLogEntry {
       myLength: number;
       myTerritory: number;
       myControlledFood: number;
+      myControlledFertile: number;
       
       // Team metrics
       teamLength: number;

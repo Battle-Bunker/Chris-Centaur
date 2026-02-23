@@ -8,6 +8,7 @@ export interface GameConfig {
   myLength: number;
   myTerritory: number;
   myControlledFood: number;
+  myControlledFertile: number;
   
   // Team heuristic weights
   teamLength: number;
@@ -53,6 +54,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   myLength: 10.0,
   myTerritory: 1.0,
   myControlledFood: 10.0,
+  myControlledFertile: 2.0,
   
   // Team heuristic weights
   teamLength: 10.0,

@@ -62,6 +62,7 @@ export class VoronoiStrategy {
       myLength: config.myLength,
       myTerritory: config.myTerritory,
       myControlledFood: config.myControlledFood,
+      myControlledFertile: config.myControlledFertile,
       teamLength: config.teamLength,
       teamTerritory: config.teamTerritory,
       teamControlledFood: config.teamControlledFood,
@@ -181,6 +182,7 @@ export class VoronoiStrategy {
         myLength: evaluation.averageBreakdown.stats.myLength,
         myTerritory: evaluation.averageBreakdown.stats.myTerritory,
         myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
+        myControlledFertile: evaluation.averageBreakdown.stats.myControlledFertile,
         teamLength: evaluation.averageBreakdown.stats.teamLength,
         teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
         teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
@@ -279,6 +281,7 @@ export class VoronoiStrategy {
       console.log(`│ My Length           │ ${breakdown.stats.myLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.myLength.toString().padStart(7)} │ ${breakdown.weighted.myLengthScore.toFixed(2).padStart(8)} │`);
       console.log(`│ My Territory        │ ${breakdown.stats.myTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.myTerritory.toString().padStart(7)} │ ${breakdown.weighted.myTerritoryScore.toFixed(2).padStart(8)} │`);
       console.log(`│ My Controlled Food  │ ${breakdown.stats.myControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFood.toString().padStart(7)} │ ${breakdown.weighted.myControlledFoodScore.toFixed(2).padStart(8)} │`);
+      console.log(`│ My Fertile Ground   │ ${breakdown.stats.myControlledFertile.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFertile.toString().padStart(7)} │ ${breakdown.weighted.myControlledFertileScore.toFixed(2).padStart(8)} │`);
       
       // Team Stats
       console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);

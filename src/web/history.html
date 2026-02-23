@@ -1208,6 +1208,7 @@
           myLengthScore: 0,
           myTerritoryScore: 0,
           myControlledFoodScore: 0,
+          myControlledFertileScore: 0,
           teamLengthScore: 0,
           teamTerritoryScore: 0,
           teamControlledFoodScore: 0,
@@ -1234,6 +1235,7 @@
             weightedSums.myLengthScore += weighted.myLengthScore ?? 0;
             weightedSums.myTerritoryScore += weighted.myTerritoryScore ?? 0;
             weightedSums.myControlledFoodScore += weighted.myControlledFoodScore ?? 0;
+            weightedSums.myControlledFertileScore += weighted.myControlledFertileScore ?? 0;
             weightedSums.teamLengthScore += weighted.teamLengthScore ?? 0;
             weightedSums.teamTerritoryScore += weighted.teamTerritoryScore ?? 0;
             weightedSums.teamControlledFoodScore += weighted.teamControlledFoodScore ?? 0;
@@ -1297,6 +1299,13 @@
           weight: breakdown.weights?.myControlledFood ?? 10,
           weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0,
           averageWeighted: averageWeighted.myControlledFoodScore ?? 0
+        },
+        {
+          name: 'My Fertile Ground',
+          value: breakdown.myControlledFertile ?? 0,
+          weight: breakdown.weights?.myControlledFertile ?? 2,
+          weightedScore: breakdown.weighted?.myControlledFertileScore ?? 0,
+          averageWeighted: averageWeighted.myControlledFertileScore ?? 0
         },
         // Team stats
         {

@@ -32,14 +32,19 @@ export interface BFSResult {
   // Controlled food counts per source
   controlledFood: Map<string, number>;
   
+  // Controlled fertile tile counts per source
+  controlledFertile: Map<string, number>;
+  
   // Nearest food distance per source
   nearestFoodDistance: Map<string, number>;
   
   // Team aggregates
   teamTerritory: number;
   teamControlledFood: number;
+  teamControlledFertile: number;
   enemyTerritory: number;
   enemyControlledFood: number;
+  enemyControlledFertile: number;
 }
 
 export interface BFSOptions {
@@ -62,7 +67,7 @@ export class MultiSourceBFS {
    * @param foodPositions - Food locations on the board
    * @param options - BFS options including optimistic passability
    */
-  compute(sources: BFSSource[], foodPositions: Coord[], options?: BFSOptions): BFSResult {
+  compute(sources: BFSSource[], foodPositions: Coord[], options?: BFSOptions, fertilePositions?: Coord[]): BFSResult {
     const useOptimistic = options?.optimistic ?? false;
     
     // Initialize result structure
@@ -70,6 +75,7 @@ export class MultiSourceBFS {
     const territoryCounts = new Map<string, number>();
     const territoryCells = new Map<string, Coord[]>();
     const controlledFood = new Map<string, number>();
+    const controlledFertile = new Map<string, number>();
     const nearestFoodDistance = new Map<string, number>();
     
     // Initialize counters
@@ -77,12 +83,18 @@ export class MultiSourceBFS {
       territoryCounts.set(source.id, 0);
       territoryCells.set(source.id, []);
       controlledFood.set(source.id, 0);
+      controlledFertile.set(source.id, 0);
       nearestFoodDistance.set(source.id, Infinity);
     }
     
     // Create food position set for quick lookup
     const foodSet = new Set<CellKey>(
       foodPositions.map(f => this.graph.coordToKey(f))
+    );
+    
+    // Create fertile position set for quick lookup
+    const fertileSet = new Set<CellKey>(
+      (fertilePositions || []).map(f => this.graph.coordToKey(f))
     );
     
     // Process BFS level by level for proper tie detection
@@ -127,6 +139,11 @@ export class MultiSourceBFS {
             controlledFood.set(item.sourceId, controlledFood.get(item.sourceId)! + 1);
             nearestFoodDistance.set(item.sourceId, 0);
           }
+          
+          // Check if source is on fertile tile
+          if (fertileSet.has(key)) {
+            controlledFertile.set(item.sourceId, controlledFertile.get(item.sourceId)! + 1);
+          }
         } else {
           // For distance > 0, track which sources reach this cell (deduplicated)
           if (!cellsReachedThisLevel.has(key)) {
@@ -168,6 +185,11 @@ export class MultiSourceBFS {
             if (currentDistance < currentNearestFood) {
               nearestFoodDistance.set(sourceId, currentDistance);
             }
+          }
+          
+          // Check if this cell is fertile
+          if (fertileSet.has(cellKey)) {
+            controlledFertile.set(sourceId, controlledFertile.get(sourceId)! + 1);
           }
         } else {
           // Multiple sources reach this cell at same distance - it's neutral
@@ -231,19 +253,24 @@ export class MultiSourceBFS {
     // Calculate team aggregates
     let teamTerritory = 0;
     let teamControlledFood = 0;
+    let teamControlledFertile = 0;
     let enemyTerritory = 0;
     let enemyControlledFood = 0;
+    let enemyControlledFertile = 0;
     
     for (const source of sources) {
       const territory = territoryCounts.get(source.id)!;
       const food = controlledFood.get(source.id)!;
+      const fertile = controlledFertile.get(source.id)!;
       
       if (source.isTeam) {
         teamTerritory += territory;
         teamControlledFood += food;
+        teamControlledFertile += fertile;
       } else {
         enemyTerritory += territory;
         enemyControlledFood += food;
+        enemyControlledFertile += fertile;
       }
     }
     
@@ -259,11 +286,14 @@ export class MultiSourceBFS {
       territoryCounts,
       territoryCells,
       controlledFood,
+      controlledFertile,
       nearestFoodDistance,
       teamTerritory,
       teamControlledFood,
+      teamControlledFertile,
       enemyTerritory,
-      enemyControlledFood
+      enemyControlledFood,
+      enemyControlledFertile
     };
   }
   

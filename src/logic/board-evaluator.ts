@@ -13,6 +13,7 @@ export interface HeuristicStats {
   myLength: number;           // Our snake's length
   myTerritory: number;        // Our snake's voronoi territory cells
   myControlledFood: number;   // Food cells within our voronoi territory
+  myControlledFertile: number; // Fertile tiles within our voronoi territory
   
   // Team stats (includes our snake)
   teamLength: number;         // Combined length of team snakes
@@ -70,6 +71,7 @@ export interface HeuristicWeights {
   myLength: number;
   myTerritory: number;
   myControlledFood: number;
+  myControlledFertile: number;
   
   // Team weights
   teamLength: number;
@@ -107,6 +109,7 @@ export interface WeightedScores {
   myLengthScore: number;
   myTerritoryScore: number;
   myControlledFoodScore: number;
+  myControlledFertileScore: number;
   
   // Team weighted scores
   teamLengthScore: number;
@@ -150,6 +153,7 @@ export class BoardEvaluator {
       myLength: 10.0,           // High weight for staying alive
       myTerritory: 1.0,         // Basic territory value
       myControlledFood: 10.0,   // High value for controlling food
+      myControlledFertile: 2.0, // Value for controlling fertile ground
       
       // Team weights
       teamLength: 10.0,         // Team coordination value
@@ -227,6 +231,7 @@ export class BoardEvaluator {
           myLength: 0,
           myTerritory: 0,
           myControlledFood: 0,
+          myControlledFertile: 0,
           teamLength: 0,
           teamTerritory: 0,
           teamControlledFood: 0,
@@ -264,7 +269,7 @@ export class BoardEvaluator {
     
     // Run the single-pass BFS with optimistic passability
     // Territory calculations always use optimistic mode (body segments disappear over time)
-    const bfsResult = bfs.compute(sources, board.food, { optimistic: true });
+    const bfsResult = bfs.compute(sources, board.food, { optimistic: true }, board.fertileTiles);
     
     // Calculate team and enemy lengths
     let teamLength = 0;
@@ -327,6 +332,7 @@ export class BoardEvaluator {
         myLength: ourSnake.length,
         myTerritory: bfsResult.territoryCounts.get(ourSnakeId) || 0,
         myControlledFood: bfsResult.controlledFood.get(ourSnakeId) || 0,
+        myControlledFertile: bfsResult.controlledFertile.get(ourSnakeId) || 0,
         teamLength,
         teamTerritory: bfsResult.teamTerritory,
         teamControlledFood: bfsResult.teamControlledFood,
@@ -513,6 +519,7 @@ export class BoardEvaluator {
       myLengthScore: stats.myLength * this.weights.myLength,
       myTerritoryScore: stats.myTerritory * this.weights.myTerritory,
       myControlledFoodScore: stats.myControlledFood * this.weights.myControlledFood,
+      myControlledFertileScore: stats.myControlledFertile * this.weights.myControlledFertile,
       teamLengthScore: stats.teamLength * this.weights.teamLength,
       teamTerritoryScore: stats.teamTerritory * this.weights.teamTerritory,
       teamControlledFoodScore: stats.teamControlledFood * this.weights.teamControlledFood,
@@ -539,6 +546,7 @@ export class BoardEvaluator {
     return weighted.myLengthScore +
            weighted.myTerritoryScore +
            weighted.myControlledFoodScore +
+           weighted.myControlledFertileScore +
            weighted.teamLengthScore +
            weighted.teamTerritoryScore +
            weighted.teamControlledFoodScore +
