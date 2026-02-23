@@ -279,6 +279,15 @@
                             </div>
                             <div class="description">Value of food within your territory</div>
                         </div>
+                        
+                        <div class="config-item">
+                            <label for="myControlledFertile">My Controlled Fertile Ground Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="myControlledFertile_slider" min="0" max="100" step="0.5">
+                                <input type="number" id="myControlledFertile" min="0" max="100" step="0.5">
+                            </div>
+                            <div class="description">Value of fertile tiles within your territory</div>
+                        </div>
                     </div>
                     
                     <!-- Team Heuristics -->
@@ -498,7 +507,7 @@
         
         // List of all configuration keys
         const configKeys = [
-            'myLength', 'myTerritory', 'myControlledFood',
+            'myLength', 'myTerritory', 'myControlledFood', 'myControlledFertile',
             'teamLength', 'teamTerritory', 'teamControlledFood',
             'foodProximity', 'foodEaten',
             'enemyTerritory', 'enemyLength',

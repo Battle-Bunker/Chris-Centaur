@@ -109,6 +109,7 @@ export class VoronoiStrategy {
       myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
       myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
       myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+      myControlledFertile: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FERTILE || '2'),
       teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
       teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
       teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
@@ -220,7 +221,7 @@ export class VoronoiStrategy {
         position: s.head,
         isTeam: teamSnakeIds.has(s.id)
       }));
-    const bfsResult = bfs.compute(sources, gameState.board.food);
+    const bfsResult = bfs.compute(sources, gameState.board.food, undefined, gameState.board.fertileTiles);
     
     // Convert Map to plain object for JSON serialization
     const territoryCellsObj: { [snakeId: string]: { x: number; y: number }[] } = {};

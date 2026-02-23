@@ -405,6 +405,7 @@ export class DecisionEngine {
       myLength: 0,
       myTerritory: 0,
       myControlledFood: 0,
+      myControlledFertile: 0,
       teamLength: 0,
       teamTerritory: 0,
       teamControlledFood: 0,
@@ -428,6 +429,7 @@ export class DecisionEngine {
       myLengthScore: 0,
       myTerritoryScore: 0,
       myControlledFoodScore: 0,
+      myControlledFertileScore: 0,
       teamLengthScore: 0,
       teamTerritoryScore: 0,
       teamControlledFoodScore: 0,
@@ -453,6 +455,7 @@ export class DecisionEngine {
       sumStats.myLength += evaluation.stats.myLength;
       sumStats.myTerritory += evaluation.stats.myTerritory;
       sumStats.myControlledFood += evaluation.stats.myControlledFood;
+      sumStats.myControlledFertile += evaluation.stats.myControlledFertile;
       sumStats.teamLength += evaluation.stats.teamLength;
       sumStats.teamTerritory += evaluation.stats.teamTerritory;
       sumStats.teamControlledFood += evaluation.stats.teamControlledFood;
@@ -475,6 +478,7 @@ export class DecisionEngine {
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
       sumWeighted.myTerritoryScore += evaluation.weighted.myTerritoryScore;
       sumWeighted.myControlledFoodScore += evaluation.weighted.myControlledFoodScore;
+      sumWeighted.myControlledFertileScore += evaluation.weighted.myControlledFertileScore;
       sumWeighted.teamLengthScore += evaluation.weighted.teamLengthScore;
       sumWeighted.teamTerritoryScore += evaluation.weighted.teamTerritoryScore;
       sumWeighted.teamControlledFoodScore += evaluation.weighted.teamControlledFoodScore;
@@ -504,6 +508,7 @@ export class DecisionEngine {
         myLength: sumStats.myLength / count,
         myTerritory: sumStats.myTerritory / count,
         myControlledFood: sumStats.myControlledFood / count,
+        myControlledFertile: sumStats.myControlledFertile / count,
         teamLength: sumStats.teamLength / count,
         teamTerritory: sumStats.teamTerritory / count,
         teamControlledFood: sumStats.teamControlledFood / count,
@@ -527,6 +532,7 @@ export class DecisionEngine {
         myLengthScore: sumWeighted.myLengthScore / count,
         myTerritoryScore: sumWeighted.myTerritoryScore / count,
         myControlledFoodScore: sumWeighted.myControlledFoodScore / count,
+        myControlledFertileScore: sumWeighted.myControlledFertileScore / count,
         teamLengthScore: sumWeighted.teamLengthScore / count,
         teamTerritoryScore: sumWeighted.teamTerritoryScore / count,
         teamControlledFoodScore: sumWeighted.teamControlledFoodScore / count,
