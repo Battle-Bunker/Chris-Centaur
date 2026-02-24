@@ -194,6 +194,7 @@ export class Simulator {
       width: board.width,
       food: (board.food ?? []).map(f => ({ x: f.x, y: f.y })),
       hazards: (board.hazards ?? []).map(h => ({ x: h.x, y: h.y })),
+      fertileTiles: board.fertileTiles ? board.fertileTiles.map(f => ({ x: f.x, y: f.y })) : undefined,
       snakes: (board.snakes ?? []).map(snake => ({
         id: snake.id,
         name: snake.name,
