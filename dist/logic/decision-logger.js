@@ -31,7 +31,8 @@ class DecisionLogger {
         if (this.isInitialized)
             return;
         try {
-            const schemaSQL = `
+            // Create table
+            await this.pool.query(`
         CREATE TABLE IF NOT EXISTS decision_logs (
           id SERIAL PRIMARY KEY,
           timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -48,14 +49,13 @@ class DecisionLogger {
           game_state JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-
-        CREATE INDEX IF NOT EXISTS idx_decision_logs_game_id ON decision_logs(game_id);
-        CREATE INDEX IF NOT EXISTS idx_decision_logs_snake_id ON decision_logs(snake_id);
-        CREATE INDEX IF NOT EXISTS idx_decision_logs_turn ON decision_logs(turn);
-        CREATE INDEX IF NOT EXISTS idx_decision_logs_timestamp ON decision_logs(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_decision_logs_game_snake_turn ON decision_logs(game_id, snake_id, turn);
-      `;
-            await this.pool.query(schemaSQL);
+      `);
+            // Create indexes (separate statements for pg compatibility)
+            await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_game_id ON decision_logs(game_id);');
+            await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_snake_id ON decision_logs(snake_id);');
+            await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_turn ON decision_logs(turn);');
+            await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_timestamp ON decision_logs(timestamp);');
+            await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_game_snake_turn ON decision_logs(game_id, snake_id, turn);');
             this.isInitialized = true;
             console.log('[DecisionLogger] Database schema initialized');
         }
@@ -105,6 +105,11 @@ class DecisionLogger {
         safe_moves, chosen_move, move_evaluations, game_state
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     `;
+        // Include territoryCells in move_evaluations for storage
+        const moveEvalWithTerritory = {
+            evaluations: entry.moveEvaluations,
+            territoryCells: entry.territoryCells || {}
+        };
         const values = [
             entry.gameId,
             entry.snakeId,
@@ -115,7 +120,7 @@ class DecisionLogger {
             entry.health,
             entry.safeMoves,
             entry.chosenMove,
-            JSON.stringify(entry.moveEvaluations),
+            JSON.stringify(moveEvalWithTerritory),
             JSON.stringify(entry.gameState)
         ];
         await this.pool.query(query, values);

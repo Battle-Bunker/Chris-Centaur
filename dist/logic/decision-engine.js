@@ -8,6 +8,7 @@ exports.DecisionEngine = void 0;
 const move_analyzer_1 = require("./move-analyzer");
 const board_evaluator_1 = require("./board-evaluator");
 const simulator_1 = require("./simulator");
+const board_graph_1 = require("./board-graph");
 class DecisionEngine {
     constructor(config) {
         this.lastFoodSetByGameId = new Map();
@@ -25,6 +26,7 @@ class DecisionEngine {
     }
     /**
      * Main decision method that selects the best move for our snake.
+     * Now considers all non-lethal moves (safe + risky) and applies h2h risk penalties.
      */
     decide(gameState, teamSnakeIds) {
         const startTime = Date.now();
@@ -36,19 +38,31 @@ class DecisionEngine {
         for (const food of gameState.board.food) {
             currentFoodSet.add(`${food.x},${food.y}`);
         }
-        // Get candidate moves for our snake
-        const ourMoves = this.getOurCandidateMoves(gameState.you, gameState);
+        // Create BoardGraph once for this turn - single source of truth for passability
+        const graph = new board_graph_1.BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+        // Get move analysis with h2h risk details
+        const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
+        // Consider ALL non-lethal moves (safe + risky) - h2h risk is now a weighted penalty
+        const ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
         if (ourMoves.length === 0) {
             // No moves available - we're dead
             return {
                 move: 'up',
                 candidateMoves: [],
-                evaluations: []
+                evaluations: [],
+                h2hRiskByMove: new Map()
             };
         }
         if (ourMoves.length === 1) {
             // Only one move available - still evaluate it properly
-            const evaluation = this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds, { prevFoodSet });
+            const h2hRisk = moveAnalysis.h2hRiskByMove.get(ourMoves[0]);
+            const evaluation = this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds, {
+                prevFoodSet,
+                h2hRisk: {
+                    enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
+                    allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+                }
+            });
             // Update food set for next turn
             this.lastFoodSetByGameId.set(gameId, currentFoodSet);
             return {
@@ -56,27 +70,34 @@ class DecisionEngine {
                 candidateMoves: ourMoves,
                 evaluations: [{
                         move: ourMoves[0],
-                        averageScore: evaluation.score, // Use actual score, not 0!
+                        averageScore: evaluation.score,
                         numStates: 1,
                         averageBreakdown: evaluation
-                    }]
+                    }],
+                h2hRiskByMove: moveAnalysis.h2hRiskByMove
             };
         }
         // Enumerate possible board states
-        const boardStates = this.enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime);
+        const boardStates = this.enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime, graph);
         // Evaluate each of our candidate moves
         const evaluations = [];
         let bestMove = ourMoves[0];
         let bestScore = -Infinity;
         for (const move of ourMoves) {
             const moveStates = boardStates.filter(state => state.ourMove === move);
+            // Get h2h risk for this move
+            const h2hRisk = moveAnalysis.h2hRiskByMove.get(move);
+            const h2hRiskCtx = {
+                enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
+                allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+            };
             if (moveStates.length === 0) {
                 // This shouldn't happen but handle gracefully
                 evaluations.push({
                     move,
                     averageScore: -1000,
                     numStates: 0,
-                    averageBreakdown: this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds, { prevFoodSet })
+                    averageBreakdown: this.boardEvaluator.evaluateBoard(gameState, gameState.you.id, teamSnakeIds, { prevFoodSet, h2hRisk: h2hRiskCtx })
                 });
                 continue;
             }
@@ -84,8 +105,10 @@ class DecisionEngine {
             let totalScore = 0;
             const allEvaluations = [];
             for (const state of moveStates) {
-                const evaluation = this.boardEvaluator.evaluateBoard(state.gameState, gameState.you.id, teamSnakeIds, { prevFoodSet: currentFoodSet } // Current food is "previous" from simulated state's perspective
-                );
+                const evaluation = this.boardEvaluator.evaluateBoard(state.gameState, gameState.you.id, teamSnakeIds, {
+                    prevFoodSet: currentFoodSet, // Current food is "previous" from simulated state's perspective
+                    h2hRisk: h2hRiskCtx // Pass h2h risk to evaluator
+                });
                 totalScore += evaluation.score;
                 allEvaluations.push(evaluation);
             }
@@ -108,15 +131,16 @@ class DecisionEngine {
         return {
             move: bestMove,
             candidateMoves: ourMoves,
-            evaluations
+            evaluations,
+            h2hRiskByMove: moveAnalysis.h2hRiskByMove
         };
     }
     /**
      * Get candidate moves for our snake using the principled rule:
      * Use safe moves if available, otherwise use all risky moves.
      */
-    getOurCandidateMoves(snake, gameState) {
-        const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState);
+    getOurCandidateMoves(snake, gameState, graph) {
+        const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState, graph);
         // Use safe moves if available, otherwise use risky moves
         if (analysis.safe.length > 0) {
             return analysis.safe;
@@ -129,20 +153,20 @@ class DecisionEngine {
      * Get candidate moves for other snakes.
      * All non-death moves (safe + risky) are considered.
      */
-    getOtherSnakeCandidateMoves(snake, gameState) {
-        const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState);
+    getOtherSnakeCandidateMoves(snake, gameState, graph) {
+        const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState, graph);
         // Other snakes consider all non-death moves
         return [...analysis.safe, ...analysis.risky];
     }
     /**
      * Enumerate possible board states based on move combinations.
      */
-    enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime) {
+    enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime, graph) {
         const results = [];
         const { board } = gameState;
-        // Identify nearby and distant snakes
+        // Identify nearby snakes within focal distance for full move enumeration
+        // Distant snakes (outside nearbyDistance) are frozen and not simulated
         const nearbySnakes = [];
-        const distantSnakes = [];
         for (const snake of board.snakes) {
             if (snake.id === gameState.you.id || snake.health <= 0)
                 continue;
@@ -150,9 +174,7 @@ class DecisionEngine {
             if (distance <= this.config.nearbyDistance) {
                 nearbySnakes.push(snake);
             }
-            else {
-                distantSnakes.push(snake);
-            }
+            // Snakes beyond nearbyDistance are frozen (not included in simulation)
         }
         // For each of our moves
         for (const ourMove of ourMoves) {
@@ -161,7 +183,7 @@ class DecisionEngine {
                 break;
             }
             // Generate move combinations for nearby snakes
-            const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState);
+            const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
             // For each nearby move combination
             for (const nearbyMoveSet of nearbyMoveSets) {
                 // Check time budget
@@ -175,14 +197,8 @@ class DecisionEngine {
                 for (const [snakeId, move] of nearbyMoveSet) {
                     fullMoveSet.set(snakeId, move);
                 }
-                // Add random moves for distant snakes
-                for (const snake of distantSnakes) {
-                    const moves = this.getOtherSnakeCandidateMoves(snake, gameState);
-                    if (moves.length > 0) {
-                        const randomMove = moves[Math.floor(Math.random() * moves.length)];
-                        fullMoveSet.set(snake.id, randomMove);
-                    }
-                }
+                // Distant snakes are frozen (not included in move set) to avoid
+                // noise from random move selection affecting board evaluation
                 // Simulate the board state
                 const simulatedBoard = this.simulator.simulateNextBoardState(gameState, fullMoveSet);
                 // Construct new GameState from simulated board
@@ -203,14 +219,14 @@ class DecisionEngine {
     /**
      * Generate all possible move combinations for nearby snakes.
      */
-    generateNearbyMoveSets(nearbySnakes, gameState) {
+    generateNearbyMoveSets(nearbySnakes, gameState, graph) {
         if (nearbySnakes.length === 0) {
             return [new Map()]; // Single empty move set
         }
         // Get candidate moves for each nearby snake
         const snakeMovesMap = new Map();
         for (const snake of nearbySnakes) {
-            const moves = this.getOtherSnakeCandidateMoves(snake, gameState);
+            const moves = this.getOtherSnakeCandidateMoves(snake, gameState, graph);
             if (moves.length > 0) {
                 snakeMovesMap.set(snake.id, moves);
             }
@@ -252,36 +268,46 @@ class DecisionEngine {
             myLength: 0,
             myTerritory: 0,
             myControlledFood: 0,
+            myControlledFertile: 0,
             teamLength: 0,
             teamTerritory: 0,
             teamControlledFood: 0,
             foodDistance: 0,
             foodProximity: 0,
+            foodEaten: 0,
             enemyTerritory: 0,
             enemyLength: 0,
             edgePenalty: 0,
             selfEnoughSpace: 0,
+            selfSpaceOptimistic: 0,
             alliesEnoughSpace: 0,
             opponentsEnoughSpace: 0,
             kills: 0,
-            deaths: 0
+            deaths: 0,
+            enemyH2HRisk: 0,
+            allyH2HRisk: 0
         };
         const sumWeighted = {
             myLengthScore: 0,
             myTerritoryScore: 0,
             myControlledFoodScore: 0,
+            myControlledFertileScore: 0,
             teamLengthScore: 0,
             teamTerritoryScore: 0,
             teamControlledFoodScore: 0,
             foodProximityScore: 0,
+            foodEatenScore: 0,
             enemyTerritoryScore: 0,
             enemyLengthScore: 0,
             edgePenaltyScore: 0,
             selfEnoughSpaceScore: 0,
+            selfSpaceOptimisticScore: 0,
             alliesEnoughSpaceScore: 0,
             opponentsEnoughSpaceScore: 0,
             killsScore: 0,
-            deathsScore: 0
+            deathsScore: 0,
+            enemyH2HRiskScore: 0,
+            allyH2HRiskScore: 0
         };
         let totalScore = 0;
         for (const evaluation of evaluations) {
@@ -289,35 +315,45 @@ class DecisionEngine {
             sumStats.myLength += evaluation.stats.myLength;
             sumStats.myTerritory += evaluation.stats.myTerritory;
             sumStats.myControlledFood += evaluation.stats.myControlledFood;
+            sumStats.myControlledFertile += evaluation.stats.myControlledFertile;
             sumStats.teamLength += evaluation.stats.teamLength;
             sumStats.teamTerritory += evaluation.stats.teamTerritory;
             sumStats.teamControlledFood += evaluation.stats.teamControlledFood;
             sumStats.foodDistance += evaluation.stats.foodDistance;
             sumStats.foodProximity += evaluation.stats.foodProximity;
+            sumStats.foodEaten += evaluation.stats.foodEaten;
             sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
             sumStats.enemyLength += evaluation.stats.enemyLength;
             sumStats.edgePenalty += evaluation.stats.edgePenalty;
             sumStats.selfEnoughSpace += evaluation.stats.selfEnoughSpace;
+            sumStats.selfSpaceOptimistic += evaluation.stats.selfSpaceOptimistic;
             sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
             sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
             sumStats.kills += evaluation.stats.kills;
             sumStats.deaths += evaluation.stats.deaths;
+            sumStats.enemyH2HRisk += evaluation.stats.enemyH2HRisk;
+            sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
             // Sum weighted scores
             sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
             sumWeighted.myTerritoryScore += evaluation.weighted.myTerritoryScore;
             sumWeighted.myControlledFoodScore += evaluation.weighted.myControlledFoodScore;
+            sumWeighted.myControlledFertileScore += evaluation.weighted.myControlledFertileScore;
             sumWeighted.teamLengthScore += evaluation.weighted.teamLengthScore;
             sumWeighted.teamTerritoryScore += evaluation.weighted.teamTerritoryScore;
             sumWeighted.teamControlledFoodScore += evaluation.weighted.teamControlledFoodScore;
             sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
+            sumWeighted.foodEatenScore += evaluation.weighted.foodEatenScore;
             sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
             sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
             sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
             sumWeighted.selfEnoughSpaceScore += evaluation.weighted.selfEnoughSpaceScore;
+            sumWeighted.selfSpaceOptimisticScore += evaluation.weighted.selfSpaceOptimisticScore;
             sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
             sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
             sumWeighted.killsScore += evaluation.weighted.killsScore;
             sumWeighted.deathsScore += evaluation.weighted.deathsScore;
+            sumWeighted.enemyH2HRiskScore += evaluation.weighted.enemyH2HRiskScore;
+            sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
             totalScore += evaluation.score;
         }
         const count = evaluations.length;
@@ -328,37 +364,47 @@ class DecisionEngine {
                 myLength: sumStats.myLength / count,
                 myTerritory: sumStats.myTerritory / count,
                 myControlledFood: sumStats.myControlledFood / count,
+                myControlledFertile: sumStats.myControlledFertile / count,
                 teamLength: sumStats.teamLength / count,
                 teamTerritory: sumStats.teamTerritory / count,
                 teamControlledFood: sumStats.teamControlledFood / count,
                 foodDistance: sumStats.foodDistance / count,
                 foodProximity: sumStats.foodProximity / count,
+                foodEaten: sumStats.foodEaten / count,
                 enemyTerritory: sumStats.enemyTerritory / count,
                 enemyLength: sumStats.enemyLength / count,
                 edgePenalty: sumStats.edgePenalty / count,
                 selfEnoughSpace: sumStats.selfEnoughSpace / count,
+                selfSpaceOptimistic: sumStats.selfSpaceOptimistic / count,
                 alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
                 opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
                 kills: sumStats.kills / count,
-                deaths: sumStats.deaths / count
+                deaths: sumStats.deaths / count,
+                enemyH2HRisk: sumStats.enemyH2HRisk / count,
+                allyH2HRisk: sumStats.allyH2HRisk / count
             },
             weights: evaluations[0].weights, // All evaluations use same weights
             weighted: {
                 myLengthScore: sumWeighted.myLengthScore / count,
                 myTerritoryScore: sumWeighted.myTerritoryScore / count,
                 myControlledFoodScore: sumWeighted.myControlledFoodScore / count,
+                myControlledFertileScore: sumWeighted.myControlledFertileScore / count,
                 teamLengthScore: sumWeighted.teamLengthScore / count,
                 teamTerritoryScore: sumWeighted.teamTerritoryScore / count,
                 teamControlledFoodScore: sumWeighted.teamControlledFoodScore / count,
                 foodProximityScore: sumWeighted.foodProximityScore / count,
+                foodEatenScore: sumWeighted.foodEatenScore / count,
                 enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
                 enemyLengthScore: sumWeighted.enemyLengthScore / count,
                 edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
                 selfEnoughSpaceScore: sumWeighted.selfEnoughSpaceScore / count,
+                selfSpaceOptimisticScore: sumWeighted.selfSpaceOptimisticScore / count,
                 alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
                 opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
                 killsScore: sumWeighted.killsScore / count,
-                deathsScore: sumWeighted.deathsScore / count
+                deathsScore: sumWeighted.deathsScore / count,
+                enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
+                allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count
             }
         };
     }

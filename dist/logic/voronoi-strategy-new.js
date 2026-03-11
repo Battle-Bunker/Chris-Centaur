@@ -10,6 +10,8 @@ const decision_logger_1 = require("./decision-logger");
 const team_detector_1 = require("./team-detector");
 const configStore_1 = require("../server/configStore");
 const game_config_1 = require("../config/game-config");
+const board_graph_1 = require("./board-graph");
+const multi_source_bfs_1 = require("./multi-source-bfs");
 class VoronoiStrategy {
     constructor() {
         this.cachedConfig = null;
@@ -51,18 +53,23 @@ class VoronoiStrategy {
             myLength: config.myLength,
             myTerritory: config.myTerritory,
             myControlledFood: config.myControlledFood,
+            myControlledFertile: config.myControlledFertile,
             teamLength: config.teamLength,
             teamTerritory: config.teamTerritory,
             teamControlledFood: config.teamControlledFood,
             foodProximity: config.foodProximity,
+            foodEaten: config.foodEaten,
             enemyTerritory: config.enemyTerritory,
             enemyLength: config.enemyLength,
             edgePenalty: config.edgePenalty,
             selfEnoughSpace: config.selfEnoughSpace,
+            selfSpaceOptimistic: config.selfSpaceOptimistic,
             alliesEnoughSpace: config.alliesEnoughSpace,
             opponentsEnoughSpace: config.opponentsEnoughSpace,
             kills: config.kills,
-            deaths: config.deaths
+            deaths: config.deaths,
+            enemyH2HRisk: config.enemyH2HRisk,
+            allyH2HRisk: config.allyH2HRisk
         };
     }
     updateDecisionEngine(config) {
@@ -89,6 +96,7 @@ class VoronoiStrategy {
             myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
             myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
             myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
+            myControlledFertile: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FERTILE || '2'),
             teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
             teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
             teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
@@ -97,6 +105,7 @@ class VoronoiStrategy {
             enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
             edgePenalty: parseFloat(process.env.WEIGHT_EDGE_PENALTY || '0'),
             selfEnoughSpace: parseFloat(process.env.WEIGHT_SELF_ENOUGH_SPACE || '20'),
+            selfSpaceOptimistic: parseFloat(process.env.WEIGHT_SELF_SPACE_OPTIMISTIC || '5'),
             alliesEnoughSpace: parseFloat(process.env.WEIGHT_ALLIES_ENOUGH_SPACE || '10'),
             opponentsEnoughSpace: parseFloat(process.env.WEIGHT_OPPONENTS_ENOUGH_SPACE || '-15'),
             kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
@@ -146,11 +155,13 @@ class VoronoiStrategy {
                 myLength: evaluation.averageBreakdown.stats.myLength,
                 myTerritory: evaluation.averageBreakdown.stats.myTerritory,
                 myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
+                myControlledFertile: evaluation.averageBreakdown.stats.myControlledFertile,
                 teamLength: evaluation.averageBreakdown.stats.teamLength,
                 teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
                 teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
                 foodDistance: evaluation.averageBreakdown.stats.foodDistance,
                 foodProximity: evaluation.averageBreakdown.stats.foodProximity,
+                foodEaten: evaluation.averageBreakdown.stats.foodEaten,
                 enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
                 enemyLength: evaluation.averageBreakdown.stats.enemyLength,
                 edgePenalty: evaluation.averageBreakdown.stats.edgePenalty,
@@ -159,6 +170,8 @@ class VoronoiStrategy {
                 opponentsEnoughSpace: evaluation.averageBreakdown.stats.opponentsEnoughSpace,
                 kills: evaluation.averageBreakdown.stats.kills,
                 deaths: evaluation.averageBreakdown.stats.deaths,
+                enemyH2HRisk: evaluation.averageBreakdown.stats.enemyH2HRisk,
+                allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
                 weights: evaluation.averageBreakdown.weights,
                 weighted: evaluation.averageBreakdown.weighted,
                 // Legacy fields for compatibility with old logs
@@ -169,6 +182,22 @@ class VoronoiStrategy {
                 teamFertileScore: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10
             }
         }));
+        // Compute territory cells for current board state visualization
+        const graph = new board_graph_1.BoardGraph(gameState);
+        const bfs = new multi_source_bfs_1.MultiSourceBFS(graph);
+        const sources = gameState.board.snakes
+            .filter(s => s.health > 0)
+            .map(s => ({
+            id: s.id,
+            position: s.head,
+            isTeam: teamSnakeIds.has(s.id)
+        }));
+        const bfsResult = bfs.compute(sources, gameState.board.food, undefined, gameState.board.fertileTiles);
+        // Convert Map to plain object for JSON serialization
+        const territoryCellsObj = {};
+        for (const [snakeId, cells] of bfsResult.territoryCells) {
+            territoryCellsObj[snakeId] = cells;
+        }
         // Log the decision to database (non-blocking)
         // IMPORTANT: Only log the actual candidate moves, not all possible moves
         this.decisionLogger.logDecision({
@@ -181,7 +210,8 @@ class VoronoiStrategy {
             safeMoves: decision.candidateMoves, // Only the moves we actually evaluated!
             chosenMove: decision.move,
             moveEvaluations,
-            gameState
+            gameState,
+            territoryCells: territoryCellsObj
         });
         // Return for backwards compatibility
         const scores = new Map();
@@ -214,6 +244,7 @@ class VoronoiStrategy {
             console.log(`│ My Length           │ ${breakdown.stats.myLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.myLength.toString().padStart(7)} │ ${breakdown.weighted.myLengthScore.toFixed(2).padStart(8)} │`);
             console.log(`│ My Territory        │ ${breakdown.stats.myTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.myTerritory.toString().padStart(7)} │ ${breakdown.weighted.myTerritoryScore.toFixed(2).padStart(8)} │`);
             console.log(`│ My Controlled Food  │ ${breakdown.stats.myControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFood.toString().padStart(7)} │ ${breakdown.weighted.myControlledFoodScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ My Fertile Ground   │ ${breakdown.stats.myControlledFertile.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFertile.toString().padStart(7)} │ ${breakdown.weighted.myControlledFertileScore.toFixed(2).padStart(8)} │`);
             // Team Stats
             console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
             console.log(`│ Team Territory      │ ${breakdown.stats.teamTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamTerritory.toString().padStart(7)} │ ${breakdown.weighted.teamTerritoryScore.toFixed(2).padStart(8)} │`);
@@ -221,6 +252,7 @@ class VoronoiStrategy {
             // Food Distance and Proximity
             console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
             console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
+            console.log(`│ Food Eaten          │ ${breakdown.stats.foodEaten.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodEaten.toString().padStart(7)} │ ${breakdown.weighted.foodEatenScore.toFixed(2).padStart(8)} │`);
             // Enhanced Space Detection
             if (breakdown.stats.selfEnoughSpace !== undefined && breakdown.weights.selfEnoughSpace !== undefined) {
                 console.log(`│ Self Space          │ ${(breakdown.stats.selfEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.selfEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.selfEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
