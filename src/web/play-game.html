@@ -60,7 +60,8 @@
       max-width: 100%; height: auto;
     }
     #boardOverlay {
-      position: absolute; top: 0; left: 0; pointer-events: none;
+      position: absolute; top: 0; left: 0; pointer-events: auto;
+      z-index: 5;
     }
     .cell-button {
       position: absolute; background: transparent; border: none;
@@ -395,6 +396,10 @@
       userSelectedMove = direction;
       moveState.selectedMove = direction;
 
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'select-move', move: direction }));
+      }
+
       BoardRenderer.renderMoveButtons(
         document.getElementById('moveButtons'), moveState, selectMove
       );
@@ -489,29 +494,22 @@
 
     function handleCanvasClick(event) {
       if (!currentGameState || !moveState) return;
+      if (moveSubmitted) return;
+
       const canvas = document.getElementById('gameCanvas');
       const rect = canvas.getBoundingClientRect();
       const board = currentGameState.board;
-      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
       const clickX = event.clientX - rect.left;
       const clickY = event.clientY - rect.top;
       const boardX = Math.floor(clickX / cellSize);
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
 
-      let clickedSnake = null;
-      for (const [sid, cells] of Object.entries(moveState.territoryCells)) {
-        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
-          clickedSnake = sid;
-          break;
+      for (const move of Object.values(moveState.moves)) {
+        if (move.position && move.position.x === boardX && move.position.y === boardY && (move.isSafe || move.isEvaluated)) {
+          selectMove(move.direction);
+          return;
         }
-      }
-
-      if (clickedSnake) {
-        moveState.selectedSnake = (moveState.selectedSnake === clickedSnake) ? null : clickedSnake;
-        renderGameBoard();
-      } else if (moveState.selectedSnake) {
-        moveState.selectedSnake = null;
-        renderGameBoard();
       }
     }
 

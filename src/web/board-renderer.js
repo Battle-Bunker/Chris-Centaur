@@ -313,9 +313,10 @@ const BoardRenderer = (function() {
       button.style.top = y + 'px';
       button.style.width = displayCellSize + 'px';
       button.style.height = displayCellSize + 'px';
+      button.style.zIndex = '10';
 
       if (move.isSafe || move.isEvaluated) {
-        button.onclick = () => onCellClick(move.direction);
+        button.onclick = (e) => { e.stopPropagation(); onCellClick(move.direction); };
         const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
         button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
       } else {

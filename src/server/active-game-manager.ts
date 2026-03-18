@@ -184,6 +184,8 @@ export class ActiveGameManager {
       timer: setTimeout(() => {
         if (!pending.resolved) {
           const move = pending.userSelectedMove || pending.botMove || 'up';
+          const source = pending.userSelectedMove ? 'user-selection' : (pending.botMove ? 'bot-recommendation' : 'fallback');
+          console.log(`[ActiveGameManager] Safety timer fired for ${key}: using ${move} (source: ${source})`);
           this.resolvePendingMove(key, move);
         }
       }, timeoutMs),
@@ -213,11 +215,23 @@ export class ActiveGameManager {
     this.notifyTurnUpdate(gameId, snakeId, turnData);
   }
 
+  setUserSelection(gameId: string, snakeId: string, move: Direction): void {
+    const key = makeKey(gameId, snakeId);
+    const entry = this.games.get(key);
+    if (entry?.pendingMove && !entry.pendingMove.resolved) {
+      entry.pendingMove.userSelectedMove = move;
+    }
+  }
+
   submitUserMove(gameId: string, snakeId: string, move: Direction): boolean {
     const key = makeKey(gameId, snakeId);
     const entry = this.games.get(key);
-    if (!entry?.pendingMove || entry.pendingMove.resolved) return false;
+    if (!entry?.pendingMove || entry.pendingMove.resolved) {
+      console.log(`[ActiveGameManager] submitUserMove rejected for ${key}: ${!entry?.pendingMove ? 'no pending move' : 'already resolved'}`);
+      return false;
+    }
 
+    console.log(`[ActiveGameManager] User submitted move for ${key}: ${move}`);
     entry.pendingMove.userSelectedMove = move;
     this.resolvePendingMove(key, move);
     return true;

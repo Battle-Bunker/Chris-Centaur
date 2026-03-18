@@ -88,6 +88,13 @@ export class GameWebSocketServer {
         });
         break;
 
+      case 'select-move':
+        const selectValidMoves: Direction[] = ['up', 'down', 'left', 'right'];
+        if (client.gameId && client.snakeId && msg.move && selectValidMoves.includes(msg.move)) {
+          this.gameManager.setUserSelection(client.gameId, client.snakeId, msg.move as Direction);
+        }
+        break;
+
       case 'submit-move':
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         if (client.gameId && client.snakeId && msg.move && validMoves.includes(msg.move)) {
