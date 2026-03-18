@@ -176,7 +176,7 @@ export class ActiveGameManager {
       this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
     }
 
-    const bufferMs = 200;
+    const bufferMs = 100;
     const timeoutMs = Math.max(gameTimeout - bufferMs, 50);
 
     const pending: PendingMove = {
