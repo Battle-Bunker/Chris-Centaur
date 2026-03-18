@@ -324,6 +324,7 @@
         case 'override-changed':
           overrideEnabled = msg.enabled;
           document.getElementById('overrideCheckbox').checked = overrideEnabled;
+          applyAutoSelection();
           break;
       }
     }
@@ -348,6 +349,13 @@
 
       moveState = BoardRenderer.processMoveEvaluations(evalData, safeMoves, head, null);
 
+      if (overrideEnabled) {
+        const bestMove = getBestBotMove();
+        if (bestMove) {
+          moveState.selectedMove = bestMove;
+        }
+      }
+
       document.getElementById('currentTurn').textContent = data.gameState.turn;
       document.getElementById('healthDisplay').textContent = data.gameState.you.health;
 
@@ -358,8 +366,10 @@
       BoardRenderer.renderMoveButtons(
         document.getElementById('moveButtons'), moveState, selectMove
       );
+
+      const autoSelectedMove = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
       BoardRenderer.updateStatsTable(
-        document.getElementById('statsTableBody'), null, moveState
+        document.getElementById('statsTableBody'), autoSelectedMove || null, moveState
       );
 
       updateSubmitButton();
@@ -453,12 +463,34 @@
       }
     }
 
+    function applyAutoSelection() {
+      if (!moveState || moveSubmitted) return;
+      if (overrideEnabled && !userSelectedMove) {
+        const bestMove = getBestBotMove();
+        if (bestMove) {
+          moveState.selectedMove = bestMove;
+        }
+      } else if (!overrideEnabled && !userSelectedMove) {
+        moveState.selectedMove = null;
+      }
+      renderGameBoard();
+      BoardRenderer.renderMoveButtons(
+        document.getElementById('moveButtons'), moveState, selectMove
+      );
+      const selectedMoveData = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
+      BoardRenderer.updateStatsTable(
+        document.getElementById('statsTableBody'), selectedMoveData || null, moveState
+      );
+      updateSubmitButton();
+    }
+
     function toggleOverride() {
       const enabled = document.getElementById('overrideCheckbox').checked;
       overrideEnabled = enabled;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'set-override', enabled }));
       }
+      applyAutoSelection();
     }
 
     function startTurnTimer() {
