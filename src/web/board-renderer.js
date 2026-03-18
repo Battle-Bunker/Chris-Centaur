@@ -448,8 +448,13 @@ const BoardRenderer = (function() {
       board.hazards.forEach(hazard => {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
+        ctx.save();
         ctx.fillStyle = 'rgba(220, 30, 30, 1)';
-        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.font = `${Math.floor(cellSize * 0.8)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⚠', x + cellSize / 2, y + cellSize / 2);
+        ctx.restore();
       });
     }
 
@@ -858,8 +863,13 @@ const BoardRenderer = (function() {
       board.hazards.forEach(hazard => {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
+        ctx.save();
         ctx.fillStyle = 'rgba(220, 30, 30, 1)';
-        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.font = `${Math.floor(cellSize * 0.8)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⚠', x + cellSize / 2, y + cellSize / 2);
+        ctx.restore();
       });
     }
 
