@@ -84,9 +84,19 @@ export class Simulator {
         continue;
       }
       
+      // Find the moving snake to check its invulnerability level
+      const movingSnake = newBoard.snakes.find(s => s.id === snakeId);
+      const movingInvulnerability = movingSnake ? (movingSnake.invulnerabilityLevel ?? 0) : 0;
+      
       // Check body collision (including other snakes)
       for (const snake of newBoard.snakes) {
         if (!this.isAlive(snake) || deadSnakeIds.has(snake.id)) continue;
+        
+        // If moving into a foreign snake's body and we have higher invulnerability, skip collision
+        if (snake.id !== snakeId &&
+            movingInvulnerability > (snake.invulnerabilityLevel ?? 0)) {
+          continue;
+        }
         
         // Check collision with each body segment
         for (let i = 0; i < snake.body.length; i++) {
@@ -205,7 +215,8 @@ export class Simulator {
         length: snake.length,
         shout: snake.shout,
         squad: snake.squad,
-        customizations: { ...(snake.customizations ?? {}) }
+        customizations: { ...(snake.customizations ?? {}) },
+        invulnerabilityLevel: snake.invulnerabilityLevel
       }))
     };
   }

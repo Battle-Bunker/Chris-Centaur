@@ -418,10 +418,14 @@ export class BoardEvaluator {
     }
     
     // Build a set of other snakes' tails to block (we can chase our own tail, not others')
+    // Skip tails of snakes with lower invulnerability level than ours (their bodies are passable)
+    const ourInvulnerability = snake.invulnerabilityLevel ?? 0;
     const otherSnakeTails = new Set<string>();
     for (const otherSnake of allSnakes) {
       if (otherSnake.health <= 0) continue;
       if (otherSnake.id === snake.id) continue;
+      // If we can sever through this snake, its tail is not an additional blocker
+      if ((otherSnake.invulnerabilityLevel ?? 0) < ourInvulnerability) continue;
       const tail = otherSnake.body[otherSnake.body.length - 1];
       otherSnakeTails.add(graph.coordToKey(tail));
     }

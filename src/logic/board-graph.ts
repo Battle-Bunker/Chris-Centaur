@@ -31,6 +31,7 @@ export class BoardGraph {
   private width: number;
   private height: number;
   private config: BoardGraphConfig;
+  private ourInvulnerabilityLevel: number;
   
   private bodySegmentInfo: Map<CellKey, BodySegmentInfo>;
   private snakeFoodReachByTurn: Map<string, number[]>;
@@ -43,6 +44,7 @@ export class BoardGraph {
       maxLookaheadTurns: 5,
       ...config
     };
+    this.ourInvulnerabilityLevel = gameState.you.invulnerabilityLevel ?? 0;
     
     this.adjacencyList = new Map();
     this.blockedCells = new Set();
@@ -72,6 +74,10 @@ export class BoardGraph {
     for (const snake of board.snakes) {
       if (snake.health <= 0) continue;
       
+      // Foreign snake bodies are passable if their invulnerabilityLevel < ours
+      const isSeverable = snake.id !== gameState.you.id &&
+        (snake.invulnerabilityLevel ?? 0) < this.ourInvulnerabilityLevel;
+      
       // Get cumulative food reachable by turn for this snake
       const cumulativeFoodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
       
@@ -79,6 +85,9 @@ export class BoardGraph {
       for (let i = 1; i < snake.body.length; i++) {
         const segment = snake.body[i];
         const key = this.coordToKey(segment);
+        
+        // If this is a severable foreign snake, skip adding to blocked/bodySegmentInfo
+        if (isSeverable) continue;
         
         // Calculate turns from tail: body[length-1] is tail (disappears in 1 turn if not eating)
         // body[i] disappears in (length - i) turns if not eating
@@ -188,6 +197,10 @@ export class BoardGraph {
     
     for (const snake of board.snakes) {
       if (snake.health <= 0) continue;
+      // Skip body segments of severable foreign snakes (passable due to invulnerability)
+      const isSeverable = snake.id !== gameState.you.id &&
+        (snake.invulnerabilityLevel ?? 0) < this.ourInvulnerabilityLevel;
+      if (isSeverable) continue;
       // Block all body segments except heads
       for (let i = 1; i < snake.body.length; i++) {
         tempBlocked.add(this.coordToKey(snake.body[i]));
