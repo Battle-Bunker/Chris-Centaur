@@ -36,6 +36,7 @@ interface GameSnakeEntry {
   pendingMove: PendingMove | null;
   gameTimeout: number;
   startedAt: number;
+  lastActivityAt: number;
 }
 
 type GameSnakeKey = string;
@@ -77,6 +78,8 @@ export class ActiveGameManager {
   registerGame(gameState: GameState): void {
     const key = makeKey(gameState.game.id, gameState.you.id);
     if (!this.games.has(key)) {
+      console.log(`[ActiveGameManager] Registering game: ${key} (snake: ${gameState.you.name}, turn: ${gameState.turn})`);
+      const now = Date.now();
       this.games.set(key, {
         gameId: gameState.game.id,
         snakeId: gameState.you.id,
@@ -86,7 +89,8 @@ export class ActiveGameManager {
         latestTurnData: null,
         pendingMove: null,
         gameTimeout: gameState.game.timeout || 500,
-        startedAt: Date.now()
+        startedAt: now,
+        lastActivityAt: now
       });
     }
   }
@@ -94,10 +98,13 @@ export class ActiveGameManager {
   endGame(gameId: string, snakeId: string): void {
     const key = makeKey(gameId, snakeId);
     const entry = this.games.get(key);
-    if (entry?.pendingMove && !entry.pendingMove.resolved) {
-      this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
+    if (entry) {
+      console.log(`[ActiveGameManager] Ending game: ${key}`);
+      if (entry.pendingMove && !entry.pendingMove.resolved) {
+        this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
+      }
+      this.games.delete(key);
     }
-    this.games.delete(key);
   }
 
   isOverrideEnabled(gameId: string, snakeId: string): boolean {
@@ -202,6 +209,7 @@ export class ActiveGameManager {
     if (entry) {
       entry.latestGameState = gameState;
       entry.gameTimeout = gameState.game.timeout || entry.gameTimeout;
+      entry.lastActivityAt = Date.now();
     }
   }
 
@@ -225,12 +233,13 @@ export class ActiveGameManager {
     entry.pendingMove = null;
   }
 
-  startStaleGameCleanup(intervalMs: number = 300000, maxAgeMs: number = 600000): void {
+  startStaleGameCleanup(intervalMs: number = 300000, maxIdleMs: number = 600000): void {
     setInterval(() => {
       const now = Date.now();
       for (const [key, entry] of this.games) {
-        if (now - entry.startedAt > maxAgeMs) {
-          console.log(`[ActiveGameManager] Cleaning up stale game: ${key} (age: ${Math.round((now - entry.startedAt) / 1000)}s)`);
+        const idleTime = now - entry.lastActivityAt;
+        if (idleTime > maxIdleMs) {
+          console.log(`[ActiveGameManager] Cleaning up stale game: ${key} (idle: ${Math.round(idleTime / 1000)}s)`);
           if (entry.pendingMove && !entry.pendingMove.resolved) {
             this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
           }

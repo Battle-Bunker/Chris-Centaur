@@ -60,6 +60,9 @@ app.post('/move', async (req, res) => {
   const gameId = gameState.game.id;
   const snakeId = gameState.you.id;
 
+  if (!gameManager.getGameEntry(gameId, snakeId)) {
+    gameManager.registerGame(gameState);
+  }
   gameManager.updateGameState(gameId, snakeId, gameState);
 
   const overrideActive = gameManager.isOverrideEnabled(gameId, snakeId);

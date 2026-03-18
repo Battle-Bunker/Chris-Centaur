@@ -6,6 +6,7 @@ const router = express.Router();
 router.get('/api/play/games', (req, res) => {
   const manager = ActiveGameManager.getInstance();
   const games = manager.getActiveGames();
+  console.log(`[Play API] GET /api/play/games → ${games.length} active games`);
   res.json(games.map(g => ({
     gameId: g.gameId,
     snakeId: g.snakeId,
