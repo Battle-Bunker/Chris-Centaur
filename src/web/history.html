@@ -499,6 +499,7 @@
         <button onclick="previousTurn()">◀ Previous</button>
         <button onclick="togglePlay()" id="playButton">▶ Play</button>
         <button onclick="nextTurn()">Next ▶</button>
+        <button onclick="copyMoveJson()" id="copyJsonButton">📋 Copy /move JSON</button>
       </div>
     </div>
     
@@ -1532,6 +1533,26 @@
       if (currentTurn < turnData.length - 1) {
         renderTurn(currentTurn + 1);
       }
+    }
+
+    let copyJsonTimeout = null;
+    const COPY_JSON_LABEL = '📋 Copy /move JSON';
+
+    function copyMoveJson() {
+      const turn = turnData[currentTurn];
+      if (!turn || !turn.game_state) {
+        return;
+      }
+      const btn = document.getElementById('copyJsonButton');
+      const json = JSON.stringify(turn.game_state, null, 2);
+      if (copyJsonTimeout) clearTimeout(copyJsonTimeout);
+      navigator.clipboard.writeText(json).then(() => {
+        btn.textContent = '✅ Copied!';
+      }).catch(() => {
+        btn.textContent = '❌ Failed';
+      }).finally(() => {
+        copyJsonTimeout = setTimeout(() => { btn.textContent = COPY_JSON_LABEL; }, 1500);
+      });
     }
     
     function togglePlay() {
