@@ -542,8 +542,13 @@ const BoardRenderer = (function() {
 
     board.snakes.forEach(snake => {
       renderSnakeBody(ctx, snake, board.height, cellSize);
-      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
+    });
 
+    board.snakes.forEach(snake => {
+      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
+    });
+
+    board.snakes.forEach(snake => {
       const head = snake.body[0];
       if (head) {
         const hx = head.x * cellSize;
@@ -921,11 +926,15 @@ const BoardRenderer = (function() {
     }
 
     board.snakes.forEach(snake => {
-      const isOurs = snake.id === ourSnakeId;
-
       renderSnakeBody(ctx, snake, board.height, cellSize);
-      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
+    });
 
+    board.snakes.forEach(snake => {
+      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
+    });
+
+    board.snakes.forEach(snake => {
+      const isOurs = snake.id === ourSnakeId;
       const head = snake.body[0];
       if (head) {
         const x = head.x * cellSize;
