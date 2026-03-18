@@ -252,7 +252,7 @@
     let turnTimeout = 500;
     let reconnectTimer = null;
 
-    document.getElementById('pageTitle').textContent = `Game ${gameId.substring(0, 8)}...`;
+    document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
     function connectWebSocket() {
       const statusEl = document.getElementById('connectionStatus');
