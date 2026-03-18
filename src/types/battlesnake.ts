@@ -18,6 +18,8 @@ export interface Snake {
     head: string;
     tail: string;
   };
+  invulnerabilityLevel?: number;
+  teamID?: string;
 }
 
 export interface Board {
@@ -27,6 +29,7 @@ export interface Board {
   hazards: Coord[];
   snakes: Snake[];
   fertileTiles?: Coord[];
+  invulnerabilityPotions?: Coord[];
 }
 
 export interface Game {

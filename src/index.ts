@@ -148,6 +148,10 @@ app.get('/config', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
 });
 
+app.get('/board-test', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/board-test.html'));
+});
+
 app.get('/history', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });

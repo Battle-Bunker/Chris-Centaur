@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Board Renderer Test</title>
+  <style>
+    body { background: #1a1a2e; color: #eee; font-family: sans-serif; margin: 20px; }
+    h1 { text-align: center; }
+    .test-grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+    .test-case { background: #222; border-radius: 8px; padding: 15px; }
+    .test-case h3 { margin: 0 0 10px 0; font-size: 14px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Board Renderer Test Cases</h1>
+  <div class="test-grid" id="testGrid"></div>
+  <script src="/board-renderer.js"></script>
+  <script>
+    function makeSnake(id, name, color, body, health, invuln) {
+      return {
+        id, name, health: health || 100,
+        body: body.map(([x,y]) => ({x,y})),
+        customizations: { color },
+        invulnerabilityLevel: invuln || 0
+      };
+    }
+
+    const tests = [
+      {
+        title: "1: Curling snake with invulnerability (blue outline traces path)",
+        width: 11, height: 11,
+        snakes: [
+          makeSnake("s1", "Curler", "#44cccc", [
+            [5,5],[4,5],[3,5],[3,4],[3,3],[4,3],[5,3],[5,4]
+          ], 80, 2),
+          makeSnake("s2", "Straight", "#ff6688", [
+            [8,8],[8,7],[8,6],[8,5],[8,4],[8,3]
+          ], 90, -1)
+        ],
+        food: [[1,1],[9,9],[6,7]],
+        hazards: [[0,0],[1,0],[2,0],[0,1],[0,2]],
+        fertileTiles: [[9,0],[10,0],[9,1],[10,1],[10,2]],
+        potions: [[7,7]],
+        territory: {
+          s1: [[0,3],[1,3],[2,3],[0,4],[1,4],[2,4],[0,5],[1,5],[2,5],[3,5],[4,5],[5,5],[5,4],[5,3],[4,3],[3,3],[3,4],[0,6],[1,6],[2,6],[3,6],[4,6],[5,6]],
+          s2: [[6,3],[7,3],[8,3],[9,3],[10,3],[6,4],[7,4],[8,4],[9,4],[10,4],[6,5],[7,5],[8,5],[9,5],[10,5],[6,6],[7,6],[8,6],[9,6],[10,6],[6,7],[7,7],[8,7],[9,7],[10,7],[6,8],[7,8],[8,8],[9,8],[10,8]]
+        }
+      },
+      {
+        title: "2: Snake making tight U-turn (body parallel to itself)",
+        width: 8, height: 8,
+        snakes: [
+          makeSnake("s1", "UTurn", "#44aaff", [
+            [2,6],[2,5],[2,4],[2,3],[3,3],[4,3],[4,4],[4,5],[4,6]
+          ], 95, 3),
+          makeSnake("s2", "Short", "#ee4444", [
+            [6,1],[6,2],[6,3]
+          ], 60, -2)
+        ],
+        food: [[0,0],[7,7]],
+        hazards: [[7,0],[7,1]],
+        fertileTiles: [[0,6],[0,7],[1,7]],
+        potions: [],
+        territory: {}
+      },
+      {
+        title: "3: Food on fertile tiles + hazards (emoji clarity test)",
+        width: 8, height: 8,
+        snakes: [
+          makeSnake("s1", "Eater", "#22bb66", [
+            [3,4],[3,3],[3,2],[4,2],[5,2]
+          ], 70, 0)
+        ],
+        food: [[1,6],[2,6],[5,5],[6,1],[0,0]],
+        hazards: [[5,5],[6,5],[7,5],[5,6],[6,6],[7,6],[5,7],[6,7],[7,7]],
+        fertileTiles: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[1,6],[2,6]],
+        potions: [[4,7]],
+        territory: {}
+      },
+      {
+        title: "4: L-shaped snake with invulnerability (corner outline test)",
+        width: 8, height: 8,
+        snakes: [
+          makeSnake("s1", "LShape", "#ff8800", [
+            [1,5],[1,4],[1,3],[1,2],[2,2],[3,2],[4,2],[4,3],[4,4]
+          ], 85, 1),
+          makeSnake("s2", "Enemy", "#cc00cc", [
+            [6,6],[5,6],[5,5],[5,4],[6,4],[7,4],[7,5],[7,6],[7,7]
+          ], 75, -3)
+        ],
+        food: [[3,6],[0,0]],
+        hazards: [],
+        fertileTiles: [],
+        potions: [[2,7]],
+        territory: {
+          s1: [[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3],[0,4],[1,4],[2,4],[3,4],[0,5],[1,5],[2,5],[3,5],[0,6],[1,6],[2,6],[3,6],[0,7],[1,7],[2,7],[3,7]],
+          s2: [[4,0],[5,0],[6,0],[7,0],[4,1],[5,1],[6,1],[7,1],[4,2],[4,3],[4,4],[5,2],[5,3],[5,4],[5,5],[5,6],[6,1],[6,2],[6,3],[6,4],[6,5],[6,6],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6],[7,7],[4,5],[4,6],[4,7]]
+        }
+      }
+    ];
+
+    const grid = document.getElementById('testGrid');
+
+    tests.forEach(test => {
+      const div = document.createElement('div');
+      div.className = 'test-case';
+      const h3 = document.createElement('h3');
+      h3.textContent = test.title;
+      div.appendChild(h3);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 400;
+      div.appendChild(canvas);
+      grid.appendChild(div);
+
+      const gameState = {
+        turn: 25,
+        board: {
+          width: test.width,
+          height: test.height,
+          food: test.food.map(([x,y]) => ({x,y})),
+          hazards: (test.hazards || []).map(([x,y]) => ({x,y})),
+          fertileTiles: (test.fertileTiles || []).map(([x,y]) => ({x,y})),
+          invulnerabilityPotions: (test.potions || []).map(([x,y]) => ({x,y})),
+          snakes: test.snakes
+        }
+      };
+
+      const moveState = {
+        selectedMove: null,
+        moves: {},
+        safeMoves: [],
+        territoryCells: {},
+        selectedSnake: null
+      };
+
+      if (test.territory && Object.keys(test.territory).length > 0) {
+        Object.entries(test.territory).forEach(([sid, cells]) => {
+          moveState.territoryCells[sid] = cells.map(([x,y]) => ({x,y}));
+        });
+      }
+
+      BoardRenderer.renderBoard(canvas, gameState, moveState, { snakeId: test.snakes[0]?.id });
+    });
+  </script>
+</body>
+</html>

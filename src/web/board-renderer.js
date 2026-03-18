@@ -1,4 +1,20 @@
 const BoardRenderer = (function() {
+  let _potionImage = null;
+  let _potionImageLoading = false;
+
+  function loadPotionImage() {
+    if (_potionImage || _potionImageLoading) return;
+    _potionImageLoading = true;
+    const img = new Image();
+    img.onload = () => { _potionImage = img; };
+    img.onerror = () => { _potionImageLoading = false; };
+    img.src = '/invulnerability-potion.png';
+  }
+
+  if (typeof window !== 'undefined') {
+    loadPotionImage();
+  }
+
   function hexToRgba(hex, alpha) {
     let color = hex;
     if (!color || typeof color !== 'string') {
@@ -39,6 +55,283 @@ const BoardRenderer = (function() {
     const normalized = (score - minScore) / range;
     const hue = normalized * 120;
     return `hsla(${hue}, 70%, 50%, 0.3)`;
+  }
+
+  function hexToRgb(hex) {
+    let color = hex || '#888888';
+    color = color.replace('#', '');
+    if (color.length === 3) color = color.split('').map(c => c + c).join('');
+    return {
+      r: parseInt(color.substring(0, 2), 16) || 136,
+      g: parseInt(color.substring(2, 4), 16) || 136,
+      b: parseInt(color.substring(4, 6), 16) || 136
+    };
+  }
+
+  function renderTerritoryBoundaries(ctx, territoryCells, snakeColorMap, boardHeight, cellSize, selectedSnake, bodyOwnerMap) {
+    const ownerMap = {};
+    Object.entries(territoryCells).forEach(([sid, cells]) => {
+      if (!cells || cells.length === 0) return;
+      cells.forEach(cell => {
+        ownerMap[`${cell.x},${cell.y}`] = sid;
+      });
+    });
+
+    function shouldDrawBoundary(sid, nx, ny) {
+      const nk = `${nx},${ny}`;
+      if (ownerMap[nk] === sid) return false;
+      if (bodyOwnerMap && bodyOwnerMap[nk] === sid) return false;
+      return true;
+    }
+
+    const glowDepth = Math.max(4, Math.floor(cellSize * 0.4));
+    const lineWidth = Math.max(1.5, cellSize * 0.06);
+
+    Object.entries(territoryCells).forEach(([sid, cells]) => {
+      if (!cells || cells.length === 0) return;
+      const snakeColor = snakeColorMap[sid] || '#888888';
+      const rgb = hexToRgb(snakeColor);
+      const glowAlpha = (selectedSnake === sid) ? 0.6 : 0.45;
+
+      cells.forEach(cell => {
+        const px = cell.x * cellSize;
+        const py = (boardHeight - 1 - cell.y) * cellSize;
+
+        const edges = [
+          { dx: 0, dy: 1, dir: 'top' },
+          { dx: 0, dy: -1, dir: 'bottom' },
+          { dx: -1, dy: 0, dir: 'left' },
+          { dx: 1, dy: 0, dir: 'right' }
+        ];
+
+        edges.forEach(({ dx, dy, dir }) => {
+          if (!shouldDrawBoundary(sid, cell.x + dx, cell.y + dy)) return;
+          let grad;
+          switch (dir) {
+            case 'top':
+              grad = ctx.createLinearGradient(px, py, px, py + glowDepth);
+              grad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`);
+              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
+              ctx.fillStyle = grad;
+              ctx.fillRect(px, py, cellSize, glowDepth);
+              break;
+            case 'bottom':
+              grad = ctx.createLinearGradient(px, py + cellSize, px, py + cellSize - glowDepth);
+              grad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`);
+              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
+              ctx.fillStyle = grad;
+              ctx.fillRect(px, py + cellSize - glowDepth, cellSize, glowDepth);
+              break;
+            case 'left':
+              grad = ctx.createLinearGradient(px, py, px + glowDepth, py);
+              grad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`);
+              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
+              ctx.fillStyle = grad;
+              ctx.fillRect(px, py, glowDepth, cellSize);
+              break;
+            case 'right':
+              grad = ctx.createLinearGradient(px + cellSize, py, px + cellSize - glowDepth, py);
+              grad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`);
+              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
+              ctx.fillStyle = grad;
+              ctx.fillRect(px + cellSize - glowDepth, py, glowDepth, cellSize);
+              break;
+          }
+        });
+      });
+    });
+
+    Object.entries(territoryCells).forEach(([sid, cells]) => {
+      if (!cells || cells.length === 0) return;
+      const snakeColor = snakeColorMap[sid] || '#888888';
+      const alpha = (selectedSnake === sid) ? 1.0 : 0.85;
+      ctx.strokeStyle = hexToRgba(snakeColor, alpha);
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'square';
+
+      ctx.beginPath();
+      cells.forEach(cell => {
+        const px = cell.x * cellSize;
+        const py = (boardHeight - 1 - cell.y) * cellSize;
+
+        if (shouldDrawBoundary(sid, cell.x, cell.y + 1)) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + cellSize, py);
+        }
+        if (shouldDrawBoundary(sid, cell.x, cell.y - 1)) {
+          ctx.moveTo(px, py + cellSize);
+          ctx.lineTo(px + cellSize, py + cellSize);
+        }
+        if (shouldDrawBoundary(sid, cell.x - 1, cell.y)) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(px, py + cellSize);
+        }
+        if (shouldDrawBoundary(sid, cell.x + 1, cell.y)) {
+          ctx.moveTo(px + cellSize, py);
+          ctx.lineTo(px + cellSize, py + cellSize);
+        }
+      });
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    });
+  }
+
+  function getSnakeGap(cellSize) {
+    return Math.max(2, Math.floor(cellSize * 0.15));
+  }
+
+  function buildPathNeighbors(snake) {
+    const pathNeighbors = {};
+    for (let i = 0; i < snake.body.length; i++) {
+      const key = `${snake.body[i].x},${snake.body[i].y}`;
+      if (!pathNeighbors[key]) pathNeighbors[key] = new Set();
+      if (i > 0) {
+        pathNeighbors[key].add(`${snake.body[i - 1].x},${snake.body[i - 1].y}`);
+      }
+      if (i < snake.body.length - 1) {
+        pathNeighbors[key].add(`${snake.body[i + 1].x},${snake.body[i + 1].y}`);
+      }
+    }
+    return pathNeighbors;
+  }
+
+  function getCellConnections(segment, pathNeighbors) {
+    const key = `${segment.x},${segment.y}`;
+    const neighbors = pathNeighbors[key] || new Set();
+    return {
+      hasTop: neighbors.has(`${segment.x},${segment.y + 1}`),
+      hasBottom: neighbors.has(`${segment.x},${segment.y - 1}`),
+      hasLeft: neighbors.has(`${segment.x - 1},${segment.y}`),
+      hasRight: neighbors.has(`${segment.x + 1},${segment.y}`)
+    };
+  }
+
+  function renderSnakeBody(ctx, snake, boardHeight, cellSize) {
+    const snakeColor = snake.customizations?.color || snake.color || '#888888';
+    const gap = getSnakeGap(cellSize);
+
+    if (snake.body.length === 0) return;
+
+    const pathNeighbors = buildPathNeighbors(snake);
+
+    ctx.fillStyle = snakeColor;
+    const visited = new Set();
+    for (let i = 0; i < snake.body.length; i++) {
+      const segment = snake.body[i];
+      const key = `${segment.x},${segment.y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      const sx = segment.x * cellSize;
+      const sy = (boardHeight - 1 - segment.y) * cellSize;
+
+      const conn = getCellConnections(segment, pathNeighbors);
+
+      ctx.fillRect(sx + gap, sy + gap, cellSize - 2 * gap, cellSize - 2 * gap);
+      if (conn.hasRight) ctx.fillRect(sx + cellSize - gap - 1, sy + gap, gap + 1, cellSize - 2 * gap);
+      if (conn.hasLeft)  ctx.fillRect(sx, sy + gap, gap + 1, cellSize - 2 * gap);
+      if (conn.hasTop)   ctx.fillRect(sx + gap, sy, cellSize - 2 * gap, gap + 1);
+      if (conn.hasBottom) ctx.fillRect(sx + gap, sy + cellSize - gap - 1, cellSize - 2 * gap, gap + 1);
+    }
+  }
+
+  function renderInvulnerabilityOutline(ctx, snake, boardHeight, cellSize) {
+    const invulnLevel = snake.invulnerabilityLevel || 0;
+    if (invulnLevel === 0) return;
+
+    const pathNeighbors = buildPathNeighbors(snake);
+    const gap = getSnakeGap(cellSize);
+    const glowColor = invulnLevel < 0 ? 'rgba(255, 40, 40, 1)' : 'rgba(40, 120, 255, 1)';
+    const lineWidth = Math.max(2, cellSize * 0.08);
+    ctx.strokeStyle = glowColor;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'square';
+
+    const visited = new Set();
+    for (let i = 0; i < snake.body.length; i++) {
+      const segment = snake.body[i];
+      const key = `${segment.x},${segment.y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      const sx = segment.x * cellSize;
+      const sy = (boardHeight - 1 - segment.y) * cellSize;
+
+      const conn = getCellConnections(segment, pathNeighbors);
+
+      const left = conn.hasLeft ? sx : sx + gap;
+      const right = conn.hasRight ? sx + cellSize : sx + cellSize - gap;
+      const top = conn.hasTop ? sy : sy + gap;
+      const bottom = conn.hasBottom ? sy + cellSize : sy + cellSize - gap;
+
+      if (!conn.hasTop) {
+        ctx.beginPath();
+        ctx.moveTo(left, top);
+        ctx.lineTo(right, top);
+        ctx.stroke();
+      }
+      if (!conn.hasBottom) {
+        ctx.beginPath();
+        ctx.moveTo(left, bottom);
+        ctx.lineTo(right, bottom);
+        ctx.stroke();
+      }
+      if (!conn.hasLeft) {
+        ctx.beginPath();
+        ctx.moveTo(left, top);
+        ctx.lineTo(left, bottom);
+        ctx.stroke();
+      }
+      if (!conn.hasRight) {
+        ctx.beginPath();
+        ctx.moveTo(right, top);
+        ctx.lineTo(right, bottom);
+        ctx.stroke();
+      }
+
+      if (conn.hasRight && conn.hasBottom) {
+        ctx.beginPath();
+        ctx.moveTo(sx + cellSize - gap, sy + cellSize - gap);
+        ctx.lineTo(sx + cellSize, sy + cellSize - gap);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx + cellSize - gap, sy + cellSize - gap);
+        ctx.lineTo(sx + cellSize - gap, sy + cellSize);
+        ctx.stroke();
+      }
+      if (conn.hasRight && conn.hasTop) {
+        ctx.beginPath();
+        ctx.moveTo(sx + cellSize - gap, sy + gap);
+        ctx.lineTo(sx + cellSize, sy + gap);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx + cellSize - gap, sy);
+        ctx.lineTo(sx + cellSize - gap, sy + gap);
+        ctx.stroke();
+      }
+      if (conn.hasLeft && conn.hasBottom) {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + cellSize - gap);
+        ctx.lineTo(sx + gap, sy + cellSize - gap);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx + gap, sy + cellSize - gap);
+        ctx.lineTo(sx + gap, sy + cellSize);
+        ctx.stroke();
+      }
+      if (conn.hasLeft && conn.hasTop) {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + gap);
+        ctx.lineTo(sx + gap, sy + gap);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx + gap, sy);
+        ctx.lineTo(sx + gap, sy + gap);
+        ctx.stroke();
+      }
+
+    }
+    ctx.lineCap = 'butt';
   }
 
   function processMoveEvaluations(moveEvaluations, safeMoves, head, chosenMove) {
@@ -121,39 +414,42 @@ const BoardRenderer = (function() {
 
     const board = gameState.board;
     const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+    const boardW = board.width * cellSize;
+    const boardH = board.height * cellSize;
+    const turn = gameState.turn || 0;
 
-    ctx.fillStyle = '#1a1a1a';
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.5;
     for (let x = 0; x <= board.width; x++) {
+      const px = Math.floor(x * cellSize) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(x * cellSize, 0);
-      ctx.lineTo(x * cellSize, board.height * cellSize);
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, boardH);
       ctx.stroke();
     }
     for (let y = 0; y <= board.height; y++) {
+      const py = Math.floor(y * cellSize) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(0, y * cellSize);
-      ctx.lineTo(board.width * cellSize, y * cellSize);
+      ctx.moveTo(0, py);
+      ctx.lineTo(boardW, py);
       ctx.stroke();
     }
+
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
 
     if (board.hazards && board.hazards.length > 0) {
       board.hazards.forEach(hazard => {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
-        const pad = cellSize * 0.15;
-        ctx.strokeStyle = 'rgba(220, 40, 40, 0.7)';
-        ctx.lineWidth = Math.max(2, cellSize * 0.12);
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(x + pad, y + pad);
-        ctx.lineTo(x + cellSize - pad, y + cellSize - pad);
-        ctx.moveTo(x + cellSize - pad, y + pad);
-        ctx.lineTo(x + pad, y + cellSize - pad);
-        ctx.stroke();
+        ctx.fillStyle = 'rgba(220, 30, 30, 1)';
+        ctx.fillRect(x, y, cellSize, cellSize);
       });
     }
 
@@ -161,42 +457,21 @@ const BoardRenderer = (function() {
       board.fertileTiles.forEach(tile => {
         const x = tile.x * cellSize;
         const y = (board.height - 1 - tile.y) * cellSize;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x, y, cellSize, cellSize);
-        ctx.clip();
-        ctx.fillStyle = 'rgba(245, 222, 179, 0.15)';
+        ctx.fillStyle = 'rgba(222, 198, 160, 0.4)';
         ctx.fillRect(x, y, cellSize, cellSize);
-        ctx.strokeStyle = 'rgba(218, 165, 32, 0.4)';
-        ctx.lineWidth = 1;
-        const spacing = 6;
-        for (let i = -cellSize; i < cellSize * 2; i += spacing) {
-          ctx.beginPath();
-          ctx.moveTo(x + i, y);
-          ctx.lineTo(x + i + cellSize, y + cellSize);
-          ctx.stroke();
-        }
-        ctx.restore();
       });
     }
 
     if (moveState && moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
       const snakeColorMap = {};
+      const bodyOwnerMap = {};
       board.snakes.forEach(snake => {
         snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
-      });
-      Object.entries(moveState.territoryCells).forEach(([sid, cells]) => {
-        if (!cells || cells.length === 0) return;
-        const snakeColor = snakeColorMap[sid] || '#888888';
-        const alpha = (moveState.selectedSnake === sid) ? 0.4 : 0.15;
-        const overlayColor = hexToRgba(snakeColor, alpha);
-        ctx.fillStyle = overlayColor;
-        cells.forEach(cell => {
-          const cx = cell.x * cellSize;
-          const cy = (board.height - 1 - cell.y) * cellSize;
-          ctx.fillRect(cx, cy, cellSize, cellSize);
+        snake.body.forEach(seg => {
+          bodyOwnerMap[`${seg.x},${seg.y}`] = snake.id;
         });
       });
+      renderTerritoryBoundaries(ctx, moveState.territoryCells, snakeColorMap, board.height, cellSize, moveState.selectedSnake, bodyOwnerMap);
     }
 
     if (moveState) {
@@ -215,45 +490,77 @@ const BoardRenderer = (function() {
       });
     }
 
-    ctx.fillStyle = '#ff6b6b';
     board.food.forEach(food => {
       const x = food.x * cellSize;
       const y = (board.height - 1 - food.y) * cellSize;
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.rect(x, y, cellSize, cellSize);
+      ctx.clip();
+      ctx.fillStyle = '#000000';
+      const emojiSize = Math.max(cellSize * 0.7, 10);
+      ctx.font = `${emojiSize}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('\u{1F383}', x + cellSize / 2, y + cellSize / 2);
+      ctx.restore();
     });
 
-    board.snakes.forEach(snake => {
-      const snakeColor = snake.customizations?.color || snake.color || '#888888';
-      if (snake.body.length > 1) {
-        ctx.strokeStyle = snakeColor;
-        ctx.lineWidth = cellSize * 0.6;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+    if (board.invulnerabilityPotions && board.invulnerabilityPotions.length > 0) {
+      board.invulnerabilityPotions.forEach(potion => {
+        const x = potion.x * cellSize;
+        const y = (board.height - 1 - potion.y) * cellSize;
+        ctx.save();
         ctx.beginPath();
-        for (let i = 0; i < snake.body.length; i++) {
-          const segment = snake.body[i];
-          const x = segment.x * cellSize + cellSize/2;
-          const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
-          if (i === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
+        ctx.rect(x, y, cellSize, cellSize);
+        ctx.clip();
+        if (_potionImage) {
+          const pad = cellSize * 0.1;
+          ctx.drawImage(_potionImage, x + pad, y + pad, cellSize - pad * 2, cellSize - pad * 2);
+        } else {
+          const emojiSize = Math.max(cellSize * 0.7, 10);
+          ctx.font = `${emojiSize}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('\u{1F9EA}', x + cellSize / 2, y + cellSize / 2);
         }
-        ctx.stroke();
-      }
+        ctx.restore();
+      });
+    }
+
+    board.snakes.forEach(snake => {
+      renderSnakeBody(ctx, snake, board.height, cellSize);
+      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
 
       const head = snake.body[0];
       if (head) {
-        const x = head.x * cellSize;
-        const y = (board.height - 1 - head.y) * cellSize;
-        ctx.fillStyle = snakeColor;
-        ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+        const hx = head.x * cellSize;
+        const hy = (board.height - 1 - head.y) * cellSize;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(hx, hy, cellSize, cellSize);
+        ctx.clip();
+        const headEmojiSize = Math.max(cellSize * 0.55, 8);
+        ctx.font = `${headEmojiSize}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('\u{1F40D}', hx + cellSize / 2, hy + cellSize / 2);
+        ctx.restore();
+      }
+
+      if (turn > 0 && snake.body.length > 1) {
+        const neck = snake.body[1];
+        if (neck) {
+          const nx = neck.x * cellSize + cellSize / 2;
+          const ny = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
+          const labelSize = Math.max(cellSize * 0.55, 10);
+          ctx.font = `${labelSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#000000';
+          const lengthText = String(snake.body.length);
+          ctx.fillText(lengthText, nx, ny);
+        }
       }
 
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
@@ -337,14 +644,19 @@ const BoardRenderer = (function() {
     container.innerHTML = snakes.map(snake => {
       const isOurSnake = snake.id === ourSnakeId;
       const snakeColor = snake.customizations?.color || snake.color || '#888888';
+      const invulnLevel = snake.invulnerabilityLevel || 0;
+      const invulnDisplay = invulnLevel !== 0
+        ? `<span>${invulnLevel > 0 ? '\u{1F6E1}\uFE0F' : '\u26A0\uFE0F'} ${invulnLevel}</span>`
+        : '';
       return `
         <div class="snake-info-item">
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
           <div class="snake-details">
             <div class="snake-name">${snake.name}${isOurSnake ? ' (You)' : ''}</div>
             <div class="snake-stats">
-              <span>❤️ ${snake.health}</span>
-              <span>📏 ${snake.body.length}</span>
+              <span>\u2764\uFE0F ${snake.health}</span>
+              <span>\u{1F4CF} ${snake.body.length}</span>
+              ${invulnDisplay}
             </div>
           </div>
         </div>
@@ -381,7 +693,7 @@ const BoardRenderer = (function() {
         <button class="${classes.join(' ')}"
                 ${canInteract ? `onclick="BoardRenderer._moveClickHandler('${direction}')"` : 'disabled'}
                 style="background: ${solidColor}; ${!canInteract ? 'cursor: not-allowed;' : ''}">
-          ${direction.toUpperCase()} ${move.isChosen ? '✓' : ''}
+          ${direction.toUpperCase()} ${move.isChosen ? '\u2713' : ''}
           <span class="score">${scoreText}</span>
         </button>
       `;
@@ -511,60 +823,99 @@ const BoardRenderer = (function() {
     if (!gameState || !gameState.board) return;
     const board = gameState.board;
     const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+    const boardW = board.width * cellSize;
+    const boardH = board.height * cellSize;
 
-    ctx.fillStyle = '#1a1a1a';
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
     for (let x = 0; x <= board.width; x++) {
+      const px = Math.floor(x * cellSize) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(x * cellSize, 0);
-      ctx.lineTo(x * cellSize, board.height * cellSize);
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, boardH);
       ctx.stroke();
     }
     for (let y = 0; y <= board.height; y++) {
+      const py = Math.floor(y * cellSize) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(0, y * cellSize);
-      ctx.lineTo(board.width * cellSize, y * cellSize);
+      ctx.moveTo(0, py);
+      ctx.lineTo(boardW, py);
       ctx.stroke();
     }
 
-    ctx.fillStyle = '#ff6b6b';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
+
+    if (board.hazards && board.hazards.length > 0) {
+      board.hazards.forEach(hazard => {
+        const x = hazard.x * cellSize;
+        const y = (board.height - 1 - hazard.y) * cellSize;
+        ctx.fillStyle = 'rgba(220, 30, 30, 1)';
+        ctx.fillRect(x, y, cellSize, cellSize);
+      });
+    }
+
+    if (board.fertileTiles && board.fertileTiles.length > 0) {
+      board.fertileTiles.forEach(tile => {
+        const x = tile.x * cellSize;
+        const y = (board.height - 1 - tile.y) * cellSize;
+        ctx.fillStyle = 'rgba(222, 198, 160, 0.4)';
+        ctx.fillRect(x, y, cellSize, cellSize);
+      });
+    }
+
     board.food.forEach(food => {
       const x = food.x * cellSize;
       const y = (board.height - 1 - food.y) * cellSize;
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.rect(x, y, cellSize, cellSize);
+      ctx.clip();
+      const emojiSize = Math.max(cellSize * 0.7, 6);
+      ctx.font = `${emojiSize}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('\u{1F383}', x + cellSize / 2, y + cellSize / 2);
+      ctx.restore();
     });
 
+    if (board.invulnerabilityPotions && board.invulnerabilityPotions.length > 0) {
+      board.invulnerabilityPotions.forEach(potion => {
+        const x = potion.x * cellSize;
+        const y = (board.height - 1 - potion.y) * cellSize;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, cellSize, cellSize);
+        ctx.clip();
+        if (_potionImage) {
+          ctx.drawImage(_potionImage, x, y, cellSize, cellSize);
+        } else {
+          const emojiSize = Math.max(cellSize * 0.7, 6);
+          ctx.font = `${emojiSize}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('\u{1F9EA}', x + cellSize / 2, y + cellSize / 2);
+        }
+        ctx.restore();
+      });
+    }
+
     board.snakes.forEach(snake => {
-      const snakeColor = snake.customizations?.color || snake.color || '#888888';
       const isOurs = snake.id === ourSnakeId;
 
-      if (snake.body.length > 1) {
-        ctx.strokeStyle = snakeColor;
-        ctx.lineWidth = cellSize * 0.6;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        for (let i = 0; i < snake.body.length; i++) {
-          const segment = snake.body[i];
-          const x = segment.x * cellSize + cellSize/2;
-          const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
+      renderSnakeBody(ctx, snake, board.height, cellSize);
+      renderInvulnerabilityOutline(ctx, snake, board.height, cellSize);
 
       const head = snake.body[0];
       if (head) {
         const x = head.x * cellSize;
         const y = (board.height - 1 - head.y) * cellSize;
-        ctx.fillStyle = snakeColor;
-        ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
         if (isOurs) {
           ctx.strokeStyle = '#FFD700';
           ctx.lineWidth = 2;
@@ -585,6 +936,7 @@ const BoardRenderer = (function() {
     renderMoveButtons,
     updateStatsTable,
     renderMinimap,
+    renderTerritoryBoundaries,
     _moveClickHandler: null
   };
 })();
