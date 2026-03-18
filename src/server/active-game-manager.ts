@@ -248,6 +248,10 @@ export class ActiveGameManager {
       entry.latestGameState = gameState;
       entry.gameTimeout = gameState.game.timeout || entry.gameTimeout;
       entry.lastActivityAt = Date.now();
+      if (gameState.you) {
+        entry.snakeName = gameState.you.name || entry.snakeName;
+        entry.snakeEmoji = (gameState.you as any).emoji || entry.snakeEmoji;
+      }
     }
   }
 
