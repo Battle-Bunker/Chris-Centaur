@@ -118,7 +118,7 @@
       font-size: 11px; color: #aaa; display: block; margin-top: 3px;
     }
     .submit-section {
-      display: flex; justify-content: center; gap: 10px; margin-top: 10px;
+      display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px;
     }
     .submit-btn {
       background: #4CAF50; color: white; border: none;
@@ -169,10 +169,6 @@
     <a href="/play" class="back-btn">← Games</a>
     <h1 id="pageTitle">Live Game</h1>
     <div class="header-controls">
-      <label class="override-toggle">
-        <input type="checkbox" id="overrideCheckbox" onchange="toggleOverride()">
-        <span>Manual Override</span>
-      </label>
     </div>
   </div>
 
@@ -208,6 +204,10 @@
           <button class="submit-btn" id="submitBtn" onclick="submitMove()" disabled>
             Submit Move <span class="shortcut">[Space]</span>
           </button>
+          <label class="override-toggle">
+            <input type="checkbox" id="overrideCheckbox" onchange="toggleOverride()">
+            <span>Manual Override</span>
+          </label>
         </div>
       </div>
 
@@ -406,6 +406,15 @@
       userSelectedMove = direction;
       moveState.selectedMove = direction;
 
+      const overrideCheckbox = document.getElementById('overrideCheckbox');
+      if (overrideCheckbox && !overrideCheckbox.checked) {
+        overrideCheckbox.checked = true;
+        overrideEnabled = true;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'set-override', enabled: true }));
+        }
+      }
+
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-move', move: direction }));
       }
@@ -490,7 +499,13 @@
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'set-override', enabled }));
       }
-      applyAutoSelection();
+      if (!enabled && !moveSubmitted) {
+        userSelectedMove = null;
+        moveState.selectedMove = null;
+        submitMove();
+      } else {
+        applyAutoSelection();
+      }
     }
 
     function startTurnTimer() {
