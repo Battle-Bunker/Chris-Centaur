@@ -150,6 +150,7 @@ export class ActiveGameManager {
     overrideEnabled: boolean;
     turn: number;
     gameState: GameState | null;
+    startedAt: number;
   }> {
     const result: Array<any> = [];
     for (const entry of this.games.values()) {
@@ -160,7 +161,8 @@ export class ActiveGameManager {
         snakeEmoji: entry.snakeEmoji,
         overrideEnabled: entry.overrideEnabled,
         turn: entry.latestGameState?.turn ?? 0,
-        gameState: entry.latestGameState
+        gameState: entry.latestGameState,
+        startedAt: entry.startedAt
       });
     }
     return result;

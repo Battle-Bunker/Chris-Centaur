@@ -45,6 +45,23 @@
     }
     .no-games h2 { font-size: 24px; margin-bottom: 10px; }
     .no-games p { font-size: 14px; line-height: 1.6; }
+    .game-group {
+      margin-bottom: 24px;
+    }
+    .game-group-header {
+      display: flex; align-items: baseline; gap: 12px;
+      margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 1px solid #333;
+    }
+    .game-group-id {
+      font-size: 11px; color: #666; word-break: break-all;
+    }
+    .game-group-time {
+      font-size: 12px; color: #4CAF50; white-space: nowrap;
+    }
+    .game-card-start-time {
+      font-size: 11px; color: #4CAF50; white-space: nowrap;
+    }
     .game-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -159,6 +176,14 @@
       }
     }
 
+    function formatStartTime(ts) {
+      if (!ts) return '';
+      return 'Started ' + new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      }).format(new Date(ts));
+    }
+
     function renderGames(games) {
       const container = document.getElementById('gameContainer');
       const statusText = document.getElementById('statusText');
@@ -176,7 +201,34 @@
 
       statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
 
-      container.innerHTML = '<div class="game-grid">' + games.map(game => `
+      const groupMap = new Map();
+      for (const game of games) {
+        if (!groupMap.has(game.gameId)) {
+          groupMap.set(game.gameId, { startedAt: game.startedAt, entries: [] });
+        }
+        const group = groupMap.get(game.gameId);
+        if (game.startedAt && game.startedAt < group.startedAt) {
+          group.startedAt = game.startedAt;
+        }
+        group.entries.push(game);
+      }
+
+      const groups = Array.from(groupMap.values());
+      groups.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+
+      let html = '';
+      for (const group of groups) {
+        const startLabel = formatStartTime(group.startedAt);
+        html += `<div class="game-group">`;
+        html += `<div class="game-group-header">`;
+        html += `<span class="game-group-id">${group.entries[0].gameId}</span>`;
+        if (startLabel) {
+          html += `<span class="game-group-time">${startLabel}</span>`;
+        }
+        html += `</div>`;
+        html += `<div class="game-grid">`;
+        for (const game of group.entries) {
+          html += `
         <div class="game-card" onclick="openGame('${game.gameId}', '${game.snakeId}')">
           <div class="game-card-header">
             <span class="game-card-title">${game.snakeEmoji || '\u{1F40D}'} ${game.snakeName || 'Snake'}</span>
@@ -190,10 +242,14 @@
             <span class="override-badge ${game.overrideEnabled ? 'active' : 'inactive'}">
               ${game.overrideEnabled ? 'Override ON' : 'Auto'}
             </span>
+            ${startLabel ? `<span class="game-card-start-time">${startLabel}</span>` : ''}
           </div>
           <canvas class="game-card-canvas" id="minimap-${game.gameId}-${game.snakeId}" width="200" height="200"></canvas>
-        </div>
-      `).join('') + '</div>';
+        </div>`;
+        }
+        html += `</div></div>`;
+      }
+      container.innerHTML = html;
 
       requestAnimationFrame(() => {
         games.forEach(game => {

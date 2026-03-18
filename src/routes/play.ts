@@ -14,7 +14,8 @@ router.get('/api/play/games', (req, res) => {
     snakeEmoji: g.snakeEmoji,
     overrideEnabled: g.overrideEnabled,
     turn: g.turn,
-    gameState: g.gameState
+    gameState: g.gameState,
+    startedAt: g.startedAt
   })));
 });
 

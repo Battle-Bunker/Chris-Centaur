@@ -158,7 +158,8 @@ export class GameWebSocketServer {
         snakeEmoji: g.snakeEmoji,
         overrideEnabled: g.overrideEnabled,
         turn: g.turn,
-        gameState: g.gameState
+        gameState: g.gameState,
+        startedAt: g.startedAt
       }))
     });
   }
@@ -174,7 +175,8 @@ export class GameWebSocketServer {
         snakeEmoji: g.snakeEmoji,
         overrideEnabled: g.overrideEnabled,
         turn: g.turn,
-        gameState: g.gameState
+        gameState: g.gameState,
+        startedAt: g.startedAt
       }))
     };
     const data = JSON.stringify(msg);
