@@ -14,41 +14,35 @@ export interface DecisionLogEntry {
     move: Direction;
     score: number;
     numStates: number;
+    projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
     breakdown?: {
-      // My snake metrics
       myLength: number;
       myTerritory: number;
       myControlledFood: number;
       myControlledFertile: number;
       
-      // Team metrics
       teamLength: number;
       teamTerritory: number;
       teamControlledFood: number;
       
-      // Distance/proximity metrics
       foodDistance: number;
       foodProximity: number;
       foodEaten: number;
       
-      // Enemy metrics
       enemyTerritory?: number;
       enemyLength?: number;
       
-      // Life/death metrics
       kills?: number;
       deaths?: number;
       
-      // Legacy fields for backward compatibility
       fertileTerritory?: number;
       foodDistanceInverse?: number;
       myFoodCount?: number;
       teamFoodCount?: number;
       teamFertileScore?: number;
       
-      // Weights and weighted scores
-      weights: any;  // Use any for flexibility with old/new formats
-      weighted: any;  // Use any for flexibility with old/new formats
+      weights: any;
+      weighted: any;
     };
   }[];
   gameState: any;

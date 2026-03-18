@@ -8,6 +8,7 @@ import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
+import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
 
 export interface MoveDecision {
   move: Direction;
@@ -21,6 +22,7 @@ export interface MoveEvaluationResult {
   averageScore: number;
   numStates: number;
   averageBreakdown: BoardEvaluation;
+  projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
 }
 
 export interface DecisionConfig {
@@ -129,6 +131,30 @@ export class DecisionEngine {
         }
       );
       
+      // Compute projected territory for the single move
+      const singleMovePos = this.getMovePosition(gameState.you.head, ourMoves[0]);
+      const singleProjSources: BFSSource[] = [{
+        id: gameState.you.id,
+        position: singleMovePos,
+        isTeam: true,
+        startDelay: 1
+      }];
+      for (const snake of gameState.board.snakes) {
+        if (snake.id === gameState.you.id || snake.health <= 0) continue;
+        singleProjSources.push({
+          id: snake.id,
+          position: snake.head,
+          isTeam: teamSnakeIds.has(snake.id),
+          startDelay: 0
+        });
+      }
+      const singleProjBfs = new MultiSourceBFS(graph);
+      const singleProjResult = singleProjBfs.compute(singleProjSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+      const singleProjTerritory: { [snakeId: string]: { x: number; y: number }[] } = {};
+      for (const [snakeId, cells] of singleProjResult.territoryCells) {
+        singleProjTerritory[snakeId] = cells;
+      }
+      
       // Update food set for next turn
       this.lastFoodSetByGameId.set(gameId, currentFoodSet);
       
@@ -139,7 +165,8 @@ export class DecisionEngine {
           move: ourMoves[0],
           averageScore: evaluation.score,
           numStates: 1,
-          averageBreakdown: evaluation
+          averageBreakdown: evaluation,
+          projectedTerritoryCells: singleProjTerritory
         }],
         h2hRiskByMove: moveAnalysis.h2hRiskByMove
       };
@@ -190,7 +217,8 @@ export class DecisionEngine {
           teamSnakeIds,
           { 
             prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
-            h2hRisk: h2hRiskCtx  // Pass h2h risk to evaluator
+            h2hRisk: h2hRiskCtx,  // Pass h2h risk to evaluator
+            simulatedSnakeIds: state.simulatedSnakeIds  // Snakes that were simulated get startDelay: 1
           }
         );
         totalScore += evaluation.score;
@@ -213,6 +241,43 @@ export class DecisionEngine {
         bestScore = averageScore;
         bestMove = move;
       }
+    }
+    
+    // Compute projected territory per move (asymmetric BFS)
+    const teamSnakeIdsForBFS = new Set<string>();
+    const teams = gameState.board.snakes.filter((s: Snake) => s.health > 0 && teamSnakeIds.has(s.id));
+    for (const s of teams) teamSnakeIdsForBFS.add(s.id);
+    
+    for (const evalResult of evaluations) {
+      const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
+      if (!candidatePos) continue;
+      
+      const projSources: BFSSource[] = [];
+      projSources.push({
+        id: gameState.you.id,
+        position: candidatePos,
+        isTeam: true,
+        startDelay: 1
+      });
+      
+      for (const snake of gameState.board.snakes) {
+        if (snake.id === gameState.you.id || snake.health <= 0) continue;
+        projSources.push({
+          id: snake.id,
+          position: snake.head,
+          isTeam: teamSnakeIds.has(snake.id),
+          startDelay: 0
+        });
+      }
+      
+      const projBfs = new MultiSourceBFS(graph);
+      const projResult = projBfs.compute(projSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+      
+      const projTerritoryCells: { [snakeId: string]: { x: number; y: number }[] } = {};
+      for (const [snakeId, cells] of projResult.territoryCells) {
+        projTerritoryCells[snakeId] = cells;
+      }
+      evalResult.projectedTerritoryCells = projTerritoryCells;
     }
     
     // Update food set for next turn
@@ -261,9 +326,9 @@ export class DecisionEngine {
     teamSnakeIds: Set<string>,
     startTime: number,
     graph: BoardGraph
-  ): { ourMove: Direction; gameState: GameState }[] {
+  ): { ourMove: Direction; gameState: GameState; simulatedSnakeIds: Set<string> }[] {
     
-    const results: { ourMove: Direction; gameState: GameState }[] = [];
+    const results: { ourMove: Direction; gameState: GameState; simulatedSnakeIds: Set<string> }[] = [];
     const { board } = gameState;
     
     // Identify nearby snakes within focal distance for full move enumeration
@@ -278,6 +343,12 @@ export class DecisionEngine {
         nearbySnakes.push(snake);
       }
       // Snakes beyond nearbyDistance are frozen (not included in simulation)
+    }
+    
+    // Build the set of simulated snake IDs (our snake + nearby snakes)
+    const simulatedSnakeIds = new Set<string>([gameState.you.id]);
+    for (const snake of nearbySnakes) {
+      simulatedSnakeIds.add(snake.id);
     }
     
     // For each of our moves
@@ -322,7 +393,8 @@ export class DecisionEngine {
         
         results.push({
           ourMove,
-          gameState: nextGameState
+          gameState: nextGameState,
+          simulatedSnakeIds
         });
       }
     }
@@ -390,6 +462,15 @@ export class DecisionEngine {
    */
   private manhattanDistance(a: Coord, b: Coord): number {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  }
+  
+  private getMovePosition(head: Coord, direction: Direction): Coord {
+    switch (direction) {
+      case 'up': return { x: head.x, y: head.y + 1 };
+      case 'down': return { x: head.x, y: head.y - 1 };
+      case 'left': return { x: head.x - 1, y: head.y };
+      case 'right': return { x: head.x + 1, y: head.y };
+    }
   }
   
   /**

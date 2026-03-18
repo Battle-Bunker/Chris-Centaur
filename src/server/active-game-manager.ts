@@ -6,6 +6,7 @@ export interface MoveEvaluation {
   score: number;
   numStates: number;
   breakdown: any;
+  projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
 }
 
 export interface TurnData {

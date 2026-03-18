@@ -64,6 +64,7 @@ export interface EvaluationContext {
   prevFoodSet?: Set<string>;  // Food positions from previous board state
   optimistic?: boolean;       // Use optimistic passability for body segments
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
+  simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
 }
 
 export interface HeuristicWeights {
@@ -259,12 +260,14 @@ export class BoardEvaluator {
     const bfs = new MultiSourceBFS(graph);
     
     // Prepare BFS sources
+    const simulatedSnakeIds = ctx?.simulatedSnakeIds;
     const sources: BFSSource[] = board.snakes
       .filter((s: Snake) => s.health > 0)
       .map((s: Snake) => ({
         id: s.id,
         position: s.head,
-        isTeam: teamSnakeIds.has(s.id)
+        isTeam: teamSnakeIds.has(s.id),
+        startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0
       }));
     
     // Run the single-pass BFS with optimistic passability

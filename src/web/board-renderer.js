@@ -383,6 +383,7 @@ const BoardRenderer = (function() {
         breakdown: evalData?.breakdown ?? null,
         numStates: evalData?.numStates ?? null,
         displayScore: evalData?.score ?? (isSafe ? 0 : null),
+        projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
         quality: null,
         color: null
       };
@@ -467,16 +468,22 @@ const BoardRenderer = (function() {
       });
     }
 
-    if (moveState && moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
-      const snakeColorMap = {};
-      const bodyOwnerMap = {};
-      board.snakes.forEach(snake => {
-        snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
-        snake.body.forEach(seg => {
-          bodyOwnerMap[`${seg.x},${seg.y}`] = snake.id;
+    if (moveState) {
+      let activeTerritoryForDisplay = moveState.territoryCells;
+      if (moveState.selectedMove && moveState.moves[moveState.selectedMove]?.projectedTerritoryCells) {
+        activeTerritoryForDisplay = moveState.moves[moveState.selectedMove].projectedTerritoryCells;
+      }
+      if (activeTerritoryForDisplay && Object.keys(activeTerritoryForDisplay).length > 0) {
+        const snakeColorMap = {};
+        const bodyOwnerMap = {};
+        board.snakes.forEach(snake => {
+          snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
+          snake.body.forEach(seg => {
+            bodyOwnerMap[`${seg.x},${seg.y}`] = snake.id;
+          });
         });
-      });
-      renderTerritoryBoundaries(ctx, moveState.territoryCells, snakeColorMap, board.height, cellSize, moveState.selectedSnake, bodyOwnerMap);
+        renderTerritoryBoundaries(ctx, activeTerritoryForDisplay, snakeColorMap, board.height, cellSize, moveState.selectedSnake, bodyOwnerMap);
+      }
     }
 
     if (moveState) {
