@@ -30,6 +30,7 @@ interface GameSnakeEntry {
   gameId: string;
   snakeId: string;
   snakeName: string;
+  snakeEmoji: string;
   overrideEnabled: boolean;
   latestGameState: GameState | null;
   latestTurnData: TurnData | null;
@@ -100,6 +101,7 @@ export class ActiveGameManager {
         gameId: gameState.game.id,
         snakeId: gameState.you.id,
         snakeName: gameState.you.name,
+        snakeEmoji: gameState.you.emoji || '',
         overrideEnabled: false,
         latestGameState: gameState,
         latestTurnData: null,
@@ -143,6 +145,7 @@ export class ActiveGameManager {
     gameId: string;
     snakeId: string;
     snakeName: string;
+    snakeEmoji: string;
     overrideEnabled: boolean;
     turn: number;
     gameState: GameState | null;
@@ -153,6 +156,7 @@ export class ActiveGameManager {
         gameId: entry.gameId,
         snakeId: entry.snakeId,
         snakeName: entry.snakeName,
+        snakeEmoji: entry.snakeEmoji,
         overrideEnabled: entry.overrideEnabled,
         turn: entry.latestGameState?.turn ?? 0,
         gameState: entry.latestGameState

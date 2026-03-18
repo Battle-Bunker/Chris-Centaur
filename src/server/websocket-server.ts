@@ -155,6 +155,7 @@ export class GameWebSocketServer {
         gameId: g.gameId,
         snakeId: g.snakeId,
         snakeName: g.snakeName,
+        snakeEmoji: g.snakeEmoji,
         overrideEnabled: g.overrideEnabled,
         turn: g.turn,
         gameState: g.gameState
@@ -170,6 +171,7 @@ export class GameWebSocketServer {
         gameId: g.gameId,
         snakeId: g.snakeId,
         snakeName: g.snakeName,
+        snakeEmoji: g.snakeEmoji,
         overrideEnabled: g.overrideEnabled,
         turn: g.turn,
         gameState: g.gameState

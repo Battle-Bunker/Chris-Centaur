@@ -544,7 +544,7 @@ const BoardRenderer = (function() {
         ctx.font = `${headEmojiSize}px serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('\u{1F40D}', hx + cellSize / 2, hy + cellSize / 2);
+        ctx.fillText(snake.emoji || '\u{1F40D}', hx + cellSize / 2, hy + cellSize / 2);
         ctx.restore();
       }
 
@@ -648,11 +648,13 @@ const BoardRenderer = (function() {
       const invulnDisplay = invulnLevel !== 0
         ? `<span>${invulnLevel > 0 ? '\u{1F6E1}\uFE0F' : '\u26A0\uFE0F'} ${invulnLevel}</span>`
         : '';
+      const emojiDisplay = snake.emoji || '\u{1F40D}';
       return `
         <div class="snake-info-item">
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
           <div class="snake-details">
-            <div class="snake-name">${snake.name}${isOurSnake ? ' (You)' : ''}</div>
+            <div class="snake-name">${emojiDisplay} ${snake.name}${isOurSnake ? ' (You)' : ''}</div>
+            <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
               <span>\u2764\uFE0F ${snake.health}</span>
               <span>\u{1F4CF} ${snake.body.length}</span>

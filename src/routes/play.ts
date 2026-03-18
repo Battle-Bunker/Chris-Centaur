@@ -11,6 +11,7 @@ router.get('/api/play/games', (req, res) => {
     gameId: g.gameId,
     snakeId: g.snakeId,
     snakeName: g.snakeName,
+    snakeEmoji: g.snakeEmoji,
     overrideEnabled: g.overrideEnabled,
     turn: g.turn,
     gameState: g.gameState
@@ -28,6 +29,7 @@ router.get('/api/play/game/:gameId/:snakeId', (req, res) => {
     gameId: entry.gameId,
     snakeId: entry.snakeId,
     snakeName: entry.snakeName,
+    snakeEmoji: entry.snakeEmoji,
     overrideEnabled: entry.overrideEnabled,
     gameState: entry.latestGameState,
     turnData: entry.latestTurnData

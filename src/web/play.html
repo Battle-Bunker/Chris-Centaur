@@ -179,12 +179,12 @@
       container.innerHTML = '<div class="game-grid">' + games.map(game => `
         <div class="game-card" onclick="openGame('${game.gameId}', '${game.snakeId}')">
           <div class="game-card-header">
-            <span class="game-card-title">${game.snakeName || 'Snake'}</span>
+            <span class="game-card-title">${game.snakeEmoji || '\u{1F40D}'} ${game.snakeName || 'Snake'}</span>
             <span class="game-card-turn">Turn ${game.turn}</span>
           </div>
           <div class="game-card-ids">
-            Game: ${game.gameId}<br>
-            Snake: ${game.snakeId}
+            <span style="font-size: 0.85em; color: #888;">Snake: ${game.snakeId}</span><br>
+            Game: ${game.gameId}
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <span class="override-badge ${game.overrideEnabled ? 'active' : 'inactive'}">

@@ -18,6 +18,7 @@ export interface Snake {
     head: string;
     tail: string;
   };
+  emoji?: string;
   invulnerabilityLevel?: number;
   teamID?: string;
 }
