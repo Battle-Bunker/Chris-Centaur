@@ -610,6 +610,8 @@ const BoardRenderer = (function() {
     const displayHeight = canvas.clientHeight || canvas.height;
     overlayEl.style.width = displayWidth + 'px';
     overlayEl.style.height = displayHeight + 'px';
+    overlayEl.style.left = canvas.offsetLeft + 'px';
+    overlayEl.style.top = canvas.offsetTop + 'px';
     const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
 
     Object.values(moveState.moves).forEach(move => {
