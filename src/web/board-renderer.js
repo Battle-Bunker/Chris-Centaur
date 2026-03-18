@@ -613,7 +613,7 @@ const BoardRenderer = (function() {
     const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
 
     Object.values(moveState.moves).forEach(move => {
-      if (!move.position || (!move.isSafe && !move.isEvaluated)) return;
+      if (!move.position) return;
       const button = document.createElement('button');
       button.className = 'cell-button';
       if (move.isSafe) button.className += ' candidate';
@@ -627,15 +627,9 @@ const BoardRenderer = (function() {
       button.style.height = displayCellSize + 'px';
       button.style.zIndex = '10';
 
-      if (move.isSafe || move.isEvaluated) {
-        button.onclick = (e) => { e.stopPropagation(); onCellClick(move.direction); };
-        const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
-        button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
-      } else {
-        button.style.cursor = 'not-allowed';
-        button.style.opacity = '0.3';
-        button.title = `${move.direction.toUpperCase()} - UNSAFE`;
-      }
+      button.onclick = (e) => { e.stopPropagation(); onCellClick(move.direction); };
+      const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
+      button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
       overlayEl.appendChild(button);
     });
   }
@@ -688,7 +682,6 @@ const BoardRenderer = (function() {
       if (move.isChosen) classes.push('chosen');
       if (moveState.selectedMove === direction) classes.push('selected');
 
-      const canInteract = move.isSafe || move.isEvaluated;
       const scoreText = move.score != null ?
         `Score: ${move.score.toFixed(2)}` :
         (move.isSafe ? 'Score: 0.00' : 'Not evaluated');
@@ -698,8 +691,8 @@ const BoardRenderer = (function() {
 
       return `
         <button class="${classes.join(' ')}"
-                ${canInteract ? `onclick="BoardRenderer._moveClickHandler('${direction}')"` : 'disabled'}
-                style="background: ${solidColor}; ${!canInteract ? 'cursor: not-allowed;' : ''}">
+                onclick="BoardRenderer._moveClickHandler('${direction}')"
+                style="background: ${solidColor};">
           ${direction.toUpperCase()} ${move.isChosen ? '\u2713' : ''}
           <span class="score">${scoreText}</span>
         </button>

@@ -538,7 +538,7 @@
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
 
       for (const move of Object.values(moveState.moves)) {
-        if (move.position && move.position.x === boardX && move.position.y === boardY && (move.isSafe || move.isEvaluated)) {
+        if (move.position && move.position.x === boardX && move.position.y === boardY) {
           selectMove(move.direction);
           return;
         }
