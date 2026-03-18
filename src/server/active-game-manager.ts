@@ -46,11 +46,13 @@ function makeKey(gameId: string, snakeId: string): GameSnakeKey {
 }
 
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
+export type GameListChangeCallback = (event: 'added' | 'removed' | 'updated', gameId: string, snakeId: string) => void;
 
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
   private games: Map<GameSnakeKey, GameSnakeEntry> = new Map();
   private turnUpdateCallbacks: TurnUpdateCallback[] = [];
+  private gameListChangeCallbacks: GameListChangeCallback[] = [];
 
   private constructor() {}
 
@@ -63,6 +65,20 @@ export class ActiveGameManager {
 
   onTurnUpdate(callback: TurnUpdateCallback): void {
     this.turnUpdateCallbacks.push(callback);
+  }
+
+  onGameListChange(callback: GameListChangeCallback): void {
+    this.gameListChangeCallbacks.push(callback);
+  }
+
+  private notifyGameListChange(event: 'added' | 'removed' | 'updated', gameId: string, snakeId: string): void {
+    for (const cb of this.gameListChangeCallbacks) {
+      try {
+        cb(event, gameId, snakeId);
+      } catch (e) {
+        console.error('Error in game list change callback:', e);
+      }
+    }
   }
 
   private notifyTurnUpdate(gameId: string, snakeId: string, turnData: TurnData): void {
@@ -92,6 +108,7 @@ export class ActiveGameManager {
         startedAt: now,
         lastActivityAt: now
       });
+      this.notifyGameListChange('added', gameState.game.id, gameState.you.id);
     }
   }
 
@@ -99,11 +116,14 @@ export class ActiveGameManager {
     const key = makeKey(gameId, snakeId);
     const entry = this.games.get(key);
     if (entry) {
-      console.log(`[ActiveGameManager] Ending game: ${key}`);
+      console.log(`[ActiveGameManager] Ending game: ${key} (was active for ${Math.round((Date.now() - entry.startedAt) / 1000)}s)`);
       if (entry.pendingMove && !entry.pendingMove.resolved) {
         this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
       }
       this.games.delete(key);
+      this.notifyGameListChange('removed', gameId, snakeId);
+    } else {
+      console.log(`[ActiveGameManager] endGame called for unknown game: ${key} (not in active set)`);
     }
   }
 
@@ -244,6 +264,7 @@ export class ActiveGameManager {
             this.resolvePendingMove(key, entry.pendingMove.botMove || 'up');
           }
           this.games.delete(key);
+          this.notifyGameListChange('removed', entry.gameId, entry.snakeId);
         }
       }
     }, intervalMs);

@@ -7,6 +7,7 @@ interface WSClient {
   ws: WebSocket;
   gameId: string;
   snakeId: string;
+  isLobby: boolean;
 }
 
 interface WSMessage {
@@ -25,7 +26,7 @@ export class GameWebSocketServer {
     this.wss = new WebSocketServer({ server, path: '/ws' });
 
     this.wss.on('connection', (ws: WebSocket) => {
-      const client: WSClient = { ws, gameId: '', snakeId: '' };
+      const client: WSClient = { ws, gameId: '', snakeId: '', isLobby: false };
       this.clients.add(client);
 
       ws.on('message', (data: Buffer) => {
@@ -61,6 +62,13 @@ export class GameWebSocketServer {
         timeout: turnData.gameState.game.timeout || 500,
         timestamp: turnData.timestamp
       });
+
+      this.broadcastLobbyUpdate();
+    });
+
+    this.gameManager.onGameListChange((event, gameId, snakeId) => {
+      console.log(`[WebSocket] Game list changed: ${event} ${gameId}:${snakeId}`);
+      this.broadcastLobbyUpdate();
     });
   }
 
@@ -119,9 +127,52 @@ export class GameWebSocketServer {
         }
         break;
 
+      case 'subscribe-lobby':
+        client.isLobby = true;
+        client.gameId = '';
+        client.snakeId = '';
+        this.sendLobbyState(client.ws);
+        break;
+
       case 'ping':
         this.send(client.ws, { type: 'pong' });
         break;
+    }
+  }
+
+  private sendLobbyState(ws: WebSocket): void {
+    const games = this.gameManager.getActiveGames();
+    this.send(ws, {
+      type: 'lobby-update',
+      games: games.map(g => ({
+        gameId: g.gameId,
+        snakeId: g.snakeId,
+        snakeName: g.snakeName,
+        overrideEnabled: g.overrideEnabled,
+        turn: g.turn,
+        gameState: g.gameState
+      }))
+    });
+  }
+
+  private broadcastLobbyUpdate(): void {
+    const games = this.gameManager.getActiveGames();
+    const msg = {
+      type: 'lobby-update',
+      games: games.map(g => ({
+        gameId: g.gameId,
+        snakeId: g.snakeId,
+        snakeName: g.snakeName,
+        overrideEnabled: g.overrideEnabled,
+        turn: g.turn,
+        gameState: g.gameState
+      }))
+    };
+    const data = JSON.stringify(msg);
+    for (const client of this.clients) {
+      if (client.isLobby && client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(data);
+      }
     }
   }
 

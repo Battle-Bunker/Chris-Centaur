@@ -33,11 +33,13 @@
       margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;
     }
     .status-text { font-size: 14px; color: #888; }
-    .refresh-btn {
-      background: #444; color: white; border: none;
-      padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+    .ws-status {
+      font-size: 11px; padding: 3px 8px; border-radius: 10px;
+      font-weight: 600;
     }
-    .refresh-btn:hover { background: #555; }
+    .ws-status.connected { background: #2e7d32; color: #c8e6c9; }
+    .ws-status.disconnected { background: #c62828; color: #ffcdd2; }
+    .ws-status.connecting { background: #e65100; color: #ffe0b2; }
     .no-games {
       text-align: center; padding: 60px 20px; color: #666;
     }
@@ -86,86 +88,132 @@
 
   <div class="main-content">
     <div class="status-bar">
-      <span class="status-text" id="statusText">Loading...</span>
-      <button class="refresh-btn" onclick="loadGames()">Refresh</button>
+      <span class="status-text" id="statusText">Connecting...</span>
+      <span class="ws-status connecting" id="wsStatus">Connecting</span>
     </div>
 
     <div id="gameContainer">
       <div class="no-games">
-        <h2>No Active Games</h2>
-        <p>Start a game on the Battlesnake platform to see it here.<br>
-        Games will appear automatically when the bot receives move requests.</p>
+        <h2>Connecting...</h2>
+        <p>Waiting for WebSocket connection to server.</p>
       </div>
     </div>
   </div>
 
   <script src="/board-renderer.js"></script>
   <script>
-    let refreshTimer = null;
+    let ws = null;
+    let reconnectTimer = null;
+    let currentGames = [];
 
-    async function loadGames() {
-      try {
-        const response = await fetch('/api/play/games');
-        const games = await response.json();
-        const container = document.getElementById('gameContainer');
-        const statusText = document.getElementById('statusText');
+    function connectWebSocket() {
+      const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${location.host}/ws`;
 
-        if (games.length === 0) {
-          container.innerHTML = `
-            <div class="no-games">
-              <h2>No Active Games</h2>
-              <p>Start a game on the Battlesnake platform to see it here.<br>
-              Games will appear automatically when the bot receives move requests.</p>
-            </div>`;
-          statusText.textContent = 'No active games';
-          return;
+      const statusEl = document.getElementById('wsStatus');
+      statusEl.textContent = 'Connecting';
+      statusEl.className = 'ws-status connecting';
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'ws-status connected';
+        ws.send(JSON.stringify({ type: 'subscribe-lobby' }));
+        if (reconnectTimer) {
+          clearInterval(reconnectTimer);
+          reconnectTimer = null;
         }
+      };
 
-        statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'lobby-update') {
+            currentGames = msg.games;
+            renderGames(msg.games);
+          }
+        } catch (e) {
+          console.error('WS message parse error:', e);
+        }
+      };
 
-        container.innerHTML = '<div class="game-grid">' + games.map(game => `
-          <div class="game-card" onclick="openGame('${game.gameId}', '${game.snakeId}')">
-            <div class="game-card-header">
-              <span class="game-card-title">${game.snakeName || 'Snake'}</span>
-              <span class="game-card-turn">Turn ${game.turn}</span>
-            </div>
-            <div class="game-card-ids">
-              Game: ${game.gameId}<br>
-              Snake: ${game.snakeId}
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-              <span class="override-badge ${game.overrideEnabled ? 'active' : 'inactive'}">
-                ${game.overrideEnabled ? 'Override ON' : 'Auto'}
-              </span>
-            </div>
-            <canvas class="game-card-canvas" id="minimap-${game.gameId}-${game.snakeId}" width="200" height="200"></canvas>
-          </div>
-        `).join('') + '</div>';
+      ws.onclose = () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.className = 'ws-status disconnected';
+        scheduleReconnect();
+      };
 
-        requestAnimationFrame(() => {
-          games.forEach(game => {
-            if (game.gameState) {
-              const canvas = document.getElementById(`minimap-${game.gameId}-${game.snakeId}`);
-              if (canvas) {
-                canvas.width = canvas.clientWidth;
-                canvas.height = canvas.clientHeight;
-                BoardRenderer.renderMinimap(canvas, game.gameState, game.snakeId);
-              }
-            }
-          });
-        });
-      } catch (error) {
-        console.error('Error loading games:', error);
-        document.getElementById('statusText').textContent = 'Error loading games';
+      ws.onerror = () => {
+        statusEl.textContent = 'Error';
+        statusEl.className = 'ws-status disconnected';
+      };
+    }
+
+    function scheduleReconnect() {
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connectWebSocket();
+        }, 2000);
       }
+    }
+
+    function renderGames(games) {
+      const container = document.getElementById('gameContainer');
+      const statusText = document.getElementById('statusText');
+
+      if (games.length === 0) {
+        container.innerHTML = `
+          <div class="no-games">
+            <h2>No Active Games</h2>
+            <p>Start a game on the Battlesnake platform to see it here.<br>
+            Games will appear automatically when the bot receives move requests.</p>
+          </div>`;
+        statusText.textContent = 'No active games';
+        return;
+      }
+
+      statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
+
+      container.innerHTML = '<div class="game-grid">' + games.map(game => `
+        <div class="game-card" onclick="openGame('${game.gameId}', '${game.snakeId}')">
+          <div class="game-card-header">
+            <span class="game-card-title">${game.snakeName || 'Snake'}</span>
+            <span class="game-card-turn">Turn ${game.turn}</span>
+          </div>
+          <div class="game-card-ids">
+            Game: ${game.gameId}<br>
+            Snake: ${game.snakeId}
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span class="override-badge ${game.overrideEnabled ? 'active' : 'inactive'}">
+              ${game.overrideEnabled ? 'Override ON' : 'Auto'}
+            </span>
+          </div>
+          <canvas class="game-card-canvas" id="minimap-${game.gameId}-${game.snakeId}" width="200" height="200"></canvas>
+        </div>
+      `).join('') + '</div>';
+
+      requestAnimationFrame(() => {
+        games.forEach(game => {
+          if (game.gameState) {
+            const canvas = document.getElementById(`minimap-${game.gameId}-${game.snakeId}`);
+            if (canvas) {
+              canvas.width = canvas.clientWidth;
+              canvas.height = canvas.clientHeight;
+              BoardRenderer.renderMinimap(canvas, game.gameState, game.snakeId);
+            }
+          }
+        });
+      });
     }
 
     function openGame(gameId, snakeId) {
       window.location.href = `/play/${gameId}/${snakeId}`;
     }
 
-    loadGames();
-    refreshTimer = setInterval(loadGames, 3000);
+    connectWebSocket();
   </script>
 </body>
 </html>
