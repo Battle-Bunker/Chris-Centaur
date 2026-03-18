@@ -20,7 +20,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   if (req.body && Object.keys(req.body).length > 0) {
-    if (req.body.you) {
+    if (req.body.you?.head) {
       console.log(`  Snake position: (${req.body.you.head.x}, ${req.body.you.head.y})`);
       console.log(`  Board size: ${req.body.board?.width}x${req.body.board?.height}`);
       console.log(`  Turn: ${req.body.turn}`);
