@@ -19,7 +19,6 @@
       padding-top: 60px;
     }
     
-    /* Header */
     .header {
       position: fixed;
       top: 0;
@@ -61,7 +60,6 @@
       background: #555;
     }
     
-    /* Game List Overlay */
     .game-list-overlay {
       position: fixed;
       top: 60px;
@@ -131,14 +129,12 @@
       line-height: 1.4;
     }
     
-    /* Main Content */
     .main-content {
       padding: 20px 15px;
       max-width: 100%;
       margin: 0 auto;
     }
     
-    /* Board Container */
     .board-container {
       background: #2a2a2a;
       border-radius: 8px;
@@ -178,7 +174,6 @@
       height: auto;
     }
     
-    /* Clickable overlay for board cells */
     #boardOverlay {
       position: absolute;
       top: 0;
@@ -189,7 +184,7 @@
     .cell-button {
       position: absolute;
       background: transparent;
-      border: none; /* No borders - use background color only */
+      border: none;
       cursor: pointer;
       pointer-events: auto;
       transition: all 0.2s;
@@ -199,7 +194,6 @@
       background: rgba(255, 255, 255, 0.1);
     }
     
-    /* Snake Info */
     .snake-info-container {
       margin-bottom: 20px;
     }
@@ -247,7 +241,6 @@
       gap: 8px;
     }
     
-    /* Turn Controls */
     .turn-controls {
       background: #2a2a2a;
       border-radius: 8px;
@@ -281,7 +274,6 @@
       background: #555;
     }
     
-    /* Move Selection */
     .move-selection {
       background: #2a2a2a;
       border-radius: 8px;
@@ -321,9 +313,9 @@
     }
     
     .move-button.selected {
-      background: rgba(156, 39, 176, 0.2) !important; /* Purple tinted background */
-      border: 5px solid #9C27B0 !important; /* Thicker purple border for selection */
-      box-shadow: 0 0 15px rgba(156, 39, 176, 0.8), inset 0 0 10px rgba(156, 39, 176, 0.3) !important; /* Enhanced glow */
+      background: rgba(156, 39, 176, 0.2) !important;
+      border: 5px solid #9C27B0 !important;
+      box-shadow: 0 0 15px rgba(156, 39, 176, 0.8), inset 0 0 10px rgba(156, 39, 176, 0.3) !important;
       z-index: 10;
       position: relative;
     }
@@ -344,9 +336,6 @@
       color: #666;
     }
     
-    /* Color coding for move attractiveness - removed, using dynamic colors */
-    /* Quality classes now use dynamic HSL colors from getScoreColor */
-    
     .move-button .score {
       font-size: 12px;
       color: #aaa;
@@ -354,7 +343,6 @@
       margin-top: 4px;
     }
     
-    /* Decision Stats Table */
     .decision-stats {
       background: #2a2a2a;
       border-radius: 8px;
@@ -395,14 +383,12 @@
       background: #333;
     }
     
-    /* Loading State */
     .loading {
       text-align: center;
       padding: 40px;
       color: #888;
     }
     
-    /* Desktop Styles */
     @media (min-width: 768px) {
       .main-content {
         max-width: 1200px;
@@ -431,7 +417,6 @@
       }
     }
     
-    /* Range Slider Styling */
     input[type="range"] {
       -webkit-appearance: none;
       width: 100%;
@@ -488,9 +473,7 @@
     </div>
     
     <div class="snake-info-container">
-      <div class="snake-info-list" id="snakeInfoList">
-        <!-- Snake info will be populated here -->
-      </div>
+      <div class="snake-info-list" id="snakeInfoList"></div>
     </div>
     
     <div class="turn-controls">
@@ -505,9 +488,7 @@
     
     <div class="move-selection">
       <h3>Move Analysis</h3>
-      <div class="move-buttons" id="moveButtons">
-        <!-- Move buttons will be populated here -->
-      </div>
+      <div class="move-buttons" id="moveButtons"></div>
     </div>
     
     <div class="decision-stats">
@@ -533,44 +514,34 @@
     </div>
   </div>
   
+  <script src="/board-renderer.js"></script>
   <script>
-    // Global state
     let currentGame = null;
     let currentTurn = 0;
     let turnData = [];
     let playInterval = null;
-    
-    // Shared state for move selection
-    // Unified move state tracking
     let moveState = {
       selectedMove: null,
-      moves: {}, // Single source of truth for all move data
+      moves: {},
       safeMoves: [],
-      territoryCells: {},  // Voronoi territory cells per snake for visualization
-      selectedSnake: null  // Snake ID for territory highlight
+      territoryCells: {},
+      selectedSnake: null
     };
     
-    // Toggle game list
     function toggleGameList() {
-      const gameList = document.getElementById('gameList');
-      const overlay = document.querySelector('.game-list-overlay');
-      gameList.classList.toggle('active');
-      overlay.classList.toggle('active');
+      document.getElementById('gameList').classList.toggle('active');
+      document.querySelector('.game-list-overlay').classList.toggle('active');
     }
     
     function closeGameList() {
-      const gameList = document.getElementById('gameList');
-      const overlay = document.querySelector('.game-list-overlay');
-      gameList.classList.remove('active');
-      overlay.classList.remove('active');
+      document.getElementById('gameList').classList.remove('active');
+      document.querySelector('.game-list-overlay').classList.remove('active');
     }
     
-    // Fetch and display games
     async function loadGames(autoLoadMostRecent = true) {
       try {
         const response = await fetch('/api/logs/games');
         const games = await response.json();
-        
         const gameList = document.getElementById('gameList');
         
         if (games.length === 0) {
@@ -595,9 +566,8 @@
           `;
         }).join('');
         
-        // Automatically load the most recent game if requested
         if (autoLoadMostRecent && games.length > 0) {
-          const mostRecent = games[0]; // Games are already sorted by timestamp DESC
+          const mostRecent = games[0];
           loadGame(mostRecent.game_id, mostRecent.snake_id, mostRecent.snake_name || 'Unknown');
         }
       } catch (error) {
@@ -605,12 +575,10 @@
       }
     }
     
-    // Load specific game
     async function loadGame(gameId, snakeId, snakeName) {
       currentGame = gameId;
       closeGameList();
       
-      // Update active state
       document.querySelectorAll('.game-item').forEach(item => {
         item.classList.remove('active');
         if (item.dataset.gameId === gameId && item.dataset.snakeId === snakeId) {
@@ -625,16 +593,10 @@
         if (data.decisions && data.decisions.length > 0) {
           turnData = data.decisions;
           currentTurn = 0;
-          
-          // Update slider
           const slider = document.getElementById('turnSlider');
           slider.max = turnData.length - 1;
           slider.value = 0;
-          
-          // Update total turns
           document.getElementById('totalTurns').textContent = turnData.length;
-          
-          // Render first turn
           renderTurn(0);
         }
       } catch (error) {
@@ -642,165 +604,18 @@
       }
     }
     
-    // Process and unify all move data in a single state
-    function processMoveEvaluations(turn) {
-      moveState.moves = {};
-      moveState.safeMoves = turn.safe_moves || [];
-      moveState.territoryCells = {};  // Store territory cells for visualization
-      
-      const head = turn.game_state.you.head;
-      const directions = ['up', 'down', 'left', 'right'];
-      const evaluationsMap = {};
-      
-      // Handle both old array format and new object format
-      let evaluationsArray = [];
-      if (turn.move_evaluations) {
-        if (Array.isArray(turn.move_evaluations)) {
-          // Old format: direct array
-          evaluationsArray = turn.move_evaluations;
-        } else if (turn.move_evaluations.evaluations) {
-          // New format: { evaluations: [...], territoryCells: {...} }
-          evaluationsArray = turn.move_evaluations.evaluations;
-          moveState.territoryCells = turn.move_evaluations.territoryCells || {};
-        }
-      }
-      
-      // First, map evaluations by direction
-      evaluationsArray.forEach(evalData => {
-        evaluationsMap[evalData.move] = evalData;
-      });
-      
-      // Build unified move data for all directions
-      directions.forEach(direction => {
-        let candidatePos = null;
-        switch(direction) {
-          case 'up': candidatePos = {x: head.x, y: head.y + 1}; break;
-          case 'down': candidatePos = {x: head.x, y: head.y - 1}; break;
-          case 'left': candidatePos = {x: head.x - 1, y: head.y}; break;
-          case 'right': candidatePos = {x: head.x + 1, y: head.y}; break;
-        }
-        
-        const isSafe = moveState.safeMoves.includes(direction);
-        const evalData = evaluationsMap[direction];
-        
-        // Create unified move data
-        moveState.moves[direction] = {
-          direction: direction,
-          position: candidatePos,
-          positionKey: candidatePos ? `${candidatePos.x},${candidatePos.y}` : null,
-          isSafe: isSafe,
-          isChosen: direction === turn.chosen_move,
-          isEvaluated: !!evalData,
-          score: evalData?.score ?? null,
-          breakdown: evalData?.breakdown ?? null,
-          numStates: evalData?.numStates ?? null,
-          // For safe moves without evaluation, use a minimal score
-          // This ensures they're still visible/selectable
-          displayScore: evalData?.score ?? (isSafe ? 0 : null),
-          quality: null, // Will be calculated after all moves are processed
-          color: null // Will be calculated after all moves are processed
-        };
-      });
-      
-      // Calculate quality and colors based on scores
-      const scoredMoves = Object.values(moveState.moves)
-        .filter(m => m.displayScore != null);
-      const allScores = scoredMoves.map(m => m.displayScore);
-      
-      // Assign quality and color to each move
-      Object.values(moveState.moves).forEach(move => {
-        if (move.displayScore != null && allScores.length > 0) {
-          move.quality = getMoveQuality(move.displayScore, allScores);
-          move.color = getScoreColor(move.displayScore, allScores);
-        } else {
-          move.quality = 'not-evaluated';
-          move.color = 'rgba(100, 100, 100, 0.3)';
-        }
-      });
-    }
-    
-    // Get move quality class based on score
-    function getMoveQuality(score, allScores) {
-      if (score == null || allScores.length === 0) return 'not-evaluated';
-      
-      const maxScore = Math.max(...allScores);
-      const minScore = Math.min(...allScores);
-      const range = maxScore - minScore;
-      
-      if (range === 0) return 'neutral';
-      
-      const normalized = (score - minScore) / range;
-      
-      if (normalized >= 0.8) return 'best';
-      if (normalized >= 0.5) return 'good';
-      if (normalized >= 0.2) return 'neutral';
-      return 'bad';
-    }
-    
-    // Get color for score - using red to green spectrum via orange and yellow
-    function getScoreColor(score, allScores) {
-      if (score == null || allScores.length === 0) return 'rgba(100, 100, 100, 0.3)';
-      
-      const maxScore = Math.max(...allScores);
-      const minScore = Math.min(...allScores);
-      const range = maxScore - minScore;
-      
-      // Special case: single evaluated move or no range
-      if (range === 0 || allScores.length === 1) {
-        // For single move, use yellow/green based on absolute score
-        const hue = score > 0 ? 90 : (score < 0 ? 0 : 60);
-        return `hsla(${hue}, 70%, 50%, 0.3)`;
-      }
-      
-      const normalized = (score - minScore) / range;
-      const hue = normalized * 120; // 0 (red) to 120 (green)
-      
-      return `hsla(${hue}, 70%, 50%, 0.3)`;
-    }
-    
-    // Convert hex color to rgba
-    function hexToRgba(hex, alpha) {
-      // Handle various hex formats
-      let color = hex;
-      if (!color || typeof color !== 'string') {
-        return `rgba(136, 136, 136, ${alpha})`;
-      }
-      
-      // Remove # if present
-      color = color.replace('#', '');
-      
-      // Handle shorthand hex (#rgb)
-      if (color.length === 3) {
-        color = color.split('').map(c => c + c).join('');
-      }
-      
-      // Parse RGB values
-      const r = parseInt(color.substring(0, 2), 16) || 136;
-      const g = parseInt(color.substring(2, 4), 16) || 136;
-      const b = parseInt(color.substring(4, 6), 16) || 136;
-      
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-    
-    // Handle canvas click for snake territory selection
     function handleCanvasClick(event) {
       if (!turnData || currentTurn < 0 || currentTurn >= turnData.length) return;
-      
       const turn = turnData[currentTurn];
       const canvas = document.getElementById('gameCanvas');
       const rect = canvas.getBoundingClientRect();
       const board = turn.game_state.board;
       const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
-      
-      // Get click position in canvas coordinates
       const clickX = event.clientX - rect.left;
       const clickY = event.clientY - rect.top;
-      
-      // Convert to board coordinates
       const boardX = Math.floor(clickX / cellSize);
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
       
-      // Check if clicked on any snake's territory
       let clickedSnake = null;
       for (const [snakeId, cells] of Object.entries(moveState.territoryCells)) {
         if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
@@ -809,730 +624,66 @@
         }
       }
       
-      // Toggle selection
       if (clickedSnake) {
         moveState.selectedSnake = (moveState.selectedSnake === clickedSnake) ? null : clickedSnake;
-        renderBoard(turn);
+        renderBoardView(turn);
       } else if (moveState.selectedSnake) {
-        // Click outside territory clears selection
         moveState.selectedSnake = null;
-        renderBoard(turn);
+        renderBoardView(turn);
       }
     }
     
-    // Render specific turn
     function renderTurn(turnIndex) {
       if (!turnData || turnIndex < 0 || turnIndex >= turnData.length) return;
-      
       const turn = turnData[turnIndex];
       currentTurn = turnIndex;
       
-      // Process move evaluations into shared state
-      processMoveEvaluations(turn);
+      moveState = BoardRenderer.processMoveEvaluations(
+        turn.move_evaluations, turn.safe_moves, turn.game_state.you.head, turn.chosen_move
+      );
       
-      // Update UI
       document.getElementById('currentTurn').textContent = turn.turn;
       document.getElementById('turnSlider').value = turnIndex;
       document.getElementById('healthDisplay').textContent = turn.health;
       
-      // Render board
-      renderBoard(turn);
+      renderBoardView(turn);
+      BoardRenderer.renderSnakeInfo(document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id);
+      BoardRenderer.renderMoveButtons(document.getElementById('moveButtons'), moveState, selectMove);
       
-      // Render snake info
-      renderSnakeInfo(turn);
-      
-      // Render move buttons
-      renderMoveButtons(turn);
-      
-      // Clear stats table and reset selections
       moveState.selectedMove = null;
-      moveState.selectedSnake = null;  // Reset territory selection on turn change
-      updateStatsTable(null);
+      moveState.selectedSnake = null;
+      BoardRenderer.updateStatsTable(document.getElementById('statsTableBody'), null, moveState);
     }
     
-    // Render the game board
-    function renderBoard(turn) {
+    function renderBoardView(turn) {
       const canvas = document.getElementById('gameCanvas');
-      const ctx = canvas.getContext('2d');
-      const gameState = turn.game_state;
-      
-      if (!gameState || !gameState.board) return;
-      
-      const board = gameState.board;
-      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
-      
-      // Clear canvas
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw grid
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 0.5;
-      for (let x = 0; x <= board.width; x++) {
-        ctx.beginPath();
-        ctx.moveTo(x * cellSize, 0);
-        ctx.lineTo(x * cellSize, board.height * cellSize);
-        ctx.stroke();
-      }
-      for (let y = 0; y <= board.height; y++) {
-        ctx.beginPath();
-        ctx.moveTo(0, y * cellSize);
-        ctx.lineTo(board.width * cellSize, y * cellSize);
-        ctx.stroke();
-      }
-      
-      // Draw hazards (red X filling cell)
-      if (board.hazards && board.hazards.length > 0) {
-        board.hazards.forEach(hazard => {
-          const x = hazard.x * cellSize;
-          const y = (board.height - 1 - hazard.y) * cellSize;
-          const pad = cellSize * 0.15;
-          
-          ctx.strokeStyle = 'rgba(220, 40, 40, 0.7)';
-          ctx.lineWidth = Math.max(2, cellSize * 0.12);
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(x + pad, y + pad);
-          ctx.lineTo(x + cellSize - pad, y + cellSize - pad);
-          ctx.moveTo(x + cellSize - pad, y + pad);
-          ctx.lineTo(x + pad, y + cellSize - pad);
-          ctx.stroke();
-        });
-      }
-      
-      // Draw fertile tiles (wheat-colored diagonal hash pattern)
-      if (board.fertileTiles && board.fertileTiles.length > 0) {
-        board.fertileTiles.forEach(tile => {
-          const x = tile.x * cellSize;
-          const y = (board.height - 1 - tile.y) * cellSize;
-          
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x, y, cellSize, cellSize);
-          ctx.clip();
-          
-          ctx.fillStyle = 'rgba(245, 222, 179, 0.15)';
-          ctx.fillRect(x, y, cellSize, cellSize);
-          
-          ctx.strokeStyle = 'rgba(218, 165, 32, 0.4)';
-          ctx.lineWidth = 1;
-          const spacing = 6;
-          for (let i = -cellSize; i < cellSize * 2; i += spacing) {
-            ctx.beginPath();
-            ctx.moveTo(x + i, y);
-            ctx.lineTo(x + i + cellSize, y + cellSize);
-            ctx.stroke();
-          }
-          
-          ctx.restore();
-        });
-      }
-      
-      // Draw Voronoi territory overlay
-      if (moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
-        // Build snake color map from game state
-        const snakeColorMap = {};
-        board.snakes.forEach(snake => {
-          snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
-        });
-        
-        // Draw territory cells for each snake
-        Object.entries(moveState.territoryCells).forEach(([snakeId, cells]) => {
-          if (!cells || cells.length === 0) return;
-          
-          const snakeColor = snakeColorMap[snakeId] || '#888888';
-          // Parse color and add transparency (0.15 default, 0.4 for selected snake)
-          const alpha = (moveState.selectedSnake === snakeId) ? 0.4 : 0.15;
-          const overlayColor = hexToRgba(snakeColor, alpha);
-          
-          ctx.fillStyle = overlayColor;
-          cells.forEach(cell => {
-            const x = cell.x * cellSize;
-            const y = (board.height - 1 - cell.y) * cellSize;
-            ctx.fillRect(x, y, cellSize, cellSize);
-          });
-        });
-      }
-      
-      // Draw candidate cells with unified color coding
-      Object.values(moveState.moves).forEach(move => {
-        if (move.position && (move.isSafe || move.isEvaluated)) {
-          const x = move.position.x * cellSize;
-          const y = (board.height - 1 - move.position.y) * cellSize;
-          
-          // Use the pre-calculated color from unified state
-          ctx.fillStyle = move.color;
-          ctx.fillRect(x, y, cellSize, cellSize);
-          
-          // Purple outline for selected move (distinct from green quality)
-          if (moveState.selectedMove === move.direction) {
-            ctx.strokeStyle = '#9C27B0'; // Purple
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
-          }
-        }
-      })
-      
-      // Draw food
-      ctx.fillStyle = '#ff6b6b';
-      board.food.forEach(food => {
-        const x = food.x * cellSize;
-        const y = (board.height - 1 - food.y) * cellSize;
-        ctx.beginPath();
-        ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
-        ctx.fill();
+      BoardRenderer.renderBoard(canvas, turn.game_state, moveState, {
+        snakeId: turn.snake_id,
+        chosenMove: turn.chosen_move,
+        showChosenArrow: true
       });
-      
-      // Draw snakes with connected segments
-      board.snakes.forEach(snake => {
-        const snakeColor = snake.customizations?.color || snake.color || '#888888';
-        
-        // Draw body segments as connected path
-        if (snake.body.length > 1) {
-          ctx.strokeStyle = snakeColor;
-          ctx.lineWidth = cellSize * 0.6;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          
-          ctx.beginPath();
-          for (let i = 0; i < snake.body.length; i++) {
-            const segment = snake.body[i];
-            const x = segment.x * cellSize + cellSize/2;
-            const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
-            
-            if (i === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              ctx.lineTo(x, y);
-            }
-          }
-          ctx.stroke();
-        }
-        
-        // Draw head
-        const head = snake.body[0];
-        if (head) {
-          const x = head.x * cellSize;
-          const y = (board.height - 1 - head.y) * cellSize;
-          
-          ctx.fillStyle = snakeColor;
-          ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
-          
-          // Add border to head
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
-        }
-        
-        // Highlight our snake
-        if (snake.id === turn.snake_id) {
-          const head = snake.body[0];
-          if (head) {
-            const x = head.x * cellSize;
-            const y = (board.height - 1 - head.y) * cellSize;
-            
-            // Draw chosen move arrow
-            if (turn.chosen_move) {
-              ctx.strokeStyle = '#4CAF50';
-              ctx.lineWidth = 3;
-              ctx.beginPath();
-              
-              const centerX = x + cellSize/2;
-              const centerY = y + cellSize/2;
-              let endX = centerX;
-              let endY = centerY;
-              
-              switch(turn.chosen_move) {
-                case 'up': endY -= cellSize * 0.7; break;
-                case 'down': endY += cellSize * 0.7; break;
-                case 'left': endX -= cellSize * 0.7; break;
-                case 'right': endX += cellSize * 0.7; break;
-              }
-              
-              ctx.moveTo(centerX, centerY);
-              ctx.lineTo(endX, endY);
-              ctx.stroke();
-              
-              // Draw arrowhead
-              const angle = Math.atan2(endY - centerY, endX - centerX);
-              ctx.beginPath();
-              ctx.moveTo(endX, endY);
-              ctx.lineTo(endX - 10 * Math.cos(angle - Math.PI/6), endY - 10 * Math.sin(angle - Math.PI/6));
-              ctx.lineTo(endX - 10 * Math.cos(angle + Math.PI/6), endY - 10 * Math.sin(angle + Math.PI/6));
-              ctx.closePath();
-              ctx.fillStyle = '#4CAF50';
-              ctx.fill();
-            }
-          }
-        }
-      });
-      
-      // Create clickable overlay for candidate cells
-      createBoardOverlay(board, cellSize);
+      BoardRenderer.createBoardOverlay(
+        document.getElementById('boardOverlay'), canvas, turn.game_state.board, moveState, selectMove
+      );
     }
     
-    // Create clickable overlay for board cells using unified state
-    function createBoardOverlay(board, cellSize) {
-      const overlay = document.getElementById('boardOverlay');
-      const canvas = document.getElementById('gameCanvas');
-      
-      overlay.innerHTML = '';
-      
-      // Use client dimensions for responsive layouts
-      const displayWidth = canvas.clientWidth || canvas.width;
-      const displayHeight = canvas.clientHeight || canvas.height;
-      overlay.style.width = displayWidth + 'px';
-      overlay.style.height = displayHeight + 'px';
-      
-      // Calculate display cell size based on actual display dimensions
-      const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
-      
-      // Create buttons from unified move state
-      Object.values(moveState.moves).forEach(move => {
-        if (!move.position || (!move.isSafe && !move.isEvaluated)) return;
-        
-        const button = document.createElement('button');
-        button.className = 'cell-button';
-        
-        if (move.isSafe) {
-          button.className += ' candidate';
-        }
-        
-        if (moveState.selectedMove === move.direction) {
-          button.className += ' selected';
-        }
-        
-        // Use display cell size for positioning
-        const x = move.position.x * displayCellSize;
-        const y = (board.height - 1 - move.position.y) * displayCellSize;
-        
-        button.style.left = x + 'px';
-        button.style.top = y + 'px';
-        button.style.width = displayCellSize + 'px';
-        button.style.height = displayCellSize + 'px';
-        
-        // Only allow clicking safe or evaluated moves
-        if (move.isSafe || move.isEvaluated) {
-          button.onclick = () => selectMove(move.direction);
-          const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
-          button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
-        } else {
-          button.style.cursor = 'not-allowed';
-          button.style.opacity = '0.3';
-          button.title = `${move.direction.toUpperCase()} - UNSAFE`;
-        }
-        
-        overlay.appendChild(button);
-      });
-    }
-    
-    // Render snake info below board
-    function renderSnakeInfo(turn) {
-      const container = document.getElementById('snakeInfoList');
-      const gameState = turn.game_state;
-      
-      if (!gameState || !gameState.board) {
-        container.innerHTML = '';
-        return;
-      }
-      
-      const snakes = gameState.board.snakes;
-      container.innerHTML = snakes.map(snake => {
-        const isOurSnake = snake.id === turn.snake_id;
-        const snakeColor = snake.customizations?.color || snake.color || '#888888';
-        return `
-          <div class="snake-info-item">
-            <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
-            <div class="snake-details">
-              <div class="snake-name">${snake.name}${isOurSnake ? ' (You)' : ''}</div>
-              <div class="snake-stats">
-                <span>❤️ ${snake.health}</span>
-                <span>📏 ${snake.body.length}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-    
-    // Render move buttons using unified state with keyboard layout
-    function renderMoveButtons(turn) {
-      const container = document.getElementById('moveButtons');
-      
-      // Keyboard-style layout: up on top row middle, left/down/right on bottom
-      const buttonLayout = [
-        null, 'up', null,    // Top row
-        'left', 'down', 'right'  // Bottom row
-      ];
-      
-      container.innerHTML = buttonLayout.map(direction => {
-        if (!direction) {
-          return '<div style="grid-column: span 1;"></div>'; // Empty spacer
-        }
-        
-        const move = moveState.moves[direction];
-        if (!move) return '';
-        
-        let classes = ['move-button'];
-        if (move.isChosen) classes.push('chosen');
-        if (moveState.selectedMove === direction) classes.push('selected');
-        
-        const canInteract = move.isSafe || move.isEvaluated;
-        const scoreText = move.score != null ? 
-          `Score: ${move.score.toFixed(2)}` : 
-          (move.isSafe ? 'Score: 0.00' : 'Not evaluated');
-        
-        // Use the same color calculation as cells
-        const bgColor = move.color || 'rgba(100, 100, 100, 0.3)';
-        const solidColor = bgColor.replace('0.3)', '0.8)'); // More opaque for buttons
-        
-        return `
-          <button class="${classes.join(' ')}" 
-                  ${canInteract ? `onclick="selectMove('${direction}')"` : 'disabled'}
-                  style="background: ${solidColor}; ${!canInteract ? 'cursor: not-allowed;' : ''}">
-            ${direction.toUpperCase()} ${move.isChosen ? '✓' : ''}
-            <span class="score">${scoreText}</span>
-          </button>
-        `;
-      }).join('');
-    }
-    
-    // Select a move to show details
     function selectMove(direction) {
       moveState.selectedMove = direction;
-      
-      // Re-render to update visuals
-      renderMoveButtons(turnData[currentTurn]);
-      renderBoard(turnData[currentTurn]);
-      
-      // Update stats table
+      const turn = turnData[currentTurn];
+      BoardRenderer.renderMoveButtons(document.getElementById('moveButtons'), moveState, selectMove);
+      renderBoardView(turn);
       const move = moveState.moves[direction];
       if (move) {
-        updateStatsTable(move);
+        BoardRenderer.updateStatsTable(document.getElementById('statsTableBody'), move, moveState);
       }
     }
     
-    // Update stats table
-    function updateStatsTable(move) {
-      const tbody = document.getElementById('statsTableBody');
-      
-      if (!move || !move.breakdown) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="5" style="text-align: center; color: #888;">Select a move to see breakdown</td>
-          </tr>
-        `;
-        return;
-      }
-      
-      const breakdown = move.breakdown;
-      
-      // Calculate averages across all candidate moves for marginal impact
-      const candidateMoves = Object.values(moveState.moves).filter(m => m.isEvaluated || m.isSafe);
-      const averageWeighted = {};
-      
-      if (candidateMoves.length > 0) {
-        // Initialize sums
-        const weightedSums = {
-          myLengthScore: 0,
-          myTerritoryScore: 0,
-          myControlledFoodScore: 0,
-          myControlledFertileScore: 0,
-          teamLengthScore: 0,
-          teamTerritoryScore: 0,
-          teamControlledFoodScore: 0,
-          foodProximityScore: 0,
-          foodEatenScore: 0,
-          enemyTerritoryScore: 0,
-          enemyLengthScore: 0,
-          edgePenaltyScore: 0,
-          selfEnoughSpaceScore: 0,
-          selfSpaceOptimisticScore: 0,
-          alliesEnoughSpaceScore: 0,
-          opponentsEnoughSpaceScore: 0,
-          killsScore: 0,
-          deathsScore: 0,
-          enemyH2HRiskScore: 0,
-          allyH2HRiskScore: 0,
-          fertileScore: 0
-        };
-        
-        // Sum up weighted scores across candidate moves
-        candidateMoves.forEach(candidateMove => {
-          if (candidateMove.breakdown?.weighted) {
-            const weighted = candidateMove.breakdown.weighted;
-            weightedSums.myLengthScore += weighted.myLengthScore ?? 0;
-            weightedSums.myTerritoryScore += weighted.myTerritoryScore ?? 0;
-            weightedSums.myControlledFoodScore += weighted.myControlledFoodScore ?? 0;
-            weightedSums.myControlledFertileScore += weighted.myControlledFertileScore ?? 0;
-            weightedSums.teamLengthScore += weighted.teamLengthScore ?? 0;
-            weightedSums.teamTerritoryScore += weighted.teamTerritoryScore ?? 0;
-            weightedSums.teamControlledFoodScore += weighted.teamControlledFoodScore ?? 0;
-            weightedSums.foodProximityScore += weighted.foodProximityScore ?? 0;
-            weightedSums.foodEatenScore += weighted.foodEatenScore ?? 0;
-            weightedSums.enemyTerritoryScore += weighted.enemyTerritoryScore ?? 0;
-            weightedSums.enemyLengthScore += weighted.enemyLengthScore ?? 0;
-            weightedSums.edgePenaltyScore += weighted.edgePenaltyScore ?? 0;
-            weightedSums.selfEnoughSpaceScore += weighted.selfEnoughSpaceScore ?? 0;
-            weightedSums.selfSpaceOptimisticScore += weighted.selfSpaceOptimisticScore ?? 0;
-            weightedSums.alliesEnoughSpaceScore += weighted.alliesEnoughSpaceScore ?? 0;
-            weightedSums.opponentsEnoughSpaceScore += weighted.opponentsEnoughSpaceScore ?? 0;
-            weightedSums.killsScore += weighted.killsScore ?? 0;
-            weightedSums.deathsScore += weighted.deathsScore ?? 0;
-            weightedSums.enemyH2HRiskScore += weighted.enemyH2HRiskScore ?? 0;
-            weightedSums.allyH2HRiskScore += weighted.allyH2HRiskScore ?? 0;
-            weightedSums.fertileScore += weighted.fertileScore ?? 0;
-          }
-        });
-        
-        // Calculate averages
-        const count = candidateMoves.length;
-        for (const key in weightedSums) {
-          averageWeighted[key] = weightedSums[key] / count;
-        }
-      }
-      
-      // Helper function to format numeric values to 2 decimal places
-      function formatValue(value) {
-        if (typeof value === 'number') {
-          // For integer-like values (length, territory counts), show without decimals if whole
-          if (Number.isInteger(value)) {
-            return value.toString();
-          }
-          // For decimal values, show up to 2 decimal places
-          return value.toFixed(2);
-        }
-        return value;
-      }
-      
-      // Define all metrics with their values, weights, weighted scores, and marginal impact
-      const metricsConfig = [
-        // My Snake stats
-        {
-          name: 'My Length',
-          value: breakdown.myLength ?? 0,
-          weight: breakdown.weights?.myLength ?? 10,
-          weightedScore: breakdown.weighted?.myLengthScore ?? 0,
-          averageWeighted: averageWeighted.myLengthScore ?? 0
-        },
-        {
-          name: 'My Territory',
-          value: breakdown.myTerritory ?? 0,
-          weight: breakdown.weights?.myTerritory ?? 1,
-          weightedScore: breakdown.weighted?.myTerritoryScore ?? 0,
-          averageWeighted: averageWeighted.myTerritoryScore ?? 0
-        },
-        {
-          name: 'My Controlled Food',
-          value: breakdown.myControlledFood ?? breakdown.myFoodCount ?? 0,
-          weight: breakdown.weights?.myControlledFood ?? 10,
-          weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0,
-          averageWeighted: averageWeighted.myControlledFoodScore ?? 0
-        },
-        {
-          name: 'My Fertile Ground',
-          value: breakdown.myControlledFertile ?? 0,
-          weight: breakdown.weights?.myControlledFertile ?? 2,
-          weightedScore: breakdown.weighted?.myControlledFertileScore ?? 0,
-          averageWeighted: averageWeighted.myControlledFertileScore ?? 0
-        },
-        // Team stats
-        {
-          name: 'Team Length',
-          value: breakdown.teamLength ?? 0,
-          weight: breakdown.weights?.teamLength ?? 10,
-          weightedScore: breakdown.weighted?.teamLengthScore ?? 0,
-          averageWeighted: averageWeighted.teamLengthScore ?? 0
-        },
-        {
-          name: 'Team Territory',
-          value: breakdown.teamTerritory ?? 0,
-          weight: breakdown.weights?.teamTerritory ?? 1,
-          weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0,
-          averageWeighted: averageWeighted.teamTerritoryScore ?? 0
-        },
-        {
-          name: 'Team Controlled Food',
-          value: breakdown.teamControlledFood ?? breakdown.teamFoodCount ?? 0,
-          weight: breakdown.weights?.teamControlledFood ?? 10,
-          weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0,
-          averageWeighted: averageWeighted.teamControlledFoodScore ?? 0
-        },
-        // Distance and proximity
-        {
-          name: 'Food Distance',
-          value: breakdown.foodDistance ?? 'N/A',
-          weight: 0,  // Raw distance is not weighted
-          weightedScore: 0,
-          averageWeighted: 0
-        },
-        {
-          name: 'Food Proximity',
-          value: breakdown.foodProximity ?? breakdown.foodDistanceInverse ?? 0,
-          weight: breakdown.weights?.foodProximity ?? 50,
-          weightedScore: breakdown.weighted?.foodProximityScore ?? 0,
-          averageWeighted: averageWeighted.foodProximityScore ?? 0
-        },
-        {
-          name: 'Food Eaten',
-          value: breakdown.foodEaten ?? 0,
-          weight: breakdown.weights?.foodEaten ?? 200,
-          weightedScore: breakdown.weighted?.foodEatenScore ?? 0,
-          averageWeighted: averageWeighted.foodEatenScore ?? 0
-        },
-        // Enemy stats
-        {
-          name: 'Enemy Territory',
-          value: breakdown.enemyTerritory ?? 0,
-          weight: breakdown.weights?.enemyTerritory ?? 0,
-          weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0,
-          averageWeighted: averageWeighted.enemyTerritoryScore ?? 0
-        },
-        {
-          name: 'Enemy Length',
-          value: breakdown.enemyLength ?? 0,
-          weight: breakdown.weights?.enemyLength ?? 0,
-          weightedScore: breakdown.weighted?.enemyLengthScore ?? 0,
-          averageWeighted: averageWeighted.enemyLengthScore ?? 0
-        },
-        // Safety metrics
-        {
-          name: 'Edge Penalty',
-          value: breakdown.edgePenalty ?? (breakdown.stats?.edgePenalty ?? 0),
-          weight: breakdown.weights?.edgePenalty ?? 50,
-          weightedScore: breakdown.weighted?.edgePenaltyScore ?? 0,
-          averageWeighted: averageWeighted.edgePenaltyScore ?? 0
-        },
-        // Enhanced Space Detection
-        {
-          name: 'Self Space',
-          value: breakdown.selfEnoughSpace ?? (breakdown.stats?.selfEnoughSpace ?? 0),
-          weight: breakdown.weights?.selfEnoughSpace ?? 10,
-          weightedScore: breakdown.weighted?.selfEnoughSpaceScore ?? 0,
-          averageWeighted: averageWeighted.selfEnoughSpaceScore ?? 0
-        },
-        {
-          name: 'Self Space (Optimistic)',
-          value: breakdown.selfSpaceOptimistic ?? (breakdown.stats?.selfSpaceOptimistic ?? 0),
-          weight: breakdown.weights?.selfSpaceOptimistic ?? 5,
-          weightedScore: breakdown.weighted?.selfSpaceOptimisticScore ?? 0,
-          averageWeighted: averageWeighted.selfSpaceOptimisticScore ?? 0
-        },
-        {
-          name: 'Allies Space',
-          value: breakdown.alliesEnoughSpace ?? (breakdown.stats?.alliesEnoughSpace ?? 0),
-          weight: breakdown.weights?.alliesEnoughSpace ?? 5,
-          weightedScore: breakdown.weighted?.alliesEnoughSpaceScore ?? 0,
-          averageWeighted: averageWeighted.alliesEnoughSpaceScore ?? 0
-        },
-        {
-          name: 'Opponents Space',
-          value: breakdown.opponentsEnoughSpace ?? (breakdown.stats?.opponentsEnoughSpace ?? 0),
-          weight: breakdown.weights?.opponentsEnoughSpace ?? -5,
-          weightedScore: breakdown.weighted?.opponentsEnoughSpaceScore ?? 0,
-          averageWeighted: averageWeighted.opponentsEnoughSpaceScore ?? 0
-        },
-        // Life/death
-        {
-          name: 'Kills',
-          value: breakdown.kills ?? 0,
-          weight: breakdown.weights?.kills ?? 0,
-          weightedScore: breakdown.weighted?.killsScore ?? 0,
-          averageWeighted: averageWeighted.killsScore ?? 0
-        },
-        {
-          name: 'Deaths',
-          value: breakdown.deaths ?? 0,
-          weight: breakdown.weights?.deaths ?? 0,
-          weightedScore: breakdown.weighted?.deathsScore ?? 0,
-          averageWeighted: averageWeighted.deathsScore ?? 0
-        },
-        // H2H Risk
-        {
-          name: 'Enemy H2H Risk',
-          value: breakdown.enemyH2HRisk ?? 0,
-          weight: breakdown.weights?.enemyH2HRisk ?? 0,
-          weightedScore: breakdown.weighted?.enemyH2HRiskScore ?? 0,
-          averageWeighted: averageWeighted.enemyH2HRiskScore ?? 0
-        },
-        {
-          name: 'Ally H2H Risk',
-          value: breakdown.allyH2HRisk ?? 0,
-          weight: breakdown.weights?.allyH2HRisk ?? 0,
-          weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0,
-          averageWeighted: averageWeighted.allyH2HRiskScore ?? 0
-        },
-        // Legacy compatibility - only show if present and new fields aren't
-        ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory ? [{
-          name: 'Fertile Territory',
-          value: breakdown.fertileTerritory ?? 0,
-          weight: breakdown.weights?.fertileTerritory ?? 1,
-          weightedScore: breakdown.weighted?.fertileScore ?? 0,
-          averageWeighted: averageWeighted.fertileScore ?? 0
-        }] : [])
-      ];
-      
-      // Calculate marginal impact for each metric
-      metricsConfig.forEach(metric => {
-        metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
-      });
-      
-      // Sort by absolute marginal impact descending
-      metricsConfig.sort((a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact));
-      
-      // Build rows
-      let rows = metricsConfig.map(metric => {
-        const weightDisplay = metric.weight !== 0 ? metric.weight : '';
-        const scoreDisplay = metric.weight !== 0 ? metric.weightedScore.toFixed(2) : '';
-        const impactDisplay = metric.weight !== 0 ? 
-          (metric.marginalImpact >= 0 ? '+' : '') + metric.marginalImpact.toFixed(2) : '';
-        
-        // Color code the impact based on its value
-        let impactColor = '#888';
-        if (metric.marginalImpact > 0) {
-          impactColor = '#4CAF50'; // Green for positive
-        } else if (metric.marginalImpact < 0) {
-          impactColor = '#f44336'; // Red for negative
-        }
-        
-        return `
-          <tr>
-            <td>${metric.name}</td>
-            <td>${formatValue(metric.value)}</td>
-            <td>${weightDisplay}</td>
-            <td>${scoreDisplay}</td>
-            <td style="color: ${impactColor}; font-weight: 600;">${impactDisplay}</td>
-          </tr>
-        `;
-      });
-      
-      // Add total row
-      const totalMarginalImpact = move.score - (candidateMoves.reduce((sum, m) => sum + (m.score ?? 0), 0) / candidateMoves.length);
-      rows.push(`
-        <tr class="total-row">
-          <td>Total Score</td>
-          <td colspan="2">States: ${move.numStates || 1}</td>
-          <td>${(move.score ?? 0).toFixed(2)}</td>
-          <td style="color: ${totalMarginalImpact >= 0 ? '#4CAF50' : '#f44336'}; font-weight: 600;">
-            ${totalMarginalImpact >= 0 ? '+' : ''}${totalMarginalImpact.toFixed(2)}
-          </td>
-        </tr>
-      `);
-      
-      tbody.innerHTML = rows.join('');
-    }
-    
-    // Navigation controls
     function previousTurn() {
-      if (currentTurn > 0) {
-        renderTurn(currentTurn - 1);
-      }
+      if (currentTurn > 0) renderTurn(currentTurn - 1);
     }
     
     function nextTurn() {
-      if (currentTurn < turnData.length - 1) {
-        renderTurn(currentTurn + 1);
-      }
+      if (currentTurn < turnData.length - 1) renderTurn(currentTurn + 1);
     }
 
     let copyJsonTimeout = null;
@@ -1540,9 +691,7 @@
 
     function copyMoveJson() {
       const turn = turnData[currentTurn];
-      if (!turn || !turn.game_state) {
-        return;
-      }
+      if (!turn || !turn.game_state) return;
       const btn = document.getElementById('copyJsonButton');
       const json = JSON.stringify(turn.game_state, null, 2);
       if (copyJsonTimeout) clearTimeout(copyJsonTimeout);
@@ -1575,12 +724,10 @@
       }
     }
     
-    // Slider control
     document.getElementById('turnSlider').addEventListener('input', (e) => {
       renderTurn(parseInt(e.target.value));
     });
     
-    // Keyboard controls
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowLeft') previousTurn();
       if (e.key === 'ArrowRight') nextTurn();
@@ -1590,10 +737,8 @@
       }
     });
     
-    // Canvas click handler for territory selection
     document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
     
-    // Initialize
     loadGames();
   </script>
 </body>

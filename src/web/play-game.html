@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Centaur Play - Live Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background-color: #1a1a1a;
+      color: #e0e0e0;
+      overflow-x: hidden;
+      padding-top: 60px;
+    }
+    .header {
+      position: fixed; top: 0; left: 0; right: 0; height: 60px;
+      background: #2a2a2a; border-bottom: 1px solid #444;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 15px; z-index: 1000;
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header-controls { display: flex; align-items: center; gap: 12px; }
+    .back-btn {
+      background: #444; color: white; border: none;
+      padding: 6px 12px; border-radius: 4px; cursor: pointer;
+      font-size: 14px; text-decoration: none;
+    }
+    .back-btn:hover { background: #555; }
+    .override-toggle {
+      display: flex; align-items: center; gap: 8px; font-size: 13px;
+    }
+    .override-toggle input[type="checkbox"] {
+      width: 18px; height: 18px; cursor: pointer; accent-color: #4CAF50;
+    }
+    .main-content {
+      padding: 15px; max-width: 1200px; margin: 0 auto;
+    }
+    .board-container {
+      background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
+    }
+    .board-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+    }
+    .turn-info { font-size: 16px; font-weight: 600; }
+    .health-display { font-size: 14px; color: #4CAF50; }
+    .timer-display {
+      font-size: 14px; font-weight: 600; padding: 4px 10px;
+      border-radius: 4px; background: #333;
+    }
+    .timer-display.urgent { color: #f44336; background: rgba(244, 67, 54, 0.15); }
+    .timer-display.normal { color: #4CAF50; }
+    .timer-display.idle { color: #888; }
+    .canvas-wrapper {
+      width: 100%; display: flex; justify-content: center;
+      margin-bottom: 12px; position: relative;
+    }
+    #gameCanvas {
+      border: 2px solid #444; background: #1a1a1a;
+      max-width: 100%; height: auto;
+    }
+    #boardOverlay {
+      position: absolute; top: 0; left: 0; pointer-events: none;
+    }
+    .cell-button {
+      position: absolute; background: transparent; border: none;
+      cursor: pointer; pointer-events: auto; transition: all 0.2s;
+    }
+    .cell-button:hover { background: rgba(255, 255, 255, 0.1); }
+    .snake-info-container { margin-bottom: 15px; }
+    .snake-info-list {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
+    }
+    .snake-info-item {
+      background: #2a2a2a; border-radius: 6px; padding: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .snake-color-box {
+      width: 20px; height: 20px; border-radius: 4px;
+      border: 2px solid #444; flex-shrink: 0;
+    }
+    .snake-details { flex: 1; min-width: 0; }
+    .snake-name {
+      font-weight: 600; font-size: 13px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .snake-stats { font-size: 11px; color: #888; display: flex; gap: 6px; }
+    .move-controls {
+      background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
+    }
+    .move-controls h3 {
+      font-size: 15px; margin-bottom: 10px; color: #4CAF50;
+    }
+    .move-buttons {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr; gap: 8px;
+      max-width: 280px; margin: 0 auto 15px;
+    }
+    .move-button {
+      padding: 10px; background: #333; color: white;
+      border: 2px solid #444; border-radius: 6px;
+      cursor: pointer; font-size: 14px; text-align: center;
+      transition: all 0.2s;
+    }
+    .move-button:hover:not(:disabled) { background: #444; }
+    .move-button.selected {
+      background: rgba(156, 39, 176, 0.2) !important;
+      border: 5px solid #9C27B0 !important;
+      box-shadow: 0 0 15px rgba(156, 39, 176, 0.8), inset 0 0 10px rgba(156, 39, 176, 0.3) !important;
+      z-index: 10; position: relative;
+    }
+    .move-button.chosen {
+      background: #2a5a2a; border-color: #4CAF50; font-weight: 600;
+    }
+    .move-button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .move-button .score {
+      font-size: 11px; color: #aaa; display: block; margin-top: 3px;
+    }
+    .submit-section {
+      display: flex; justify-content: center; gap: 10px; margin-top: 10px;
+    }
+    .submit-btn {
+      background: #4CAF50; color: white; border: none;
+      padding: 12px 32px; border-radius: 6px; cursor: pointer;
+      font-size: 16px; font-weight: 600; transition: all 0.2s;
+    }
+    .submit-btn:hover { background: #45a049; }
+    .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .submit-btn .shortcut {
+      font-size: 11px; font-weight: 400; opacity: 0.7; margin-left: 6px;
+    }
+    .decision-stats {
+      background: #2a2a2a; border-radius: 8px; padding: 15px; overflow-x: auto;
+    }
+    .decision-stats h3 { font-size: 15px; margin-bottom: 10px; color: #4CAF50; }
+    .stats-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+    }
+    .stats-table th, .stats-table td {
+      padding: 6px 8px; text-align: left; border-bottom: 1px solid #444;
+    }
+    .stats-table th { background: #333; font-weight: 600; }
+    .stats-table tr:last-child td { border-bottom: none; }
+    .stats-table .total-row { font-weight: 600; background: #333; }
+    .connection-status {
+      position: fixed; bottom: 10px; right: 10px;
+      padding: 6px 12px; border-radius: 4px; font-size: 12px;
+      z-index: 1000;
+    }
+    .connection-status.connected { background: #1b5e20; color: #a5d6a7; }
+    .connection-status.disconnected { background: #b71c1c; color: #ef9a9a; }
+    .connection-status.connecting { background: #e65100; color: #ffcc80; }
+    .waiting-overlay {
+      text-align: center; padding: 40px; color: #666;
+    }
+    .waiting-overlay h2 { margin-bottom: 10px; }
+    @media (min-width: 768px) {
+      .main-content { padding: 20px; }
+      .board-container { display: flex; gap: 20px; }
+      .board-left { flex: 1; }
+      .board-right { width: 300px; }
+      #gameCanvas { max-width: 500px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="/play" class="back-btn">← Games</a>
+    <h1 id="pageTitle">Live Game</h1>
+    <div class="header-controls">
+      <label class="override-toggle">
+        <input type="checkbox" id="overrideCheckbox" onchange="toggleOverride()">
+        <span>Manual Override</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="main-content" id="mainContent">
+    <div class="waiting-overlay" id="waitingOverlay">
+      <h2>Connecting...</h2>
+      <p>Waiting for game data</p>
+    </div>
+
+    <div id="gameUI" style="display: none;">
+      <div class="board-container">
+        <div class="board-left">
+          <div class="board-header">
+            <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
+            <div class="health-display">Health: <span id="healthDisplay">100</span></div>
+            <div class="timer-display idle" id="timerDisplay">--</div>
+          </div>
+          <div class="canvas-wrapper">
+            <canvas id="gameCanvas" width="400" height="400"></canvas>
+            <div id="boardOverlay"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="snake-info-container">
+        <div class="snake-info-list" id="snakeInfoList"></div>
+      </div>
+
+      <div class="move-controls" id="moveControls">
+        <h3>Move Selection</h3>
+        <div class="move-buttons" id="moveButtons"></div>
+        <div class="submit-section">
+          <button class="submit-btn" id="submitBtn" onclick="submitMove()" disabled>
+            Submit Move <span class="shortcut">[Space]</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="decision-stats">
+        <h3>Decision Breakdown</h3>
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Value</th>
+              <th>Weight</th>
+              <th>Weighted</th>
+              <th>Impact</th>
+            </tr>
+          </thead>
+          <tbody id="statsTableBody">
+            <tr>
+              <td colspan="5" style="text-align: center; color: #888;">Waiting for turn data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="connection-status connecting" id="connectionStatus">Connecting...</div>
+
+  <script src="/board-renderer.js"></script>
+  <script>
+    const pathParts = window.location.pathname.split('/');
+    const gameId = pathParts[2] || '';
+    const snakeId = pathParts[3] || '';
+
+    let ws = null;
+    let moveState = null;
+    let currentGameState = null;
+    let overrideEnabled = false;
+    let moveSubmitted = false;
+    let userSelectedMove = null;
+    let turnTimerInterval = null;
+    let turnStartTime = null;
+    let turnTimeout = 500;
+    let reconnectTimer = null;
+
+    document.getElementById('pageTitle').textContent = `Game ${gameId.substring(0, 8)}...`;
+
+    function connectWebSocket() {
+      const statusEl = document.getElementById('connectionStatus');
+      statusEl.className = 'connection-status connecting';
+      statusEl.textContent = 'Connecting...';
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+      ws.onopen = () => {
+        statusEl.className = 'connection-status connected';
+        statusEl.textContent = 'Connected';
+        ws.send(JSON.stringify({ type: 'subscribe', gameId, snakeId }));
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleWSMessage(msg);
+        } catch (e) {
+          console.error('WS message parse error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        statusEl.className = 'connection-status disconnected';
+        statusEl.textContent = 'Disconnected';
+        reconnectTimer = setTimeout(connectWebSocket, 2000);
+      };
+
+      ws.onerror = () => {
+        statusEl.className = 'connection-status disconnected';
+        statusEl.textContent = 'Error';
+      };
+    }
+
+    function handleWSMessage(msg) {
+      switch (msg.type) {
+        case 'subscribed':
+          overrideEnabled = msg.overrideEnabled || false;
+          document.getElementById('overrideCheckbox').checked = overrideEnabled;
+          if (msg.gameState) {
+            currentGameState = msg.gameState;
+            if (msg.turnData) {
+              handleTurnUpdate(msg.turnData);
+            } else {
+              showGameState(msg.gameState);
+            }
+          }
+          break;
+
+        case 'turn-update':
+          handleTurnUpdate(msg);
+          break;
+
+        case 'move-submitted':
+          if (msg.success) {
+            moveSubmitted = true;
+            updateSubmitButton();
+          }
+          break;
+
+        case 'move-committed':
+          moveSubmitted = true;
+          updateSubmitButton();
+          break;
+
+        case 'override-changed':
+          overrideEnabled = msg.enabled;
+          document.getElementById('overrideCheckbox').checked = overrideEnabled;
+          break;
+      }
+    }
+
+    function handleTurnUpdate(data) {
+      document.getElementById('waitingOverlay').style.display = 'none';
+      document.getElementById('gameUI').style.display = 'block';
+
+      currentGameState = data.gameState;
+      turnTimeout = data.timeout || data.gameState?.game?.timeout || 500;
+      turnStartTime = Date.now();
+      moveSubmitted = false;
+      userSelectedMove = null;
+
+      const evalData = {
+        evaluations: data.moveEvaluations || [],
+        territoryCells: data.territoryCells || {}
+      };
+
+      const head = data.gameState.you.head;
+      const safeMoves = data.safeMoves || [];
+
+      moveState = BoardRenderer.processMoveEvaluations(evalData, safeMoves, head, null);
+
+      document.getElementById('currentTurn').textContent = data.gameState.turn;
+      document.getElementById('healthDisplay').textContent = data.gameState.you.health;
+
+      renderGameBoard();
+      BoardRenderer.renderSnakeInfo(
+        document.getElementById('snakeInfoList'), data.gameState, snakeId
+      );
+      BoardRenderer.renderMoveButtons(
+        document.getElementById('moveButtons'), moveState, selectMove
+      );
+      BoardRenderer.updateStatsTable(
+        document.getElementById('statsTableBody'), null, moveState
+      );
+
+      updateSubmitButton();
+      startTurnTimer();
+    }
+
+    function showGameState(gameState) {
+      document.getElementById('waitingOverlay').style.display = 'none';
+      document.getElementById('gameUI').style.display = 'block';
+      document.getElementById('currentTurn').textContent = gameState.turn;
+      document.getElementById('healthDisplay').textContent = gameState.you.health;
+
+      const canvas = document.getElementById('gameCanvas');
+      BoardRenderer.renderBoard(canvas, gameState, null, { snakeId, showChosenArrow: false });
+      BoardRenderer.renderSnakeInfo(
+        document.getElementById('snakeInfoList'), gameState, snakeId
+      );
+    }
+
+    function renderGameBoard() {
+      if (!currentGameState || !moveState) return;
+      const canvas = document.getElementById('gameCanvas');
+      BoardRenderer.renderBoard(canvas, currentGameState, moveState, {
+        snakeId, showChosenArrow: false
+      });
+      BoardRenderer.createBoardOverlay(
+        document.getElementById('boardOverlay'), canvas,
+        currentGameState.board, moveState, selectMove
+      );
+    }
+
+    function selectMove(direction) {
+      if (moveSubmitted) return;
+      userSelectedMove = direction;
+      moveState.selectedMove = direction;
+
+      BoardRenderer.renderMoveButtons(
+        document.getElementById('moveButtons'), moveState, selectMove
+      );
+      renderGameBoard();
+
+      const move = moveState.moves[direction];
+      if (move) {
+        BoardRenderer.updateStatsTable(
+          document.getElementById('statsTableBody'), move, moveState
+        );
+      }
+      updateSubmitButton();
+    }
+
+    function submitMove() {
+      if (moveSubmitted) return;
+      const moveToSubmit = userSelectedMove || getBestBotMove();
+      if (!moveToSubmit) return;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'submit-move', move: moveToSubmit }));
+        moveSubmitted = true;
+        updateSubmitButton();
+      }
+    }
+
+    function getBestBotMove() {
+      if (!moveState) return null;
+      let bestMove = null;
+      let bestScore = -Infinity;
+      for (const move of Object.values(moveState.moves)) {
+        if ((move.isSafe || move.isEvaluated) && move.displayScore != null && move.displayScore > bestScore) {
+          bestScore = move.displayScore;
+          bestMove = move.direction;
+        }
+      }
+      return bestMove;
+    }
+
+    function updateSubmitButton() {
+      const btn = document.getElementById('submitBtn');
+      if (moveSubmitted) {
+        btn.disabled = true;
+        btn.innerHTML = 'Move Submitted ✓';
+      } else if (userSelectedMove) {
+        btn.disabled = false;
+        btn.innerHTML = `Submit ${userSelectedMove.toUpperCase()} <span class="shortcut">[Space]</span>`;
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = 'Submit Best Move <span class="shortcut">[Space]</span>';
+      }
+    }
+
+    function toggleOverride() {
+      const enabled = document.getElementById('overrideCheckbox').checked;
+      overrideEnabled = enabled;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'set-override', enabled }));
+      }
+    }
+
+    function startTurnTimer() {
+      if (turnTimerInterval) clearInterval(turnTimerInterval);
+      const timerEl = document.getElementById('timerDisplay');
+
+      turnTimerInterval = setInterval(() => {
+        if (!turnStartTime || moveSubmitted) {
+          timerEl.className = 'timer-display idle';
+          timerEl.textContent = moveSubmitted ? 'Submitted' : '--';
+          return;
+        }
+
+        const elapsed = Date.now() - turnStartTime;
+        const remaining = Math.max(0, turnTimeout - elapsed);
+        const seconds = (remaining / 1000).toFixed(1);
+
+        timerEl.textContent = `${seconds}s`;
+
+        if (remaining < 500) {
+          timerEl.className = 'timer-display urgent';
+        } else {
+          timerEl.className = 'timer-display normal';
+        }
+
+        if (remaining <= 0) {
+          clearInterval(turnTimerInterval);
+          timerEl.textContent = 'Time!';
+          timerEl.className = 'timer-display urgent';
+        }
+      }, 50);
+    }
+
+    function handleCanvasClick(event) {
+      if (!currentGameState || !moveState) return;
+      const canvas = document.getElementById('gameCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const board = currentGameState.board;
+      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+      const boardX = Math.floor(clickX / cellSize);
+      const boardY = board.height - 1 - Math.floor(clickY / cellSize);
+
+      let clickedSnake = null;
+      for (const [sid, cells] of Object.entries(moveState.territoryCells)) {
+        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
+          clickedSnake = sid;
+          break;
+        }
+      }
+
+      if (clickedSnake) {
+        moveState.selectedSnake = (moveState.selectedSnake === clickedSnake) ? null : clickedSnake;
+        renderGameBoard();
+      } else if (moveState.selectedSnake) {
+        moveState.selectedSnake = null;
+        renderGameBoard();
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (moveSubmitted) return;
+
+      switch (e.key) {
+        case 'ArrowUp':
+          e.preventDefault();
+          selectMove('up');
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          selectMove('down');
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          selectMove('left');
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          selectMove('right');
+          break;
+        case ' ':
+          e.preventDefault();
+          submitMove();
+          break;
+      }
+    });
+
+    document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
+
+    connectWebSocket();
+  </script>
+</body>
+</html>

@@ -156,7 +156,9 @@ export class VoronoiStrategy {
   async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): Promise<{ 
     move: Direction; 
     safeMoves: Direction[]; 
-    scores: Map<Direction, number> 
+    scores: Map<Direction, number>;
+    moveEvaluations: any[];
+    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
   }> {
     // Reload config if needed (cached for 1 second)
     const config = await this.getConfig();
@@ -253,8 +255,10 @@ export class VoronoiStrategy {
     
     return { 
       move: decision.move, 
-      safeMoves: decision.candidateMoves,  // Return actual candidate moves
-      scores 
+      safeMoves: decision.candidateMoves,
+      scores,
+      moveEvaluations,
+      territoryCells: territoryCellsObj
     };
   }
   

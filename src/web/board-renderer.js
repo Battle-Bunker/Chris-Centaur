@@ -1,0 +1,593 @@
+const BoardRenderer = (function() {
+  function hexToRgba(hex, alpha) {
+    let color = hex;
+    if (!color || typeof color !== 'string') {
+      return `rgba(136, 136, 136, ${alpha})`;
+    }
+    color = color.replace('#', '');
+    if (color.length === 3) {
+      color = color.split('').map(c => c + c).join('');
+    }
+    const r = parseInt(color.substring(0, 2), 16) || 136;
+    const g = parseInt(color.substring(2, 4), 16) || 136;
+    const b = parseInt(color.substring(4, 6), 16) || 136;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function getMoveQuality(score, allScores) {
+    if (score == null || allScores.length === 0) return 'not-evaluated';
+    const maxScore = Math.max(...allScores);
+    const minScore = Math.min(...allScores);
+    const range = maxScore - minScore;
+    if (range === 0) return 'neutral';
+    const normalized = (score - minScore) / range;
+    if (normalized >= 0.8) return 'best';
+    if (normalized >= 0.5) return 'good';
+    if (normalized >= 0.2) return 'neutral';
+    return 'bad';
+  }
+
+  function getScoreColor(score, allScores) {
+    if (score == null || allScores.length === 0) return 'rgba(100, 100, 100, 0.3)';
+    const maxScore = Math.max(...allScores);
+    const minScore = Math.min(...allScores);
+    const range = maxScore - minScore;
+    if (range === 0 || allScores.length === 1) {
+      const hue = score > 0 ? 90 : (score < 0 ? 0 : 60);
+      return `hsla(${hue}, 70%, 50%, 0.3)`;
+    }
+    const normalized = (score - minScore) / range;
+    const hue = normalized * 120;
+    return `hsla(${hue}, 70%, 50%, 0.3)`;
+  }
+
+  function processMoveEvaluations(moveEvaluations, safeMoves, head, chosenMove) {
+    const moveState = {
+      selectedMove: null,
+      moves: {},
+      safeMoves: safeMoves || [],
+      territoryCells: {},
+      selectedSnake: null
+    };
+
+    const directions = ['up', 'down', 'left', 'right'];
+    const evaluationsMap = {};
+
+    let evaluationsArray = [];
+    if (moveEvaluations) {
+      if (Array.isArray(moveEvaluations)) {
+        evaluationsArray = moveEvaluations;
+      } else if (moveEvaluations.evaluations) {
+        evaluationsArray = moveEvaluations.evaluations;
+        moveState.territoryCells = moveEvaluations.territoryCells || {};
+      }
+    }
+
+    evaluationsArray.forEach(evalData => {
+      evaluationsMap[evalData.move] = evalData;
+    });
+
+    directions.forEach(direction => {
+      let candidatePos = null;
+      switch(direction) {
+        case 'up': candidatePos = {x: head.x, y: head.y + 1}; break;
+        case 'down': candidatePos = {x: head.x, y: head.y - 1}; break;
+        case 'left': candidatePos = {x: head.x - 1, y: head.y}; break;
+        case 'right': candidatePos = {x: head.x + 1, y: head.y}; break;
+      }
+
+      const isSafe = moveState.safeMoves.includes(direction);
+      const evalData = evaluationsMap[direction];
+
+      moveState.moves[direction] = {
+        direction: direction,
+        position: candidatePos,
+        positionKey: candidatePos ? `${candidatePos.x},${candidatePos.y}` : null,
+        isSafe: isSafe,
+        isChosen: direction === chosenMove,
+        isEvaluated: !!evalData,
+        score: evalData?.score ?? null,
+        breakdown: evalData?.breakdown ?? null,
+        numStates: evalData?.numStates ?? null,
+        displayScore: evalData?.score ?? (isSafe ? 0 : null),
+        quality: null,
+        color: null
+      };
+    });
+
+    const scoredMoves = Object.values(moveState.moves).filter(m => m.displayScore != null);
+    const allScores = scoredMoves.map(m => m.displayScore);
+
+    Object.values(moveState.moves).forEach(move => {
+      if (move.displayScore != null && allScores.length > 0) {
+        move.quality = getMoveQuality(move.displayScore, allScores);
+        move.color = getScoreColor(move.displayScore, allScores);
+      } else {
+        move.quality = 'not-evaluated';
+        move.color = 'rgba(100, 100, 100, 0.3)';
+      }
+    });
+
+    return moveState;
+  }
+
+  function renderBoard(canvas, gameState, moveState, options) {
+    const ctx = canvas.getContext('2d');
+    const snakeId = options?.snakeId || null;
+    const chosenMove = options?.chosenMove || null;
+    const showChosenArrow = options?.showChosenArrow !== false;
+
+    if (!gameState || !gameState.board) return;
+
+    const board = gameState.board;
+    const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= board.width; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * cellSize, 0);
+      ctx.lineTo(x * cellSize, board.height * cellSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= board.height; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * cellSize);
+      ctx.lineTo(board.width * cellSize, y * cellSize);
+      ctx.stroke();
+    }
+
+    if (board.hazards && board.hazards.length > 0) {
+      board.hazards.forEach(hazard => {
+        const x = hazard.x * cellSize;
+        const y = (board.height - 1 - hazard.y) * cellSize;
+        const pad = cellSize * 0.15;
+        ctx.strokeStyle = 'rgba(220, 40, 40, 0.7)';
+        ctx.lineWidth = Math.max(2, cellSize * 0.12);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x + pad, y + pad);
+        ctx.lineTo(x + cellSize - pad, y + cellSize - pad);
+        ctx.moveTo(x + cellSize - pad, y + pad);
+        ctx.lineTo(x + pad, y + cellSize - pad);
+        ctx.stroke();
+      });
+    }
+
+    if (board.fertileTiles && board.fertileTiles.length > 0) {
+      board.fertileTiles.forEach(tile => {
+        const x = tile.x * cellSize;
+        const y = (board.height - 1 - tile.y) * cellSize;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, cellSize, cellSize);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(245, 222, 179, 0.15)';
+        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.strokeStyle = 'rgba(218, 165, 32, 0.4)';
+        ctx.lineWidth = 1;
+        const spacing = 6;
+        for (let i = -cellSize; i < cellSize * 2; i += spacing) {
+          ctx.beginPath();
+          ctx.moveTo(x + i, y);
+          ctx.lineTo(x + i + cellSize, y + cellSize);
+          ctx.stroke();
+        }
+        ctx.restore();
+      });
+    }
+
+    if (moveState && moveState.territoryCells && Object.keys(moveState.territoryCells).length > 0) {
+      const snakeColorMap = {};
+      board.snakes.forEach(snake => {
+        snakeColorMap[snake.id] = snake.customizations?.color || snake.color || '#888888';
+      });
+      Object.entries(moveState.territoryCells).forEach(([sid, cells]) => {
+        if (!cells || cells.length === 0) return;
+        const snakeColor = snakeColorMap[sid] || '#888888';
+        const alpha = (moveState.selectedSnake === sid) ? 0.4 : 0.15;
+        const overlayColor = hexToRgba(snakeColor, alpha);
+        ctx.fillStyle = overlayColor;
+        cells.forEach(cell => {
+          const cx = cell.x * cellSize;
+          const cy = (board.height - 1 - cell.y) * cellSize;
+          ctx.fillRect(cx, cy, cellSize, cellSize);
+        });
+      });
+    }
+
+    if (moveState) {
+      Object.values(moveState.moves).forEach(move => {
+        if (move.position && (move.isSafe || move.isEvaluated)) {
+          const x = move.position.x * cellSize;
+          const y = (board.height - 1 - move.position.y) * cellSize;
+          ctx.fillStyle = move.color;
+          ctx.fillRect(x, y, cellSize, cellSize);
+          if (moveState.selectedMove === move.direction) {
+            ctx.strokeStyle = '#9C27B0';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+          }
+        }
+      });
+    }
+
+    ctx.fillStyle = '#ff6b6b';
+    board.food.forEach(food => {
+      const x = food.x * cellSize;
+      const y = (board.height - 1 - food.y) * cellSize;
+      ctx.beginPath();
+      ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    board.snakes.forEach(snake => {
+      const snakeColor = snake.customizations?.color || snake.color || '#888888';
+      if (snake.body.length > 1) {
+        ctx.strokeStyle = snakeColor;
+        ctx.lineWidth = cellSize * 0.6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i < snake.body.length; i++) {
+          const segment = snake.body[i];
+          const x = segment.x * cellSize + cellSize/2;
+          const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+      }
+
+      const head = snake.body[0];
+      if (head) {
+        const x = head.x * cellSize;
+        const y = (board.height - 1 - head.y) * cellSize;
+        ctx.fillStyle = snakeColor;
+        ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+      }
+
+      if (showChosenArrow && snake.id === snakeId && chosenMove) {
+        const shead = snake.body[0];
+        if (shead) {
+          const x = shead.x * cellSize;
+          const y = (board.height - 1 - shead.y) * cellSize;
+          ctx.strokeStyle = '#4CAF50';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          const centerX = x + cellSize/2;
+          const centerY = y + cellSize/2;
+          let endX = centerX;
+          let endY = centerY;
+          switch(chosenMove) {
+            case 'up': endY -= cellSize * 0.7; break;
+            case 'down': endY += cellSize * 0.7; break;
+            case 'left': endX -= cellSize * 0.7; break;
+            case 'right': endX += cellSize * 0.7; break;
+          }
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+          const angle = Math.atan2(endY - centerY, endX - centerX);
+          ctx.beginPath();
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(endX - 10 * Math.cos(angle - Math.PI/6), endY - 10 * Math.sin(angle - Math.PI/6));
+          ctx.lineTo(endX - 10 * Math.cos(angle + Math.PI/6), endY - 10 * Math.sin(angle + Math.PI/6));
+          ctx.closePath();
+          ctx.fillStyle = '#4CAF50';
+          ctx.fill();
+        }
+      }
+    });
+
+    return cellSize;
+  }
+
+  function createBoardOverlay(overlayEl, canvas, board, moveState, onCellClick) {
+    overlayEl.innerHTML = '';
+    const displayWidth = canvas.clientWidth || canvas.width;
+    const displayHeight = canvas.clientHeight || canvas.height;
+    overlayEl.style.width = displayWidth + 'px';
+    overlayEl.style.height = displayHeight + 'px';
+    const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
+
+    Object.values(moveState.moves).forEach(move => {
+      if (!move.position || (!move.isSafe && !move.isEvaluated)) return;
+      const button = document.createElement('button');
+      button.className = 'cell-button';
+      if (move.isSafe) button.className += ' candidate';
+      if (moveState.selectedMove === move.direction) button.className += ' selected';
+
+      const x = move.position.x * displayCellSize;
+      const y = (board.height - 1 - move.position.y) * displayCellSize;
+      button.style.left = x + 'px';
+      button.style.top = y + 'px';
+      button.style.width = displayCellSize + 'px';
+      button.style.height = displayCellSize + 'px';
+
+      if (move.isSafe || move.isEvaluated) {
+        button.onclick = () => onCellClick(move.direction);
+        const scoreText = move.score != null ? move.score.toFixed(2) : (move.isSafe ? '0.00' : 'N/A');
+        button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
+      } else {
+        button.style.cursor = 'not-allowed';
+        button.style.opacity = '0.3';
+        button.title = `${move.direction.toUpperCase()} - UNSAFE`;
+      }
+      overlayEl.appendChild(button);
+    });
+  }
+
+  function renderSnakeInfo(container, gameState, ourSnakeId) {
+    if (!gameState || !gameState.board) {
+      container.innerHTML = '';
+      return;
+    }
+    const snakes = gameState.board.snakes;
+    container.innerHTML = snakes.map(snake => {
+      const isOurSnake = snake.id === ourSnakeId;
+      const snakeColor = snake.customizations?.color || snake.color || '#888888';
+      return `
+        <div class="snake-info-item">
+          <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
+          <div class="snake-details">
+            <div class="snake-name">${snake.name}${isOurSnake ? ' (You)' : ''}</div>
+            <div class="snake-stats">
+              <span>❤️ ${snake.health}</span>
+              <span>📏 ${snake.body.length}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderMoveButtons(container, moveState, onMoveClick) {
+    const buttonLayout = [
+      null, 'up', null,
+      'left', 'down', 'right'
+    ];
+
+    container.innerHTML = buttonLayout.map(direction => {
+      if (!direction) {
+        return '<div style="grid-column: span 1;"></div>';
+      }
+      const move = moveState.moves[direction];
+      if (!move) return '';
+
+      let classes = ['move-button'];
+      if (move.isChosen) classes.push('chosen');
+      if (moveState.selectedMove === direction) classes.push('selected');
+
+      const canInteract = move.isSafe || move.isEvaluated;
+      const scoreText = move.score != null ?
+        `Score: ${move.score.toFixed(2)}` :
+        (move.isSafe ? 'Score: 0.00' : 'Not evaluated');
+
+      const bgColor = move.color || 'rgba(100, 100, 100, 0.3)';
+      const solidColor = bgColor.replace('0.3)', '0.8)');
+
+      return `
+        <button class="${classes.join(' ')}"
+                ${canInteract ? `onclick="BoardRenderer._moveClickHandler('${direction}')"` : 'disabled'}
+                style="background: ${solidColor}; ${!canInteract ? 'cursor: not-allowed;' : ''}">
+          ${direction.toUpperCase()} ${move.isChosen ? '✓' : ''}
+          <span class="score">${scoreText}</span>
+        </button>
+      `;
+    }).join('');
+
+    BoardRenderer._moveClickHandler = onMoveClick;
+  }
+
+  function updateStatsTable(tbody, move, moveState) {
+    if (!move || !move.breakdown) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; color: #888;">Select a move to see breakdown</td>
+        </tr>
+      `;
+      return;
+    }
+
+    const breakdown = move.breakdown;
+    const candidateMoves = Object.values(moveState.moves).filter(m => m.isEvaluated || m.isSafe);
+    const averageWeighted = {};
+
+    if (candidateMoves.length > 0) {
+      const weightedSums = {
+        myLengthScore: 0, myTerritoryScore: 0, myControlledFoodScore: 0,
+        myControlledFertileScore: 0, teamLengthScore: 0, teamTerritoryScore: 0,
+        teamControlledFoodScore: 0, foodProximityScore: 0, foodEatenScore: 0,
+        enemyTerritoryScore: 0, enemyLengthScore: 0, edgePenaltyScore: 0,
+        selfEnoughSpaceScore: 0, selfSpaceOptimisticScore: 0,
+        alliesEnoughSpaceScore: 0, opponentsEnoughSpaceScore: 0,
+        killsScore: 0, deathsScore: 0, enemyH2HRiskScore: 0,
+        allyH2HRiskScore: 0, fertileScore: 0
+      };
+
+      candidateMoves.forEach(candidateMove => {
+        if (candidateMove.breakdown?.weighted) {
+          const weighted = candidateMove.breakdown.weighted;
+          for (const key in weightedSums) {
+            weightedSums[key] += weighted[key] ?? 0;
+          }
+        }
+      });
+
+      const count = candidateMoves.length;
+      for (const key in weightedSums) {
+        averageWeighted[key] = weightedSums[key] / count;
+      }
+    }
+
+    function formatValue(value) {
+      if (typeof value === 'number') {
+        if (Number.isInteger(value)) return value.toString();
+        return value.toFixed(2);
+      }
+      return value;
+    }
+
+    const metricsConfig = [
+      { name: 'My Length', value: breakdown.myLength ?? 0, weight: breakdown.weights?.myLength ?? 10, weightedScore: breakdown.weighted?.myLengthScore ?? 0, averageWeighted: averageWeighted.myLengthScore ?? 0 },
+      { name: 'My Territory', value: breakdown.myTerritory ?? 0, weight: breakdown.weights?.myTerritory ?? 1, weightedScore: breakdown.weighted?.myTerritoryScore ?? 0, averageWeighted: averageWeighted.myTerritoryScore ?? 0 },
+      { name: 'My Controlled Food', value: breakdown.myControlledFood ?? breakdown.myFoodCount ?? 0, weight: breakdown.weights?.myControlledFood ?? 10, weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0, averageWeighted: averageWeighted.myControlledFoodScore ?? 0 },
+      { name: 'My Fertile Ground', value: breakdown.myControlledFertile ?? 0, weight: breakdown.weights?.myControlledFertile ?? 2, weightedScore: breakdown.weighted?.myControlledFertileScore ?? 0, averageWeighted: averageWeighted.myControlledFertileScore ?? 0 },
+      { name: 'Team Length', value: breakdown.teamLength ?? 0, weight: breakdown.weights?.teamLength ?? 10, weightedScore: breakdown.weighted?.teamLengthScore ?? 0, averageWeighted: averageWeighted.teamLengthScore ?? 0 },
+      { name: 'Team Territory', value: breakdown.teamTerritory ?? 0, weight: breakdown.weights?.teamTerritory ?? 1, weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0, averageWeighted: averageWeighted.teamTerritoryScore ?? 0 },
+      { name: 'Team Controlled Food', value: breakdown.teamControlledFood ?? breakdown.teamFoodCount ?? 0, weight: breakdown.weights?.teamControlledFood ?? 10, weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0, averageWeighted: averageWeighted.teamControlledFoodScore ?? 0 },
+      { name: 'Food Distance', value: breakdown.foodDistance ?? 'N/A', weight: 0, weightedScore: 0, averageWeighted: 0 },
+      { name: 'Food Proximity', value: breakdown.foodProximity ?? breakdown.foodDistanceInverse ?? 0, weight: breakdown.weights?.foodProximity ?? 50, weightedScore: breakdown.weighted?.foodProximityScore ?? 0, averageWeighted: averageWeighted.foodProximityScore ?? 0 },
+      { name: 'Food Eaten', value: breakdown.foodEaten ?? 0, weight: breakdown.weights?.foodEaten ?? 200, weightedScore: breakdown.weighted?.foodEatenScore ?? 0, averageWeighted: averageWeighted.foodEatenScore ?? 0 },
+      { name: 'Enemy Territory', value: breakdown.enemyTerritory ?? 0, weight: breakdown.weights?.enemyTerritory ?? 0, weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0, averageWeighted: averageWeighted.enemyTerritoryScore ?? 0 },
+      { name: 'Enemy Length', value: breakdown.enemyLength ?? 0, weight: breakdown.weights?.enemyLength ?? 0, weightedScore: breakdown.weighted?.enemyLengthScore ?? 0, averageWeighted: averageWeighted.enemyLengthScore ?? 0 },
+      { name: 'Edge Penalty', value: breakdown.edgePenalty ?? (breakdown.stats?.edgePenalty ?? 0), weight: breakdown.weights?.edgePenalty ?? 50, weightedScore: breakdown.weighted?.edgePenaltyScore ?? 0, averageWeighted: averageWeighted.edgePenaltyScore ?? 0 },
+      { name: 'Self Space', value: breakdown.selfEnoughSpace ?? (breakdown.stats?.selfEnoughSpace ?? 0), weight: breakdown.weights?.selfEnoughSpace ?? 10, weightedScore: breakdown.weighted?.selfEnoughSpaceScore ?? 0, averageWeighted: averageWeighted.selfEnoughSpaceScore ?? 0 },
+      { name: 'Self Space (Optimistic)', value: breakdown.selfSpaceOptimistic ?? (breakdown.stats?.selfSpaceOptimistic ?? 0), weight: breakdown.weights?.selfSpaceOptimistic ?? 5, weightedScore: breakdown.weighted?.selfSpaceOptimisticScore ?? 0, averageWeighted: averageWeighted.selfSpaceOptimisticScore ?? 0 },
+      { name: 'Allies Space', value: breakdown.alliesEnoughSpace ?? (breakdown.stats?.alliesEnoughSpace ?? 0), weight: breakdown.weights?.alliesEnoughSpace ?? 5, weightedScore: breakdown.weighted?.alliesEnoughSpaceScore ?? 0, averageWeighted: averageWeighted.alliesEnoughSpaceScore ?? 0 },
+      { name: 'Opponents Space', value: breakdown.opponentsEnoughSpace ?? (breakdown.stats?.opponentsEnoughSpace ?? 0), weight: breakdown.weights?.opponentsEnoughSpace ?? -5, weightedScore: breakdown.weighted?.opponentsEnoughSpaceScore ?? 0, averageWeighted: averageWeighted.opponentsEnoughSpaceScore ?? 0 },
+      { name: 'Kills', value: breakdown.kills ?? 0, weight: breakdown.weights?.kills ?? 0, weightedScore: breakdown.weighted?.killsScore ?? 0, averageWeighted: averageWeighted.killsScore ?? 0 },
+      { name: 'Deaths', value: breakdown.deaths ?? 0, weight: breakdown.weights?.deaths ?? 0, weightedScore: breakdown.weighted?.deathsScore ?? 0, averageWeighted: averageWeighted.deathsScore ?? 0 },
+      { name: 'Enemy H2H Risk', value: breakdown.enemyH2HRisk ?? 0, weight: breakdown.weights?.enemyH2HRisk ?? 0, weightedScore: breakdown.weighted?.enemyH2HRiskScore ?? 0, averageWeighted: averageWeighted.enemyH2HRiskScore ?? 0 },
+      { name: 'Ally H2H Risk', value: breakdown.allyH2HRisk ?? 0, weight: breakdown.weights?.allyH2HRisk ?? 0, weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0, averageWeighted: averageWeighted.allyH2HRiskScore ?? 0 },
+      ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory ? [{
+        name: 'Fertile Territory', value: breakdown.fertileTerritory ?? 0, weight: breakdown.weights?.fertileTerritory ?? 1, weightedScore: breakdown.weighted?.fertileScore ?? 0, averageWeighted: averageWeighted.fertileScore ?? 0
+      }] : [])
+    ];
+
+    metricsConfig.forEach(metric => {
+      metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
+    });
+
+    metricsConfig.sort((a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact));
+
+    let rows = metricsConfig.map(metric => {
+      const weightDisplay = metric.weight !== 0 ? metric.weight : '';
+      const scoreDisplay = metric.weight !== 0 ? metric.weightedScore.toFixed(2) : '';
+      const impactDisplay = metric.weight !== 0 ?
+        (metric.marginalImpact >= 0 ? '+' : '') + metric.marginalImpact.toFixed(2) : '';
+      let impactColor = '#888';
+      if (metric.marginalImpact > 0) impactColor = '#4CAF50';
+      else if (metric.marginalImpact < 0) impactColor = '#f44336';
+      return `
+        <tr>
+          <td>${metric.name}</td>
+          <td>${formatValue(metric.value)}</td>
+          <td>${weightDisplay}</td>
+          <td>${scoreDisplay}</td>
+          <td style="color: ${impactColor}; font-weight: 600;">${impactDisplay}</td>
+        </tr>
+      `;
+    });
+
+    const totalMarginalImpact = move.score - (candidateMoves.reduce((sum, m) => sum + (m.score ?? 0), 0) / candidateMoves.length);
+    rows.push(`
+      <tr class="total-row">
+        <td>Total Score</td>
+        <td colspan="2">States: ${move.numStates || 1}</td>
+        <td>${(move.score ?? 0).toFixed(2)}</td>
+        <td style="color: ${totalMarginalImpact >= 0 ? '#4CAF50' : '#f44336'}; font-weight: 600;">
+          ${totalMarginalImpact >= 0 ? '+' : ''}${totalMarginalImpact.toFixed(2)}
+        </td>
+      </tr>
+    `);
+
+    tbody.innerHTML = rows.join('');
+  }
+
+  function renderMinimap(canvas, gameState, ourSnakeId) {
+    const ctx = canvas.getContext('2d');
+    if (!gameState || !gameState.board) return;
+    const board = gameState.board;
+    const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= board.width; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * cellSize, 0);
+      ctx.lineTo(x * cellSize, board.height * cellSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= board.height; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * cellSize);
+      ctx.lineTo(board.width * cellSize, y * cellSize);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#ff6b6b';
+    board.food.forEach(food => {
+      const x = food.x * cellSize;
+      const y = (board.height - 1 - food.y) * cellSize;
+      ctx.beginPath();
+      ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    board.snakes.forEach(snake => {
+      const snakeColor = snake.customizations?.color || snake.color || '#888888';
+      const isOurs = snake.id === ourSnakeId;
+
+      if (snake.body.length > 1) {
+        ctx.strokeStyle = snakeColor;
+        ctx.lineWidth = cellSize * 0.6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i < snake.body.length; i++) {
+          const segment = snake.body[i];
+          const x = segment.x * cellSize + cellSize/2;
+          const y = (board.height - 1 - segment.y) * cellSize + cellSize/2;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      const head = snake.body[0];
+      if (head) {
+        const x = head.x * cellSize;
+        const y = (board.height - 1 - head.y) * cellSize;
+        ctx.fillStyle = snakeColor;
+        ctx.fillRect(x + cellSize * 0.1, y + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+        if (isOurs) {
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, cellSize, cellSize);
+        }
+      }
+    });
+  }
+
+  return {
+    hexToRgba,
+    getMoveQuality,
+    getScoreColor,
+    processMoveEvaluations,
+    renderBoard,
+    createBoardOverlay,
+    renderSnakeInfo,
+    renderMoveButtons,
+    updateStatsTable,
+    renderMinimap,
+    _moveClickHandler: null
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = BoardRenderer;
+}

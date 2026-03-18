@@ -1,19 +1,22 @@
 import express from 'express';
 import path from 'path';
-import { GameState, MoveResponse, SnakeInfoResponse } from './types/battlesnake';
+import { createServer } from 'http';
+import { GameState, MoveResponse, SnakeInfoResponse, Direction } from './types/battlesnake';
 import { VoronoiStrategy } from './logic/voronoi-strategy-new';
 import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
 import { DecisionLogger } from './logic/decision-logger';
+import { ActiveGameManager, TurnData } from './server/active-game-manager';
+import { GameWebSocketServer } from './server/websocket-server';
 import logsRouter from './routes/logs';
 import configRouter from './routes/config';
+import playRouter from './routes/play';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
 
 app.use(express.json());
 
-// Request logging middleware - log ALL incoming requests
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   if (req.body && Object.keys(req.body).length > 0) {
@@ -31,8 +34,8 @@ app.use(express.static(path.join(__dirname, '../src/web')));
 const voronoiStrategy = new VoronoiStrategy();
 const teamDetector = new TeamDetector();
 const logger = new GameLogger();
+const gameManager = ActiveGameManager.getInstance();
 
-// Battlesnake info endpoint
 app.get('/', (req, res) => {
   const info: SnakeInfoResponse = {
     apiversion: "1",
@@ -45,78 +48,132 @@ app.get('/', (req, res) => {
   res.json(info);
 });
 
-// Game start endpoint
 app.post('/start', (req, res) => {
   const gameState: GameState = req.body;
   logger.startGame(gameState);
+  gameManager.registerGame(gameState);
   res.status(200).send('ok');
 });
 
-// Move endpoint - core logic
 app.post('/move', async (req, res) => {
   const gameState: GameState = req.body;
-  
-  try {
-    // Detect teams based on color
-    const teams = teamDetector.detectTeams(gameState.board.snakes);
-    const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === gameState.you.id));
-    
-    // Get best move using Voronoi strategy with logging (now async)
-    const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
-    
-    // Old logger disabled - new format logging happens in strategy
-    // logger.logMove(gameState, result.safeMoves, result.move, result.scores);
-    
-    const response: MoveResponse = {
-      move: result.move,
-      shout: `Team territory strategy! Turn ${gameState.turn}`
-    };
-    
-    res.json(response);
-  } catch (error) {
-    logger.logError('Error in move calculation', error);
-    // Fallback to safe move
-    const response: MoveResponse = {
-      move: 'up',
-      shout: 'Error fallback!'
-    };
-    res.json(response);
+  const gameId = gameState.game.id;
+  const snakeId = gameState.you.id;
+
+  gameManager.updateGameState(gameId, snakeId, gameState);
+
+  const overrideActive = gameManager.isOverrideEnabled(gameId, snakeId);
+
+  if (overrideActive) {
+    const gameTimeout = gameState.game.timeout || 500;
+    const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout);
+
+    try {
+      const teams = teamDetector.detectTeams(gameState.board.snakes);
+      const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
+      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+
+      const turnData: TurnData = {
+        gameState,
+        moveEvaluations: result.moveEvaluations,
+        territoryCells: result.territoryCells,
+        safeMoves: result.safeMoves,
+        botRecommendation: result.move,
+        timestamp: Date.now()
+      };
+
+      gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
+    } catch (error) {
+      logger.logError('Error in centaur move calculation', error);
+      if (!pending.resolved) {
+        gameManager.setBotRecommendation(gameId, snakeId, 'up', {
+          gameState,
+          moveEvaluations: [],
+          territoryCells: {},
+          safeMoves: [],
+          botRecommendation: 'up',
+          timestamp: Date.now()
+        });
+      }
+    }
+  } else {
+    try {
+      const teams = teamDetector.detectTeams(gameState.board.snakes);
+      const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
+      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+
+      const turnData: TurnData = {
+        gameState,
+        moveEvaluations: result.moveEvaluations,
+        territoryCells: result.territoryCells,
+        safeMoves: result.safeMoves,
+        botRecommendation: result.move,
+        timestamp: Date.now()
+      };
+
+      gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
+
+      const response: MoveResponse = {
+        move: result.move,
+        shout: `Team territory strategy! Turn ${gameState.turn}`
+      };
+
+      res.json(response);
+    } catch (error) {
+      logger.logError('Error in move calculation', error);
+      const response: MoveResponse = {
+        move: 'up',
+        shout: 'Error fallback!'
+      };
+      res.json(response);
+    }
   }
 });
 
-// Game end endpoint
 app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
   logger.endGame(gameState);
+  gameManager.endGame(gameState.game.id, gameState.you.id);
   res.status(200).send('ok');
 });
 
-// API Routes
 app.use(logsRouter);
 app.use(configRouter);
+app.use(playRouter);
 
-// Simple web interface
 app.get('/config', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
 });
 
-// Game history viewer
 app.get('/history', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });
 
-const server = app.listen(port, '0.0.0.0', () => {
+app.get('/play', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/play.html'));
+});
+
+app.get('/play/:gameId/:snakeId', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
+});
+
+const httpServer = createServer(app);
+
+const wsServer = new GameWebSocketServer(httpServer);
+gameManager.startStaleGameCleanup(300000, 600000);
+
+httpServer.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
   console.log(`Visit http://localhost:${port} for snake info`);
   console.log(`Visit http://localhost:${port}/config for configuration`);
+  console.log(`Visit http://localhost:${port}/play for centaur play`);
 });
 
-// Graceful shutdown handling
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-  const logger = DecisionLogger.getInstance();
-  await logger.shutdown();
-  server.close(() => {
+  const decisionLogger = DecisionLogger.getInstance();
+  await decisionLogger.shutdown();
+  httpServer.close(() => {
     console.log('Server closed');
     process.exit(0);
   });
@@ -124,9 +181,9 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
-  const logger = DecisionLogger.getInstance();
-  await logger.shutdown();
-  server.close(() => {
+  const decisionLogger = DecisionLogger.getInstance();
+  await decisionLogger.shutdown();
+  httpServer.close(() => {
     console.log('Server closed');
     process.exit(0);
   });

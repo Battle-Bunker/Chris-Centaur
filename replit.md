@@ -101,10 +101,34 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
   4. Check that totals add up correctly in the UI
 - **Always ask user for manual testing** before declaring success on any UI-affecting changes
 
+## Centaur Play Mode (Added 2026-03-18)
+
+Human-in-the-loop mode allowing a player to view live games with full visual analytics and optionally override the bot's move decisions in real time.
+
+### Key Components
+- **`/play`** - Lobby page listing all active games with live minimaps
+- **`/play/<game-id>/<snake-id>`** - Live interactive game page with board, Voronoi overlays, heuristic scores, move selection (click/arrow keys), submit (spacebar/button), countdown timer
+- **`src/server/active-game-manager.ts`** - In-memory singleton tracking active games, per-game+snake override state, pending move responses, and timeouts
+- **`src/server/websocket-server.ts`** - WebSocket server (via `ws` library) for real-time turn updates and move submissions
+- **`src/web/board-renderer.js`** - Shared rendering module used by both history.html and play pages (canvas board, Voronoi overlay, analytics table, move buttons)
+- **`src/routes/play.ts`** - REST API for active game listing
+
+### Override Flow
+1. Override defaults to OFF (bot plays fully automatically)
+2. When ON: `/move` endpoint holds the Express response, bot calculates its recommendation, broadcasts via WebSocket
+3. User can select a move and submit (or let timeout auto-submit the best-scored move)
+4. Server-side timer fires at `game.timeout - 200ms` as safety net
+5. Color-coded candidate moves (red-to-green spectrum) inform the human's decision
+
+### Deployment
+- Uses autoscale with max 1 machine (cost-efficient when idle, but ensures single-instance for WebSocket + in-memory state)
+- WebSocket path: `/ws`
+
 ## System Architecture
 
 ### Backend Framework
 - **Express.js REST API** - Lightweight web server handling Battlesnake protocol endpoints (`/`, `/start`, `/move`)
+- **WebSocket Server** - Real-time communication for centaur play mode via `ws` library, attached to the Express HTTP server
 - **TypeScript** - Provides type safety and better development experience with full type definitions for Battlesnake game state
 - **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
 - **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
