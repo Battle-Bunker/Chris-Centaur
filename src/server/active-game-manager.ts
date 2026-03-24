@@ -157,11 +157,15 @@ export class ActiveGameManager {
     return this.gameServerPing;
   }
 
-  recordTurnArrival(gameId: string, arrivalTime: number, gameTimeout: number): void {
+  recordTurnArrival(gameId: string, arrivalTime: number, gameTimeout: number, serverExpiryTime: number | null = null): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    game.turnExpiryTime = arrivalTime + gameTimeout - this.gameServerPing;
+    if (serverExpiryTime) {
+      game.turnExpiryTime = serverExpiryTime;
+    } else {
+      game.turnExpiryTime = arrivalTime + gameTimeout - this.gameServerPing;
+    }
   }
 
   startServerPing(gameServerUrl: string = 'https://engine.battlesnake.com'): void {
@@ -457,7 +461,7 @@ export class ActiveGameManager {
     };
   }
 
-  setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number): PendingMove {
+  setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number, serverExpiryTime: number | null = null): PendingMove {
     const game = this.games.get(gameId);
     if (!game) throw new Error(`Game ${gameId} not registered`);
 
@@ -469,9 +473,15 @@ export class ActiveGameManager {
     }
 
     const bufferMs = 100;
-    const timeoutMs = Math.max(gameTimeout - bufferMs, 50);
+    let timeoutMs: number;
+    if (serverExpiryTime) {
+      const now = Date.now();
+      timeoutMs = Math.max(serverExpiryTime - now - bufferMs, 50);
+    } else {
+      timeoutMs = Math.max(gameTimeout - bufferMs, 50);
+    }
     if (game.currentTurn === 0) {
-      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: gameTimeout=${gameTimeout}ms, buffer=${bufferMs}ms, firing in ${timeoutMs}ms`);
+      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: gameTimeout=${gameTimeout}ms, serverExpiryTime=${serverExpiryTime}, buffer=${bufferMs}ms, firing in ${timeoutMs}ms`);
     }
 
     const pending: PendingMove = {
