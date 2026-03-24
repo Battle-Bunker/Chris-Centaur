@@ -68,10 +68,9 @@ export interface ActiveGame {
 }
 
 const DISTINCT_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
-  '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
-  '#BB8FCE', '#85C1E9', '#F0B27A', '#82E0AA',
-  '#F1948A', '#AED6F1', '#D5DBDB', '#FAD7A0'
+  '#e6194B', '#f58231', '#ffe119', '#bfef45',
+  '#3cb44b', '#42d4f4', '#4363d8', '#911eb4',
+  '#f032e6',
 ];
 
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
