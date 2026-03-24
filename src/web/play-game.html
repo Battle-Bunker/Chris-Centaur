@@ -331,6 +331,7 @@
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
     let analyticsFrozen = false;
+    let autoAdvancePending = false;
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -453,6 +454,7 @@
         case 'snake-selected': {
           if (msg.snakeId) {
             selectedSnakeId = msg.snakeId;
+            autoAdvancePending = false;
             if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
                 turnData: msg.turnData,
@@ -531,6 +533,14 @@
               analyticsFrozen = true;
               updateMoveControls();
               renderGameBoard();
+
+              if (!autoAdvancePending) {
+                const nextSnakeId = findNextUncommittedSnake(msg.snakeId);
+                if (nextSnakeId && ws && ws.readyState === WebSocket.OPEN) {
+                  autoAdvancePending = true;
+                  ws.send(JSON.stringify({ type: 'select-snake', snakeId: nextSnakeId }));
+                }
+              }
             }
           }
           break;
@@ -577,10 +587,16 @@
         moveState.selectedMove = csData.committedMove;
         moveSubmitted = true;
         analyticsFrozen = true;
-      } else if (!moveSubmitted) {
-        const bestMove = getBestBotMove();
-        if (bestMove) {
-          moveState.selectedMove = bestMove;
+      } else {
+        moveSubmitted = false;
+        analyticsFrozen = false;
+        if (userSelectedMove) {
+          moveState.selectedMove = userSelectedMove;
+        } else {
+          const bestMove = getBestBotMove();
+          if (bestMove) {
+            moveState.selectedMove = bestMove;
+          }
         }
       }
     }
@@ -783,12 +799,24 @@
       }
     }
 
+    function findNextUncommittedSnake(excludeId) {
+      for (const snakeId of controlledSnakeIds) {
+        if (snakeId === excludeId) continue;
+        const csData = controlledSnakeTurnData[snakeId];
+        if (!csData || !csData.moveCommitted) {
+          return snakeId;
+        }
+      }
+      return null;
+    }
+
     function submitMove() {
       if (moveSubmitted || !selectedSnakeId) return;
       const moveToSubmit = userSelectedMove || getBestBotMove();
       if (!moveToSubmit) return;
 
       if (ws && ws.readyState === WebSocket.OPEN) {
+        const submittedSnakeId = selectedSnakeId;
         ws.send(JSON.stringify({ type: 'submit-move', snakeId: selectedSnakeId, move: moveToSubmit }));
         moveSubmitted = true;
         analyticsFrozen = true;
@@ -802,6 +830,12 @@
         }
         updateMoveControls();
         renderGameBoard();
+
+        const nextSnakeId = findNextUncommittedSnake(submittedSnakeId);
+        if (nextSnakeId) {
+          autoAdvancePending = true;
+          ws.send(JSON.stringify({ type: 'select-snake', snakeId: nextSnakeId }));
+        }
       }
     }
 

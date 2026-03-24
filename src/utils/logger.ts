@@ -74,7 +74,7 @@ export class GameLogger {
   endGame(gameState: GameState): void {
     this.log('\n=== GAME END ===');
     this.log(`Final turn: ${gameState.turn}`);
-    this.log(`Surviving snakes: ${gameState.board.snakes.length}`);
+    this.log(`Surviving snakes: ${gameState.board?.snakes?.length ?? 'unknown'}`);
     this.gameId = null;
     this.currentLogFile = null;
   }

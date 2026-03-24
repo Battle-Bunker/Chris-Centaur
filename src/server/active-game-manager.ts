@@ -470,6 +470,9 @@ export class ActiveGameManager {
 
     const bufferMs = 100;
     const timeoutMs = Math.max(gameTimeout - bufferMs, 50);
+    if (game.currentTurn === 0) {
+      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: gameTimeout=${gameTimeout}ms, buffer=${bufferMs}ms, firing in ${timeoutMs}ms`);
+    }
 
     const pending: PendingMove = {
       res,
