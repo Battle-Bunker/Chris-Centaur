@@ -628,12 +628,19 @@ export class ActiveGameManager {
     controlled.committedMove = move;
 
     try {
+      const headersSent = pending.res.headersSent;
+      const finished = pending.res.writableFinished;
+      const destroyed = pending.res.destroyed;
+      if (headersSent || finished || destroyed) {
+        console.error(`[ActiveGameManager] Response already consumed for ${gameId}:${snakeId}: headersSent=${headersSent}, finished=${finished}, destroyed=${destroyed}`);
+      }
       pending.res.json({
         move: move,
         shout: `Centaur mode! Turn ${game.currentTurn}`
       });
+      console.log(`[ActiveGameManager] Move response sent for ${gameId}:${snakeId}: ${move} (source: ${source}, headersSent=${pending.res.headersSent})`);
     } catch (e) {
-      console.error('Error sending centaur move response:', e);
+      console.error(`[ActiveGameManager] Error sending move response for ${gameId}:${snakeId}:`, e);
     }
 
     controlled.pendingMove = null;
