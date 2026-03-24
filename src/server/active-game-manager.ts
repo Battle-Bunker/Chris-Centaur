@@ -305,9 +305,15 @@ export class ActiveGameManager {
     const user = game.connectedUsers.get(userId);
     if (!user || !user.selectedSnakeId) return;
 
-    const controlled = game.controlledSnakes.get(user.selectedSnakeId);
+    const snakeId = user.selectedSnakeId;
+    const controlled = game.controlledSnakes.get(snakeId);
     if (controlled && controlled.selectedBy === userId) {
       controlled.selectedBy = null;
+
+      if (game.currentTurn > 0 && controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.botMove) {
+        console.log(`[ActiveGameManager] Auto-pilot-deselect for ${gameId}:${snakeId}: submitting ${controlled.pendingMove.botMove}`);
+        this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove, 'auto-pilot-deselect');
+      }
     }
     user.selectedSnakeId = null;
   }
@@ -536,9 +542,11 @@ export class ActiveGameManager {
       controlled.pendingMove.turnData = turnData;
     }
 
-    if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved) {
+    if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
       console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
       this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
+    } else if (game.currentTurn === 0 && !controlled.selectedBy) {
+      console.log(`[ActiveGameManager] Turn 0 override: holding ${gameId}:${snakeId} for manual control (bot recommends ${move})`);
     }
 
     if (boardUpdated) {

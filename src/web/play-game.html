@@ -231,7 +231,8 @@
         <div class="board-left">
           <div class="board-header">
             <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
-            <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
             </div>
@@ -418,6 +419,7 @@
           analyticsFrozen = false;
 
           document.getElementById('currentTurn').textContent = msg.turn;
+          document.getElementById('firstMoveIndicator').style.display = (msg.turn === 0) ? 'block' : 'none';
           startTurnTimer();
           renderGameBoard();
           renderSnakeInfo();
@@ -463,6 +465,7 @@
             analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
+            renderGameBoard();
           }
           break;
         }
@@ -540,7 +543,9 @@
     function showGameUI() {
       document.getElementById('waitingOverlay').style.display = 'none';
       document.getElementById('gameUI').style.display = 'block';
-      document.getElementById('currentTurn').textContent = currentGameState?.turn || 0;
+      const turn = currentGameState?.turn || 0;
+      document.getElementById('currentTurn').textContent = turn;
+      document.getElementById('firstMoveIndicator').style.display = (turn === 0) ? 'block' : 'none';
       renderGameBoard();
       renderSnakeInfo();
       startTurnTimer();
