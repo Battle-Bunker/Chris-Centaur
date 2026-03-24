@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer } from 'http';
-import { GameState, MoveResponse, SnakeInfoResponse, Direction } from './types/battlesnake';
+import { GameState, SnakeInfoResponse } from './types/battlesnake';
 import { VoronoiStrategy } from './logic/voronoi-strategy-new';
 import { TeamDetector } from './logic/team-detector';
 import { GameLogger } from './utils/logger';
@@ -56,79 +56,47 @@ app.post('/start', (req, res) => {
 });
 
 app.post('/move', async (req, res) => {
+  const arrivalTime = Date.now();
   const gameState: GameState = req.body;
   const gameId = gameState.game.id;
   const snakeId = gameState.you.id;
 
-  if (!gameManager.getGameEntry(gameId, snakeId)) {
+  const game = gameManager.getGame(gameId);
+  if (!game || !game.controlledSnakes.has(snakeId)) {
     gameManager.registerGame(gameState);
   }
   gameManager.updateGameState(gameId, snakeId, gameState);
 
-  const overrideActive = gameManager.isOverrideEnabled(gameId, snakeId);
+  const gameTimeout = gameState.game.timeout || 500;
+  gameManager.recordTurnArrival(gameId, arrivalTime, gameTimeout);
+  const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout);
 
-  if (overrideActive) {
-    const gameTimeout = gameState.game.timeout || 500;
-    const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout);
+  try {
+    const teams = teamDetector.detectTeams(gameState.board.snakes);
+    const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
+    const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
 
-    try {
-      const teams = teamDetector.detectTeams(gameState.board.snakes);
-      const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
-      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+    const turnData: TurnData = {
+      gameState,
+      moveEvaluations: result.moveEvaluations,
+      territoryCells: result.territoryCells,
+      safeMoves: result.safeMoves,
+      botRecommendation: result.move,
+      timestamp: Date.now()
+    };
 
-      const turnData: TurnData = {
+    gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
+  } catch (error) {
+    logger.logError('Error in move calculation', error);
+    if (!pending.resolved) {
+      gameManager.setBotRecommendation(gameId, snakeId, 'up', {
         gameState,
-        moveEvaluations: result.moveEvaluations,
-        territoryCells: result.territoryCells,
-        safeMoves: result.safeMoves,
-        botRecommendation: result.move,
+        moveEvaluations: [],
+        territoryCells: {},
+        safeMoves: [],
+        botRecommendation: 'up',
         timestamp: Date.now()
-      };
-
-      gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
-    } catch (error) {
-      logger.logError('Error in centaur move calculation', error);
-      if (!pending.resolved) {
-        gameManager.setBotRecommendation(gameId, snakeId, 'up', {
-          gameState,
-          moveEvaluations: [],
-          territoryCells: {},
-          safeMoves: [],
-          botRecommendation: 'up',
-          timestamp: Date.now()
-        });
-      }
-    }
-  } else {
-    try {
-      const teams = teamDetector.detectTeams(gameState.board.snakes);
-      const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
-      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
-
-      const turnData: TurnData = {
-        gameState,
-        moveEvaluations: result.moveEvaluations,
-        territoryCells: result.territoryCells,
-        safeMoves: result.safeMoves,
-        botRecommendation: result.move,
-        timestamp: Date.now()
-      };
-
-      gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
-
-      const response: MoveResponse = {
-        move: result.move,
-        shout: `Team territory strategy! Turn ${gameState.turn}`
-      };
-
-      res.json(response);
-    } catch (error) {
-      logger.logError('Error in move calculation', error);
-      const response: MoveResponse = {
-        move: 'up',
-        shout: 'Error fallback!'
-      };
-      res.json(response);
+      });
     }
   }
 });
@@ -160,7 +128,7 @@ app.get('/play', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play.html'));
 });
 
-app.get('/play/:gameId/:snakeId', (req, res) => {
+app.get('/play/:gameId', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
 });
 
@@ -168,6 +136,7 @@ const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);
+gameManager.startServerPing();
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);

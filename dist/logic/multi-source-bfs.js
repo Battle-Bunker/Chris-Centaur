@@ -45,21 +45,45 @@ class MultiSourceBFS {
         let currentLevel = [];
         let nextLevel = [];
         let currentDistance = 0;
-        // Initialize with source positions
+        // Separate sources by startDelay
+        const delayedSources = new Map();
         for (const source of sources) {
-            currentLevel.push({
-                position: source.position,
-                sourceId: source.id
-            });
+            const delay = source.startDelay ?? 0;
+            if (delay === 0) {
+                currentLevel.push({
+                    position: source.position,
+                    sourceId: source.id
+                });
+            }
+            else {
+                if (!delayedSources.has(delay)) {
+                    delayedSources.set(delay, []);
+                }
+                delayedSources.get(delay).push(source);
+            }
         }
         // Process all levels
-        while (currentLevel.length > 0) {
+        while (currentLevel.length > 0 || delayedSources.size > 0) {
+            // Inject delayed sources that should start at this distance level
+            const sourcesAtThisDelay = delayedSources.get(currentDistance);
+            if (sourcesAtThisDelay) {
+                for (const source of sourcesAtThisDelay) {
+                    currentLevel.push({
+                        position: source.position,
+                        sourceId: source.id
+                    });
+                }
+                delayedSources.delete(currentDistance);
+            }
+            if (currentLevel.length === 0) {
+                currentDistance++;
+                continue;
+            }
             // Track cells reached at this distance by each source (using Set to deduplicate)
             const cellsReachedThisLevel = new Map();
             // First pass: identify all cells reached at this distance
             for (const item of currentLevel) {
                 const key = this.graph.coordToKey(item.position);
-                // For distance 0 (sources), directly add to cellInfo
                 if (currentDistance === 0) {
                     cellInfo.set(key, {
                         closestSourceId: item.sourceId,
@@ -67,18 +91,15 @@ class MultiSourceBFS {
                     });
                     territoryCounts.set(item.sourceId, 1);
                     territoryCells.get(item.sourceId).push({ x: item.position.x, y: item.position.y });
-                    // Check if source is on food
                     if (foodSet.has(key)) {
                         controlledFood.set(item.sourceId, controlledFood.get(item.sourceId) + 1);
                         nearestFoodDistance.set(item.sourceId, 0);
                     }
-                    // Check if source is on fertile tile
                     if (fertileSet.has(key)) {
                         controlledFertile.set(item.sourceId, controlledFertile.get(item.sourceId) + 1);
                     }
                 }
                 else {
-                    // For distance > 0, track which sources reach this cell (deduplicated)
                     if (!cellsReachedThisLevel.has(key)) {
                         cellsReachedThisLevel.set(key, new Set());
                     }

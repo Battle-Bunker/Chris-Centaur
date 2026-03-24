@@ -101,24 +101,36 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
   4. Check that totals add up correctly in the UI
 - **Always ask user for manual testing** before declaring success on any UI-affecting changes
 
-## Centaur Play Mode (Added 2026-03-18)
+## Centaur Play Mode (Rearchitected 2026-03-24)
 
-Human-in-the-loop mode allowing a player to view live games with full visual analytics and optionally override the bot's move decisions in real time.
+Human-in-the-loop mode with unified multi-snake game control. Multiple users can view and control snakes in the same game via RTS-style click-to-select interaction.
 
 ### Key Components
-- **`/play`** - Lobby page listing all active games with live minimaps
-- **`/play/<game-id>/<snake-id>`** - Live interactive game page with board, Voronoi overlays, heuristic scores, move selection (click/arrow keys), submit (spacebar/button), countdown timer
-- **`src/server/active-game-manager.ts`** - In-memory singleton tracking active games, per-game+snake override state, pending move responses, and timeouts
-- **`src/server/websocket-server.ts`** - WebSocket server (via `ws` library) for real-time turn updates and move submissions
-- **`src/web/board-renderer.js`** - Shared rendering module used by both history.html and play pages (canvas board, Voronoi overlay, analytics table, move buttons)
-- **`src/routes/play.ts`** - REST API for active game listing
+- **`/play`** - Lobby page showing one card per unique game (full-width, sorted descending by start time), listing all controlled snakes within each card
+- **`/play/<game-id>`** - Unified live game page displaying shared board state with click-to-select snake control
+- **`src/server/active-game-manager.ts`** - In-memory singleton with `Map<gameId, ActiveGame>` data model. ActiveGame holds shared board state, controlled snakes with selection/commit state, connected users with colors, and color palette pool
+- **`src/server/websocket-server.ts`** - WebSocket server with per-game subscriptions, selection management, user connect/disconnect handling
+- **`src/web/board-renderer.js`** - Shared rendering module with unified `renderSnakeUnified` function supporting selection glow, outer borders (invulnerability), body fill, and inner borders (gold dotted for controlled snakes)
+- **`src/routes/play.ts`** - REST API for deduplicated game listing and per-game state
 
-### Override Flow
-1. Override defaults to OFF (bot plays fully automatically)
-2. When ON: `/move` endpoint holds the Express response, bot calculates its recommendation, broadcasts via WebSocket
-3. User can select a move and submit (or let timeout auto-submit the best-scored move)
-4. Server-side timer fires at `game.timeout - 200ms` as safety net
-5. Color-coded candidate moves (red-to-green spectrum) inform the human's decision
+### Multi-Snake Control Flow
+1. Each browser tab creates a sessionStorage-scoped UUID user entity
+2. Server assigns a distinct highlight color from a maximally-distinct palette
+3. Clicking a controlled snake's body/head selects it (sends `select-snake`)
+4. Selected snake shows score-colored candidate moves and active move buttons
+5. Unselected snakes run on auto-pilot (bot submits moves automatically)
+6. If another user already selected the snake, a confirmation dialog allows takeover
+7. When a move is committed: purple checkmark on destination cell, analytics frozen
+8. Timer shows estimated remaining time using server-measured ping to game server
+9. Arrow keys, Space, Escape work for move selection/submission/deselection
+
+### WebSocket Message Types
+- `subscribe-game` / `game-subscribed` - Per-game subscription with user color assignment
+- `select-snake` / `snake-selected` / `selection-contested` / `selection-revoked` / `selections-update` - Selection management
+- `board-update` - Shared board state per turn
+- `snake-turn-update` - Per-controlled-snake evaluations
+- `select-move` / `submit-move` / `move-submitted` / `move-committed` - Move control
+- `subscribe-lobby` / `lobby-update` - Lobby updates
 
 ### Deployment
 - Uses autoscale with max 1 machine (cost-efficient when idle, but ensures single-instance for WebSocket + in-memory state)

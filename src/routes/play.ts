@@ -7,34 +7,17 @@ router.get('/api/play/games', (req, res) => {
   const manager = ActiveGameManager.getInstance();
   const games = manager.getActiveGames();
   console.log(`[Play API] GET /api/play/games → ${games.length} active games`);
-  res.json(games.map(g => ({
-    gameId: g.gameId,
-    snakeId: g.snakeId,
-    snakeName: g.snakeName,
-    snakeEmoji: g.snakeEmoji,
-    overrideEnabled: g.overrideEnabled,
-    turn: g.turn,
-    gameState: g.gameState,
-    startedAt: g.startedAt
-  })));
+  res.json(games);
 });
 
-router.get('/api/play/game/:gameId/:snakeId', (req, res) => {
+router.get('/api/play/game/:gameId', (req, res) => {
   const manager = ActiveGameManager.getInstance();
-  const entry = manager.getGameEntry(req.params.gameId, req.params.snakeId);
-  if (!entry) {
+  const gameState = manager.getGameState(req.params.gameId);
+  if (!gameState) {
     res.status(404).json({ error: 'Game not found' });
     return;
   }
-  res.json({
-    gameId: entry.gameId,
-    snakeId: entry.snakeId,
-    snakeName: entry.snakeName,
-    snakeEmoji: entry.snakeEmoji,
-    overrideEnabled: entry.overrideEnabled,
-    gameState: entry.latestGameState,
-    turnData: entry.latestTurnData
-  });
+  res.json(gameState);
 });
 
 export default router;

@@ -150,8 +150,8 @@ class VoronoiStrategy {
             move: evaluation.move,
             score: evaluation.averageScore,
             numStates: evaluation.numStates,
+            projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
             breakdown: {
-                // New separate fields  
                 myLength: evaluation.averageBreakdown.stats.myLength,
                 myTerritory: evaluation.averageBreakdown.stats.myTerritory,
                 myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
@@ -174,7 +174,6 @@ class VoronoiStrategy {
                 allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
                 weights: evaluation.averageBreakdown.weights,
                 weighted: evaluation.averageBreakdown.weighted,
-                // Legacy fields for compatibility with old logs
                 fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,
                 foodDistanceInverse: evaluation.averageBreakdown.stats.foodProximity,
                 myFoodCount: evaluation.averageBreakdown.stats.myControlledFood,
@@ -220,8 +219,10 @@ class VoronoiStrategy {
         }
         return {
             move: decision.move,
-            safeMoves: decision.candidateMoves, // Return actual candidate moves
-            scores
+            safeMoves: decision.candidateMoves,
+            scores,
+            moveEvaluations,
+            territoryCells: territoryCellsObj
         };
     }
     logTurnInfo(gameState, decision) {

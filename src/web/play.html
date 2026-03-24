@@ -45,53 +45,40 @@
     }
     .no-games h2 { font-size: 24px; margin-bottom: 10px; }
     .no-games p { font-size: 14px; line-height: 1.6; }
-    .game-group {
-      margin-bottom: 24px;
-    }
-    .game-group-header {
-      display: flex; align-items: baseline; gap: 12px;
-      margin-bottom: 10px; padding-bottom: 6px;
-      border-bottom: 1px solid #333;
-    }
-    .game-group-id {
-      font-size: 11px; color: #666; word-break: break-all;
-    }
-    .game-group-time {
-      font-size: 12px; color: #4CAF50; white-space: nowrap;
-    }
-    .game-card-start-time {
-      font-size: 11px; color: #4CAF50; white-space: nowrap;
-    }
-    .game-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 15px;
-    }
     .game-card {
       background: #2a2a2a; border-radius: 8px; padding: 15px;
       border: 1px solid #444; cursor: pointer; transition: all 0.2s;
+      margin-bottom: 15px; display: flex; gap: 15px; align-items: stretch;
     }
     .game-card:hover { border-color: #4CAF50; transform: translateY(-2px); }
+    .game-card-info { flex: 1; min-width: 0; }
     .game-card-header {
       display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
-    .game-card-title { font-weight: 600; font-size: 15px; }
+    .game-card-id {
+      font-size: 11px; color: #666; word-break: break-all;
+      margin-bottom: 8px;
+    }
+    .game-card-time {
+      font-size: 12px; color: #4CAF50; white-space: nowrap;
+    }
     .game-card-turn { font-size: 12px; color: #888; }
-    .game-card-ids {
-      font-size: 11px; color: #666; margin-bottom: 10px;
-      word-break: break-all; line-height: 1.4;
+    .game-card-snakes {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .controlled-snake-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #333; padding: 4px 10px; border-radius: 12px;
+      font-size: 13px; border: 1px solid #555;
+    }
+    .game-card-minimap {
+      width: 150px; min-width: 150px; flex-shrink: 0;
     }
     .game-card-canvas {
       width: 100%; aspect-ratio: 1; border: 1px solid #444;
       border-radius: 4px; background: #ffffff;
     }
-    .override-badge {
-      display: inline-block; padding: 2px 8px; border-radius: 10px;
-      font-size: 11px; font-weight: 600;
-    }
-    .override-badge.active { background: #2e7d32; color: #c8e6c9; }
-    .override-badge.inactive { background: #444; color: #888; }
   </style>
 </head>
 <body>
@@ -201,72 +188,49 @@
 
       statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
 
-      const groupMap = new Map();
-      for (const game of games) {
-        if (!groupMap.has(game.gameId)) {
-          groupMap.set(game.gameId, { startedAt: game.startedAt, entries: [] });
-        }
-        const group = groupMap.get(game.gameId);
-        if (game.startedAt && game.startedAt < group.startedAt) {
-          group.startedAt = game.startedAt;
-        }
-        group.entries.push(game);
-      }
-
-      const groups = Array.from(groupMap.values());
-      groups.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+      const sorted = [...games].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
 
       let html = '';
-      for (const group of groups) {
-        const startLabel = formatStartTime(group.startedAt);
-        html += `<div class="game-group">`;
-        html += `<div class="game-group-header">`;
-        html += `<span class="game-group-id">${group.entries[0].gameId}</span>`;
-        if (startLabel) {
-          html += `<span class="game-group-time">${startLabel}</span>`;
-        }
-        html += `</div>`;
-        html += `<div class="game-grid">`;
-        for (const game of group.entries) {
-          html += `
-        <div class="game-card" onclick="openGame('${game.gameId}', '${game.snakeId}')">
-          <div class="game-card-header">
-            <span class="game-card-title">${game.snakeEmoji || '\u{1F40D}'} ${game.snakeName || 'Snake'}</span>
-            <span class="game-card-turn">Turn ${game.turn}</span>
+      for (const game of sorted) {
+        const startLabel = formatStartTime(game.startedAt);
+        const snakeTags = (game.controlledSnakes || []).map(s =>
+          `<span class="controlled-snake-tag">${s.emoji || '\u{1F40D}'} ${s.name || 'Snake'}</span>`
+        ).join('');
+
+        html += `
+        <div class="game-card" onclick="openGame('${game.gameId}')">
+          <div class="game-card-info">
+            <div class="game-card-header">
+              <span class="game-card-turn">Turn ${game.turn}</span>
+              ${startLabel ? `<span class="game-card-time">${startLabel}</span>` : ''}
+            </div>
+            <div class="game-card-id">${game.gameId}</div>
+            <div class="game-card-snakes">${snakeTags}</div>
           </div>
-          <div class="game-card-ids">
-            <span style="font-size: 0.85em; color: #888;">Snake: ${game.snakeId}</span><br>
-            Game: ${game.gameId}
+          <div class="game-card-minimap">
+            <canvas class="game-card-canvas" id="minimap-${game.gameId}" width="200" height="200"></canvas>
           </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span class="override-badge ${game.overrideEnabled ? 'active' : 'inactive'}">
-              ${game.overrideEnabled ? 'Override ON' : 'Auto'}
-            </span>
-            ${startLabel ? `<span class="game-card-start-time">${startLabel}</span>` : ''}
-          </div>
-          <canvas class="game-card-canvas" id="minimap-${game.gameId}-${game.snakeId}" width="200" height="200"></canvas>
         </div>`;
-        }
-        html += `</div></div>`;
       }
       container.innerHTML = html;
 
       requestAnimationFrame(() => {
-        games.forEach(game => {
+        sorted.forEach(game => {
           if (game.gameState) {
-            const canvas = document.getElementById(`minimap-${game.gameId}-${game.snakeId}`);
+            const canvas = document.getElementById(`minimap-${game.gameId}`);
             if (canvas) {
               canvas.width = canvas.clientWidth;
               canvas.height = canvas.clientHeight;
-              BoardRenderer.renderMinimap(canvas, game.gameState, game.snakeId);
+              const ourIds = (game.controlledSnakes || []).map(s => s.id);
+              BoardRenderer.renderMinimap(canvas, game.gameState, ourIds);
             }
           }
         });
       });
     }
 
-    function openGame(gameId, snakeId) {
-      window.location.href = `/play/${gameId}/${snakeId}`;
+    function openGame(gameId) {
+      window.location.href = `/play/${gameId}`;
     }
 
     connectWebSocket();

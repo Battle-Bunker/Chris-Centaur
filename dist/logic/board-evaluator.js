@@ -107,12 +107,14 @@ class BoardEvaluator {
         const graph = new board_graph_1.BoardGraph(gameState, this.graphConfig);
         const bfs = new multi_source_bfs_1.MultiSourceBFS(graph);
         // Prepare BFS sources
+        const simulatedSnakeIds = ctx?.simulatedSnakeIds;
         const sources = board.snakes
             .filter((s) => s.health > 0)
             .map((s) => ({
             id: s.id,
             position: s.head,
-            isTeam: teamSnakeIds.has(s.id)
+            isTeam: teamSnakeIds.has(s.id),
+            startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0
         }));
         // Run the single-pass BFS with optimistic passability
         // Territory calculations always use optimistic mode (body segments disappear over time)
@@ -249,11 +251,16 @@ class BoardEvaluator {
             ownBodyCells.add(graph.coordToKey(snake.body[i]));
         }
         // Build a set of other snakes' tails to block (we can chase our own tail, not others')
+        // Skip tails of snakes with lower invulnerability level than ours (their bodies are passable)
+        const ourInvulnerability = snake.invulnerabilityLevel ?? 0;
         const otherSnakeTails = new Set();
         for (const otherSnake of allSnakes) {
             if (otherSnake.health <= 0)
                 continue;
             if (otherSnake.id === snake.id)
+                continue;
+            // If we can sever through this snake, its tail is not an additional blocker
+            if ((otherSnake.invulnerabilityLevel ?? 0) < ourInvulnerability)
                 continue;
             const tail = otherSnake.body[otherSnake.body.length - 1];
             otherSnakeTails.add(graph.coordToKey(tail));

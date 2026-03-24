@@ -9,6 +9,7 @@ const move_analyzer_1 = require("./move-analyzer");
 const board_evaluator_1 = require("./board-evaluator");
 const simulator_1 = require("./simulator");
 const board_graph_1 = require("./board-graph");
+const multi_source_bfs_1 = require("./multi-source-bfs");
 class DecisionEngine {
     constructor(config) {
         this.lastFoodSetByGameId = new Map();
@@ -63,6 +64,30 @@ class DecisionEngine {
                     allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
                 }
             });
+            // Compute projected territory for the single move
+            const singleMovePos = this.getMovePosition(gameState.you.head, ourMoves[0]);
+            const singleProjSources = [{
+                    id: gameState.you.id,
+                    position: singleMovePos,
+                    isTeam: true,
+                    startDelay: 1
+                }];
+            for (const snake of gameState.board.snakes) {
+                if (snake.id === gameState.you.id || snake.health <= 0)
+                    continue;
+                singleProjSources.push({
+                    id: snake.id,
+                    position: snake.head,
+                    isTeam: teamSnakeIds.has(snake.id),
+                    startDelay: 0
+                });
+            }
+            const singleProjBfs = new multi_source_bfs_1.MultiSourceBFS(graph);
+            const singleProjResult = singleProjBfs.compute(singleProjSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+            const singleProjTerritory = {};
+            for (const [snakeId, cells] of singleProjResult.territoryCells) {
+                singleProjTerritory[snakeId] = cells;
+            }
             // Update food set for next turn
             this.lastFoodSetByGameId.set(gameId, currentFoodSet);
             return {
@@ -72,7 +97,8 @@ class DecisionEngine {
                         move: ourMoves[0],
                         averageScore: evaluation.score,
                         numStates: 1,
-                        averageBreakdown: evaluation
+                        averageBreakdown: evaluation,
+                        projectedTerritoryCells: singleProjTerritory
                     }],
                 h2hRiskByMove: moveAnalysis.h2hRiskByMove
             };
@@ -107,7 +133,8 @@ class DecisionEngine {
             for (const state of moveStates) {
                 const evaluation = this.boardEvaluator.evaluateBoard(state.gameState, gameState.you.id, teamSnakeIds, {
                     prevFoodSet: currentFoodSet, // Current food is "previous" from simulated state's perspective
-                    h2hRisk: h2hRiskCtx // Pass h2h risk to evaluator
+                    h2hRisk: h2hRiskCtx, // Pass h2h risk to evaluator
+                    simulatedSnakeIds: state.simulatedSnakeIds // Snakes that were simulated get startDelay: 1
                 });
                 totalScore += evaluation.score;
                 allEvaluations.push(evaluation);
@@ -125,6 +152,40 @@ class DecisionEngine {
                 bestScore = averageScore;
                 bestMove = move;
             }
+        }
+        // Compute projected territory per move (asymmetric BFS)
+        const teamSnakeIdsForBFS = new Set();
+        const teams = gameState.board.snakes.filter((s) => s.health > 0 && teamSnakeIds.has(s.id));
+        for (const s of teams)
+            teamSnakeIdsForBFS.add(s.id);
+        for (const evalResult of evaluations) {
+            const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
+            if (!candidatePos)
+                continue;
+            const projSources = [];
+            projSources.push({
+                id: gameState.you.id,
+                position: candidatePos,
+                isTeam: true,
+                startDelay: 1
+            });
+            for (const snake of gameState.board.snakes) {
+                if (snake.id === gameState.you.id || snake.health <= 0)
+                    continue;
+                projSources.push({
+                    id: snake.id,
+                    position: snake.head,
+                    isTeam: teamSnakeIds.has(snake.id),
+                    startDelay: 0
+                });
+            }
+            const projBfs = new multi_source_bfs_1.MultiSourceBFS(graph);
+            const projResult = projBfs.compute(projSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+            const projTerritoryCells = {};
+            for (const [snakeId, cells] of projResult.territoryCells) {
+                projTerritoryCells[snakeId] = cells;
+            }
+            evalResult.projectedTerritoryCells = projTerritoryCells;
         }
         // Update food set for next turn
         this.lastFoodSetByGameId.set(gameId, currentFoodSet);
@@ -176,6 +237,11 @@ class DecisionEngine {
             }
             // Snakes beyond nearbyDistance are frozen (not included in simulation)
         }
+        // Build the set of simulated snake IDs (our snake + nearby snakes)
+        const simulatedSnakeIds = new Set([gameState.you.id]);
+        for (const snake of nearbySnakes) {
+            simulatedSnakeIds.add(snake.id);
+        }
         // For each of our moves
         for (const ourMove of ourMoves) {
             // Check time budget
@@ -210,7 +276,8 @@ class DecisionEngine {
                 };
                 results.push({
                     ourMove,
-                    gameState: nextGameState
+                    gameState: nextGameState,
+                    simulatedSnakeIds
                 });
             }
         }
@@ -255,6 +322,14 @@ class DecisionEngine {
      */
     manhattanDistance(a, b) {
         return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    }
+    getMovePosition(head, direction) {
+        switch (direction) {
+            case 'up': return { x: head.x, y: head.y + 1 };
+            case 'down': return { x: head.x, y: head.y - 1 };
+            case 'left': return { x: head.x - 1, y: head.y };
+            case 'right': return { x: head.x + 1, y: head.y };
+        }
     }
     /**
      * Average multiple board evaluations.
