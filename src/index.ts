@@ -197,8 +197,6 @@ app.get('/play/:gameId', (req, res) => {
 });
 
 const httpServer = createServer(app);
-httpServer.timeout = 0;
-httpServer.keepAliveTimeout = 65000;
 
 const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);

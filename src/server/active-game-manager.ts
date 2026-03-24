@@ -473,15 +473,15 @@ export class ActiveGameManager {
     }
 
     const bufferMs = 100;
-    const timeoutMs = Math.max(gameTimeout - bufferMs, 50);
-
-    res.setTimeout(0);
-    if (res.socket) {
-      res.socket.setTimeout(0);
+    let timeoutMs: number;
+    if (serverExpiryTime) {
+      const now = Date.now();
+      timeoutMs = Math.max(serverExpiryTime - now - bufferMs, 50);
+    } else {
+      timeoutMs = Math.max(gameTimeout - bufferMs, 50);
     }
-
     if (game.currentTurn === 0) {
-      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: gameTimeout=${gameTimeout}ms, serverExpiryTime=${serverExpiryTime}, httpDeadline=${timeoutMs}ms`);
+      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: serverExpiryTime=${serverExpiryTime}, gameTimeout=${gameTimeout}ms, firing in ${timeoutMs}ms`);
     }
 
     const pending: PendingMove = {
