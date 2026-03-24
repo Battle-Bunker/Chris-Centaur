@@ -331,7 +331,6 @@
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
     let analyticsFrozen = false;
-    let autoAdvancePending = false;
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -454,7 +453,6 @@
         case 'snake-selected': {
           if (msg.snakeId) {
             selectedSnakeId = msg.snakeId;
-            autoAdvancePending = false;
             if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
                 turnData: msg.turnData,
@@ -534,13 +532,6 @@
               updateMoveControls();
               renderGameBoard();
 
-              if (!autoAdvancePending) {
-                const nextSnakeId = findNextUncommittedSnake(msg.snakeId);
-                if (nextSnakeId && ws && ws.readyState === WebSocket.OPEN) {
-                  autoAdvancePending = true;
-                  ws.send(JSON.stringify({ type: 'select-snake', snakeId: nextSnakeId }));
-                }
-              }
             }
           }
           break;
@@ -799,17 +790,6 @@
       }
     }
 
-    function findNextUncommittedSnake(excludeId) {
-      for (const snakeId of controlledSnakeIds) {
-        if (snakeId === excludeId) continue;
-        const csData = controlledSnakeTurnData[snakeId];
-        if (!csData || !csData.moveCommitted) {
-          return snakeId;
-        }
-      }
-      return null;
-    }
-
     function submitMove() {
       if (moveSubmitted || !selectedSnakeId) return;
       const moveToSubmit = userSelectedMove || getBestBotMove();
@@ -831,11 +811,6 @@
         updateMoveControls();
         renderGameBoard();
 
-        const nextSnakeId = findNextUncommittedSnake(submittedSnakeId);
-        if (nextSnakeId) {
-          autoAdvancePending = true;
-          ws.send(JSON.stringify({ type: 'select-snake', snakeId: nextSnakeId }));
-        }
       }
     }
 
