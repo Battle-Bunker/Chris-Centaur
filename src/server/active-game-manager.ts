@@ -1,5 +1,7 @@
 import { GameState, Direction } from '../types/battlesnake';
 import { Response } from 'express';
+import { ConfigStore } from './configStore';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 export interface MoveEvaluation {
   move: Direction;
@@ -87,8 +89,12 @@ export class ActiveGameManager {
   private gameListChangeCallbacks: GameListChangeCallback[] = [];
   private gameServerPing: number = 50;
   private pingInterval: NodeJS.Timer | null = null;
+  private configStore: ConfigStore = new ConfigStore();
+  private cachedAutoFirstMove: boolean = DEFAULT_CONFIG.autoFirstMove;
 
-  private constructor() {}
+  private constructor() {
+    this.refreshAutoFirstMoveConfig();
+  }
 
   static getInstance(): ActiveGameManager {
     if (!ActiveGameManager.instance) {
@@ -559,7 +565,7 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
       this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
     } else if (game.currentTurn === 0 && !controlled.selectedBy) {
-      console.log(`[ActiveGameManager] Turn 0 override: holding ${gameId}:${snakeId} for manual control (bot recommends ${move})`);
+      this.handleFirstTurnAutoPilot(gameId, snakeId, move, controlled);
     }
 
     if (boardUpdated) {
@@ -591,6 +597,23 @@ export class ActiveGameManager {
     controlled.pendingMove.userSelectedMove = move;
     this.resolvePendingMove(gameId, snakeId, move, 'user-selection');
     return true;
+  }
+
+  private refreshAutoFirstMoveConfig(): void {
+    this.configStore.get('autoFirstMove').then(value => {
+      this.cachedAutoFirstMove = value !== undefined ? value : DEFAULT_CONFIG.autoFirstMove;
+    }).catch(() => {});
+  }
+
+  private handleFirstTurnAutoPilot(gameId: string, snakeId: string, move: Direction, controlled: ControlledSnake): void {
+    this.refreshAutoFirstMoveConfig();
+    
+    if (this.cachedAutoFirstMove && controlled.pendingMove && !controlled.pendingMove.resolved) {
+      console.log(`[ActiveGameManager] Auto-pilot (autoFirstMove enabled) for ${gameId}:${snakeId}: submitting ${move} on turn 0`);
+      this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
+    } else {
+      console.log(`[ActiveGameManager] Turn 0 override: holding ${gameId}:${snakeId} for manual control (bot recommends ${move})`);
+    }
   }
 
   updateGameState(gameId: string, snakeId: string, gameState: GameState): void {

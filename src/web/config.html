@@ -459,6 +459,22 @@
                         </div>
                     </div>
                     
+                    <!-- Centaur Play Mode -->
+                    <div class="config-section">
+                        <h3><span>🎮</span>Centaur Play Mode</h3>
+                        
+                        <div class="config-item">
+                            <label for="autoFirstMove">First Move Behavior</label>
+                            <div class="input-group" style="justify-content: flex-start;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 1rem; color: #333;">
+                                    <input type="checkbox" id="autoFirstMove" style="width: 20px; height: 20px; cursor: pointer;">
+                                    <span>Fully automatic from first move</span>
+                                </label>
+                            </div>
+                            <div class="description">When OFF, bots wait for human input on the first turn. When ON, bots play automatically from the very first move (pure bot mode).</div>
+                        </div>
+                    </div>
+                    
                     <!-- Simulation Parameters -->
                     <div class="config-section">
                         <h3><span>⚙️</span>Simulation Parameters</h3>
@@ -505,7 +521,7 @@
         let currentConfig = {};
         let defaults = {};
         
-        // List of all configuration keys
+        // List of all numeric configuration keys
         const configKeys = [
             'myLength', 'myTerritory', 'myControlledFood', 'myControlledFertile',
             'teamLength', 'teamTerritory', 'teamControlledFood',
@@ -517,6 +533,8 @@
             'enemyH2HRisk', 'allyH2HRisk',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
+        
+        const booleanConfigKeys = ['autoFirstMove'];
         
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', () => {
@@ -592,6 +610,13 @@
                     }
                 });
                 
+                booleanConfigKeys.forEach(key => {
+                    const checkbox = document.getElementById(key);
+                    if (checkbox && currentConfig[key] !== undefined) {
+                        checkbox.checked = currentConfig[key];
+                    }
+                });
+                
                 document.getElementById('configContainer').style.display = 'block';
                 showAlert('Configuration loaded successfully', 'info');
             } catch (error) {
@@ -614,6 +639,12 @@
                     const input = document.getElementById(key);
                     if (input) {
                         updates[key] = parseFloat(input.value);
+                    }
+                });
+                booleanConfigKeys.forEach(key => {
+                    const checkbox = document.getElementById(key);
+                    if (checkbox) {
+                        updates[key] = checkbox.checked;
                     }
                 });
                 

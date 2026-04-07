@@ -47,6 +47,9 @@ export interface GameConfig {
   
   // Optimistic passability lookahead (turns to predict body segment disappearance)
   maxLookaheadTurns: number;
+  
+  // Centaur play mode settings
+  autoFirstMove: boolean;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -92,5 +95,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   nearbyDistance: 5,  // Focal distance: snakes within this distance have all moves enumerated; snakes beyond are frozen
   
   // Optimistic passability lookahead
-  maxLookaheadTurns: 5
+  maxLookaheadTurns: 5,
+  
+  // Centaur play mode settings
+  autoFirstMove: false
 };

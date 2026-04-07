@@ -52,11 +52,17 @@ router.post('/api/config', async (req, res) => {
       });
     }
     
-    // Validate numeric values
+    // Validate value types
     for (const [key, value] of Object.entries(updates)) {
-      if (typeof DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] === 'number' && typeof value !== 'number') {
+      const defaultValue = DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG];
+      if (typeof defaultValue === 'number' && typeof value !== 'number') {
         return res.status(400).json({ 
           error: `Configuration key '${key}' must be a number` 
+        });
+      }
+      if (typeof defaultValue === 'boolean' && typeof value !== 'boolean') {
+        return res.status(400).json({ 
+          error: `Configuration key '${key}' must be a boolean` 
         });
       }
     }
