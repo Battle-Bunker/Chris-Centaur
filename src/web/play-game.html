@@ -461,7 +461,7 @@
               };
             }
             moveSubmitted = msg.moveCommitted || false;
-            userSelectedMove = null;
+            userSelectedMove = msg.stagedMove || null;
             analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();

@@ -152,6 +152,7 @@ export class GameWebSocketServer {
               moveCommitted: controlled.moveCommittedThisTurn,
               committedMove: controlled.committedMove,
               botRecommendation: controlled.botRecommendation,
+              stagedMove: controlled.pendingMove?.userSelectedMove || null,
             });
           }
         } else if (result.contestedBy) {
