@@ -479,7 +479,7 @@ export class ActiveGameManager {
       this.resolvePendingMove(gameId, snakeId, cleanupMove, 'previous-turn-cleanup');
     }
 
-    const bufferMs = 100;
+    const bufferMs = 5000;
     let timeoutMs: number;
     if (serverExpiryTime) {
       const now = Date.now();
