@@ -317,8 +317,8 @@ export class ActiveGameManager {
     if (controlled && controlled.selectedBy === userId) {
       controlled.selectedBy = null;
 
-      if (game.currentTurn > 0 && controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.botMove) {
-        console.log(`[ActiveGameManager] Auto-pilot-deselect for ${gameId}:${snakeId}: submitting ${controlled.pendingMove.botMove}`);
+      if (controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.botMove) {
+        console.log(`[ActiveGameManager] Auto-pilot-deselect for ${gameId}:${snakeId}: submitting ${controlled.pendingMove.botMove} (turn ${game.currentTurn})`);
         this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove, 'auto-pilot-deselect');
       }
     }
@@ -472,7 +472,11 @@ export class ActiveGameManager {
     if (!controlled) throw new Error(`Snake ${snakeId} not controlled in game ${gameId}`);
 
     if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove || 'up', 'previous-turn-cleanup');
+      const oldPending = controlled.pendingMove;
+      const cleanupMove = oldPending.userSelectedMove || oldPending.botMove || 'up';
+      const cleanupSource = oldPending.userSelectedMove ? 'user-selected' : (oldPending.botMove ? 'bot' : 'fallback');
+      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId}: using ${cleanupMove} (${cleanupSource}, userSelected=${oldPending.userSelectedMove}, bot=${oldPending.botMove})`);
+      this.resolvePendingMove(gameId, snakeId, cleanupMove, 'previous-turn-cleanup');
     }
 
     const bufferMs = 100;
@@ -483,9 +487,7 @@ export class ActiveGameManager {
     } else {
       timeoutMs = Math.max(gameTimeout - bufferMs, 50);
     }
-    if (game.currentTurn === 0) {
-      console.log(`[ActiveGameManager] Turn 0 safety timer for ${gameId}:${snakeId}: serverExpiryTime=${serverExpiryTime}, gameTimeout=${gameTimeout}ms, firing in ${timeoutMs}ms`);
-    }
+    console.log(`[ActiveGameManager] Safety timer set for ${gameId}:${snakeId} turn ${game.currentTurn}: serverExpiryTime=${serverExpiryTime}, gameTimeout=${gameTimeout}ms, firing in ${timeoutMs}ms`);
 
     const pending: PendingMove = {
       res,
@@ -493,8 +495,10 @@ export class ActiveGameManager {
         if (!pending.resolved) {
           const move = pending.userSelectedMove || pending.botMove || 'up';
           const source = pending.userSelectedMove ? 'user-selection' : (pending.botMove ? 'bot-recommendation' : 'fallback');
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}: using ${move} (source: ${source})`);
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}: using ${move} (source: ${source}, userSelected=${pending.userSelectedMove}, bot=${pending.botMove}, selectedBy=${controlled.selectedBy})`);
           this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
+        } else {
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
         }
       }, timeoutMs),
       turnData: null,
@@ -577,6 +581,7 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (controlled?.pendingMove && !controlled.pendingMove.resolved) {
       controlled.pendingMove.userSelectedMove = move;
+      console.log(`[ActiveGameManager] User selected move for ${gameId}:${snakeId}: ${move} (turn ${game.currentTurn}, not yet committed)`);
     }
   }
 
