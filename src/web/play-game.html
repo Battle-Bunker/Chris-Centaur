@@ -954,12 +954,20 @@
 
       switch (e.key) {
         case 'ArrowUp':
+        case 'w':
+        case 'W':
           e.preventDefault(); selectMove('up'); break;
         case 'ArrowDown':
+        case 's':
+        case 'S':
           e.preventDefault(); selectMove('down'); break;
         case 'ArrowLeft':
+        case 'a':
+        case 'A':
           e.preventDefault(); selectMove('left'); break;
         case 'ArrowRight':
+        case 'd':
+        case 'D':
           e.preventDefault(); selectMove('right'); break;
         case ' ':
           e.preventDefault(); submitMove(); break;
