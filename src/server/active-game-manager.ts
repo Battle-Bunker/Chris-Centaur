@@ -317,9 +317,9 @@ export class ActiveGameManager {
     if (controlled && controlled.selectedBy === userId) {
       controlled.selectedBy = null;
 
-      if (controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.botMove) {
-        console.log(`[ActiveGameManager] Auto-pilot-deselect for ${gameId}:${snakeId}: submitting ${controlled.pendingMove.botMove} (turn ${game.currentTurn})`);
-        this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove, 'auto-pilot-deselect');
+      if (controlled.pendingMove && !controlled.pendingMove.resolved) {
+        const staged = controlled.pendingMove.userSelectedMove;
+        console.log(`[ActiveGameManager] Snake deselected ${gameId}:${snakeId} (turn ${game.currentTurn}), staged move=${staged || 'none'} — waiting for safety timer or reselection`);
       }
     }
     user.selectedSnakeId = null;
