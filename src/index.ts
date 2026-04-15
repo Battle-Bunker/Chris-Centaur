@@ -82,7 +82,7 @@ app.post('/move', async (req, res) => {
   const gameTimeout = gameState.game.timeout || 500;
   const turnExpiryTime = (gameState.game as any).turnExpiryTime || null;
   gameManager.recordTurnArrival(gameId, arrivalTime, gameTimeout, turnExpiryTime);
-  const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout, turnExpiryTime);
+  const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout, turnExpiryTime, gameState.turn);
 
   if (gameState.turn === 0) {
     try {

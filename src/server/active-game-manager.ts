@@ -464,7 +464,7 @@ export class ActiveGameManager {
     };
   }
 
-  setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number, serverExpiryTime: number | null = null): PendingMove {
+  setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number, serverExpiryTime: number | null = null, turn: number = 0): PendingMove {
     const game = this.games.get(gameId);
     if (!game) throw new Error(`Game ${gameId} not registered`);
 
@@ -479,7 +479,7 @@ export class ActiveGameManager {
       this.resolvePendingMove(gameId, snakeId, cleanupMove, 'previous-turn-cleanup');
     }
 
-    const bufferMs = 5000;
+    const bufferMs = turn === 0 ? 5000 : 100;
     let timeoutMs: number;
     if (serverExpiryTime) {
       const now = Date.now();
