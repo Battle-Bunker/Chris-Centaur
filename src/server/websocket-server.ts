@@ -195,6 +195,23 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'suicide-all': {
+        if (!client.gameId || !client.userId) break;
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2, '0');
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        const expected = `${dd}/${mm}/${yyyy}`;
+        if (msg.password !== expected) {
+          this.send(client.ws, { type: 'suicide-result', success: false, error: 'Invalid password' });
+          break;
+        }
+        const result = this.gameManager.suicideAllSnakes(client.gameId);
+        this.send(client.ws, { type: 'suicide-result', success: true, affected: result.affected });
+        this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'select-move': {
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;

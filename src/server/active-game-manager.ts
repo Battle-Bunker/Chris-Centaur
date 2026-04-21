@@ -46,6 +46,7 @@ export interface ControlledSnake {
   moveCommittedThisTurn: boolean;
   committedMove: Direction | null;
   holdTurnsRemaining: number;
+  suicideArmed: boolean;
 }
 
 export interface ConnectedUser {
@@ -240,6 +241,7 @@ export class ActiveGameManager {
         moveCommittedThisTurn: false,
         committedMove: null,
         holdTurnsRemaining: 0,
+        suicideArmed: false,
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
@@ -364,6 +366,29 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Released holds for game ${gameId}: ${released.join(', ')}`);
     }
     return { released };
+  }
+
+  suicideAllSnakes(gameId: string): { affected: string[] } {
+    const game = this.games.get(gameId);
+    if (!game) return { affected: [] };
+
+    const affected: string[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      controlled.suicideArmed = true;
+      controlled.holdTurnsRemaining = 0;
+      affected.push(snakeId);
+
+      if (controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.turnData) {
+        const move = computeSuicideMove(controlled.pendingMove.turnData.gameState);
+        console.log(`[ActiveGameManager] SUICIDE: immediately submitting ${move} for ${gameId}:${snakeId}`);
+        controlled.suicideArmed = false;
+        this.resolvePendingMove(gameId, snakeId, move, 'suicide');
+      }
+    }
+    if (affected.length > 0) {
+      console.log(`[ActiveGameManager] SUICIDE armed for game ${gameId}: ${affected.join(', ')}`);
+    }
+    return { affected };
   }
 
   getHoldStates(gameId: string): { [snakeId: string]: number } {
@@ -647,7 +672,12 @@ export class ActiveGameManager {
       controlled.pendingMove.turnData = turnData;
     }
 
-    if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
+    if (controlled.suicideArmed && controlled.pendingMove && !controlled.pendingMove.resolved) {
+      const suicideMove = computeSuicideMove(turnData.gameState);
+      console.log(`[ActiveGameManager] SUICIDE: submitting ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
+      controlled.suicideArmed = false;
+      this.resolvePendingMove(gameId, snakeId, suicideMove, 'suicide');
+    } else if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
       console.log(`[ActiveGameManager] Hold active for ${gameId}:${snakeId} (${controlled.holdTurnsRemaining} turns remaining): deferring auto-pilot, safety timer will submit ${move} at end of turn`);
     } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
       console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
@@ -777,4 +807,27 @@ export class ActiveGameManager {
       }
     }, intervalMs);
   }
+}
+
+function computeSuicideMove(gameState: GameState): Direction {
+  const you = gameState.you;
+  const head = you.body[0];
+  const neck = you.body[1];
+  if (neck && (neck.x !== head.x || neck.y !== head.y)) {
+    if (neck.x < head.x) return "left";
+    if (neck.x > head.x) return "right";
+    if (neck.y < head.y) return "down";
+    return "up";
+  }
+  const w = gameState.board.width;
+  const h = gameState.board.height;
+  const distLeft = head.x;
+  const distRight = w - 1 - head.x;
+  const distDown = head.y;
+  const distUp = h - 1 - head.y;
+  const min = Math.min(distLeft, distRight, distDown, distUp);
+  if (min === distLeft) return "left";
+  if (min === distRight) return "right";
+  if (min === distDown) return "down";
+  return "up";
 }

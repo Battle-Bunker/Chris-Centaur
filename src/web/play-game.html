@@ -234,6 +234,7 @@
             <div style="display: flex; align-items: center; gap: 8px;">
               <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
               <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
+              <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
             </div>
@@ -520,6 +521,14 @@
             userSelectedMove = null;
             analyticsFrozen = false;
             hideSelectionUI();
+          }
+          break;
+
+        case 'suicide-result':
+          if (msg.success) {
+            alert(`Suicide armed for ${(msg.affected || []).length} snake(s).`);
+          } else {
+            alert(`Suicide failed: ${msg.error || 'unknown error'}`);
           }
           break;
 
@@ -941,6 +950,13 @@
       renderSnakeInfo();
       updateMoveControls();
       updateReleaseAllButton();
+    }
+
+    function suicideAll() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const password = window.prompt("Enter today's date as DD/MM/YYYY to confirm SUICIDE ALL:");
+      if (password === null) return;
+      ws.send(JSON.stringify({ type: 'suicide-all', password: password }));
     }
 
     function releaseAllHolds() {
