@@ -337,6 +337,7 @@
     let contestedSnakeId = null;
     let analyticsFrozen = false;
     let holds = {};
+    let stagedMoves = {};
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -401,6 +402,9 @@
           if (msg.holds) {
             holds = msg.holds;
           }
+          if (msg.stagedMoves) {
+            stagedMoves = msg.stagedMoves;
+          }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
           if (currentGameState) {
@@ -419,6 +423,7 @@
           if (msg.holds) {
             holds = msg.holds;
           }
+          stagedMoves = msg.stagedMoves || {};
           updateReleaseAllButton();
 
           for (const snakeId of controlledSnakeIds) {
@@ -489,6 +494,9 @@
           connectedUsers = msg.connectedUsers || [];
           if (msg.holds) {
             holds = msg.holds;
+          }
+          if (msg.stagedMoves) {
+            stagedMoves = msg.stagedMoves;
           }
           renderConnectedUsers();
           renderGameBoard();
@@ -688,6 +696,7 @@
         controlledSnakeIds: controlledSnakeIds,
         selectionGlows: selectionGlows,
         holds: holds,
+        stagedMoves: stagedMoves,
       });
 
       if (selectedSnakeId && moveState && !moveSubmitted) {

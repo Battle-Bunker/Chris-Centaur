@@ -781,19 +781,36 @@ const BoardRenderer = (function () {
         }
       }
 
+      const stagedMoves = options?.stagedMoves || {};
+      const stagedForThisSnake = stagedMoves[snake.id];
+      let arrowMove = null;
+      let arrowColor = "#4CAF50";
+      let arrowCommitted = false;
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
+        arrowMove = chosenMove;
+      } else if (stagedForThisSnake) {
+        arrowMove = stagedForThisSnake.move;
+        arrowColor = stagedForThisSnake.color || "#4CAF50";
+        arrowCommitted = !!stagedForThisSnake.committed;
+      }
+      if (arrowMove) {
         const shead = snake.body[0];
         if (shead) {
           const x = shead.x * cellSize;
           const y = (board.height - 1 - shead.y) * cellSize;
-          ctx.strokeStyle = "#4CAF50";
+          ctx.strokeStyle = arrowColor;
           ctx.lineWidth = 3;
+          if (arrowCommitted) {
+            ctx.setLineDash([]);
+          } else {
+            ctx.setLineDash([cellSize * 0.15, cellSize * 0.1]);
+          }
           ctx.beginPath();
           const centerX = x + cellSize / 2;
           const centerY = y + cellSize / 2;
           let endX = centerX;
           let endY = centerY;
-          switch (chosenMove) {
+          switch (arrowMove) {
             case "up":
               endY -= cellSize * 0.7;
               break;
@@ -810,6 +827,7 @@ const BoardRenderer = (function () {
           ctx.moveTo(centerX, centerY);
           ctx.lineTo(endX, endY);
           ctx.stroke();
+          ctx.setLineDash([]);
           const angle = Math.atan2(endY - centerY, endX - centerX);
           ctx.beginPath();
           ctx.moveTo(endX, endY);
@@ -822,7 +840,7 @@ const BoardRenderer = (function () {
             endY - 10 * Math.sin(angle + Math.PI / 6),
           );
           ctx.closePath();
-          ctx.fillStyle = "#4CAF50";
+          ctx.fillStyle = arrowColor;
           ctx.fill();
         }
       }

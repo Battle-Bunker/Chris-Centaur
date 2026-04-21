@@ -62,6 +62,7 @@ export class GameWebSocketServer {
         measuredPing: this.gameManager.getMeasuredPing(),
         selections: this.getSelectionsForGame(gameId),
         holds: this.gameManager.getHoldStates(gameId),
+        stagedMoves: this.getStagedMovesForGame(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -220,6 +221,7 @@ export class GameWebSocketServer {
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
             this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
+            this.broadcastSelectionsUpdate(client.gameId);
           }
         }
         break;
@@ -249,6 +251,7 @@ export class GameWebSocketServer {
             move: msg.move,
             snakeId,
           });
+          if (success) this.broadcastSelectionsUpdate(client.gameId);
         }
         break;
       }
@@ -308,6 +311,24 @@ export class GameWebSocketServer {
     return selections;
   }
 
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string } } {
+    const game = this.gameManager.getGame(gameId);
+    if (!game) return {};
+
+    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string } } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      const userColor = cs.selectedBy
+        ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
+        : '#4CAF50';
+      if (cs.moveCommittedThisTurn && cs.committedMove) {
+        staged[snakeId] = { move: cs.committedMove, committed: true, color: userColor };
+      } else if (cs.pendingMove && !cs.pendingMove.resolved && cs.pendingMove.userSelectedMove) {
+        staged[snakeId] = { move: cs.pendingMove.userSelectedMove, committed: false, color: userColor };
+      }
+    }
+    return staged;
+  }
+
   private broadcastSelectionsUpdate(gameId: string): void {
     const game = this.gameManager.getGame(gameId);
     if (!game) return;
@@ -315,12 +336,14 @@ export class GameWebSocketServer {
     const selections = this.getSelectionsForGame(gameId);
     const connectedUsers = Array.from(game.connectedUsers.values());
     const holds = this.gameManager.getHoldStates(gameId);
+    const stagedMoves = this.getStagedMovesForGame(gameId);
 
     this.broadcastToGame(gameId, {
       type: 'selections-update',
       selections,
       connectedUsers,
       holds,
+      stagedMoves,
     });
   }
 
