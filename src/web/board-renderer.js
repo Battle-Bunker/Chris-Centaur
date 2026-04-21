@@ -746,23 +746,33 @@ const BoardRenderer = (function () {
       }
 
       if (turn > 0 && snake.body.length > 1) {
-        const tail = snake.body[snake.body.length - 1];
-        if (tail) {
-          const tx = tail.x * cellSize + cellSize / 2;
-          const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
-          const labelSize = Math.max(cellSize * 0.9, 12);
-          ctx.font = `bold ${labelSize}px sans-serif`;
+        const neck = snake.body[1];
+        if (neck) {
+          const nx = neck.x * cellSize + cellSize / 2;
+          const ny = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
+          const labelSize = Math.max(cellSize * 0.55, 10);
+          ctx.font = `${labelSize}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
-          const willGrow =
-            snake.body.length >= 2 &&
-            snake.body[snake.body.length - 1].x ===
-              snake.body[snake.body.length - 2].x &&
-            snake.body[snake.body.length - 1].y ===
-              snake.body[snake.body.length - 2].y;
-          const lengthText = String(snake.body.length) + (willGrow ? "²" : "");
-          ctx.fillText(lengthText, tx, ty);
+          ctx.fillText(String(snake.body.length), nx, ny);
+        }
+
+        const willGrow =
+          snake.body[snake.body.length - 1].x ===
+            snake.body[snake.body.length - 2].x &&
+          snake.body[snake.body.length - 1].y ===
+            snake.body[snake.body.length - 2].y;
+        if (willGrow) {
+          const tail = snake.body[snake.body.length - 1];
+          const tx = tail.x * cellSize + cellSize / 2;
+          const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
+          const growSize = Math.max(cellSize * 0.9, 12);
+          ctx.font = `bold ${growSize}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#000000";
+          ctx.fillText("2", tx, ty);
         }
       }
 
