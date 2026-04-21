@@ -799,29 +799,30 @@ const BoardRenderer = (function () {
           const x = shead.x * cellSize;
           const y = (board.height - 1 - shead.y) * cellSize;
           ctx.strokeStyle = arrowColor;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = Math.max(cellSize * 0.18, 6);
           if (arrowCommitted) {
             ctx.setLineDash([]);
           } else {
-            ctx.setLineDash([cellSize * 0.15, cellSize * 0.1]);
+            ctx.setLineDash([cellSize * 0.2, cellSize * 0.12]);
           }
           ctx.beginPath();
           const centerX = x + cellSize / 2;
           const centerY = y + cellSize / 2;
+          const arrowLen = cellSize * 1.2;
           let endX = centerX;
           let endY = centerY;
           switch (arrowMove) {
             case "up":
-              endY -= cellSize * 0.7;
+              endY -= arrowLen;
               break;
             case "down":
-              endY += cellSize * 0.7;
+              endY += arrowLen;
               break;
             case "left":
-              endX -= cellSize * 0.7;
+              endX -= arrowLen;
               break;
             case "right":
-              endX += cellSize * 0.7;
+              endX += arrowLen;
               break;
           }
           ctx.moveTo(centerX, centerY);
@@ -829,15 +830,16 @@ const BoardRenderer = (function () {
           ctx.stroke();
           ctx.setLineDash([]);
           const angle = Math.atan2(endY - centerY, endX - centerX);
+          const headSize = Math.max(cellSize * 0.45, 18);
           ctx.beginPath();
           ctx.moveTo(endX, endY);
           ctx.lineTo(
-            endX - 10 * Math.cos(angle - Math.PI / 6),
-            endY - 10 * Math.sin(angle - Math.PI / 6),
+            endX - headSize * Math.cos(angle - Math.PI / 6),
+            endY - headSize * Math.sin(angle - Math.PI / 6),
           );
           ctx.lineTo(
-            endX - 10 * Math.cos(angle + Math.PI / 6),
-            endY - 10 * Math.sin(angle + Math.PI / 6),
+            endX - headSize * Math.cos(angle + Math.PI / 6),
+            endY - headSize * Math.sin(angle + Math.PI / 6),
           );
           ctx.closePath();
           ctx.fillStyle = arrowColor;
