@@ -598,11 +598,10 @@ const BoardRenderer = (function () {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
         ctx.save();
-        ctx.fillStyle = "rgba(220, 30, 30, 1)";
-        ctx.font = `${Math.floor(cellSize * 0.8)}px sans-serif`;
+        ctx.font = `${Math.floor(cellSize * 0.95)}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("⚠", x + cellSize / 2, y + cellSize / 2);
+        ctx.fillText("🟥", x + cellSize / 2, y + cellSize / 2);
         ctx.restore();
       });
     }
@@ -758,7 +757,13 @@ const BoardRenderer = (function () {
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
-          const lengthText = String(snake.body.length);
+          const willGrow =
+            snake.body.length >= 2 &&
+            snake.body[snake.body.length - 1].x ===
+              snake.body[snake.body.length - 2].x &&
+            snake.body[snake.body.length - 1].y ===
+              snake.body[snake.body.length - 2].y;
+          const lengthText = String(snake.body.length) + (willGrow ? "²" : "");
           ctx.fillText(lengthText, nx, ny);
         }
       }
@@ -1262,11 +1267,10 @@ const BoardRenderer = (function () {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
         ctx.save();
-        ctx.fillStyle = "rgba(220, 30, 30, 1)";
-        ctx.font = `${Math.floor(cellSize * 0.8)}px sans-serif`;
+        ctx.font = `${Math.floor(cellSize * 0.95)}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("⚠", x + cellSize / 2, y + cellSize / 2);
+        ctx.fillText("🟥", x + cellSize / 2, y + cellSize / 2);
         ctx.restore();
       });
     }
