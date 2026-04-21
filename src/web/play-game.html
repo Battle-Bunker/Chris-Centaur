@@ -233,6 +233,7 @@
             <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
+              <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
             </div>
@@ -263,6 +264,9 @@
             <div class="submit-section">
               <button class="submit-btn" id="submitBtn" onclick="submitMove()" disabled>
                 Submit Move <span class="shortcut">[Space]</span>
+              </button>
+              <button class="submit-btn" id="holdBtn" onclick="holdSelectedSnake()" style="background: #ff9800; margin-top: 8px;">
+                Hold this snake (defer to end of turn) <span class="shortcut">[Tab]</span>
               </button>
             </div>
           </div>
@@ -331,6 +335,7 @@
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
     let analyticsFrozen = false;
+    let holds = {};
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -392,11 +397,15 @@
           if (msg.selections) {
             selections = msg.selections;
           }
+          if (msg.holds) {
+            holds = msg.holds;
+          }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
           if (currentGameState) {
             showGameUI();
           }
+          updateReleaseAllButton();
           break;
 
         case 'board-update':
@@ -406,6 +415,10 @@
           if (msg.selections) {
             selections = msg.selections;
           }
+          if (msg.holds) {
+            holds = msg.holds;
+          }
+          updateReleaseAllButton();
 
           for (const snakeId of controlledSnakeIds) {
             const csData = controlledSnakeTurnData[snakeId];
@@ -473,8 +486,13 @@
         case 'selections-update':
           selections = msg.selections || {};
           connectedUsers = msg.connectedUsers || [];
+          if (msg.holds) {
+            holds = msg.holds;
+          }
           renderConnectedUsers();
           renderGameBoard();
+          renderSnakeInfo();
+          updateReleaseAllButton();
 
           if (selectedSnakeId) {
             const sel = selections[selectedSnakeId];
@@ -713,7 +731,7 @@
     function renderSnakeInfo() {
       if (!currentGameState) return;
       BoardRenderer.renderSnakeInfo(
-        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId
+        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId, holds
       );
     }
 
@@ -911,6 +929,38 @@
       contestedSnakeId = null;
     });
 
+    function holdSelectedSnake() {
+      if (!selectedSnakeId || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const heldSnakeId = selectedSnakeId;
+      ws.send(JSON.stringify({ type: 'hold-snake', snakeId: heldSnakeId }));
+      holds[heldSnakeId] = (holds[heldSnakeId] || 0) + 1;
+      selectedSnakeId = null;
+      moveState = null;
+      moveSubmitted = false;
+      userSelectedMove = null;
+      analyticsFrozen = false;
+      hideSelectionUI();
+      renderGameBoard();
+      renderSnakeInfo();
+      updateReleaseAllButton();
+    }
+
+    function releaseAllHolds() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'release-all-holds' }));
+      holds = {};
+      updateReleaseAllButton();
+      renderSnakeInfo();
+      renderGameBoard();
+    }
+
+    function updateReleaseAllButton() {
+      const btn = document.getElementById('releaseAllBtn');
+      if (!btn) return;
+      const anyHeld = Object.values(holds).some(n => n > 0);
+      btn.style.display = anyHeld ? 'inline-block' : 'none';
+    }
+
     document.addEventListener('keydown', (e) => {
       if (document.getElementById('confirmDialog').classList.contains('active')) {
         if (e.key === 'Enter') {
@@ -919,6 +969,14 @@
         } else if (e.key === 'Escape') {
           e.preventDefault();
           document.getElementById('cancelTakeoverBtn').click();
+        }
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        if (selectedSnakeId) {
+          e.preventDefault();
+          holdSelectedSnake();
         }
         return;
       }

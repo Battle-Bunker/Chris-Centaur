@@ -876,11 +876,12 @@ const BoardRenderer = (function () {
     });
   }
 
-  function renderSnakeInfo(container, gameState, ourSnakeId) {
+  function renderSnakeInfo(container, gameState, ourSnakeId, holds) {
     if (!gameState || !gameState.board) {
       container.innerHTML = "";
       return;
     }
+    const holdsMap = holds || {};
     const snakes = gameState.board.snakes;
     container.innerHTML = snakes
       .map((snake) => {
@@ -893,6 +894,10 @@ const BoardRenderer = (function () {
             ? `<span>${invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F"} ${invulnLevel}</span>`
             : "";
         const emojiDisplay = snake.emoji || "\u{1F40D}";
+        const holdCount = holdsMap[snake.id] || 0;
+        const holdBadge = holdCount > 0
+          ? `<span style="background:#ff9800;color:#fff;padding:1px 6px;border-radius:8px;font-weight:700;">HOLD ${holdCount}</span>`
+          : "";
         return `
         <div class="snake-info-item">
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
@@ -902,6 +907,7 @@ const BoardRenderer = (function () {
             <div class="snake-stats">
               <span>\u{1F4CF} ${snake.body.length}</span>
               ${invulnDisplay}
+              ${holdBadge}
             </div>
           </div>
         </div>

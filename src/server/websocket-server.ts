@@ -61,6 +61,7 @@ export class GameWebSocketServer {
         turnExpiryTime: game?.turnExpiryTime || null,
         measuredPing: this.gameManager.getMeasuredPing(),
         selections: this.getSelectionsForGame(gameId),
+        holds: this.gameManager.getHoldStates(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -172,6 +173,28 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'hold-snake': {
+        if (!client.gameId || !client.userId) break;
+        const snakeId = msg.snakeId;
+        if (!snakeId) break;
+        const result = this.gameManager.holdSnake(client.gameId, snakeId, client.userId);
+        this.send(client.ws, {
+          type: 'hold-result',
+          snakeId,
+          success: result.success,
+          holdTurnsRemaining: result.holdTurnsRemaining,
+        });
+        this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
+      case 'release-all-holds': {
+        if (!client.gameId || !client.userId) break;
+        this.gameManager.releaseAllHolds(client.gameId);
+        this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'select-move': {
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;
@@ -274,11 +297,13 @@ export class GameWebSocketServer {
 
     const selections = this.getSelectionsForGame(gameId);
     const connectedUsers = Array.from(game.connectedUsers.values());
+    const holds = this.gameManager.getHoldStates(gameId);
 
     this.broadcastToGame(gameId, {
       type: 'selections-update',
       selections,
       connectedUsers,
+      holds,
     });
   }
 

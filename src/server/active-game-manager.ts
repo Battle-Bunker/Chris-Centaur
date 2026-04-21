@@ -45,6 +45,7 @@ export interface ControlledSnake {
   selectedBy: string | null;
   moveCommittedThisTurn: boolean;
   committedMove: Direction | null;
+  holdTurnsRemaining: number;
 }
 
 export interface ConnectedUser {
@@ -238,6 +239,7 @@ export class ActiveGameManager {
         selectedBy: null,
         moveCommittedThisTurn: false,
         committedMove: null,
+        holdTurnsRemaining: 0,
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
@@ -303,6 +305,68 @@ export class ActiveGameManager {
     controlled.selectedBy = userId;
     user.selectedSnakeId = snakeId;
     return { success: true };
+  }
+
+  holdSnake(gameId: string, snakeId: string, userId: string): { success: boolean; holdTurnsRemaining: number } {
+    const game = this.games.get(gameId);
+    if (!game) return { success: false, holdTurnsRemaining: 0 };
+
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled) return { success: false, holdTurnsRemaining: 0 };
+
+    if (controlled.selectedBy && controlled.selectedBy !== userId) {
+      return { success: false, holdTurnsRemaining: controlled.holdTurnsRemaining };
+    }
+
+    controlled.holdTurnsRemaining += 1;
+    console.log(`[ActiveGameManager] Hold added for ${gameId}:${snakeId} by ${userId}: now holding ${controlled.holdTurnsRemaining} turn(s)`);
+
+    if (controlled.pendingMove && !controlled.pendingMove.resolved) {
+      controlled.pendingMove.userSelectedMove = null;
+    }
+
+    if (controlled.selectedBy === userId) {
+      this.deselectSnake(gameId, userId);
+    }
+
+    return { success: true, holdTurnsRemaining: controlled.holdTurnsRemaining };
+  }
+
+  releaseAllHolds(gameId: string): { released: string[] } {
+    const game = this.games.get(gameId);
+    if (!game) return { released: [] };
+
+    const released: string[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      if (controlled.holdTurnsRemaining > 0) {
+        controlled.holdTurnsRemaining = 0;
+        released.push(snakeId);
+
+        if (
+          !controlled.selectedBy &&
+          controlled.pendingMove &&
+          !controlled.pendingMove.resolved &&
+          controlled.botRecommendation
+        ) {
+          console.log(`[ActiveGameManager] Release-all: auto-piloting ${gameId}:${snakeId} with ${controlled.botRecommendation}`);
+          this.resolvePendingMove(gameId, snakeId, controlled.botRecommendation, 'auto-pilot');
+        }
+      }
+    }
+    if (released.length > 0) {
+      console.log(`[ActiveGameManager] Released holds for game ${gameId}: ${released.join(', ')}`);
+    }
+    return { released };
+  }
+
+  getHoldStates(gameId: string): { [snakeId: string]: number } {
+    const game = this.games.get(gameId);
+    if (!game) return {};
+    const out: { [snakeId: string]: number } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      out[snakeId] = cs.holdTurnsRemaining;
+    }
+    return out;
   }
 
   deselectSnake(gameId: string, userId: string): void {
@@ -414,6 +478,7 @@ export class ActiveGameManager {
     }>;
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
+    holds: { [snakeId: string]: number };
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
@@ -453,11 +518,17 @@ export class ActiveGameManager {
       }
     }
 
+    const holds: { [snakeId: string]: number } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      holds[snakeId] = cs.holdTurnsRemaining;
+    }
+
     return {
       boardState: game.boardState,
       controlledSnakes,
       connectedUsers: Array.from(game.connectedUsers.values()),
       selections,
+      holds,
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
       measuredPing: this.gameServerPing,
@@ -543,6 +614,9 @@ export class ActiveGameManager {
       for (const cs of game.controlledSnakes.values()) {
         cs.moveCommittedThisTurn = false;
         cs.committedMove = null;
+        if (cs.holdTurnsRemaining > 0) {
+          cs.holdTurnsRemaining = Math.max(0, cs.holdTurnsRemaining - 1);
+        }
       }
 
       boardUpdated = true;
@@ -562,7 +636,9 @@ export class ActiveGameManager {
       controlled.pendingMove.turnData = turnData;
     }
 
-    if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
+    if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
+      console.log(`[ActiveGameManager] Hold active for ${gameId}:${snakeId} (${controlled.holdTurnsRemaining} turns remaining): deferring auto-pilot, safety timer will submit ${move} at end of turn`);
+    } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
       console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
       this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
     } else if (game.currentTurn === 0 && !controlled.selectedBy) {
