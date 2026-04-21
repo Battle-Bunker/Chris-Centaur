@@ -598,10 +598,8 @@ const BoardRenderer = (function () {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
         ctx.save();
-        ctx.font = `${Math.floor(cellSize * 0.95)}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🟥", x + cellSize / 2, y + cellSize / 2);
+        ctx.fillStyle = "#dc1e1e";
+        ctx.fillRect(x, y, cellSize, cellSize);
         ctx.restore();
       });
     }
@@ -748,12 +746,12 @@ const BoardRenderer = (function () {
       }
 
       if (turn > 0 && snake.body.length > 1) {
-        const neck = snake.body[1];
-        if (neck) {
-          const nx = neck.x * cellSize + cellSize / 2;
-          const ny = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
-          const labelSize = Math.max(cellSize * 0.55, 10);
-          ctx.font = `${labelSize}px sans-serif`;
+        const tail = snake.body[snake.body.length - 1];
+        if (tail) {
+          const tx = tail.x * cellSize + cellSize / 2;
+          const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
+          const labelSize = Math.max(cellSize * 0.9, 12);
+          ctx.font = `bold ${labelSize}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
@@ -764,7 +762,7 @@ const BoardRenderer = (function () {
             snake.body[snake.body.length - 1].y ===
               snake.body[snake.body.length - 2].y;
           const lengthText = String(snake.body.length) + (willGrow ? "²" : "");
-          ctx.fillText(lengthText, nx, ny);
+          ctx.fillText(lengthText, tx, ty);
         }
       }
 
@@ -1267,10 +1265,8 @@ const BoardRenderer = (function () {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
         ctx.save();
-        ctx.font = `${Math.floor(cellSize * 0.95)}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🟥", x + cellSize / 2, y + cellSize / 2);
+        ctx.fillStyle = "#dc1e1e";
+        ctx.fillRect(x, y, cellSize, cellSize);
         ctx.restore();
       });
     }
