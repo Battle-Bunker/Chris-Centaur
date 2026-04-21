@@ -954,7 +954,7 @@
 
     function suicideAll() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const password = window.prompt("Enter today's date as DD/MM/YYYY to confirm SUICIDE ALL:");
+      const password = window.prompt("Enter password to confirm SUICIDE ALL:");
       if (password === null) return;
       ws.send(JSON.stringify({ type: 'suicide-all', password: password }));
     }
