@@ -746,16 +746,22 @@ const BoardRenderer = (function () {
       }
 
       if (turn > 0 && snake.body.length > 1) {
+        const labelSize = Math.max(cellSize * 0.55, 10);
+        const holdsMap = options?.holds || {};
+        const holdCount = holdsMap[snake.id] || 0;
+
         const neck = snake.body[1];
         if (neck) {
           const nx = neck.x * cellSize + cellSize / 2;
           const ny = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
-          const labelSize = Math.max(cellSize * 0.55, 10);
           ctx.font = `${labelSize}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
-          ctx.fillText(String(snake.body.length), nx, ny);
+          const lengthLabel = holdCount > 0
+            ? `${snake.body.length} (H${holdCount})`
+            : String(snake.body.length);
+          ctx.fillText(lengthLabel, nx, ny);
         }
 
         const willGrow =
@@ -767,8 +773,7 @@ const BoardRenderer = (function () {
           const tail = snake.body[snake.body.length - 1];
           const tx = tail.x * cellSize + cellSize / 2;
           const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
-          const growSize = Math.max(cellSize * 0.9, 12);
-          ctx.font = `bold ${growSize}px sans-serif`;
+          ctx.font = `${labelSize}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
