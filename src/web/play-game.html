@@ -812,6 +812,12 @@
       userSelectedMove = direction;
       moveState.selectedMove = direction;
 
+      stagedMoves[selectedSnakeId] = {
+        move: direction,
+        committed: false,
+        color: myColor || '#4CAF50',
+      };
+
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move: direction }));
       }
