@@ -935,14 +935,11 @@
       const heldSnakeId = selectedSnakeId;
       ws.send(JSON.stringify({ type: 'hold-snake', snakeId: heldSnakeId }));
       holds[heldSnakeId] = (holds[heldSnakeId] || 0) + 1;
-      selectedSnakeId = null;
-      moveState = null;
-      moveSubmitted = false;
       userSelectedMove = null;
-      analyticsFrozen = false;
-      hideSelectionUI();
+      if (moveState) moveState.selectedMove = null;
       renderGameBoard();
       renderSnakeInfo();
+      updateMoveControls();
       updateReleaseAllButton();
     }
 

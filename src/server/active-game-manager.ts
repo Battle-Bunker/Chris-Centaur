@@ -325,8 +325,15 @@ export class ActiveGameManager {
       controlled.pendingMove.userSelectedMove = null;
     }
 
-    if (controlled.selectedBy === userId) {
-      this.deselectSnake(gameId, userId);
+    if (!controlled.selectedBy) {
+      const user = game.connectedUsers.get(userId);
+      if (user) {
+        if (user.selectedSnakeId && user.selectedSnakeId !== snakeId) {
+          this.deselectSnake(gameId, userId);
+        }
+        controlled.selectedBy = userId;
+        user.selectedSnakeId = snakeId;
+      }
     }
 
     return { success: true, holdTurnsRemaining: controlled.holdTurnsRemaining };
@@ -564,6 +571,10 @@ export class ActiveGameManager {
       res,
       timer: setTimeout(() => {
         if (!pending.resolved) {
+          if (controlled.holdTurnsRemaining > 0 && !pending.userSelectedMove) {
+            console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but snake is held (${controlled.holdTurnsRemaining} turns remaining) and no user move staged: not auto-submitting`);
+            return;
+          }
           const move = pending.userSelectedMove || pending.botMove || 'up';
           const source = pending.userSelectedMove ? 'user-selection' : (pending.botMove ? 'bot-recommendation' : 'fallback');
           console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}: using ${move} (source: ${source}, userSelected=${pending.userSelectedMove}, bot=${pending.botMove}, selectedBy=${controlled.selectedBy})`);
