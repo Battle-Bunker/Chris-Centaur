@@ -896,19 +896,6 @@
           }
         }
       }
-
-      if (selectedSnakeId) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'deselect' }));
-        }
-        selectedSnakeId = null;
-        moveState = null;
-        moveSubmitted = false;
-        userSelectedMove = null;
-        analyticsFrozen = false;
-        hideSelectionUI();
-        renderGameBoard();
-      }
     }
 
     document.getElementById('confirmTakeoverBtn').addEventListener('click', () => {
