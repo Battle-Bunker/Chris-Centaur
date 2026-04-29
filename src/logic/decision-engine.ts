@@ -4,7 +4,7 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
+import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo, LethalityReason } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
@@ -15,6 +15,8 @@ export interface MoveDecision {
   candidateMoves: Direction[];  // The actual moves we evaluated (all non-lethal moves)
   evaluations: MoveEvaluationResult[];
   h2hRiskByMove: Map<Direction, H2HRiskInfo>;  // H2H risk info for each move
+  reasonByMove: Map<Direction, LethalityReason>;  // Lethality classification per direction
+  source: 'normal' | 'trapped-fallback';  // How the move was picked
 }
 
 export interface MoveEvaluationResult {
@@ -67,7 +69,7 @@ export class DecisionEngine {
       timeoutMs: 400,
       nearbyDistance: 5,
       tailSafetyRule: 'custom',
-      tailGrowthTiming: 'grow-next-turn',
+      tailGrowthTiming: 'grow-same-turn',
       ...config
     };
     
@@ -106,12 +108,32 @@ export class DecisionEngine {
     const ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
     
     if (ourMoves.length === 0) {
-      // No moves available - we're dead
+      // No moves are safe and no moves are merely risky — we are trapped.
+      // Pick the least-bad direction deterministically (own-tail > enemy-tail
+      // > hazard > enemy-body > own-body > wall), so we never default to a
+      // lethal `'up'` when, e.g., only the wall path is fatal but a tail-blocked
+      // cell still has some chance of clearing. Log the diagnostic so we can
+      // investigate any remaining bot suicides.
+      const fallback = this.moveAnalyzer.pickLeastBadMove(
+        gameState.you,
+        gameState,
+        moveAnalysis.reasonByMove
+      );
+      MoveAnalyzer.logUnsafePick({
+        source: 'trapped-fallback',
+        gameState,
+        snake: gameState.you,
+        reasonByMove: moveAnalysis.reasonByMove,
+        chosen: fallback,
+        score: null,
+      });
       return {
-        move: 'up',
+        move: fallback,
         candidateMoves: [],
         evaluations: [],
-        h2hRiskByMove: new Map()
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+        reasonByMove: moveAnalysis.reasonByMove,
+        source: 'trapped-fallback',
       };
     }
     
@@ -158,6 +180,18 @@ export class DecisionEngine {
       // Update food set for next turn
       this.lastFoodSetByGameId.set(gameId, currentFoodSet);
       
+      // If the only available move is risky, log it as an unsafe pick.
+      if (moveAnalysis.safe.length === 0) {
+        MoveAnalyzer.logUnsafePick({
+          source: 'risky-best',
+          gameState,
+          snake: gameState.you,
+          reasonByMove: moveAnalysis.reasonByMove,
+          chosen: ourMoves[0],
+          score: evaluation.score,
+        });
+      }
+      
       return {
         move: ourMoves[0],
         candidateMoves: ourMoves,
@@ -168,7 +202,9 @@ export class DecisionEngine {
           averageBreakdown: evaluation,
           projectedTerritoryCells: singleProjTerritory
         }],
-        h2hRiskByMove: moveAnalysis.h2hRiskByMove
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+        reasonByMove: moveAnalysis.reasonByMove,
+        source: 'normal',
       };
     }
     
@@ -283,11 +319,25 @@ export class DecisionEngine {
     // Update food set for next turn
     this.lastFoodSetByGameId.set(gameId, currentFoodSet);
     
+    // If our chosen direction is not in the safe set, log it for follow-up.
+    if (!moveAnalysis.safe.includes(bestMove)) {
+      MoveAnalyzer.logUnsafePick({
+        source: 'risky-best',
+        gameState,
+        snake: gameState.you,
+        reasonByMove: moveAnalysis.reasonByMove,
+        chosen: bestMove,
+        score: bestScore,
+      });
+    }
+    
     return {
       move: bestMove,
       candidateMoves: ourMoves,
       evaluations,
-      h2hRiskByMove: moveAnalysis.h2hRiskByMove
+      h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+      reasonByMove: moveAnalysis.reasonByMove,
+      source: 'normal',
     };
   }
   

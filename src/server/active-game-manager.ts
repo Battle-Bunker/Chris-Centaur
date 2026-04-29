@@ -18,6 +18,12 @@ export interface TurnData {
   safeMoves: Direction[];
   botRecommendation: Direction | null;
   timestamp: number;
+  /**
+   * Per-direction lethality classification from MoveAnalyzer. Keys are
+   * 'up'|'down'|'left'|'right'. Values follow LethalityReason. May be
+   * absent on the very first turn or in error fallbacks.
+   */
+  lethalityByMove?: { [direction: string]: string };
 }
 
 interface PendingMove {

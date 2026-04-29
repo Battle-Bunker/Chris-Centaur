@@ -25,9 +25,13 @@ export interface BodySegmentInfo {
   conservativeDisappearTurn: number;
 }
 
+/** Default hazard damage if the ruleset doesn't specify one. */
+const DEFAULT_HAZARD_DAMAGE = 15;
+
 export class BoardGraph {
   private adjacencyList: Map<CellKey, Set<CellKey>>;
   private blockedCells: Set<CellKey>;
+  private hazardCells: Set<CellKey>;
   private width: number;
   private height: number;
   private config: BoardGraphConfig;
@@ -40,7 +44,10 @@ export class BoardGraph {
     this.width = gameState.board.width;
     this.height = gameState.board.height;
     this.config = {
-      tailGrowthTiming: 'grow-next-turn',
+      // Match official Battlesnake rules: when a snake eats, its body grows
+      // immediately and the tail does not vacate that turn. This is the safer
+      // default; modes with grow-next-turn semantics can opt in via config.
+      tailGrowthTiming: 'grow-same-turn',
       maxLookaheadTurns: 5,
       ...config
     };
@@ -48,6 +55,7 @@ export class BoardGraph {
     
     this.adjacencyList = new Map();
     this.blockedCells = new Set();
+    this.hazardCells = new Set();
     this.bodySegmentInfo = new Map();
     this.snakeFoodReachByTurn = new Map();
     
@@ -64,6 +72,7 @@ export class BoardGraph {
     
     // Clear and rebuild blocked cells set
     this.blockedCells.clear();
+    this.hazardCells.clear();
     this.bodySegmentInfo.clear();
     this.snakeFoodReachByTurn.clear();
     
@@ -117,20 +126,21 @@ export class BoardGraph {
         
         // Tail special case (last segment)
         if (i === snake.body.length - 1) {
-          // Check if snake just ate (will grow)
-          const justAte = this.snakeJustAte(snake, board.food);
+          // Tail will NOT vacate next turn if any of these is true:
+          //   * the snake's head sits on a food cell (just ate)
+          //   * the last two body coords are stacked (snake ate last turn,
+          //     body grew, tail hasn't moved yet)
+          //   * the snake is only two segments long, so the tail is the
+          //     same cell as the segment immediately behind the head
+          const tailWillStay = this.tailIsBlocked(snake, board.food);
           
-          if (this.config.tailGrowthTiming === 'grow-same-turn' && justAte) {
-            // Tail won't move this turn if snake just ate
+          if (tailWillStay) {
             this.blockedCells.add(key);
-          } else if (this.config.tailGrowthTiming === 'grow-next-turn') {
-            // In grow-next-turn mode, tail always moves unless it's the only body segment after head
-            if (snake.body.length === 2) {
-              // Two segment snake - tail doesn't leave a space
-              this.blockedCells.add(key);
-            }
-            // Otherwise tail will move, so it's not blocked
+          } else if (this.config.tailGrowthTiming === 'grow-same-turn' && this.snakeJustAte(snake, board.food)) {
+            // Already covered by tailIsBlocked, but guard the legacy code path explicitly.
+            this.blockedCells.add(key);
           }
+          // Otherwise tail will move on the next turn, so it's not blocked.
         } else {
           // Non-tail, non-head segments are always blocked
           this.blockedCells.add(key);
@@ -138,9 +148,20 @@ export class BoardGraph {
       }
     }
     
-    // Add hazards as blocked (impassable terrain)
+    // Hazards: always tracked separately so MoveAnalyzer / UI can flag them.
+    // Only block as impassable terrain when stepping on the hazard would be
+    // immediately lethal to OUR snake (i.e. the per-turn damage would drop our
+    // health to 0 or below). Otherwise leave them passable so BFS / scoring can
+    // still consider them — penalising hazards is the scorer's job.
+    const hazardDamage = this.computeHazardDamagePerTurn(gameState);
+    const ourHealth = gameState.you.health ?? 100;
+    const hazardLethalForUs = hazardDamage > 0 && hazardDamage >= ourHealth;
     for (const hazard of board.hazards) {
-      this.blockedCells.add(this.coordToKey(hazard));
+      const key = this.coordToKey(hazard);
+      this.hazardCells.add(key);
+      if (hazardLethalForUs) {
+        this.blockedCells.add(key);
+      }
     }
     
     // Build adjacency list for all cells
@@ -207,10 +228,10 @@ export class BoardGraph {
       }
     }
     
-    // Add hazards
-    for (const hazard of board.hazards) {
-      tempBlocked.add(this.coordToKey(hazard));
-    }
+    // NOTE: hazards are intentionally NOT added to the BFS-blocked set here.
+    // Hazards are not physical barriers — every snake can move into them and
+    // simply takes damage. Treating them as walls causes false-negative food
+    // reachability (and downstream tail-disappear-turn) calculations.
     
     // Create food position set
     const foodSet = new Set<CellKey>(
@@ -283,6 +304,43 @@ export class BoardGraph {
     return food.some(f => 
       f.x === snake.head.x && f.y === snake.head.y
     );
+  }
+  
+  /**
+   * Determine whether a snake's tail will *not* vacate next turn (and is
+   * therefore impassable to anyone hoping to chase it). The tail stays when:
+   *   1. The snake just ate (its head is currently on a food cell), so a new
+   *      segment will be appended and the tail won't move.
+   *   2. The last two body coords are stacked — the snake ate previously but
+   *      the duplicate tail segment hasn't been consumed yet.
+   *
+   * NOTE: A length-2 snake is NOT inherently blocked. Its tail vacates on the
+   * next move just like any other snake, unless one of the two conditions
+   * above also holds. Battlesnake spawns at length 3 and the standard rules
+   * never produce a length-2 state, but the helper stays defensive in case
+   * a custom ruleset or a simulated mid-step state passes one in.
+   */
+  private tailIsBlocked(snake: Snake, food: Coord[]): boolean {
+    if (this.snakeJustAte(snake, food)) return true;
+    if (snake.body.length >= 2) {
+      const last = snake.body[snake.body.length - 1];
+      const prev = snake.body[snake.body.length - 2];
+      if (last.x === prev.x && last.y === prev.y) return true;
+    }
+    return false;
+  }
+  
+  /**
+   * Read the hazard damage per turn from the game's ruleset, defaulting to a
+   * standard value when the ruleset doesn't declare one. Modes such as wrapped
+   * with stacking hazards may carry larger values that can be instantly lethal.
+   */
+  private computeHazardDamagePerTurn(gameState: GameState): number {
+    const settings = gameState?.game?.ruleset?.settings as Record<string, unknown> | undefined;
+    if (settings && typeof settings['hazardDamagePerTurn'] === 'number') {
+      return settings['hazardDamagePerTurn'] as number;
+    }
+    return DEFAULT_HAZARD_DAMAGE;
   }
   
   /**
@@ -383,6 +441,21 @@ export class BoardGraph {
    */
   getBlockedCells(): Set<CellKey> {
     return this.blockedCells;
+  }
+  
+  /**
+   * Whether the given coord contains a hazard tile (regardless of whether
+   * it is currently lethal to our snake).
+   */
+  isHazard(coord: Coord): boolean {
+    return this.hazardCells.has(this.coordToKey(coord));
+  }
+  
+  /**
+   * Get the set of hazard cell keys.
+   */
+  getHazardCells(): Set<CellKey> {
+    return this.hazardCells;
   }
   
   /**

@@ -191,7 +191,7 @@ export class BoardEvaluator {
     };
     
     this.graphConfig = {
-      tailGrowthTiming: 'grow-next-turn' as const,
+      tailGrowthTiming: 'grow-same-turn' as const,
       maxLookaheadTurns: 5,
       ...graphConfig
     };

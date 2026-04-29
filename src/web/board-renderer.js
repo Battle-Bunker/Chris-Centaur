@@ -467,6 +467,7 @@ const BoardRenderer = (function () {
     safeMoves,
     head,
     chosenMove,
+    lethalityByMove,
   ) {
     const moveState = {
       selectedMove: null,
@@ -474,6 +475,7 @@ const BoardRenderer = (function () {
       safeMoves: safeMoves || [],
       territoryCells: {},
       selectedSnake: null,
+      lethalityByMove: lethalityByMove || null,
     };
 
     const directions = ["up", "down", "left", "right"];
@@ -512,6 +514,15 @@ const BoardRenderer = (function () {
 
       const isSafe = moveState.safeMoves.includes(direction);
       const evalData = evaluationsMap[direction];
+      const lethalityReason =
+        moveState.lethalityByMove && moveState.lethalityByMove[direction]
+          ? moveState.lethalityByMove[direction]
+          : null;
+      const isLethal = lethalityReason
+        ? lethalityReason !== "safe" &&
+          lethalityReason !== "h2h-loss-enemy" &&
+          lethalityReason !== "h2h-loss-ally"
+        : false;
 
       moveState.moves[direction] = {
         direction: direction,
@@ -529,6 +540,8 @@ const BoardRenderer = (function () {
         projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
         quality: null,
         color: null,
+        lethalityReason: lethalityReason,
+        isLethal: isLethal,
       };
     });
 
@@ -911,6 +924,7 @@ const BoardRenderer = (function () {
         let classes = ["move-button"];
         if (move.isChosen) classes.push("chosen");
         if (moveState.selectedMove === direction) classes.push("selected");
+        if (move.isLethal) classes.push("lethal");
 
         const scoreText =
           move.score != null
@@ -922,12 +936,17 @@ const BoardRenderer = (function () {
         const bgColor = move.color || "rgba(100, 100, 100, 0.3)";
         const solidColor = bgColor.replace("0.3)", "0.8)");
 
+        const reasonHtml = move.lethalityReason && move.lethalityReason !== "safe"
+          ? `<span class="reason">${move.lethalityReason}</span>`
+          : "";
+
         return `
         <button class="${classes.join(" ")}"
                 onclick="BoardRenderer._moveClickHandler('${direction}')"
                 style="background: ${solidColor};">
           ${direction.toUpperCase()} ${move.isChosen ? "\u2713" : ""}
           <span class="score">${scoreText}</span>
+          ${reasonHtml}
         </button>
       `;
       })

@@ -11,6 +11,7 @@ import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { MoveAnalyzer, LethalityReason } from './move-analyzer';
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
@@ -21,10 +22,13 @@ export class VoronoiStrategy {
   private configCacheTime: number = 0;
   private CACHE_DURATION_MS = 1000; // Cache config for 1 second
   
+  private moveAnalyzer: MoveAnalyzer;
+  
   constructor() {
     this.configStore = new ConfigStore();
     this.decisionLogger = DecisionLogger.getInstance();
     this.teamDetector = new TeamDetector();
+    this.moveAnalyzer = new MoveAnalyzer();
     
     // Initialize with defaults
     this.decisionEngine = new DecisionEngine({
@@ -36,6 +40,70 @@ export class VoronoiStrategy {
     
     // Load config asynchronously (don't block constructor)
     this.loadConfig();
+  }
+  
+  /**
+   * Final-line-of-defence safety guardrail. Re-build a passability graph from
+   * the truth-source GameState and verify the move that the decision engine
+   * just chose actually steps onto a passable cell. If it doesn't AND a
+   * passable alternative exists, swap to the least-bad passable option and log
+   * a structured "guardrail-corrected" event so we can investigate why the
+   * upstream layers picked the unsafe move.
+   */
+  private applySafetyGuardrail(gameState: GameState, decision: MoveDecision, teamSnakeIds: Set<string>): {
+    move: Direction;
+    reasonByMove: Map<Direction, LethalityReason>;
+    corrected: boolean;
+  } {
+    const graph = new BoardGraph(gameState);
+    const reasonByMove = this.moveAnalyzer.classifyAllDirections(
+      gameState.you,
+      gameState,
+      graph,
+      teamSnakeIds
+    );
+    const chosenReason = reasonByMove.get(decision.move) ?? 'wall';
+    const chosenIsPassable = chosenReason === 'safe' ||
+      chosenReason === 'h2h-loss-enemy' ||
+      chosenReason === 'h2h-loss-ally';
+    
+    if (chosenIsPassable) {
+      return { move: decision.move, reasonByMove, corrected: false };
+    }
+    
+    // Chosen move is known-lethal. See if any direction is passable; if so, swap.
+    let hasPassable = false;
+    for (const r of reasonByMove.values()) {
+      if (r === 'safe' || r === 'h2h-loss-enemy' || r === 'h2h-loss-ally') {
+        hasPassable = true;
+        break;
+      }
+    }
+    if (!hasPassable) {
+      // Truly trapped — keep the engine's pick (already the deterministic
+      // least-bad fallback) but still attach reasonByMove.
+      return { move: decision.move, reasonByMove, corrected: false };
+    }
+    
+    const alternative = this.moveAnalyzer.pickLeastBadMove(
+      gameState.you,
+      gameState,
+      reasonByMove
+    );
+    MoveAnalyzer.logUnsafePick({
+      source: 'guardrail-corrected',
+      gameState,
+      snake: gameState.you,
+      reasonByMove,
+      chosen: alternative,
+      score: null,
+      extra: {
+        engineChose: decision.move,
+        engineChoseReason: chosenReason,
+        engineSource: decision.source,
+      },
+    });
+    return { move: alternative, reasonByMove, corrected: true };
   }
   
   private async loadConfig(): Promise<void> {
@@ -150,7 +218,10 @@ export class VoronoiStrategy {
     // Log turn info
     this.logTurnInfo(gameState, decision);
     
-    return decision.move;
+    // Final-line-of-defence safety guardrail — never return a known-lethal move
+    // when a passable alternative exists.
+    const guarded = this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
+    return guarded.move;
   }
   
   async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): Promise<{ 
@@ -159,6 +230,7 @@ export class VoronoiStrategy {
     scores: Map<Direction, number>;
     moveEvaluations: any[];
     territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+    lethalityByMove: { [direction: string]: LethalityReason };
   }> {
     // Reload config if needed (cached for 1 second)
     const config = await this.getConfig();
@@ -174,6 +246,13 @@ export class VoronoiStrategy {
     
     // Log turn info to console
     this.logTurnInfo(gameState, decision);
+    
+    // Final-line-of-defence safety guardrail — re-check passability against the
+    // single-source-of-truth board graph, swap in a least-bad alternative if the
+    // engine somehow chose a known-lethal direction.
+    const guarded = this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
+    const finalMove = guarded.move;
+    const reasonByMove = guarded.reasonByMove;
     
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
@@ -240,7 +319,7 @@ export class VoronoiStrategy {
       position: gameState.you.head,
       health: gameState.you.health,
       safeMoves: decision.candidateMoves,  // Only the moves we actually evaluated!
-      chosenMove: decision.move,
+      chosenMove: finalMove,
       moveEvaluations,
       gameState,
       territoryCells: territoryCellsObj
@@ -252,12 +331,19 @@ export class VoronoiStrategy {
       scores.set(evaluation.move, evaluation.averageScore);
     }
     
+    // Build the lethality-by-direction map for the Centaur play UI.
+    const lethalityByMove: { [direction: string]: LethalityReason } = {};
+    for (const dir of ['up', 'down', 'left', 'right'] as Direction[]) {
+      lethalityByMove[dir] = reasonByMove.get(dir) ?? 'safe';
+    }
+    
     return { 
-      move: decision.move, 
+      move: finalMove, 
       safeMoves: decision.candidateMoves,
       scores,
       moveEvaluations,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      lethalityByMove,
     };
   }
   

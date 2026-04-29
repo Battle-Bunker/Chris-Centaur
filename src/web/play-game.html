@@ -124,6 +124,14 @@
     .move-button .score {
       font-size: 11px; color: #aaa; display: block; margin-top: 3px;
     }
+    .move-button.lethal {
+      border-color: #d32f2f !important;
+      box-shadow: 0 0 6px rgba(211, 47, 47, 0.6) inset;
+    }
+    .move-button .reason {
+      font-size: 10px; color: #ff8a80; display: block; margin-top: 2px;
+      text-transform: lowercase; letter-spacing: 0.3px;
+    }
     .submit-section {
       display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px;
     }
@@ -436,6 +444,7 @@
               territoryCells: msg.territoryCells,
               safeMoves: msg.safeMoves,
               botRecommendation: msg.botRecommendation,
+              lethalityByMove: msg.lethalityByMove || null,
               timestamp: msg.timestamp,
             },
             moveCommitted: msg.moveCommitted,
@@ -572,7 +581,7 @@
         territoryCells: td.territoryCells || {}
       };
 
-      moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
+      moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null, td.lethalityByMove || null);
 
       if (csData.moveCommitted && csData.committedMove) {
         moveState.selectedMove = csData.committedMove;

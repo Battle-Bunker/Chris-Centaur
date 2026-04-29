@@ -88,33 +88,64 @@ app.post('/move', async (req, res) => {
     try {
       const graph = new BoardGraph(gameState);
       const analysis = firstMoveMoveAnalyzer.analyzeMoves(gameState.you, gameState, graph);
-      const safeMoves: Direction[] = analysis.safe.length > 0 ? analysis.safe : [...analysis.safe, ...analysis.risky];
-      const allCandidates = safeMoves.length > 0 ? safeMoves : (['up', 'down', 'left', 'right'] as Direction[]);
+      const candidates: Direction[] = [...analysis.safe, ...analysis.risky];
 
-      let bestMove: Direction = allCandidates[0];
-      let bestDist = Infinity;
-      for (const move of allCandidates) {
-        const dest = getMoveDestination(gameState.you.head, move);
-        for (const food of gameState.board.food) {
-          const dist = Math.abs(dest.x - food.x) + Math.abs(dest.y - food.y);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestMove = move;
+      let bestMove: Direction;
+      if (candidates.length > 0) {
+        // Prefer the move closest to food among non-lethal candidates.
+        bestMove = candidates[0];
+        let bestDist = Infinity;
+        for (const move of candidates) {
+          const dest = getMoveDestination(gameState.you.head, move);
+          for (const food of gameState.board.food) {
+            const dist = Math.abs(dest.x - food.x) + Math.abs(dest.y - food.y);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestMove = move;
+            }
           }
         }
+        if (gameState.board.food.length === 0) {
+          bestMove = candidates[0];
+        }
+      } else {
+        // Spawn-trapped (extremely rare on turn 0). Pick the deterministic
+        // least-bad direction instead of falling back to a hardcoded 'up' or
+        // a closest-food iteration over all 4 cardinal moves — picking the
+        // closest-food cell could be a wall or another snake's body.
+        bestMove = firstMoveMoveAnalyzer.pickLeastBadMove(
+          gameState.you,
+          gameState,
+          analysis.reasonByMove
+        );
       }
 
-      if (gameState.board.food.length === 0) {
-        bestMove = allCandidates[0];
+      // Emit a structured unsafe-pick log whenever the chosen turn-0 move is
+      // anything other than 'safe' — covers both the spawn-trapped case AND
+      // the case where we had to take a risky (h2h-loss) move because no
+      // truly safe moves exist.
+      if (!analysis.safe.includes(bestMove)) {
+        MoveAnalyzer.logUnsafePick({
+          source: 'first-move',
+          gameState,
+          snake: gameState.you,
+          reasonByMove: analysis.reasonByMove,
+          chosen: bestMove,
+          score: null,
+          extra: {
+            spawnTrapped: candidates.length === 0,
+            riskyCandidates: analysis.risky,
+          },
+        });
       }
 
-      console.log(`[FirstMove] Turn 0 for ${gameId}:${snakeId}: safe=${allCandidates.join(',')}, closest-food=${bestMove}`);
+      console.log(`[FirstMove] Turn 0 for ${gameId}:${snakeId}: candidates=${candidates.join(',')||'<none>'}, chose=${bestMove}`);
 
       const turnData: TurnData = {
         gameState,
         moveEvaluations: [],
         territoryCells: {},
-        safeMoves: allCandidates,
+        safeMoves: candidates,
         botRecommendation: bestMove,
         timestamp: Date.now()
       };
@@ -145,7 +176,8 @@ app.post('/move', async (req, res) => {
         territoryCells: result.territoryCells,
         safeMoves: result.safeMoves,
         botRecommendation: result.move,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        lethalityByMove: result.lethalityByMove,
       };
 
       gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);

@@ -78,6 +78,7 @@ export class GameWebSocketServer {
         territoryCells: turnData.territoryCells,
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
+        lethalityByMove: turnData.lethalityByMove || null,
         timeout: turnData.gameState.game.timeout || 500,
         timestamp: turnData.timestamp,
         moveCommitted: game?.controlledSnakes.get(snakeId)?.moveCommittedThisTurn || false,
