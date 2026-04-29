@@ -62,8 +62,60 @@
       this.counters = { opens: 0, closes: 0, errors: 0, reconnects: 0 };
       this.lastClose = null;
       this.durationTimer = null;
+      this.queueKey = 'wsDebugQueue';
+      this.maxQueue = 200;
+      this.flushing = false;
       this._buildPanel();
       this._installVisibilityHooks();
+      // Try to flush anything that was stranded in a previous tab/session.
+      this._flushQueue();
+    }
+
+    _readQueue() {
+      try {
+        const raw = localStorage.getItem(this.queueKey);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) { return []; }
+    }
+    _writeQueue(q) {
+      try {
+        if (q.length > this.maxQueue) q = q.slice(q.length - this.maxQueue);
+        localStorage.setItem(this.queueKey, JSON.stringify(q));
+      } catch (e) { /* quota / privacy mode — best effort */ }
+    }
+    _enqueue(event) {
+      const q = this._readQueue();
+      q.push(event);
+      this._writeQueue(q);
+    }
+
+    /** Send all queued events to the server. Stops on the first failure so we
+     *  don't reorder events; the rest get retried on the next call. */
+    async _flushQueue() {
+      if (this.flushing) return;
+      this.flushing = true;
+      try {
+        let q = this._readQueue();
+        while (q.length > 0) {
+          const ev = q[0];
+          let ok = false;
+          try {
+            const r = await fetch('/api/connection-log/client', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ev),
+            });
+            ok = r.ok;
+          } catch (e) {
+            ok = false;
+          }
+          if (!ok) break;
+          q.shift();
+          this._writeQueue(q);
+        }
+      } finally {
+        this.flushing = false;
+      }
     }
 
     _record(type, extra) {
@@ -79,14 +131,31 @@
       if (this.events.length > 200) this.events.shift();
       this._renderEvents();
 
-      try {
-        fetch('/api/connection-log/client', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(event),
-          keepalive: true,
-        }).catch(() => {});
-      } catch (e) { /* ignore */ }
+      // Always queue first so a failed POST (the very thing we want to record
+      // when the network drops) doesn't get lost. The flush either succeeds
+      // immediately or retries on the next event / on reconnect.
+      this._enqueue(event);
+
+      // For unload/page-hide we use sendBeacon — fetch in a tearing-down page
+      // is unreliable even with keepalive; sendBeacon is the spec-blessed path.
+      const isUnload =
+        type === 'client-page-unload' || type === 'client-page-hidden';
+      if (isUnload && navigator.sendBeacon) {
+        try {
+          const blob = new Blob([JSON.stringify(event)], { type: 'application/json' });
+          if (navigator.sendBeacon('/api/connection-log/client', blob)) {
+            // Beacon accepted — drop just this event from the queue head.
+            const q = this._readQueue();
+            if (q.length && q[q.length - 1].ts === event.ts && q[q.length - 1].type === event.type) {
+              q.pop();
+              this._writeQueue(q);
+            }
+            return;
+          }
+        } catch (e) { /* fall through to fetch flush */ }
+      }
+
+      this._flushQueue();
     }
 
     _setState(state) {
@@ -102,6 +171,9 @@
       this._record('client-open');
       this._renderHeader();
       this._startDurationTimer();
+      // Network is back — drain anything that was queued while offline
+      // (most importantly the client-close/error from the previous outage).
+      this._flushQueue();
     }
 
     onClose(event) {
@@ -114,7 +186,11 @@
       const wasClean = event && typeof event.wasClean === 'boolean' ? event.wasClean : undefined;
       this.lastClose = { ts: Date.now(), code, reason, wasClean, durationMs };
       this._setState('disconnected');
+      // Record the close event while the previous serverConnId is still valid
+      // (so the close ties back to the right socket), then clear it so events
+      // before the next debug-hello aren't tagged with a stale server id.
       this._record('client-close', { code, reason, durationMs, details: { wasClean } });
+      this.serverConnId = null;
       this._renderHeader();
     }
 
