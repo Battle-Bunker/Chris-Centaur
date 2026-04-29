@@ -227,6 +227,10 @@
     </div>
 
     <div id="gameUI" style="display: none;">
+      <div id="gameOverBanner" style="display: none; margin: 0 0 12px; padding: 10px 14px; border-radius: 6px; background: #2a2a2a; border-left: 4px solid #888; color: #eee; font-size: 14px; line-height: 1.4;">
+        <div id="gameOverTitle" style="font-weight: 700; font-size: 15px; margin-bottom: 2px;">Game Over</div>
+        <div id="gameOverDetail" style="opacity: 0.85;"></div>
+      </div>
       <div class="board-container">
         <div class="board-left">
           <div class="board-header">
@@ -334,6 +338,8 @@
     let turnExpiryTime = null;
     let measuredPing = 0;
     let reconnectTimer = null;
+    let gameEnded = false;
+    let gameEndedSnakes = {};
     let selectedSnakeId = null;
     let myColor = '#888888';
     let controlledSnakeIds = new Set();
@@ -589,7 +595,84 @@
 
         case 'pong':
           break;
+
+        case 'snake-ended': {
+          // The /end payload from the engine carries the actual final state,
+          // which can be a few turns ahead of our last /move (other snakes
+          // kept playing after ours died, plus the death-state turn itself).
+          // We render that final state, then surface a Game Over banner.
+          // Guard against a stale/duplicate /end rolling the UI backwards.
+          const currentTurn = currentGameState?.turn ?? -1;
+          if (msg.finalGameState && msg.finalGameState.turn >= currentTurn) {
+            currentGameState = msg.finalGameState;
+            document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
+            document.getElementById('firstMoveIndicator').style.display = 'none';
+            renderGameBoard();
+            renderSnakeInfo();
+          }
+          gameEndedSnakes[msg.snakeId] = {
+            turn: msg.turn,
+            survived: !!msg.survived,
+            won: !!msg.won,
+          };
+          if (msg.gameOver) {
+            gameEnded = true;
+            turnExpiryTime = null;
+            if (turnTimerInterval) {
+              clearInterval(turnTimerInterval);
+              turnTimerInterval = null;
+            }
+            const timerEl = document.getElementById('timerDisplay');
+            if (timerEl) {
+              timerEl.className = 'timer-display idle';
+              timerEl.textContent = 'Ended';
+            }
+          }
+          renderGameOverBanner();
+          break;
+        }
       }
+    }
+
+    function renderGameOverBanner() {
+      const banner = document.getElementById('gameOverBanner');
+      const titleEl = document.getElementById('gameOverTitle');
+      const detailEl = document.getElementById('gameOverDetail');
+      if (!banner || !titleEl || !detailEl) return;
+
+      const ended = Object.entries(gameEndedSnakes);
+      if (ended.length === 0) {
+        banner.style.display = 'none';
+        return;
+      }
+
+      const lines = ended.map(([snakeId, info]) => {
+        const snakeName =
+          (currentGameState?.board?.snakes || []).find(s => s.id === snakeId)?.name ||
+          snakeId.slice(0, 8);
+        const outcome = info.won
+          ? 'won'
+          : info.survived
+            ? 'survived'
+            : 'died';
+        return `${escapeHtml(snakeName)} — ${outcome} (final turn ${info.turn})`;
+      });
+
+      titleEl.textContent = gameEnded ? 'Game Over' : 'Snake Ended';
+      const maxTurn = Math.max(...ended.map(([, info]) => info.turn));
+      const accent = gameEnded
+        ? (ended.some(([, i]) => i.won) ? '#4CAF50' : '#f44336')
+        : '#ff9800';
+      banner.style.borderLeftColor = accent;
+      detailEl.innerHTML =
+        `Final turn: ${maxTurn}<br>` + lines.join('<br>');
+      banner.style.display = 'block';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
     }
 
     function showGameUI() {

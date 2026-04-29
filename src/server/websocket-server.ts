@@ -160,6 +160,22 @@ export class GameWebSocketServer {
       console.log(`[WebSocket] Game list changed: ${event} ${gameId}:${snakeId}`);
       this.broadcastLobbyUpdate();
     });
+
+    this.gameManager.onGameEnd((gameId, snakeId, finalGameState, gameOver) => {
+      const finalSnakes = finalGameState.board.snakes || [];
+      const survived = finalSnakes.some(s => s.id === snakeId);
+      const won = survived && finalSnakes.length === 1;
+      this.broadcastToGame(gameId, {
+        type: 'snake-ended',
+        gameId,
+        snakeId,
+        turn: finalGameState.turn,
+        finalGameState,
+        survived,
+        won,
+        gameOver,
+      });
+    });
   }
 
   private handleMessage(client: WSClient, msg: WSMessage): void {

@@ -170,7 +170,7 @@ app.post('/move', async (req, res) => {
 app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
   logger.endGame(gameState);
-  gameManager.endGame(gameState.game.id, gameState.you.id);
+  gameManager.endGame(gameState.game.id, gameState.you.id, gameState);
   res.status(200).send('ok');
 });
 

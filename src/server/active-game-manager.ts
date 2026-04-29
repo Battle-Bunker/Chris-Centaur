@@ -81,6 +81,7 @@ export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: Tur
 export type BoardUpdateCallback = (gameId: string, gameState: GameState) => void;
 export type MoveCommittedCallback = (gameId: string, snakeId: string, move: Direction, source: string) => void;
 export type GameListChangeCallback = (event: 'added' | 'removed' | 'updated', gameId: string, snakeId: string) => void;
+export type GameEndCallback = (gameId: string, snakeId: string, finalGameState: GameState, gameOver: boolean) => void;
 
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
@@ -89,6 +90,7 @@ export class ActiveGameManager {
   private boardUpdateCallbacks: BoardUpdateCallback[] = [];
   private moveCommittedCallbacks: MoveCommittedCallback[] = [];
   private gameListChangeCallbacks: GameListChangeCallback[] = [];
+  private gameEndCallbacks: GameEndCallback[] = [];
   private gameServerPing: number = 50;
   private pingInterval: NodeJS.Timer | null = null;
   private configStore: ConfigStore = new ConfigStore();
@@ -116,6 +118,20 @@ export class ActiveGameManager {
 
   onGameListChange(callback: GameListChangeCallback): void {
     this.gameListChangeCallbacks.push(callback);
+  }
+
+  onGameEnd(callback: GameEndCallback): void {
+    this.gameEndCallbacks.push(callback);
+  }
+
+  private notifyGameEnd(gameId: string, snakeId: string, finalGameState: GameState, gameOver: boolean): void {
+    for (const cb of this.gameEndCallbacks) {
+      try {
+        cb(gameId, snakeId, finalGameState, gameOver);
+      } catch (e) {
+        console.error('Error in game end callback:', e);
+      }
+    }
   }
 
   private notifyGameListChange(event: 'added' | 'removed' | 'updated', gameId: string, snakeId: string): void {
@@ -247,7 +263,7 @@ export class ActiveGameManager {
     }
   }
 
-  endGame(gameId: string, snakeId: string): void {
+  endGame(gameId: string, snakeId: string, finalGameState?: GameState): void {
     const game = this.games.get(gameId);
     if (!game) {
       console.log(`[ActiveGameManager] endGame called for unknown game: ${gameId}:${snakeId}`);
@@ -255,15 +271,46 @@ export class ActiveGameManager {
     }
 
     const controlled = game.controlledSnakes.get(snakeId);
-    if (controlled) {
-      if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-        this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove || 'up', 'game-end');
-      }
-      game.controlledSnakes.delete(snakeId);
-      this.notifyGameListChange('removed', gameId, snakeId);
+    if (!controlled) {
+      // Duplicate /end for a snake we've already cleaned up. Don't re-fire
+      // events that would bounce the UI; just no-op.
+      console.log(`[ActiveGameManager] endGame for already-removed snake ${gameId}:${snakeId}, ignoring`);
+      return;
+    }
+    if (controlled.pendingMove && !controlled.pendingMove.resolved) {
+      this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove || 'up', 'game-end');
     }
 
-    if (game.controlledSnakes.size === 0) {
+    // The /end payload from the engine carries the actual final game state,
+    // which is typically several turns ahead of our last /move (because other
+    // snakes kept playing after ours died, and the death-state turn itself
+    // never came in via /move). Push it through the normal board-update
+    // pipeline so the centaur paints the real final position instead of
+    // freezing on whatever turn our snake last responded to.
+    let acceptedFinalState = false;
+    const incomingTurn = finalGameState?.turn ?? -1;
+    if (finalGameState && incomingTurn >= game.boardStateTurn) {
+      game.boardState = finalGameState;
+      game.boardStateTurn = incomingTurn;
+      game.currentTurn = Math.max(game.currentTurn, incomingTurn);
+      game.lastActivityAt = Date.now();
+      this.notifyBoardUpdate(gameId, finalGameState);
+      acceptedFinalState = true;
+    } else if (finalGameState) {
+      console.log(`[ActiveGameManager] endGame final-state for ${gameId}:${snakeId} rejected as stale (incomingTurn=${incomingTurn} < boardStateTurn=${game.boardStateTurn})`);
+    }
+
+    game.controlledSnakes.delete(snakeId);
+    this.notifyGameListChange('removed', gameId, snakeId);
+
+    const gameOver = game.controlledSnakes.size === 0;
+    // Only emit snake-ended when the final state is fresh enough to apply.
+    // A stale /end shouldn't rewind the UI's rendered turn.
+    if (finalGameState && acceptedFinalState) {
+      this.notifyGameEnd(gameId, snakeId, finalGameState, gameOver);
+    }
+
+    if (gameOver) {
       console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
       this.games.delete(gameId);
     }
