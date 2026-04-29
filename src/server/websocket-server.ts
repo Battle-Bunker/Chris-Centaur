@@ -1,13 +1,18 @@
-import { Server as HTTPServer } from 'http';
+import { Server as HTTPServer, IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, TurnData } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
+import { ConnectionLogger } from '../utils/connection-logger';
 
 interface WSClient {
   ws: WebSocket;
   gameId: string;
   userId: string;
   isLobby: boolean;
+  connId: string;
+  ip: string;
+  userAgent: string;
+  connectedAt: number;
 }
 
 interface WSMessage {
@@ -19,15 +24,46 @@ export class GameWebSocketServer {
   private wss: WebSocketServer;
   private clients: Set<WSClient> = new Set();
   private gameManager: ActiveGameManager;
+  private connLogger: ConnectionLogger;
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
+    this.connLogger = ConnectionLogger.getInstance();
 
     this.wss = new WebSocketServer({ server, path: '/ws' });
 
-    this.wss.on('connection', (ws: WebSocket) => {
-      const client: WSClient = { ws, gameId: '', userId: '', isLobby: false };
+    this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+      const ip =
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req.socket.remoteAddress ||
+        'unknown';
+      const userAgent = (req.headers['user-agent'] as string) || 'unknown';
+      const connId = this.connLogger.newConnId();
+
+      const client: WSClient = {
+        ws,
+        gameId: '',
+        userId: '',
+        isLobby: false,
+        connId,
+        ip,
+        userAgent,
+        connectedAt: Date.now(),
+      };
       this.clients.add(client);
+
+      this.connLogger.log({
+        ts: Date.now(),
+        side: 'server',
+        type: 'server-connect',
+        connId,
+        ip,
+        userAgent,
+      });
+
+      // Hand the server-assigned conn id to the client so it can be echoed back
+      // on debug POSTs. Lets us correlate server/client timelines deterministically.
+      this.send(ws, { type: 'debug-hello', connId });
 
       ws.on('message', (data: Buffer) => {
         try {
@@ -38,13 +74,36 @@ export class GameWebSocketServer {
         }
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code: number, reasonBuf: Buffer) => {
+        const reason = reasonBuf?.toString() || '';
+        this.connLogger.log({
+          ts: Date.now(),
+          side: 'server',
+          type: 'server-disconnect',
+          connId: client.connId,
+          gameId: client.gameId || undefined,
+          userId: client.userId || undefined,
+          ip: client.ip,
+          code,
+          reason,
+          durationMs: Date.now() - client.connectedAt,
+        });
         this.handleDisconnect(client);
         this.clients.delete(client);
       });
 
       ws.on('error', (err) => {
         console.error('WebSocket error:', err);
+        this.connLogger.log({
+          ts: Date.now(),
+          side: 'server',
+          type: 'server-error',
+          connId: client.connId,
+          gameId: client.gameId || undefined,
+          userId: client.userId || undefined,
+          ip: client.ip,
+          message: (err as Error)?.message || String(err),
+        });
         this.handleDisconnect(client);
         this.clients.delete(client);
       });
@@ -111,6 +170,17 @@ export class GameWebSocketServer {
         client.gameId = gameId;
         client.userId = userId;
         client.isLobby = false;
+
+        this.connLogger.log({
+          ts: Date.now(),
+          side: 'server',
+          type: 'server-subscribe',
+          connId: client.connId,
+          gameId,
+          userId,
+          ip: client.ip,
+          details: { kind: 'game' },
+        });
 
         const user = this.gameManager.addConnectedUser(gameId, userId);
         const gameState = this.gameManager.getGameState(gameId);
@@ -270,6 +340,14 @@ export class GameWebSocketServer {
         client.isLobby = true;
         client.gameId = '';
         client.userId = '';
+        this.connLogger.log({
+          ts: Date.now(),
+          side: 'server',
+          type: 'server-subscribe',
+          connId: client.connId,
+          ip: client.ip,
+          details: { kind: 'lobby' },
+        });
         this.sendLobbyState(client.ws);
         break;
 

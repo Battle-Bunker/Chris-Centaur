@@ -310,6 +310,7 @@
   </div>
 
   <script src="/board-renderer.js"></script>
+  <script src="/connection-debug.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
     const gameId = pathParts[2] || '';
@@ -317,6 +318,11 @@
     if (!sessionStorage.getItem('centaurUserId')) {
       sessionStorage.setItem('centaurUserId', crypto.randomUUID());
     }
+
+    const wsDebug = window.ConnectionDebugger.attach({
+      gameId,
+      userId: sessionStorage.getItem('centaurUserId'),
+    });
     const userId = sessionStorage.getItem('centaurUserId');
 
     let ws = null;
@@ -354,6 +360,7 @@
         statusEl.textContent = 'Connected';
         ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId }));
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        wsDebug.onOpen();
       };
 
       ws.onmessage = (event) => {
@@ -365,20 +372,29 @@
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         statusEl.className = 'connection-status disconnected';
-        statusEl.textContent = 'Disconnected';
-        reconnectTimer = setTimeout(connectWebSocket, 2000);
+        const codeStr = event && typeof event.code === 'number' ? ` (code ${event.code})` : '';
+        statusEl.textContent = 'Disconnected' + codeStr;
+        wsDebug.onClose(event);
+        reconnectTimer = setTimeout(() => {
+          wsDebug.onReconnectAttempt();
+          connectWebSocket();
+        }, 2000);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event) => {
         statusEl.className = 'connection-status disconnected';
         statusEl.textContent = 'Error';
+        wsDebug.onError(event);
       };
     }
 
     function handleWSMessage(msg) {
       switch (msg.type) {
+        case 'debug-hello':
+          wsDebug.setServerConnId(msg.connId);
+          break;
         case 'game-subscribed':
           myColor = msg.userColor || '#888888';
           if (msg.boardState) {

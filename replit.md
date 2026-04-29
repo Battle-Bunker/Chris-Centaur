@@ -136,6 +136,19 @@ Human-in-the-loop mode with unified multi-snake game control. Multiple users can
 - Uses autoscale with max 1 machine (cost-efficient when idle, but ensures single-instance for WebSocket + in-memory state)
 - WebSocket path: `/ws`
 
+### WebSocket Connection Debugger (Added 2026-04-29)
+Tool for diagnosing client disconnects from the centaur play pages.
+
+**Server-side** (`src/utils/connection-logger.ts`): Singleton that records every WS event (connect, subscribe, disconnect, error) to `connection-logs/ws-connections.log` as NDJSON, plus an in-memory ring buffer (last 1000 events) for the live debug UI. Each event has a server-assigned `connId`, IP, user agent, and where applicable: close code, reason, duration.
+
+**Client-side** (`src/web/connection-debug.js`): Lightweight helper attached to the WebSocket lifecycle on both `play.html` and `play-game.html`. Renders a collapsible status panel (bottom-right) showing live state, uptime, counters, and last close code/reason. Posts every client-side event (open, close, error, page-hidden/visible/unload, reconnect attempts) to the server so they end up in the log file too.
+
+**Endpoints** (`src/routes/connection-debug.ts`):
+- `GET /connection-debug` — full event viewer page with stats and filterable table
+- `GET /api/connection-log/recent?limit=N` — recent events + counters JSON
+- `GET /api/connection-log/download` — download the raw NDJSON log file
+- `POST /api/connection-log/client` — accepts client-reported events
+
 ## System Architecture
 
 ### Backend Framework

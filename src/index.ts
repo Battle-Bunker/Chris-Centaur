@@ -13,6 +13,8 @@ import { BoardGraph } from './logic/board-graph';
 import logsRouter from './routes/logs';
 import configRouter from './routes/config';
 import playRouter from './routes/play';
+import connectionDebugRouter from './routes/connection-debug';
+import { ConnectionLogger } from './utils/connection-logger';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -175,6 +177,7 @@ app.post('/end', (req, res) => {
 app.use(logsRouter);
 app.use(configRouter);
 app.use(playRouter);
+app.use(connectionDebugRouter);
 
 app.get('/config', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
@@ -196,6 +199,10 @@ app.get('/play/:gameId', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
 });
 
+app.get('/connection-debug', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/connection-debug.html'));
+});
+
 const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
@@ -209,22 +216,16 @@ httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Visit http://localhost:${port}/play for centaur play`);
 });
 
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+async function gracefulShutdown(signal: string) {
+  console.log(`${signal} received, shutting down gracefully...`);
   const decisionLogger = DecisionLogger.getInstance();
   await decisionLogger.shutdown();
+  await ConnectionLogger.getInstance().shutdown();
   httpServer.close(() => {
     console.log('Server closed');
     process.exit(0);
   });
-});
+}
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  const decisionLogger = DecisionLogger.getInstance();
-  await decisionLogger.shutdown();
-  httpServer.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });

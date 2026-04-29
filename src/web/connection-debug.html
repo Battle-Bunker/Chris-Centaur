@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket Connection Debugger</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a; color: #e0e0e0; padding: 20px;
+    }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .toolbar a, .toolbar button {
+      background: #333; color: #4CAF50; border: 1px solid #555;
+      padding: 6px 12px; border-radius: 4px; font-size: 13px;
+      text-decoration: none; cursor: pointer;
+    }
+    .toolbar button:hover, .toolbar a:hover { background: #444; }
+    .toolbar label { font-size: 13px; color: #aaa; display: flex; gap: 6px; align-items: center; }
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px; margin-bottom: 20px;
+    }
+    .stat-card {
+      background: #2a2a2a; border: 1px solid #444; border-radius: 6px;
+      padding: 10px 14px;
+    }
+    .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+    .log-file-path {
+      font-family: monospace; font-size: 12px; color: #888;
+      margin-bottom: 12px; word-break: break-all;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td {
+      text-align: left; padding: 6px 8px; border-bottom: 1px solid #333;
+      vertical-align: top;
+    }
+    th { background: #2a2a2a; color: #aaa; font-weight: 600; position: sticky; top: 0; }
+    tr.server-disconnect td, tr.client-close td { color: #ef9a9a; }
+    tr.server-error td, tr.client-error td { color: #ffab91; background: rgba(255,82,82,0.05); }
+    tr.server-connect td, tr.client-open td { color: #a5d6a7; }
+    tr.server-subscribe td { color: #90caf9; }
+    tr.client-page-hidden td, tr.client-page-visible td, tr.client-page-unload td { color: #ce93d8; }
+    tr.client-reconnect-attempt td { color: #ffe082; }
+    .reason { font-family: monospace; color: #ccc; }
+    .conn-id { font-family: monospace; color: #888; }
+    .empty { padding: 30px; text-align: center; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>WebSocket Connection Debugger</h1>
+
+  <div class="toolbar">
+    <a href="/play">← Back to Play</a>
+    <a href="/api/connection-log/download">Download log file</a>
+    <button id="refreshBtn">Refresh</button>
+    <button id="clearBtn">Clear view</button>
+    <label><input type="checkbox" id="autoRefresh" checked> Auto-refresh (2s)</label>
+    <label>
+      Filter:
+      <select id="filter">
+        <option value="">All events</option>
+        <option value="server">Server side only</option>
+        <option value="client">Client side only</option>
+        <option value="disconnect">Disconnects + errors</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="log-file-path" id="logFilePath"></div>
+
+  <div class="stats" id="stats"></div>
+
+  <div style="background:#2a2a2a;border:1px solid #444;border-radius:6px;overflow:hidden;">
+    <div style="max-height:65vh;overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Side</th>
+            <th>Type</th>
+            <th>Conn</th>
+            <th>User / Game</th>
+            <th>Code</th>
+            <th>Reason / Message</th>
+            <th>Duration</th>
+            <th>IP</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const rowsEl = document.getElementById('rows');
+    const statsEl = document.getElementById('stats');
+    const logFilePathEl = document.getElementById('logFilePath');
+    const filterEl = document.getElementById('filter');
+    const autoEl = document.getElementById('autoRefresh');
+    let timer = null;
+    let lastEvents = [];
+
+    function fmtTime(ts) {
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+    }
+    function fmtDur(ms) {
+      if (ms === undefined || ms === null) return '';
+      if (ms < 1000) return ms + 'ms';
+      if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+      return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
+    }
+    function shorten(s, n) {
+      if (!s) return '';
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    }
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function safe(s, n) {
+      return escapeHtml(shorten(s, n));
+    }
+    const VALID_TYPES = new Set([
+      'server-connect','server-subscribe','server-disconnect','server-error',
+      'client-open','client-close','client-error','client-reconnect-attempt',
+      'client-page-hidden','client-page-visible','client-page-unload'
+    ]);
+
+    function renderStats(stats) {
+      logFilePathEl.textContent = 'Log file: ' + (stats.logFilePath || '');
+      const cards = [
+        ['Active server conns', stats.activeServerConnections],
+        ['Server connects', stats.serverConnects],
+        ['Server disconnects', stats.serverDisconnects],
+        ['Server errors', stats.serverErrors],
+        ['Client opens', stats.clientOpens],
+        ['Client closes', stats.clientCloses],
+        ['Client errors', stats.clientErrors],
+      ];
+      statsEl.innerHTML = cards.map(([label, value]) => `
+        <div class="stat-card">
+          <div class="stat-label">${label}</div>
+          <div class="stat-value">${value}</div>
+        </div>
+      `).join('');
+    }
+
+    function applyFilter(events) {
+      const f = filterEl.value;
+      if (f === 'server') return events.filter(e => e.side === 'server');
+      if (f === 'client') return events.filter(e => e.side === 'client');
+      if (f === 'disconnect') return events.filter(e =>
+        e.type === 'server-disconnect' || e.type === 'server-error' ||
+        e.type === 'client-close' || e.type === 'client-error');
+      return events;
+    }
+
+    function renderRows(events) {
+      const filtered = applyFilter(events);
+      if (filtered.length === 0) {
+        rowsEl.innerHTML = '<tr><td colspan="9" class="empty">No events to show.</td></tr>';
+        return;
+      }
+      const reversed = [...filtered].reverse();
+      rowsEl.innerHTML = reversed.map(e => {
+        const typeClass = VALID_TYPES.has(e.type) ? e.type : '';
+        const sideClass = e.side === 'client' || e.side === 'server' ? e.side : '';
+        const codeStr = typeof e.code === 'number' ? String(e.code) : '';
+        const idCell = (e.connId || e.serverConnId)
+          ? `<div class="conn-id">${safe(e.connId, 20)}</div>` +
+            (e.serverConnId && e.serverConnId !== e.connId
+              ? `<div class="conn-id" title="server conn id">↔ ${safe(e.serverConnId, 20)}</div>`
+              : '')
+          : '';
+        return `
+          <tr class="${typeClass}">
+            <td>${escapeHtml(fmtTime(e.ts))}</td>
+            <td>${escapeHtml(sideClass)}</td>
+            <td>${escapeHtml(e.type || '')}</td>
+            <td>${idCell}</td>
+            <td>
+              ${e.userId ? `<div>${safe(e.userId, 20)}</div>` : ''}
+              ${e.gameId ? `<div class="conn-id">${safe(e.gameId, 20)}</div>` : ''}
+            </td>
+            <td>${escapeHtml(codeStr)}</td>
+            <td class="reason">${safe(e.reason || e.message || '', 120)}</td>
+            <td>${escapeHtml(fmtDur(e.durationMs))}</td>
+            <td>${safe(e.ip, 40)}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch('/api/connection-log/recent?limit=500');
+        const data = await r.json();
+        lastEvents = data.events || [];
+        renderStats(data.stats || {});
+        renderRows(lastEvents);
+      } catch (e) {
+        console.error('Failed to load log:', e);
+      }
+    }
+
+    function startTimer() {
+      stopTimer();
+      if (autoEl.checked) timer = setInterval(refresh, 2000);
+    }
+    function stopTimer() {
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', refresh);
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      rowsEl.innerHTML = '';
+    });
+    autoEl.addEventListener('change', startTimer);
+    filterEl.addEventListener('change', () => renderRows(lastEvents));
+
+    refresh();
+    startTimer();
+  </script>
+</body>
+</html>

@@ -105,10 +105,12 @@
   </div>
 
   <script src="/board-renderer.js"></script>
+  <script src="/connection-debug.js"></script>
   <script>
     let ws = null;
     let reconnectTimer = null;
     let currentGames = [];
+    const wsDebug = window.ConnectionDebugger.attach({});
 
     function connectWebSocket() {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -128,12 +130,15 @@
           clearInterval(reconnectTimer);
           reconnectTimer = null;
         }
+        wsDebug.onOpen();
       };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === 'lobby-update') {
+          if (msg.type === 'debug-hello') {
+            wsDebug.setServerConnId(msg.connId);
+          } else if (msg.type === 'lobby-update') {
             currentGames = msg.games;
             renderGames(msg.games);
           }
@@ -142,15 +147,17 @@
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         statusEl.textContent = 'Disconnected';
         statusEl.className = 'ws-status disconnected';
+        wsDebug.onClose(event);
         scheduleReconnect();
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event) => {
         statusEl.textContent = 'Error';
         statusEl.className = 'ws-status disconnected';
+        wsDebug.onError(event);
       };
     }
 
@@ -158,6 +165,7 @@
       if (!reconnectTimer) {
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
+          wsDebug.onReconnectAttempt();
           connectWebSocket();
         }, 2000);
       }
