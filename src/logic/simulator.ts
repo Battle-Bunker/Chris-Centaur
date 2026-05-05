@@ -161,12 +161,12 @@ export class Simulator {
         }
       }
       
-      // Apply hazard damage
+      // Hazards are instant death in this ruleset — entering a hazard cell
+      // kills the snake outright regardless of health. Matches the BoardGraph
+      // pathfinding treatment (hazards are impassable, same class as walls).
       if (newBoard.hazards.some(h => h.x === newHead.x && h.y === newHead.y)) {
-        snake.health -= 15; // Standard hazard damage
-        if (snake.health <= 0) {
-          deadSnakeIds.add(snake.id);
-        }
+        snake.health = 0;
+        deadSnakeIds.add(snake.id);
       }
     }
     
