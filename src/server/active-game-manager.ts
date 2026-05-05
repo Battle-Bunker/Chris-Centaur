@@ -630,6 +630,51 @@ export class ActiveGameManager {
     return result;
   }
 
+  private static directionFromTo(from: Coord, to: Coord): Direction | null {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    if (dx === 1 && dy === 0) return 'right';
+    if (dx === -1 && dy === 0) return 'left';
+    if (dx === 0 && dy === 1) return 'up';
+    if (dx === 0 && dy === -1) return 'down';
+    return null;
+  }
+
+  // Returns the move direction the snake should take next according to its
+  // premove queue, or null if the queue is empty / disconnected from the
+  // current head. Only the immediate next cell is consulted; subsequent cells
+  // are advanced one per turn by `advancePremoveQueueAfterMove`.
+  private getPremoveDirection(gameId: string, snakeId: string): Direction | null {
+    const game = this.games.get(gameId);
+    if (!game?.boardState) return null;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled || controlled.premoveQueue.length === 0) return null;
+    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!head) return null;
+    return ActiveGameManager.directionFromTo(head, controlled.premoveQueue[0]);
+  }
+
+  // Called after every resolved move to keep the queue in lock-step with the
+  // actual snake position. If the move matches the planned next cell, pop it.
+  // If it diverged (manual override, fallback move, etc.), abandon the plan.
+  private advancePremoveQueueAfterMove(gameId: string, snakeId: string, move: Direction): void {
+    const game = this.games.get(gameId);
+    if (!game?.boardState) return;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled || controlled.premoveQueue.length === 0) return;
+    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!head) return;
+    const expected = ActiveGameManager.directionFromTo(head, controlled.premoveQueue[0]);
+    if (expected === move) {
+      controlled.premoveQueue.shift();
+    } else {
+      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: expected=${expected}, actual=${move}, clearing`);
+      controlled.premoveQueue = [];
+    }
+  }
+
   setPremoveQueue(gameId: string, snakeId: string, queue: unknown, userId: string): boolean {
     const game = this.games.get(gameId);
     if (!game) return false;
@@ -772,8 +817,28 @@ export class ActiveGameManager {
     } else if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
       console.log(`[ActiveGameManager] Hold active for ${gameId}:${snakeId} (${controlled.holdTurnsRemaining} turns remaining): deferring auto-pilot, safety timer will submit ${move} at end of turn`);
     } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
-      console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
-      this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
+      // Unselected snake: server is the only thing that can drive the queue.
+      // Prefer the planned premove direction over the bot's recommendation.
+      const premoveDir = this.getPremoveDirection(gameId, snakeId);
+      if (premoveDir) {
+        console.log(`[ActiveGameManager] Auto-pilot premove for ${gameId}:${snakeId}: submitting ${premoveDir} (queue head)`);
+        this.resolvePendingMove(gameId, snakeId, premoveDir, 'premove-auto');
+      } else {
+        if (controlled.premoveQueue.length > 0) {
+          console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, clearing stale plan`);
+          controlled.premoveQueue = [];
+        }
+        console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
+        this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
+      }
+    } else if (controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && !controlled.pendingMove.userSelectedMove) {
+      // Selected snake with a queue but no manual stage yet: pre-stage the
+      // premove so the safety timer commits it if the user never submits.
+      const premoveDir = this.getPremoveDirection(gameId, snakeId);
+      if (premoveDir) {
+        controlled.pendingMove.userSelectedMove = premoveDir;
+        console.log(`[ActiveGameManager] Pre-staged premove ${premoveDir} for selected snake ${gameId}:${snakeId}`);
+      }
     } else if (game.currentTurn === 0 && !controlled.selectedBy) {
       this.handleFirstTurnAutoPilot(gameId, snakeId, move, controlled);
     }
@@ -859,6 +924,12 @@ export class ActiveGameManager {
 
     controlled.moveCommittedThisTurn = true;
     controlled.committedMove = move;
+
+    // Keep the server-side premove queue in lock-step with the actual move.
+    // This works for both selected (client submitted) and unselected
+    // (auto-pilot) snakes — whoever drove the move, the queue advances or
+    // clears based on what actually happened.
+    this.advancePremoveQueueAfterMove(gameId, snakeId, move);
 
     try {
       const headersSent = pending.res.headersSent;
