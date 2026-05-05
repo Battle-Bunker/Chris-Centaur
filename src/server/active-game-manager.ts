@@ -657,12 +657,8 @@ export class ActiveGameManager {
 
   // Called after every resolved move to keep the queue in lock-step with the
   // actual snake position. If the move matches the planned next cell, pop it.
-  // If it diverged (manual override, fallback move, etc.), KEEP the queue in
-  // place — the user explicitly asked that a manually-submitted move not
-  // discard the rest of the plan. Stale cells will be ignored by the
-  // adjacency check in getPremoveDirection / tryConsumePremove until the
-  // snake wanders back next to queue[0], or the user clears via the X
-  // button.
+  // If it diverged (manual override, fallback move, etc.), abandon the plan —
+  // the snake is now somewhere the queue can't reach, so the rest is stale.
   private advancePremoveQueueAfterMove(gameId: string, snakeId: string, move: Direction): void {
     const game = this.games.get(gameId);
     if (!game?.boardState) return;
@@ -675,7 +671,8 @@ export class ActiveGameManager {
     if (expected === move) {
       controlled.premoveQueue.shift();
     } else {
-      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: expected=${expected}, actual=${move}, preserving queue (${controlled.premoveQueue.length} cells)`);
+      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: expected=${expected}, actual=${move}, clearing`);
+      controlled.premoveQueue = [];
     }
   }
 
@@ -831,11 +828,8 @@ export class ActiveGameManager {
         this.resolvePendingMove(gameId, snakeId, premoveDir, 'premove-auto');
       } else {
         if (controlled.premoveQueue.length > 0) {
-          // Queue exists but its head isn't adjacent to the snake's head
-          // (the snake diverged earlier or just took control). Leave the
-          // plan in place — it'll resume the moment the snake is adjacent
-          // again, or the user can clear it explicitly.
-          console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, preserving (${controlled.premoveQueue.length} cells), falling back to bot recommendation`);
+          console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, clearing stale plan`);
+          controlled.premoveQueue = [];
         }
         console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
         this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');

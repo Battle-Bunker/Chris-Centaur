@@ -1296,11 +1296,8 @@
 
       if (!direction) {
         // Diverged — queue[0] isn't orthogonally adjacent to the current
-        // head. Don't auto-fire and don't clear: the user wants the plan
-        // remembered across manual moves. They can clear via the X button
-        // if they want, or the queue resumes the moment the snake ends up
-        // next to queue[0] again.
-        if (mutated) setPremoveQueueForSnake(selectedSnakeId, queue);
+        // head, so the plan is no longer reachable. Drop it.
+        setPremoveQueueForSnake(selectedSnakeId, []);
         return;
       }
 
