@@ -896,7 +896,11 @@
         drawPremoveOverlay(canvas, snake, pq, currentGameState.board, cellSize, color);
       }
 
-      if (selectedSnakeId && moveState && !moveSubmitted) {
+      // The move-arrow overlay puts clickable divs over the four cells adjacent
+      // to the head — those would swallow exactly the clicks the user is trying
+      // to plan into. Skip the overlay entirely while in premove input mode so
+      // clicks fall through to the canvas's premove handler.
+      if (selectedSnakeId && moveState && !moveSubmitted && !premoveMode) {
         BoardRenderer.createBoardOverlay(
           document.getElementById('boardOverlay'), canvas,
           currentGameState.board, moveState, selectMove
