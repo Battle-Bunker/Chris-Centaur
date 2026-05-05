@@ -733,13 +733,15 @@ export class ActiveGameManager {
       res,
       timer: setTimeout(() => {
         if (!pending.resolved) {
-          if (controlled.holdTurnsRemaining > 0 && !pending.userSelectedMove) {
-            console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but snake is held (${controlled.holdTurnsRemaining} turns remaining) and no user move staged: not auto-submitting`);
-            return;
-          }
+          // Tab/hold marks the snake as held but the safety timer still fires
+          // at deadline — falling back to the bot's best move so the snake
+          // doesn't die from inaction. The hold's job is to defer the auto-
+          // pilot mid-turn (giving the user time to think); at the deadline
+          // the bot's recommendation is still the safest available choice.
           const move = pending.userSelectedMove || pending.botMove || 'up';
           const source = pending.userSelectedMove ? 'user-selection' : (pending.botMove ? 'bot-recommendation' : 'fallback');
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}: using ${move} (source: ${source}, userSelected=${pending.userSelectedMove}, bot=${pending.botMove}, selectedBy=${controlled.selectedBy})`);
+          const heldNote = controlled.holdTurnsRemaining > 0 ? ` [held ${controlled.holdTurnsRemaining}]` : '';
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote}: using ${move} (source: ${source}, userSelected=${pending.userSelectedMove}, bot=${pending.botMove}, selectedBy=${controlled.selectedBy})`);
           this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
         } else {
           console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
