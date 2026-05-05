@@ -122,6 +122,7 @@ export class GameWebSocketServer {
         selections: this.getSelectionsForGame(gameId),
         holds: this.gameManager.getHoldStates(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
+        premoves: this.gameManager.getPremovesForGame(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -342,6 +343,17 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'set-premove': {
+        if (!client.gameId || !client.userId) break;
+        const snakeId = msg.snakeId;
+        if (!snakeId) break;
+        const ok = this.gameManager.setPremoveQueue(
+          client.gameId, snakeId, msg.queue, client.userId
+        );
+        if (ok) this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'set-nickname': {
         if (!client.gameId || !client.userId) break;
         const nickname = typeof msg.nickname === 'string' ? msg.nickname : null;
@@ -431,6 +443,7 @@ export class GameWebSocketServer {
     const connectedUsers = Array.from(game.connectedUsers.values());
     const holds = this.gameManager.getHoldStates(gameId);
     const stagedMoves = this.getStagedMovesForGame(gameId);
+    const premoves = this.gameManager.getPremovesForGame(gameId);
 
     this.broadcastToGame(gameId, {
       type: 'selections-update',
@@ -438,6 +451,7 @@ export class GameWebSocketServer {
       connectedUsers,
       holds,
       stagedMoves,
+      premoves,
     });
   }
 

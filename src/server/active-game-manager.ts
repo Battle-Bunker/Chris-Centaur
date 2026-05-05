@@ -1,4 +1,4 @@
-import { GameState, Direction } from '../types/battlesnake';
+import { GameState, Direction, Coord } from '../types/battlesnake';
 import { Response } from 'express';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
@@ -47,6 +47,7 @@ export interface ControlledSnake {
   committedMove: Direction | null;
   holdTurnsRemaining: number;
   suicideArmed: boolean;
+  premoveQueue: Coord[];
 }
 
 export interface ConnectedUser {
@@ -258,6 +259,7 @@ export class ActiveGameManager {
         committedMove: null,
         holdTurnsRemaining: 0,
         suicideArmed: false,
+        premoveQueue: [],
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
@@ -558,6 +560,7 @@ export class ActiveGameManager {
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
     holds: { [snakeId: string]: number };
+    premoves: { [snakeId: string]: Coord[] };
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
@@ -608,10 +611,52 @@ export class ActiveGameManager {
       connectedUsers: Array.from(game.connectedUsers.values()),
       selections,
       holds,
+      premoves: this.getPremovesForGame(gameId),
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
       measuredPing: this.gameServerPing,
     };
+  }
+
+  getPremovesForGame(gameId: string): { [snakeId: string]: Coord[] } {
+    const game = this.games.get(gameId);
+    if (!game) return {};
+    const result: { [snakeId: string]: Coord[] } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      if (cs.premoveQueue && cs.premoveQueue.length > 0) {
+        result[snakeId] = cs.premoveQueue;
+      }
+    }
+    return result;
+  }
+
+  setPremoveQueue(gameId: string, snakeId: string, queue: unknown, userId: string): boolean {
+    const game = this.games.get(gameId);
+    if (!game) return false;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled) return false;
+    if (controlled.selectedBy !== userId) return false;
+
+    const sanitized: Coord[] = [];
+    if (Array.isArray(queue)) {
+      const board = game.boardState?.board;
+      const w = board?.width ?? 0;
+      const h = board?.height ?? 0;
+      for (let i = 0; i < Math.min(queue.length, 200); i++) {
+        const c = queue[i] as { x?: unknown; y?: unknown } | null;
+        if (!c) continue;
+        const x = Number(c.x);
+        const y = Number(c.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const ix = Math.floor(x);
+        const iy = Math.floor(y);
+        if (w > 0 && (ix < 0 || ix >= w)) continue;
+        if (h > 0 && (iy < 0 || iy >= h)) continue;
+        sanitized.push({ x: ix, y: iy });
+      }
+    }
+    controlled.premoveQueue = sanitized;
+    return true;
   }
 
   setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number, serverExpiryTime: number | null = null, turn: number = 0): PendingMove {
