@@ -202,6 +202,20 @@
       border: 3px solid #9C27B0;
       border-radius: 4px;
     }
+    #premoveBanner {
+      display: none; align-items: center; gap: 10px;
+      padding: 6px 10px; margin-bottom: 8px; border-radius: 4px;
+      background: rgba(33, 150, 243, 0.15); border-left: 4px solid #2196F3;
+      color: #bbdefb; font-size: 12px; font-weight: 600;
+    }
+    #premoveBanner.active { display: flex; }
+    #premoveBanner .pm-hint { font-weight: 400; opacity: 0.85; }
+    #premoveBanner .pm-clear {
+      margin-left: auto; background: #444; color: #eee; border: none;
+      padding: 3px 10px; border-radius: 3px; cursor: pointer;
+      font-size: 11px; font-weight: 600;
+    }
+    #premoveBanner .pm-clear:hover { background: #555; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
@@ -242,6 +256,11 @@
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
             </div>
+          </div>
+          <div id="premoveBanner">
+            <span id="premoveBannerLabel">Premove ON</span>
+            <span class="pm-hint">click adjacent squares to plan a path · [Q] toggle · click head to clear</span>
+            <button class="pm-clear" id="premoveClearBtn" onclick="clearPremoveQueue()">Clear path</button>
           </div>
           <div class="canvas-wrapper">
             <canvas id="gameCanvas" width="550" height="550"></canvas>
@@ -350,6 +369,8 @@
     let analyticsFrozen = false;
     let holds = {};
     let stagedMoves = {};
+    let premoveMode = false;
+    let premoveQueue = [];
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -486,6 +507,7 @@
           if (snakeId === selectedSnakeId) {
             setupMoveStateForSnake(snakeId);
             updateMoveControls();
+            tryConsumePremove();
           }
           renderGameBoard();
           break;
@@ -493,6 +515,11 @@
 
         case 'snake-selected': {
           if (msg.snakeId) {
+            if (selectedSnakeId && selectedSnakeId !== msg.snakeId) {
+              premoveQueue = [];
+              premoveMode = false;
+              updatePremoveBanner();
+            }
             selectedSnakeId = msg.snakeId;
             if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
@@ -533,6 +560,9 @@
               moveSubmitted = false;
               userSelectedMove = null;
               analyticsFrozen = false;
+              premoveMode = false;
+              premoveQueue = [];
+              updatePremoveBanner();
               hideSelectionUI();
             }
           }
@@ -550,6 +580,9 @@
             moveSubmitted = false;
             userSelectedMove = null;
             analyticsFrozen = false;
+            premoveMode = false;
+            premoveQueue = [];
+            updatePremoveBanner();
             hideSelectionUI();
           }
           break;
@@ -563,16 +596,31 @@
           break;
 
         case 'move-submitted':
-          if (msg.success && msg.snakeId === selectedSnakeId) {
-            moveSubmitted = true;
-            analyticsFrozen = true;
-            const csData = controlledSnakeTurnData[msg.snakeId];
-            if (csData) {
-              csData.moveCommitted = true;
-              csData.committedMove = msg.move;
+          if (msg.snakeId === selectedSnakeId) {
+            if (msg.success) {
+              moveSubmitted = true;
+              analyticsFrozen = true;
+              const csData = controlledSnakeTurnData[msg.snakeId];
+              if (csData) {
+                csData.moveCommitted = true;
+                csData.committedMove = msg.move;
+              }
+              updateMoveControls();
+              renderGameBoard();
+            } else {
+              // Server rejected the submit (no pending move, already
+              // resolved, etc). Reset our optimistic committed state so
+              // the user/premove can try again this turn.
+              moveSubmitted = false;
+              analyticsFrozen = false;
+              const csData = controlledSnakeTurnData[msg.snakeId];
+              if (csData) {
+                csData.moveCommitted = false;
+                csData.committedMove = null;
+              }
+              updateMoveControls();
+              renderGameBoard();
             }
-            updateMoveControls();
-            renderGameBoard();
           }
           break;
 
@@ -615,6 +663,11 @@
             survived: !!msg.survived,
             won: !!msg.won,
           };
+          if (msg.snakeId === selectedSnakeId && premoveQueue.length > 0) {
+            premoveQueue = [];
+            premoveMode = false;
+            updatePremoveBanner();
+          }
           if (msg.gameOver) {
             gameEnded = true;
             turnExpiryTime = null;
@@ -810,6 +863,10 @@
         holds: holds,
         stagedMoves: effectiveStagedMoves,
       });
+
+      if (selectedSnakeId && premoveQueue.length > 0) {
+        drawPremoveOverlay(canvas, premoveQueue, currentGameState.board, cellSize, myColor || '#2196F3');
+      }
 
       if (selectedSnakeId && moveState && !moveSubmitted) {
         BoardRenderer.createBoardOverlay(
@@ -1039,6 +1096,26 @@
       const boardX = Math.floor(clickX / cellSize);
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
 
+      if (premoveMode && selectedSnakeId) {
+        // In premove mode, a click on a *different* controlled snake
+        // should still switch selection — otherwise the user is trapped
+        // in the current snake until they toggle Q off.
+        for (const snake of board.snakes) {
+          if (!controlledSnakeIds.has(snake.id)) continue;
+          if (snake.id === selectedSnakeId) continue;
+          for (const segment of snake.body) {
+            if (segment.x === boardX && segment.y === boardY) {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'select-snake', snakeId: snake.id }));
+              }
+              return;
+            }
+          }
+        }
+        addPremoveCellAt(boardX, boardY);
+        return;
+      }
+
       for (const snake of board.snakes) {
         if (!controlledSnakeIds.has(snake.id)) continue;
         for (const segment of snake.body) {
@@ -1051,6 +1128,162 @@
           }
         }
       }
+    }
+
+    function getSelectedSnake() {
+      if (!selectedSnakeId || !currentGameState) return null;
+      return currentGameState.board.snakes.find(s => s.id === selectedSnakeId) || null;
+    }
+
+    function addPremoveCellAt(x, y) {
+      const snake = getSelectedSnake();
+      if (!snake) return;
+      const board = currentGameState.board;
+      if (x < 0 || y < 0 || x >= board.width || y >= board.height) return;
+
+      const head = snake.head || snake.body[0];
+
+      if (x === head.x && y === head.y) {
+        clearPremoveQueue();
+        return;
+      }
+
+      const existingIdx = premoveQueue.findIndex(c => c.x === x && c.y === y);
+      if (existingIdx !== -1) {
+        premoveQueue = premoveQueue.slice(0, existingIdx + 1);
+        updatePremoveBanner();
+        renderGameBoard();
+        return;
+      }
+
+      const last = premoveQueue.length > 0 ? premoveQueue[premoveQueue.length - 1] : head;
+      const dx = x - last.x;
+      const dy = y - last.y;
+      const isAdjacent = (Math.abs(dx) === 1 && dy === 0) || (Math.abs(dy) === 1 && dx === 0);
+      if (!isAdjacent) return;
+
+      premoveQueue.push({ x, y });
+      updatePremoveBanner();
+      renderGameBoard();
+      tryConsumePremove();
+    }
+
+    function clearPremoveQueue() {
+      if (premoveQueue.length === 0) return;
+      premoveQueue = [];
+      updatePremoveBanner();
+      renderGameBoard();
+    }
+
+    function togglePremoveMode() {
+      if (!selectedSnakeId) return;
+      premoveMode = !premoveMode;
+      updatePremoveBanner();
+      renderGameBoard();
+    }
+
+    function updatePremoveBanner() {
+      const banner = document.getElementById('premoveBanner');
+      const label = document.getElementById('premoveBannerLabel');
+      const clearBtn = document.getElementById('premoveClearBtn');
+      if (!banner || !label || !clearBtn) return;
+      const visible = premoveMode || premoveQueue.length > 0;
+      banner.classList.toggle('active', visible);
+      const status = premoveMode ? 'Premove ON' : 'Premove paused';
+      label.textContent = `${status} · ${premoveQueue.length} queued`;
+      clearBtn.style.display = premoveQueue.length > 0 ? 'inline-block' : 'none';
+    }
+
+    function tryConsumePremove() {
+      if (premoveQueue.length === 0) return;
+      if (!selectedSnakeId || !moveState || moveSubmitted) return;
+      const snake = getSelectedSnake();
+      if (!snake) { clearPremoveQueue(); return; }
+
+      const head = snake.head || snake.body[0];
+
+      // Drain any queued cells that match the current head — these are
+      // premoves the engine already executed in prior turns. Doing the
+      // dequeue here (rather than at submit time) means a failed submit
+      // never silently drops a queued cell: if the snake didn't actually
+      // move where we asked, queue[0] won't equal head and we'll either
+      // re-submit (still adjacent) or clear (diverged).
+      while (premoveQueue.length > 0 && premoveQueue[0].x === head.x && premoveQueue[0].y === head.y) {
+        premoveQueue.shift();
+      }
+      if (premoveQueue.length === 0) {
+        updatePremoveBanner();
+        renderGameBoard();
+        return;
+      }
+
+      const next = premoveQueue[0];
+      const dx = next.x - head.x;
+      const dy = next.y - head.y;
+
+      let direction = null;
+      if (dx === 1 && dy === 0) direction = 'right';
+      else if (dx === -1 && dy === 0) direction = 'left';
+      else if (dx === 0 && dy === 1) direction = 'up';
+      else if (dx === 0 && dy === -1) direction = 'down';
+
+      if (!direction) {
+        clearPremoveQueue();
+        return;
+      }
+
+      updatePremoveBanner();
+      selectMove(direction);
+      submitMove();
+    }
+
+    function drawPremoveOverlay(canvas, queue, board, cellSize, color) {
+      if (!queue || queue.length === 0) return;
+      const ctx = canvas.getContext('2d');
+      const snake = getSelectedSnake();
+      if (!snake) return;
+      const head = snake.head || snake.body[0];
+
+      const toPx = (cell) => ({
+        x: cell.x * cellSize + cellSize / 2,
+        y: (board.height - 1 - cell.y) * cellSize + cellSize / 2,
+      });
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, cellSize * 0.12);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.setLineDash([Math.max(4, cellSize * 0.18), Math.max(3, cellSize * 0.14)]);
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      const startPx = toPx(head);
+      ctx.moveTo(startPx.x, startPx.y);
+      for (const cell of queue) {
+        const p = toPx(cell);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const dotR = Math.max(4, cellSize * 0.18);
+      ctx.font = `${Math.max(10, Math.floor(cellSize * 0.32))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i < queue.length; i++) {
+        const p = toPx(queue[i]);
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(i + 1), p.x, p.y + 1);
+      }
+      ctx.restore();
     }
 
     document.getElementById('confirmTakeoverBtn').addEventListener('click', () => {
@@ -1122,7 +1355,21 @@
         return;
       }
 
+      if (e.key === 'q' || e.key === 'Q') {
+        if (selectedSnakeId) {
+          e.preventDefault();
+          togglePremoveMode();
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
+        if (premoveQueue.length > 0 || premoveMode) {
+          premoveMode = false;
+          clearPremoveQueue();
+          updatePremoveBanner();
+          return;
+        }
         if (selectedSnakeId && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'deselect' }));
           selectedSnakeId = null;
@@ -1130,6 +1377,9 @@
           moveSubmitted = false;
           userSelectedMove = null;
           analyticsFrozen = false;
+          premoveMode = false;
+          premoveQueue = [];
+          updatePremoveBanner();
           hideSelectionUI();
           renderGameBoard();
         }
