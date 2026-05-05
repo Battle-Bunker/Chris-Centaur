@@ -831,14 +831,6 @@ export class ActiveGameManager {
         console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
         this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
       }
-    } else if (controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && !controlled.pendingMove.userSelectedMove) {
-      // Selected snake with a queue but no manual stage yet: pre-stage the
-      // premove so the safety timer commits it if the user never submits.
-      const premoveDir = this.getPremoveDirection(gameId, snakeId);
-      if (premoveDir) {
-        controlled.pendingMove.userSelectedMove = premoveDir;
-        console.log(`[ActiveGameManager] Pre-staged premove ${premoveDir} for selected snake ${gameId}:${snakeId}`);
-      }
     } else if (game.currentTurn === 0 && !controlled.selectedBy) {
       this.handleFirstTurnAutoPilot(gameId, snakeId, move, controlled);
     }

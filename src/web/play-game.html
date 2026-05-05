@@ -1253,6 +1253,12 @@
 
     function tryConsumePremove() {
       if (!selectedSnakeId) return;
+      // Only auto-fire when the user has explicitly opted in via Q (the
+      // "Premove ON" state). With queues now persisting across (de)select,
+      // a freshly-selected snake may carry someone else's plan, and the user
+      // would be surprised to lose manual control on their first turn. The
+      // banner reflects this: "Premove ON" auto-fires, "Premove paused" does not.
+      if (!premoveMode) return;
       if (!moveState || moveSubmitted) return;
       const snake = getSelectedSnake();
       if (!snake) return;
