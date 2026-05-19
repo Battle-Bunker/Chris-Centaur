@@ -94,8 +94,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   allyH2HRisk: -50,    // Penalty for potential h2h with equal/larger allies
   
   // User-directed waypoint weights (off by default — only active when user sets a waypoint)
-  waypointGoto: 150,   // Strong pull toward green waypoint; deaths (-500) still dominate
-  waypointNear: 100,   // Pull toward blue waypoint + path-open bonus
+  // Waypoint weights are intentionally huge: closeness gradient per cell-step
+  // is ~1/boardSize ≈ 0.09, so the weight must be in the thousands for one
+  // step toward the target to clearly dominate other heuristics. Death
+  // penalty (-500) still wins because it's a flat per-death stat.
+  waypointGoto: 2500,  // Strong pull toward green waypoint — top priority after survival
+  waypointNear: 2000,  // Pull toward blue waypoint + path-open bonus
   
   // Simulation parameters
   maxSimulationDepth: 1,

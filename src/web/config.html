@@ -383,19 +383,19 @@
                         <div class="config-item">
                             <label for="waypointGoto">Waypoint Goto Weight (green)</label>
                             <div class="input-group">
-                                <input type="range" id="waypointGoto_slider" min="0" max="500" step="5">
-                                <input type="number" id="waypointGoto" min="0" max="500" step="5">
+                                <input type="range" id="waypointGoto_slider" min="0" max="5000" step="50">
+                                <input type="number" id="waypointGoto" min="0" max="5000" step="50">
                             </div>
-                            <div class="description">Alt-click target in centaur mode — pulls snake to the tile (stat ∈ [0,2]). Deaths (-500) still dominate so snake won't suicide.</div>
+                            <div class="description">Alt-click target — pulls snake to the tile. Big numbers needed because per-step gradient is ~1/boardSize. Default 2500 makes waypoint the top priority after avoiding death.</div>
                         </div>
                         
                         <div class="config-item">
                             <label for="waypointNear">Waypoint Near Weight (blue)</label>
                             <div class="input-group">
-                                <input type="range" id="waypointNear_slider" min="0" max="500" step="5">
-                                <input type="number" id="waypointNear" min="0" max="500" step="5">
+                                <input type="range" id="waypointNear_slider" min="0" max="5000" step="50">
+                                <input type="number" id="waypointNear" min="0" max="5000" step="50">
                             </div>
-                            <div class="description">Shift-click target in centaur mode — stay near tile AND keep path open (stat ∈ [-1,1]).</div>
+                            <div class="description">Shift-click target — stay near tile AND keep path open. Default 2000 makes it dominant but slightly weaker than goto.</div>
                         </div>
                     </div>
                     
@@ -618,7 +618,8 @@
                             slider.max = 500;
                         } else if (key === 'waypointGoto' || key === 'waypointNear') {
                             slider.min = 0;
-                            slider.max = 500;
+                            slider.max = 5000;
+                            slider.step = 50;
                         } else if (key === 'foodProximity' || key === 'edgePenalty') {
                             slider.max = 200;
                         } else if (key === 'timeoutMs') {

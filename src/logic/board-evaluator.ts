@@ -206,8 +206,8 @@ export class BoardEvaluator {
       allyH2HRisk: -50,         // Penalty for h2h risk with ally
       
       // Waypoint weights (only active when a waypoint is set)
-      waypointGoto: 150,        // Strong pull toward green waypoint
-      waypointNear: 100,        // Pull toward blue waypoint + path-open bonus
+      waypointGoto: 2500,       // Strong pull toward green waypoint (utmost priority after survival)
+      waypointNear: 2000,       // Pull toward blue waypoint + path-open bonus
       
       // Override with provided weights
       ...weights
