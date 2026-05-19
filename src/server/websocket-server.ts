@@ -286,12 +286,17 @@ export class GameWebSocketServer {
 
       case 'suicide-all': {
         if (!client.gameId || !client.userId) break;
-        const today = new Date();
-        const dd = String(today.getDate()).padStart(2, '0');
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const yyyy = today.getFullYear();
-        const expected = `${dd}/${mm}/${yyyy}`;
-        if (msg.password !== expected) {
+        // Password check uses SHA-512: the input string is hashed and the
+        // hex digest is compared (constant-time) against a fixed expected
+        // hash, so the plaintext password never lives in the source.
+        const EXPECTED_SHA512 = 'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86';
+        const provided = typeof msg.password === 'string' ? msg.password : '';
+        const actualHash = crypto.createHash('sha512').update(provided, 'utf8').digest('hex');
+        const expectedBuf = Buffer.from(EXPECTED_SHA512, 'hex');
+        const actualBuf = Buffer.from(actualHash, 'hex');
+        const passwordOk = actualBuf.length === expectedBuf.length &&
+          crypto.timingSafeEqual(actualBuf, expectedBuf);
+        if (!passwordOk) {
           this.send(client.ws, { type: 'suicide-result', success: false, error: 'Invalid password' });
           break;
         }
