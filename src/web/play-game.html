@@ -1591,6 +1591,10 @@
     }
 
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+      }
+
       if (document.getElementById('confirmDialog').classList.contains('active')) {
         if (e.key === 'Enter') {
           e.preventDefault();
