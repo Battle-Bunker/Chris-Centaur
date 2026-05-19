@@ -379,6 +379,24 @@
                             </div>
                             <div class="description">Penalty for head-to-head collision risk with allies (negative)</div>
                         </div>
+                        
+                        <div class="config-item">
+                            <label for="waypointGoto">Waypoint Goto Weight (green)</label>
+                            <div class="input-group">
+                                <input type="range" id="waypointGoto_slider" min="0" max="500" step="5">
+                                <input type="number" id="waypointGoto" min="0" max="500" step="5">
+                            </div>
+                            <div class="description">Alt-click target in centaur mode — pulls snake to the tile (stat ∈ [0,2]). Deaths (-500) still dominate so snake won't suicide.</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="waypointNear">Waypoint Near Weight (blue)</label>
+                            <div class="input-group">
+                                <input type="range" id="waypointNear_slider" min="0" max="500" step="5">
+                                <input type="number" id="waypointNear" min="0" max="500" step="5">
+                            </div>
+                            <div class="description">Shift-click target in centaur mode — stay near tile AND keep path open (stat ∈ [-1,1]).</div>
+                        </div>
                     </div>
                     
                     <!-- Food & Proximity -->
@@ -531,6 +549,7 @@
             'selfEnoughSpace', 'selfSpaceOptimistic', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'enemyH2HRisk', 'allyH2HRisk',
+            'waypointGoto', 'waypointNear',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
         
@@ -596,6 +615,9 @@
                             slider.min = -500;
                             slider.max = 0;
                         } else if (key === 'kills' || key === 'foodEaten') {
+                            slider.max = 500;
+                        } else if (key === 'waypointGoto' || key === 'waypointNear') {
+                            slider.min = 0;
                             slider.max = 500;
                         } else if (key === 'foodProximity' || key === 'edgePenalty') {
                             slider.max = 200;

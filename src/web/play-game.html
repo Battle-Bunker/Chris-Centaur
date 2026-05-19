@@ -316,6 +316,26 @@
                   dies from inaction). <code>Space</code> submits, <code>Esc</code> deselects.
                 </span>
               </span>
+              <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
+                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Alt + Click</span> Goto
+                <span class="kbd-tip">
+                  <strong>Alt-click — green "goto" waypoint</strong><br>
+                  Sets a target cell that strongly pulls the selected snake
+                  toward it. Auto-clears when the snake's head arrives. The
+                  bot still avoids death, so it won't suicide into a wall to
+                  reach the target. Click the green cell again to cancel.
+                </span>
+              </span>
+              <span class="kbd-pill" style="background:rgba(33,150,243,0.18); border-color:#2196f3;">
+                <span class="kbd-key" style="background:#1565c0; color:#fff;">Shift + Click</span> Near
+                <span class="kbd-tip">
+                  <strong>Shift-click — blue "near" waypoint</strong><br>
+                  Sets a target the snake should stay near while keeping a
+                  reachable path to it (so it won't trap itself away from the
+                  spot). Stays until you clear it — click the blue cell again
+                  to remove. Setting any new waypoint replaces the old one.
+                </span>
+              </span>
             </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
               <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
@@ -438,6 +458,7 @@
     let stagedMoves = {};
     let premoveMode = false;
     let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
+    let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
@@ -518,6 +539,9 @@
           if (msg.premoves) {
             premoveQueues = msg.premoves;
           }
+          if (msg.waypoints) {
+            waypoints = msg.waypoints;
+          }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
           if (currentGameState) {
@@ -539,6 +563,9 @@
           }
           if (msg.premoves) {
             premoveQueues = msg.premoves;
+          }
+          if (msg.waypoints) {
+            waypoints = msg.waypoints;
           }
           stagedMoves = msg.stagedMoves || {};
           updateReleaseAllButton();
@@ -626,6 +653,9 @@
           }
           if (msg.premoves) {
             premoveQueues = msg.premoves;
+          }
+          if (msg.waypoints) {
+            waypoints = msg.waypoints;
           }
           renderConnectedUsers();
           renderGameBoard();
@@ -963,6 +993,12 @@
         drawPremoveOverlay(canvas, snake, pq, currentGameState.board, cellSize, color);
       }
 
+      // Render every snake's waypoint (green or blue) so observers can see
+      // what target the controller has set.
+      for (const snakeId in waypoints) {
+        drawWaypointOverlay(canvas, waypoints[snakeId], currentGameState.board, cellSize);
+      }
+
       // The move-arrow overlay puts clickable divs over the four cells adjacent
       // to the head — those would swallow exactly the clicks the user is trying
       // to plan into. Skip the overlay entirely while in premove input mode so
@@ -1183,6 +1219,22 @@
       }, 50);
     }
 
+    // Authoritative state lives on the server (same pattern as premove queues).
+    // The controlling user clicks → we send `set-waypoint` → server stores it
+    // on the snake → broadcasts to every subscriber. Clearing sends `null`.
+    function setWaypointForSnake(snakeId, waypoint) {
+      if (!snakeId) return;
+      if (waypoint === null) {
+        delete waypoints[snakeId];
+      } else {
+        waypoints[snakeId] = waypoint;
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint }));
+      }
+      renderGameBoard();
+    }
+
     function handleCanvasClick(event) {
       if (!currentGameState) return;
 
@@ -1194,6 +1246,45 @@
       const clickY = event.clientY - rect.top;
       const boardX = Math.floor(clickX / cellSize);
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
+
+      // Waypoint handling for the currently selected snake:
+      // - Alt-click sets a green "goto" waypoint (auto-clears on arrival).
+      // - Shift-click sets a blue "near" waypoint (manual clear only).
+      // - Plain click on the existing waypoint cell clears it (per spec).
+      if (selectedSnakeId &&
+          boardX >= 0 && boardX < board.width &&
+          boardY >= 0 && boardY < board.height) {
+        const current = waypoints[selectedSnakeId];
+        const onWaypointCell = current && current.x === boardX && current.y === boardY;
+
+        if (event.altKey || event.shiftKey) {
+          if (onWaypointCell) {
+            setWaypointForSnake(selectedSnakeId, null);
+            return;
+          }
+          const type = event.altKey ? 'green' : 'blue';
+          setWaypointForSnake(selectedSnakeId, { type, x: boardX, y: boardY });
+          return;
+        }
+
+        // Plain-click on the waypoint cell clears it. Only triggers when no
+        // controlled snake body occupies that cell, so it doesn't steal
+        // snake-selection clicks.
+        if (onWaypointCell) {
+          let blockedByControlled = false;
+          for (const s of board.snakes) {
+            if (!controlledSnakeIds.has(s.id)) continue;
+            for (const seg of s.body) {
+              if (seg.x === boardX && seg.y === boardY) { blockedByControlled = true; break; }
+            }
+            if (blockedByControlled) break;
+          }
+          if (!blockedByControlled) {
+            setWaypointForSnake(selectedSnakeId, null);
+            return;
+          }
+        }
+      }
 
       if (premoveMode && selectedSnakeId) {
         // In premove mode, a click on a *different* controlled snake
@@ -1372,6 +1463,35 @@
 
       selectMove(direction);
       submitMove();
+    }
+
+    // Draw a translucent filled square + thick border on the waypoint cell,
+    // green for "goto" / blue for "near". Uses the same canvas-coordinate
+    // convention as drawPremoveOverlay (y is flipped).
+    function drawWaypointOverlay(canvas, waypoint, board, cellSize) {
+      if (!waypoint) return;
+      const ctx = canvas.getContext('2d');
+      const isGreen = waypoint.type === 'green';
+      const fill = isGreen ? 'rgba(76, 175, 80, 0.35)' : 'rgba(33, 150, 243, 0.30)';
+      const stroke = isGreen ? '#2e7d32' : '#1565c0';
+      const px = waypoint.x * cellSize;
+      const py = (board.height - 1 - waypoint.y) * cellSize;
+      const pad = Math.max(2, cellSize * 0.08);
+      ctx.save();
+      ctx.fillStyle = fill;
+      ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = Math.max(2, cellSize * 0.07);
+      ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+      // Diagonal cross marker so target reads clearly even when overlapping a snake
+      ctx.beginPath();
+      ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
+      ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
+      ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
+      ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
+      ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
+      ctx.stroke();
+      ctx.restore();
     }
 
     function drawPremoveOverlay(canvas, snake, queue, board, cellSize, color) {

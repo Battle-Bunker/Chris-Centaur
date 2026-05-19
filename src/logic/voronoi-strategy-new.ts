@@ -5,6 +5,7 @@
 
 import { GameState, Direction, TeamInfo, SimulationConfig } from '../types/battlesnake';
 import { DecisionEngine, MoveDecision } from './decision-engine';
+import { WaypointContext } from './board-evaluator';
 import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
@@ -78,7 +79,9 @@ export class VoronoiStrategy {
       kills: config.kills,
       deaths: config.deaths,
       enemyH2HRisk: config.enemyH2HRisk,
-      allyH2HRisk: config.allyH2HRisk
+      allyH2HRisk: config.allyH2HRisk,
+      waypointGoto: config.waypointGoto,
+      waypointNear: config.waypointNear
     };
   }
   
@@ -153,7 +156,7 @@ export class VoronoiStrategy {
     return decision.move;
   }
   
-  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo): Promise<{ 
+  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<{ 
     move: Direction; 
     safeMoves: Direction[]; 
     scores: Map<Direction, number>;
@@ -169,8 +172,8 @@ export class VoronoiStrategy {
     const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
     const teamSnakeIds = new Set<string>(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
     
-    // Use decision engine to get best move
-    const decision = this.decisionEngine.decide(gameState, teamSnakeIds);
+    // Use decision engine to get best move (with optional user-directed waypoint)
+    const decision = this.decisionEngine.decide(gameState, teamSnakeIds, waypoint);
     
     // Log turn info to console
     this.logTurnInfo(gameState, decision);
@@ -202,6 +205,8 @@ export class VoronoiStrategy {
         deaths: evaluation.averageBreakdown.stats.deaths,
         enemyH2HRisk: evaluation.averageBreakdown.stats.enemyH2HRisk,
         allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
+        waypointGoto: evaluation.averageBreakdown.stats.waypointGoto,
+        waypointNear: evaluation.averageBreakdown.stats.waypointNear,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
         fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,

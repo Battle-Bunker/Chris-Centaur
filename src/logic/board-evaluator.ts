@@ -45,6 +45,10 @@ export interface HeuristicStats {
   // Head-to-head risk tracking
   enemyH2HRisk: number;       // 1 if move has h2h risk with enemy, 0 otherwise
   allyH2HRisk: number;        // 1 if move has h2h risk with ally, 0 otherwise
+  
+  // User-directed waypoint heuristics (0 when no waypoint is set for this snake)
+  waypointGoto: number;       // Green waypoint: closeness [0,1] + bonus 1 when on target → [0, 2]
+  waypointNear: number;       // Blue waypoint: closeness [0,1] + reachability (+0 reachable, -1 cut off) → [-1, 1]
 }
 
 export interface BoardEvaluation {
@@ -60,11 +64,18 @@ export interface H2HRiskContext {
   allyH2HRisk?: number;   // 1 if this move has h2h risk with ally, 0 otherwise
 }
 
+export interface WaypointContext {
+  type: 'green' | 'blue';
+  x: number;
+  y: number;
+}
+
 export interface EvaluationContext {
   prevFoodSet?: Set<string>;  // Food positions from previous board state
   optimistic?: boolean;       // Use optimistic passability for body segments
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
+  waypoint?: WaypointContext | null;  // User-directed waypoint for our snake (centaur play mode)
 }
 
 export interface HeuristicWeights {
@@ -103,6 +114,10 @@ export interface HeuristicWeights {
   // Head-to-head risk weights
   enemyH2HRisk: number;       // Penalty for h2h risk with enemy
   allyH2HRisk: number;        // Penalty for h2h risk with ally
+  
+  // Waypoint weights
+  waypointGoto: number;
+  waypointNear: number;
 }
 
 export interface WeightedScores {
@@ -141,6 +156,10 @@ export interface WeightedScores {
   // Head-to-head risk weighted scores
   enemyH2HRiskScore: number;
   allyH2HRiskScore: number;
+  
+  // Waypoint weighted scores
+  waypointGotoScore: number;
+  waypointNearScore: number;
 }
 
 export class BoardEvaluator {
@@ -185,6 +204,10 @@ export class BoardEvaluator {
       // Head-to-head risk weights
       enemyH2HRisk: -100,       // Penalty for h2h risk with enemy
       allyH2HRisk: -50,         // Penalty for h2h risk with ally
+      
+      // Waypoint weights (only active when a waypoint is set)
+      waypointGoto: 150,        // Strong pull toward green waypoint
+      waypointNear: 100,        // Pull toward blue waypoint + path-open bonus
       
       // Override with provided weights
       ...weights
@@ -249,7 +272,9 @@ export class BoardEvaluator {
           kills: 0,
           deaths: 1,
           enemyH2HRisk: 0,
-          allyH2HRisk: 0
+          allyH2HRisk: 0,
+          waypointGoto: 0,
+          waypointNear: 0
         },
         territoryCells: new Map()
       };
@@ -330,6 +355,11 @@ export class BoardEvaluator {
     // Calculate optimistic self space separately (always uses optimistic=true)
     const selfSpaceOptimistic = this.calculateSnakeSpace(graph, ourSnake, board.snakes, board.width, board.height, true);
     
+    // Calculate user-directed waypoint heuristics (centaur play mode)
+    const { waypointGoto, waypointNear } = this.calculateWaypointStats(
+      graph, ourSnake, board.snakes, ctx?.waypoint ?? null, board.width, board.height
+    );
+    
     return {
       stats: {
         myLength: ourSnake.length,
@@ -352,10 +382,113 @@ export class BoardEvaluator {
         kills: 0,  // Would need before/after comparison to calculate
         deaths: isDead ? 1 : 0,
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
-        allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0     // From context, 1 if h2h risk with ally
+        allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
+        waypointGoto,
+        waypointNear
       },
       territoryCells: bfsResult.territoryCells
     };
+  }
+  
+  /**
+   * Calculate the two waypoint heuristics for a user-set waypoint.
+   * Returns 0 for both if no waypoint is set.
+   *
+   * Green (goto): closeness [0,1] + flat +1 bonus when head is exactly on the waypoint.
+   *   Range [0, 2]. With weight 150 the max contribution is +300, well below the
+   *   deaths penalty (-500), so the snake will never willingly die for a waypoint.
+   *
+   * Blue (near): closeness [0,1] PLUS a path-openness term — small BFS from the
+   *   new head; if the waypoint is reachable we add 0, if it isn't we add -1.
+   *   This penalises moves that cut the snake off from the waypoint, encouraging
+   *   "stay near AND keep the path open" behaviour the user asked for.
+   */
+  private calculateWaypointStats(
+    graph: BoardGraph,
+    ourSnake: Snake,
+    allSnakes: Snake[],
+    waypoint: WaypointContext | null | undefined,
+    width: number,
+    height: number
+  ): { waypointGoto: number; waypointNear: number } {
+    if (!waypoint) return { waypointGoto: 0, waypointNear: 0 };
+    if (waypoint.x < 0 || waypoint.x >= width || waypoint.y < 0 || waypoint.y >= height) {
+      return { waypointGoto: 0, waypointNear: 0 };
+    }
+    
+    const head = ourSnake.head;
+    const distance = Math.abs(head.x - waypoint.x) + Math.abs(head.y - waypoint.y);
+    const boardSize = Math.max(width, height);
+    const closeness = Math.max(0, (boardSize - distance) / boardSize);
+    const onTarget = head.x === waypoint.x && head.y === waypoint.y;
+    
+    if (waypoint.type === 'green') {
+      // Goto: head on the cell is the goal. Give a big flat bonus on arrival,
+      // otherwise closeness pulls us in.
+      return {
+        waypointGoto: onTarget ? 2 : closeness,
+        waypointNear: 0
+      };
+    }
+    
+    // Blue: "be near, keep the path open". Closeness + reachability penalty.
+    const reachable = onTarget || this.isCellReachableFrom(graph, head, waypoint, allSnakes, ourSnake);
+    return {
+      waypointGoto: 0,
+      waypointNear: closeness + (reachable ? 0 : -1)
+    };
+  }
+  
+  /**
+   * Small BFS from `start` checking whether `target` is reachable, treating
+   * our own body (except tail) as blocked and using optimistic passability for
+   * everyone else. Bounded so it can't blow up on big empty boards.
+   */
+  private isCellReachableFrom(
+    graph: BoardGraph,
+    start: Coord,
+    target: Coord,
+    allSnakes: Snake[],
+    ourSnake: Snake
+  ): boolean {
+    const targetKey = graph.coordToKey(target);
+    
+    // Our own body (except tail) blocks reachability
+    const ownBody = new Set<string>();
+    for (let i = 0; i < ourSnake.body.length - 1; i++) {
+      ownBody.add(graph.coordToKey(ourSnake.body[i]));
+    }
+    
+    const visited = new Set<string>();
+    visited.add(graph.coordToKey(start));
+    let level: Coord[] = [start];
+    let turn = 0;
+    const maxCells = 400;  // cap work — board is at most ~19x19 → 361 cells
+    
+    while (level.length > 0 && visited.size < maxCells) {
+      const next: Coord[] = [];
+      turn++;
+      for (const cur of level) {
+        const neighbors: Coord[] = [
+          { x: cur.x, y: cur.y + 1 },
+          { x: cur.x, y: cur.y - 1 },
+          { x: cur.x - 1, y: cur.y },
+          { x: cur.x + 1, y: cur.y },
+        ];
+        for (const n of neighbors) {
+          if (!graph.isInBounds(n)) continue;
+          const k = graph.coordToKey(n);
+          if (visited.has(k)) continue;
+          if (k === targetKey) return true;  // reached
+          if (ownBody.has(k)) continue;
+          if (!graph.isPassableAtTurn(n, turn)) continue;
+          visited.add(k);
+          next.push(n);
+        }
+      }
+      level = next;
+    }
+    return false;
   }
   
   /**
@@ -542,7 +675,9 @@ export class BoardEvaluator {
       killsScore: stats.kills * this.weights.kills,
       deathsScore: stats.deaths * this.weights.deaths,
       enemyH2HRiskScore: stats.enemyH2HRisk * this.weights.enemyH2HRisk,
-      allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk
+      allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk,
+      waypointGotoScore: stats.waypointGoto * this.weights.waypointGoto,
+      waypointNearScore: stats.waypointNear * this.weights.waypointNear
     };
   }
   
@@ -569,6 +704,8 @@ export class BoardEvaluator {
            weighted.killsScore +
            weighted.deathsScore +
            weighted.enemyH2HRiskScore +
-           weighted.allyH2HRiskScore;
+           weighted.allyH2HRiskScore +
+           weighted.waypointGotoScore +
+           weighted.waypointNearScore;
   }
 }

@@ -5,7 +5,7 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation, EvaluationContext, WaypointContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
@@ -51,6 +51,9 @@ export interface DecisionConfig {
     // Head-to-head risk weights
     enemyH2HRisk?: number;
     allyH2HRisk?: number;
+    // Waypoint weights
+    waypointGoto?: number;
+    waypointNear?: number;
   };
 }
 
@@ -83,7 +86,7 @@ export class DecisionEngine {
    * Main decision method that selects the best move for our snake.
    * Now considers all non-lethal moves (safe + risky) and applies h2h risk penalties.
    */
-  public decide(gameState: GameState, teamSnakeIds: Set<string>): MoveDecision {
+  public decide(gameState: GameState, teamSnakeIds: Set<string>, waypoint?: WaypointContext | null): MoveDecision {
     const startTime = Date.now();
     const gameId = gameState.game.id;
     
@@ -127,7 +130,8 @@ export class DecisionEngine {
           h2hRisk: {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
-          }
+          },
+          waypoint
         }
       );
       
@@ -200,7 +204,7 @@ export class DecisionEngine {
             gameState, 
             gameState.you.id, 
             teamSnakeIds,
-            { prevFoodSet, h2hRisk: h2hRiskCtx }
+            { prevFoodSet, h2hRisk: h2hRiskCtx, waypoint }
           )
         });
         continue;
@@ -218,7 +222,8 @@ export class DecisionEngine {
           { 
             prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
             h2hRisk: h2hRiskCtx,  // Pass h2h risk to evaluator
-            simulatedSnakeIds: state.simulatedSnakeIds  // Snakes that were simulated get startDelay: 1
+            simulatedSnakeIds: state.simulatedSnakeIds,  // Snakes that were simulated get startDelay: 1
+            waypoint
           }
         );
         totalScore += evaluation.score;
@@ -503,7 +508,9 @@ export class DecisionEngine {
       kills: 0,
       deaths: 0,
       enemyH2HRisk: 0,
-      allyH2HRisk: 0
+      allyH2HRisk: 0,
+      waypointGoto: 0,
+      waypointNear: 0
     };
     
     const sumWeighted = {
@@ -526,7 +533,9 @@ export class DecisionEngine {
       killsScore: 0,
       deathsScore: 0,
       enemyH2HRiskScore: 0,
-      allyH2HRiskScore: 0
+      allyH2HRiskScore: 0,
+      waypointGotoScore: 0,
+      waypointNearScore: 0
     };
     
     let totalScore = 0;
@@ -554,6 +563,8 @@ export class DecisionEngine {
       sumStats.deaths += evaluation.stats.deaths;
       sumStats.enemyH2HRisk += evaluation.stats.enemyH2HRisk;
       sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
+      sumStats.waypointGoto += evaluation.stats.waypointGoto;
+      sumStats.waypointNear += evaluation.stats.waypointNear;
       
       // Sum weighted scores
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
@@ -576,6 +587,8 @@ export class DecisionEngine {
       sumWeighted.deathsScore += evaluation.weighted.deathsScore;
       sumWeighted.enemyH2HRiskScore += evaluation.weighted.enemyH2HRiskScore;
       sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
+      sumWeighted.waypointGotoScore += evaluation.weighted.waypointGotoScore;
+      sumWeighted.waypointNearScore += evaluation.weighted.waypointNearScore;
       
       totalScore += evaluation.score;
     }
@@ -606,7 +619,9 @@ export class DecisionEngine {
         kills: sumStats.kills / count,
         deaths: sumStats.deaths / count,
         enemyH2HRisk: sumStats.enemyH2HRisk / count,
-        allyH2HRisk: sumStats.allyH2HRisk / count
+        allyH2HRisk: sumStats.allyH2HRisk / count,
+        waypointGoto: sumStats.waypointGoto / count,
+        waypointNear: sumStats.waypointNear / count
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
@@ -629,7 +644,9 @@ export class DecisionEngine {
         killsScore: sumWeighted.killsScore / count,
         deathsScore: sumWeighted.deathsScore / count,
         enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
-        allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count
+        allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count,
+        waypointGotoScore: sumWeighted.waypointGotoScore / count,
+        waypointNearScore: sumWeighted.waypointNearScore / count
       }
     };
   }

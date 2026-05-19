@@ -35,6 +35,9 @@ export interface DecisionLogEntry {
       kills?: number;
       deaths?: number;
       
+      waypointGoto?: number;
+      waypointNear?: number;
+      
       fertileTerritory?: number;
       foodDistanceInverse?: number;
       myFoodCount?: number;

@@ -40,6 +40,10 @@ export interface GameConfig {
   enemyH2HRisk: number;  // Penalty for potential h2h with equal/larger enemies
   allyH2HRisk: number;   // Penalty for potential h2h with equal/larger allies
   
+  // User-directed waypoint weights (set via centaur UI: alt-click = green goto, shift-click = blue near)
+  waypointGoto: number;  // Strong pull toward green waypoint (go to this cell ASAP)
+  waypointNear: number;  // Pull toward blue waypoint + keep path open to it
+  
   // Simulation parameters
   maxSimulationDepth: number;
   timeoutMs: number;
@@ -88,6 +92,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   // Head-to-head risk weights
   enemyH2HRisk: -100,  // Penalty for potential h2h with equal/larger enemies
   allyH2HRisk: -50,    // Penalty for potential h2h with equal/larger allies
+  
+  // User-directed waypoint weights (off by default — only active when user sets a waypoint)
+  waypointGoto: 150,   // Strong pull toward green waypoint; deaths (-500) still dominate
+  waypointNear: 100,   // Pull toward blue waypoint + path-open bonus
   
   // Simulation parameters
   maxSimulationDepth: 1,

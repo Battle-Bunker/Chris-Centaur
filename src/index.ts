@@ -139,7 +139,10 @@ app.post('/move', async (req, res) => {
     try {
       const teams = teamDetector.detectTeams(gameState.board.snakes);
       const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
-      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam);
+      // Pull the user-directed waypoint (if any) so the bot can heuristically
+      // honor click-targets set in centaur play mode.
+      const waypoint = gameManager.getWaypoint(gameId, snakeId);
+      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam, waypoint);
 
       const turnData: TurnData = {
         gameState,

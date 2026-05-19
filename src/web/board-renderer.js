@@ -1018,6 +1018,8 @@ const BoardRenderer = (function () {
         deathsScore: 0,
         enemyH2HRiskScore: 0,
         allyH2HRiskScore: 0,
+        waypointGotoScore: 0,
+        waypointNearScore: 0,
         fertileScore: 0,
       };
 
@@ -1201,6 +1203,20 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.allyH2HRisk ?? 0,
         weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0,
         averageWeighted: averageWeighted.allyH2HRiskScore ?? 0,
+      },
+      {
+        name: "Waypoint Goto (green)",
+        value: breakdown.waypointGoto ?? 0,
+        weight: breakdown.weights?.waypointGoto ?? 0,
+        weightedScore: breakdown.weighted?.waypointGotoScore ?? 0,
+        averageWeighted: averageWeighted.waypointGotoScore ?? 0,
+      },
+      {
+        name: "Waypoint Near (blue)",
+        value: breakdown.waypointNear ?? 0,
+        weight: breakdown.weights?.waypointNear ?? 0,
+        weightedScore: breakdown.weighted?.waypointNearScore ?? 0,
+        averageWeighted: averageWeighted.waypointNearScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [

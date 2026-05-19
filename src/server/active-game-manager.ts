@@ -48,6 +48,10 @@ export interface ControlledSnake {
   holdTurnsRemaining: number;
   suicideArmed: boolean;
   premoveQueue: Coord[];
+  // User-directed waypoint for centaur play. Persists across selection
+  // changes; green waypoints auto-clear when the head arrives, blue
+  // waypoints are cleared only when the user clicks the same cell again.
+  waypoint: { type: 'green' | 'blue'; x: number; y: number } | null;
 }
 
 export interface ConnectedUser {
@@ -260,6 +264,7 @@ export class ActiveGameManager {
         holdTurnsRemaining: 0,
         suicideArmed: false,
         premoveQueue: [],
+        waypoint: null,
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
@@ -561,6 +566,7 @@ export class ActiveGameManager {
     selections: { [snakeId: string]: { userId: string; color: string } | null };
     holds: { [snakeId: string]: number };
     premoves: { [snakeId: string]: Coord[] };
+    waypoints: { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } };
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
@@ -612,10 +618,61 @@ export class ActiveGameManager {
       selections,
       holds,
       premoves: this.getPremovesForGame(gameId),
+      waypoints: this.getWaypointsForGame(gameId),
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
       measuredPing: this.gameServerPing,
     };
+  }
+
+  getWaypoint(gameId: string, snakeId: string): { type: 'green' | 'blue'; x: number; y: number } | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+    const controlled = game.controlledSnakes.get(snakeId);
+    return controlled?.waypoint || null;
+  }
+
+  getWaypointsForGame(gameId: string): { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } } {
+    const game = this.games.get(gameId);
+    if (!game) return {};
+    const result: { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      if (cs.waypoint) result[snakeId] = cs.waypoint;
+    }
+    return result;
+  }
+
+  // Set or clear a snake's waypoint. Only the user currently selecting the
+  // snake may change it. Pass `waypoint=null` to clear. Returns true on success.
+  setWaypoint(
+    gameId: string,
+    snakeId: string,
+    waypoint: { type: 'green' | 'blue'; x: number; y: number } | null,
+    userId: string
+  ): boolean {
+    const game = this.games.get(gameId);
+    if (!game) return false;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled) return false;
+    if (controlled.selectedBy !== userId) return false;
+
+    if (waypoint === null) {
+      controlled.waypoint = null;
+      return true;
+    }
+
+    const board = game.boardState?.board;
+    const w = board?.width ?? 0;
+    const h = board?.height ?? 0;
+    const x = Math.floor(Number(waypoint.x));
+    const y = Math.floor(Number(waypoint.y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (w > 0 && (x < 0 || x >= w)) return false;
+    if (h > 0 && (y < 0 || y >= h)) return false;
+    if (waypoint.type !== 'green' && waypoint.type !== 'blue') return false;
+
+    controlled.waypoint = { type: waypoint.type, x, y };
+    return true;
   }
 
   getPremovesForGame(gameId: string): { [snakeId: string]: Coord[] } {
@@ -903,6 +960,15 @@ export class ActiveGameManager {
     const youId = gameState.you.id;
     if (!boardSnakeIds.has(youId)) {
       console.log(`[ActiveGameManager] Consistency check: our snake ${youId} not found in board snakes array`);
+    }
+
+    // Auto-clear green ("goto") waypoint when the snake's head has arrived.
+    // Blue waypoints stay until the user manually clears them.
+    if (controlled?.waypoint && controlled.waypoint.type === 'green') {
+      const head = gameState.you.head;
+      if (head && head.x === controlled.waypoint.x && head.y === controlled.waypoint.y) {
+        controlled.waypoint = null;
+      }
     }
   }
 

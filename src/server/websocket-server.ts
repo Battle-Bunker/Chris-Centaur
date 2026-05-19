@@ -123,6 +123,7 @@ export class GameWebSocketServer {
         holds: this.gameManager.getHoldStates(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
         premoves: this.gameManager.getPremovesForGame(gameId),
+        waypoints: this.gameManager.getWaypointsForGame(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -354,6 +355,18 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'set-waypoint': {
+        if (!client.gameId || !client.userId) break;
+        const snakeId = msg.snakeId;
+        if (!snakeId) break;
+        // msg.waypoint may be null (clear) or {type, x, y}
+        const ok = this.gameManager.setWaypoint(
+          client.gameId, snakeId, msg.waypoint ?? null, client.userId
+        );
+        if (ok) this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'set-nickname': {
         if (!client.gameId || !client.userId) break;
         const nickname = typeof msg.nickname === 'string' ? msg.nickname : null;
@@ -444,6 +457,7 @@ export class GameWebSocketServer {
     const holds = this.gameManager.getHoldStates(gameId);
     const stagedMoves = this.getStagedMovesForGame(gameId);
     const premoves = this.gameManager.getPremovesForGame(gameId);
+    const waypoints = this.gameManager.getWaypointsForGame(gameId);
 
     this.broadcastToGame(gameId, {
       type: 'selections-update',
@@ -452,6 +466,7 @@ export class GameWebSocketServer {
       holds,
       stagedMoves,
       premoves,
+      waypoints,
     });
   }
 
