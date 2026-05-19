@@ -40,11 +40,17 @@
     .timer-display {
       font-size: 14px; font-weight: 600; padding: 4px 10px;
       border-radius: 4px; background: #333;
+      font-variant-numeric: tabular-nums;
+      min-width: 60px; text-align: center;
     }
     .timer-display.urgent { color: #f44336; background: rgba(244, 67, 54, 0.15); }
     .timer-display.normal { color: #4CAF50; }
     .timer-display.idle { color: #888; }
-    .ping-display { font-size: 11px; color: #666; text-align: right; margin-top: 2px; }
+    .ping-display {
+      font-size: 11px; color: #666; text-align: right; margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+      min-width: 70px;
+    }
     .canvas-wrapper {
       width: 100%; display: flex; justify-content: center;
       margin-bottom: 12px; position: relative;
@@ -236,7 +242,7 @@
       color: #fff;
     }
     .kbd-pill .kbd-tip {
-      position: absolute; bottom: calc(100% + 6px); left: 50%;
+      position: absolute; top: calc(100% + 6px); left: 50%;
       transform: translateX(-50%);
       width: 260px; padding: 8px 10px;
       background: #1a1a1a; border: 1px solid #4CAF50;
