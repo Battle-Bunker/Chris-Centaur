@@ -1,4 +1,5 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
+import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, TurnData } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
@@ -286,12 +287,13 @@ export class GameWebSocketServer {
 
       case 'suicide-all': {
         if (!client.gameId || !client.userId) break;
-        const today = new Date();
-        const dd = String(today.getDate()).padStart(2, '0');
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const yyyy = today.getFullYear();
-        const expected = `${dd}/${mm}/${yyyy}`;
-        if (msg.password !== expected) {
+        // The shared secret is stored as a SHA-512 hash so the plaintext
+        // password never lives in the repo. The client sends the raw input;
+        // we hash it server-side and compare.
+        const expectedHash = 'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86';
+        const input = typeof msg.password === 'string' ? msg.password : '';
+        const actualHash = createHash('sha512').update(input).digest('hex');
+        if (actualHash !== expectedHash) {
           this.send(client.ws, { type: 'suicide-result', success: false, error: 'Invalid password' });
           break;
         }
