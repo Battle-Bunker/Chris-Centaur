@@ -1,4 +1,5 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
+import * as crypto from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, TurnData } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
