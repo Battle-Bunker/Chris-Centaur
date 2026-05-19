@@ -216,6 +216,43 @@
       font-size: 11px; font-weight: 600;
     }
     #premoveBanner .pm-clear:hover { background: #555; }
+    .kbd-legend {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-right: 4px;
+    }
+    .kbd-pill {
+      position: relative;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 4px;
+      background: #2a2a2a; border: 1px solid #555;
+      color: #ddd; font-size: 11px; font-weight: 600;
+      cursor: help; user-select: none;
+    }
+    .kbd-pill .kbd-key {
+      display: inline-block;
+      padding: 1px 5px; border-radius: 3px;
+      background: #444; border: 1px solid #666;
+      font-family: ui-monospace, monospace; font-size: 10px;
+      color: #fff;
+    }
+    .kbd-pill .kbd-tip {
+      position: absolute; bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%);
+      width: 260px; padding: 8px 10px;
+      background: #1a1a1a; border: 1px solid #4CAF50;
+      border-radius: 4px; color: #ddd;
+      font-size: 11px; font-weight: 400; line-height: 1.4;
+      text-align: left; white-space: normal;
+      opacity: 0; pointer-events: none; transition: opacity 0.12s;
+      z-index: 1001;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .kbd-pill .kbd-tip strong { color: #4CAF50; }
+    .kbd-pill .kbd-tip code {
+      background: #333; padding: 1px 4px; border-radius: 2px;
+      font-size: 10px; color: #fff;
+    }
+    .kbd-pill:hover .kbd-tip { opacity: 1; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
@@ -250,7 +287,31 @@
           <div class="board-header">
             <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
+              <div class="kbd-legend">
+              <span class="kbd-pill">
+                <span class="kbd-key">Q</span> Premove
+                <span class="kbd-tip">
+                  <strong>Q — toggle premove mode</strong><br>
+                  While on, clicking adjacent squares plans a multi-step path.
+                  Each turn the queue's next direction is submitted automatically.
+                  Click the head to clear, click an existing waypoint to truncate.
+                  The plan persists across deselect / takeover and is broadcast to
+                  every viewer. If you manually submit a different direction, the
+                  rest of the queue is discarded.
+                </span>
+              </span>
+              <span class="kbd-pill">
+                <span class="kbd-key">Tab</span> Hold
+                <span class="kbd-tip">
+                  <strong>Tab — hold this snake</strong><br>
+                  Defers the auto-pilot for the current turn so you have time to
+                  think. If you don't submit a move before the turn deadline, the
+                  bot's best move is submitted automatically (so the snake never
+                  dies from inaction). <code>Space</code> submits, <code>Esc</code> deselects.
+                </span>
+              </span>
+            </div>
+            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
               <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
