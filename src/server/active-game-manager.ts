@@ -962,11 +962,22 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Consistency check: our snake ${youId} not found in board snakes array`);
     }
 
-    // Auto-clear green ("goto") waypoint when the snake's head has arrived.
-    // Blue waypoints stay until the user manually clears them.
+    // Auto-clear green ("goto") waypoint when the snake's head has been
+    // at the target cell at any point — check both the current head and
+    // the most recent body segments so a snake that already advanced past
+    // the target by the time /move fires still clears the waypoint.
     if (controlled?.waypoint && controlled.waypoint.type === 'green') {
-      const head = gameState.you.head;
-      if (head && head.x === controlled.waypoint.x && head.y === controlled.waypoint.y) {
+      const wp = controlled.waypoint;
+      const you = gameState.you;
+      const head = you?.head;
+      const body = you?.body || [];
+      const headHit = !!head && head.x === wp.x && head.y === wp.y;
+      // body[0] === head; body[1] is where the head was last turn. If the
+      // snake stepped onto the target last turn and is now stepping off,
+      // body[1] catches that case.
+      const justSteppedThrough = body.length > 1 && body[1].x === wp.x && body[1].y === wp.y;
+      if (headHit || justSteppedThrough) {
+        console.log(`[ActiveGameManager] Auto-clearing green waypoint for ${gameId}:${snakeId} (head=${head?.x},${head?.y} wp=${wp.x},${wp.y} reason=${headHit ? 'head' : 'body[1]'})`);
         controlled.waypoint = null;
       }
     }
