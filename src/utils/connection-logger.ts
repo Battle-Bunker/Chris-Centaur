@@ -6,10 +6,12 @@ export type ConnectionEventType =
   | 'server-subscribe'
   | 'server-disconnect'
   | 'server-error'
+  | 'server-idle-close'
   | 'client-open'
   | 'client-close'
   | 'client-error'
   | 'client-reconnect-attempt'
+  | 'client-idle-close'
   | 'client-page-hidden'
   | 'client-page-visible'
   | 'client-page-unload';

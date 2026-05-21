@@ -438,6 +438,8 @@
   </div>
 
   <script src="/board-renderer.js"></script>
+  <script src="/idle-policy.js"></script>
+  <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
@@ -452,6 +454,10 @@
       userId: sessionStorage.getItem('centaurUserId'),
     });
     const userId = sessionStorage.getItem('centaurUserId');
+    const idleWatcher = window.IdleWatcher.attach({
+      getWS: () => ws,
+      reconnect: () => connectWebSocket(),
+    });
 
     let ws = null;
     let moveState = null;
@@ -530,6 +536,7 @@
         ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId }));
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         wsDebug.onOpen();
+        idleWatcher.onConnected();
       };
 
       ws.onmessage = (event) => {
@@ -546,6 +553,24 @@
         const codeStr = event && typeof event.code === 'number' ? ` (code ${event.code})` : '';
         statusEl.textContent = 'Disconnected' + codeStr;
         wsDebug.onClose(event);
+        const wasIdle = idleWatcher.onClose(event);
+        if (wasIdle) {
+          // Distinguish the idle close in the connection log from generic
+          // network drops so /connection-debug shows it as its own row.
+          fetch('/api/connection-log/client', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'client-idle-close',
+              gameId,
+              userId,
+              code: event.code,
+              reason: event.reason || '',
+            }),
+          }).catch(() => {});
+          return;
+        }
+        if (idleWatcher.shouldSuppressReconnect()) return;
         reconnectTimer = setTimeout(() => {
           wsDebug.onReconnectAttempt();
           connectWebSocket();

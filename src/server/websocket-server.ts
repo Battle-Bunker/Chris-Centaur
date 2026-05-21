@@ -4,6 +4,12 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, TurnData } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
+import {
+  IDLE_TIMEOUT_MS,
+  IDLE_CLOSE_CODE,
+  IDLE_CLOSE_REASON,
+  SERVER_IDLE_SWEEP_INTERVAL_MS,
+} from '../shared/idle-policy';
 
 interface WSClient {
   ws: WebSocket;
@@ -14,7 +20,27 @@ interface WSClient {
   ip: string;
   userAgent: string;
   connectedAt: number;
+  lastActivityAt: number;
 }
+
+/** Inbound message types that represent real user intent. Pings (which the
+ *  client sends every 5s for latency measurement) deliberately do NOT count
+ *  — otherwise the idle sweep would never fire. The dedicated `activity`
+ *  heartbeat from IdleWatcher is what keeps an active human "alive". */
+const USER_INTENT_TYPES = new Set([
+  'subscribe-game',
+  'subscribe-lobby',
+  'select-snake',
+  'deselect',
+  'hold-snake',
+  'release-all-holds',
+  'suicide-all',
+  'select-move',
+  'submit-move',
+  'set-premove',
+  'set-nickname',
+  'activity',
+]);
 
 interface WSMessage {
   type: string;
@@ -26,12 +52,14 @@ export class GameWebSocketServer {
   private clients: Set<WSClient> = new Set();
   private gameManager: ActiveGameManager;
   private connLogger: ConnectionLogger;
+  private idleSweepInterval: NodeJS.Timeout | null = null;
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
     this.connLogger = ConnectionLogger.getInstance();
 
     this.wss = new WebSocketServer({ server, path: '/ws' });
+    this.startIdleSweep();
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       const ip =
@@ -41,6 +69,7 @@ export class GameWebSocketServer {
       const userAgent = (req.headers['user-agent'] as string) || 'unknown';
       const connId = this.connLogger.newConnId();
 
+      const now = Date.now();
       const client: WSClient = {
         ws,
         gameId: '',
@@ -49,9 +78,11 @@ export class GameWebSocketServer {
         connId,
         ip,
         userAgent,
-        connectedAt: Date.now(),
+        connectedAt: now,
+        lastActivityAt: now,
       };
       this.clients.add(client);
+      this.logActiveConnections('connect', connId);
 
       this.connLogger.log({
         ts: Date.now(),
@@ -69,6 +100,9 @@ export class GameWebSocketServer {
       ws.on('message', (data: Buffer) => {
         try {
           const msg: WSMessage = JSON.parse(data.toString());
+          if (msg && typeof msg.type === 'string' && USER_INTENT_TYPES.has(msg.type)) {
+            client.lastActivityAt = Date.now();
+          }
           this.handleMessage(client, msg);
         } catch (e) {
           console.error('WebSocket message parse error:', e);
@@ -90,7 +124,9 @@ export class GameWebSocketServer {
           durationMs: Date.now() - client.connectedAt,
         });
         this.handleDisconnect(client);
-        this.clients.delete(client);
+        if (this.clients.delete(client)) {
+          this.logActiveConnections('disconnect', client.connId);
+        }
       });
 
       ws.on('error', (err) => {
@@ -106,7 +142,9 @@ export class GameWebSocketServer {
           message: (err as Error)?.message || String(err),
         });
         this.handleDisconnect(client);
-        this.clients.delete(client);
+        if (this.clients.delete(client)) {
+          this.logActiveConnections('error', client.connId);
+        }
       });
     });
 
@@ -403,7 +441,64 @@ export class GameWebSocketServer {
         });
         break;
       }
+
+      case 'activity': {
+        // Heartbeat from IdleWatcher signalling the user has been active.
+        // lastActivityAt was already bumped above by the USER_INTENT_TYPES
+        // check; nothing more to do here. Don't reply — a silent ack keeps
+        // this off the wire when the tab is idle.
+        break;
+      }
     }
+  }
+
+  private startIdleSweep(): void {
+    if (this.idleSweepInterval) return;
+    this.idleSweepInterval = setInterval(() => {
+      const cutoff = Date.now() - IDLE_TIMEOUT_MS;
+      for (const client of this.clients) {
+        if (client.ws.readyState !== WebSocket.OPEN) continue;
+        if (client.lastActivityAt < cutoff) {
+          const idleFor = Date.now() - client.lastActivityAt;
+          console.log(
+            `[WebSocket] Idle sweep: closing conn=${client.connId} ` +
+              `user=${client.userId || '-'} game=${client.gameId || '-'} ` +
+              `idleFor=${Math.round(idleFor / 1000)}s`,
+          );
+          this.connLogger.log({
+            ts: Date.now(),
+            side: 'server',
+            type: 'server-idle-close',
+            connId: client.connId,
+            gameId: client.gameId || undefined,
+            userId: client.userId || undefined,
+            ip: client.ip,
+            code: IDLE_CLOSE_CODE,
+            reason: IDLE_CLOSE_REASON,
+            durationMs: Date.now() - client.connectedAt,
+            details: { idleForMs: idleFor },
+          });
+          try {
+            client.ws.close(IDLE_CLOSE_CODE, IDLE_CLOSE_REASON);
+          } catch (e) {
+            // best-effort: socket may already be tearing down
+          }
+        }
+      }
+    }, SERVER_IDLE_SWEEP_INTERVAL_MS);
+    // Don't keep the event loop alive solely for the sweep timer.
+    if (typeof this.idleSweepInterval.unref === 'function') {
+      this.idleSweepInterval.unref();
+    }
+  }
+
+  /** Emit a single line whenever the active-connection count changes. Called
+   *  from the add/delete sites so every transition shows up exactly once. */
+  private logActiveConnections(reason: string, connId: string): void {
+    console.log(
+      `[WebSocket] Active connections: ${this.clients.size} ` +
+        `(${reason} conn=${connId})`,
+    );
   }
 
   private handleDisconnect(client: WSClient): void {

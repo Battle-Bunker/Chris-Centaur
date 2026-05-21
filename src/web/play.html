@@ -105,12 +105,18 @@
   </div>
 
   <script src="/board-renderer.js"></script>
+  <script src="/idle-policy.js"></script>
+  <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
   <script>
     let ws = null;
     let reconnectTimer = null;
     let currentGames = [];
     const wsDebug = window.ConnectionDebugger.attach({});
+    const idleWatcher = window.IdleWatcher.attach({
+      getWS: () => ws,
+      reconnect: () => connectWebSocket(),
+    });
 
     function connectWebSocket() {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -131,6 +137,7 @@
           reconnectTimer = null;
         }
         wsDebug.onOpen();
+        idleWatcher.onConnected();
       };
 
       ws.onmessage = (event) => {
@@ -151,6 +158,23 @@
         statusEl.textContent = 'Disconnected';
         statusEl.className = 'ws-status disconnected';
         wsDebug.onClose(event);
+        const wasIdle = idleWatcher.onClose(event);
+        if (wasIdle) {
+          // Surface the idle close in the connection log as its own event
+          // so /connection-debug clearly distinguishes "user went idle" from
+          // a network blip or page navigation.
+          fetch('/api/connection-log/client', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'client-idle-close',
+              code: event.code,
+              reason: event.reason || '',
+            }),
+          }).catch(() => {});
+          return;
+        }
+        if (idleWatcher.shouldSuppressReconnect()) return;
         scheduleReconnect();
       };
 
