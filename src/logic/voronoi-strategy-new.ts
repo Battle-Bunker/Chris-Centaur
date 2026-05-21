@@ -81,7 +81,11 @@ export class VoronoiStrategy {
       enemyH2HRisk: config.enemyH2HRisk,
       allyH2HRisk: config.allyH2HRisk,
       waypointGoto: config.waypointGoto,
-      waypointNear: config.waypointNear
+      waypointNear: config.waypointNear,
+      connectivityPenalty: config.connectivityPenalty,
+      tightSpaceScore: config.tightSpaceScore,
+      tailReachable: config.tailReachable,
+      tightSpaceThreshold: config.tightSpaceThreshold
     };
   }
   
@@ -207,6 +211,9 @@ export class VoronoiStrategy {
         allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
         waypointGoto: evaluation.averageBreakdown.stats.waypointGoto,
         waypointNear: evaluation.averageBreakdown.stats.waypointNear,
+        connectivityPenalty: evaluation.averageBreakdown.stats.connectivityPenalty,
+        tightSpaceScore: evaluation.averageBreakdown.stats.tightSpaceScore,
+        tailReachable: evaluation.averageBreakdown.stats.tailReachable,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
         fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,

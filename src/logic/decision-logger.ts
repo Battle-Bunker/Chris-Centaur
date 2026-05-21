@@ -38,6 +38,12 @@ export interface DecisionLogEntry {
       waypointGoto?: number;
       waypointNear?: number;
 
+      enemyH2HRisk?: number;
+      allyH2HRisk?: number;
+
+      connectivityPenalty?: number;
+      tightSpaceScore?: number;
+      tailReachable?: number;
 
       fertileTerritory?: number;
       foodDistanceInverse?: number;

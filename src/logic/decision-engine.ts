@@ -536,7 +536,10 @@ export class DecisionEngine {
       enemyH2HRisk: 0,
       allyH2HRisk: 0,
       waypointGoto: 0,
-      waypointNear: 0
+      waypointNear: 0,
+      connectivityPenalty: 0,
+      tightSpaceScore: 0,
+      tailReachable: 0
     };
     
     const sumWeighted = {
@@ -561,7 +564,10 @@ export class DecisionEngine {
       enemyH2HRiskScore: 0,
       allyH2HRiskScore: 0,
       waypointGotoScore: 0,
-      waypointNearScore: 0
+      waypointNearScore: 0,
+      connectivityPenaltyScore: 0,
+      tightSpaceScoreScore: 0,
+      tailReachableScore: 0
     };
     
     let totalScore = 0;
@@ -591,6 +597,9 @@ export class DecisionEngine {
       sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
       sumStats.waypointGoto += evaluation.stats.waypointGoto;
       sumStats.waypointNear += evaluation.stats.waypointNear;
+      sumStats.connectivityPenalty += evaluation.stats.connectivityPenalty;
+      sumStats.tightSpaceScore += evaluation.stats.tightSpaceScore;
+      sumStats.tailReachable += evaluation.stats.tailReachable;
       
       // Sum weighted scores
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
@@ -615,6 +624,9 @@ export class DecisionEngine {
       sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
       sumWeighted.waypointGotoScore += evaluation.weighted.waypointGotoScore;
       sumWeighted.waypointNearScore += evaluation.weighted.waypointNearScore;
+      sumWeighted.connectivityPenaltyScore += evaluation.weighted.connectivityPenaltyScore;
+      sumWeighted.tightSpaceScoreScore += evaluation.weighted.tightSpaceScoreScore;
+      sumWeighted.tailReachableScore += evaluation.weighted.tailReachableScore;
       
       totalScore += evaluation.score;
     }
@@ -647,7 +659,10 @@ export class DecisionEngine {
         enemyH2HRisk: sumStats.enemyH2HRisk / count,
         allyH2HRisk: sumStats.allyH2HRisk / count,
         waypointGoto: sumStats.waypointGoto / count,
-        waypointNear: sumStats.waypointNear / count
+        waypointNear: sumStats.waypointNear / count,
+        connectivityPenalty: sumStats.connectivityPenalty / count,
+        tightSpaceScore: sumStats.tightSpaceScore / count,
+        tailReachable: sumStats.tailReachable / count
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
@@ -672,7 +687,10 @@ export class DecisionEngine {
         enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
         allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count,
         waypointGotoScore: sumWeighted.waypointGotoScore / count,
-        waypointNearScore: sumWeighted.waypointNearScore / count
+        waypointNearScore: sumWeighted.waypointNearScore / count,
+        connectivityPenaltyScore: sumWeighted.connectivityPenaltyScore / count,
+        tightSpaceScoreScore: sumWeighted.tightSpaceScoreScore / count,
+        tailReachableScore: sumWeighted.tailReachableScore / count
       }
     };
   }

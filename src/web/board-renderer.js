@@ -1020,6 +1020,9 @@ const BoardRenderer = (function () {
         allyH2HRiskScore: 0,
         waypointGotoScore: 0,
         waypointNearScore: 0,
+        connectivityPenaltyScore: 0,
+        tightSpaceScoreScore: 0,
+        tailReachableScore: 0,
         fertileScore: 0,
       };
 
@@ -1217,6 +1220,27 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.waypointNear ?? 0,
         weightedScore: breakdown.weighted?.waypointNearScore ?? 0,
         averageWeighted: averageWeighted.waypointNearScore ?? 0,
+      },
+      {
+        name: "Connectivity Penalty (stranded cells)",
+        value: breakdown.connectivityPenalty ?? "—",
+        weight: breakdown.weights?.connectivityPenalty ?? 0,
+        weightedScore: breakdown.weighted?.connectivityPenaltyScore ?? 0,
+        averageWeighted: averageWeighted.connectivityPenaltyScore ?? 0,
+      },
+      {
+        name: "Tight-Space Score",
+        value: breakdown.tightSpaceScore ?? "—",
+        weight: breakdown.weights?.tightSpaceScore ?? 0,
+        weightedScore: breakdown.weighted?.tightSpaceScoreScore ?? 0,
+        averageWeighted: averageWeighted.tightSpaceScoreScore ?? 0,
+      },
+      {
+        name: "Tail Reachable",
+        value: breakdown.tailReachable ?? "—",
+        weight: breakdown.weights?.tailReachable ?? 0,
+        weightedScore: breakdown.weighted?.tailReachableScore ?? 0,
+        averageWeighted: averageWeighted.tailReachableScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [

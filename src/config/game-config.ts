@@ -43,6 +43,12 @@ export interface GameConfig {
   // User-directed waypoint weights (set via centaur UI: alt-click = green goto, shift-click = blue near)
   waypointGoto: number;  // Strong pull toward green waypoint (go to this cell ASAP)
   waypointNear: number;  // Pull toward blue waypoint + keep path open to it
+
+  // Tight-space survival weights
+  connectivityPenalty: number;   // Weight per stranded cell when head is an articulation point (typically negative)
+  tightSpaceScore: number;       // Weight on bounded longest-path-in-region approximation
+  tailReachable: number;         // Bonus when our own tail is reachable (gated by tight-space threshold)
+  tightSpaceThreshold: number;   // tight when reachable < snakeLength * threshold; gates tightSpaceScore + tailReachable
   
   // Simulation parameters
   maxSimulationDepth: number;
@@ -100,6 +106,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   // penalty (-500) still wins because it's a flat per-death stat.
   waypointGoto: 2500,  // Strong pull toward green waypoint — top priority after survival
   waypointNear: 2000,  // Pull toward blue waypoint + path-open bonus
+
+  // Tight-space survival weights
+  connectivityPenalty: -20,
+  tightSpaceScore: 30,
+  tailReachable: 100,
+  tightSpaceThreshold: 2.0,
   
   // Simulation parameters
   maxSimulationDepth: 1,

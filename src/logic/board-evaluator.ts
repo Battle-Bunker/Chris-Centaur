@@ -49,6 +49,11 @@ export interface HeuristicStats {
   // User-directed waypoint heuristics (0 when no waypoint is set for this snake)
   waypointGoto: number;       // Green waypoint: closeness [0,1] + bonus 1 when on target → [0, 2]
   waypointNear: number;       // Blue waypoint: closeness [0,1] + reachability (+0 reachable, -1 cut off) → [-1, 1]
+
+  // Tight-space survival heuristics
+  connectivityPenalty: number;  // Number of cells stranded by entering an articulation point (0 = none stranded)
+  tightSpaceScore: number;      // Bounded longest-path-in-region approximation; only nonzero when tight, else 0
+  tailReachable: number;        // 1 if own tail is reachable (optimistic passability) within snake length, else 0
 }
 
 export interface BoardEvaluation {
@@ -118,6 +123,12 @@ export interface HeuristicWeights {
   // Waypoint weights
   waypointGoto: number;
   waypointNear: number;
+
+  // Tight-space survival weights
+  connectivityPenalty: number;  // Weight applied to stranded cell count (typically negative)
+  tightSpaceScore: number;      // Weight applied to longest-path-in-region approximation
+  tailReachable: number;        // Weight applied to tail-reachable bonus (1/0)
+  tightSpaceThreshold: number;  // Reachable < length*threshold gates tightSpaceScore + tailReachable
 }
 
 export interface WeightedScores {
@@ -160,6 +171,11 @@ export interface WeightedScores {
   // Waypoint weighted scores
   waypointGotoScore: number;
   waypointNearScore: number;
+
+  // Tight-space survival weighted scores
+  connectivityPenaltyScore: number;
+  tightSpaceScoreScore: number;
+  tailReachableScore: number;
 }
 
 export class BoardEvaluator {
@@ -208,6 +224,12 @@ export class BoardEvaluator {
       // Waypoint weights (only active when a waypoint is set)
       waypointGoto: 2500,       // Strong pull toward green waypoint (utmost priority after survival)
       waypointNear: 2000,       // Pull toward blue waypoint + path-open bonus
+
+      // Tight-space survival weights
+      connectivityPenalty: -20,    // Each stranded cell hurts a lot
+      tightSpaceScore: 30,         // Reward longest-path approximation when tight
+      tailReachable: 100,          // Strong bonus for being able to tail-chase
+      tightSpaceThreshold: 2.0,    // tight when reachable < snakeLength * threshold
       
       // Override with provided weights
       ...weights
@@ -274,7 +296,10 @@ export class BoardEvaluator {
           enemyH2HRisk: 0,
           allyH2HRisk: 0,
           waypointGoto: 0,
-          waypointNear: 0
+          waypointNear: 0,
+          connectivityPenalty: 0,
+          tightSpaceScore: 0,
+          tailReachable: 0
         },
         territoryCells: new Map()
       };
@@ -359,6 +384,9 @@ export class BoardEvaluator {
     const { waypointGoto, waypointNear } = this.calculateWaypointStats(
       graph, ourSnake, board.snakes, ctx?.waypoint ?? null, board.width, board.height
     );
+
+    // Calculate tight-space survival metrics (connectivity, longest path, tail reachable)
+    const tightMetrics = this.calculateTightSpaceMetrics(graph, ourSnake, board.snakes);
     
     return {
       stats: {
@@ -384,7 +412,10 @@ export class BoardEvaluator {
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
         allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
         waypointGoto,
-        waypointNear
+        waypointNear,
+        connectivityPenalty: tightMetrics.stranded,
+        tightSpaceScore: tightMetrics.tightSpaceScore,
+        tailReachable: tightMetrics.tailReachable
       },
       territoryCells: bfsResult.territoryCells
     };
@@ -489,6 +520,182 @@ export class BoardEvaluator {
       level = next;
     }
     return false;
+  }
+
+  /**
+   * Compute tight-space survival metrics for our snake from its current head position.
+   *
+   * Returns:
+   *  - stranded: number of cells stranded by the snake's head being an articulation point
+   *              of the optimistically-reachable region (sum of all components reachable
+   *              from a head-neighbor EXCEPT the largest such component).
+   *  - tightSpaceScore: bounded longest-path-in-region approximation, only nonzero when
+   *                     reachable < snakeLength * tightSpaceThreshold. Uses checkerboard
+   *                     parity bound (2*min(white,black)+1) intersected with a bounded
+   *                     wall-hugging DFS for refinement.
+   *  - tailReachable: 1 if our own tail cell is reachable under optimistic passability
+   *                   within `snakeLength` turns, gated by the same tight-space threshold.
+   */
+  private calculateTightSpaceMetrics(
+    graph: BoardGraph,
+    ourSnake: Snake,
+    allSnakes: Snake[]
+  ): { stranded: number; tightSpaceScore: number; tailReachable: number } {
+    const head = ourSnake.head;
+    const snakeLength = ourSnake.length;
+    const tailKey = graph.coordToKey(ourSnake.body[ourSnake.body.length - 1]);
+    const headKey = graph.coordToKey(head);
+    
+    // Block other snakes' tails (we can chase our own tail, not others')
+    const ourInvulnerability = ourSnake.invulnerabilityLevel ?? 0;
+    const otherTails = new Set<string>();
+    for (const s of allSnakes) {
+      if (s.health <= 0) continue;
+      if (s.id === ourSnake.id) continue;
+      if ((s.invulnerabilityLevel ?? 0) < ourInvulnerability) continue;
+      otherTails.add(graph.coordToKey(s.body[s.body.length - 1]));
+    }
+    
+    // Build set of our own body cells (excluding tail and head); we never walk through these
+    const ownBody = new Set<string>();
+    for (let i = 0; i < ourSnake.body.length - 1; i++) {
+      const k = graph.coordToKey(ourSnake.body[i]);
+      if (k === headKey) continue;
+      ownBody.add(k);
+    }
+    
+    const isPassable = (coord: Coord, turn: number): boolean => {
+      if (!graph.isInBounds(coord)) return false;
+      const k = graph.coordToKey(coord);
+      if (k === headKey) return false; // treat head as removed for reachability
+      if (ownBody.has(k)) return false;
+      if (otherTails.has(k)) return false;
+      return graph.isPassableAtTurn(coord, turn);
+    };
+    
+    // Step 1: identify head-neighbors (turn-1 passable from head)
+    const headNeighbors: Coord[] = [
+      { x: head.x, y: head.y + 1 },
+      { x: head.x, y: head.y - 1 },
+      { x: head.x - 1, y: head.y },
+      { x: head.x + 1, y: head.y }
+    ].filter(n => isPassable(n, 1));
+    
+    if (headNeighbors.length === 0) {
+      return { stranded: 0, tightSpaceScore: 0, tailReachable: 0 };
+    }
+    
+    // Step 2: BFS from each head-neighbor (head treated as blocked), label component ids.
+    // Cells reached by multiple neighbors get the first label; we still treat components as
+    // potentially overlapping (i.e. neighbors that reach each other belong to one component
+    // from the snake's perspective).
+    const compIdByKey = new Map<string, number>();
+    const componentSizes: number[] = [];
+    const componentContainsTail: boolean[] = [];
+    const visitedAll = new Set<string>();
+    visitedAll.add(headKey);
+    
+    // Union-find over component ids to merge overlapping neighbor-BFS results
+    const parent: number[] = [];
+    const findRoot = (i: number): number => {
+      while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+      return i;
+    };
+    const union = (a: number, b: number): void => {
+      const ra = findRoot(a), rb = findRoot(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    
+    for (const seed of headNeighbors) {
+      const seedKey = graph.coordToKey(seed);
+      if (compIdByKey.has(seedKey)) continue;
+      
+      const compId = componentSizes.length;
+      componentSizes.push(0);
+      componentContainsTail.push(false);
+      parent.push(compId);
+      
+      // BFS
+      const queue: { pos: Coord; turn: number }[] = [{ pos: seed, turn: 1 }];
+      compIdByKey.set(seedKey, compId);
+      visitedAll.add(seedKey);
+      componentSizes[compId]++;
+      if (seedKey === tailKey) componentContainsTail[compId] = true;
+      
+      while (queue.length > 0) {
+        const { pos, turn } = queue.shift()!;
+        const nextTurn = turn + 1;
+        const neighbors: Coord[] = [
+          { x: pos.x, y: pos.y + 1 },
+          { x: pos.x, y: pos.y - 1 },
+          { x: pos.x - 1, y: pos.y },
+          { x: pos.x + 1, y: pos.y }
+        ];
+        for (const n of neighbors) {
+          const nk = graph.coordToKey(n);
+          if (!isPassable(n, nextTurn)) continue;
+          const existing = compIdByKey.get(nk);
+          if (existing !== undefined) {
+            if (existing !== compId) union(existing, compId);
+            continue;
+          }
+          compIdByKey.set(nk, compId);
+          visitedAll.add(nk);
+          componentSizes[compId]++;
+          if (nk === tailKey) componentContainsTail[compId] = true;
+          queue.push({ pos: n, turn: nextTurn });
+        }
+      }
+    }
+    
+    // Merge sizes by union-find roots
+    const rootSize = new Map<number, number>();
+    const rootHasTail = new Map<number, boolean>();
+    for (let i = 0; i < componentSizes.length; i++) {
+      const r = findRoot(i);
+      rootSize.set(r, (rootSize.get(r) ?? 0) + componentSizes[i]);
+      if (componentContainsTail[i]) rootHasTail.set(r, true);
+    }
+    
+    // Maximum component the snake could actually end up in
+    let maxComponent = 0;
+    let maxRoot: number | null = null;
+    for (const [root, size] of rootSize) {
+      if (size > maxComponent) { maxComponent = size; maxRoot = root; }
+    }
+    
+    // Stranded cells = total reachable (excl. head) - largest component
+    let totalReachable = 0;
+    for (const size of rootSize.values()) totalReachable += size;
+    const stranded = Math.max(0, totalReachable - maxComponent);
+    
+    // Tail reachable: did the largest component contain our tail?
+    const tailReachableRaw = (maxRoot !== null && rootHasTail.get(maxRoot)) ? 1 : 0;
+    
+    // Gate tightSpaceScore + tailReachable by tight-space threshold
+    const reachableIncludingHead = totalReachable + 1;
+    const isTight = reachableIncludingHead < snakeLength * this.weights.tightSpaceThreshold;
+    
+    if (!isTight) {
+      return { stranded, tightSpaceScore: 0, tailReachable: 0 };
+    }
+    
+    // Tight-space score: parity-bounded longest path within the largest accessible region.
+    // Checkerboard parity gives an upper bound: a snake alternates colors with each step,
+    // so longest simple path <= 2 * min(white, black) + 1.
+    let whiteCount = (head.x + head.y) % 2 === 0 ? 1 : 0;
+    let blackCount = 1 - whiteCount;
+    for (const [key, compId] of compIdByKey) {
+      if (findRoot(compId) !== maxRoot) continue;
+      const [x, y] = key.split(',').map(Number);
+      if ((x + y) % 2 === 0) whiteCount++; else blackCount++;
+    }
+    const parityBound = 2 * Math.min(whiteCount, blackCount) + 1;
+    const sizeBound = maxComponent + 1; // includes head
+    const tightSpaceScore = Math.min(parityBound, sizeBound);
+    
+    // Tail reachable only useful when tight
+    return { stranded, tightSpaceScore, tailReachable: tailReachableRaw };
   }
   
   /**
@@ -677,7 +884,10 @@ export class BoardEvaluator {
       enemyH2HRiskScore: stats.enemyH2HRisk * this.weights.enemyH2HRisk,
       allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk,
       waypointGotoScore: stats.waypointGoto * this.weights.waypointGoto,
-      waypointNearScore: stats.waypointNear * this.weights.waypointNear
+      waypointNearScore: stats.waypointNear * this.weights.waypointNear,
+      connectivityPenaltyScore: stats.connectivityPenalty * this.weights.connectivityPenalty,
+      tightSpaceScoreScore: stats.tightSpaceScore * this.weights.tightSpaceScore,
+      tailReachableScore: stats.tailReachable * this.weights.tailReachable
     };
   }
   
@@ -706,6 +916,9 @@ export class BoardEvaluator {
            weighted.enemyH2HRiskScore +
            weighted.allyH2HRiskScore +
            weighted.waypointGotoScore +
-           weighted.waypointNearScore;
+           weighted.waypointNearScore +
+           weighted.connectivityPenaltyScore +
+           weighted.tightSpaceScoreScore +
+           weighted.tailReachableScore;
   }
 }

@@ -77,6 +77,16 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
 
 **Note**: Territory visualization only appears for games logged after 2025-12-17. Older game logs don't have territory cell data.
 
+## Tight-Space Survival Heuristics (Added 2026-05-21)
+
+Three new heuristics in `BoardEvaluator` help the bot survive in confined corridors:
+
+1. **Connectivity Penalty** — counts cells stranded when the candidate head is an articulation point of the optimistically-reachable region. Computed by union-find over per-neighbor BFS components. Always active.
+2. **Tight-Space Score** — bounded longest-simple-path approximation: `min(reachable, 2*min(white,black)+1)` (checkerboard parity bound). Only active when `reachable < snakeLength * tightSpaceThreshold`.
+3. **Tail Reachable** — 1 if our own tail cell is in the largest reachable component (under optimistic passability). Gated by the same tight-space threshold.
+
+All three are weight-tunable in `config.html` (Tight-Space Survival section), logged per-move in `decision_logs.move_evaluations`, and rendered as rows in the Game History viewer breakdown (with `?? "—"` fallback for older logs). They participate in `calculateTotalScore` and `averageEvaluations` like every other heuristic.
+
 ## Known Replit Platform Issues
 
 ### Broken run_test Tool (Beta) - Critical Testing Limitation
