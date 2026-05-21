@@ -817,6 +817,27 @@ export class ActiveGameManager {
     return pending;
   }
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Move-source priority for a controlled snake (mirrored client-side in
+  // src/web/play-game.html near `let premoveAutoCommitTimer`):
+  //   1. Explicit user submit         — submitUserMove → resolvePendingMove
+  //   2. Manual user selection         — setUserSelection (stages in
+  //                                      pending.userSelectedMove; the safety
+  //                                      timer falls back to it if no submit)
+  //   3. Queued premove (auto-pilot)   — getPremoveDirection (unselected
+  //                                      snakes only; selected snakes' queues
+  //                                      are pre-staged client-side and
+  //                                      auto-committed there)
+  //   4. Bot recommendation            — `move` param of this method; used as
+  //                                      the safety-timer fallback
+  //   5. Hard fallback                 — literal 'up' if nothing else available
+  //
+  // Ownership of the premove queue: server-only mutations are done in
+  // `setPremoveQueue` (in response to client `set-premove`) and
+  // `advancePremoveQueueAfterMove` (pop / clear on divergence). Clients
+  // never advance the queue themselves; they render the broadcast snapshot
+  // and pre-stage queue[0] when they own the selection.
+  // ────────────────────────────────────────────────────────────────────────
   setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
     const game = this.games.get(gameId);
     if (!game) return;
