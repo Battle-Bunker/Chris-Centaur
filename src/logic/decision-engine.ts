@@ -63,6 +63,7 @@ export class DecisionEngine {
   private simulator: Simulator;
   private config: DecisionConfig;
   private lastFoodSetByGameId: Map<string, Set<string>> = new Map();
+  private static readonly MAX_FOOD_SET_ENTRIES = 20;
   
   constructor(config?: Partial<DecisionConfig>) {
     this.config = {
@@ -160,7 +161,7 @@ export class DecisionEngine {
       }
       
       // Update food set for next turn
-      this.lastFoodSetByGameId.set(gameId, currentFoodSet);
+      this.setLastFoodSet(gameId, currentFoodSet);
       
       return {
         move: ourMoves[0],
@@ -285,8 +286,8 @@ export class DecisionEngine {
       evalResult.projectedTerritoryCells = projTerritoryCells;
     }
     
-    // Update food set for next turn
-    this.lastFoodSetByGameId.set(gameId, currentFoodSet);
+    // Update food set for next turn (with LRU cap to avoid unbounded growth)
+    this.setLastFoodSet(gameId, currentFoodSet);
     
     return {
       move: bestMove,
@@ -296,6 +297,31 @@ export class DecisionEngine {
     };
   }
   
+  /**
+   * Called when a game ends. Releases per-game state so it doesn't leak.
+   */
+  public onGameEnd(gameId: string): void {
+    this.lastFoodSetByGameId.delete(gameId);
+  }
+
+  /**
+   * Set the last-food-set for a game, capping the map to MAX_FOOD_SET_ENTRIES
+   * via LRU eviction (oldest insertion key first). Belt-and-suspenders against
+   * the case where /end never arrives for some game.
+   */
+  private setLastFoodSet(gameId: string, foodSet: Set<string>): void {
+    // Re-insert to refresh insertion order for LRU.
+    if (this.lastFoodSetByGameId.has(gameId)) {
+      this.lastFoodSetByGameId.delete(gameId);
+    }
+    this.lastFoodSetByGameId.set(gameId, foodSet);
+    while (this.lastFoodSetByGameId.size > DecisionEngine.MAX_FOOD_SET_ENTRIES) {
+      const oldest = this.lastFoodSetByGameId.keys().next().value;
+      if (oldest === undefined) break;
+      this.lastFoodSetByGameId.delete(oldest);
+    }
+  }
+
   /**
    * Get candidate moves for our snake using the principled rule:
    * Use safe moves if available, otherwise use all risky moves.

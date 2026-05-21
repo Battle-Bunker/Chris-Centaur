@@ -266,6 +266,14 @@ export class VoronoiStrategy {
     };
   }
   
+  /**
+   * Called from the /end route so per-game state in the decision engine
+   * (notably lastFoodSetByGameId) doesn't accumulate over the process lifetime.
+   */
+  public onGameEnd(gameId: string): void {
+    this.decisionEngine.onGameEnd(gameId);
+  }
+
   private logTurnInfo(gameState: GameState, decision: MoveDecision): void {
     const turn = gameState.turn + 1;
     

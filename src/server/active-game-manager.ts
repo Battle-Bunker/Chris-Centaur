@@ -98,6 +98,7 @@ export class ActiveGameManager {
   private gameEndCallbacks: GameEndCallback[] = [];
   private gameServerPing: number = 50;
   private pingInterval: NodeJS.Timer | null = null;
+  private staleGameCleanupInterval: NodeJS.Timer | null = null;
   private configStore: ConfigStore = new ConfigStore();
 
   private constructor() {}
@@ -1045,8 +1046,20 @@ export class ActiveGameManager {
     this.notifyMoveCommitted(gameId, snakeId, move, source);
   }
 
+  shutdown(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval as any);
+      this.pingInterval = null;
+    }
+    if (this.staleGameCleanupInterval) {
+      clearInterval(this.staleGameCleanupInterval as any);
+      this.staleGameCleanupInterval = null;
+    }
+  }
+
   startStaleGameCleanup(intervalMs: number = 300000, maxIdleMs: number = 600000): void {
-    setInterval(() => {
+    if (this.staleGameCleanupInterval) return;
+    this.staleGameCleanupInterval = setInterval(() => {
       const now = Date.now();
       for (const [gameId, game] of this.games) {
         const idleTime = now - game.lastActivityAt;

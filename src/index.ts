@@ -174,6 +174,7 @@ app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
   logger.endGame(gameState);
   gameManager.endGame(gameState.game.id, gameState.you.id, gameState);
+  voronoiStrategy.onGameEnd(gameState.game.id);
   res.status(200).send('ok');
 });
 
@@ -221,6 +222,7 @@ httpServer.listen(port, '0.0.0.0', () => {
 
 async function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down gracefully...`);
+  gameManager.shutdown();
   const decisionLogger = DecisionLogger.getInstance();
   await decisionLogger.shutdown();
   await ConnectionLogger.getInstance().shutdown();

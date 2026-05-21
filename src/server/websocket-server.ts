@@ -571,7 +571,7 @@ export class GameWebSocketServer {
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
       if (client.gameId === gameId && client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(data);
+        this.sendRaw(client, data, msg.type);
       }
     }
   }
@@ -590,7 +590,7 @@ export class GameWebSocketServer {
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
       if (client.isLobby && client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(data);
+        this.sendRaw(client, data, msg.type);
       }
     }
   }
@@ -599,14 +599,79 @@ export class GameWebSocketServer {
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
       if (client.gameId === gameId && !client.isLobby && client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(data);
+        this.sendRaw(client, data, msg.type);
       }
     }
   }
 
   private send(ws: WebSocket, msg: any): void {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
+    if (ws.readyState !== WebSocket.OPEN) return;
+    // Best-effort backpressure check for direct (non-client-tracked) sends.
+    if ((ws as any).bufferedAmount > BACKPRESSURE_TERMINATE_BYTES) {
+      try { ws.terminate(); } catch {}
+      return;
     }
+    ws.send(JSON.stringify(msg));
+  }
+
+  /**
+   * Send with backpressure handling. If the socket's send buffer is over the
+   * threshold, drop superseded update types (board-update / snake-turn-update /
+   * selections-update / lobby-update — the next turn supersedes them) instead
+   * of letting Node buffer unbounded data for a slow/zombie client. If the
+   * buffer stays high for a sustained period, terminate the connection so the
+   * client can reconnect fresh.
+   */
+  private sendRaw(client: WSClient, data: string, msgType: string): void {
+    const ws = client.ws;
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    const buffered = (ws as any).bufferedAmount as number;
+
+    if (buffered > BACKPRESSURE_TERMINATE_BYTES) {
+      console.warn(
+        `[WebSocket] Backpressure terminate: conn=${client.connId} ` +
+          `user=${client.userId || '-'} bufferedAmount=${buffered}B`,
+      );
+      this.connLogger.log({
+        ts: Date.now(),
+        side: 'server',
+        type: 'server-backpressure-terminate',
+        connId: client.connId,
+        gameId: client.gameId || undefined,
+        userId: client.userId || undefined,
+        ip: client.ip,
+        details: { bufferedAmount: buffered, msgType },
+      });
+      try { ws.terminate(); } catch {}
+      return;
+    }
+
+    if (buffered > BACKPRESSURE_DROP_BYTES && SUPERSEDED_MSG_TYPES.has(msgType)) {
+      this.connLogger.log({
+        ts: Date.now(),
+        side: 'server',
+        type: 'server-backpressure-drop',
+        connId: client.connId,
+        gameId: client.gameId || undefined,
+        userId: client.userId || undefined,
+        ip: client.ip,
+        details: { bufferedAmount: buffered, msgType },
+      });
+      return;
+    }
+
+    ws.send(data);
   }
 }
+
+// 1 MB — drop superseded updates (next turn replaces them anyway) beyond this.
+const BACKPRESSURE_DROP_BYTES = 1024 * 1024;
+// 4 MB — terminate the socket; the client can reconnect and resync from scratch.
+const BACKPRESSURE_TERMINATE_BYTES = 4 * 1024 * 1024;
+const SUPERSEDED_MSG_TYPES = new Set([
+  'board-update',
+  'snake-turn-update',
+  'selections-update',
+  'lobby-update',
+]);
