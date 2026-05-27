@@ -489,35 +489,46 @@
     // submit the staged move. Cancelled on any manual selectMove, deselect,
     // or new turn.
     let premoveAutoCommitTimer = null;
-    // True when the current userSelectedMove was set by tryConsumePremove
-    // rather than by manual user input. Lets us know whether snake-turn-update
-    // re-pre-staging is allowed to overwrite the current staged move.
+    // Local mirror of the server's pending.userSelectionSource. True when
+    // userSelectedMove was set by tryConsumePremove (queue-driven pre-stage);
+    // false when it came from a manual selectMove('user') call. Lets
+    // tryConsumePremove tell a stale queue pre-stage (safe to refresh) from
+    // a fresh manual pick (priority 2 — keep it).
     let premoveStagedFromQueue = false;
     let premoveBannerNoticeTimer = null;
     const PREMOVE_AUTO_COMMIT_DELAY_MS = 250;
 
     // ────────────────────────────────────────────────────────────────────────
-    // Move-source priority (the contract every premove/selection helper must
-    // obey — see also active-game-manager.ts:setBotRecommendation):
-    //   1. Explicit user submit (Space / submit button / takeover dialog)
-    //   2. Manual user selection (arrow keys, WASD, click on candidate cell).
-    //      A manual selection while a queue exists REPLACES the queue with
-    //      just the user's chosen next cell — any moves planned after the
-    //      original next move are dropped, because they were planned from a
-    //      head that will no longer happen.
-    //   3. Queued premove (pre-staged + 250ms auto-commit timer)
-    //   4. Bot recommendation (shown as suggestion; server safety timer uses
-    //      this as fallback if nothing else committed)
+    // Move-source priority (mirror of active-game-manager.ts:computeIntendedMove
+    // — the SINGLE pipeline the server uses for both safety-timer commit
+    // and the staged-arrow broadcast):
+    //   1. Explicit user submit  (Space / submit button)
+    //   2. Manual user selection (arrow keys, WASD, candidate-cell click).
+    //      Marks pending.userSelectionSource='manual' on the server, which
+    //      clears the queue (the "manual override drops the plan" contract).
+    //   3. Queue head           (pre-staged via setUserSelection 'queue' for
+    //                            selected snakes; server-driven auto-pilot
+    //                            for unselected). Same precedence in both.
+    //   4. Bot recommendation   (server's safety-timer fallback)
     //   5. Fallback ('up')
+    //
     // Ownership:
-    //   - Queue *contents*: server is authoritative. Client mutates via
-    //     `set-premove` only; queue advancement (popping queue[0] after a move
-    //     resolves) lives in active-game-manager.advancePremoveQueueAfterMove.
-    //     The client never drains the queue locally.
-    //   - Q-mode (premoveMode flag): purely a local input mode. It controls
-    //     what canvas clicks DO (plan vs select), not whether the queue runs.
-    //   - Auto-commit timer: client-owned. Cancelled by any higher-priority
-    //     event (manual selection, deselect, new turn).
+    //   - The server owns the staged-move state and broadcasts it via the
+    //     stagedMoves map. The client renders that map directly; it no
+    //     longer synthesises a bot-fallback staged arrow locally.
+    //   - Queue contents: server-authoritative. Client mutates via
+    //     `set-premove`; queue advancement is handled by
+    //     active-game-manager.advancePremoveQueueAfterMove.
+    //   - Q-mode (premoveMode flag): purely local input mode. Controls what
+    //     canvas clicks DO (plan vs select), not whether the queue runs.
+    //   - Auto-commit timer: client-owned. Cancelled by any manual selection,
+    //     deselect, or new turn.
+    //
+    // Projected head: after a move is committed this turn, all "next turn"
+    // rendering (Q-mode legal-cell outlines, candidate-arrow cells, queue
+    // extension via clicks) anchors at getProjectedHead() — the cell the
+    // snake's head will occupy after the committed move resolves — rather
+    // than the now-stale current head.
     // ────────────────────────────────────────────────────────────────────────
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
@@ -820,6 +831,11 @@
                 csData.moveCommitted = true;
                 csData.committedMove = msg.move;
               }
+              // Bug A: re-root moveState at the projected head so post-commit
+              // candidate cells (Q-mode click targets, click-to-extend) draw
+              // in the right place. setupMoveStateForSnake now picks the
+              // post-commit candidate set when moveCommitted is true.
+              setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
               renderGameBoard();
             } else {
@@ -849,9 +865,10 @@
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
               analyticsFrozen = true;
+              // Bug A: re-root the candidate set at the projected head.
+              setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
               renderGameBoard();
-
             }
           }
           break;
@@ -980,7 +997,16 @@
       moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
 
       if (csData.moveCommitted && csData.committedMove) {
-        moveState.selectedMove = csData.committedMove;
+        // Bug A fix: after the move is committed, candidates for "what next"
+        // must come from the projected head (head + committed offset), not
+        // the stale current head. buildPostCommitCandidates gives us the 3
+        // forward options (reverse-of-committed excluded) rooted there.
+        const post = buildPostCommitCandidates(snakeId);
+        if (post) {
+          moveState = post;
+        } else {
+          moveState.selectedMove = csData.committedMove;
+        }
         moveSubmitted = true;
         analyticsFrozen = true;
       } else {
@@ -1060,26 +1086,17 @@
       }
 
       const renderMoveState = moveSubmitted ? null : moveState;
-      const effectiveStagedMoves = Object.assign({}, stagedMoves);
-      for (const snakeId of controlledSnakeIds) {
-        if (effectiveStagedMoves[snakeId]) continue;
-        const csData = controlledSnakeTurnData[snakeId];
-        const botMove = csData?.turnData?.botRecommendation;
-        if (botMove) {
-          effectiveStagedMoves[snakeId] = {
-            move: botMove,
-            committed: false,
-            color: '#888888',
-          };
-        }
-      }
+      // Server-side computeIntendedMove already fills in bot-fallback staged
+      // moves (rendered grey via source !== 'manual'/'queue' in
+      // websocket-server.getStagedMovesForGame). Client just renders the
+      // broadcast snapshot directly — no local synthesis.
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
         controlledSnakeIds: controlledSnakeIds,
         selectionGlows: selectionGlows,
         holds: holds,
-        stagedMoves: effectiveStagedMoves,
+        stagedMoves: stagedMoves,
       });
 
       // Q-mode visual cue: outline the four orthogonally-adjacent cells to
@@ -1129,13 +1146,23 @@
 
     function renderCommittedCheckmarks(cellSize) {
       clearOverlayCheckmarks();
-      if (!selectedSnakeId || !moveSubmitted || !moveState) return;
+      if (!selectedSnakeId || !moveSubmitted) return;
 
       const csData = controlledSnakeTurnData[selectedSnakeId];
       if (!csData || !csData.committedMove) return;
 
-      const move = moveState.moves[csData.committedMove];
-      if (!move || !move.position) return;
+      // Compute the committed-destination cell directly from the live head
+      // and the committed direction. Don't read it from moveState.moves —
+      // after the post-commit rebuild (buildPostCommitCandidates), that map
+      // is anchored at the projected head, so moveState.moves[committedDir]
+      // would point one cell beyond the actual commit destination.
+      if (!currentGameState) return;
+      const snake = currentGameState.board.snakes.find(s => s.id === selectedSnakeId);
+      const head = snake?.head || snake?.body?.[0];
+      if (!head) return;
+      const off = directionOffset(csData.committedMove);
+      if (!off) return;
+      const target = { x: head.x + off.dx, y: head.y + off.dy };
 
       const canvas = document.getElementById('gameCanvas');
       const board = currentGameState.board;
@@ -1143,8 +1170,8 @@
       const displayHeight = canvas.clientHeight || canvas.height;
       const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
 
-      const x = move.position.x * displayCellSize;
-      const y = (board.height - 1 - move.position.y) * displayCellSize;
+      const x = target.x * displayCellSize;
+      const y = (board.height - 1 - target.y) * displayCellSize;
 
       const checkmark = document.createElement('div');
       checkmark.className = 'committed-cell-checkmark';
@@ -1234,14 +1261,16 @@
 
       if (source === 'user') {
         // The user is taking explicit control: kill any pending auto-commit
-        // and, if a queue exists, splice the user's direction in as the new
-        // queue head. This is the "arrow keys cleanly redirect the path"
-        // policy (step 8 of the task). Tail cells stay; if they're no longer
-        // reachable from the new head they'll be cleared next turn via the
-        // server's divergence check.
+        // and drop the existing queue entirely. This is the "manual override
+        // drops the plan" contract (priority 2 in the move-source ordering
+        // — see comment block near top of file). The server enforces the
+        // same on its side via setUserSelection('manual'); we mirror it
+        // here for immediate UI feedback.
         cancelPremoveAutoCommit();
         premoveStagedFromQueue = false;
-        spliceUserDirectionIntoQueue(direction);
+        if (selectedSnakeId && (premoveQueues[selectedSnakeId] || []).length > 0) {
+          setPremoveQueueForSnake(selectedSnakeId, []);
+        }
       } else {
         premoveStagedFromQueue = true;
       }
@@ -1256,7 +1285,11 @@
       };
 
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move: direction }));
+        // Pass through the source so the server can apply the correct
+        // precedence: 'user' is a manual override (clears the queue);
+        // 'queue' is a pre-stage on the user's behalf (queue stays).
+        const wireSource = source === 'queue' ? 'queue' : 'manual';
+        ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move: direction, source: wireSource }));
       }
 
       updateMoveControls();
@@ -1268,34 +1301,6 @@
           document.getElementById('statsTableBody'), move, moveState
         );
       }
-    }
-
-    // When the user presses an arrow key (or clicks a candidate cell) while
-    // a queue exists, replace the queue with just the cell the user is
-    // heading to. Any moves queued AFTER the original next move are dropped:
-    // those subsequent steps were planned from a head that no longer happens,
-    // so keeping them would chart a path from a position the snake never
-    // reaches. No-op if no queue, or if the chosen direction already matches
-    // a single-cell queue[0].
-    function spliceUserDirectionIntoQueue(direction) {
-      if (!selectedSnakeId) return;
-      const queue = premoveQueues[selectedSnakeId] || [];
-      if (queue.length === 0) return;
-      const snake = getSelectedSnake();
-      if (!snake) return;
-      const head = snake.head || snake.body[0];
-      const offset = directionOffset(direction);
-      if (!offset) return;
-      const newCell = { x: head.x + offset.dx, y: head.y + offset.dy };
-      const board = currentGameState?.board;
-      if (board && (newCell.x < 0 || newCell.y < 0 || newCell.x >= board.width || newCell.y >= board.height)) {
-        // Heading off the board: drop the whole plan; user clearly isn't
-        // following it any more.
-        setPremoveQueueForSnake(selectedSnakeId, []);
-        return;
-      }
-      if (queue.length === 1 && queue[0].x === newCell.x && queue[0].y === newCell.y) return;
-      setPremoveQueueForSnake(selectedSnakeId, [newCell]);
     }
 
     function directionOffset(direction) {
@@ -1503,6 +1508,64 @@
       return currentGameState.board.snakes.find(s => s.id === selectedSnakeId) || null;
     }
 
+    // Mirror of active-game-manager.getProjectedHead. The cell the snake's
+    // head will occupy after the move already committed this turn — or the
+    // current head if nothing's committed yet. Anchors every "next turn"
+    // affordance (Q-mode legal cells, addPremoveCellAt adjacency check,
+    // post-commit candidate cells) so they don't draw at the stale head.
+    function getProjectedHead(snakeId) {
+      if (!snakeId || !currentGameState) return null;
+      const snake = currentGameState.board.snakes.find(s => s.id === snakeId);
+      if (!snake) return null;
+      const head = snake.head || snake.body?.[0];
+      if (!head) return null;
+      const csData = controlledSnakeTurnData[snakeId];
+      if (csData?.moveCommitted && csData.committedMove) {
+        const off = directionOffset(csData.committedMove);
+        if (off) return { x: head.x + off.dx, y: head.y + off.dy };
+      }
+      return head;
+    }
+
+    // Build a synthetic moveState rooted at the projected head after a move
+    // has been committed this turn (Bug A fix: candidates were being drawn
+    // from the old head). The candidates represent the THREE forward options
+    // for next turn (the reverse of the committed move is excluded — going
+    // back would mean colliding with our own neck).
+    //
+    // These candidates carry no per-move evaluations (the bot hasn't planned
+    // next turn yet), so they render as plain cells. They're for Q-mode
+    // planning and click-to-extend only; they don't participate in submit.
+    function buildPostCommitCandidates(snakeId) {
+      const csData = controlledSnakeTurnData[snakeId];
+      if (!csData?.moveCommitted || !csData.committedMove) return null;
+      const proj = getProjectedHead(snakeId);
+      if (!proj || !currentGameState) return null;
+      const board = currentGameState.board;
+      const reverse = { up: 'down', down: 'up', left: 'right', right: 'left' };
+      const forbidden = reverse[csData.committedMove];
+
+      const moves = {};
+      for (const dir of ['up', 'down', 'left', 'right']) {
+        if (dir === forbidden) continue;
+        const off = directionOffset(dir);
+        const cell = { x: proj.x + off.dx, y: proj.y + off.dy };
+        const inBounds = cell.x >= 0 && cell.y >= 0 && cell.x < board.width && cell.y < board.height;
+        // Field names must match the BoardRenderer contract (`position` and
+        // `positionKey`) — the renderer uses these to place candidate cells,
+        // overlays, and tooltips.
+        moves[dir] = {
+          direction: dir,
+          position: cell,
+          positionKey: `${cell.x},${cell.y}`,
+          isSafe: inBounds,
+          isEvaluated: false,
+          displayScore: null,
+        };
+      }
+      return { head: proj, moves, selectedMove: null, postCommit: true };
+    }
+
     // Authoritative state lives on the server: the controlling user's client
     // sends `set-premove` whenever the queue mutates, the server stores it on
     // the snake, and broadcasts the new state to every subscriber. This
@@ -1519,6 +1582,13 @@
       }
       updatePremoveBanner();
       renderGameBoard();
+      // Pre-stage the new queue head immediately if this is the snake we
+      // control. Without this, planning a path while no manual selection is
+      // active leaves nothing staged until the next turn — and the snake
+      // can be auto-piloted off the bot fallback instead.
+      if (snakeId === selectedSnakeId) {
+        tryConsumePremove();
+      }
     }
 
     function addPremoveCellAt(x, y) {
@@ -1531,10 +1601,14 @@
         return;
       }
 
-      const head = snake.head || snake.body[0];
+      // After a move is committed this turn the queue's "starting point" is
+      // the projected head (head + committed-move offset), not the now-stale
+      // current head. Without this, adjacency checks below reject clicks
+      // that ARE adjacent to where the snake will actually be next turn.
+      const head = getProjectedHead(selectedSnakeId) || snake.head || snake.body[0];
       const current = (premoveQueues[selectedSnakeId] || []).slice();
 
-      // Click on the head clears the path.
+      // Click on the (projected) head clears the path.
       if (x === head.x && y === head.y) {
         if (current.length === 0) {
           showBannerNotice('Path already empty');
@@ -1716,7 +1790,9 @@
     }
 
     function drawPremoveLegalCells(canvas, snake, board, cellSize) {
-      const head = snake.head || snake.body?.[0];
+      // Anchor at the projected head so post-commit Q-mode highlights the
+      // cells the snake will actually be able to choose from next turn.
+      const head = getProjectedHead(snake.id) || snake.head || snake.body?.[0];
       if (!head) return;
       const ctx = canvas.getContext('2d');
       const offsets = [
@@ -1776,7 +1852,10 @@
     function drawPremoveOverlay(canvas, snake, queue, board, cellSize, color) {
       if (!snake || !queue || queue.length === 0) return;
       const ctx = canvas.getContext('2d');
-      const head = snake.head || snake.body[0];
+      // Anchor the dashed path at the projected head so the line connects
+      // from where the snake will be next turn (not the stale current head)
+      // to queue[0]. Falls back to the current head for non-controlled snakes.
+      const head = getProjectedHead(snake.id) || snake.head || snake.body[0];
 
       const toPx = (cell) => ({
         x: cell.x * cellSize + cellSize / 2,

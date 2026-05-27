@@ -348,7 +348,14 @@ export class GameWebSocketServer {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
-            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
+            // The client tells us whether this selection came from a manual
+            // action ('manual' — clears the queue per the "manual override
+            // drops the plan" contract) or from a queue pre-stage ('queue'
+            // — leaves the queue alone). Default to 'manual' so older /
+            // legacy clients without the field keep the explicit-input
+            // behaviour rather than silently noop-ing the queue clear.
+            const source: 'manual' | 'queue' = msg.source === 'queue' ? 'queue' : 'manual';
+            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction, source);
             this.broadcastSelectionsUpdate(client.gameId);
           }
         }
@@ -527,20 +534,35 @@ export class GameWebSocketServer {
     return selections;
   }
 
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string } } {
+  // Staged moves are the single source of truth for the staged-arrow render
+  // on every client. Every snake (selected or not) gets an entry derived
+  // from computeIntendedMove, so the queue head and bot recommendation both
+  // surface as staged arrows without the client having to invent fallbacks.
+  // The `source` field lets clients colour or label the arrow differently
+  // (e.g. grey for 'bot', user-color for 'manual'/'queue').
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
 
-    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string } } = {};
+    const BOT_COLOR = '#888888';
+    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string; source: string } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
       if (cs.moveCommittedThisTurn && cs.committedMove) {
-        staged[snakeId] = { move: cs.committedMove, committed: true, color: userColor };
-      } else if (cs.pendingMove && !cs.pendingMove.resolved && cs.pendingMove.userSelectedMove) {
-        staged[snakeId] = { move: cs.pendingMove.userSelectedMove, committed: false, color: userColor };
+        staged[snakeId] = { move: cs.committedMove, committed: true, color: userColor, source: 'committed' };
+        continue;
       }
+      if (!cs.pendingMove || cs.pendingMove.resolved) continue;
+      const intent = this.gameManager.computeIntendedMove(gameId, snakeId);
+      // Bot-source intents render in grey on all clients (matches the old
+      // client-side `effectiveStagedMoves` fallback). Manual/queue intents
+      // render in the controlling user's color.
+      const color = intent.source === 'bot' || intent.source === 'fallback'
+        ? BOT_COLOR
+        : userColor;
+      staged[snakeId] = { move: intent.direction, committed: false, color, source: intent.source };
     }
     return staged;
   }

@@ -25,8 +25,21 @@ interface PendingMove {
   timer: NodeJS.Timeout;
   turnData: TurnData | null;
   userSelectedMove: Direction | null;
+  // Why a user selection was set this turn. 'manual' = explicit human input
+  // (arrow keys, WASD, click on candidate cell, submit). 'queue' = the queue
+  // head was pre-staged on the user's behalf. Drives intended-move priority:
+  // a 'manual' selection beats the queue and clears it for that one turn;
+  // a 'queue' selection is just a hint that the queue head is the intent.
+  userSelectionSource: 'manual' | 'queue' | null;
   botMove: Direction | null;
   resolved: boolean;
+}
+
+export type IntendedMoveSource = 'manual' | 'queue' | 'bot' | 'fallback';
+
+export interface IntendedMove {
+  direction: Direction;
+  source: IntendedMoveSource;
 }
 
 export interface SnakeInfo {
@@ -380,6 +393,7 @@ export class ActiveGameManager {
 
     if (controlled.pendingMove && !controlled.pendingMove.resolved) {
       controlled.pendingMove.userSelectedMove = null;
+      controlled.pendingMove.userSelectionSource = null;
     }
 
     if (!controlled.selectedBy) {
@@ -688,6 +702,68 @@ export class ActiveGameManager {
     return result;
   }
 
+  // The cell the snake's head will occupy after the move it has already
+  // committed this turn. If no move is committed yet, this is just the
+  // current head. Anchors all "next turn" rendering: Q-mode adjacency,
+  // candidate-arrow cells, queue-extension click targets.
+  getProjectedHead(gameId: string, snakeId: string): Coord | null {
+    const game = this.games.get(gameId);
+    if (!game?.boardState) return null;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled) return null;
+    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!head) return null;
+    if (controlled.moveCommittedThisTurn && controlled.committedMove) {
+      switch (controlled.committedMove) {
+        case 'up':    return { x: head.x,     y: head.y + 1 };
+        case 'down':  return { x: head.x,     y: head.y - 1 };
+        case 'left':  return { x: head.x - 1, y: head.y     };
+        case 'right': return { x: head.x + 1, y: head.y     };
+      }
+    }
+    return head;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Single source of truth for "what move will this snake commit this turn".
+  // Every commit-side decision (safety-timer fallback, auto-pilot for
+  // unselected snakes) and every render-side broadcast (staged-move arrow)
+  // reads from this one function, so the queue-vs-manual-vs-bot precedence
+  // is encoded in exactly one place.
+  //
+  // Priority:
+  //   1. manual user selection (this turn)  — already wiped the queue
+  //   2. queue head (adjacent to current head)
+  //   3. bot recommendation
+  //   4. hard fallback ('up')
+  //
+  // An explicit user submit (submitUserMove) bypasses this function entirely
+  // — it resolves the pending move synchronously rather than waiting for
+  // the safety timer.
+  // ────────────────────────────────────────────────────────────────────────
+  computeIntendedMove(gameId: string, snakeId: string): IntendedMove {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    const pending = controlled?.pendingMove;
+
+    if (pending && !pending.resolved &&
+        pending.userSelectionSource === 'manual' && pending.userSelectedMove) {
+      return { direction: pending.userSelectedMove, source: 'manual' };
+    }
+
+    const premoveDir = this.getPremoveDirection(gameId, snakeId);
+    if (premoveDir) {
+      return { direction: premoveDir, source: 'queue' };
+    }
+
+    if (controlled?.botRecommendation) {
+      return { direction: controlled.botRecommendation, source: 'bot' };
+    }
+
+    return { direction: 'up', source: 'fallback' };
+  }
+
   private static directionFromTo(from: Coord, to: Coord): Direction | null {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -771,11 +847,9 @@ export class ActiveGameManager {
     if (!controlled) throw new Error(`Snake ${snakeId} not controlled in game ${gameId}`);
 
     if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      const oldPending = controlled.pendingMove;
-      const cleanupMove = oldPending.userSelectedMove || oldPending.botMove || 'up';
-      const cleanupSource = oldPending.userSelectedMove ? 'user-selected' : (oldPending.botMove ? 'bot' : 'fallback');
-      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId}: using ${cleanupMove} (${cleanupSource}, userSelected=${oldPending.userSelectedMove}, bot=${oldPending.botMove})`);
-      this.resolvePendingMove(gameId, snakeId, cleanupMove, 'previous-turn-cleanup');
+      const intent = this.computeIntendedMove(gameId, snakeId);
+      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId}: using ${intent.direction} (source: ${intent.source})`);
+      this.resolvePendingMove(gameId, snakeId, intent.direction, `previous-turn-cleanup:${intent.source}`);
     }
 
     const bufferMs = turn === 0 ? 5000 : 100;
@@ -793,21 +867,22 @@ export class ActiveGameManager {
       timer: setTimeout(() => {
         if (!pending.resolved) {
           // Tab/hold marks the snake as held but the safety timer still fires
-          // at deadline — falling back to the bot's best move so the snake
+          // at deadline — falling back to the intended move so the snake
           // doesn't die from inaction. The hold's job is to defer the auto-
           // pilot mid-turn (giving the user time to think); at the deadline
-          // the bot's recommendation is still the safest available choice.
-          const move = pending.userSelectedMove || pending.botMove || 'up';
-          const source = pending.userSelectedMove ? 'user-selection' : (pending.botMove ? 'bot-recommendation' : 'fallback');
+          // the bot's recommendation (or queue head) is still the safest
+          // available choice. computeIntendedMove enforces precedence.
+          const intent = this.computeIntendedMove(gameId, snakeId);
           const heldNote = controlled.holdTurnsRemaining > 0 ? ` [held ${controlled.holdTurnsRemaining}]` : '';
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote}: using ${move} (source: ${source}, userSelected=${pending.userSelectedMove}, bot=${pending.botMove}, selectedBy=${controlled.selectedBy})`);
-          this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote}: using ${intent.direction} (source: ${intent.source}, selectedBy=${controlled.selectedBy})`);
+          this.resolvePendingMove(gameId, snakeId, intent.direction, `safety-timer:${intent.source}`);
         } else {
           console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
         }
       }, timeoutMs),
       turnData: null,
       userSelectedMove: null,
+      userSelectionSource: null,
       botMove: null,
       resolved: false
     };
@@ -819,25 +894,31 @@ export class ActiveGameManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // Move-source priority for a controlled snake (mirrored client-side in
+  // Move-source priority for a controlled snake (the single pipeline; see
+  // also computeIntendedMove above and the mirror comment in
   // src/web/play-game.html near `let premoveAutoCommitTimer`):
-  //   1. Explicit user submit         — submitUserMove → resolvePendingMove
-  //   2. Manual user selection         — setUserSelection (stages in
-  //                                      pending.userSelectedMove; the safety
-  //                                      timer falls back to it if no submit)
-  //   3. Queued premove (auto-pilot)   — getPremoveDirection (unselected
-  //                                      snakes only; selected snakes' queues
-  //                                      are pre-staged client-side and
-  //                                      auto-committed there)
-  //   4. Bot recommendation            — `move` param of this method; used as
-  //                                      the safety-timer fallback
+  //   1. Explicit user submit          — submitUserMove → resolvePendingMove
+  //                                      (synchronous; bypasses the pipeline)
+  //   2. Manual user selection         — setUserSelection (marks
+  //                                      pending.userSelectionSource='manual'
+  //                                      and clears the queue; this is the
+  //                                      "manual override drops the plan"
+  //                                      contract)
+  //   3. Queued premove (queue head)   — getPremoveDirection, applied
+  //                                      identically to selected AND
+  //                                      unselected snakes via
+  //                                      computeIntendedMove. The asymmetry
+  //                                      where selected snakes' queues were
+  //                                      a client-side affordance is gone.
+  //   4. Bot recommendation            — fallback used by the safety timer
+  //                                      and the unselected-snake auto-pilot
   //   5. Hard fallback                 — literal 'up' if nothing else available
   //
   // Ownership of the premove queue: server-only mutations are done in
-  // `setPremoveQueue` (in response to client `set-premove`) and
-  // `advancePremoveQueueAfterMove` (pop / clear on divergence). Clients
-  // never advance the queue themselves; they render the broadcast snapshot
-  // and pre-stage queue[0] when they own the selection.
+  // `setPremoveQueue` (in response to client `set-premove`), `setUserSelection`
+  // (clear on 'manual' override), and `advancePremoveQueueAfterMove` (pop /
+  // clear on divergence). Clients never advance the queue themselves; they
+  // render the broadcast snapshot.
   // ────────────────────────────────────────────────────────────────────────
   setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
     const game = this.games.get(gameId);
@@ -899,20 +980,18 @@ export class ActiveGameManager {
     } else if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
       console.log(`[ActiveGameManager] Hold active for ${gameId}:${snakeId} (${controlled.holdTurnsRemaining} turns remaining): deferring auto-pilot, safety timer will submit ${move} at end of turn`);
     } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
-      // Unselected snake: server is the only thing that can drive the queue.
-      // Prefer the planned premove direction over the bot's recommendation.
-      const premoveDir = this.getPremoveDirection(gameId, snakeId);
-      if (premoveDir) {
-        console.log(`[ActiveGameManager] Auto-pilot premove for ${gameId}:${snakeId}: submitting ${premoveDir} (queue head)`);
-        this.resolvePendingMove(gameId, snakeId, premoveDir, 'premove-auto');
-      } else {
-        if (controlled.premoveQueue.length > 0) {
-          console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, clearing stale plan`);
-          controlled.premoveQueue = [];
-        }
-        console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${move}`);
-        this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
+      // Unselected snake: server drives the commit. Use computeIntendedMove
+      // so queue-vs-bot precedence is identical to the selected-snake path.
+      // If the queue exists but its head isn't adjacent (stale plan from a
+      // pre-divergence position), clear it so we don't keep computing 'queue'
+      // forever once it can never resolve to a direction.
+      if (controlled.premoveQueue.length > 0 && !this.getPremoveDirection(gameId, snakeId)) {
+        console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, clearing stale plan`);
+        controlled.premoveQueue = [];
       }
+      const intent = this.computeIntendedMove(gameId, snakeId);
+      console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${intent.direction} (source: ${intent.source})`);
+      this.resolvePendingMove(gameId, snakeId, intent.direction, `auto-pilot:${intent.source}`);
     } else if (game.currentTurn === 0 && !controlled.selectedBy) {
       this.handleFirstTurnAutoPilot(gameId, snakeId, move, controlled);
     }
@@ -923,14 +1002,24 @@ export class ActiveGameManager {
     this.notifyTurnUpdate(gameId, snakeId, turnData);
   }
 
-  setUserSelection(gameId: string, snakeId: string, move: Direction): void {
+  // Stage a user's selection for this turn. `source` discriminates between an
+  // explicit human action ('manual' — priority 2, clears the queue per the
+  // "manual override drops the plan" contract) and a pre-stage on the user's
+  // behalf from the queue head ('queue' — priority 3, leaves the queue alone).
+  setUserSelection(gameId: string, snakeId: string, move: Direction, source: 'manual' | 'queue' = 'manual'): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
-    if (controlled?.pendingMove && !controlled.pendingMove.resolved) {
-      controlled.pendingMove.userSelectedMove = move;
-      console.log(`[ActiveGameManager] User selected move for ${gameId}:${snakeId}: ${move} (turn ${game.currentTurn}, not yet committed)`);
+    if (!controlled?.pendingMove || controlled.pendingMove.resolved) return;
+
+    controlled.pendingMove.userSelectedMove = move;
+    controlled.pendingMove.userSelectionSource = source;
+
+    if (source === 'manual' && controlled.premoveQueue.length > 0) {
+      console.log(`[ActiveGameManager] Manual selection for ${gameId}:${snakeId} (${move}) — clearing premove queue (${controlled.premoveQueue.length} cells dropped)`);
+      controlled.premoveQueue = [];
     }
+    console.log(`[ActiveGameManager] User selected move for ${gameId}:${snakeId}: ${move} (source: ${source}, turn ${game.currentTurn}, not yet committed)`);
   }
 
   submitUserMove(gameId: string, snakeId: string, move: Direction): boolean {
@@ -945,6 +1034,7 @@ export class ActiveGameManager {
 
     console.log(`[ActiveGameManager] User submitted move for ${gameId}:${snakeId}: ${move}`);
     controlled.pendingMove.userSelectedMove = move;
+    controlled.pendingMove.userSelectionSource = 'manual';
     this.resolvePendingMove(gameId, snakeId, move, 'user-selection');
     return true;
   }
