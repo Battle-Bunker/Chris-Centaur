@@ -776,6 +776,26 @@ const BoardRenderer = (function () {
         }
       }
 
+      if (snake.body.length >= 2) {
+        const tail = snake.body[snake.body.length - 1];
+        const beforeTail = snake.body[snake.body.length - 2];
+        if (
+          tail &&
+          beforeTail &&
+          tail.x === beforeTail.x &&
+          tail.y === beforeTail.y
+        ) {
+          const tx = tail.x * cellSize + cellSize / 2;
+          const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
+          const labelSize = Math.max(cellSize * 0.55, 10);
+          ctx.font = `${labelSize}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#000000";
+          ctx.fillText("2", tx, ty);
+        }
+      }
+
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
         const shead = snake.body[0];
         if (shead) {

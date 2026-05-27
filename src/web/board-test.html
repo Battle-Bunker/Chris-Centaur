@@ -80,6 +80,26 @@
         territory: {}
       },
       {
+        title: "5: Snakes with stacked tails (just ate, growing next turn)",
+        width: 8, height: 8,
+        snakes: [
+          makeSnake("s1", "JustAte", "#22aa66", [
+            [3,4],[3,3],[3,2],[4,2],[4,2]
+          ], 100, 0),
+          makeSnake("s2", "AlsoAte", "#aa2266", [
+            [6,6],[6,5],[6,4],[6,4]
+          ], 100, 0),
+          makeSnake("s3", "Normal", "#2266aa", [
+            [1,7],[1,6],[1,5]
+          ], 80, 0)
+        ],
+        food: [[0,0]],
+        hazards: [],
+        fertileTiles: [],
+        potions: [],
+        territory: {}
+      },
+      {
         title: "4: L-shaped snake with invulnerability (corner outline test)",
         width: 8, height: 8,
         snakes: [
