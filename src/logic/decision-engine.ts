@@ -9,6 +9,7 @@ import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-eval
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 export interface MoveDecision {
   move: Direction;
@@ -33,6 +34,8 @@ export interface DecisionConfig {
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
+  hazardDamagePerTurn?: number;  // Game-rule: damage applied per hazard step
+  maxHealth?: number;            // Game-rule: snake health when freshly fed
   weights?: {
     // My snake weights
     myLength?: number;
@@ -70,15 +73,24 @@ export class DecisionEngine {
       nearbyDistance: 5,
       tailSafetyRule: 'custom',
       tailGrowthTiming: 'grow-same-turn',
+      hazardDamagePerTurn: DEFAULT_CONFIG.hazardDamagePerTurn,
+      maxHealth: DEFAULT_CONFIG.maxHealth,
       ...config
     };
     
     this.moveAnalyzer = new MoveAnalyzer(this.config.tailSafetyRule);
     this.boardEvaluator = new BoardEvaluator(
       this.config.weights,
-      { tailGrowthTiming: this.config.tailGrowthTiming }
+      {
+        tailGrowthTiming: this.config.tailGrowthTiming,
+        hazardDamagePerTurn: this.config.hazardDamagePerTurn,
+        maxHealth: this.config.maxHealth,
+      }
     );
-    this.simulator = new Simulator();
+    this.simulator = new Simulator({
+      hazardDamagePerTurn: this.config.hazardDamagePerTurn!,
+      maxHealth: this.config.maxHealth!,
+    });
   }
   
   /**
@@ -99,7 +111,11 @@ export class DecisionEngine {
     }
     
     // Create BoardGraph once for this turn - single source of truth for passability
-    const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+    const graph = new BoardGraph(gameState, {
+      tailGrowthTiming: this.config.tailGrowthTiming,
+      hazardDamagePerTurn: this.config.hazardDamagePerTurn,
+      maxHealth: this.config.maxHealth,
+    });
     
     // Get move analysis with h2h risk details
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);

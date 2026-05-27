@@ -7,6 +7,7 @@
 import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 export interface HeuristicStats {
   // My snake stats
@@ -193,6 +194,8 @@ export class BoardEvaluator {
     this.graphConfig = {
       tailGrowthTiming: 'grow-same-turn' as const,
       maxLookaheadTurns: 5,
+      hazardDamagePerTurn: DEFAULT_CONFIG.hazardDamagePerTurn,
+      maxHealth: DEFAULT_CONFIG.maxHealth,
       ...graphConfig
     };
   }

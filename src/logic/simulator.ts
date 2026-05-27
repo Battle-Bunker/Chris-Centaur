@@ -1,4 +1,5 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 // MoveSet type definition (previously from move-enumerator)
 export type MoveSet = Map<string, Direction>;
@@ -8,7 +9,29 @@ export interface SimulatedBoardState {
   deadSnakeIds: Set<string>;
 }
 
+/**
+ * Game-rules config for the simulator. Both values flow from the user's
+ * `GameConfig` so the simulator's view of hazards and food matches what the
+ * BoardGraph / move-analyzer use upstream. Defaults match Team Snek behavior:
+ * hazards instantly kill (damage >= maxHealth), and a freshly fed snake caps
+ * at 100 health.
+ */
+export interface SimulatorConfig {
+  hazardDamagePerTurn: number;
+  maxHealth: number;
+}
+
 export class Simulator {
+  private config: SimulatorConfig;
+  
+  constructor(config?: Partial<SimulatorConfig>) {
+    this.config = {
+      hazardDamagePerTurn: DEFAULT_CONFIG.hazardDamagePerTurn,
+      maxHealth: DEFAULT_CONFIG.maxHealth,
+      ...config
+    };
+  }
+  
   /**
    * Simulate the next board state given a set of moves for all snakes
    */
@@ -143,7 +166,7 @@ export class Simulator {
       } else {
         // Remove the eaten food
         newBoard.food.splice(foodIndex, 1);
-        snake.health = 100; // Reset health when eating
+        snake.health = this.config.maxHealth; // Reset health when eating
       }
       
       // Update snake
@@ -161,9 +184,9 @@ export class Simulator {
         }
       }
       
-      // Apply hazard damage
+      // Apply hazard damage (configured per-game; defaults to instant kill)
       if (newBoard.hazards.some(h => h.x === newHead.x && h.y === newHead.y)) {
-        snake.health -= 15; // Standard hazard damage
+        snake.health -= this.config.hazardDamagePerTurn;
         if (snake.health <= 0) {
           deadSnakeIds.add(snake.id);
         }

@@ -459,6 +459,29 @@
                         </div>
                     </div>
                     
+                    <!-- Game Rules -->
+                    <div class="config-section">
+                        <h3><span>📜</span>Game Rules</h3>
+                        
+                        <div class="config-item">
+                            <label for="hazardDamagePerTurn">Hazard Damage Per Turn</label>
+                            <div class="input-group">
+                                <input type="range" id="hazardDamagePerTurn_slider" min="0" max="100" step="1">
+                                <input type="number" id="hazardDamagePerTurn" min="0" max="100" step="1">
+                            </div>
+                            <div class="description">Damage taken per turn when on a hazard cell. 100 = certain death (Team Snek default).</div>
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="maxHealth">Max Health</label>
+                            <div class="input-group">
+                                <input type="range" id="maxHealth_slider" min="1" max="200" step="1">
+                                <input type="number" id="maxHealth" min="1" max="200" step="1">
+                            </div>
+                            <div class="description">Snake health when freshly fed. Team Snek default is 100.</div>
+                        </div>
+                    </div>
+                    
                     <!-- Centaur Play Mode -->
                     <div class="config-section">
                         <h3><span>🎮</span>Centaur Play Mode</h3>
@@ -531,6 +554,7 @@
             'selfEnoughSpace', 'selfSpaceOptimistic', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'enemyH2HRisk', 'allyH2HRisk',
+            'hazardDamagePerTurn', 'maxHealth',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
         

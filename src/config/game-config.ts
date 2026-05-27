@@ -48,6 +48,10 @@ export interface GameConfig {
   // Optimistic passability lookahead (turns to predict body segment disappearance)
   maxLookaheadTurns: number;
   
+  // Game rules (engine-level constants the bot models)
+  hazardDamagePerTurn: number;  // Damage taken when stepping on a hazard cell
+  maxHealth: number;            // Snake health when freshly fed
+  
   // Centaur play mode settings
   autoFirstMove: boolean;
 }
@@ -96,6 +100,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   
   // Optimistic passability lookahead
   maxLookaheadTurns: 5,
+  
+  // Game rules (Team Snek defaults: hazards are instant kill, health caps at 100)
+  hazardDamagePerTurn: 100,
+  maxHealth: 100,
   
   // Centaur play mode settings
   autoFirstMove: false

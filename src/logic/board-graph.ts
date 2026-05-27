@@ -5,6 +5,7 @@
  */
 
 import { GameState, Coord, Snake } from '../types/battlesnake';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 export type CellKey = string;
 
@@ -16,6 +17,15 @@ export interface BoardGraphConfig {
   
   // Maximum turns to look ahead for optimistic passability
   maxLookaheadTurns: number;
+  
+  // Game-rules: damage per turn taken when standing on a hazard cell. The
+  // floodfill / move-analyzer use this together with the snake's current
+  // health to decide whether a hazard cell should be treated as impassable.
+  hazardDamagePerTurn: number;
+  
+  // Game-rules: snake health when freshly fed. Used as the fallback when the
+  // incoming GameState does not declare a health value.
+  maxHealth: number;
 }
 
 export interface BodySegmentInfo {
@@ -24,9 +34,6 @@ export interface BodySegmentInfo {
   optimisticDisappearTurn: number;
   conservativeDisappearTurn: number;
 }
-
-/** Default hazard damage if the ruleset doesn't specify one. */
-const DEFAULT_HAZARD_DAMAGE = 15;
 
 export class BoardGraph {
   private adjacencyList: Map<CellKey, Set<CellKey>>;
@@ -49,6 +56,11 @@ export class BoardGraph {
       // default; modes with grow-next-turn semantics can opt in via config.
       tailGrowthTiming: 'grow-same-turn',
       maxLookaheadTurns: 5,
+      // Defaults match Team Snek behaviour: hazards are an instant kill
+      // (damage >= maxHealth), and a freshly fed snake caps at maxHealth.
+      // Sourced from `DEFAULT_CONFIG` so there's a single source of truth.
+      hazardDamagePerTurn: DEFAULT_CONFIG.hazardDamagePerTurn,
+      maxHealth: DEFAULT_CONFIG.maxHealth,
       ...config
     };
     this.ourInvulnerabilityLevel = gameState.you.invulnerabilityLevel ?? 0;
@@ -153,8 +165,8 @@ export class BoardGraph {
     // immediately lethal to OUR snake (i.e. the per-turn damage would drop our
     // health to 0 or below). Otherwise leave them passable so BFS / scoring can
     // still consider them — penalising hazards is the scorer's job.
-    const hazardDamage = this.computeHazardDamagePerTurn(gameState);
-    const ourHealth = gameState.you.health ?? 100;
+    const hazardDamage = this.config.hazardDamagePerTurn;
+    const ourHealth = gameState.you.health ?? this.config.maxHealth;
     const hazardLethalForUs = hazardDamage > 0 && hazardDamage >= ourHealth;
     for (const hazard of board.hazards) {
       const key = this.coordToKey(hazard);
@@ -328,19 +340,6 @@ export class BoardGraph {
       if (last.x === prev.x && last.y === prev.y) return true;
     }
     return false;
-  }
-  
-  /**
-   * Read the hazard damage per turn from the game's ruleset, defaulting to a
-   * standard value when the ruleset doesn't declare one. Modes such as wrapped
-   * with stacking hazards may carry larger values that can be instantly lethal.
-   */
-  private computeHazardDamagePerTurn(gameState: GameState): number {
-    const settings = gameState?.game?.ruleset?.settings as Record<string, unknown> | undefined;
-    if (settings && typeof settings['hazardDamagePerTurn'] === 'number') {
-      return settings['hazardDamagePerTurn'] as number;
-    }
-    return DEFAULT_HAZARD_DAMAGE;
   }
   
   /**

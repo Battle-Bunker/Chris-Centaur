@@ -35,6 +35,8 @@ export class VoronoiStrategy {
       maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
       timeoutMs: DEFAULT_CONFIG.timeoutMs,
       nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
+      hazardDamagePerTurn: DEFAULT_CONFIG.hazardDamagePerTurn,
+      maxHealth: DEFAULT_CONFIG.maxHealth,
       weights: this.extractWeights(DEFAULT_CONFIG)
     });
     
@@ -50,12 +52,16 @@ export class VoronoiStrategy {
    * a structured "guardrail-corrected" event so we can investigate why the
    * upstream layers picked the unsafe move.
    */
-  private applySafetyGuardrail(gameState: GameState, decision: MoveDecision, teamSnakeIds: Set<string>): {
+  private async applySafetyGuardrail(gameState: GameState, decision: MoveDecision, teamSnakeIds: Set<string>): Promise<{
     move: Direction;
     reasonByMove: Map<Direction, LethalityReason>;
     corrected: boolean;
-  } {
-    const graph = new BoardGraph(gameState);
+  }> {
+    const cfg = await this.getConfig();
+    const graph = new BoardGraph(gameState, {
+      hazardDamagePerTurn: cfg.hazardDamagePerTurn,
+      maxHealth: cfg.maxHealth,
+    });
     const reasonByMove = this.moveAnalyzer.classifyAllDirections(
       gameState.you,
       gameState,
@@ -155,6 +161,8 @@ export class VoronoiStrategy {
       maxSimulationDepth: config.maxSimulationDepth,
       timeoutMs: config.timeoutMs,
       nearbyDistance: config.nearbyDistance,
+      hazardDamagePerTurn: config.hazardDamagePerTurn,
+      maxHealth: config.maxHealth,
       weights: this.extractWeights(config)
     });
   }
@@ -220,7 +228,7 @@ export class VoronoiStrategy {
     
     // Final-line-of-defence safety guardrail — never return a known-lethal move
     // when a passable alternative exists.
-    const guarded = this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
+    const guarded = await this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
     return guarded.move;
   }
   
@@ -250,7 +258,7 @@ export class VoronoiStrategy {
     // Final-line-of-defence safety guardrail — re-check passability against the
     // single-source-of-truth board graph, swap in a least-bad alternative if the
     // engine somehow chose a known-lethal direction.
-    const guarded = this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
+    const guarded = await this.applySafetyGuardrail(gameState, decision, teamSnakeIds);
     const finalMove = guarded.move;
     const reasonByMove = guarded.reasonByMove;
     
@@ -292,7 +300,10 @@ export class VoronoiStrategy {
     }));
     
     // Compute territory cells for current board state visualization
-    const graph = new BoardGraph(gameState);
+    const graph = new BoardGraph(gameState, {
+      hazardDamagePerTurn: config.hazardDamagePerTurn,
+      maxHealth: config.maxHealth,
+    });
     const bfs = new MultiSourceBFS(graph);
     const sources: BFSSource[] = gameState.board.snakes
       .filter(s => s.health > 0)
