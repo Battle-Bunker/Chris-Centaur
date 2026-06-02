@@ -931,40 +931,73 @@ export class ActiveGameManager {
 
   // Returns the move direction the snake should take next according to its
   // premove queue, or null if the queue is empty / disconnected from the
-  // current head. Only the immediate next cell is consulted; subsequent cells
+  // anchor. Only the immediate next cell is consulted; subsequent cells
   // are advanced one per turn by `advancePremoveQueueAfterMove`.
+  //
+  // The queue is anchored at the PROJECTED head — the cell the snake will
+  // occupy after any move already committed this turn — matching where the
+  // path is rendered (drawPremoveOverlay) and where the client authors the
+  // queue (addPremoveCellAt). Pre-commit the projected head equals the live
+  // head, so this is identical to measuring from the live head in the common
+  // case; it only differs when a move is already committed this turn.
   private getPremoveDirection(gameId: string, snakeId: string): Direction | null {
     const game = this.games.get(gameId);
     if (!game?.boardState) return null;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled || controlled.premoveQueue.length === 0) return null;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const head = snake?.head || snake?.body?.[0];
-    if (!head) return null;
-    return ActiveGameManager.directionFromTo(head, controlled.premoveQueue[0]);
+    const anchor = this.getProjectedHead(gameId, snakeId);
+    if (!anchor) return null;
+    return ActiveGameManager.directionFromTo(anchor, controlled.premoveQueue[0]);
   }
 
   // Called after every resolved move to keep the queue in lock-step with the
   // actual snake position. If the move matches the planned next cell, pop it.
   // If it diverged (manual override, fallback move, etc.), abandon the plan —
   // the snake is now somewhere the queue can't reach, so the rest is stale.
+  //
+  // Anchoring + tolerance contract (matches the renderer and the client):
+  // this runs AFTER resolvePendingMove set moveCommittedThisTurn/committedMove,
+  // so getProjectedHead() returns the cell the snake will occupy this turn —
+  // its real resulting position. Three outcomes, measured against that cell:
+  //   1. DRAIN   — projected head == queue[0]: we stepped onto the planned
+  //                cell, so pop it. If the queue is now empty, fall back to
+  //                the heuristic (the plan is genuinely exhausted).
+  //   2. HOLD    — projected head != queue[0] but is still adjacent to it
+  //                (the bot/safety-timer covered a turn the queue couldn't
+  //                resolve — a transient race or momentary non-adjacency).
+  //                Keep the queue and the 'queue' mode untouched; next turn the
+  //                live head equals this projected head, so the queue resolves
+  //                again. This is the single-ambiguous-turn tolerance.
+  //   3. CLEAR   — projected head is neither queue[0] nor adjacent to it: the
+  //                snake's real position is provably off the planned path (true
+  //                divergence). Abandon the plan and revert to the heuristic.
   private advancePremoveQueueAfterMove(gameId: string, snakeId: string, move: Direction): void {
     const game = this.games.get(gameId);
     if (!game?.boardState) return;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled || controlled.premoveQueue.length === 0) return;
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const head = snake?.head || snake?.body?.[0];
-    if (!head) return;
-    const expected = ActiveGameManager.directionFromTo(head, controlled.premoveQueue[0]);
-    if (expected === move) {
+    const liveHead = snake?.head || snake?.body?.[0];
+    const projected = this.getProjectedHead(gameId, snakeId);
+    if (!projected) return;
+    const next = controlled.premoveQueue[0];
+    const headInfo = `liveHead=(${liveHead?.x},${liveHead?.y}) projectedHead=(${projected.x},${projected.y}) queueHead=(${next.x},${next.y}) move=${move}`;
+
+    if (projected.x === next.x && projected.y === next.y) {
       controlled.premoveQueue.shift();
       // Queue drained → no source left, fall back to the heuristic.
       if (controlled.premoveQueue.length === 0 && controlled.activeIntentMode === 'queue') {
+        console.log(`[ActiveGameManager] Premove queue drained for ${gameId}:${snakeId}: ${headInfo}`);
         this.transitionIntentMode(controlled, 'heuristic');
+      } else {
+        console.log(`[ActiveGameManager] Premove queue advanced for ${gameId}:${snakeId}: ${headInfo}, ${controlled.premoveQueue.length} remaining`);
       }
+    } else if (ActiveGameManager.directionFromTo(projected, next) !== null) {
+      // Still adjacent to the plan head — a single ambiguous turn the bot
+      // covered. Hold the queue; it resumes next turn from the projected head.
+      console.log(`[ActiveGameManager] Premove queue held (bot covered one turn) for ${gameId}:${snakeId}: ${headInfo}, ${controlled.premoveQueue.length} retained`);
     } else {
-      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: expected=${expected}, actual=${move}, clearing`);
+      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: ${headInfo}, clearing`);
       controlled.premoveQueue = [];
       if (controlled.activeIntentMode === 'queue') {
         this.transitionIntentMode(controlled, 'heuristic');
@@ -1162,17 +1195,15 @@ export class ActiveGameManager {
     } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
       // Unselected snake: server drives the commit. Use computeIntendedMove
       // so queue-vs-bot precedence is identical to the selected-snake path.
-      // If the queue exists but its head isn't adjacent (stale plan from a
-      // pre-divergence position), clear it so we don't keep computing 'queue'
-      // forever once it can never resolve to a direction.
-      if (controlled.premoveQueue.length > 0 && !this.getPremoveDirection(gameId, snakeId)) {
-        console.log(`[ActiveGameManager] Premove queue head not adjacent for ${gameId}:${snakeId}, clearing stale plan`);
-        // Go through the single transition point so the mode falls back to
-        // 'heuristic' in lockstep with the queue being emptied — otherwise
-        // activeIntentMode stays 'queue' while the move resolves as bot,
-        // breaking the "resolved source matches active mode" invariant.
-        this.transitionIntentMode(controlled, 'heuristic');
-      }
+      // We deliberately do NOT pre-clear a queue whose head isn't adjacent
+      // this turn: that would tear down the plan on a single transient race /
+      // momentary non-adjacency. Instead, computeIntendedMove falls back to
+      // the bot for this turn (the queue can't resolve to a direction), and
+      // advancePremoveQueueAfterMove decides — from the projected head — to
+      // HOLD the queue (still adjacent to the plan, resumes next turn) or
+      // CLEAR it (provably off the planned path). A queue that can never
+      // resolve is therefore dropped on the divergence check, not here, so it
+      // can never loop computing 'queue' forever.
       const intent = this.computeIntendedMove(gameId, snakeId);
       console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${intent.direction} (source: ${intent.source})`);
       this.resolvePendingMove(gameId, snakeId, intent.direction, `auto-pilot:${intent.source}`);

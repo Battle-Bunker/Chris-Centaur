@@ -1832,7 +1832,11 @@
       const queue = premoveQueues[selectedSnakeId] || [];
       if (queue.length === 0) return;
 
-      const head = snake.head || snake.body[0];
+      // Anchor on the projected head — the cell the snake will occupy after any
+      // move already committed this turn — so the client agrees with the server
+      // (getPremoveDirection) and the renderer (drawPremoveOverlay) about which
+      // cell queue[0] is adjacent to. Pre-commit this equals the live head.
+      const head = getProjectedHead(selectedSnakeId) || snake.head || snake.body[0];
       const next = queue[0];
       const dx = next.x - head.x;
       const dy = next.y - head.y;
