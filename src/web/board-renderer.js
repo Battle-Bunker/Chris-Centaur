@@ -608,8 +608,20 @@ const BoardRenderer = (function () {
       board.fertileTiles.forEach((tile) => {
         const x = tile.x * cellSize;
         const y = (board.height - 1 - tile.y) * cellSize;
-        ctx.fillStyle = "rgba(222, 198, 160, 0.4)";
-        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, cellSize, cellSize);
+        ctx.clip();
+        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.lineWidth = Math.max(1.5, cellSize / 7);
+        const stripeSpacing = Math.max(4, cellSize / 3.5);
+        for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
+          ctx.beginPath();
+          ctx.moveTo(x + offset, y);
+          ctx.lineTo(x + offset - cellSize, y + cellSize);
+          ctx.stroke();
+        }
+        ctx.restore();
       });
     }
 
@@ -1356,8 +1368,20 @@ const BoardRenderer = (function () {
       board.fertileTiles.forEach((tile) => {
         const x = tile.x * cellSize;
         const y = (board.height - 1 - tile.y) * cellSize;
-        ctx.fillStyle = "rgba(222, 198, 160, 0.4)";
-        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, cellSize, cellSize);
+        ctx.clip();
+        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.lineWidth = Math.max(1.5, cellSize / 7);
+        const stripeSpacing = Math.max(4, cellSize / 3.5);
+        for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
+          ctx.beginPath();
+          ctx.moveTo(x + offset, y);
+          ctx.lineTo(x + offset - cellSize, y + cellSize);
+          ctx.stroke();
+        }
+        ctx.restore();
       });
     }
 
