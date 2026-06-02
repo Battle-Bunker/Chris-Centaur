@@ -523,6 +523,99 @@ export class BoardEvaluator {
   }
 
   /**
+   * Produce the full sequence of cells the waypoint pathfinder would follow
+   * from our head to a green ("goto") waypoint, EXCLUDING the head cell. This
+   * is the live "goto route" rendered on the centaur play board.
+   *
+   * Reuses exactly the same passability as `isCellReachableFrom` (our own body
+   * except the tail blocks; everyone else uses optimistic turn-aware
+   * passability), so the drawn route matches what the goto heuristic actually
+   * rewards. A breadth-first search guarantees a shortest legal path, which is
+   * what the closeness-driven goto heuristic pulls toward.
+   *
+   * Returns [] when there's no green waypoint, it's out of bounds / on the
+   * head, or the target is unreachable.
+   */
+  computeWaypointRoute(
+    gameState: GameState,
+    ourSnakeId: string,
+    waypoint: WaypointContext | null | undefined,
+    startHead?: Coord
+  ): Coord[] {
+    if (!waypoint || waypoint.type !== 'green') return [];
+    const board = gameState.board;
+    if (waypoint.x < 0 || waypoint.x >= board.width || waypoint.y < 0 || waypoint.y >= board.height) {
+      return [];
+    }
+    const ourSnake = board.snakes.find(s => s.id === ourSnakeId);
+    if (!ourSnake) return [];
+    // Path from `startHead` when supplied (the cell the snake will occupy after
+    // a move it has already committed this turn) so the route — and its first
+    // step — anchor where the snake will actually be, not the stale head.
+    const head = startHead ?? ourSnake.head;
+    if (head.x === waypoint.x && head.y === waypoint.y) return [];
+
+    const graph = new BoardGraph(gameState);
+    const targetKey = graph.coordToKey(waypoint);
+
+    // Our own body (except tail) blocks the route — same rule as reachability.
+    const ownBody = new Set<string>();
+    for (let i = 0; i < ourSnake.body.length - 1; i++) {
+      ownBody.add(graph.coordToKey(ourSnake.body[i]));
+    }
+
+    const startKey = graph.coordToKey(head);
+    const parent = new Map<string, Coord>();
+    const visited = new Set<string>([startKey]);
+    let level: Coord[] = [head];
+    let turn = 0;
+    const maxCells = 400;  // board is at most ~19x19 → 361 cells
+
+    let found = false;
+    while (level.length > 0 && visited.size < maxCells && !found) {
+      const next: Coord[] = [];
+      turn++;
+      for (const cur of level) {
+        const neighbors: Coord[] = [
+          { x: cur.x, y: cur.y + 1 },
+          { x: cur.x, y: cur.y - 1 },
+          { x: cur.x - 1, y: cur.y },
+          { x: cur.x + 1, y: cur.y },
+        ];
+        for (const n of neighbors) {
+          if (!graph.isInBounds(n)) continue;
+          const k = graph.coordToKey(n);
+          if (visited.has(k)) continue;
+          if (k === targetKey) {
+            parent.set(k, cur);
+            found = true;
+            break;
+          }
+          if (ownBody.has(k)) continue;
+          if (!graph.isPassableAtTurn(n, turn)) continue;
+          visited.add(k);
+          parent.set(k, cur);
+          next.push(n);
+        }
+        if (found) break;
+      }
+      level = next;
+    }
+
+    if (!found) return [];
+
+    // Reconstruct head → target, then drop the head (the overlay anchors at it).
+    const route: Coord[] = [];
+    let cur: Coord | undefined = { x: waypoint.x, y: waypoint.y };
+    while (cur && !(cur.x === head.x && cur.y === head.y)) {
+      route.push(cur);
+      cur = parent.get(graph.coordToKey(cur));
+    }
+    route.reverse();
+    return route;
+  }
+
+  /**
    * Compute tight-space survival metrics for our snake from its current head position.
    *
    * Returns:

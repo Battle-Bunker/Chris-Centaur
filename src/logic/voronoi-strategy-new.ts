@@ -5,7 +5,7 @@
 
 import { GameState, Direction, TeamInfo, SimulationConfig } from '../types/battlesnake';
 import { DecisionEngine, MoveDecision } from './decision-engine';
-import { WaypointContext } from './board-evaluator';
+import { WaypointContext, BoardEvaluator } from './board-evaluator';
 import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
@@ -15,6 +15,9 @@ import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
+  // Lightweight evaluator used only for computeWaypointRoute (builds its own
+  // BoardGraph and needs no tuned weights), kept separate from the engine's.
+  private boardEvaluator: BoardEvaluator = new BoardEvaluator();
   private decisionLogger: DecisionLogger;
   private teamDetector: TeamDetector;
   private configStore: ConfigStore;
@@ -166,6 +169,7 @@ export class VoronoiStrategy {
     scores: Map<Direction, number>;
     moveEvaluations: any[];
     territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+    gotoRoute: { x: number; y: number }[];
   }> {
     // Reload config if needed (cached for 1 second)
     const config = await this.getConfig();
@@ -264,12 +268,20 @@ export class VoronoiStrategy {
       scores.set(evaluation.move, evaluation.averageScore);
     }
     
+    // Live "goto" route for the green waypoint (head → target), reusing the
+    // same passability the goto heuristic scores against. Empty unless a green
+    // waypoint is set and reachable.
+    const gotoRoute = this.boardEvaluator.computeWaypointRoute(
+      gameState, gameState.you.id, waypoint
+    );
+
     return { 
       move: decision.move, 
       safeMoves: decision.candidateMoves,
       scores,
       moveEvaluations,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      gotoRoute
     };
   }
   

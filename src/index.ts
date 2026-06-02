@@ -150,6 +150,7 @@ app.post('/move', async (req, res) => {
         territoryCells: result.territoryCells,
         safeMoves: result.safeMoves,
         botRecommendation: result.move,
+        gotoRoute: result.gotoRoute,
         timestamp: Date.now()
       };
 

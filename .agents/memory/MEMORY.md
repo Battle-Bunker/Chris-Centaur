@@ -1,0 +1,1 @@
+- [Active intent mode invariant](intent-mode-invariant.md) — centaur play: one active next-move source per snake; all changes via transitionIntentMode; manual is single-turn, queue/waypoint persist.

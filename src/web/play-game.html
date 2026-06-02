@@ -95,6 +95,15 @@
       display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
     }
     .selected-snake-name { font-size: 16px; font-weight: 600; }
+    .intent-mode-badge {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 3px 8px; border-radius: 10px;
+      color: #fff; background: #777;
+    }
+    .intent-mode-badge.mode-heuristic { background: #777; }
+    .intent-mode-badge.mode-manual { background: #9c27b0; }
+    .intent-mode-badge.mode-queue { background: #2196F3; }
+    .intent-mode-badge.mode-waypoint { background: #4CAF50; }
     .no-selection-msg {
       text-align: center; padding: 20px; color: #666; font-size: 14px;
     }
@@ -385,6 +394,7 @@
         <div id="selectionUI" style="display: none;">
           <div class="selected-snake-header">
             <span class="selected-snake-name" id="selectedSnakeName"></span>
+            <span class="intent-mode-badge" id="intentModeBadge"></span>
           </div>
 
           <div class="move-controls" id="moveControls">
@@ -483,6 +493,8 @@
     let premoveMode = false;
     let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
+    let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
+    let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
     // Auto-commit timer for a pre-staged queued move. When a queue exists at
     // the start of a turn we *pre-stage* the queued direction (selectMove)
     // and start this timer; if the user doesn't override before it fires, we
@@ -632,6 +644,12 @@
           if (msg.waypoints) {
             waypoints = msg.waypoints;
           }
+          if (msg.routes) {
+            gotoRoutes = msg.routes;
+          }
+          if (msg.activeIntentModes) {
+            activeIntentModes = msg.activeIntentModes;
+          }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
           if (currentGameState) {
@@ -656,6 +674,12 @@
           }
           if (msg.waypoints) {
             waypoints = msg.waypoints;
+          }
+          if (msg.routes) {
+            gotoRoutes = msg.routes;
+          }
+          if (msg.activeIntentModes) {
+            activeIntentModes = msg.activeIntentModes;
           }
           stagedMoves = msg.stagedMoves || {};
           updateReleaseAllButton();
@@ -697,6 +721,17 @@
             moveCommitted: msg.moveCommitted,
             committedMove: msg.committedMove,
           };
+
+          // This is the only per-snake update that always fires when a snake's
+          // path is recomputed, so refresh the live goto route + active mode
+          // maps here too (not just on board-update / selections-update) or the
+          // green route can render stale in multi-snake games.
+          if (msg.routes) {
+            gotoRoutes = msg.routes;
+          }
+          if (msg.activeIntentModes) {
+            activeIntentModes = msg.activeIntentModes;
+          }
 
           if (snakeId === selectedSnakeId) {
             setupMoveStateForSnake(snakeId);
@@ -757,6 +792,12 @@
           }
           if (msg.waypoints) {
             waypoints = msg.waypoints;
+          }
+          if (msg.routes) {
+            gotoRoutes = msg.routes;
+          }
+          if (msg.activeIntentModes) {
+            activeIntentModes = msg.activeIntentModes;
           }
           renderConnectedUsers();
           renderGameBoard();
@@ -861,6 +902,14 @@
             if (csData) {
               csData.moveCommitted = true;
               csData.committedMove = msg.move;
+            }
+            // The server re-anchors the green goto route at the committed-move
+            // destination, so refresh the route/mode maps here too.
+            if (msg.routes) {
+              gotoRoutes = msg.routes;
+            }
+            if (msg.activeIntentModes) {
+              activeIntentModes = msg.activeIntentModes;
             }
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
@@ -1033,8 +1082,26 @@
       const name = snake?.name || csInfo?.name || selectedSnakeId;
       const emoji = snake?.emoji || csInfo?.emoji || '\u{1F40D}';
       document.getElementById('selectedSnakeName').textContent = `${emoji} ${name}`;
+      updateIntentModeBadge();
 
       updateMoveControls();
+    }
+
+    // Reflect the snake's active next-move source (Heuristic | Manual | Queue |
+    // Waypoint) as a colored badge next to its name. Colors match the board
+    // overlays: blue = queue, green = waypoint route.
+    function updateIntentModeBadge() {
+      const badge = document.getElementById('intentModeBadge');
+      if (!badge) return;
+      const mode = (selectedSnakeId && activeIntentModes[selectedSnakeId]) || 'heuristic';
+      const labels = {
+        heuristic: 'Heuristic',
+        manual: 'Manual',
+        queue: 'Queue',
+        waypoint: 'Waypoint',
+      };
+      badge.textContent = labels[mode] || 'Heuristic';
+      badge.className = `intent-mode-badge mode-${mode}`;
     }
 
     function hideSelectionUI() {
@@ -1122,6 +1189,15 @@
         drawPremoveOverlay(canvas, snake, pq, currentGameState.board, cellSize, color);
       }
 
+      // Render every snake's live green "goto" route (head → green waypoint),
+      // reusing the same numbered dashed overlay as the queue but in green so
+      // it reads as a distinct intent. The pathfinder refreshes it each turn.
+      for (const snake of currentGameState.board.snakes) {
+        const route = gotoRoutes[snake.id];
+        if (!route || route.length === 0) continue;
+        drawPremoveOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
+      }
+
       // Render every snake's waypoint (green or blue) so observers can see
       // what target the controller has set.
       for (const snakeId in waypoints) {
@@ -1199,6 +1275,7 @@
 
     function updateMoveControls() {
       if (!selectedSnakeId || !moveState) return;
+      updateIntentModeBadge();
 
       if (moveSubmitted) {
         const csData = controlledSnakeTurnData[selectedSnakeId];
@@ -1320,14 +1397,17 @@
       }
     }
 
-    function submitMove() {
+    // `source` tags the submit so the server knows whether to drop the plan:
+    // 'manual' (human Space/button — activates Manual mode, clears queue +
+    // waypoint) or 'queue' (auto-commit timer — keeps the queue running).
+    function submitMove(source = 'manual') {
       if (moveSubmitted || !selectedSnakeId) return;
       const moveToSubmit = userSelectedMove || getBestBotMove();
       if (!moveToSubmit) return;
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         const submittedSnakeId = selectedSnakeId;
-        ws.send(JSON.stringify({ type: 'submit-move', snakeId: selectedSnakeId, move: moveToSubmit }));
+        ws.send(JSON.stringify({ type: 'submit-move', snakeId: selectedSnakeId, move: moveToSubmit, source }));
         moveSubmitted = true;
         analyticsFrozen = true;
         if (moveState) {
@@ -1785,7 +1865,7 @@
           !premoveStagedFromQueue ||
           userSelectedMove !== direction
         ) return;
-        submitMove();
+        submitMove('queue');
       }, PREMOVE_AUTO_COMMIT_DELAY_MS);
     }
 

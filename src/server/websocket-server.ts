@@ -163,6 +163,8 @@ export class GameWebSocketServer {
         stagedMoves: this.getStagedMovesForGame(gameId),
         premoves: this.gameManager.getPremovesForGame(gameId),
         waypoints: this.gameManager.getWaypointsForGame(gameId),
+        routes: this.gameManager.getRoutesForGame(gameId),
+        activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -184,6 +186,8 @@ export class GameWebSocketServer {
         timestamp: turnData.timestamp,
         moveCommitted: game?.controlledSnakes.get(snakeId)?.moveCommittedThisTurn || false,
         committedMove: game?.controlledSnakes.get(snakeId)?.committedMove || null,
+        routes: this.gameManager.getRoutesForGame(gameId),
+        activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
       });
     });
 
@@ -194,6 +198,8 @@ export class GameWebSocketServer {
         snakeId,
         move,
         source,
+        routes: this.gameManager.getRoutesForGame(gameId),
+        activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
       });
     });
 
@@ -377,8 +383,11 @@ export class GameWebSocketServer {
             });
             break;
           }
+          // A queue auto-commit tags itself with source 'queue' so the queue
+          // survives; an explicit human submit defaults to 'manual'.
+          const submitSource = (msg as any).source === 'queue' ? 'queue' : 'manual';
           const success = this.gameManager.submitUserMove(
-            client.gameId, snakeId, msg.move as Direction
+            client.gameId, snakeId, msg.move as Direction, submitSource
           );
           this.send(client.ws, {
             type: 'move-submitted',
@@ -577,6 +586,8 @@ export class GameWebSocketServer {
     const stagedMoves = this.getStagedMovesForGame(gameId);
     const premoves = this.gameManager.getPremovesForGame(gameId);
     const waypoints = this.gameManager.getWaypointsForGame(gameId);
+    const routes = this.gameManager.getRoutesForGame(gameId);
+    const activeIntentModes = this.gameManager.getActiveIntentModesForGame(gameId);
 
     this.broadcastToGame(gameId, {
       type: 'selections-update',
@@ -586,6 +597,8 @@ export class GameWebSocketServer {
       stagedMoves,
       premoves,
       waypoints,
+      routes,
+      activeIntentModes,
     });
   }
 
