@@ -539,7 +539,8 @@ export class DecisionEngine {
       waypointNear: 0,
       connectivityPenalty: 0,
       tightSpaceScore: 0,
-      tailReachable: 0
+      tailReachable: 0,
+      aggression: 0
     };
     
     const sumWeighted = {
@@ -567,7 +568,8 @@ export class DecisionEngine {
       waypointNearScore: 0,
       connectivityPenaltyScore: 0,
       tightSpaceScoreScore: 0,
-      tailReachableScore: 0
+      tailReachableScore: 0,
+      aggressionScore: 0
     };
     
     let totalScore = 0;
@@ -600,6 +602,7 @@ export class DecisionEngine {
       sumStats.connectivityPenalty += evaluation.stats.connectivityPenalty;
       sumStats.tightSpaceScore += evaluation.stats.tightSpaceScore;
       sumStats.tailReachable += evaluation.stats.tailReachable;
+      sumStats.aggression += evaluation.stats.aggression;
       
       // Sum weighted scores
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
@@ -627,6 +630,7 @@ export class DecisionEngine {
       sumWeighted.connectivityPenaltyScore += evaluation.weighted.connectivityPenaltyScore;
       sumWeighted.tightSpaceScoreScore += evaluation.weighted.tightSpaceScoreScore;
       sumWeighted.tailReachableScore += evaluation.weighted.tailReachableScore;
+      sumWeighted.aggressionScore += evaluation.weighted.aggressionScore;
       
       totalScore += evaluation.score;
     }
@@ -662,7 +666,8 @@ export class DecisionEngine {
         waypointNear: sumStats.waypointNear / count,
         connectivityPenalty: sumStats.connectivityPenalty / count,
         tightSpaceScore: sumStats.tightSpaceScore / count,
-        tailReachable: sumStats.tailReachable / count
+        tailReachable: sumStats.tailReachable / count,
+        aggression: sumStats.aggression / count
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
@@ -690,7 +695,8 @@ export class DecisionEngine {
         waypointNearScore: sumWeighted.waypointNearScore / count,
         connectivityPenaltyScore: sumWeighted.connectivityPenaltyScore / count,
         tightSpaceScoreScore: sumWeighted.tightSpaceScoreScore / count,
-        tailReachableScore: sumWeighted.tailReachableScore / count
+        tailReachableScore: sumWeighted.tailReachableScore / count,
+        aggressionScore: sumWeighted.aggressionScore / count
       }
     };
   }

@@ -85,7 +85,8 @@ export class VoronoiStrategy {
       connectivityPenalty: config.connectivityPenalty,
       tightSpaceScore: config.tightSpaceScore,
       tailReachable: config.tailReachable,
-      tightSpaceThreshold: config.tightSpaceThreshold
+      tightSpaceThreshold: config.tightSpaceThreshold,
+      aggression: config.aggression
     };
   }
   
@@ -214,6 +215,7 @@ export class VoronoiStrategy {
         connectivityPenalty: evaluation.averageBreakdown.stats.connectivityPenalty,
         tightSpaceScore: evaluation.averageBreakdown.stats.tightSpaceScore,
         tailReachable: evaluation.averageBreakdown.stats.tailReachable,
+        aggression: evaluation.averageBreakdown.stats.aggression,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
         fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,

@@ -86,15 +86,35 @@ export class MoveAnalyzer {
       const distance = Math.abs(position.x - enemyHead.x) + Math.abs(position.y - enemyHead.y);
       
       if (distance === 1) {
-        // Enemy could move to our position next turn
-        // This is risky if we would lose (smaller) or tie (same size)
-        if (snake.length <= enemySnake.length) {
+        // Enemy could move to our position next turn.
+        // Invulnerability decides first ("more invulnerable acts as bigger"):
+        // risky only when we are LESS invulnerable, or EQUAL invulnerability
+        // and we would lose (smaller) or tie (same size). If we out-invulnerate
+        // the enemy, we win the head-to-head and it is NOT risky.
+        if (this.losesHeadToHead(snake, enemySnake)) {
           return true; // Risky head-to-head
         }
       }
     }
     
     return false; // No head-to-head risk
+  }
+  
+  /**
+   * Determines whether `snake` would lose or tie a head-to-head against `other`.
+   * Invulnerability is the primary decider (a more-invulnerable snake "acts as
+   * the bigger snake"); length only matters when invulnerability is equal.
+   * Returns true if the head-to-head is risky for `snake` (loss or tie).
+   */
+  private losesHeadToHead(snake: Snake, other: Snake): boolean {
+    const ourInvulnerability = snake.invulnerabilityLevel ?? 0;
+    const theirInvulnerability = other.invulnerabilityLevel ?? 0;
+    
+    if (ourInvulnerability > theirInvulnerability) return false; // We win outright
+    if (ourInvulnerability < theirInvulnerability) return true;  // We lose outright
+    
+    // Equal invulnerability: length decides; loss (smaller) or tie (equal) is risky
+    return snake.length <= other.length;
   }
   
   /**
@@ -119,9 +139,10 @@ export class MoveAnalyzer {
       const distance = Math.abs(position.x - otherHead.x) + Math.abs(position.y - otherHead.y);
       
       if (distance === 1) {
-        // Other snake could move to our position next turn
-        // This is risky if we would lose (smaller) or tie (same size)
-        if (snake.length <= otherSnake.length) {
+        // Other snake could move to our position next turn.
+        // Invulnerability decides first; length only when invulnerability is equal.
+        // If we out-invulnerate the other snake, the head-to-head is NOT risky.
+        if (this.losesHeadToHead(snake, otherSnake)) {
           // Determine if this is an ally or enemy
           const isAlly = teamSnakeIds?.has(otherSnake.id) ?? false;
           

@@ -1043,6 +1043,7 @@ const BoardRenderer = (function () {
         connectivityPenaltyScore: 0,
         tightSpaceScoreScore: 0,
         tailReachableScore: 0,
+        aggressionScore: 0,
         fertileScore: 0,
       };
 
@@ -1261,6 +1262,13 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.tailReachable ?? 0,
         weightedScore: breakdown.weighted?.tailReachableScore ?? 0,
         averageWeighted: averageWeighted.tailReachableScore ?? 0,
+      },
+      {
+        name: "Aggression (hunt weaker)",
+        value: breakdown.aggression ?? "—",
+        weight: breakdown.weights?.aggression ?? 0,
+        weightedScore: breakdown.weighted?.aggressionScore ?? 0,
+        averageWeighted: averageWeighted.aggressionScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [

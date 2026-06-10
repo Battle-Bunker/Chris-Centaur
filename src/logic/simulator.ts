@@ -53,19 +53,27 @@ export class Simulator {
           newBoard.snakes.find(s => s.id === id)!
         );
         
-        // Find the longest snake(s)
-        const maxLength = Math.max(...collidingSnakes.map(s => s.length));
-        const survivors = collidingSnakes.filter(s => s.length === maxLength);
+        // Invulnerability decides head-to-head first: a more-invulnerable snake
+        // "acts as the bigger snake" and wins regardless of length. Length is only
+        // the tiebreaker among snakes sharing the top invulnerability level.
+        const maxInvulnerability = Math.max(...collidingSnakes.map(s => s.invulnerabilityLevel ?? 0));
+        const topInvulnerable = collidingSnakes.filter(s => (s.invulnerabilityLevel ?? 0) === maxInvulnerability);
         
-        // If multiple snakes of same length, all die
+        // Among the most-invulnerable snakes, the longest survives
+        const maxLength = Math.max(...topInvulnerable.map(s => s.length));
+        const survivors = topInvulnerable.filter(s => s.length === maxLength);
+        
+        // If there is no unique survivor (tie among equal-invulnerability,
+        // equal-length snakes), all colliding snakes die.
         if (survivors.length > 1) {
           for (const snake of collidingSnakes) {
             deadSnakeIds.add(snake.id);
           }
         } else {
-          // Shorter snakes die
+          // Single survivor; every other colliding snake dies
+          const survivorId = survivors[0].id;
           for (const snake of collidingSnakes) {
-            if (snake.length < maxLength) {
+            if (snake.id !== survivorId) {
               deadSnakeIds.add(snake.id);
             }
           }

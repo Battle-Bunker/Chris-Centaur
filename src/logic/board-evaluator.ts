@@ -54,6 +54,9 @@ export interface HeuristicStats {
   connectivityPenalty: number;  // Number of cells stranded by entering an articulation point (0 = none stranded)
   tightSpaceScore: number;      // Bounded longest-path-in-region approximation; only nonzero when tight, else 0
   tailReachable: number;        // 1 if own tail is reachable (optimistic passability) within snake length, else 0
+
+  // Offensive aggression heuristic
+  aggression: number;           // Reward [0,2] for closing in on / landing on the head/body of an enemy we strictly out-invulnerate; 0 otherwise
 }
 
 export interface BoardEvaluation {
@@ -129,6 +132,9 @@ export interface HeuristicWeights {
   tightSpaceScore: number;      // Weight applied to longest-path-in-region approximation
   tailReachable: number;        // Weight applied to tail-reachable bonus (1/0)
   tightSpaceThreshold: number;  // Reachable < length*threshold gates tightSpaceScore + tailReachable
+
+  // Offensive aggression weight
+  aggression: number;           // Weight applied to the aggression reward (positive, conservative so survival dominates)
 }
 
 export interface WeightedScores {
@@ -176,6 +182,9 @@ export interface WeightedScores {
   connectivityPenaltyScore: number;
   tightSpaceScoreScore: number;
   tailReachableScore: number;
+
+  // Offensive aggression weighted score
+  aggressionScore: number;
 }
 
 export class BoardEvaluator {
@@ -230,6 +239,10 @@ export class BoardEvaluator {
       tightSpaceScore: 30,         // Reward longest-path approximation when tight
       tailReachable: 100,          // Strong bonus for being able to tail-chase
       tightSpaceThreshold: 2.0,    // tight when reachable < snakeLength * threshold
+
+      // Offensive aggression weight (conservative: max stat 2 → max +50, far below
+      // the death penalty of -500, so survival always dominates aggression)
+      aggression: 25,              // Reward hunting enemies we strictly out-invulnerate
       
       // Override with provided weights
       ...weights
@@ -299,7 +312,8 @@ export class BoardEvaluator {
           waypointNear: 0,
           connectivityPenalty: 0,
           tightSpaceScore: 0,
-          tailReachable: 0
+          tailReachable: 0,
+          aggression: 0
         },
         territoryCells: new Map()
       };
@@ -387,6 +401,9 @@ export class BoardEvaluator {
 
     // Calculate tight-space survival metrics (connectivity, longest path, tail reachable)
     const tightMetrics = this.calculateTightSpaceMetrics(graph, ourSnake, board.snakes);
+
+    // Calculate offensive aggression toward enemies we strictly out-invulnerate
+    const aggression = this.calculateAggression(ourSnake, board.snakes, teamSnakeIds, board.width, board.height);
     
     return {
       stats: {
@@ -415,7 +432,8 @@ export class BoardEvaluator {
         waypointNear,
         connectivityPenalty: tightMetrics.stranded,
         tightSpaceScore: tightMetrics.tightSpaceScore,
-        tailReachable: tightMetrics.tailReachable
+        tailReachable: tightMetrics.tailReachable,
+        aggression
       },
       territoryCells: bfsResult.territoryCells
     };
@@ -615,6 +633,54 @@ export class BoardEvaluator {
     return route;
   }
 
+  /**
+   * Offensive aggression heuristic. Rewards a candidate position for closing in
+   * on (or landing on) the head/body of any enemy we are STRICTLY more invulnerable
+   * than. When our invulnerability is equal to or lower than an enemy's, that enemy
+   * contributes nothing (normal length-based logic applies elsewhere). Allies are
+   * never targeted.
+   *
+   * Per huntable enemy: closeness = max(0, (boardSize - manhattanToNearestCell)/boardSize)
+   * in [0,1], plus a +1 contact bonus when we land directly on their head/body
+   * (distance 0 — only possible because we out-invulnerate and can sever them).
+   * We take the strongest signal (the best/closest target) so the reward stays
+   * bounded in [0, 2] regardless of how many weak enemies are around.
+   */
+  private calculateAggression(
+    ourSnake: Snake,
+    allSnakes: Snake[],
+    teamSnakeIds: Set<string>,
+    width: number,
+    height: number
+  ): number {
+    const ourInvulnerability = ourSnake.invulnerabilityLevel ?? 0;
+    const head = ourSnake.head;
+    const boardSize = Math.max(width, height);
+    let best = 0;
+    
+    for (const enemy of allSnakes) {
+      if (enemy.id === ourSnake.id) continue;
+      if (enemy.health <= 0) continue;
+      if (teamSnakeIds.has(enemy.id)) continue;                       // never hunt allies
+      if (ourInvulnerability <= (enemy.invulnerabilityLevel ?? 0)) continue; // only strictly more invulnerable
+      
+      // Manhattan distance to the nearest cell of the enemy's head/body
+      let minDist = Infinity;
+      for (const segment of enemy.body) {
+        const d = Math.abs(head.x - segment.x) + Math.abs(head.y - segment.y);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist === Infinity) continue;
+      
+      const closeness = Math.max(0, (boardSize - minDist) / boardSize);
+      const contactBonus = minDist === 0 ? 1 : 0; // landed on their head/body → kill/sever
+      const reward = closeness + contactBonus;
+      if (reward > best) best = reward;
+    }
+    
+    return best;
+  }
+  
   /**
    * Compute tight-space survival metrics for our snake from its current head position.
    *
@@ -980,7 +1046,8 @@ export class BoardEvaluator {
       waypointNearScore: stats.waypointNear * this.weights.waypointNear,
       connectivityPenaltyScore: stats.connectivityPenalty * this.weights.connectivityPenalty,
       tightSpaceScoreScore: stats.tightSpaceScore * this.weights.tightSpaceScore,
-      tailReachableScore: stats.tailReachable * this.weights.tailReachable
+      tailReachableScore: stats.tailReachable * this.weights.tailReachable,
+      aggressionScore: stats.aggression * this.weights.aggression
     };
   }
   
@@ -1012,6 +1079,7 @@ export class BoardEvaluator {
            weighted.waypointNearScore +
            weighted.connectivityPenaltyScore +
            weighted.tightSpaceScoreScore +
-           weighted.tailReachableScore;
+           weighted.tailReachableScore +
+           weighted.aggressionScore;
   }
 }

@@ -1,1 +1,2 @@
 - [Active intent mode invariant](intent-mode-invariant.md) — centaur play: one active next-move source per snake; all changes via transitionIntentMode; manual is single-turn, queue/waypoint persist.
+- [Combat invulnerability precedence](combat-invulnerability-precedence.md) — H2H winner = max invuln first, length only tiebreaks equal-invuln; aggression hunts strictly-out-invulnerated enemies; new heuristics must wire all synced surfaces.

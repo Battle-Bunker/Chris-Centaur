@@ -45,6 +45,8 @@ export interface DecisionLogEntry {
       tightSpaceScore?: number;
       tailReachable?: number;
 
+      aggression?: number;
+
       fertileTerritory?: number;
       foodDistanceInverse?: number;
       myFoodCount?: number;

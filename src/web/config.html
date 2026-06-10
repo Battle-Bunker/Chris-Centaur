@@ -518,6 +518,20 @@
                         </div>
                     </div>
                     
+                    <!-- Offensive Aggression -->
+                    <div class="config-section">
+                        <h3><span>⚔️</span>Offensive Aggression</h3>
+                        
+                        <div class="config-item">
+                            <label for="aggression">Aggression Weight</label>
+                            <div class="input-group">
+                                <input type="range" id="aggression_slider" min="0" max="200" step="1">
+                                <input type="number" id="aggression" min="0" max="200" step="1">
+                            </div>
+                            <div class="description">Reward for hunting enemies we strictly out-invulnerate — closing in on or landing on their head/body. Kept conservative so survival always dominates.</div>
+                        </div>
+                    </div>
+                    
                     <!-- Centaur Play Mode -->
                     <div class="config-section">
                         <h3><span>🎮</span>Centaur Play Mode</h3>
@@ -592,6 +606,7 @@
             'enemyH2HRisk', 'allyH2HRisk',
             'waypointGoto', 'waypointNear',
             'connectivityPenalty', 'tightSpaceScore', 'tailReachable', 'tightSpaceThreshold',
+            'aggression',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
         
@@ -663,6 +678,9 @@
                             slider.max = 200;
                         } else if (key === 'tailReachable') {
                             slider.max = 500;
+                        } else if (key === 'aggression') {
+                            slider.min = 0;
+                            slider.max = 200;
                         } else if (key === 'tightSpaceThreshold') {
                             slider.min = 0.5;
                             slider.max = 5;

@@ -49,6 +49,9 @@ export interface GameConfig {
   tightSpaceScore: number;       // Weight on bounded longest-path-in-region approximation
   tailReachable: number;         // Bonus when our own tail is reachable (gated by tight-space threshold)
   tightSpaceThreshold: number;   // tight when reachable < snakeLength * threshold; gates tightSpaceScore + tailReachable
+
+  // Offensive aggression weight
+  aggression: number;            // Reward for hunting enemies we strictly out-invulnerate (closing in on / landing on their head/body)
   
   // Simulation parameters
   maxSimulationDepth: number;
@@ -112,6 +115,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   tightSpaceScore: 30,
   tailReachable: 100,
   tightSpaceThreshold: 2.0,
+
+  // Offensive aggression weight (conservative: max stat 2 → max +50, far below the
+  // death penalty of -500, so survival always dominates aggression)
+  aggression: 25,
   
   // Simulation parameters
   maxSimulationDepth: 1,
