@@ -1164,7 +1164,13 @@ export class ActiveGameManager {
       this.resolvePendingMove(gameId, snakeId, move, 'previous-turn-cleanup');
     }
 
-    const bufferMs = turn === 0 ? 5000 : 100;
+    // Extra network buffer so the committed move reaches the game server before
+    // its turn deadline. The bot deployment (Australia) is far from the game
+    // server (North America), so the one-way trip back is much longer than the
+    // default ~100ms cushion accounts for. Fire the safety timer this much
+    // earlier to absorb that cross-region latency.
+    const EXTRA_NETWORK_BUFFER_MS = 1500;
+    const bufferMs = (turn === 0 ? 5000 : 100) + EXTRA_NETWORK_BUFFER_MS;
     let timeoutMs: number;
     if (serverExpiryTime) {
       const now = Date.now();
