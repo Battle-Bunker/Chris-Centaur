@@ -112,6 +112,10 @@
     let ws = null;
     let reconnectTimer = null;
     let currentGames = [];
+    const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes without a turn change = stale
+    const gameActivity = new Map(); // gameId -> { turn, lastChanged }
+    const staleGames = new Set();   // gameIds currently hidden as stale
+    let livenessTimer = null;
     const wsDebug = window.ConnectionDebugger.attach({});
     const idleWatcher = window.IdleWatcher.attach({
       getWS: () => ws,
@@ -138,6 +142,7 @@
         }
         wsDebug.onOpen();
         idleWatcher.onConnected();
+        startLivenessTimer();
       };
 
       ws.onmessage = (event) => {
@@ -147,7 +152,8 @@
             wsDebug.setServerConnId(msg.connId);
           } else if (msg.type === 'lobby-update') {
             currentGames = msg.games;
-            renderGames(msg.games);
+            recordActivity(msg.games);
+            renderGames(getLiveGames());
           }
         } catch (e) {
           console.error('WS message parse error:', e);
@@ -157,6 +163,7 @@
       ws.onclose = (event) => {
         statusEl.textContent = 'Disconnected';
         statusEl.className = 'ws-status disconnected';
+        stopLivenessTimer();
         wsDebug.onClose(event);
         const wasIdle = idleWatcher.onClose(event);
         if (wasIdle) {
@@ -192,6 +199,58 @@
           wsDebug.onReconnectAttempt();
           connectWebSocket();
         }, 2000);
+      }
+    }
+
+    function recordActivity(games) {
+      const now = Date.now();
+      const seen = new Set();
+      for (const game of games) {
+        seen.add(game.gameId);
+        const prev = gameActivity.get(game.gameId);
+        if (!prev) {
+          gameActivity.set(game.gameId, { turn: game.turn, lastChanged: now });
+        } else if (game.turn !== prev.turn) {
+          // Turn advanced: reset the activity clock and revive if it was stale.
+          prev.turn = game.turn;
+          prev.lastChanged = now;
+          staleGames.delete(game.gameId);
+        }
+      }
+      // Forget games the server no longer reports at all.
+      for (const id of [...gameActivity.keys()]) {
+        if (!seen.has(id)) {
+          gameActivity.delete(id);
+          staleGames.delete(id);
+        }
+      }
+    }
+
+    function getLiveGames() {
+      return currentGames.filter(g => !staleGames.has(g.gameId));
+    }
+
+    function checkLiveness() {
+      const now = Date.now();
+      let changed = false;
+      for (const [id, info] of gameActivity.entries()) {
+        if (!staleGames.has(id) && now - info.lastChanged >= STALE_THRESHOLD_MS) {
+          staleGames.add(id);
+          changed = true;
+        }
+      }
+      if (changed) renderGames(getLiveGames());
+    }
+
+    function startLivenessTimer() {
+      if (livenessTimer) return; // guard against leaking timers across reconnects
+      livenessTimer = setInterval(checkLiveness, STALE_THRESHOLD_MS);
+    }
+
+    function stopLivenessTimer() {
+      if (livenessTimer) {
+        clearInterval(livenessTimer);
+        livenessTimer = null;
       }
     }
 
