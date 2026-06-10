@@ -209,14 +209,6 @@
     }
     .confirm-btn { background: #4CAF50; color: white; }
     .cancel-btn { background: #444; color: #ccc; }
-    .committed-cell-checkmark {
-      position: absolute; pointer-events: none;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 24px; z-index: 15;
-      background: rgba(156, 39, 176, 0.25);
-      border: 3px solid #9C27B0;
-      border-radius: 4px;
-    }
     #premoveBanner {
       display: none; align-items: center; gap: 10px;
       padding: 6px 10px; margin-bottom: 8px; border-radius: 4px;
@@ -325,11 +317,11 @@
                 <span class="kbd-tip">
                   <strong>Q — toggle premove mode</strong><br>
                   While on, clicking adjacent squares plans a multi-step path.
-                  Each turn the queue's next direction is submitted automatically.
-                  Click the head to clear, click an existing waypoint to truncate.
-                  The plan persists across deselect / takeover and is broadcast to
-                  every viewer. If you manually submit a different direction, the
-                  rest of the queue is discarded.
+                  Each turn the queue's next direction stages automatically and
+                  commits at the turn deadline. Click the head to clear, click an
+                  existing waypoint to truncate. The plan persists across deselect /
+                  takeover and is broadcast to every viewer. If you manually stage a
+                  different direction, the rest of the queue is discarded.
                 </span>
               </span>
               <span class="kbd-pill">
@@ -337,9 +329,9 @@
                 <span class="kbd-tip">
                   <strong>Tab — hold this snake</strong><br>
                   Defers the auto-pilot for the current turn so you have time to
-                  think. If you don't submit a move before the turn deadline, the
-                  bot's best move is submitted automatically (so the snake never
-                  dies from inaction). <code>Space</code> submits, <code>Esc</code> deselects.
+                  think. Whatever is staged at the turn deadline (the bot's best
+                  move unless you stage your own) is committed automatically, so the
+                  snake never dies from inaction. <code>Space</code> stages, <code>Esc</code> deselects.
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
@@ -401,8 +393,8 @@
             <h3>Move Selection</h3>
             <div class="move-buttons" id="moveButtons"></div>
             <div class="submit-section">
-              <button class="submit-btn" id="submitBtn" onclick="submitMove()" disabled>
-                Submit Move <span class="shortcut">[Space]</span>
+              <button class="submit-btn" id="submitBtn" onclick="stageSelectedMove()" disabled>
+                Stage Move <span class="shortcut">[Space]</span>
               </button>
               <button class="submit-btn" id="holdBtn" onclick="holdSelectedSnake()" style="background: #ff9800; margin-top: 8px;">
                 Hold this snake (defer to end of turn) <span class="shortcut">[Tab]</span>
@@ -495,46 +487,32 @@
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
     let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
     let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
-    // Auto-commit timer for a pre-staged queued move. When a queue exists at
-    // the start of a turn we *pre-stage* the queued direction (selectMove)
-    // and start this timer; if the user doesn't override before it fires, we
-    // submit the staged move. Cancelled on any manual selectMove, deselect,
-    // or new turn.
-    let premoveAutoCommitTimer = null;
-    // Local mirror of the server's pending.userSelectionSource. True when
-    // userSelectedMove was set by tryConsumePremove (queue-driven pre-stage);
-    // false when it came from a manual selectMove('user') call. Lets
-    // tryConsumePremove tell a stale queue pre-stage (safe to refresh) from
-    // a fresh manual pick (priority 2 — keep it).
-    let premoveStagedFromQueue = false;
     let premoveBannerNoticeTimer = null;
-    const PREMOVE_AUTO_COMMIT_DELAY_MS = 250;
 
     // ────────────────────────────────────────────────────────────────────────
-    // Move-source priority (mirror of active-game-manager.ts:computeIntendedMove
-    // — the SINGLE pipeline the server uses for both safety-timer commit
-    // and the staged-arrow broadcast):
-    //   1. Explicit user submit  (Space / submit button)
-    //   2. Manual user selection (arrow keys, WASD, candidate-cell click).
-    //      Marks pending.userSelectionSource='manual' on the server, which
-    //      clears the queue (the "manual override drops the plan" contract).
-    //   3. Queue head           (pre-staged via setUserSelection 'queue' for
-    //                            selected snakes; server-driven auto-pilot
-    //                            for unselected). Same precedence in both.
-    //   4. Bot recommendation   (server's safety-timer fallback)
-    //   5. Fallback ('up')
+    // Selection vs. staging vs. commit (three distinct concepts):
+    //   - SELECTION (the purple box) is a purely local inspection cursor.
+    //     Clicking a candidate cell or pressing arrows/WASD moves the box and
+    //     updates the breakdown table + projected-territory overlay ONLY. It
+    //     sends nothing to the server, stages nothing, and never clears the
+    //     queue. See `selectMove`.
+    //   - STAGING (the arrow) is the snake's intended next move, held by the
+    //     server as a single `stagedMove` per snake and broadcast via the
+    //     stagedMoves map (grey = bot-seeded, user color = human). Pressing
+    //     Space stages the currently selected cell as a manual override (which
+    //     drops the queue/waypoint per the server contract). Queued moves and
+    //     goto/waypoints also stage server-side. See `stageSelectedMove`.
+    //   - COMMIT happens ONLY at the turn deadline via the server's per-snake
+    //     safety timer, which reads the stored `stagedMove`. The client never
+    //     commits; it flips a snake into the committed (double-arrow) state
+    //     only when the server broadcasts `move-committed`.
     //
     // Ownership:
-    //   - The server owns the staged-move state and broadcasts it via the
-    //     stagedMoves map. The client renders that map directly; it no
-    //     longer synthesises a bot-fallback staged arrow locally.
-    //   - Queue contents: server-authoritative. Client mutates via
-    //     `set-premove`; queue advancement is handled by
-    //     active-game-manager.advancePremoveQueueAfterMove.
+    //   - The server owns staged-move + queue state and broadcasts both. The
+    //     client renders the stagedMoves map directly; it never synthesises a
+    //     fallback arrow locally.
     //   - Q-mode (premoveMode flag): purely local input mode. Controls what
     //     canvas clicks DO (plan vs select), not whether the queue runs.
-    //   - Auto-commit timer: client-owned. Cancelled by any manual selection,
-    //     deselect, or new turn.
     //
     // Projected head: after a move is committed this turn, all "next turn"
     // rendering (Q-mode legal-cell outlines, candidate-arrow cells, queue
@@ -694,9 +672,6 @@
           moveSubmitted = false;
           userSelectedMove = null;
           analyticsFrozen = false;
-          // New turn: any pending auto-commit timer is for a stale turn.
-          cancelPremoveAutoCommit();
-          premoveStagedFromQueue = false;
 
           document.getElementById('currentTurn').textContent = msg.turn;
           document.getElementById('firstMoveIndicator').style.display = (msg.turn === 0) ? 'block' : 'none';
@@ -732,11 +707,16 @@
           if (msg.activeIntentModes) {
             activeIntentModes = msg.activeIntentModes;
           }
+          // board-update only fires for the snake that advanced the turn, so
+          // the other snakes' staged (grey bot) arrows arrive here, when each
+          // reports its own /move. Apply the snapshot or those arrows go missing.
+          if (msg.stagedMoves) {
+            stagedMoves = msg.stagedMoves;
+          }
 
           if (snakeId === selectedSnakeId) {
             setupMoveStateForSnake(snakeId);
             updateMoveControls();
-            tryConsumePremove();
           }
           renderGameBoard();
           break;
@@ -753,7 +733,6 @@
                 showBannerNotice('Planning off: switched snake');
               }
               premoveMode = false;
-              cancelPremoveAutoCommit();
               updatePremoveBanner();
             }
             selectedSnakeId = msg.snakeId;
@@ -766,14 +745,10 @@
             }
             moveSubmitted = msg.moveCommitted || false;
             userSelectedMove = msg.stagedMove || null;
-            premoveStagedFromQueue = false;
             analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
             renderGameBoard();
-            // If a queue is already pending for the snake we just took over,
-            // pre-stage immediately so the user sees the planned next move.
-            tryConsumePremove();
           }
           break;
         }
@@ -818,10 +793,8 @@
               moveState = null;
               moveSubmitted = false;
               userSelectedMove = null;
-              premoveStagedFromQueue = false;
               analyticsFrozen = false;
               premoveMode = false;
-              cancelPremoveAutoCommit();
               updatePremoveBanner();
               hideSelectionUI();
             }
@@ -845,10 +818,8 @@
             moveState = null;
             moveSubmitted = false;
             userSelectedMove = null;
-            premoveStagedFromQueue = false;
             analyticsFrozen = false;
             premoveMode = false;
-            cancelPremoveAutoCommit();
             updatePremoveBanner();
             hideSelectionUI();
           }
@@ -859,40 +830,6 @@
             alert(`Suicide armed for ${(msg.affected || []).length} snake(s).`);
           } else {
             alert(`Suicide failed: ${msg.error || 'unknown error'}`);
-          }
-          break;
-
-        case 'move-submitted':
-          if (msg.snakeId === selectedSnakeId) {
-            if (msg.success) {
-              moveSubmitted = true;
-              analyticsFrozen = true;
-              const csData = controlledSnakeTurnData[msg.snakeId];
-              if (csData) {
-                csData.moveCommitted = true;
-                csData.committedMove = msg.move;
-              }
-              // Bug A: re-root moveState at the projected head so post-commit
-              // candidate cells (Q-mode click targets, click-to-extend) draw
-              // in the right place. setupMoveStateForSnake now picks the
-              // post-commit candidate set when moveCommitted is true.
-              setupMoveStateForSnake(msg.snakeId);
-              updateMoveControls();
-              renderGameBoard();
-            } else {
-              // Server rejected the submit (no pending move, already
-              // resolved, etc). Reset our optimistic committed state so
-              // the user/premove can try again this turn.
-              moveSubmitted = false;
-              analyticsFrozen = false;
-              const csData = controlledSnakeTurnData[msg.snakeId];
-              if (csData) {
-                csData.moveCommitted = false;
-                csData.committedMove = null;
-              }
-              updateMoveControls();
-              renderGameBoard();
-            }
           }
           break;
 
@@ -911,14 +848,19 @@
             if (msg.activeIntentModes) {
               activeIntentModes = msg.activeIntentModes;
             }
+            // Apply the refreshed staged map so the committing snake flips to
+            // its double (committed) arrow right away, for every viewer.
+            if (msg.stagedMoves) {
+              stagedMoves = msg.stagedMoves;
+            }
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
               analyticsFrozen = true;
               // Bug A: re-root the candidate set at the projected head.
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
-              renderGameBoard();
             }
+            renderGameBoard();
           }
           break;
 
@@ -949,7 +891,6 @@
           }
           if (msg.snakeId === selectedSnakeId) {
             premoveMode = false;
-            cancelPremoveAutoCommit();
           }
           updatePremoveBanner();
           if (msg.gameOver) {
@@ -1108,7 +1049,6 @@
       document.getElementById('noSelectionMsg').style.display = 'block';
       document.getElementById('selectionUI').style.display = 'none';
       document.getElementById('selectedSnakePanel').classList.remove('active');
-      clearOverlayCheckmarks();
     }
 
     function renderConnectedUsers() {
@@ -1153,10 +1093,10 @@
       }
 
       const renderMoveState = moveSubmitted ? null : moveState;
-      // Server-side computeIntendedMove already fills in bot-fallback staged
-      // moves (rendered grey via source !== 'manual'/'queue' in
-      // websocket-server.getStagedMovesForGame). Client just renders the
-      // broadcast snapshot directly — no local synthesis.
+      // Staged moves are fully server-owned: heuristic-seeded ones render grey,
+      // human-staged ones in the controller's color, and committed ones as a
+      // double arrow (see board-renderer). The client renders the broadcast
+      // stagedMoves snapshot directly — no local synthesis.
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
@@ -1216,54 +1156,6 @@
       } else {
         document.getElementById('boardOverlay').innerHTML = '';
       }
-
-      renderCommittedCheckmarks(cellSize);
-    }
-
-    function renderCommittedCheckmarks(cellSize) {
-      clearOverlayCheckmarks();
-      if (!selectedSnakeId || !moveSubmitted) return;
-
-      const csData = controlledSnakeTurnData[selectedSnakeId];
-      if (!csData || !csData.committedMove) return;
-
-      // Compute the committed-destination cell directly from the live head
-      // and the committed direction. Don't read it from moveState.moves —
-      // after the post-commit rebuild (buildPostCommitCandidates), that map
-      // is anchored at the projected head, so moveState.moves[committedDir]
-      // would point one cell beyond the actual commit destination.
-      if (!currentGameState) return;
-      const snake = currentGameState.board.snakes.find(s => s.id === selectedSnakeId);
-      const head = snake?.head || snake?.body?.[0];
-      if (!head) return;
-      const off = directionOffset(csData.committedMove);
-      if (!off) return;
-      const target = { x: head.x + off.dx, y: head.y + off.dy };
-
-      const canvas = document.getElementById('gameCanvas');
-      const board = currentGameState.board;
-      const displayWidth = canvas.clientWidth || canvas.width;
-      const displayHeight = canvas.clientHeight || canvas.height;
-      const displayCellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
-
-      const x = target.x * displayCellSize;
-      const y = (board.height - 1 - target.y) * displayCellSize;
-
-      const checkmark = document.createElement('div');
-      checkmark.className = 'committed-cell-checkmark';
-      checkmark.style.left = (canvas.offsetLeft + x) + 'px';
-      checkmark.style.top = (canvas.offsetTop + y) + 'px';
-      checkmark.style.width = displayCellSize + 'px';
-      checkmark.style.height = displayCellSize + 'px';
-      checkmark.textContent = '\u2713';
-      checkmark.style.color = '#9C27B0';
-
-      const wrapper = document.querySelector('.canvas-wrapper');
-      wrapper.appendChild(checkmark);
-    }
-
-    function clearOverlayCheckmarks() {
-      document.querySelectorAll('.committed-cell-checkmark').forEach(el => el.remove());
     }
 
     function renderSnakeInfo() {
@@ -1327,47 +1219,17 @@
       }
     }
 
-    // Priority rule (#2 in the move-source list above): manual user selection
-    // wins over a pre-staged queued move. `source: 'user'` means a real human
-    // action (arrow/WASD/click on candidate cell/submit-best); it cancels the
-    // auto-commit timer and edits the queue if one exists. `source: 'queue'`
-    // is only used by tryConsumePremove and does not cancel the timer.
-    function selectMove(direction, source = 'user') {
+    // SELECTION = local inspection cursor only (the purple box). Moving it
+    // (candidate-cell click, arrows, WASD) updates the breakdown table +
+    // projected-territory overlay and nothing else: no server message, no
+    // staged-move write, no queue clear. Staging is a separate explicit
+    // action (Space / Stage button -> stageSelectedMove).
+    function selectMove(direction) {
       if (moveSubmitted || !selectedSnakeId) return;
       if (!moveState) return;
 
-      if (source === 'user') {
-        // The user is taking explicit control: kill any pending auto-commit
-        // and drop the existing queue entirely. This is the "manual override
-        // drops the plan" contract (priority 2 in the move-source ordering
-        // — see comment block near top of file). The server enforces the
-        // same on its side via setUserSelection('manual'); we mirror it
-        // here for immediate UI feedback.
-        cancelPremoveAutoCommit();
-        premoveStagedFromQueue = false;
-        if (selectedSnakeId && (premoveQueues[selectedSnakeId] || []).length > 0) {
-          setPremoveQueueForSnake(selectedSnakeId, []);
-        }
-      } else {
-        premoveStagedFromQueue = true;
-      }
-
       userSelectedMove = direction;
       moveState.selectedMove = direction;
-
-      stagedMoves[selectedSnakeId] = {
-        move: direction,
-        committed: false,
-        color: myColor || '#4CAF50',
-      };
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        // Pass through the source so the server can apply the correct
-        // precedence: 'user' is a manual override (clears the queue);
-        // 'queue' is a pre-stage on the user's behalf (queue stays).
-        const wireSource = source === 'queue' ? 'queue' : 'manual';
-        ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move: direction, source: wireSource }));
-      }
 
       updateMoveControls();
       renderGameBoard();
@@ -1390,38 +1252,34 @@
       return null;
     }
 
-    function cancelPremoveAutoCommit() {
-      if (premoveAutoCommitTimer !== null) {
-        clearTimeout(premoveAutoCommitTimer);
-        premoveAutoCommitTimer = null;
-      }
-    }
-
-    // `source` tags the submit so the server knows whether to drop the plan:
-    // 'manual' (human Space/button — activates Manual mode, clears queue +
-    // waypoint) or 'queue' (auto-commit timer — keeps the queue running).
-    function submitMove(source = 'manual') {
+    // STAGING = commit the current selection as this snake's manual override
+    // for the turn. No-op if nothing is selected. Optimistically paints the
+    // staged arrow in the user's color and tells the server (select-move),
+    // which activates Manual mode and drops any queue/waypoint. The actual
+    // commit happens only at the turn deadline (server safety timer).
+    function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
-      const moveToSubmit = userSelectedMove || getBestBotMove();
-      if (!moveToSubmit) return;
+      const move = userSelectedMove;
+      if (!move) return;
+
+      stagedMoves[selectedSnakeId] = {
+        move,
+        committed: false,
+        color: myColor || '#4CAF50',
+      };
+
+      // Mirror the server's "manual override drops the plan" contract locally
+      // for immediate feedback; the server enforces the same via setUserSelection.
+      if ((premoveQueues[selectedSnakeId] || []).length > 0) {
+        setPremoveQueueForSnake(selectedSnakeId, []);
+      }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
-        const submittedSnakeId = selectedSnakeId;
-        ws.send(JSON.stringify({ type: 'submit-move', snakeId: selectedSnakeId, move: moveToSubmit, source }));
-        moveSubmitted = true;
-        analyticsFrozen = true;
-        if (moveState) {
-          moveState.selectedMove = moveToSubmit;
-        }
-        const csData = controlledSnakeTurnData[selectedSnakeId];
-        if (csData) {
-          csData.moveCommitted = true;
-          csData.committedMove = moveToSubmit;
-        }
-        updateMoveControls();
-        renderGameBoard();
-
+        ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move }));
       }
+
+      updateMoveControls();
+      renderGameBoard();
     }
 
     function getBestBotMove() {
@@ -1444,10 +1302,10 @@
         btn.innerHTML = 'Move Committed \u2713';
       } else if (userSelectedMove) {
         btn.disabled = false;
-        btn.innerHTML = `Submit ${userSelectedMove.toUpperCase()} <span class="shortcut">[Space]</span>`;
+        btn.innerHTML = `Stage ${userSelectedMove.toUpperCase()} <span class="shortcut">[Space]</span>`;
       } else {
-        btn.disabled = false;
-        btn.innerHTML = 'Submit Best Move <span class="shortcut">[Space]</span>';
+        btn.disabled = true;
+        btn.innerHTML = 'Stage Move <span class="shortcut">[Space]</span>';
       }
     }
 
@@ -1662,13 +1520,10 @@
       }
       updatePremoveBanner();
       renderGameBoard();
-      // Pre-stage the new queue head immediately if this is the snake we
-      // control. Without this, planning a path while no manual selection is
-      // active leaves nothing staged until the next turn — and the snake
-      // can be auto-piloted off the bot fallback instead.
-      if (snakeId === selectedSnakeId) {
-        tryConsumePremove();
-      }
+      // The server stages the queue head as soon as it receives the
+      // set-premove message (setPremoveQueue -> queue intent mode ->
+      // refreshStagedMove) and broadcasts it back via stagedMoves, so the
+      // client no longer needs to pre-stage anything locally.
     }
 
     function addPremoveCellAt(x, y) {
@@ -1807,71 +1662,6 @@
       if (wrapper) wrapper.classList.toggle('premove-mode', !!selectedSnakeId && premoveMode);
     }
 
-    // Pre-stages the queue's next direction as the selected move and arms a
-    // short auto-commit timer. We DO NOT submit synchronously: arrow keys,
-    // WASD, or candidate-cell clicks can override the staged move up until
-    // the timer fires (or the user hits Space). This is the fix for the
-    // "selecting a next move doesn't change the staged move" bug — the old
-    // implementation submitted immediately, freezing the move via moveSubmitted.
-    //
-    // Queue advancement (popping queue[0] after the move resolves) is the
-    // server's job (advancePremoveQueueAfterMove). We do not drain locally —
-    // the broadcast `premoves` snapshot is the source of truth.
-    function tryConsumePremove() {
-      if (!selectedSnakeId) return;
-      if (!moveState || moveSubmitted) return;
-
-      // Don't overwrite a manual selection. premoveStagedFromQueue lets us
-      // distinguish a stale queue pre-stage (safe to refresh) from a fresh
-      // user pick (priority 2 — keep it).
-      if (userSelectedMove && !premoveStagedFromQueue) return;
-
-      const snake = getSelectedSnake();
-      if (!snake) return;
-
-      const queue = premoveQueues[selectedSnakeId] || [];
-      if (queue.length === 0) return;
-
-      // Anchor on the projected head — the cell the snake will occupy after any
-      // move already committed this turn — so the client agrees with the server
-      // (getPremoveDirection) and the renderer (drawPremoveOverlay) about which
-      // cell queue[0] is adjacent to. Pre-commit this equals the live head.
-      const head = getProjectedHead(selectedSnakeId) || snake.head || snake.body[0];
-      const next = queue[0];
-      const dx = next.x - head.x;
-      const dy = next.y - head.y;
-
-      let direction = null;
-      if (dx === 1 && dy === 0) direction = 'right';
-      else if (dx === -1 && dy === 0) direction = 'left';
-      else if (dx === 0 && dy === 1) direction = 'up';
-      else if (dx === 0 && dy === -1) direction = 'down';
-
-      if (!direction) {
-        // queue[0] isn't adjacent to our current head. Either the server
-        // hasn't broadcast the popped queue yet (race), or the plan has
-        // genuinely diverged. Don't mutate the queue from the client; the
-        // server will clear it on the next divergent move via
-        // advancePremoveQueueAfterMove.
-        return;
-      }
-
-      selectMove(direction, 'queue');
-
-      cancelPremoveAutoCommit();
-      premoveAutoCommitTimer = setTimeout(() => {
-        premoveAutoCommitTimer = null;
-        // Only commit if nothing changed in the meantime: still the same
-        // staged direction, still pre-staged from the queue (no manual
-        // override), and we haven't already submitted.
-        if (
-          moveSubmitted ||
-          !premoveStagedFromQueue ||
-          userSelectedMove !== direction
-        ) return;
-        submitMove('queue');
-      }, PREMOVE_AUTO_COMMIT_DELAY_MS);
-    }
 
     function drawPremoveLegalCells(canvas, snake, board, cellSize) {
       // Anchor at the projected head so post-commit Q-mode highlights the
@@ -2079,10 +1869,8 @@
           moveState = null;
           moveSubmitted = false;
           userSelectedMove = null;
-          premoveStagedFromQueue = false;
           analyticsFrozen = false;
           premoveMode = false;
-          cancelPremoveAutoCommit();
           updatePremoveBanner();
           hideSelectionUI();
           renderGameBoard();
@@ -2110,7 +1898,7 @@
         case 'D':
           e.preventDefault(); selectMove('right'); break;
         case ' ':
-          e.preventDefault(); submitMove(); break;
+          e.preventDefault(); stageSelectedMove(); break;
       }
     });
 

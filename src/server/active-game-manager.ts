@@ -1,7 +1,5 @@
 import { GameState, Direction, Coord } from '../types/battlesnake';
 import { Response } from 'express';
-import { ConfigStore } from './configStore';
-import { DEFAULT_CONFIG } from '../config/game-config';
 import { BoardEvaluator } from '../logic/board-evaluator';
 
 export interface MoveEvaluation {
@@ -83,6 +81,12 @@ export interface ControlledSnake {
   // `transitionIntentMode`, so it always agrees with whichever of
   // premoveQueue / waypoint / manual-selection is currently populated.
   activeIntentMode: IntentMode;
+  // The single resolved Direction that will commit at the turn deadline.
+  // Maintained exclusively by `refreshStagedMove` (the one choke point that
+  // runs computeIntendedMove and caches its result). The safety-timer commit
+  // and the staged-arrow broadcast are pure reads of this field — never
+  // recompute the intended move at those sites.
+  stagedMove: Direction;
   // Live "goto" route (head → green waypoint) recomputed by the bot each turn.
   // Empty unless a green waypoint is set and reachable. Broadcast to every
   // client and drawn as the green dashed path.
@@ -134,7 +138,6 @@ export class ActiveGameManager {
   private gameServerPing: number = 50;
   private pingInterval: NodeJS.Timer | null = null;
   private staleGameCleanupInterval: NodeJS.Timer | null = null;
-  private configStore: ConfigStore = new ConfigStore();
   // Used to compute a green waypoint's goto route the moment it's set, so the
   // path shows immediately instead of waiting for the next /move.
   private routeEvaluator: BoardEvaluator = new BoardEvaluator();
@@ -305,6 +308,7 @@ export class ActiveGameManager {
         premoveQueue: [],
         waypoint: null,
         activeIntentMode: 'heuristic',
+        stagedMove: 'up',
         gotoRoute: [],
       });
       this.notifyGameListChange('added', gameId, snakeId);
@@ -423,6 +427,16 @@ export class ActiveGameManager {
       controlled.pendingMove.userSelectionSource = null;
     }
 
+    // Hold defers the commit to the deadline and drops any manual staging so
+    // the snake reverts to its bot move (queue/waypoint persist). Re-derive the
+    // stored stagedMove through the choke point, or the deadline commit and the
+    // broadcast arrow would keep showing the now-cleared manual selection.
+    if (controlled.activeIntentMode === 'manual') {
+      this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
+    } else {
+      this.refreshStagedMove(gameId, snakeId);
+    }
+
     if (!controlled.selectedBy) {
       const user = game.connectedUsers.get(userId);
       if (user) {
@@ -441,21 +455,15 @@ export class ActiveGameManager {
     const game = this.games.get(gameId);
     if (!game) return { released: [] };
 
+    // Releasing a hold ONLY clears the hold flag. It must not commit anything:
+    // the per-snake deadline safety timer remains the sole commit path (the
+    // armed-suicide kill is the one exception). Each released snake's pending
+    // move still commits its stored stagedMove when its timer fires.
     const released: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
       if (controlled.holdTurnsRemaining > 0) {
         controlled.holdTurnsRemaining = 0;
         released.push(snakeId);
-
-        if (
-          !controlled.selectedBy &&
-          controlled.pendingMove &&
-          !controlled.pendingMove.resolved &&
-          controlled.botRecommendation
-        ) {
-          console.log(`[ActiveGameManager] Release-all: auto-piloting ${gameId}:${snakeId} with ${controlled.botRecommendation}`);
-          this.resolvePendingMove(gameId, snakeId, controlled.botRecommendation, 'auto-pilot');
-        }
       }
     }
     if (released.length > 0) {
@@ -702,7 +710,9 @@ export class ActiveGameManager {
       controlled.waypoint = null;
       controlled.gotoRoute = [];
       if (controlled.activeIntentMode === 'waypoint') {
-        this.transitionIntentMode(controlled, 'heuristic');
+        this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
+      } else {
+        this.refreshStagedMove(gameId, snakeId);
       }
       return true;
     }
@@ -718,18 +728,20 @@ export class ActiveGameManager {
     if (waypoint.type !== 'green' && waypoint.type !== 'blue') return false;
 
     controlled.waypoint = { type: waypoint.type, x, y };
-    // Setting a waypoint activates Waypoint mode (clearing queue + manual).
-    this.transitionIntentMode(controlled, 'waypoint');
     // Compute the green goto route now so the path renders immediately rather
     // than only after the next /move. Build a GameState whose `you` is THIS
     // snake so BoardGraph applies the right invulnerability/severability rules
     // (boardState.you is whichever snake last sent /move, which may differ).
+    // This must run BEFORE transitionIntentMode so the staged-move refresh it
+    // triggers can read the freshly-computed route head.
     controlled.gotoRoute = this.computeGotoRouteNow(
       game.boardState,
       snakeId,
       controlled.waypoint,
       this.getProjectedHead(gameId, snakeId) ?? undefined
     );
+    // Setting a waypoint activates Waypoint mode (clearing queue + manual).
+    this.transitionIntentMode(gameId, snakeId, controlled, 'waypoint');
     return true;
   }
 
@@ -800,11 +812,10 @@ export class ActiveGameManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // Single source of truth for "what move will this snake commit this turn".
-  // Every commit-side decision (safety-timer fallback, auto-pilot for
-  // unselected snakes) and every render-side broadcast (staged-move arrow)
-  // reads from this one function, so the queue-vs-manual-vs-bot precedence
-  // is encoded in exactly one place.
+  // Derives "what move this snake intends this turn" from the active intent
+  // method. This is NOT read at commit time — refreshStagedMove runs it once
+  // per input change and caches the result into `stagedMove`, which is the
+  // single field the safety-timer commit and the staged-arrow broadcast read.
   //
   // Priority (matches activeIntentMode — only one of manual/queue/waypoint can
   // ever be populated at once, see transitionIntentMode):
@@ -813,10 +824,6 @@ export class ActiveGameManager {
   //   3. goto route head (first step of the rendered green waypoint route)
   //   4. bot recommendation
   //   5. hard fallback ('up')
-  //
-  // An explicit user submit (submitUserMove) bypasses this function entirely
-  // — it resolves the pending move synchronously rather than waiting for
-  // the safety timer.
   // ────────────────────────────────────────────────────────────────────────
   computeIntendedMove(gameId: string, snakeId: string): IntendedMove {
     const game = this.games.get(gameId);
@@ -879,7 +886,7 @@ export class ActiveGameManager {
   //   - leaving 'manual'   clears this turn's manual user selection
   // Callers set the new mode's own state (queue cells, waypoint cell, manual
   // selection) around this call; this helper never populates, only clears.
-  private transitionIntentMode(controlled: ControlledSnake, mode: IntentMode): void {
+  private transitionIntentMode(gameId: string, snakeId: string, controlled: ControlledSnake, mode: IntentMode): void {
     if (mode !== 'queue' && controlled.premoveQueue.length > 0) {
       controlled.premoveQueue = [];
     }
@@ -895,6 +902,22 @@ export class ActiveGameManager {
       }
     }
     controlled.activeIntentMode = mode;
+    // The active method changed, so the resolved staged move may have changed
+    // too — re-derive and cache it through the single choke point.
+    this.refreshStagedMove(gameId, snakeId);
+  }
+
+  // The single choke point that maintains the stored `stagedMove`. It runs the
+  // existing computeIntendedMove precedence ONCE and caches the resolved
+  // direction, so the deadline commit and the staged-arrow broadcast are pure
+  // reads. Call this on every input change (turn start, intent-mode switch,
+  // queue set, waypoint/route set, manual selection, bot completion while
+  // heuristic). Never write `stagedMove` from anywhere else.
+  private refreshStagedMove(gameId: string, snakeId: string): void {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!controlled) return;
+    controlled.stagedMove = this.computeIntendedMove(gameId, snakeId).direction;
   }
 
   getActiveIntentModesForGame(gameId: string): { [snakeId: string]: IntentMode } {
@@ -988,7 +1011,7 @@ export class ActiveGameManager {
       // Queue drained → no source left, fall back to the heuristic.
       if (controlled.premoveQueue.length === 0 && controlled.activeIntentMode === 'queue') {
         console.log(`[ActiveGameManager] Premove queue drained for ${gameId}:${snakeId}: ${headInfo}`);
-        this.transitionIntentMode(controlled, 'heuristic');
+        this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
       } else {
         console.log(`[ActiveGameManager] Premove queue advanced for ${gameId}:${snakeId}: ${headInfo}, ${controlled.premoveQueue.length} remaining`);
       }
@@ -1000,7 +1023,7 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: ${headInfo}, clearing`);
       controlled.premoveQueue = [];
       if (controlled.activeIntentMode === 'queue') {
-        this.transitionIntentMode(controlled, 'heuristic');
+        this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
       }
     }
   }
@@ -1034,9 +1057,11 @@ export class ActiveGameManager {
     // Starting/replacing a queue activates Queue mode (clearing waypoint and
     // any manual selection). Emptying it falls back to the heuristic.
     if (sanitized.length > 0) {
-      this.transitionIntentMode(controlled, 'queue');
+      this.transitionIntentMode(gameId, snakeId, controlled, 'queue');
     } else if (controlled.activeIntentMode === 'queue') {
-      this.transitionIntentMode(controlled, 'heuristic');
+      this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
+    } else {
+      this.refreshStagedMove(gameId, snakeId);
     }
     return true;
   }
@@ -1049,9 +1074,12 @@ export class ActiveGameManager {
     if (!controlled) throw new Error(`Snake ${snakeId} not controlled in game ${gameId}`);
 
     if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      const intent = this.computeIntendedMove(gameId, snakeId);
-      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId}: using ${intent.direction} (source: ${intent.source})`);
-      this.resolvePendingMove(gameId, snakeId, intent.direction, `previous-turn-cleanup:${intent.source}`);
+      // Commit is a pure read of the stored staged move (no recomputation):
+      // at this point stagedMove still holds the previous turn's resolved move
+      // since this turn's board hasn't been processed yet.
+      const move = controlled.stagedMove;
+      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId}: using ${move}`);
+      this.resolvePendingMove(gameId, snakeId, move, 'previous-turn-cleanup');
     }
 
     const bufferMs = turn === 0 ? 5000 : 100;
@@ -1068,16 +1096,15 @@ export class ActiveGameManager {
       res,
       timer: setTimeout(() => {
         if (!pending.resolved) {
-          // Tab/hold marks the snake as held but the safety timer still fires
-          // at deadline — falling back to the intended move so the snake
-          // doesn't die from inaction. The hold's job is to defer the auto-
-          // pilot mid-turn (giving the user time to think); at the deadline
-          // the bot's recommendation (or queue head) is still the safest
-          // available choice. computeIntendedMove enforces precedence.
-          const intent = this.computeIntendedMove(gameId, snakeId);
+          // The deadline is now the SOLE commit path for every snake (selected
+          // or not). It commits by reading the already-stored stagedMove — no
+          // recomputation — which refreshStagedMove has kept current through
+          // every input change this turn (queue head, waypoint route, manual
+          // selection, or the bot's recommendation while heuristic).
+          const move = controlled.stagedMove;
           const heldNote = controlled.holdTurnsRemaining > 0 ? ` [held ${controlled.holdTurnsRemaining}]` : '';
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote}: using ${intent.direction} (source: ${intent.source}, selectedBy=${controlled.selectedBy})`);
-          this.resolvePendingMove(gameId, snakeId, intent.direction, `safety-timer:${intent.source}`);
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote}: using ${move} (mode: ${controlled.activeIntentMode}, selectedBy=${controlled.selectedBy})`);
+          this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
         } else {
           console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
         }
@@ -1096,25 +1123,24 @@ export class ActiveGameManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // Move-source priority for a controlled snake (the single pipeline; see
-  // also computeIntendedMove above and the mirror comment in
-  // src/web/play-game.html near `let premoveAutoCommitTimer`):
-  //   1. Explicit user submit          — submitUserMove → resolvePendingMove
-  //                                      (synchronous; bypasses the pipeline)
-  //   2. Manual user selection         — setUserSelection (marks
+  // Move-source priority for a controlled snake. Exactly one method is active
+  // at a time (activeIntentMode); computeIntendedMove resolves it to a single
+  // direction and refreshStagedMove caches that into `stagedMove`:
+  //   1. Manual user selection         — setUserSelection (marks
   //                                      pending.userSelectionSource='manual'
   //                                      and clears the queue; this is the
   //                                      "manual override drops the plan"
   //                                      contract)
-  //   3. Queued premove (queue head)   — getPremoveDirection, applied
+  //   2. Queued premove (queue head)   — getPremoveDirection, applied
   //                                      identically to selected AND
-  //                                      unselected snakes via
-  //                                      computeIntendedMove. The asymmetry
-  //                                      where selected snakes' queues were
-  //                                      a client-side affordance is gone.
-  //   4. Bot recommendation            — fallback used by the safety timer
-  //                                      and the unselected-snake auto-pilot
+  //                                      unselected snakes.
+  //   3. Goto route head (waypoint)    — first step of the rendered green path
+  //   4. Bot recommendation            — the heuristic default
   //   5. Hard fallback                 — literal 'up' if nothing else available
+  //
+  // Every controlled snake (selected or not) stays staged until its per-snake
+  // safety timer fires at the turn deadline — the sole commit path. The only
+  // exception is the armed-suicide explicit kill.
   //
   // Ownership of the premove queue: server-only mutations are done in
   // `setPremoveQueue` (in response to client `set-premove`), `setUserSelection`
@@ -1149,7 +1175,7 @@ export class ActiveGameManager {
         }
       }
 
-      for (const cs of game.controlledSnakes.values()) {
+      for (const [sid, cs] of game.controlledSnakes) {
         cs.moveCommittedThisTurn = false;
         cs.committedMove = null;
         if (cs.holdTurnsRemaining > 0) {
@@ -1158,9 +1184,12 @@ export class ActiveGameManager {
         // Manual is a single-turn intent: a manual selection only applies to
         // the turn it was made on. With no carried-over selection, the snake
         // reverts to the heuristic. Queue and waypoint are multi-turn intents
-        // and persist across turns.
+        // and persist across turns. Route this through the single transition
+        // point so the stale manual selection is cleared and the staged move is
+        // re-derived (queue/waypoint are already empty while in manual mode, so
+        // nothing multi-turn is lost).
         if (cs.activeIntentMode === 'manual') {
-          cs.activeIntentMode = 'heuristic';
+          this.transitionIntentMode(gameId, sid, cs, 'heuristic');
         }
       }
 
@@ -1185,30 +1214,43 @@ export class ActiveGameManager {
       controlled.pendingMove.turnData = turnData;
     }
 
+    // Turn start: now that the new board state is stored, re-derive every
+    // controlled snake's staged move so queue heads / waypoint routes anchor
+    // to the fresh head positions. Heuristic snakes other than this one keep
+    // last turn's bot recommendation until their own /move arrives and the
+    // guard below refreshes them.
+    if (boardUpdated) {
+      for (const sid of game.controlledSnakes.keys()) {
+        this.refreshStagedMove(gameId, sid);
+      }
+    }
+
+    // Per-snake staged refresh on /move completion. computeIntendedMove (run by
+    // refreshStagedMove) already enforces source precedence
+    // (manual > queue > waypoint > bot), so re-deriving here can NOT let a late
+    // bot result override a human-chosen move — it only folds in the fields that
+    // just arrived for THIS snake:
+    //   - heuristic: the fresh botRecommendation stored above
+    //   - waypoint : the fresh gotoRoute stored above — this is the fix; a snake
+    //                that isn't the turn-advancer never hits the boardUpdated
+    //                refresh pass, so without this its staged move went stale
+    //                against the new route and the deadline commit could diverge
+    //   - queue    : re-anchors the queue head against the new board state
+    // Manual is the one exception: its staged move was set explicitly by the
+    // user's Space action and is single-turn, so a late bot result leaves it
+    // untouched.
+    if (controlled.activeIntentMode !== 'manual') {
+      this.refreshStagedMove(gameId, snakeId);
+    }
+
+    // The armed-suicide path is a deliberate explicit-kill exception to the
+    // deadline-only commit model: it resolves the move immediately. Every
+    // other snake (selected or not) now stays staged until its safety timer.
     if (controlled.suicideArmed && controlled.pendingMove && !controlled.pendingMove.resolved) {
       const suicideMove = computeSuicideMove(turnData.gameState);
       console.log(`[ActiveGameManager] SUICIDE: submitting ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
       controlled.suicideArmed = false;
       this.resolvePendingMove(gameId, snakeId, suicideMove, 'suicide');
-    } else if (controlled.holdTurnsRemaining > 0 && controlled.pendingMove && !controlled.pendingMove.resolved) {
-      console.log(`[ActiveGameManager] Hold active for ${gameId}:${snakeId} (${controlled.holdTurnsRemaining} turns remaining): deferring auto-pilot, safety timer will submit ${move} at end of turn`);
-    } else if (!controlled.selectedBy && controlled.pendingMove && !controlled.pendingMove.resolved && game.currentTurn > 0) {
-      // Unselected snake: server drives the commit. Use computeIntendedMove
-      // so queue-vs-bot precedence is identical to the selected-snake path.
-      // We deliberately do NOT pre-clear a queue whose head isn't adjacent
-      // this turn: that would tear down the plan on a single transient race /
-      // momentary non-adjacency. Instead, computeIntendedMove falls back to
-      // the bot for this turn (the queue can't resolve to a direction), and
-      // advancePremoveQueueAfterMove decides — from the projected head — to
-      // HOLD the queue (still adjacent to the plan, resumes next turn) or
-      // CLEAR it (provably off the planned path). A queue that can never
-      // resolve is therefore dropped on the divergence check, not here, so it
-      // can never loop computing 'queue' forever.
-      const intent = this.computeIntendedMove(gameId, snakeId);
-      console.log(`[ActiveGameManager] Auto-pilot for ${gameId}:${snakeId}: submitting ${intent.direction} (source: ${intent.source})`);
-      this.resolvePendingMove(gameId, snakeId, intent.direction, `auto-pilot:${intent.source}`);
-    } else if (game.currentTurn === 0 && !controlled.selectedBy) {
-      this.handleFirstTurnAutoPilot(gameId, snakeId, move, controlled);
     }
 
     if (boardUpdated) {
@@ -1217,68 +1259,21 @@ export class ActiveGameManager {
     this.notifyTurnUpdate(gameId, snakeId, turnData);
   }
 
-  // Stage a user's selection for this turn. `source` discriminates between an
-  // explicit human action ('manual' — priority 2, clears the queue per the
-  // "manual override drops the plan" contract) and a pre-stage on the user's
-  // behalf from the queue head ('queue' — priority 3, leaves the queue alone).
-  setUserSelection(gameId: string, snakeId: string, move: Direction, source: 'manual' | 'queue' = 'manual'): void {
+  // Stage a user's manual selection as the snake's next move. This is the
+  // "manual override drops the plan" contract: it activates Manual mode
+  // (clearing the queue + waypoint) and refreshes the stored stagedMove via
+  // transitionIntentMode. Staging never commits — the move is finalized only
+  // when the per-snake safety timer fires at the turn deadline.
+  setUserSelection(gameId: string, snakeId: string, move: Direction): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled?.pendingMove || controlled.pendingMove.resolved) return;
 
     controlled.pendingMove.userSelectedMove = move;
-    controlled.pendingMove.userSelectionSource = source;
-
-    // A manual selection activates Manual mode, clearing the queue and any
-    // waypoint (the "manual override drops the plan" contract). A 'queue'
-    // pre-stage leaves the active mode (Queue) untouched.
-    if (source === 'manual') {
-      this.transitionIntentMode(controlled, 'manual');
-    }
-    console.log(`[ActiveGameManager] User selected move for ${gameId}:${snakeId}: ${move} (source: ${source}, mode: ${controlled.activeIntentMode}, turn ${game.currentTurn}, not yet committed)`);
-  }
-
-  // `source` distinguishes an explicit human submit ('manual' — activates
-  // Manual mode, clearing queue + waypoint) from a queue-driven auto-commit
-  // ('queue' — keeps Queue mode so advancePremoveQueueAfterMove can pop the
-  // executed cell). Defaults to 'manual' for legacy clients.
-  submitUserMove(gameId: string, snakeId: string, move: Direction, source: 'manual' | 'queue' = 'manual'): boolean {
-    const game = this.games.get(gameId);
-    if (!game) return false;
-
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled?.pendingMove || controlled.pendingMove.resolved) {
-      console.log(`[ActiveGameManager] submitUserMove rejected for ${gameId}:${snakeId}: ${!controlled?.pendingMove ? 'no pending move' : 'already resolved'}`);
-      return false;
-    }
-
-    console.log(`[ActiveGameManager] User submitted move for ${gameId}:${snakeId}: ${move} (source: ${source})`);
-    controlled.pendingMove.userSelectedMove = move;
-    controlled.pendingMove.userSelectionSource = source;
-    // Only an explicit manual submit drops the plan. A queue auto-commit must
-    // leave the queue intact so advancePremoveQueueAfterMove can pop the cell.
-    if (source === 'manual') {
-      this.transitionIntentMode(controlled, 'manual');
-    }
-    this.resolvePendingMove(gameId, snakeId, move, source === 'queue' ? 'queue-autocommit' : 'user-selection');
-    return true;
-  }
-
-  private handleFirstTurnAutoPilot(gameId: string, snakeId: string, move: Direction, controlled: ControlledSnake): void {
-    this.configStore.get('autoFirstMove').then(value => {
-      const isAutoFirstMove = value !== undefined ? value : DEFAULT_CONFIG.autoFirstMove;
-      console.log(`[ActiveGameManager] Turn 0 autoFirstMove check for ${gameId}:${snakeId}: autoFirstMove=${isAutoFirstMove} (raw db value=${JSON.stringify(value)})`);
-      
-      if (isAutoFirstMove && controlled.pendingMove && !controlled.pendingMove.resolved) {
-        console.log(`[ActiveGameManager] Auto-pilot (autoFirstMove enabled) for ${gameId}:${snakeId}: submitting ${move} on turn 0`);
-        this.resolvePendingMove(gameId, snakeId, move, 'auto-pilot');
-      } else if (!isAutoFirstMove) {
-        console.log(`[ActiveGameManager] Turn 0 override: holding ${gameId}:${snakeId} for manual control (bot recommends ${move})`);
-      }
-    }).catch(error => {
-      console.error(`[ActiveGameManager] Error reading autoFirstMove config for ${gameId}:${snakeId}, defaulting to hold:`, error);
-    });
+    controlled.pendingMove.userSelectionSource = 'manual';
+    this.transitionIntentMode(gameId, snakeId, controlled, 'manual');
+    console.log(`[ActiveGameManager] User staged move for ${gameId}:${snakeId}: ${move} (mode: ${controlled.activeIntentMode}, turn ${game.currentTurn}, not yet committed)`);
   }
 
   updateGameState(gameId: string, snakeId: string, gameState: GameState): void {
@@ -1319,7 +1314,7 @@ export class ActiveGameManager {
         controlled.waypoint = null;
         controlled.gotoRoute = [];
         if (controlled.activeIntentMode === 'waypoint') {
-          this.transitionIntentMode(controlled, 'heuristic');
+          this.transitionIntentMode(gameId, snakeId, controlled, 'heuristic');
         }
       }
     }

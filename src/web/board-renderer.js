@@ -810,14 +810,14 @@ const BoardRenderer = (function () {
         if (shead) {
           const x = shead.x * cellSize;
           const y = (board.height - 1 - shead.y) * cellSize;
+          // Staged and committed arrows share the same color (grey for the
+          // bot, the controller's color for a human). The ONLY visual
+          // difference is the arrowhead count: a staged move draws a single
+          // chevron, a committed move a double chevron. Both lines are solid.
           ctx.strokeStyle = arrowColor;
+          ctx.fillStyle = arrowColor;
           ctx.lineWidth = Math.max(cellSize * 0.18, 6);
-          if (arrowCommitted) {
-            ctx.setLineDash([]);
-          } else {
-            ctx.setLineDash([cellSize * 0.2, cellSize * 0.12]);
-          }
-          ctx.beginPath();
+          ctx.setLineDash([]);
           const centerX = x + cellSize / 2;
           const centerY = y + cellSize / 2;
           const arrowLen = cellSize * 1.2;
@@ -837,25 +837,33 @@ const BoardRenderer = (function () {
               endX += arrowLen;
               break;
           }
+          ctx.beginPath();
           ctx.moveTo(centerX, centerY);
           ctx.lineTo(endX, endY);
           ctx.stroke();
-          ctx.setLineDash([]);
           const angle = Math.atan2(endY - centerY, endX - centerX);
           const headSize = Math.max(cellSize * 0.45, 18);
-          ctx.beginPath();
-          ctx.moveTo(endX, endY);
-          ctx.lineTo(
-            endX - headSize * Math.cos(angle - Math.PI / 6),
-            endY - headSize * Math.sin(angle - Math.PI / 6),
-          );
-          ctx.lineTo(
-            endX - headSize * Math.cos(angle + Math.PI / 6),
-            endY - headSize * Math.sin(angle + Math.PI / 6),
-          );
-          ctx.closePath();
-          ctx.fillStyle = arrowColor;
-          ctx.fill();
+          // Draw `count` chevrons stacked back along the shaft so a committed
+          // move reads as a clear double arrow (»).
+          const drawHead = (tipX, tipY) => {
+            ctx.beginPath();
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(
+              tipX - headSize * Math.cos(angle - Math.PI / 6),
+              tipY - headSize * Math.sin(angle - Math.PI / 6),
+            );
+            ctx.lineTo(
+              tipX - headSize * Math.cos(angle + Math.PI / 6),
+              tipY - headSize * Math.sin(angle + Math.PI / 6),
+            );
+            ctx.closePath();
+            ctx.fill();
+          };
+          drawHead(endX, endY);
+          if (arrowCommitted) {
+            const back = headSize * 0.7;
+            drawHead(endX - back * Math.cos(angle), endY - back * Math.sin(angle));
+          }
         }
       }
     });

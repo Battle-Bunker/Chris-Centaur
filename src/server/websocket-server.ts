@@ -36,7 +36,6 @@ const USER_INTENT_TYPES = new Set([
   'release-all-holds',
   'suicide-all',
   'select-move',
-  'submit-move',
   'set-premove',
   'set-nickname',
   'activity',
@@ -186,6 +185,11 @@ export class GameWebSocketServer {
         timestamp: turnData.timestamp,
         moveCommitted: game?.controlledSnakes.get(snakeId)?.moveCommittedThisTurn || false,
         committedMove: game?.controlledSnakes.get(snakeId)?.committedMove || null,
+        // Carry the full staged-move map so each snake's grey (bot) arrow
+        // appears/refreshes as soon as its own /move arrives — board-update only
+        // fires for the snake that advanced the turn, leaving the others'
+        // arrows missing until this per-snake update fills them in.
+        stagedMoves: this.getStagedMovesForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
       });
@@ -198,6 +202,9 @@ export class GameWebSocketServer {
         snakeId,
         move,
         source,
+        // Refresh staged moves so the committing snake flips to its double
+        // (committed) arrow immediately, not only on the next broadcast.
+        stagedMoves: this.getStagedMovesForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
       });
@@ -348,54 +355,20 @@ export class GameWebSocketServer {
       }
 
       case 'select-move': {
+        // Space (or the Stage button) on the client stages the inspected cell
+        // as the snake's manual next move. This only STAGES — the move commits
+        // at the turn deadline via the per-snake safety timer. Manual staging
+        // drops the queue/waypoint per the "manual override drops the plan"
+        // contract (handled inside setUserSelection).
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;
         if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
-            // The client tells us whether this selection came from a manual
-            // action ('manual' — clears the queue per the "manual override
-            // drops the plan" contract) or from a queue pre-stage ('queue'
-            // — leaves the queue alone). Default to 'manual' so older /
-            // legacy clients without the field keep the explicit-input
-            // behaviour rather than silently noop-ing the queue clear.
-            const source: 'manual' | 'queue' = msg.source === 'queue' ? 'queue' : 'manual';
-            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction, source);
+            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
             this.broadcastSelectionsUpdate(client.gameId);
           }
-        }
-        break;
-      }
-
-      case 'submit-move': {
-        const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
-        const snakeId = msg.snakeId;
-        if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
-          const game = this.gameManager.getGame(client.gameId);
-          const controlled = game?.controlledSnakes.get(snakeId);
-          if (!controlled || controlled.selectedBy !== client.userId) {
-            this.send(client.ws, {
-              type: 'move-submitted',
-              success: false,
-              error: 'You do not have this snake selected',
-              snakeId,
-            });
-            break;
-          }
-          // A queue auto-commit tags itself with source 'queue' so the queue
-          // survives; an explicit human submit defaults to 'manual'.
-          const submitSource = (msg as any).source === 'queue' ? 'queue' : 'manual';
-          const success = this.gameManager.submitUserMove(
-            client.gameId, snakeId, msg.move as Direction, submitSource
-          );
-          this.send(client.ws, {
-            type: 'move-submitted',
-            success,
-            move: msg.move,
-            snakeId,
-          });
-          if (success) this.broadcastSelectionsUpdate(client.gameId);
         }
         break;
       }
@@ -543,12 +516,20 @@ export class GameWebSocketServer {
     return selections;
   }
 
-  // Staged moves are the single source of truth for the staged-arrow render
-  // on every client. Every snake (selected or not) gets an entry derived
-  // from computeIntendedMove, so the queue head and bot recommendation both
-  // surface as staged arrows without the client having to invent fallbacks.
-  // The `source` field lets clients colour or label the arrow differently
-  // (e.g. grey for 'bot', user-color for 'manual'/'queue').
+  // Staged moves are the single source of truth for the staged-arrow render on
+  // every client. Both the staged arrow and the committed move are pure reads
+  // of the server-maintained `stagedMove` / `committedMove` fields — they can
+  // never diverge from what the deadline commit will use. Color/source are
+  // derived from activeIntentMode: heuristic = grey/'bot' (bot-seeded), any
+  // human method (manual/queue/waypoint) = the controlling user's color.
+  //
+  // Every controlled snake gets an entry, gated ONLY on having a resolved
+  // stagedMove — NOT on an in-flight pendingMove. `stagedMove` is kept current
+  // for every snake by refreshStagedMove (turn rollover re-derives it for all
+  // snakes against the new board), so a snake that isn't the one whose /move
+  // triggered the current broadcast still has a valid staged move to show. The
+  // client only draws an arrow for snakes present on the board, so eliminated
+  // snakes are naturally skipped there.
   private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
@@ -559,19 +540,15 @@ export class GameWebSocketServer {
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
+      const isBot = cs.activeIntentMode === 'heuristic';
+      const color = isBot ? BOT_COLOR : userColor;
       if (cs.moveCommittedThisTurn && cs.committedMove) {
-        staged[snakeId] = { move: cs.committedMove, committed: true, color: userColor, source: 'committed' };
+        staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed' };
         continue;
       }
-      if (!cs.pendingMove || cs.pendingMove.resolved) continue;
-      const intent = this.gameManager.computeIntendedMove(gameId, snakeId);
-      // Bot-source intents render in grey on all clients (matches the old
-      // client-side `effectiveStagedMoves` fallback). Manual/queue intents
-      // render in the controlling user's color.
-      const color = intent.source === 'bot' || intent.source === 'fallback'
-        ? BOT_COLOR
-        : userColor;
-      staged[snakeId] = { move: intent.direction, committed: false, color, source: intent.source };
+      if (!cs.stagedMove) continue;
+      const source = isBot ? 'bot' : cs.activeIntentMode;
+      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source };
     }
     return staged;
   }
