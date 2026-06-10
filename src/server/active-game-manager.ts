@@ -18,10 +18,6 @@ export interface TurnData {
   safeMoves: Direction[];
   botRecommendation: Direction | null;
   timestamp: number;
-  // Live "goto" route the bot's waypoint pathfinder chose this turn (head →
-  // green waypoint, excluding the head cell). Empty when no green waypoint is
-  // set or the target is unreachable.
-  gotoRoute?: Coord[];
 }
 
 interface PendingMove {
@@ -88,6 +84,12 @@ export interface ControlledSnake {
   // and the staged-arrow broadcast are pure reads of this field — never
   // recompute the intended move at those sites.
   stagedMove: Direction;
+  // The TRUE origin of the resolved stagedMove (manual/queue/waypoint/bot/
+  // fallback). Maintained alongside stagedMove by refreshStagedMove. The
+  // broadcast colour/source is derived from THIS, not from activeIntentMode —
+  // so a move that fell back to the bot's recommendation while a waypoint/queue
+  // is nominally set renders grey (bot), truthfully reflecting what commits.
+  stagedMoveSource: IntendedMoveSource;
   // Live "goto" route (head → green waypoint) recomputed by the bot each turn.
   // Empty unless a green waypoint is set and reachable. Broadcast to every
   // client and drawn as the green dashed path.
@@ -310,6 +312,7 @@ export class ActiveGameManager {
         waypoint: null,
         activeIntentMode: 'heuristic',
         stagedMove: 'up',
+        stagedMoveSource: 'fallback',
         gotoRoute: [],
       });
       this.notifyGameListChange('added', gameId, snakeId);
@@ -925,13 +928,14 @@ export class ActiveGameManager {
     }
 
     if (controlled?.botRecommendation) {
-      // If a waypoint is set but its route is unusable this turn (target
-      // unreachable, or route head not adjacent after a divergence), fall back
-      // to the bot recommendation — which the board-evaluator still biases
-      // toward the waypoint — but keep the 'waypoint' label so the source
-      // matches the snake's active intent mode and renders in the user's colour.
-      const source: IntendedMoveSource = controlled.waypoint ? 'waypoint' : 'bot';
-      return { direction: controlled.botRecommendation, source };
+      // Anything that reaches here is the bot's recommendation — manual, queue,
+      // and the goto-route head were all unavailable this turn. Report it
+      // truthfully as 'bot' even when a waypoint/queue is nominally set, so the
+      // staged arrow renders grey and the user can never mistake a bot decision
+      // for their own staged move (the disguised-'waypoint' label was Bug A).
+      // The route/queue/manual fallback is logged at the refreshStagedMove
+      // choke point where the active intent mode is known.
+      return { direction: controlled.botRecommendation, source: 'bot' };
     }
 
     return { direction: 'up', source: 'fallback' };
@@ -979,6 +983,11 @@ export class ActiveGameManager {
     if (mode !== 'manual') {
       const pending = controlled.pendingMove;
       if (pending && !pending.resolved && pending.userSelectionSource === 'manual') {
+        // Clearing a still-pending manual selection: the user's staged move is
+        // being dropped before it committed (e.g. they set a queue/waypoint, or
+        // a hold reverted to the bot). Log it so a manual move never silently
+        // disappears mid-turn.
+        console.log(`[ActiveGameManager] Manual selection ${pending.userSelectedMove} for ${gameId}:${snakeId} cleared (intent mode → ${mode})`);
         pending.userSelectedMove = null;
         pending.userSelectionSource = null;
       }
@@ -999,7 +1008,28 @@ export class ActiveGameManager {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     if (!controlled) return;
-    controlled.stagedMove = this.computeIntendedMove(gameId, snakeId).direction;
+    const intended = this.computeIntendedMove(gameId, snakeId);
+    const prevMove = controlled.stagedMove;
+    const prevSource = controlled.stagedMoveSource;
+    controlled.stagedMove = intended.direction;
+    controlled.stagedMoveSource = intended.source;
+
+    // Observability (Bug A/B): make the previously-silent fallbacks visible.
+    // (1) A non-heuristic intent mode whose resolved move is actually the bot's
+    //     recommendation means the route/queue/manual could not be honoured
+    //     this turn — the user-coloured plan is really walking the grey move.
+    const mode = controlled.activeIntentMode;
+    const resolvedToBot = intended.source === 'bot' || intended.source === 'fallback';
+    if (mode !== 'heuristic' && resolvedToBot) {
+      console.log(`[ActiveGameManager] Intent fallback for ${gameId}:${snakeId}: mode=${mode} could not be honoured this turn → committing ${intended.source} move ${intended.direction}`);
+    }
+    // (2) A move that was staged as the user's manual choice has changed within
+    //     the same turn (direction or origin) — the exact "my move flipped at
+    //     the last minute" symptom. Turn rollover clears manual via
+    //     transitionIntentMode (logged there), so this only fires mid-turn.
+    if (prevSource === 'manual' && (intended.source !== 'manual' || intended.direction !== prevMove)) {
+      console.log(`[ActiveGameManager] Staged move changed for ${gameId}:${snakeId} within turn ${game?.currentTurn}: was manual ${prevMove} → now ${intended.source} ${intended.direction}`);
+    }
   }
 
   getActiveIntentModesForGame(gameId: string): { [snakeId: string]: IntentMode } {
@@ -1164,13 +1194,20 @@ export class ActiveGameManager {
       this.resolvePendingMove(gameId, snakeId, move, 'previous-turn-cleanup');
     }
 
-    // Extra network buffer so the committed move reaches the game server before
-    // its turn deadline. The bot deployment (Australia) is far from the game
-    // server (North America), so the one-way trip back is much longer than the
-    // default ~100ms cushion accounts for. Fire the safety timer this much
-    // earlier to absorb that cross-region latency.
+    // The committed move still has to travel back to the game server before its
+    // deadline (serverExpiryTime). Derive the safety-timer buffer from the
+    // measured round-trip ping (already tracked for the client countdown) plus a
+    // small jitter margin, instead of a flat cushion — on a slow link a fixed
+    // buffer can let the response land after the deadline, where the game server
+    // applies its own default (continue straight). Keep EXTRA_NETWORK_BUFFER_MS
+    // as the floor: the bot deployment (Australia) is far from the game server
+    // (North America), and the ping is currently measured against a hardcoded
+    // engine URL that may not reflect the real game server's RTT, so a generous
+    // cross-region minimum protects against timeouts while the ping term lets the
+    // buffer grow further when the measured latency is even higher. Turn 0 keeps
+    // the large first-move warm-up buffer.
     const EXTRA_NETWORK_BUFFER_MS = 1500;
-    const bufferMs = (turn === 0 ? 5000 : 100) + EXTRA_NETWORK_BUFFER_MS;
+    const bufferMs = turn === 0 ? 5000 : Math.max(this.gameServerPing + 30, EXTRA_NETWORK_BUFFER_MS);
     let timeoutMs: number;
     if (serverExpiryTime) {
       const now = Date.now();
@@ -1292,10 +1329,18 @@ export class ActiveGameManager {
 
     controlled.latestTurnData = turnData;
     controlled.botRecommendation = move;
-    // Store the bot's freshly-computed goto route (head → green waypoint). It
-    // arrives empty unless a green waypoint is set and reachable, so this also
-    // clears a stale route once the target is gone.
-    controlled.gotoRoute = turnData.gotoRoute ?? [];
+    // Re-anchor the green goto route at the PROJECTED head from the freshly
+    // stored board state — do NOT adopt the strategy's route, which is anchored
+    // at the LIVE head. Everywhere else on the server (getGotoRouteDirection,
+    // recomputeGotoRoute, the rendered path) anchors at the projected head; if
+    // we stored a live-head route here, after a move is committed this turn its
+    // first cell is no longer adjacent to the projected head, getGotoRouteDirection
+    // returns null, and the snake silently reverts to the bot's straight move
+    // while still displaying the green path (Bug B). recomputeGotoRoute uses the
+    // same BFS, so it self-clears to [] when the target is gone/unreachable, and
+    // is a no-op (leaving [] below) when not in green-waypoint mode.
+    controlled.gotoRoute = [];
+    this.recomputeGotoRoute(gameId, snakeId);
 
     if (controlled.pendingMove && !controlled.pendingMove.resolved) {
       controlled.pendingMove.botMove = move;

@@ -550,15 +550,19 @@ export class GameWebSocketServer {
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
-      const isBot = cs.activeIntentMode === 'heuristic';
+      // Colour/source reflect the TRUE origin of the resolved staged move
+      // (stagedMoveSource), NOT the nominal activeIntentMode. A waypoint/queue
+      // that fell back to the bot's recommendation this turn resolves to source
+      // 'bot'/'fallback' and renders grey — so a user-coloured arrow always
+      // guarantees the user's own move will commit (Bug A).
+      const isBot = cs.stagedMoveSource === 'bot' || cs.stagedMoveSource === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
       if (cs.moveCommittedThisTurn && cs.committedMove) {
         staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed' };
         continue;
       }
       if (!cs.stagedMove) continue;
-      const source = isBot ? 'bot' : cs.activeIntentMode;
-      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source };
+      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source: cs.stagedMoveSource };
     }
     return staged;
   }
