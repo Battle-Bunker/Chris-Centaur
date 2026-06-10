@@ -1,6 +1,7 @@
 import { GameState, Direction, Coord } from '../types/battlesnake';
 import { Response } from 'express';
 import { BoardEvaluator } from '../logic/board-evaluator';
+import { BoardGraph } from '../logic/board-graph';
 
 export interface MoveEvaluation {
   move: Direction;
@@ -811,6 +812,56 @@ export class ActiveGameManager {
     return head;
   }
 
+  private static destinationOf(head: Coord, move: Direction): Coord {
+    switch (move) {
+      case 'up':    return { x: head.x,     y: head.y + 1 };
+      case 'down':  return { x: head.x,     y: head.y - 1 };
+      case 'left':  return { x: head.x - 1, y: head.y     };
+      case 'right': return { x: head.x + 1, y: head.y     };
+    }
+  }
+
+  // Validates a move about to be committed against the current board state.
+  // Returns the move unchanged when its destination is passable for the cell
+  // the snake will occupy NEXT turn. Passability is measured with
+  // isPassableAtTurn(dest, 1) — the SAME turn-1 semantics the goto-route and
+  // space BFS use — so a step onto a tail that vacates this turn stays valid and
+  // a legitimate green-route / bot move is never overridden. When the move would
+  // leave the board or hit an obstacle (e.g. a stale bot fallback computed from
+  // a previous head), it returns the best alternative: a turn-1-passable
+  // direction if one exists, else any in-bounds direction (so we never send an
+  // off-board move even when death is unavoidable). Returns the original move
+  // unchanged when there's no board state to validate against.
+  private ensureBoardSafeMove(gameId: string, snakeId: string, move: Direction): Direction {
+    const game = this.games.get(gameId);
+    if (!game?.boardState) return move;
+    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!head) return move;
+
+    // This runs inside the safety-timer / cleanup commit path, which has no
+    // surrounding try/catch — a throw here would crash the whole server. Never
+    // let board validation take down a commit: on any error, send the move as-is.
+    try {
+      const graph = new BoardGraph(game.boardState);
+      const passableNext = (m: Direction) => graph.isPassableAtTurn(ActiveGameManager.destinationOf(head, m), 1);
+      if (passableNext(move)) return move;
+
+      const all: Direction[] = ['up', 'down', 'left', 'right'];
+      const passable = all.find(m => passableNext(m));
+      if (passable) return passable;
+
+      // No passable move (boxed in). Still refuse to walk off the board: prefer
+      // any in-bounds direction over the original if the original is out of bounds.
+      if (graph.isInBounds(ActiveGameManager.destinationOf(head, move))) return move;
+      const inBounds = all.find(m => graph.isInBounds(ActiveGameManager.destinationOf(head, m)));
+      return inBounds ?? move;
+    } catch (e) {
+      console.error(`[ActiveGameManager] ensureBoardSafeMove failed for ${gameId}:${snakeId}, committing ${move} unchanged:`, e);
+      return move;
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────────────
   // Derives "what move this snake intends this turn" from the active intent
   // method. This is NOT read at commit time — refreshStagedMove runs it once
@@ -864,18 +915,25 @@ export class ActiveGameManager {
 
   // Returns the move direction for the first step of the snake's live goto
   // route (the rendered green path), or null when waypoint mode isn't active,
-  // the route is empty, or its head isn't adjacent to the current head (stale
-  // route / divergence — caller falls back to the biased bot recommendation).
+  // the route is empty, or its head isn't adjacent to the anchor (stale route /
+  // divergence — caller falls back to the biased bot recommendation).
+  //
+  // The route is anchored at the PROJECTED head (recomputeGotoRoute /
+  // computeGotoRouteNow both pass getProjectedHead as startHead), so the first
+  // step MUST be measured from that same projected head — not the live head.
+  // Pre-commit projected head == live head, so this is identical in the common
+  // case; it only differs after a move is already committed this turn, which is
+  // exactly when measuring from the live head returned null and silently
+  // abandoned the green route the snake was displaying.
   private getGotoRouteDirection(gameId: string, snakeId: string): Direction | null {
     const game = this.games.get(gameId);
     if (!game?.boardState) return null;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled || controlled.activeIntentMode !== 'waypoint') return null;
     if (!controlled.gotoRoute || controlled.gotoRoute.length === 0) return null;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const head = snake?.head || snake?.body?.[0];
-    if (!head) return null;
-    return ActiveGameManager.directionFromTo(head, controlled.gotoRoute[0]);
+    const anchor = this.getProjectedHead(gameId, snakeId);
+    if (!anchor) return null;
+    return ActiveGameManager.directionFromTo(anchor, controlled.gotoRoute[0]);
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1330,6 +1388,18 @@ export class ActiveGameManager {
     const pending = controlled.pendingMove;
     pending.resolved = true;
     clearTimeout(pending.timer);
+
+    // Final safety gate: the staged move (or stale bot fallback) can point
+    // off-board or into a wall against the board state we're actually answering
+    // — never send such a move. Suicide is the one intentional exception (it
+    // deliberately steers into death).
+    if (source !== 'suicide') {
+      const safe = this.ensureBoardSafeMove(gameId, snakeId, move);
+      if (safe !== move) {
+        console.log(`[ActiveGameManager] Unsafe move ${move} for ${gameId}:${snakeId} (source: ${source}) → committing ${safe} instead`);
+        move = safe;
+      }
+    }
 
     controlled.moveCommittedThisTurn = true;
     controlled.committedMove = move;
