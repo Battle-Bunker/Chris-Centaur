@@ -496,6 +496,30 @@ export class ActiveGameManager {
     return { affected };
   }
 
+  // Immediately commit the currently staged move for every controlled snake
+  // with an unresolved pending move, ending the wait for the per-snake safety
+  // timer. Mirrors the deadline commit path (reads the already-current
+  // stagedMove — no recomputation). Snakes that already committed this turn or
+  // have no pending move are left untouched.
+  commitAllStaged(gameId: string): { affected: string[] } {
+    const game = this.games.get(gameId);
+    if (!game) return { affected: [] };
+
+    const affected: string[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      if (controlled.pendingMove && !controlled.pendingMove.resolved) {
+        const move = controlled.stagedMove;
+        console.log(`[ActiveGameManager] COMMIT-ALL: submitting ${move} for ${gameId}:${snakeId}`);
+        this.resolvePendingMove(gameId, snakeId, move, 'commit-all');
+        affected.push(snakeId);
+      }
+    }
+    if (affected.length > 0) {
+      console.log(`[ActiveGameManager] COMMIT-ALL for game ${gameId}: ${affected.join(', ')}`);
+    }
+    return { affected };
+  }
+
   getHoldStates(gameId: string): { [snakeId: string]: number } {
     const game = this.games.get(gameId);
     if (!game) return {};

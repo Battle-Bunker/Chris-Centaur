@@ -357,6 +357,7 @@
             </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
               <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
+              <button id="submitAllBtn" onclick="submitAll()" style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
@@ -1799,6 +1800,11 @@
       updateReleaseAllButton();
     }
 
+    function submitAll() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'commit-all-staged' }));
+    }
+
     function suicideAll() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const password = window.prompt("Enter password to confirm SUICIDE ALL:");
@@ -1835,6 +1841,15 @@
           e.preventDefault();
           document.getElementById('cancelTakeoverBtn').click();
         }
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        // Commit every staged move now (benign "commit now"). The confirm/
+        // takeover dialog branch above intercepts Enter and returns first, so
+        // this never fires while a dialog is open.
+        e.preventDefault();
+        submitAll();
         return;
       }
 

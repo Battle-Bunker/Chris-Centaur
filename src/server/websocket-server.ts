@@ -336,6 +336,16 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'commit-all-staged': {
+        // Benign "commit now" action — no password. Immediately commits the
+        // staged move for every controlled snake with an unresolved pending
+        // move, ending the wait for the per-snake safety timer.
+        if (!client.gameId || !client.userId) break;
+        this.gameManager.commitAllStaged(client.gameId);
+        this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'suicide-all': {
         if (!client.gameId || !client.userId) break;
         // The shared secret is stored as a SHA-512 hash so the plaintext
