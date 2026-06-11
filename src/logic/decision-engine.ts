@@ -107,7 +107,19 @@ export class DecisionEngine {
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
     
     // Consider ALL non-lethal moves (safe + risky) - h2h risk is now a weighted penalty
-    const ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
+    let ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
+    
+    // Deterministic ally-collision veto: a head-to-head with a teammate is only
+    // ever something to avoid, never to pursue. If any candidate move does NOT
+    // collide head-on with an ally, drop every ally-colliding candidate before
+    // scoring so the bot can never choose to walk into a teammate's head when an
+    // alternative exists. Enemy head-to-head behaviour is untouched.
+    const nonAllyMoves = ourMoves.filter(
+      move => !(moveAnalysis.h2hRiskByMove.get(move)?.hasAllyRisk ?? false)
+    );
+    if (nonAllyMoves.length > 0) {
+      ourMoves = nonAllyMoves;
+    }
     
     if (ourMoves.length === 0) {
       // No moves available - we're dead
@@ -412,7 +424,7 @@ export class DecisionEngine {
         // noise from random move selection affecting board evaluation
         
         // Simulate the board state
-        const simulatedBoard = this.simulator.simulateNextBoardState(gameState, fullMoveSet);
+        const simulatedBoard = this.simulator.simulateNextBoardState(gameState, fullMoveSet, teamSnakeIds);
         
         // Construct new GameState from simulated board
         const nextGameState: GameState = {

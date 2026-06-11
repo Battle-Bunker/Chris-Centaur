@@ -71,36 +71,6 @@ export class MoveAnalyzer {
   }
   
   /**
-   * Checks if a position has risk of head-to-head collision.
-   * Only considers collisions where we would lose or tie.
-   */
-  private hasHeadToHeadRisk(position: Coord, snake: Snake, gameState: GameState): boolean {
-    const { board } = gameState;
-    
-    for (const enemySnake of board.snakes) {
-      // Skip ourselves and dead snakes
-      if (enemySnake.id === snake.id || enemySnake.health <= 0) continue;
-      
-      // Check if enemy head is adjacent to our potential position
-      const enemyHead = enemySnake.head;
-      const distance = Math.abs(position.x - enemyHead.x) + Math.abs(position.y - enemyHead.y);
-      
-      if (distance === 1) {
-        // Enemy could move to our position next turn.
-        // Invulnerability decides first ("more invulnerable acts as bigger"):
-        // risky only when we are LESS invulnerable, or EQUAL invulnerability
-        // and we would lose (smaller) or tie (same size). If we out-invulnerate
-        // the enemy, we win the head-to-head and it is NOT risky.
-        if (this.losesHeadToHead(snake, enemySnake)) {
-          return true; // Risky head-to-head
-        }
-      }
-    }
-    
-    return false; // No head-to-head risk
-  }
-  
-  /**
    * Determines whether `snake` would lose or tie a head-to-head against `other`.
    * Invulnerability is the primary decider (a more-invulnerable snake "acts as
    * the bigger snake"); length only matters when invulnerability is equal.
@@ -140,19 +110,20 @@ export class MoveAnalyzer {
       
       if (distance === 1) {
         // Other snake could move to our position next turn.
-        // Invulnerability decides first; length only when invulnerability is equal.
-        // If we out-invulnerate the other snake, the head-to-head is NOT risky.
-        if (this.losesHeadToHead(snake, otherSnake)) {
-          // Determine if this is an ally or enemy
-          const isAlly = teamSnakeIds?.has(otherSnake.id) ?? false;
-          
-          if (isAlly) {
-            result.hasAllyRisk = true;
-            result.allyRiskCount++;
-          } else {
-            result.hasEnemyRisk = true;
-            result.enemyRiskCount++;
-          }
+        const isAlly = teamSnakeIds?.has(otherSnake.id) ?? false;
+
+        if (isAlly) {
+          // Never pursue a head-to-head with a teammate, even one we would win.
+          // Walking head-on into an ally is always treated as a risky/undesirable
+          // move, regardless of which snake would survive the collision.
+          result.hasAllyRisk = true;
+          result.allyRiskCount++;
+        } else if (this.losesHeadToHead(snake, otherSnake)) {
+          // Enemy: only risky when we wouldn't win outright. Invulnerability
+          // decides first; length only when invulnerability is equal. If we
+          // out-invulnerate the enemy, the head-to-head is NOT risky (a win).
+          result.hasEnemyRisk = true;
+          result.enemyRiskCount++;
         }
       }
     }
