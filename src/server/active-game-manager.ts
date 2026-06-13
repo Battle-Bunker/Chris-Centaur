@@ -258,6 +258,15 @@ export class ActiveGameManager {
 
     pingGameServer();
     this.pingInterval = setInterval(pingGameServer, 30000);
+    // Keep the ping running for the whole process lifetime (simplest, and the
+    // measured ping stays warm for when a game registers), but unref it so this
+    // short-cycle timer never keeps the Node event loop alive on its own. That
+    // lets the autoscale instance go genuinely idle and drain to zero once all
+    // games and users are gone.
+    if (typeof (this.pingInterval as any).unref === 'function') {
+      (this.pingInterval as any).unref();
+    }
+    console.log('[ActiveGameManager] Server ping interval started (30s, unref\'d)');
   }
 
   registerGame(gameState: GameState): void {
@@ -369,6 +378,7 @@ export class ActiveGameManager {
     if (gameOver) {
       console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
       this.games.delete(gameId);
+      this.logIfFullyIdle();
     }
   }
 
@@ -1511,6 +1521,20 @@ export class ActiveGameManager {
     this.notifyMoveCommitted(gameId, snakeId, move, source);
   }
 
+  // Emit a single, greppable "fully idle" line once the manager holds zero
+  // active games and zero connected users. This is the signal the operator
+  // watches for in deployment logs before expecting the instance to scale to
+  // zero (the unref'd timers no longer keep the event loop alive at that point).
+  private logIfFullyIdle(): void {
+    if (this.games.size > 0) return;
+    let totalUsers = 0;
+    for (const game of this.games.values()) {
+      totalUsers += game.connectedUsers.size;
+    }
+    if (totalUsers > 0) return;
+    console.log('[ActiveGameManager] Manager is now fully idle (no active games, no connected users) — instance can scale to zero');
+  }
+
   shutdown(): void {
     if (this.pingInterval) {
       clearInterval(this.pingInterval as any);
@@ -1537,9 +1561,16 @@ export class ActiveGameManager {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);
+          this.logIfFullyIdle();
         }
       }
     }, intervalMs);
+    // Unref so this long-cycle timer doesn't keep the event loop alive on its
+    // own, allowing the autoscale instance to drain to zero when idle.
+    if (typeof (this.staleGameCleanupInterval as any).unref === 'function') {
+      (this.staleGameCleanupInterval as any).unref();
+    }
+    console.log(`[ActiveGameManager] Stale-game cleanup interval started (every ${Math.round(intervalMs / 1000)}s, maxIdle ${Math.round(maxIdleMs / 1000)}s, unref'd)`);
   }
 }
 
