@@ -1,4 +1,4 @@
-import { GameState, Direction, Coord } from '../types/battlesnake';
+import { GameState, BoardSnapshot, Direction, Coord } from '../types/battlesnake';
 import { Response } from 'express';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { BoardGraph } from '../logic/board-graph';
@@ -105,7 +105,7 @@ export interface ConnectedUser {
 
 export interface ActiveGame {
   gameId: string;
-  boardState: GameState | null;
+  boardState: BoardSnapshot | null;
   boardStateTurn: number;
   snakes: Map<string, SnakeInfo>;
   controlledSnakes: Map<string, ControlledSnake>;
@@ -641,7 +641,7 @@ export class ActiveGameManager {
   }
 
   getGameState(gameId: string): {
-    boardState: GameState | null;
+    boardState: BoardSnapshot | null;
     controlledSnakes: Array<{
       id: string; name: string; emoji: string;
       selectedBy: string | null;
@@ -783,18 +783,31 @@ export class ActiveGameManager {
     return true;
   }
 
+  // The shared `game.boardState` is a BoardSnapshot with NO `you` — a single
+  // shared board cannot have a meaningful "our snake" while many snakes are
+  // controlled at once. Any perspective-dependent logic (BoardGraph
+  // invulnerability/severability, route finding) MUST obtain a per-snake
+  // GameState through this helper, which re-points `you` to the requested snake
+  // by ID. Returns null when the snake isn't on the board. This is the only
+  // sanctioned way to turn the shared snapshot into a GameState; reading `.you`
+  // off the snapshot directly is a compile error by design.
+  private viewFor(snapshot: BoardSnapshot, snakeId: string): GameState | null {
+    const you = snapshot.board.snakes.find(s => s.id === snakeId);
+    if (!you) return null;
+    return { ...snapshot, you };
+  }
+
   // Synchronously compute the green goto route from the latest shared board
   // state. Returns [] for blue/null waypoints or when there's no board state.
   private computeGotoRouteNow(
-    boardState: GameState | null,
+    boardState: BoardSnapshot | null,
     snakeId: string,
     waypoint: { type: 'green' | 'blue'; x: number; y: number } | null,
     startHead?: Coord
   ): Coord[] {
     if (!boardState || !waypoint || waypoint.type !== 'green') return [];
-    const targetSnake = boardState.board.snakes.find(s => s.id === snakeId);
-    if (!targetSnake) return [];
-    const gsForRoute: GameState = { ...boardState, you: targetSnake };
+    const gsForRoute = this.viewFor(boardState, snakeId);
+    if (!gsForRoute) return [];
     return this.routeEvaluator.computeWaypointRoute(gsForRoute, snakeId, waypoint, startHead);
   }
 
@@ -858,45 +871,48 @@ export class ActiveGameManager {
     }
   }
 
-  // Validates a move about to be committed against the current board state.
-  // Returns the move unchanged when its destination is passable for the cell
-  // the snake will occupy NEXT turn. Passability is measured with
-  // isPassableAtTurn(dest, 1) — the SAME turn-1 semantics the goto-route and
-  // space BFS use — so a step onto a tail that vacates this turn stays valid and
-  // a legitimate green-route / bot move is never overridden. When the move would
-  // leave the board or hit an obstacle (e.g. a stale bot fallback computed from
-  // a previous head), it returns the best alternative: a turn-1-passable
-  // direction if one exists, else any in-bounds direction (so we never send an
-  // off-board move even when death is unavoidable). Returns the original move
-  // unchanged when there's no board state to validate against.
-  private ensureBoardSafeMove(gameId: string, snakeId: string, move: Direction): Direction {
+  // Non-mutating safety probe. Reports whether `move` would put THIS snake's
+  // head on an impassable cell next turn — off-board, wall/hazard, our own
+  // body, or a non-severable enemy body — evaluated from the committing snake's
+  // OWN perspective via viewFor, so an invulnerable snake attacking a weaker
+  // enemy is correctly NOT fatal. Measured with isPassableAtTurn(dest, 1), the
+  // same turn-1 semantics the goto-route and space BFS use, so a step onto a
+  // tail that vacates this turn is not flagged.
+  //
+  // This NEVER changes the committed move. The staged move is sacrosanct and
+  // commits verbatim; this exists solely so the UI can warn a human that the
+  // move they staged is certain death.
+  private isMoveFatal(gameId: string, snakeId: string, move: Direction): boolean {
     const game = this.games.get(gameId);
-    if (!game?.boardState) return move;
+    if (!game?.boardState) return false;
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
     const head = snake?.head || snake?.body?.[0];
-    if (!head) return move;
-
-    // This runs inside the safety-timer / cleanup commit path, which has no
-    // surrounding try/catch — a throw here would crash the whole server. Never
-    // let board validation take down a commit: on any error, send the move as-is.
+    if (!head) return false;
     try {
-      const graph = new BoardGraph(game.boardState);
-      const passableNext = (m: Direction) => graph.isPassableAtTurn(ActiveGameManager.destinationOf(head, m), 1);
-      if (passableNext(move)) return move;
-
-      const all: Direction[] = ['up', 'down', 'left', 'right'];
-      const passable = all.find(m => passableNext(m));
-      if (passable) return passable;
-
-      // No passable move (boxed in). Still refuse to walk off the board: prefer
-      // any in-bounds direction over the original if the original is out of bounds.
-      if (graph.isInBounds(ActiveGameManager.destinationOf(head, move))) return move;
-      const inBounds = all.find(m => graph.isInBounds(ActiveGameManager.destinationOf(head, m)));
-      return inBounds ?? move;
+      const gs = this.viewFor(game.boardState, snakeId);
+      if (!gs) return false;
+      const graph = new BoardGraph(gs);
+      return !graph.isPassableAtTurn(ActiveGameManager.destinationOf(head, move), 1);
     } catch (e) {
-      console.error(`[ActiveGameManager] ensureBoardSafeMove failed for ${gameId}:${snakeId}, committing ${move} unchanged:`, e);
-      return move;
+      // A UI hint must never throw on the broadcast path — treat as not-fatal.
+      console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);
+      return false;
     }
+  }
+
+  // Public: is the move this snake will actually commit this turn (the committed
+  // move if one is already locked in, else the current staged move) certain
+  // death? Drives the red "fatal staged move" marker in the centaur UI. Pure
+  // read — no mutation, no effect on what commits.
+  isStagedMoveFatal(gameId: string, snakeId: string): boolean {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!controlled) return false;
+    const move = (controlled.moveCommittedThisTurn && controlled.committedMove)
+      ? controlled.committedMove
+      : controlled.stagedMove;
+    if (!move) return false;
+    return this.isMoveFatal(gameId, snakeId, move);
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1474,17 +1490,15 @@ export class ActiveGameManager {
     pending.resolved = true;
     clearTimeout(pending.timer);
 
-    // Final safety gate: the staged move (or stale bot fallback) can point
-    // off-board or into a wall against the board state we're actually answering
-    // — never send such a move. Suicide is the one intentional exception (it
-    // deliberately steers into death).
-    if (source !== 'suicide') {
-      const safe = this.ensureBoardSafeMove(gameId, snakeId, move);
-      if (safe !== move) {
-        console.log(`[ActiveGameManager] Unsafe move ${move} for ${gameId}:${snakeId} (source: ${source}) → committing ${safe} instead`);
-        move = safe;
-      }
-    }
+    // Commit is a PURE PASSTHROUGH: the staged move is sacrosanct and is sent
+    // to the game server verbatim — there is deliberately no intelligence here.
+    // All safety reasoning happens upstream at staging time (computeIntendedMove
+    // and the bot's own safe-move selection), and a staged move that is certain
+    // death is surfaced to the human via the red fatal-move marker
+    // (isStagedMoveFatal), never silently rewritten at the last instant. The
+    // previous commit-time guard could flip a deliberate (e.g. invulnerable
+    // attack) move to 'up'; that is exactly the behaviour we forbid here.
+    // (Suicide already deliberately steers into death and needs no guard.)
 
     controlled.moveCommittedThisTurn = true;
     controlled.committedMove = move;

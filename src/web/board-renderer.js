@@ -864,6 +864,40 @@ const BoardRenderer = (function () {
             const back = headSize * 0.7;
             drawHead(endX - back * Math.cos(angle), endY - back * Math.sin(angle));
           }
+
+          // Fatal-move warning: the staged/committed move walks the head into
+          // certain death (wall, own body, or a non-severable enemy). The move
+          // is NEVER auto-corrected — the server commits it verbatim — so we
+          // mark the destination cell with a red ⃠ (no-entry circle + X) to warn
+          // the human. We keep the arrow's source colour intact so the warning
+          // is additive, not a replacement.
+          if (stagedForThisSnake && stagedForThisSnake.fatal) {
+            let dcx = 0, dcy = 0;
+            switch (arrowMove) {
+              case "up": dcy = 1; break;
+              case "down": dcy = -1; break;
+              case "left": dcx = -1; break;
+              case "right": dcx = 1; break;
+            }
+            const destCol = shead.x + dcx;
+            const destRow = board.height - 1 - (shead.y + dcy);
+            const mx = destCol * cellSize + cellSize / 2;
+            const my = destRow * cellSize + cellSize / 2;
+            const r = cellSize * 0.32;
+            ctx.setLineDash([]);
+            ctx.lineWidth = Math.max(cellSize * 0.1, 3);
+            ctx.strokeStyle = "#ff1744";
+            ctx.beginPath();
+            ctx.arc(mx, my, r, 0, Math.PI * 2);
+            ctx.stroke();
+            const d = r * 0.6;
+            ctx.beginPath();
+            ctx.moveTo(mx - d, my - d);
+            ctx.lineTo(mx + d, my + d);
+            ctx.moveTo(mx + d, my - d);
+            ctx.lineTo(mx - d, my + d);
+            ctx.stroke();
+          }
         }
       }
     });

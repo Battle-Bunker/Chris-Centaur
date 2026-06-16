@@ -52,6 +52,13 @@ export interface GameState {
   you: Snake;
 }
 
+// A board-only view of a game with NO `you`. The centaur server controls many
+// snakes against ONE shared board, so a single shared state cannot carry a
+// meaningful "our snake". Storing the shared board as a BoardSnapshot makes it a
+// compile error to read a per-snake perspective (invulnerability/severability)
+// off it — callers must obtain a real GameState for a specific snake by ID.
+export type BoardSnapshot = Omit<GameState, 'you'>;
+
 export interface MoveResponse {
   move: string;
   shout?: string;

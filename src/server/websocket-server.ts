@@ -540,12 +540,12 @@ export class GameWebSocketServer {
   // triggered the current broadcast still has a valid staged move to show. The
   // client only draws an arrow for snakes present on the board, so eliminated
   // snakes are naturally skipped there.
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string } } {
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
 
     const BOT_COLOR = '#888888';
-    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string; source: string } } = {};
+    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
@@ -557,12 +557,15 @@ export class GameWebSocketServer {
       // guarantees the user's own move will commit (Bug A).
       const isBot = cs.stagedMoveSource === 'bot' || cs.stagedMoveSource === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
+      // `fatal` flags a certain-death move so the client can warn the human; it
+      // NEVER changes what commits (the staged move is sacrosanct).
+      const fatal = this.gameManager.isStagedMoveFatal(gameId, snakeId);
       if (cs.moveCommittedThisTurn && cs.committedMove) {
-        staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed' };
+        staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed', fatal };
         continue;
       }
       if (!cs.stagedMove) continue;
-      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source: cs.stagedMoveSource };
+      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source: cs.stagedMoveSource, fatal };
     }
     return staged;
   }
