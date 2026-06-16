@@ -28,6 +28,7 @@
     IDLE_CLOSE_REASON: 'idle-timeout',
     ACTIVITY_HEARTBEAT_INTERVAL_MS: 2 * 60 * 1000,
     IDLE_CHECK_INTERVAL_MS: 30 * 1000,
+    WS_KEEPALIVE_INTERVAL_MS: 25 * 1000,
   };
 
   function buildOverlay() {
@@ -112,10 +113,27 @@
 
       this.checkInterval = setInterval(() => this._tick(),
         POLICY.IDLE_CHECK_INTERVAL_MS);
+
+      // Unconditional connection keepalive. Sent on a steady cadence regardless
+      // of whether the user has interacted, so a passive watcher never goes
+      // silent and the proxy never drops the idle-but-open socket. This is
+      // deliberately separate from the activity heartbeat: `keepalive` does NOT
+      // count as user intent server-side, so it never resets the 30-minute idle
+      // window — only genuine activity does.
+      this.keepaliveInterval = setInterval(() => this._keepalive(),
+        POLICY.WS_KEEPALIVE_INTERVAL_MS);
     }
 
     _markActivity() {
       this.lastActivityAt = Date.now();
+    }
+
+    _keepalive() {
+      const ws = this.getWS && this.getWS();
+      if (!ws || ws.readyState !== 1 /* OPEN */) return;
+      try {
+        ws.send(JSON.stringify({ type: 'keepalive' }));
+      } catch (e) { /* ignore */ }
     }
 
     /** Returns true if the close was caused by us closing for idle, so the

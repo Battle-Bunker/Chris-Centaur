@@ -114,6 +114,15 @@ export interface ActiveGame {
   startedAt: number;
   lastActivityAt: number;
   colorPool: string[];
+  // Persistent userId→colour association. Outlives a disconnect so a user who
+  // reconnects (same sessionStorage userId) reclaims their previous colour
+  // instead of being handed a fresh one off the pool. Entries are removed only
+  // when the reconnect grace window expires or the game is cleaned up.
+  userColors: Map<string, string>;
+  // Pending colour-release timers keyed by userId. A disconnect schedules one;
+  // a reconnect within the grace window cancels it. When it fires, the colour
+  // is returned to the pool and the userColors entry dropped.
+  colorReleaseTimers: Map<string, NodeJS.Timeout>;
   turnExpiryTime: number | null;
   currentTurn: number;
 }
@@ -123,6 +132,12 @@ const DISTINCT_COLORS = [
   '#3cb44b', '#42d4f4', '#4363d8', '#911eb4',
   '#f032e6',
 ];
+
+// How long a disconnected user's colour is held in reserve before it's released
+// back to the pool. A transient drop (proxy blip, brief network loss) reconnects
+// well within this window — the client retries after ~2s — so the user keeps the
+// same colour with no churn. Only a real departure (no reconnect) frees it.
+const COLOR_RELEASE_GRACE_MS = 60 * 1000;
 
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
 export type BoardUpdateCallback = (gameId: string, gameState: GameState) => void;
@@ -287,6 +302,8 @@ export class ActiveGameManager {
         startedAt: now,
         lastActivityAt: now,
         colorPool: [...DISTINCT_COLORS],
+        userColors: new Map(),
+        colorReleaseTimers: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
       };
@@ -377,6 +394,7 @@ export class ActiveGameManager {
 
     if (gameOver) {
       console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
+      this.clearColorReleaseTimers(game);
       this.games.delete(gameId);
       this.logIfFullyIdle();
     }
@@ -571,9 +589,24 @@ export class ActiveGameManager {
       return game.connectedUsers.get(userId)!;
     }
 
-    const color = game.colorPool.length > 0
-      ? game.colorPool.shift()!
-      : DISTINCT_COLORS[game.connectedUsers.size % DISTINCT_COLORS.length];
+    // A reconnect within the grace window: cancel the pending colour release so
+    // the colour is never returned to the pool — the user reclaims it exactly.
+    const pendingRelease = game.colorReleaseTimers.get(userId);
+    if (pendingRelease) {
+      clearTimeout(pendingRelease);
+      game.colorReleaseTimers.delete(userId);
+    }
+
+    // Reuse the user's previously assigned colour if we still remember it
+    // (reconnect, possibly after the timer was cancelled above); otherwise pull
+    // a fresh one from the pool.
+    let color = game.userColors.get(userId);
+    if (!color) {
+      color = game.colorPool.length > 0
+        ? game.colorPool.shift()!
+        : DISTINCT_COLORS[game.connectedUsers.size % DISTINCT_COLORS.length];
+      game.userColors.set(userId, color);
+    }
 
     const user: ConnectedUser = {
       userId,
@@ -608,8 +641,38 @@ export class ActiveGameManager {
       }
     }
 
-    game.colorPool.push(user.color);
     game.connectedUsers.delete(userId);
+
+    // Don't recycle the colour immediately. Hold it in reserve (userColors keeps
+    // the association) so a quick reconnect reclaims the exact same colour with
+    // no churn. Only after the grace window expires with no reconnect do we
+    // return it to the pool. Replace any existing timer (defensive — shouldn't
+    // happen since a reconnect cancels it).
+    const existing = game.colorReleaseTimers.get(userId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      const g = this.games.get(gameId);
+      if (!g) return;
+      g.colorReleaseTimers.delete(userId);
+      // If the user reconnected in the meantime, leave their colour alone.
+      if (g.connectedUsers.has(userId)) return;
+      const color = g.userColors.get(userId);
+      if (color) {
+        g.colorPool.push(color);
+        g.userColors.delete(userId);
+      }
+    }, COLOR_RELEASE_GRACE_MS);
+    if (typeof (timer as any).unref === 'function') (timer as any).unref();
+    game.colorReleaseTimers.set(userId, timer);
+  }
+
+  /** Cancel all pending colour-release timers for a game. Call before deleting a
+   *  game so a stale timer can't fire against a removed game. */
+  private clearColorReleaseTimers(game: ActiveGame): void {
+    for (const timer of game.colorReleaseTimers.values()) {
+      clearTimeout(timer);
+    }
+    game.colorReleaseTimers.clear();
   }
 
   getGame(gameId: string): ActiveGame | undefined {
@@ -1574,6 +1637,7 @@ export class ActiveGameManager {
             }
             this.notifyGameListChange('removed', gameId, snakeId);
           }
+          this.clearColorReleaseTimers(game);
           this.games.delete(gameId);
           this.logIfFullyIdle();
         }

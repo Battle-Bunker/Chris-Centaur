@@ -9,6 +9,7 @@ export type ConnectionEventType =
   | 'server-idle-close'
   | 'server-backpressure-drop'
   | 'server-backpressure-terminate'
+  | 'server-keepalive-terminate'
   | 'client-open'
   | 'client-close'
   | 'client-error'

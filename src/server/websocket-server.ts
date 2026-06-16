@@ -9,6 +9,7 @@ import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
   SERVER_IDLE_SWEEP_INTERVAL_MS,
+  WS_KEEPALIVE_INTERVAL_MS,
 } from '../shared/idle-policy';
 
 interface WSClient {
@@ -21,6 +22,12 @@ interface WSClient {
   userAgent: string;
   connectedAt: number;
   lastActivityAt: number;
+  // Liveness flag for the keepalive ping/pong loop. Set true on every pong (and
+  // on any inbound frame); the keepalive sweep sets it false right before
+  // pinging, so a socket that misses a full interval's pong is treated as dead
+  // and terminated. NOTE: this is connection liveness, NOT user activity — it
+  // must never bump lastActivityAt or the 30-minute idle sweep would never fire.
+  isAlive: boolean;
 }
 
 /** Inbound message types that represent real user intent. Pings (which the
@@ -52,6 +59,7 @@ export class GameWebSocketServer {
   private gameManager: ActiveGameManager;
   private connLogger: ConnectionLogger;
   private idleSweepInterval: NodeJS.Timeout | null = null;
+  private keepaliveInterval: NodeJS.Timeout | null = null;
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
@@ -59,6 +67,7 @@ export class GameWebSocketServer {
 
     this.wss = new WebSocketServer({ server, path: '/ws' });
     this.startIdleSweep();
+    this.startKeepalive();
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       const ip =
@@ -79,6 +88,7 @@ export class GameWebSocketServer {
         userAgent,
         connectedAt: now,
         lastActivityAt: now,
+        isAlive: true,
       };
       this.clients.add(client);
       this.logActiveConnections('connect', connId);
@@ -98,6 +108,10 @@ export class GameWebSocketServer {
 
       ws.on('message', (data: Buffer) => {
         try {
+          // Any inbound frame proves the socket is alive for the keepalive loop.
+          // This is liveness only — it must NOT touch lastActivityAt unless the
+          // message is genuine user intent (handled below).
+          client.isAlive = true;
           const msg: WSMessage = JSON.parse(data.toString());
           if (msg && typeof msg.type === 'string' && USER_INTENT_TYPES.has(msg.type)) {
             client.lastActivityAt = Date.now();
@@ -106,6 +120,13 @@ export class GameWebSocketServer {
         } catch (e) {
           console.error('WebSocket message parse error:', e);
         }
+      });
+
+      // Protocol-level pong replies keep the socket marked alive for the
+      // keepalive sweep. Like inbound messages, this is liveness only and must
+      // never bump lastActivityAt.
+      ws.on('pong', () => {
+        client.isAlive = true;
       });
 
       ws.on('close', (code: number, reasonBuf: Buffer) => {
@@ -448,6 +469,74 @@ export class GameWebSocketServer {
         // this off the wire when the tab is idle.
         break;
       }
+
+      case 'keepalive': {
+        // Unconditional connection keepalive from the client. Deliberately NOT
+        // in USER_INTENT_TYPES, so it keeps the socket warm (and proxy idle
+        // timer reset) without resetting the 30-minute user-idle window. The
+        // inbound frame already marked isAlive above; nothing else to do.
+        break;
+      }
+    }
+  }
+
+  /**
+   * Protocol-level keepalive. Every interval, terminate any socket that didn't
+   * answer the previous ping (genuinely dead/zombie), then ping the rest. We
+   * also send a lightweight application-level `keepalive` frame on the same
+   * cadence: the platform proxy is known to forward application data frames
+   * (board updates flow through it), but may not forward low-level ping frames,
+   * so the app-level frame guarantees server→client traffic keeps the idle-but-
+   * open socket from being dropped (~5-minute proxy window).
+   */
+  private startKeepalive(): void {
+    if (this.keepaliveInterval) return;
+    const keepaliveData = JSON.stringify({ type: 'keepalive', ts: 0 });
+    this.keepaliveInterval = setInterval(() => {
+      for (const client of this.clients) {
+        if (client.ws.readyState !== WebSocket.OPEN) continue;
+        if (!client.isAlive) {
+          // Missed a full interval without any inbound frame or pong — treat as
+          // a dead socket and terminate so the client reconnects fresh.
+          console.log(
+            `[WebSocket] Keepalive: terminating dead conn=${client.connId} ` +
+              `user=${client.userId || '-'} game=${client.gameId || '-'}`,
+          );
+          this.connLogger.log({
+            ts: Date.now(),
+            side: 'server',
+            type: 'server-keepalive-terminate',
+            connId: client.connId,
+            gameId: client.gameId || undefined,
+            userId: client.userId || undefined,
+            ip: client.ip,
+            durationMs: Date.now() - client.connectedAt,
+          });
+          try { client.ws.terminate(); } catch { /* already tearing down */ }
+          continue;
+        }
+        // Expect a pong (or any inbound frame) before the next sweep.
+        client.isAlive = false;
+        try { client.ws.ping(); } catch { /* best-effort */ }
+        // App-level keepalive as the proxy-forwarding fallback.
+        try { client.ws.send(keepaliveData); } catch { /* best-effort */ }
+      }
+    }, WS_KEEPALIVE_INTERVAL_MS);
+    // Don't keep the event loop alive solely for the keepalive timer.
+    if (typeof this.keepaliveInterval.unref === 'function') {
+      this.keepaliveInterval.unref();
+    }
+  }
+
+  /** Stop background timers so the process can shut down cleanly. */
+  shutdown(): void {
+    if (this.idleSweepInterval) {
+      clearInterval(this.idleSweepInterval);
+      this.idleSweepInterval = null;
+    }
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
     }
   }
 

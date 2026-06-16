@@ -223,6 +223,7 @@ httpServer.listen(port, '0.0.0.0', () => {
 async function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down gracefully...`);
   gameManager.shutdown();
+  wsServer.shutdown();
   const decisionLogger = DecisionLogger.getInstance();
   await decisionLogger.shutdown();
   await ConnectionLogger.getInstance().shutdown();
