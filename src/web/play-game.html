@@ -465,6 +465,8 @@
     let ws = null;
     let moveState = null;
     let currentGameState = null;
+    let previousGameState = null;  // prior-turn board, for dead-head markers
+    let deadOurSnakes = {};        // { [snakeId]: { id, intendedHead, actualHead, color, emoji } }
     let moveSubmitted = false;
     let userSelectedMove = null;
     let turnTimerInterval = null;
@@ -639,6 +641,16 @@
           break;
 
         case 'board-update':
+          // Snapshot the prior turn's board before overwriting so the renderer
+          // can mark heads of snakes that vanished this turn. Only re-anchor the
+          // snapshot when the turn actually advances (board-update can re-fire
+          // for the same turn as different snakes respond).
+          if (
+            currentGameState &&
+            (msg.gameState?.turn ?? -1) > (currentGameState.turn ?? -1)
+          ) {
+            previousGameState = currentGameState;
+          }
           currentGameState = msg.gameState;
           turnExpiryTime = msg.turnExpiryTime || null;
           measuredPing = msg.measuredPing || 0;
@@ -875,7 +887,49 @@
           // We render that final state, then surface a Game Over banner.
           // Guard against a stale/duplicate /end rolling the UI backwards.
           const currentTurn = currentGameState?.turn ?? -1;
+          // Capture our snake's death markers BEFORE overwriting currentGameState
+          // with the final state (which no longer contains the dead snake). The
+          // intended head comes from the move we staged/committed; the actual
+          // head from the engine-reported final state.
+          if (!msg.survived) {
+            const ourSnake = (currentGameState?.board?.snakes || []).find(
+              s => s.id === msg.snakeId
+            );
+            const head = ourSnake?.body?.[0] || ourSnake?.head || null;
+            const staged = stagedMoves[msg.snakeId];
+            const move = staged && staged.move ? staged.move : null;
+            const intendedHead = head && move ? applyMoveToCell(head, move) : head;
+            const finalYou = msg.finalGameState?.you;
+            const actualHead =
+              finalYou && finalYou.id === msg.snakeId ? finalYou.head : null;
+            // Render the snake's real last-known body (no fabricated advance).
+            // The intended move (shadow) and the server-reported actual head
+            // (solid) ride on top to show where it went.
+            const deathBody = ourSnake?.body
+              ? ourSnake.body.slice()
+              : head
+                ? [head]
+                : [];
+            deadOurSnakes[msg.snakeId] = {
+              id: msg.snakeId,
+              lastHead: head || null,
+              intendedHead,
+              actualHead,
+              body: deathBody,
+              color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
+              emoji: ourSnake?.emoji || '\u{1F40D}',
+              // Death markers belong to the death turn only; subsequent turns
+              // (other snakes keep playing) must not keep painting them.
+              deathTurn: msg.finalGameState?.turn ?? currentGameState?.turn ?? null,
+            };
+          }
           if (msg.finalGameState && msg.finalGameState.turn >= currentTurn) {
+            if (
+              currentGameState &&
+              msg.finalGameState.turn > (currentGameState.turn ?? -1)
+            ) {
+              previousGameState = currentGameState;
+            }
             currentGameState = msg.finalGameState;
             document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
             document.getElementById('firstMoveIndicator').style.display = 'none';
@@ -1082,6 +1136,16 @@
       }
     }
 
+    function applyMoveToCell(head, move) {
+      switch (move) {
+        case 'up': return { x: head.x, y: head.y + 1 };
+        case 'down': return { x: head.x, y: head.y - 1 };
+        case 'left': return { x: head.x - 1, y: head.y };
+        case 'right': return { x: head.x + 1, y: head.y };
+      }
+      return head;
+    }
+
     function renderGameBoard() {
       if (!currentGameState) return;
       const canvas = document.getElementById('gameCanvas');
@@ -1098,6 +1162,15 @@
       // human-staged ones in the controller's color, and committed ones as a
       // double arrow (see board-renderer). The client renders the broadcast
       // stagedMoves snapshot directly — no local synthesis.
+      // Only feed death markers for snakes actually missing from the live board
+      // (so a stale entry can't paint over a still-alive snake) AND only on the
+      // exact death turn — once the game advances, the marker must disappear.
+      const liveIds = new Set(currentGameState.board.snakes.map(s => s.id));
+      const curTurn = currentGameState.turn;
+      const ourDeaths = Object.values(deadOurSnakes).filter(
+        d => !liveIds.has(d.id) && d.deathTurn === curTurn
+      );
+
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
@@ -1105,6 +1178,8 @@
         selectionGlows: selectionGlows,
         holds: holds,
         stagedMoves: stagedMoves,
+        previousBoard: previousGameState?.board || null,
+        ourDeaths: ourDeaths,
       });
 
       // Q-mode visual cue: outline the four orthogonally-adjacent cells to

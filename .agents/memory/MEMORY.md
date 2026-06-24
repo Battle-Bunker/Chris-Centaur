@@ -1,3 +1,4 @@
 - [Active intent mode invariant](intent-mode-invariant.md) — centaur play: one active next-move source per snake; all changes via transitionIntentMode; manual is single-turn, queue/waypoint persist.
 - [Combat invulnerability precedence](combat-invulnerability-precedence.md) — H2H winner = max invuln first, length only tiebreaks equal-invuln; aggression hunts strictly-out-invulnerated enemies; new heuristics must wire all synced surfaces.
+- [Dead-snake death markers](dead-snake-head-advance.md) — NEVER fabricate a death cell; server removes dead snakes immediately so only last-known pos exists. Our snake: shadow=intended move, solid=server final head. Dead body = "\" striped team color.
 - [Snake IDs contain '#'](snake-id-url-encoding.md) — centaur snake ids are `BASEID#suffix`; raw in a URL the '#suffix' becomes a fragment and the wrong snake loads. Always encodeURIComponent.

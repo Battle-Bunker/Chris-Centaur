@@ -119,6 +119,31 @@ function prettifyTeamName(teamId: string | null | undefined): string | null {
     .join(' ');
 }
 
+// Server-reported outcome for OUR snake at game end. Recorded separately from
+// the per-move insert because it only becomes known on /end (the engine reports
+// where our snake actually finished, which can differ from the move we intended
+// to submit due to latency, timeouts, or the server overruling).
+export interface GameOutcome {
+  finalHeadX: number;
+  finalHeadY: number;
+  alive: boolean;
+}
+
+interface OutcomeUpdate {
+  gameId: string;
+  snakeId: string;
+  outcomeJson: string;
+  retries: number;
+}
+
+// The async worker queue holds either per-move inserts or game-end outcome
+// updates. Outcomes are always enqueued AFTER the snake's final insert, and the
+// worker processes all inserts in a batch before any outcomes in the same
+// batch, so the row an outcome targets always exists by the time we UPDATE it.
+type QueueItem =
+  | { kind: 'insert'; row: SerializedRow }
+  | { kind: 'outcome'; update: OutcomeUpdate };
+
 const BATCH_SIZE = 100;
 const COLUMNS_PER_ROW = 11;
 
@@ -130,7 +155,7 @@ export class DecisionLogger {
   private readonly MAX_QUEUE_SIZE = 50000;
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY_MS = 100;
-  private queue: SerializedRow[] = [];
+  private queue: QueueItem[] = [];
   private droppedCount = 0;
 
   // Worker loop coordination
@@ -179,9 +204,15 @@ export class DecisionLogger {
           chosen_move VARCHAR(10) NOT NULL,
           move_evaluations JSONB NOT NULL,
           game_state JSONB NOT NULL,
+          server_outcome JSONB,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
       `);
+
+      // Backfill the server_outcome column for tables created before this
+      // feature. Holds the engine-reported final head/alive state for OUR snake
+      // (intended-vs-actual death rendering); older rows simply stay NULL.
+      await this.pool.query('ALTER TABLE decision_logs ADD COLUMN IF NOT EXISTS server_outcome JSONB;');
 
       await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_game_id ON decision_logs(game_id);');
       await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_snake_id ON decision_logs(snake_id);');
@@ -233,11 +264,30 @@ export class DecisionLogger {
       const dropped = this.queue.shift();
       this.droppedCount++;
       if (this.droppedCount % 100 === 0) {
-        console.warn(`[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: game=${dropped?.gameId}, turn=${dropped?.turn}`);
+        const d = dropped?.kind === 'insert' ? dropped.row : undefined;
+        console.warn(`[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: game=${d?.gameId}, turn=${d?.turn}`);
       }
     }
 
-    this.queue.push(row);
+    this.queue.push({ kind: 'insert', row });
+    this.signalWakeup();
+  }
+
+  // Record the engine-reported final outcome for OUR snake at game end. Called
+  // from the /end route. Enqueued so it processes after the snake's final-move
+  // insert; the worker updates the latest logged row for this game+snake.
+  public recordGameOutcome(gameId: string, snakeId: string, outcome: GameOutcome): void {
+    let outcomeJson: string;
+    try {
+      outcomeJson = JSON.stringify(outcome);
+    } catch (e) {
+      console.error('[DecisionLogger] Failed to serialize outcome, dropping:', e);
+      return;
+    }
+    this.queue.push({
+      kind: 'outcome',
+      update: { gameId, snakeId, outcomeJson, retries: 0 },
+    });
     this.signalWakeup();
   }
 
@@ -271,15 +321,63 @@ export class DecisionLogger {
       }
 
       const batch = this.queue.splice(0, BATCH_SIZE);
-      try {
-        await this.insertBatch(batch);
-      } catch (error) {
-        // Batched insert failed — fall back to per-row retry with backoff so
-        // one poison row can't block the whole queue.
-        console.warn(`[DecisionLogger] Batch insert failed (${batch.length} rows), falling back to per-row retry:`, (error as Error).message);
-        for (const row of batch) {
-          await this.insertSingleWithRetry(row);
+      // Process all inserts in the batch first, then outcome updates, so an
+      // outcome enqueued right after its snake's final insert finds the row.
+      const rows = batch
+        .filter((item): item is { kind: 'insert'; row: SerializedRow } => item.kind === 'insert')
+        .map(item => item.row);
+      const outcomes = batch
+        .filter((item): item is { kind: 'outcome'; update: OutcomeUpdate } => item.kind === 'outcome')
+        .map(item => item.update);
+
+      if (rows.length > 0) {
+        try {
+          await this.insertBatch(rows);
+        } catch (error) {
+          // Batched insert failed — fall back to per-row retry with backoff so
+          // one poison row can't block the whole queue.
+          console.warn(`[DecisionLogger] Batch insert failed (${rows.length} rows), falling back to per-row retry:`, (error as Error).message);
+          for (const row of rows) {
+            await this.insertSingleWithRetry(row);
+          }
         }
+      }
+
+      for (const update of outcomes) {
+        await this.applyOutcomeWithRetry(update);
+      }
+    }
+  }
+
+  private async applyOutcome(update: OutcomeUpdate): Promise<void> {
+    await this.initialize();
+    // Attach the outcome to the most recent logged row for this game+snake
+    // (the final decision, whose chosen_move is the intended-but-fatal move).
+    await this.pool.query(
+      `UPDATE decision_logs SET server_outcome = $1::jsonb
+       WHERE id = (
+         SELECT id FROM decision_logs
+         WHERE game_id = $2 AND snake_id = $3
+         ORDER BY turn DESC, id DESC
+         LIMIT 1
+       )`,
+      [update.outcomeJson, update.gameId, update.snakeId],
+    );
+  }
+
+  private async applyOutcomeWithRetry(update: OutcomeUpdate): Promise<void> {
+    while (true) {
+      try {
+        await this.applyOutcome(update);
+        return;
+      } catch (error) {
+        update.retries++;
+        if (update.retries > this.MAX_RETRIES) {
+          console.error(`[DecisionLogger] Failed to record outcome after ${this.MAX_RETRIES} retries for game ${update.gameId}, snake ${update.snakeId}:`, error);
+          return;
+        }
+        const delay = this.RETRY_DELAY_MS * Math.pow(2, update.retries - 1) * (0.5 + Math.random() * 0.5);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   }

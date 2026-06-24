@@ -46,6 +46,11 @@ router.get('/api/logs', async (req, res) => {
         game_state: typeof log.game_state === 'string'
           ? JSON.parse(log.game_state)
           : log.game_state,
+        server_outcome: log.server_outcome == null
+          ? null
+          : (typeof log.server_outcome === 'string'
+            ? JSON.parse(log.server_outcome)
+            : log.server_outcome),
         timestamp: log.timestamp
       }))
     });

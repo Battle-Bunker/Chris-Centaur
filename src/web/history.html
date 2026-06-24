@@ -760,12 +760,50 @@
       BoardRenderer.updateStatsTable(document.getElementById('statsTableBody'), null, moveState);
     }
     
+    function applyMove(head, move) {
+      switch (move) {
+        case 'up': return { x: head.x, y: head.y + 1 };
+        case 'down': return { x: head.x, y: head.y - 1 };
+        case 'left': return { x: head.x - 1, y: head.y };
+        case 'right': return { x: head.x + 1, y: head.y };
+      }
+      return null;
+    }
+
+    function buildOurDeaths(turn) {
+      // Our own snake's death markers only render on the final logged turn, the
+      // one the engine tagged with server_outcome on game end. Shadow = the move
+      // we intended (head + chosen_move); solid = where the server actually put
+      // us. Older logs have no server_outcome → no markers (rendered gracefully).
+      const outcome = turn.server_outcome;
+      if (!outcome || outcome.alive) return [];
+      const snakes = turn.game_state?.board?.snakes || [];
+      const ourSnake = snakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
+      const head = ourSnake?.body?.[0] || ourSnake?.head;
+      const intendedHead = head && turn.chosen_move ? applyMove(head, turn.chosen_move) : null;
+      const actualHead =
+        outcome.finalHeadX != null && outcome.finalHeadY != null
+          ? { x: outcome.finalHeadX, y: outcome.finalHeadY }
+          : null;
+      return [{
+        id: turn.snake_id,
+        lastHead: head || null,
+        intendedHead,
+        actualHead,
+        color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
+        emoji: ourSnake?.emoji || '\u{1F40D}',
+      }];
+    }
+
     function renderBoardView(turn) {
       const canvas = document.getElementById('gameCanvas');
+      const prevTurn = currentTurn > 0 ? turnData[currentTurn - 1] : null;
       BoardRenderer.renderBoard(canvas, turn.game_state, moveState, {
         snakeId: turn.snake_id,
         chosenMove: turn.chosen_move,
-        showChosenArrow: true
+        showChosenArrow: true,
+        previousBoard: prevTurn?.game_state?.board || null,
+        ourDeaths: buildOurDeaths(turn),
       });
       BoardRenderer.createBoardOverlay(
         document.getElementById('boardOverlay'), canvas, turn.game_state.board, moveState, selectMove

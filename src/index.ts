@@ -38,6 +38,7 @@ app.use(express.static(path.join(__dirname, '../src/web')));
 const voronoiStrategy = new VoronoiStrategy();
 const teamDetector = new TeamDetector();
 const logger = new GameLogger();
+const decisionLogger = DecisionLogger.getInstance();
 const gameManager = ActiveGameManager.getInstance();
 const firstMoveMoveAnalyzer = new MoveAnalyzer();
 
@@ -173,6 +174,20 @@ app.post('/move', async (req, res) => {
 app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
   logger.endGame(gameState);
+
+  // Record where the engine reported OUR snake actually finished so the History
+  // viewer can show the actual (solid) death head vs the intended move (shadow).
+  // A snake removed from board.snakes died; one still present survived/won.
+  const ourHead = gameState.you?.head;
+  if (ourHead) {
+    const alive = (gameState.board?.snakes || []).some(s => s.id === gameState.you.id);
+    decisionLogger.recordGameOutcome(gameState.game.id, gameState.you.id, {
+      finalHeadX: ourHead.x,
+      finalHeadY: ourHead.y,
+      alive,
+    });
+  }
+
   gameManager.endGame(gameState.game.id, gameState.you.id, gameState);
   voronoiStrategy.onGameEnd(gameState.game.id);
   res.status(200).send('ok');

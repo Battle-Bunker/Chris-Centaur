@@ -17,7 +17,13 @@ CREATE TABLE IF NOT EXISTS decision_logs (
   
   -- Full game state for reconstruction (stored as JSONB)
   game_state JSONB NOT NULL,
-  
+
+  -- Engine-reported final outcome for OUR snake, attached to the final turn on
+  -- game end: { finalHeadX, finalHeadY, alive }. Used to render the actual
+  -- (server-reported) death head vs the intended move. NULL for non-final rows
+  -- and for logs created before this feature.
+  server_outcome JSONB,
+
   -- Indexes for efficient querying
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -37,6 +37,162 @@ const BoardRenderer = (function () {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
+  // Given the previous turn's snakes and the current turn's snakes, return the
+  // snakes that vanished (present last turn, gone this turn) along with their
+  // LAST-KNOWN head position and body. We deliberately do NOT infer or advance
+  // the death cell: the game server currently removes a snake from board.snakes
+  // the moment it dies, so its true final resting place is not available here.
+  // Reporting the last-known position is honest (that is genuinely where the
+  // snake was); a real final-resting-place marker requires the server to keep
+  // dead snakes in the state for one turn. `excludeIds` skips snakes whose
+  // markers are drawn explicitly elsewhere (e.g. our own snake).
+  function getDisappearedSnakes(prevSnakes, currentSnakes, excludeIds) {
+    if (!prevSnakes || prevSnakes.length === 0) return [];
+    const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds || []);
+    const currentIds = new Set((currentSnakes || []).map((s) => s.id));
+    const dead = [];
+    prevSnakes.forEach((s) => {
+      if (currentIds.has(s.id) || exclude.has(s.id)) return;
+      const prevBody =
+        s.body && s.body.length ? s.body : s.head ? [s.head] : [];
+      if (!prevBody.length) return;
+      dead.push({
+        id: s.id,
+        head: prevBody[0],
+        body: prevBody.slice(),
+        color: s.customizations?.color || s.color || "#888888",
+        emoji: s.emoji || "\u{1F40D}",
+      });
+    });
+    return dead;
+  }
+
+  // Draw a dead-head marker at a board cell. A solid marker (shadow=false) is a
+  // filled disc in the snake's color with a white ✗; a shadow marker
+  // (shadow=true) is a ghosted/translucent disc with a dashed outline and a
+  // colored ✗, used for our snake's INTENDED (attempted) move when it differs
+  // from where the server actually placed us.
+  function drawDeathMarker(ctx, head, boardHeight, cellSize, color, shadow) {
+    if (!head) return;
+    const cx = head.x * cellSize + cellSize / 2;
+    const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
+    const r = cellSize * 0.34;
+    const markColor = color || "#888888";
+    ctx.save();
+    if (shadow) {
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = markColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([
+        Math.max(2, cellSize * 0.1),
+        Math.max(2, cellSize * 0.08),
+      ]);
+      ctx.lineWidth = Math.max(1.5, cellSize * 0.06);
+      ctx.strokeStyle = markColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      ctx.fillStyle = markColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
+      ctx.strokeStyle = "#000000";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    const d = r * 0.55;
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(1.5, cellSize * 0.1);
+    ctx.strokeStyle = shadow ? markColor : "#ffffff";
+    ctx.globalAlpha = shadow ? 0.85 : 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - d, cy - d);
+    ctx.lineTo(cx + d, cy + d);
+    ctx.moveTo(cx + d, cy - d);
+    ctx.lineTo(cx - d, cy + d);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Drawn at a snake's LAST-KNOWN head when we have no authoritative final
+  // resting position from the server. A "?" inside a disc with arrows pointing
+  // outward in all four directions: it could have ended up anywhere from here.
+  function drawUnknownDeathMarker(ctx, head, boardHeight, cellSize, color) {
+    if (!head) return;
+    const cx = head.x * cellSize + cellSize / 2;
+    const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
+    const r = cellSize * 0.34;
+    const markColor = color || "#888888";
+    ctx.save();
+    // Disc background so the glyph reads on any board cell.
+    ctx.fillStyle = markColor;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
+    ctx.strokeStyle = "#000000";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Four arrows pointing outward (up, down, left, right) from the disc edge.
+    const arrowColor = "#000000";
+    ctx.strokeStyle = arrowColor;
+    ctx.fillStyle = arrowColor;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(1.5, cellSize * 0.06);
+    const start = r * 1.02;
+    const end = r * 1.5;
+    const headLen = Math.max(2, cellSize * 0.11);
+    const dirs = [
+      { x: 0, y: -1 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 },
+      { x: 1, y: 0 },
+    ];
+    for (const dir of dirs) {
+      const sx = cx + dir.x * start;
+      const sy = cy + dir.y * start;
+      const ex = cx + dir.x * end;
+      const ey = cy + dir.y * end;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      // Arrowhead: two short strokes angled back from the tip (perpendicular).
+      const px = -dir.y;
+      const py = dir.x;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(
+        ex - dir.x * headLen + px * headLen * 0.6,
+        ey - dir.y * headLen + py * headLen * 0.6,
+      );
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(
+        ex - dir.x * headLen - px * headLen * 0.6,
+        ey - dir.y * headLen - py * headLen * 0.6,
+      );
+      ctx.stroke();
+    }
+
+    // "?" glyph centered in the disc.
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `bold ${Math.max(8, Math.round(cellSize * 0.5))}px sans-serif`;
+    ctx.fillText("?", cx, cy + cellSize * 0.02);
+    ctx.restore();
+  }
+
   function getMoveQuality(score, allScores) {
     if (score == null || allScores.length === 0) return "not-evaluated";
     const maxScore = Math.max(...allScores);
@@ -257,6 +413,10 @@ const BoardRenderer = (function () {
     const selectionGlow = options?.selectionGlow || null;
     const isControlled = options?.isControlled || false;
     const invulnLevel = snake.invulnerabilityLevel || 0;
+    // Ghost mode renders a dead snake using the exact same continuous body
+    // shape as a live snake, but translucent and with a colored outline, so a
+    // dead snake reads as the same creature, just faded out.
+    const ghost = options?.ghost || false;
 
     const visited = new Set();
     const segments = [];
@@ -389,27 +549,67 @@ const BoardRenderer = (function () {
       ctx.restore();
     }
 
-    ctx.fillStyle = snakeColor;
-    for (const { segment, conn } of segments) {
-      const sx = segment.x * cellSize;
-      const sy = (boardHeight - 1 - segment.y) * cellSize;
-      ctx.fillRect(sx + gap, sy + gap, cellSize - 2 * gap, cellSize - 2 * gap);
-      if (conn.hasRight)
-        ctx.fillRect(
-          sx + cellSize - gap - 1,
-          sy + gap,
-          gap + 1,
-          cellSize - 2 * gap,
-        );
-      if (conn.hasLeft) ctx.fillRect(sx, sy + gap, gap + 1, cellSize - 2 * gap);
-      if (conn.hasTop) ctx.fillRect(sx + gap, sy, cellSize - 2 * gap, gap + 1);
-      if (conn.hasBottom)
-        ctx.fillRect(
-          sx + gap,
-          sy + cellSize - gap - 1,
-          cellSize - 2 * gap,
-          gap + 1,
-        );
+    if (ghost) {
+      // Dead snake: same continuous body shape as a live snake, but the solid
+      // fill is replaced by diagonal stripes in the team color, slanted the
+      // opposite way ("\") to the fertile-ground stripes ("/").
+      ctx.save();
+      ctx.beginPath();
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const { segment, conn } of segments) {
+        const sx = segment.x * cellSize;
+        const sy = (boardHeight - 1 - segment.y) * cellSize;
+        ctx.rect(sx + gap, sy + gap, cellSize - 2 * gap, cellSize - 2 * gap);
+        if (conn.hasRight)
+          ctx.rect(sx + cellSize - gap - 1, sy + gap, gap + 1, cellSize - 2 * gap);
+        if (conn.hasLeft) ctx.rect(sx, sy + gap, gap + 1, cellSize - 2 * gap);
+        if (conn.hasTop) ctx.rect(sx + gap, sy, cellSize - 2 * gap, gap + 1);
+        if (conn.hasBottom)
+          ctx.rect(sx + gap, sy + cellSize - gap - 1, cellSize - 2 * gap, gap + 1);
+        if (sx < minX) minX = sx;
+        if (sy < minY) minY = sy;
+        if (sx + cellSize > maxX) maxX = sx + cellSize;
+        if (sy + cellSize > maxY) maxY = sy + cellSize;
+      }
+      ctx.clip();
+      const bh = maxY - minY;
+      const bw = maxX - minX;
+      ctx.strokeStyle = hexToRgba(snakeColor, 0.95);
+      ctx.lineWidth = Math.max(1.5, cellSize / 7);
+      const stripeSpacing = Math.max(4, cellSize / 3.5);
+      for (let o = -bh; o <= bw; o += stripeSpacing) {
+        ctx.beginPath();
+        ctx.moveTo(minX + o, minY);
+        ctx.lineTo(minX + o + bh, minY + bh);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      ctx.fillStyle = snakeColor;
+      for (const { segment, conn } of segments) {
+        const sx = segment.x * cellSize;
+        const sy = (boardHeight - 1 - segment.y) * cellSize;
+        ctx.fillRect(sx + gap, sy + gap, cellSize - 2 * gap, cellSize - 2 * gap);
+        if (conn.hasRight)
+          ctx.fillRect(
+            sx + cellSize - gap - 1,
+            sy + gap,
+            gap + 1,
+            cellSize - 2 * gap,
+          );
+        if (conn.hasLeft) ctx.fillRect(sx, sy + gap, gap + 1, cellSize - 2 * gap);
+        if (conn.hasTop) ctx.fillRect(sx + gap, sy, cellSize - 2 * gap, gap + 1);
+        if (conn.hasBottom)
+          ctx.fillRect(
+            sx + gap,
+            sy + cellSize - gap - 1,
+            cellSize - 2 * gap,
+            gap + 1,
+          );
+      }
     }
 
     if (isControlled) {
@@ -899,6 +1099,73 @@ const BoardRenderer = (function () {
             ctx.stroke();
           }
         }
+      }
+    });
+
+    // Dead-head markers (drawn last so they sit on top of live snakes). For our
+    // own snake we draw an intended (shadow) + actual (solid) pair via
+    // options.ourDeaths; every other snake that vanished since the previous turn
+    // gets a single solid marker at its last head. ourDeaths ids are excluded
+    // from the auto-detection so we never double-mark our own snake.
+    const ourDeaths = options?.ourDeaths || [];
+    const excludeIds = new Set(
+      ourDeaths.map((d) => d.id).filter((id) => id != null),
+    );
+    let deadSnakes = options?.deadSnakes || null;
+    if (!deadSnakes && options?.previousBoard) {
+      deadSnakes = getDisappearedSnakes(
+        options.previousBoard.snakes,
+        board.snakes,
+        excludeIds,
+      );
+    }
+    if (deadSnakes) {
+      deadSnakes.forEach((d) => {
+        renderSnakeUnified(
+          ctx,
+          { body: d.body, color: d.color },
+          board.height,
+          cellSize,
+          { ghost: true },
+        );
+        // No authoritative final position exists for other snakes (the server
+        // drops them the moment they die) → mark the last-known head as unknown.
+        drawUnknownDeathMarker(ctx, d.head, board.height, cellSize, d.color);
+      });
+    }
+    ourDeaths.forEach((d) => {
+      // Optional ghosted body for our own dead snake (live view, where the
+      // snake has already been removed from the board).
+      if (d.body)
+        renderSnakeUnified(
+          ctx,
+          { body: d.body, color: d.color },
+          board.height,
+          cellSize,
+          { ghost: true },
+        );
+      const intended = d.intendedHead;
+      const actual = d.actualHead;
+      const same =
+        intended &&
+        actual &&
+        intended.x === actual.x &&
+        intended.y === actual.y;
+      if (intended && !same) {
+        drawDeathMarker(ctx, intended, board.height, cellSize, d.color, true);
+      }
+      if (actual) {
+        // Authoritative final head from the server → solid marker.
+        drawDeathMarker(ctx, actual, board.height, cellSize, d.color, false);
+      } else {
+        // No authoritative final position → "?" marker at the last-known head.
+        drawUnknownDeathMarker(
+          ctx,
+          d.lastHead || intended,
+          board.height,
+          cellSize,
+          d.color,
+        );
       }
     });
 
@@ -1613,6 +1880,9 @@ const BoardRenderer = (function () {
     renderTerritoryBoundaries,
     renderSnakeUnified,
     getTeamKey,
+    getDisappearedSnakes,
+    drawDeathMarker,
+    drawUnknownDeathMarker,
     _moveClickHandler: null,
   };
 })();
