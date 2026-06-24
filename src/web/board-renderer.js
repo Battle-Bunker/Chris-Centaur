@@ -955,30 +955,64 @@ const BoardRenderer = (function () {
     });
   }
 
-  function renderSnakeInfo(container, gameState, ourSnakeId, holds) {
-    if (!gameState || !gameState.board) {
-      container.innerHTML = "";
-      return;
-    }
-    const holdsMap = holds || {};
-    const snakes = gameState.board.snakes;
-    container.innerHTML = snakes
-      .map((snake) => {
-        const isOurSnake = snake.id === ourSnakeId;
-        const snakeColor =
-          snake.customizations?.color || snake.color || "#888888";
-        const invulnLevel = snake.invulnerabilityLevel || 0;
-        const invulnDisplay =
-          invulnLevel !== 0
-            ? `<span>${invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F"} ${invulnLevel}</span>`
-            : "";
-        const emojiDisplay = snake.emoji || "\u{1F40D}";
-        const holdCount = holdsMap[snake.id] || 0;
-        const holdBadge = holdCount > 0
-          ? `<span style="background:#ff9800;color:#fff;padding:1px 6px;border-radius:8px;font-weight:700;">HOLD ${holdCount}</span>`
-          : "";
-        return `
-        <div class="snake-info-item">
+  // Single source of truth for team identity on the client, mirroring the
+  // server-side TeamDetector rule: squad → color → snake id.
+  function getTeamKey(snake) {
+    if (!snake) return "";
+    return snake.squad || snake.customizations?.color || snake.color || snake.id;
+  }
+
+  // Turns a raw game-server team id like "team_red" into a friendly label
+  // ("Team Red"). Returns null when there's nothing usable.
+  function prettifyTeamName(teamId) {
+    if (!teamId || !String(teamId).trim()) return null;
+    return String(teamId)
+      .trim()
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
+  // Friendly display name for a team given one of its snakes: game-server team
+  // name first, then squad, then color, then a generic fallback.
+  function teamDisplayName(snake) {
+    return (
+      prettifyTeamName(snake?.teamID) ||
+      snake?.squad ||
+      snake?.customizations?.color ||
+      snake?.color ||
+      "Team"
+    );
+  }
+
+  // Builds the HTML for one snake row. `opts` controls history-viewer extras:
+  // selectable (clickable to switch perspective) and active (current
+  // perspective). Without opts it renders the plain play-page row.
+  function renderSnakeInfoItem(snake, ourSnakeId, holdsMap, opts) {
+    const isOurSnake = snake.id === ourSnakeId;
+    const snakeColor = snake.customizations?.color || snake.color || "#888888";
+    const invulnLevel = snake.invulnerabilityLevel || 0;
+    const invulnDisplay =
+      invulnLevel !== 0
+        ? `<span>${invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F"} ${invulnLevel}</span>`
+        : "";
+    const emojiDisplay = snake.emoji || "\u{1F40D}";
+    const holdCount = holdsMap[snake.id] || 0;
+    const holdBadge = holdCount > 0
+      ? `<span style="background:#ff9800;color:#fff;padding:1px 6px;border-radius:8px;font-weight:700;">HOLD ${holdCount}</span>`
+      : "";
+    const selectable = opts && opts.selectable;
+    const active = opts && opts.active;
+    const itemClass =
+      "snake-info-item" +
+      (selectable ? " selectable" : "") +
+      (active ? " active-perspective" : "");
+    const clickAttr = selectable
+      ? ` data-select-snake="${snake.id}" style="cursor:pointer;"`
+      : "";
+    return `
+        <div class="${itemClass}"${clickAttr}>
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
           <div class="snake-details">
             <div class="snake-name">${emojiDisplay} ${snake.name}${isOurSnake ? " (You)" : ""}</div>
@@ -991,8 +1025,88 @@ const BoardRenderer = (function () {
           </div>
         </div>
       `;
+  }
+
+  // Renders the participants list. With options.groupByTeam the snakes are
+  // grouped by team (our team first and visually distinguished), and our team's
+  // snakes are made selectable via options.onSelectSnake so the history viewer
+  // can switch perspective. Without options it falls back to the flat list used
+  // by the live play page.
+  function renderSnakeInfo(container, gameState, ourSnakeId, holds, options) {
+    if (!gameState || !gameState.board) {
+      container.innerHTML = "";
+      return;
+    }
+    const holdsMap = holds || {};
+    const snakes = gameState.board.snakes;
+
+    if (!options || !options.groupByTeam) {
+      container.innerHTML = snakes
+        .map((snake) => renderSnakeInfoItem(snake, ourSnakeId, holdsMap, null))
+        .join("");
+      return;
+    }
+
+    // Group snakes by team key.
+    const teams = new Map();
+    for (const snake of snakes) {
+      const key = getTeamKey(snake);
+      if (!teams.has(key)) teams.set(key, []);
+      teams.get(key).push(snake);
+    }
+
+    const ourSnake = snakes.find((s) => s.id === ourSnakeId);
+    const ourTeamKey = ourSnake ? getTeamKey(ourSnake) : null;
+
+    // Our team first, then enemy teams.
+    const orderedKeys = Array.from(teams.keys()).sort((a, b) => {
+      if (a === ourTeamKey) return -1;
+      if (b === ourTeamKey) return 1;
+      return 0;
+    });
+
+    const html = orderedKeys
+      .map((key) => {
+        const teamSnakes = teams.get(key);
+        const isOurTeam = key === ourTeamKey;
+        const teamColor =
+          teamSnakes[0].customizations?.color ||
+          teamSnakes[0].color ||
+          "#888888";
+        const name = teamDisplayName(teamSnakes[0]);
+        const label = isOurTeam ? `${name} (Our Team)` : name;
+        const headerClass = isOurTeam
+          ? "team-group-header our-team"
+          : "team-group-header enemy-team";
+        const items = teamSnakes
+          .map((snake) =>
+            renderSnakeInfoItem(snake, ourSnakeId, holdsMap, {
+              selectable: isOurTeam,
+              active: snake.id === ourSnakeId,
+            }),
+          )
+          .join("");
+        return `
+        <div class="team-group ${isOurTeam ? "our-team" : "enemy-team"}">
+          <div class="${headerClass}">
+            <span class="team-group-swatch" style="background-color:${teamColor};"></span>
+            <span>${label}</span>
+          </div>
+          ${items}
+        </div>
+      `;
       })
       .join("");
+
+    container.innerHTML = html;
+
+    if (options.onSelectSnake) {
+      container.querySelectorAll("[data-select-snake]").forEach((el) => {
+        el.addEventListener("click", () => {
+          options.onSelectSnake(el.getAttribute("data-select-snake"));
+        });
+      });
+    }
   }
 
   function renderMoveButtons(container, moveState, onMoveClick) {
@@ -1498,6 +1612,7 @@ const BoardRenderer = (function () {
     renderMinimap,
     renderTerritoryBoundaries,
     renderSnakeUnified,
+    getTeamKey,
     _moveClickHandler: null,
   };
 })();

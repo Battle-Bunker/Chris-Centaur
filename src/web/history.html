@@ -240,6 +240,79 @@
       display: flex;
       gap: 8px;
     }
+
+    .member-list {
+      margin-bottom: 6px;
+    }
+
+    .member-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #ccc;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .member-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      border: 1px solid #555;
+      flex-shrink: 0;
+    }
+
+    .team-group {
+      margin-bottom: 14px;
+    }
+
+    .team-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 4px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #444;
+    }
+
+    .team-group-header.our-team {
+      color: #4CAF50;
+    }
+
+    .team-group-header.enemy-team {
+      color: #e57373;
+    }
+
+    .team-group-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid #555;
+      flex-shrink: 0;
+    }
+
+    .team-group.our-team .snake-info-item {
+      margin-bottom: 6px;
+    }
+
+    .snake-info-item.selectable {
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .snake-info-item.selectable:hover {
+      background: #333;
+    }
+
+    .snake-info-item.active-perspective {
+      background: #3a4a5a;
+      outline: 2px solid #4CAF50;
+    }
     
     .turn-controls {
       background: #2a2a2a;
@@ -520,6 +593,9 @@
     let currentTurn = 0;
     let turnData = [];
     let playInterval = null;
+    let gameGroups = [];
+    let currentGroupIndex = -1;
+    let currentSnakeId = null;
     let moveState = {
       selectedMove: null,
       moves: {},
@@ -542,6 +618,7 @@
       try {
         const response = await fetch('/api/logs/games');
         const games = await response.json();
+        gameGroups = games;
         const gameList = document.getElementById('gameList');
         
         if (games.length === 0) {
@@ -549,18 +626,27 @@
           return;
         }
         
-        gameList.innerHTML = games.map(game => {
-          const timestamp = game.timestamp ? new Date(game.timestamp).toLocaleString() : 'No timestamp';
+        gameList.innerHTML = games.map((group, idx) => {
+          const timestamp = group.timestamp ? new Date(group.timestamp).toLocaleString() : 'No timestamp';
+          const members = (group.snakes || []).map(s => {
+            const dot = s.color
+              ? `<span class="member-dot" style="background-color:${s.color};"></span>`
+              : '';
+            return `<div class="member-line">${dot}${s.snake_name}${s.length != null ? ` <span style="color:#888;">(\u{1F4CF}${s.length})</span>` : ''}</div>`;
+          }).join('');
+          const swatch = group.team_color
+            ? `<span class="member-dot" style="background-color:${group.team_color};"></span>`
+            : '';
           return `
-            <div class="game-item" data-game-id="${game.game_id}" data-snake-id="${game.snake_id}" 
-                 onclick="loadGame('${game.game_id}', '${game.snake_id}', '${game.snake_name || 'Unknown'}')">
+            <div class="game-item" data-group-index="${idx}"
+                 onclick="loadGroup(${idx})">
               <div class="game-item-header">
-                <span>${game.snake_name || 'Unknown Snake'}</span>
+                <span>${swatch}${group.team_label || 'Team'}</span>
               </div>
               <div class="game-item-details">
-                <span style="font-size: 0.85em; color: #888;">Snake: ${game.snake_id}</span><br>
-                Game: ${game.game_id}<br>
-                Turns: ${game.turns}<br>
+                <div class="member-list">${members}</div>
+                <span style="font-size: 0.85em; color: #888;">Game: ${group.game_id}</span><br>
+                Turns: ${group.turns}<br>
                 ${timestamp}
               </div>
             </div>
@@ -568,41 +654,56 @@
         }).join('');
         
         if (autoLoadMostRecent && games.length > 0) {
-          const mostRecent = games[0];
-          loadGame(mostRecent.game_id, mostRecent.snake_id, mostRecent.snake_name || 'Unknown');
+          loadGroup(0);
         }
       } catch (error) {
         console.error('Error loading games:', error);
       }
     }
     
-    async function loadGame(gameId, snakeId, snakeName) {
-      currentGame = gameId;
-      closeGameList();
-      
+    function loadGroup(index) {
+      const group = gameGroups[index];
+      if (!group) return;
+      currentGroupIndex = index;
+
       document.querySelectorAll('.game-item').forEach(item => {
-        item.classList.remove('active');
-        if (item.dataset.gameId === gameId && item.dataset.snakeId === snakeId) {
-          item.classList.add('active');
-        }
+        item.classList.toggle('active', parseInt(item.dataset.groupIndex, 10) === index);
       });
-      
+
+      loadGame(group.game_id, group.default_snake_id);
+    }
+
+    async function loadGame(gameId, snakeId, preserveTurn = false) {
+      currentGame = gameId;
+      currentSnakeId = snakeId;
+      closeGameList();
+
+      const desiredTurn = preserveTurn ? currentTurn : 0;
+
       try {
-        const response = await fetch(`/api/logs?game_id=${gameId}&snake_id=${snakeId}`);
+        const response = await fetch(`/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`);
         const data = await response.json();
         
         if (data.decisions && data.decisions.length > 0) {
           turnData = data.decisions;
-          currentTurn = 0;
           const slider = document.getElementById('turnSlider');
           slider.max = turnData.length - 1;
-          slider.value = 0;
+          const startTurn = Math.min(desiredTurn, turnData.length - 1);
+          slider.value = startTurn;
           document.getElementById('totalTurns').textContent = turnData.length;
-          renderTurn(0);
+          renderTurn(startTurn);
         }
       } catch (error) {
         console.error('Error loading game:', error);
       }
+    }
+
+    // Switch the perspective ("you") snake within the currently loaded game,
+    // keeping the current turn so the board, breakdown and arrows just re-point
+    // to the selected teammate's logged decisions.
+    function selectPerspectiveSnake(snakeId) {
+      if (!currentGame || snakeId === currentSnakeId) return;
+      loadGame(currentGame, snakeId, true);
     }
     
     function handleCanvasClick(event) {
@@ -648,7 +749,10 @@
       document.getElementById('healthDisplay').textContent = turn.health;
       
       renderBoardView(turn);
-      BoardRenderer.renderSnakeInfo(document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id);
+      BoardRenderer.renderSnakeInfo(
+        document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id, null,
+        { groupByTeam: true, onSelectSnake: selectPerspectiveSnake }
+      );
       BoardRenderer.renderMoveButtons(document.getElementById('moveButtons'), moveState, selectMove);
       
       moveState.selectedMove = null;

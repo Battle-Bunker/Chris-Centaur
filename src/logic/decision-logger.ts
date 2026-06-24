@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { Direction } from '../types/battlesnake';
+import { TeamDetector } from './team-detector';
 
 export interface DecisionLogEntry {
   gameId: string;
@@ -78,6 +79,44 @@ interface SerializedRow {
   moveEvaluationsJson: string;
   gameStateJson: string;
   retries: number;
+}
+
+// A single controlled snake within a (game, team) group, as surfaced to the
+// history viewer's left panel.
+export interface GameTeamMember {
+  snake_id: string;
+  snake_name: string;
+  color: string | null;
+  length: number | null;
+  turns: number;
+}
+
+// One left-panel entry: a single team within a single game, framed from our
+// team's perspective. `default_snake_id` is the member the viewer should load
+// first (the king/longest).
+export interface GameTeamGroup {
+  game_id: string;
+  team_key: string;
+  team_label: string;
+  team_color: string | null;
+  timestamp: string;
+  turns: number;
+  default_snake_id: string;
+  snakes: GameTeamMember[];
+}
+
+// Turns a raw game-server team id like "team_red" into a friendly label
+// ("Team Red"). Returns null when there's nothing usable so callers can fall
+// back to squad/color.
+function prettifyTeamName(teamId: string | null | undefined): string | null {
+  if (!teamId) return null;
+  const trimmed = teamId.trim();
+  if (!trimmed) return null;
+  return trimmed
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 const BATCH_SIZE = 100;
@@ -346,32 +385,135 @@ export class DecisionLogger {
     }
   }
 
-  public async getGames(): Promise<{ game_id: string; snake_id: string; snake_name: string; min_turn: number; max_turn: number; count: number; timestamp: string; turns: number }[]> {
+  public async getGames(): Promise<GameTeamGroup[]> {
     try {
       await this.initialize();
 
+      // Per (game, snake) aggregate stats joined with a representative (latest)
+      // logged game state so we can derive each snake's team identity. We only
+      // pull the squad/color/length out of the JSONB blob rather than the whole
+      // game_state to keep the listing payload small.
       const query = `
-        SELECT 
-          game_id, 
-          snake_id, 
-          snake_name,
-          MIN(turn) as min_turn,
-          MAX(turn) as max_turn,
-          COUNT(*) as count,
-          MAX(turn) - MIN(turn) + 1 as turns,
-          MAX(timestamp) as timestamp
-        FROM decision_logs
-        GROUP BY game_id, snake_id, snake_name
-        ORDER BY MAX(timestamp) DESC
-        LIMIT 100
+        WITH agg AS (
+          SELECT
+            game_id,
+            snake_id,
+            MAX(turn) - MIN(turn) + 1 AS turns,
+            MAX(timestamp) AS timestamp
+          FROM decision_logs
+          GROUP BY game_id, snake_id
+        ),
+        latest AS (
+          SELECT DISTINCT ON (game_id, snake_id)
+            game_id,
+            snake_id,
+            snake_name,
+            game_state->'you'->>'squad' AS squad,
+            -- teamID is carried on the board snakes, not the 'you' object.
+            (SELECT s->>'teamID'
+               FROM jsonb_array_elements(game_state->'board'->'snakes') s
+               WHERE s->>'id' = snake_id
+               LIMIT 1) AS team_id,
+            game_state->'you'->'customizations'->>'color' AS color,
+            (game_state->'you'->>'length')::int AS length
+          FROM decision_logs
+          ORDER BY game_id, snake_id, turn DESC
+        )
+        SELECT
+          a.game_id,
+          a.snake_id,
+          l.snake_name,
+          a.turns,
+          a.timestamp,
+          l.squad,
+          l.team_id,
+          l.color,
+          l.length
+        FROM agg a
+        JOIN latest l USING (game_id, snake_id)
+        ORDER BY a.timestamp DESC
+        LIMIT 500
       `;
 
       const result = await this.pool.query(query);
-      return result.rows;
+      return this.groupGamesByTeam(result.rows);
     } catch (error) {
       console.error('[DecisionLogger] Failed to get games:', error);
       return [];
     }
+  }
+
+  // Collapses per-snake rows into one entry per (game, team) pair. Team identity
+  // is derived with the same squad → color → id rule the live bot uses, so the
+  // history grouping matches in-game team behavior. Rows are already ordered by
+  // timestamp DESC, so the first time a group is seen sets its sort position.
+  private groupGamesByTeam(
+    rows: {
+      game_id: string;
+      snake_id: string;
+      snake_name: string | null;
+      turns: number | string;
+      timestamp: string;
+      squad: string | null;
+      team_id: string | null;
+      color: string | null;
+      length: number | null;
+    }[],
+  ): GameTeamGroup[] {
+    const groups = new Map<string, GameTeamGroup>();
+
+    for (const row of rows) {
+      const teamKey = TeamDetector.getTeamKey({
+        id: row.snake_id,
+        squad: row.squad ?? '',
+        customizations: { color: row.color ?? '', head: '', tail: '' },
+      });
+      const groupKey = `${row.game_id}::${teamKey}`;
+      const turns = typeof row.turns === 'string' ? parseInt(row.turns, 10) : row.turns;
+
+      let group = groups.get(groupKey);
+      if (!group) {
+        group = {
+          game_id: row.game_id,
+          team_key: teamKey,
+          // Prefer the game-server team name (teamID, e.g. "team_red"), then
+          // squad, then color, then a generic label so we never surface a raw
+          // hex code or uuid as the team name.
+          team_label: prettifyTeamName(row.team_id) || row.squad || row.color || 'Team',
+          team_color: row.color,
+          timestamp: row.timestamp,
+          turns,
+          default_snake_id: row.snake_id,
+          snakes: [],
+        };
+        groups.set(groupKey, group);
+      }
+
+      group.snakes.push({
+        snake_id: row.snake_id,
+        snake_name: row.snake_name || 'Unknown',
+        color: row.color,
+        length: row.length,
+        turns,
+      });
+
+      // Keep the group timestamp/turn count as the max across its members.
+      if (row.timestamp > group.timestamp) group.timestamp = row.timestamp;
+      if (turns > group.turns) group.turns = turns;
+      if (!group.team_color && row.color) group.team_color = row.color;
+    }
+
+    // Default perspective per group = the king (longest member), matching how
+    // scoring works in this variant.
+    for (const group of groups.values()) {
+      let king = group.snakes[0];
+      for (const member of group.snakes) {
+        if ((member.length ?? 0) > (king.length ?? 0)) king = member;
+      }
+      group.default_snake_id = king.snake_id;
+    }
+
+    return Array.from(groups.values());
   }
 
   public async clearOldLogs(daysToKeep: number = 7): Promise<void> {
