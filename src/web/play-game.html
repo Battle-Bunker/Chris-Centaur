@@ -70,12 +70,29 @@
     .cell-button:hover { background: rgba(255, 255, 255, 0.1); }
     .snake-info-container { margin-bottom: 15px; }
     .snake-info-list {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px; align-items: start;
     }
     .snake-info-item {
       background: #2a2a2a; border-radius: 6px; padding: 8px;
       display: flex; align-items: center; gap: 8px;
     }
+    .team-group { margin-bottom: 4px; }
+    .team-group-header {
+      display: flex; align-items: center; gap: 8px; font-weight: 700;
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
+      margin: 4px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #444;
+    }
+    .team-group-header.our-team { color: #4CAF50; }
+    .team-group-header.enemy-team { color: #e57373; }
+    .team-group-swatch {
+      display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+      border: 1px solid #555; flex-shrink: 0;
+    }
+    .team-group .snake-info-item { margin-bottom: 6px; }
+    .snake-info-item.selectable { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+    .snake-info-item.selectable:hover { background: #333; }
+    .snake-info-item.active-perspective { background: #3a4a5a; outline: 2px solid #4CAF50; }
     .snake-color-box {
       width: 20px; height: 20px; border-radius: 4px;
       border: 2px solid #444; flex-shrink: 0;
@@ -277,6 +294,23 @@
       border: 3px solid #f44336; box-sizing: border-box; border-radius: 4px;
       animation: premove-reject-flash 600ms ease-out forwards;
     }
+    .turn-controls {
+      background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 15px;
+    }
+    .turn-controls-row { display: flex; align-items: center; gap: 12px; }
+    .turn-slider { flex: 1; cursor: pointer; }
+    .view-mode-badge {
+      font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 12px;
+      white-space: nowrap; letter-spacing: 0.03em;
+    }
+    .view-mode-badge.live { background: rgba(76,175,80,0.18); color: #81c784; }
+    .view-mode-badge.historic { background: rgba(255,152,0,0.18); color: #ffb74d; }
+    .return-live-btn {
+      background: #2e7d32; color: #fff; border: none; padding: 6px 14px;
+      border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .return-live-btn:hover { background: #388e3c; }
+    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #888; min-height: 14px; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
@@ -362,6 +396,14 @@
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay"></div>
             </div>
+          </div>
+          <div class="turn-controls" id="turnControls" style="display:none;">
+            <div class="turn-controls-row">
+              <span class="view-mode-badge live" id="viewModeBadge">● LIVE</span>
+              <input type="range" id="playTurnSlider" class="turn-slider" min="0" max="0" value="0">
+              <button id="returnToLiveBtn" class="return-live-btn" onclick="returnToLive()" style="display:none;">Return to live ⏭</button>
+            </div>
+            <div class="turn-controls-info" id="turnControlsInfo"></div>
           </div>
           <div id="premoveBanner">
             <span id="premoveBannerLabel">Premove ON</span>
@@ -491,6 +533,24 @@
     let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
     let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
     let premoveBannerNoticeTimer = null;
+
+    // ── Turn scrubbing (live vs historic view) ──────────────────────────────
+    // The play page can scrub back through earlier turns of the CURRENT game,
+    // rendered read-only by reusing the exact BoardRenderer path + decision-log
+    // data source (`/api/logs`) the Game History viewer uses. Live WS updates
+    // keep flowing into the live-state variables above while scrubbing; they
+    // just don't yank the displayed board until the user returns to live.
+    let viewMode = 'live';            // 'live' | 'historic'
+    let liveMaxTurn = 0;              // highest live turn seen → slider max
+    let historicSnakeId = null;       // snake perspective being inspected (null = default)
+    const historicCache = new Map();  // snakeId → { decisions, turnToIndex }
+    let historicDecisions = null;     // decisions for the currently-viewed snake
+    let historicTurnToIndex = {};     // turn number → index into historicDecisions
+    let historicIndex = 0;            // current decision index being viewed
+    let historicTurnNumber = 0;       // current turn number being viewed
+    let historicMoveState = null;     // moveState for the historic board/breakdown
+    let historicLoading = false;      // guard against concurrent fetches
+    let historicCacheStale = false;   // set when new live turns arrive mid-scrub
 
     // ────────────────────────────────────────────────────────────────────────
     // Selection vs. staging vs. commit (three distinct concepts):
@@ -686,14 +746,22 @@
           userSelectedMove = null;
           analyticsFrozen = false;
 
-          document.getElementById('currentTurn').textContent = msg.turn;
-          document.getElementById('firstMoveIndicator').style.display = (msg.turn === 0) ? 'block' : 'none';
-          startTurnTimer();
-          renderGameBoard();
-          renderSnakeInfo();
-          if (selectedSnakeId) {
-            updateMoveControls();
+          liveMaxTurn = Math.max(liveMaxTurn, msg.turn);
+          if (viewMode === 'live') {
+            document.getElementById('currentTurn').textContent = msg.turn;
+            document.getElementById('firstMoveIndicator').style.display = (msg.turn === 0) ? 'block' : 'none';
+            startTurnTimer();
+            renderGameBoard();
+            renderSnakeInfo();
+            if (selectedSnakeId) {
+              updateMoveControls();
+            }
+          } else {
+            // Viewing history: keep live state fresh + the slider range growing,
+            // but leave the inspected turn on screen.
+            invalidateHistoricCache();
           }
+          updateTurnControls();
           break;
 
         case 'snake-turn-update': {
@@ -931,10 +999,15 @@
               previousGameState = currentGameState;
             }
             currentGameState = msg.finalGameState;
-            document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
-            document.getElementById('firstMoveIndicator').style.display = 'none';
-            renderGameBoard();
-            renderSnakeInfo();
+            liveMaxTurn = Math.max(liveMaxTurn, msg.finalGameState.turn);
+            invalidateHistoricCache();
+            if (viewMode === 'live') {
+              document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
+              document.getElementById('firstMoveIndicator').style.display = 'none';
+              renderGameBoard();
+              renderSnakeInfo();
+            }
+            updateTurnControls();
           }
           gameEndedSnakes[msg.snakeId] = {
             turn: msg.turn,
@@ -1012,11 +1085,17 @@
       document.getElementById('waitingOverlay').style.display = 'none';
       document.getElementById('gameUI').style.display = 'block';
       const turn = currentGameState?.turn || 0;
-      document.getElementById('currentTurn').textContent = turn;
-      document.getElementById('firstMoveIndicator').style.display = (turn === 0) ? 'block' : 'none';
-      renderGameBoard();
-      renderSnakeInfo();
-      startTurnTimer();
+      liveMaxTurn = Math.max(liveMaxTurn, turn);
+      if (viewMode === 'live') {
+        document.getElementById('currentTurn').textContent = turn;
+        document.getElementById('firstMoveIndicator').style.display = (turn === 0) ? 'block' : 'none';
+        renderGameBoard();
+        renderSnakeInfo();
+        startTurnTimer();
+      } else {
+        invalidateHistoricCache();
+      }
+      updateTurnControls();
     }
 
     function setupMoveStateForSnake(snakeId) {
@@ -1148,6 +1227,9 @@
 
     function renderGameBoard() {
       if (!currentGameState) return;
+      // While scrubbing history, live WS updates still refresh currentGameState
+      // and the overlay maps above, but must not repaint the board being viewed.
+      if (viewMode === 'historic') return;
       const canvas = document.getElementById('gameCanvas');
 
       const selectionGlows = {};
@@ -1236,12 +1318,25 @@
 
     function renderSnakeInfo() {
       if (!currentGameState) return;
+      if (viewMode === 'historic') return;
       BoardRenderer.renderSnakeInfo(
-        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId, holds
+        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId, holds,
+        { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds }
       );
     }
 
+    // Select one of our snakes for live control from the team list (mirrors the
+    // board-click path; the server resolves any contested selection).
+    function selectSnakeForControl(snakeId) {
+      if (!snakeId || !controlledSnakeIds.has(snakeId)) return;
+      if (snakeId === selectedSnakeId) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'select-snake', snakeId }));
+      }
+    }
+
     function updateMoveControls() {
+      if (viewMode === 'historic') return;
       if (!selectedSnakeId || !moveState) return;
       updateIntentModeBadge();
 
@@ -1434,6 +1529,9 @@
 
     function handleCanvasClick(event) {
       if (!currentGameState) return;
+      // Read-only history mode: clicks toggle territory highlight only — no
+      // snake selection, waypoint, or premove control (those are live-only).
+      if (viewMode === 'historic') { handleHistoricCanvasClick(event); return; }
 
       const canvas = document.getElementById('gameCanvas');
       const rect = canvas.getBoundingClientRect();
@@ -1908,6 +2006,14 @@
         e.preventDefault();
       }
 
+      // In read-only history mode, Left/Right scrub turns; all control keys are
+      // inert so nothing gets staged/committed/selected while reviewing.
+      if (viewMode === 'historic') {
+        if (e.key === 'ArrowLeft') scrubHistoric(-1);
+        else if (e.key === 'ArrowRight') scrubHistoric(1);
+        return;
+      }
+
       if (document.getElementById('confirmDialog').classList.contains('active')) {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -1989,6 +2095,345 @@
           e.preventDefault(); selectMove('right'); break;
         case ' ':
           e.preventDefault(); stageSelectedMove(); break;
+      }
+    });
+
+    // ── Turn scrubbing implementation ───────────────────────────────────────
+
+    function invalidateHistoricCache() {
+      historicCacheStale = true;
+    }
+
+    // Pick which controlled snake's logged decisions to render in history mode.
+    // Prefer the currently selected snake (if controlled), else the first
+    // controlled snake. These are the bot-logged snakes, so /api/logs has their
+    // per-turn evaluations.
+    function getHistoricSnakeId() {
+      if (historicSnakeId && controlledSnakeIds.has(historicSnakeId)) {
+        return historicSnakeId;
+      }
+      if (selectedSnakeId && controlledSnakeIds.has(selectedSnakeId)) {
+        return selectedSnakeId;
+      }
+      const first = controlledSnakeIds.values().next();
+      return first.done ? null : first.value;
+    }
+
+    async function ensureHistoricDecisions() {
+      const snakeId = getHistoricSnakeId();
+      if (!snakeId) return false;
+      // New live turns arrived while scrubbing → drop every snake's cache so the
+      // next fetch picks up the freshly-logged turns.
+      if (historicCacheStale) {
+        historicCache.clear();
+        historicCacheStale = false;
+      }
+      const cached = historicCache.get(snakeId);
+      if (cached) {
+        historicDecisions = cached.decisions;
+        historicTurnToIndex = cached.turnToIndex;
+        return historicDecisions.length > 0;
+      }
+      if (historicLoading) return false;
+      historicLoading = true;
+      try {
+        const entry = await fetchHistoricDecisions(snakeId);
+        historicCache.set(snakeId, entry);
+        historicDecisions = entry.decisions;
+        historicTurnToIndex = entry.turnToIndex;
+        prefetchHistoricTeam();
+        return entry.decisions.length > 0;
+      } catch (err) {
+        console.error('Failed to load historic turns:', err);
+        return false;
+      } finally {
+        historicLoading = false;
+      }
+    }
+
+    // Fetch one snake's logged decisions and build a turn→index map. Shared by
+    // the on-demand loader and the background prefetcher.
+    async function fetchHistoricDecisions(snakeId) {
+      // Snake ids contain '#', which must be encoded or the suffix is read as a
+      // URL fragment and the wrong (or no) snake's logs come back.
+      const resp = await fetch(
+        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`
+      );
+      const data = await resp.json();
+      const decisions = (data && data.decisions) || [];
+      const turnToIndex = {};
+      // Key by game_state.turn so the slider aligns with the live "Turn:"
+      // header (the decision-log `turn` column is offset by one).
+      decisions.forEach((d, i) => {
+        const t = d.game_state?.turn ?? d.turn;
+        turnToIndex[t] = i;
+      });
+      return { decisions, turnToIndex };
+    }
+
+    // Warm the cache for our other controlled snakes in the background so that
+    // switching perspective (list click or board click) is instant instead of
+    // paying a network round-trip per selection.
+    function prefetchHistoricTeam() {
+      for (const sid of controlledSnakeIds) {
+        if (historicCache.has(sid)) continue;
+        fetchHistoricDecisions(sid)
+          .then((entry) => {
+            if (!historicCache.has(sid)) historicCache.set(sid, entry);
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Switch the inspected snake perspective while scrubbing. Loads that snake's
+    // logged decisions (only controlled/bot-logged snakes have logs) and re-renders
+    // the same turn so the user keeps their place on the slider.
+    async function switchHistoricSnake(snakeId) {
+      if (!snakeId || historicLoading) return;
+      const currentView = historicDecisions && historicDecisions[historicIndex]
+        && historicDecisions[historicIndex].snake_id;
+      if (snakeId === currentView) return;
+      historicSnakeId = snakeId;
+      const turnToShow = historicTurnNumber;
+      const ok = await ensureHistoricDecisions();
+      if (!ok) {
+        showBannerNotice('No history recorded for that snake');
+        return;
+      }
+      renderHistoricTurn(decisionIndexForTurn(turnToShow));
+      updateTurnControls();
+    }
+
+    // Map a desired turn number to the nearest logged decision index at or
+    // before it (logs may skip a turn). Returns -1 if there is nothing logged.
+    function decisionIndexForTurn(turnNumber) {
+      if (!historicDecisions || historicDecisions.length === 0) return -1;
+      if (historicTurnToIndex[turnNumber] != null) return historicTurnToIndex[turnNumber];
+      let best = -1;
+      for (let i = 0; i < historicDecisions.length; i++) {
+        const t = historicDecisions[i].game_state?.turn ?? historicDecisions[i].turn;
+        if (t <= turnNumber) best = i; else break;
+      }
+      return best === -1 ? 0 : best;
+    }
+
+    async function enterHistoric(turnNumber) {
+      // Switch mode before awaiting the fetch so any live update arriving during
+      // the load doesn't repaint/advance the board out from under the user.
+      viewMode = 'historic';
+      const ok = await ensureHistoricDecisions();
+      if (!ok) {
+        showBannerNotice('No history recorded yet');
+        returnToLive();
+        return;
+      }
+      // Turn off live-only input affordances while inspecting history.
+      premoveMode = false;
+      updatePremoveBanner();
+      if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
+      const timerEl = document.getElementById('timerDisplay');
+      if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }
+      const idx = decisionIndexForTurn(turnNumber);
+      renderHistoricTurn(idx);
+      updateTurnControls();
+    }
+
+    function returnToLive() {
+      viewMode = 'live';
+      historicSnakeId = null;
+      historicMoveState = null;
+      document.getElementById('boardOverlay').innerHTML = '';
+      restoreLiveSelectionPanel();
+      if (currentGameState) {
+        document.getElementById('currentTurn').textContent = currentGameState.turn;
+        document.getElementById('firstMoveIndicator').style.display =
+          (currentGameState.turn === 0) ? 'block' : 'none';
+        renderGameBoard();
+        renderSnakeInfo();
+        if (selectedSnakeId) updateMoveControls();
+        startTurnTimer();
+      }
+      updateTurnControls();
+    }
+
+    function scrubHistoric(delta) {
+      const target = Math.max(0, Math.min(liveMaxTurn, historicTurnNumber + delta));
+      const slider = document.getElementById('playTurnSlider');
+      if (slider) slider.value = target;
+      if (target >= liveMaxTurn) {
+        returnToLive();
+      } else {
+        enterHistoric(target);
+      }
+    }
+
+    function updateTurnControls() {
+      const controls = document.getElementById('turnControls');
+      const slider = document.getElementById('playTurnSlider');
+      const badge = document.getElementById('viewModeBadge');
+      const info = document.getElementById('turnControlsInfo');
+      const liveBtn = document.getElementById('returnToLiveBtn');
+      if (!controls || !slider || !badge || !info || !liveBtn) return;
+
+      controls.style.display = liveMaxTurn > 0 ? 'block' : 'none';
+      slider.max = liveMaxTurn;
+
+      if (viewMode === 'historic') {
+        slider.value = historicTurnNumber;
+        badge.textContent = '\u23F8 HISTORY';
+        badge.className = 'view-mode-badge historic';
+        info.textContent = `Viewing turn ${historicTurnNumber} (read-only) \u00B7 live is at turn ${liveMaxTurn} \u00B7 click a snake to inspect it`;
+        liveBtn.style.display = 'inline-block';
+      } else {
+        slider.value = liveMaxTurn;
+        badge.textContent = '\u25CF LIVE';
+        badge.className = 'view-mode-badge live';
+        info.textContent = 'Following the live game \u00B7 drag the slider to review earlier turns';
+        liveBtn.style.display = 'none';
+      }
+    }
+
+    // Mirrors the Game History viewer's per-turn render: same BoardRenderer
+    // entry points, same decision-log data shape, just with interactivity off.
+    function renderHistoricTurn(idx) {
+      const turn = historicDecisions && historicDecisions[idx];
+      if (!turn || !turn.game_state) return;
+      historicIndex = idx;
+      historicTurnNumber = turn.game_state?.turn ?? turn.turn;
+
+      const head = turn.game_state.you?.head
+        || turn.game_state.board.snakes.find(s => s.id === turn.snake_id)?.body[0];
+      historicMoveState = BoardRenderer.processMoveEvaluations(
+        turn.move_evaluations, turn.safe_moves, head, turn.chosen_move
+      );
+      historicMoveState.selectedMove = null;
+      historicMoveState.selectedSnake = null;
+
+      document.getElementById('currentTurn').textContent = historicTurnNumber;
+      document.getElementById('firstMoveIndicator').style.display = 'none';
+
+      renderHistoricBoard(turn);
+      BoardRenderer.renderSnakeInfo(
+        document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id, null,
+        { groupByTeam: true, onSelectSnake: switchHistoricSnake, selectableSnakeIds: controlledSnakeIds }
+      );
+      showHistoricSelectionPanel(turn);
+    }
+
+    function renderHistoricBoard(turn) {
+      const canvas = document.getElementById('gameCanvas');
+      BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
+        snakeId: turn.snake_id,
+        chosenMove: turn.chosen_move,
+        showChosenArrow: true,
+        interactive: false,
+      });
+      BoardRenderer.createBoardOverlay(
+        document.getElementById('boardOverlay'), canvas, turn.game_state.board,
+        historicMoveState, historicSelectMove
+      );
+    }
+
+    // Read-only candidate selection: clicking a candidate cell / move button
+    // shows that move's heuristic breakdown, exactly like the history viewer.
+    function historicSelectMove(direction) {
+      if (!historicMoveState) return;
+      historicMoveState.selectedMove = direction;
+      const turn = historicDecisions[historicIndex];
+      BoardRenderer.renderMoveButtons(
+        document.getElementById('moveButtons'), historicMoveState, historicSelectMove
+      );
+      renderHistoricBoard(turn);
+      const move = historicMoveState.moves[direction];
+      if (move) {
+        BoardRenderer.updateStatsTable(
+          document.getElementById('statsTableBody'), move, historicMoveState
+        );
+      }
+    }
+
+    function handleHistoricCanvasClick(event) {
+      const turn = historicDecisions && historicDecisions[historicIndex];
+      if (!turn || !historicMoveState) return;
+      const canvas = document.getElementById('gameCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const board = turn.game_state.board;
+      const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
+      const boardX = Math.floor((event.clientX - rect.left) / cellSize);
+      const boardY = board.height - 1 - Math.floor((event.clientY - rect.top) / cellSize);
+
+      // Clicking a *different* controlled snake's body switches the inspected
+      // perspective (loads its logged decisions for this same turn). Only
+      // controlled (bot-logged) snakes have decision logs to inspect.
+      const currentView = turn.snake_id;
+      for (const snake of board.snakes) {
+        if (!controlledSnakeIds.has(snake.id) || snake.id === currentView) continue;
+        if (snake.body.some(seg => seg.x === boardX && seg.y === boardY)) {
+          switchHistoricSnake(snake.id);
+          return;
+        }
+      }
+
+      // Otherwise, toggle a Voronoi territory highlight for the clicked cell.
+      let clickedSnake = null;
+      for (const [sid, cells] of Object.entries(historicMoveState.territoryCells || {})) {
+        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) { clickedSnake = sid; break; }
+      }
+      if (clickedSnake) {
+        historicMoveState.selectedSnake =
+          (historicMoveState.selectedSnake === clickedSnake) ? null : clickedSnake;
+        renderHistoricBoard(turn);
+      } else if (historicMoveState.selectedSnake) {
+        historicMoveState.selectedSnake = null;
+        renderHistoricBoard(turn);
+      }
+    }
+
+    // In history mode the selection panel becomes a read-only breakdown viewer:
+    // the snake-perspective name is shown, control buttons (Stage/Hold) and the
+    // intent badge are hidden, and the move buttons + stats reflect the logged
+    // turn. restoreLiveSelectionPanel() undoes this on return to live.
+    function showHistoricSelectionPanel(turn) {
+      document.getElementById('noSelectionMsg').style.display = 'none';
+      document.getElementById('selectionUI').style.display = 'block';
+      document.getElementById('selectedSnakePanel').classList.remove('active');
+
+      const snake = turn.game_state.board.snakes.find(s => s.id === turn.snake_id);
+      const name = snake?.name || turn.snake_name || turn.snake_id;
+      const emoji = snake?.emoji || '\u{1F40D}';
+      document.getElementById('selectedSnakeName').textContent = `${emoji} ${name} (history)`;
+
+      const badge = document.getElementById('intentModeBadge');
+      if (badge) badge.style.display = 'none';
+      const submitSection = document.querySelector('#moveControls .submit-section');
+      if (submitSection) submitSection.style.display = 'none';
+
+      BoardRenderer.renderMoveButtons(
+        document.getElementById('moveButtons'), historicMoveState, historicSelectMove
+      );
+      BoardRenderer.updateStatsTable(
+        document.getElementById('statsTableBody'), null, historicMoveState
+      );
+    }
+
+    function restoreLiveSelectionPanel() {
+      const badge = document.getElementById('intentModeBadge');
+      if (badge) badge.style.display = '';
+      const submitSection = document.querySelector('#moveControls .submit-section');
+      if (submitSection) submitSection.style.display = '';
+      if (selectedSnakeId) {
+        showSelectionUI();
+      } else {
+        hideSelectionUI();
+      }
+    }
+
+    document.getElementById('playTurnSlider').addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (val >= liveMaxTurn) {
+        returnToLive();
+      } else {
+        enterHistoric(val);
       }
     });
 

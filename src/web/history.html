@@ -673,6 +673,34 @@
       loadGame(group.game_id, group.default_snake_id);
     }
 
+    // Per-(game,snake) decision cache so switching perspective doesn't re-fetch
+    // the whole game over the network on every click (the source of the lag).
+    const decisionCache = new Map();
+
+    async function fetchDecisionsCached(gameId, snakeId) {
+      const key = `${gameId}::${snakeId}`;
+      if (decisionCache.has(key)) return decisionCache.get(key);
+      const response = await fetch(`/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`);
+      const data = await response.json();
+      const decisions = (data && data.decisions) || [];
+      decisionCache.set(key, decisions);
+      return decisions;
+    }
+
+    // Warm the cache for our teammates in the background so selecting another of
+    // our snakes is instant instead of paying a network round-trip per click.
+    function prefetchTeamDecisions(gameId) {
+      if (!turnData || !turnData.length) return;
+      const board = turnData[Math.max(0, currentTurn)]?.game_state?.board;
+      if (!board) return;
+      const ourKey = BoardRenderer.getTeamKey(board.snakes.find(s => s.id === currentSnakeId));
+      for (const s of board.snakes) {
+        if (BoardRenderer.getTeamKey(s) !== ourKey) continue;
+        if (decisionCache.has(`${gameId}::${s.id}`)) continue;
+        fetchDecisionsCached(gameId, s.id).catch(() => {});
+      }
+    }
+
     async function loadGame(gameId, snakeId, preserveTurn = false) {
       currentGame = gameId;
       currentSnakeId = snakeId;
@@ -681,17 +709,17 @@
       const desiredTurn = preserveTurn ? currentTurn : 0;
 
       try {
-        const response = await fetch(`/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`);
-        const data = await response.json();
-        
-        if (data.decisions && data.decisions.length > 0) {
-          turnData = data.decisions;
+        const decisions = await fetchDecisionsCached(gameId, snakeId);
+
+        if (decisions && decisions.length > 0) {
+          turnData = decisions;
           const slider = document.getElementById('turnSlider');
           slider.max = turnData.length - 1;
           const startTurn = Math.min(desiredTurn, turnData.length - 1);
           slider.value = startTurn;
           document.getElementById('totalTurns').textContent = turnData.length;
           renderTurn(startTurn);
+          prefetchTeamDecisions(gameId);
         }
       } catch (error) {
         console.error('Error loading game:', error);
@@ -717,7 +745,19 @@
       const clickY = event.clientY - rect.top;
       const boardX = Math.floor(clickX / cellSize);
       const boardY = board.height - 1 - Math.floor(clickY / cellSize);
-      
+
+      // Click one of our team's snakes to switch the inspected perspective to it
+      // (mirrors selecting it from the team list, just from the board directly).
+      const ourKey = BoardRenderer.getTeamKey(board.snakes.find(s => s.id === currentSnakeId));
+      for (const snake of board.snakes) {
+        if (snake.id === currentSnakeId) continue;
+        if (BoardRenderer.getTeamKey(snake) !== ourKey) continue;
+        if (snake.body.some(seg => seg.x === boardX && seg.y === boardY)) {
+          selectPerspectiveSnake(snake.id);
+          return;
+        }
+      }
+
       let clickedSnake = null;
       for (const [snakeId, cells] of Object.entries(moveState.territoryCells)) {
         if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
@@ -804,6 +844,7 @@
         showChosenArrow: true,
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildOurDeaths(turn),
+        interactive: false
       });
       BoardRenderer.createBoardOverlay(
         document.getElementById('boardOverlay'), canvas, turn.game_state.board, moveState, selectMove

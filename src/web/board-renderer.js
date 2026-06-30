@@ -755,6 +755,12 @@ const BoardRenderer = (function () {
     const snakeId = options?.snakeId || null;
     const chosenMove = options?.chosenMove || null;
     const showChosenArrow = options?.showChosenArrow !== false;
+    // Interactive (live) vs read-only (historic) rendering. Defaults to true so
+    // existing callers are unchanged. When false, control-only overlays such as
+    // server-staged move arrows are suppressed — the historic/readonly play view
+    // and the Game History viewer render the board, candidate cells, and the
+    // logged chosen-move arrow, but never live staging affordances.
+    const interactive = options?.interactive !== false;
 
     if (!gameState || !gameState.board) return;
 
@@ -1000,7 +1006,7 @@ const BoardRenderer = (function () {
       let arrowCommitted = false;
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
         arrowMove = chosenMove;
-      } else if (stagedForThisSnake) {
+      } else if (interactive && stagedForThisSnake) {
         arrowMove = stagedForThisSnake.move;
         arrowColor = stagedForThisSnake.color || "#4CAF50";
         arrowCommitted = !!stagedForThisSnake.committed;
@@ -1322,7 +1328,13 @@ const BoardRenderer = (function () {
       teams.get(key).push(snake);
     }
 
-    const ourSnake = snakes.find((s) => s.id === ourSnakeId);
+    const selectableIds = options.selectableSnakeIds || null;
+    const canSelect = !!options.onSelectSnake;
+    // Identify our team even when there is no perspective snake set (e.g. live
+    // play with nothing selected yet) by falling back to any selectable snake.
+    const ourSnake =
+      snakes.find((s) => s.id === ourSnakeId) ||
+      (selectableIds ? snakes.find((s) => selectableIds.has(s.id)) : null);
     const ourTeamKey = ourSnake ? getTeamKey(ourSnake) : null;
 
     // Our team first, then enemy teams.
@@ -1348,7 +1360,10 @@ const BoardRenderer = (function () {
         const items = teamSnakes
           .map((snake) =>
             renderSnakeInfoItem(snake, ourSnakeId, holdsMap, {
-              selectable: isOurTeam,
+              selectable:
+                canSelect &&
+                isOurTeam &&
+                (selectableIds ? selectableIds.has(snake.id) : true),
               active: snake.id === ourSnakeId,
             }),
           )

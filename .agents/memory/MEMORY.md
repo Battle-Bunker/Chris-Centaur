@@ -2,3 +2,5 @@
 - [Combat invulnerability precedence](combat-invulnerability-precedence.md) — H2H winner = max invuln first, length only tiebreaks equal-invuln; aggression hunts strictly-out-invulnerated enemies; new heuristics must wire all synced surfaces.
 - [Dead-snake death markers](dead-snake-head-advance.md) — NEVER fabricate a death cell; server removes dead snakes immediately so only last-known pos exists. Our snake: shadow=intended move, solid=server final head. Dead body = "\" striped team color.
 - [Snake IDs contain '#'](snake-id-url-encoding.md) — centaur snake ids are `BASEID#suffix`; raw in a URL the '#suffix' becomes a fragment and the wrong snake loads. Always encodeURIComponent.
+- [Read-only snake selection](readonly-snake-selection.md) — history + play scrub share renderSnakeInfo team list; cache+prefetch /api/logs per snake (no per-click refetch); selectableSnakeIds decouples our-team from active perspective.
+- [decision-log turn offset](decision-log-turn-offset.md) — `decision_logs.turn` is +1 vs `game_state.turn`/live board numbering; align live↔logged turns via `game_state.turn`, not the `turn` column.
