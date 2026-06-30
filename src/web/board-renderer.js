@@ -67,6 +67,24 @@ const BoardRenderer = (function () {
     return dead;
   }
 
+  // Move a board cell one step in a Battlesnake direction. Returns null for
+  // missing inputs so callers can fall back gracefully. y grows upward in board
+  // coordinates (the renderer flips it for canvas y).
+  function applyDirection(cell, move) {
+    if (!cell || !move) return null;
+    switch (move) {
+      case "up":
+        return { x: cell.x, y: cell.y + 1 };
+      case "down":
+        return { x: cell.x, y: cell.y - 1 };
+      case "left":
+        return { x: cell.x - 1, y: cell.y };
+      case "right":
+        return { x: cell.x + 1, y: cell.y };
+    }
+    return null;
+  }
+
   // Draw a dead-head marker at a board cell. A solid marker (shadow=false) is a
   // filled disc in the snake's color with a white ✗; a shadow marker
   // (shadow=true) is a ghosted/translucent disc with a dashed outline and a
@@ -1108,11 +1126,23 @@ const BoardRenderer = (function () {
       }
     });
 
-    // Dead-head markers (drawn last so they sit on top of live snakes). For our
-    // own snake we draw an intended (shadow) + actual (solid) pair via
-    // options.ourDeaths; every other snake that vanished since the previous turn
-    // gets a single solid marker at its last head. ourDeaths ids are excluded
-    // from the auto-detection so we never double-mark our own snake.
+    // Dead-head markers (drawn last so they sit on top of live snakes). This is
+    // the SINGLE centralized death-rendering path shared by live play, /play
+    // historic scrubbing, and /history. We build one unified list of death
+    // entries, then derive each snake's authoritative final cell + intended
+    // (staged) cell the same way for every consumer:
+    //   - `actual` (solid marker): where the server actually put the snake. Taken
+    //     from an explicit actualHead (our own snake's server_outcome / final
+    //     state) when present, else derived from the engine's authoritative
+    //     `lastMoves` map (last-known head stepped one cell in the recorded
+    //     direction). This replaces the old "unknown ?" guess for other snakes.
+    //   - `intended` (shadow marker): the move we staged/tried to submit. Taken
+    //     from an explicit intendedHead (our own snake) when present, else
+    //     derived from the staged-move map. Only drawn when it differs from the
+    //     authoritative cell.
+    //   - When neither an explicit actualHead nor `lastMoves` is available
+    //     (older logs that predate the field), fall back to the "unknown ?"
+    //     marker at the last-known head.
     const ourDeaths = options?.ourDeaths || [];
     const excludeIds = new Set(
       ourDeaths.map((d) => d.id).filter((id) => id != null),
@@ -1125,23 +1155,38 @@ const BoardRenderer = (function () {
         excludeIds,
       );
     }
+    // The authoritative move map rides along on the rendered game state (it is
+    // logged inside game_state JSONB, so historic scrubbing and /history get it
+    // for free); an explicit option can override it.
+    const lastMoves = options?.lastMoves || gameState?.lastMoves || null;
+    const stagedMovesForDeaths = options?.stagedMoves || null;
+
+    const deathEntries = [];
     if (deadSnakes) {
       deadSnakes.forEach((d) => {
-        renderSnakeUnified(
-          ctx,
-          { body: d.body, color: d.color },
-          board.height,
-          cellSize,
-          { ghost: true },
-        );
-        // No authoritative final position exists for other snakes (the server
-        // drops them the moment they die) → mark the last-known head as unknown.
-        drawUnknownDeathMarker(ctx, d.head, board.height, cellSize, d.color);
+        deathEntries.push({
+          id: d.id,
+          lastHead: d.head,
+          body: d.body,
+          color: d.color,
+          intendedHead: undefined,
+          actualHead: undefined,
+        });
       });
     }
     ourDeaths.forEach((d) => {
-      // Optional ghosted body for our own dead snake (live view, where the
-      // snake has already been removed from the board).
+      deathEntries.push({
+        id: d.id,
+        lastHead: d.lastHead || d.intendedHead || null,
+        body: d.body || null,
+        color: d.color,
+        intendedHead: d.intendedHead,
+        actualHead: d.actualHead,
+      });
+    });
+
+    deathEntries.forEach((d) => {
+      // Ghosted last-known body so the dead snake still reads on the board.
       if (d.body)
         renderSnakeUnified(
           ctx,
@@ -1150,8 +1195,21 @@ const BoardRenderer = (function () {
           cellSize,
           { ghost: true },
         );
-      const intended = d.intendedHead;
-      const actual = d.actualHead;
+
+      // Authoritative final cell: explicit override first, else lastMoves.
+      let actual = d.actualHead || null;
+      if (!actual && lastMoves && d.id != null && d.lastHead) {
+        actual = applyDirection(d.lastHead, lastMoves[d.id]);
+      }
+      // Intended/staged cell: explicit override first, else staged-move map.
+      let intended = d.intendedHead || null;
+      if (!intended && stagedMovesForDeaths && d.id != null && d.lastHead) {
+        const staged = stagedMovesForDeaths[d.id];
+        if (staged && staged.move) {
+          intended = applyDirection(d.lastHead, staged.move);
+        }
+      }
+
       const same =
         intended &&
         actual &&
@@ -1161,10 +1219,11 @@ const BoardRenderer = (function () {
         drawDeathMarker(ctx, intended, board.height, cellSize, d.color, true);
       }
       if (actual) {
-        // Authoritative final head from the server → solid marker.
+        // Authoritative final head → solid marker.
         drawDeathMarker(ctx, actual, board.height, cellSize, d.color, false);
       } else {
-        // No authoritative final position → "?" marker at the last-known head.
+        // No authoritative final position (older logs / no lastMoves) → "?"
+        // marker at the last-known head.
         drawUnknownDeathMarker(
           ctx,
           d.lastHead || intended,

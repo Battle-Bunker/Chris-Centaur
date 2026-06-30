@@ -53,6 +53,13 @@ export interface GameState {
   turn: number;
   board: Board;
   you: Snake;
+  // Authoritative map of snakeId -> the move the server actually made on that
+  // snake's behalf LAST turn (the transition into this turn), including for
+  // snakes that died at the end of last turn (they're already gone from
+  // `board.snakes`). Lets us render a dead snake's true final cell instead of
+  // guessing. Optional for backward compatibility with engines/logs that
+  // predate it.
+  lastMoves?: Record<string, Direction>;
 }
 
 // A board-only view of a game with NO `you`. The centaur server controls many

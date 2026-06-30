@@ -1270,6 +1270,9 @@
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         ourDeaths: ourDeaths,
+        // Authoritative per-snake moves from the engine; lets the renderer mark
+        // other snakes' true death cells instead of an "unknown ?" guess.
+        lastMoves: currentGameState?.lastMoves || null,
       });
 
       // Q-mode visual cue: outline the four orthogonally-adjacent cells to
@@ -2328,12 +2331,44 @@
       showHistoricSelectionPanel(turn);
     }
 
+    // Mirror of the Game History viewer's buildOurDeaths: our own snake's death
+    // markers render only on the final logged turn (server_outcome present and
+    // alive=false). Shadow = intended (head + chosen_move), solid = the server's
+    // reported final head. Older logs without server_outcome → no markers.
+    function buildHistoricOurDeaths(turn) {
+      const outcome = turn.server_outcome;
+      if (!outcome || outcome.alive) return [];
+      const snakes = turn.game_state?.board?.snakes || [];
+      const ourSnake = snakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
+      const head = ourSnake?.body?.[0] || ourSnake?.head;
+      const intendedHead = head && turn.chosen_move ? applyMoveToCell(head, turn.chosen_move) : null;
+      const actualHead =
+        outcome.finalHeadX != null && outcome.finalHeadY != null
+          ? { x: outcome.finalHeadX, y: outcome.finalHeadY }
+          : null;
+      return [{
+        id: turn.snake_id,
+        lastHead: head || null,
+        intendedHead,
+        actualHead,
+        color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
+        emoji: ourSnake?.emoji || '\u{1F40D}',
+      }];
+    }
+
     function renderHistoricBoard(turn) {
       const canvas = document.getElementById('gameCanvas');
+      // The prior logged turn's board lets the renderer detect snakes that
+      // vanished this turn; lastMoves (on game_state) then marks their true
+      // death cell. Both come from the same /api/logs data the live view uses.
+      const prevTurn = historicIndex > 0 ? historicDecisions[historicIndex - 1] : null;
       BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
         snakeId: turn.snake_id,
         chosenMove: turn.chosen_move,
         showChosenArrow: true,
+        previousBoard: prevTurn?.game_state?.board || null,
+        ourDeaths: buildHistoricOurDeaths(turn),
+        lastMoves: turn.game_state?.lastMoves || null,
         interactive: false,
       });
       BoardRenderer.createBoardOverlay(

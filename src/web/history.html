@@ -844,6 +844,9 @@
         showChosenArrow: true,
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildOurDeaths(turn),
+        // Authoritative per-snake moves logged on game_state; lets the renderer
+        // mark other snakes' true death cells instead of an "unknown ?" guess.
+        lastMoves: turn.game_state?.lastMoves || null,
         interactive: false
       });
       BoardRenderer.createBoardOverlay(
