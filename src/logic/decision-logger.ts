@@ -47,6 +47,7 @@ export interface DecisionLogEntry {
       tailReachable?: number;
 
       aggression?: number;
+      trapped?: number;
 
       fertileTerritory?: number;
       foodDistanceInverse?: number;

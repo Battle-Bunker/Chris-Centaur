@@ -530,6 +530,15 @@
                             </div>
                             <div class="description">Reward for hunting enemies we strictly out-invulnerate — closing in on or landing on their head/body. Kept conservative so survival always dominates.</div>
                         </div>
+
+                        <div class="config-item">
+                            <label for="trapped">Trapped Penalty</label>
+                            <div class="input-group">
+                                <input type="range" id="trapped_slider" min="-2000" max="0" step="10">
+                                <input type="number" id="trapped" min="-2000" max="0" step="10">
+                            </div>
+                            <div class="description">Strongly-negative penalty for moving into a clearly-fatal dead-end pocket — one where we can neither chase our own tail nor fit our length. A hard candidate-level veto also blocks such moves whenever a safe alternative exists.</div>
+                        </div>
                     </div>
                     
                     <!-- Centaur Play Mode -->
@@ -606,7 +615,7 @@
             'enemyH2HRisk', 'allyH2HRisk',
             'waypointGoto', 'waypointNear',
             'connectivityPenalty', 'tightSpaceScore', 'tailReachable', 'tightSpaceThreshold',
-            'aggression',
+            'aggression', 'trapped',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
         
@@ -681,6 +690,10 @@
                         } else if (key === 'aggression') {
                             slider.min = 0;
                             slider.max = 200;
+                        } else if (key === 'trapped') {
+                            slider.min = -2000;
+                            slider.max = 0;
+                            slider.step = 10;
                         } else if (key === 'tightSpaceThreshold') {
                             slider.min = 0.5;
                             slider.max = 5;

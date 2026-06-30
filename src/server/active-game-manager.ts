@@ -937,10 +937,10 @@ export class ActiveGameManager {
   // Non-mutating safety probe. Reports whether `move` would put THIS snake's
   // head on an impassable cell next turn — off-board, wall/hazard, our own
   // body, or a non-severable enemy body — evaluated from the committing snake's
-  // OWN perspective via viewFor, so an invulnerable snake attacking a weaker
-  // enemy is correctly NOT fatal. Measured with isPassableAtTurn(dest, 1), the
-  // same turn-1 semantics the goto-route and space BFS use, so a step onto a
-  // tail that vacates this turn is not flagged.
+  // OWN perspective via passabilityFor(snakeId), so an invulnerable snake
+  // attacking a weaker enemy is correctly NOT fatal. Uses optimistic turn-1
+  // semantics, the same the goto-route and space BFS use, so a step onto a tail
+  // that vacates this turn is not flagged.
   //
   // This NEVER changes the committed move. The staged move is sacrosanct and
   // commits verbatim; this exists solely so the UI can warn a human that the
@@ -952,10 +952,9 @@ export class ActiveGameManager {
     const head = snake?.head || snake?.body?.[0];
     if (!head) return false;
     try {
-      const gs = this.viewFor(game.boardState, snakeId);
-      if (!gs) return false;
-      const graph = new BoardGraph(gs);
-      return !graph.isPassableAtTurn(ActiveGameManager.destinationOf(head, move), 1);
+      const graph = new BoardGraph(game.boardState);
+      const dest = ActiveGameManager.destinationOf(head, move);
+      return !graph.passabilityFor(snakeId, { optimistic: true }).passable(dest, 1);
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);

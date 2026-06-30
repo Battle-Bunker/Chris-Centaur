@@ -4,3 +4,5 @@
 - [Snake IDs contain '#'](snake-id-url-encoding.md) — centaur snake ids are `BASEID#suffix`; raw in a URL the '#suffix' becomes a fragment and the wrong snake loads. Always encodeURIComponent.
 - [Read-only snake selection](readonly-snake-selection.md) — history + play scrub share renderSnakeInfo team list; cache+prefetch /api/logs per snake (no per-click refetch); selectableSnakeIds decouples our-team from active perspective.
 - [decision-log turn offset](decision-log-turn-offset.md) — `decision_logs.turn` is +1 vs `game_state.turn`/live board numbering; align live↔logged turns via `game_state.turn`, not the `turn` column.
+- [BoardGraph passability layers](boardgraph-passability-layers.md) — physical (Voronoi, no severability) vs subjective `passabilityFor(id)`; severability strict & expiry-aware via server `invulnerabilityExpiryTurn`.
+- [Trap / fatal-pocket survival](trap-survival.md) — `trapped` heuristic + candidate-level veto; parity-bounded reachable region stops floodfill over-count; just-ate (head-on-food) tail never vacates.

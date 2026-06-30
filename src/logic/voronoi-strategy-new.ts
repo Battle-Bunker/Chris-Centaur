@@ -86,7 +86,8 @@ export class VoronoiStrategy {
       tightSpaceScore: config.tightSpaceScore,
       tailReachable: config.tailReachable,
       tightSpaceThreshold: config.tightSpaceThreshold,
-      aggression: config.aggression
+      aggression: config.aggression,
+      trapped: config.trapped
     };
   }
   
@@ -216,6 +217,7 @@ export class VoronoiStrategy {
         tightSpaceScore: evaluation.averageBreakdown.stats.tightSpaceScore,
         tailReachable: evaluation.averageBreakdown.stats.tailReachable,
         aggression: evaluation.averageBreakdown.stats.aggression,
+        trapped: evaluation.averageBreakdown.stats.trapped,
         weights: evaluation.averageBreakdown.weights,
         weighted: evaluation.averageBreakdown.weighted,
         fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,

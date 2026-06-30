@@ -20,6 +20,9 @@ export interface Snake {
   };
   emoji?: string;
   invulnerabilityLevel?: number;
+  // Last absolute game turn on which invulnerabilityLevel still applies. Supplied
+  // by the game server; when absent the level is assumed to apply this turn only.
+  invulnerabilityExpiryTurn?: number;
   teamID?: string;
 }
 

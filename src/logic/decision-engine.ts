@@ -194,8 +194,6 @@ export class DecisionEngine {
     
     // Evaluate each of our candidate moves
     const evaluations: MoveEvaluationResult[] = [];
-    let bestMove = ourMoves[0];
-    let bestScore = -Infinity;
     
     for (const move of ourMoves) {
       const moveStates = boardStates.filter(state => state.ourMove === move);
@@ -254,10 +252,26 @@ export class DecisionEngine {
         numStates: moveStates.length,
         averageBreakdown
       });
-      
-      if (averageScore > bestScore) {
-        bestScore = averageScore;
-        bestMove = move;
+    }
+    
+    // Select the best move with a candidate-level fatal-pocket veto.
+    // A move whose averaged `trapped` signal is at/above the fatal threshold leads
+    // into a clearly-fatal dead-end pocket (no tail-chase, not enough room to
+    // outlast our length). We must never pick such a move when a non-fatal
+    // alternative exists — even if the pocket happens to score higher (e.g. a
+    // waypoint sitting inside it). This is the hard guarantee on top of the
+    // strongly-negative `trapped` weight. If EVERY candidate is fatal, we fall
+    // back to scoring among all of them (least-bad death).
+    const FATAL_TRAP_THRESHOLD = 0.5;
+    const nonFatal = evaluations.filter(e => e.averageBreakdown.stats.trapped < FATAL_TRAP_THRESHOLD);
+    const selectionPool = nonFatal.length > 0 ? nonFatal : evaluations;
+    
+    let bestMove = selectionPool[0].move;
+    let bestScore = -Infinity;
+    for (const evalResult of selectionPool) {
+      if (evalResult.averageScore > bestScore) {
+        bestScore = evalResult.averageScore;
+        bestMove = evalResult.move;
       }
     }
     
@@ -552,7 +566,8 @@ export class DecisionEngine {
       connectivityPenalty: 0,
       tightSpaceScore: 0,
       tailReachable: 0,
-      aggression: 0
+      aggression: 0,
+      trapped: 0
     };
     
     const sumWeighted = {
@@ -581,7 +596,8 @@ export class DecisionEngine {
       connectivityPenaltyScore: 0,
       tightSpaceScoreScore: 0,
       tailReachableScore: 0,
-      aggressionScore: 0
+      aggressionScore: 0,
+      trappedScore: 0
     };
     
     let totalScore = 0;
@@ -615,6 +631,7 @@ export class DecisionEngine {
       sumStats.tightSpaceScore += evaluation.stats.tightSpaceScore;
       sumStats.tailReachable += evaluation.stats.tailReachable;
       sumStats.aggression += evaluation.stats.aggression;
+      sumStats.trapped += evaluation.stats.trapped;
       
       // Sum weighted scores
       sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
@@ -643,6 +660,7 @@ export class DecisionEngine {
       sumWeighted.tightSpaceScoreScore += evaluation.weighted.tightSpaceScoreScore;
       sumWeighted.tailReachableScore += evaluation.weighted.tailReachableScore;
       sumWeighted.aggressionScore += evaluation.weighted.aggressionScore;
+      sumWeighted.trappedScore += evaluation.weighted.trappedScore;
       
       totalScore += evaluation.score;
     }
@@ -679,7 +697,8 @@ export class DecisionEngine {
         connectivityPenalty: sumStats.connectivityPenalty / count,
         tightSpaceScore: sumStats.tightSpaceScore / count,
         tailReachable: sumStats.tailReachable / count,
-        aggression: sumStats.aggression / count
+        aggression: sumStats.aggression / count,
+        trapped: sumStats.trapped / count
       },
       weights: evaluations[0].weights, // All evaluations use same weights
       weighted: {
@@ -708,7 +727,8 @@ export class DecisionEngine {
         connectivityPenaltyScore: sumWeighted.connectivityPenaltyScore / count,
         tightSpaceScoreScore: sumWeighted.tightSpaceScoreScore / count,
         tailReachableScore: sumWeighted.tailReachableScore / count,
-        aggressionScore: sumWeighted.aggressionScore / count
+        aggressionScore: sumWeighted.aggressionScore / count,
+        trappedScore: sumWeighted.trappedScore / count
       }
     };
   }

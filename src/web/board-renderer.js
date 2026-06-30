@@ -1474,6 +1474,7 @@ const BoardRenderer = (function () {
         tightSpaceScoreScore: 0,
         tailReachableScore: 0,
         aggressionScore: 0,
+        trappedScore: 0,
         fertileScore: 0,
       };
 
@@ -1699,6 +1700,13 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.aggression ?? 0,
         weightedScore: breakdown.weighted?.aggressionScore ?? 0,
         averageWeighted: averageWeighted.aggressionScore ?? 0,
+      },
+      {
+        name: "Trapped (fatal pocket)",
+        value: breakdown.trapped ?? "—",
+        weight: breakdown.weights?.trapped ?? 0,
+        weightedScore: breakdown.weighted?.trappedScore ?? 0,
+        averageWeighted: averageWeighted.trappedScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [

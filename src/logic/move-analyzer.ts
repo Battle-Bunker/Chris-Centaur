@@ -44,13 +44,16 @@ export class MoveAnalyzer {
     const safe: Direction[] = [];
     const risky: Direction[] = [];
     const h2hRiskByMove = new Map<Direction, H2HRiskInfo>();
-    
+
+    // Our own subjective passability (walls, hazards, own body, severable enemies).
+    const ourPassability = graph.passabilityFor(snake.id);
+
     // Analyze each possible move
     for (const direction of allDirections) {
       const newPosition = this.getNextPosition(head, direction);
       
-      // Check for certain death using BoardGraph's passability (walls, bodies, hazards)
-      if (!graph.isPassable(newPosition)) {
+      // Check for certain death using the snake's own passability rules
+      if (!ourPassability.passable(newPosition, 1)) {
         // This move causes certain death - exclude it entirely
         continue;
       }

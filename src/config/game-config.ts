@@ -52,6 +52,9 @@ export interface GameConfig {
 
   // Offensive aggression weight
   aggression: number;            // Reward for hunting enemies we strictly out-invulnerate (closing in on / landing on their head/body)
+
+  // Hard trap survival weight
+  trapped: number;               // Strongly-negative penalty for entering a clearly-fatal dead-end pocket (no tail-chase, not enough room to outlast our length)
   
   // Simulation parameters
   maxSimulationDepth: number;
@@ -119,6 +122,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   // Offensive aggression weight (conservative: max stat 2 → max +50, far below the
   // death penalty of -500, so survival always dominates aggression)
   aggression: 25,
+
+  // Hard trap survival weight: a clearly-fatal pocket is effectively a death, so
+  // this dominates every non-survival heuristic. The candidate-level veto in the
+  // decision engine is the hard guarantee; this weight ensures the signal also
+  // dominates scoring when a veto is not possible.
+  trapped: -600,
   
   // Simulation parameters
   maxSimulationDepth: 1,

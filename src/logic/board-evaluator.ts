@@ -57,6 +57,9 @@ export interface HeuristicStats {
 
   // Offensive aggression heuristic
   aggression: number;           // Reward [0,2] for closing in on / landing on the head/body of an enemy we strictly out-invulnerate; 0 otherwise
+
+  // Hard trap survival signal
+  trapped: number;              // 1 if the move leads into a clearly-fatal dead-end pocket (no tail-chase, not enough room to outlast our length), 0 otherwise
 }
 
 export interface BoardEvaluation {
@@ -135,6 +138,9 @@ export interface HeuristicWeights {
 
   // Offensive aggression weight
   aggression: number;           // Weight applied to the aggression reward (positive, conservative so survival dominates)
+
+  // Hard trap survival weight
+  trapped: number;              // Weight applied to the trapped signal (strongly negative; a fatal pocket should dominate non-survival heuristics)
 }
 
 export interface WeightedScores {
@@ -185,6 +191,9 @@ export interface WeightedScores {
 
   // Offensive aggression weighted score
   aggressionScore: number;
+
+  // Hard trap survival weighted score
+  trappedScore: number;
 }
 
 export class BoardEvaluator {
@@ -243,6 +252,12 @@ export class BoardEvaluator {
       // Offensive aggression weight (conservative: max stat 2 → max +50, far below
       // the death penalty of -500, so survival always dominates aggression)
       aggression: 25,              // Reward hunting enemies we strictly out-invulnerate
+
+      // Hard trap survival weight: a clearly-fatal pocket is effectively a death,
+      // so this dominates every non-survival heuristic. The candidate-level veto
+      // in the decision engine is the hard guarantee; this weight ensures the
+      // signal also dominates scoring when a veto is not possible.
+      trapped: -600,
       
       // Override with provided weights
       ...weights
@@ -313,7 +328,8 @@ export class BoardEvaluator {
           connectivityPenalty: 0,
           tightSpaceScore: 0,
           tailReachable: 0,
-          aggression: 0
+          aggression: 0,
+          trapped: 0   // death is already captured by deaths:1; avoid double-penalizing
         },
         territoryCells: new Map()
       };
@@ -389,10 +405,17 @@ export class BoardEvaluator {
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
     
     // Calculate enhanced space detection for all snakes (conservative mode)
-    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, board.width, board.height, false);
+    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, false);
     
-    // Calculate optimistic self space separately (always uses optimistic=true)
-    const selfSpaceOptimistic = this.calculateSnakeSpace(graph, ourSnake, board.snakes, board.width, board.height, true);
+    // Calculate the optimistic reachable region for our snake ONCE and derive both
+    // the optimistic self-space score and the hard "trapped" survival signal from it.
+    const ourOptimisticRegion = this.computeReachableRegion(graph, ourSnake, true);
+    const selfSpaceOptimistic = this.spaceScoreFromRegion(ourOptimisticRegion, ourSnake.length);
+    // Trapped: a clearly-fatal pocket. We are NOT trapped if we can reach our own
+    // tail (tail-chase survives) OR the parity-bounded longest path through the
+    // reachable region is at least our length (enough room to outlast our body).
+    const ourLongestPathBound = Math.min(ourOptimisticRegion.reachableCount, ourOptimisticRegion.parityBound);
+    const trapped = (ourOptimisticRegion.tailReachable || ourLongestPathBound >= ourSnake.length) ? 0 : 1;
     
     // Calculate user-directed waypoint heuristics (centaur play mode)
     const { waypointGoto, waypointNear } = this.calculateWaypointStats(
@@ -400,7 +423,7 @@ export class BoardEvaluator {
     );
 
     // Calculate tight-space survival metrics (connectivity, longest path, tail reachable)
-    const tightMetrics = this.calculateTightSpaceMetrics(graph, ourSnake, board.snakes);
+    const tightMetrics = this.calculateTightSpaceMetrics(graph, ourSnake);
 
     // Calculate offensive aggression toward enemies we strictly out-invulnerate
     const aggression = this.calculateAggression(ourSnake, board.snakes, teamSnakeIds, board.width, board.height);
@@ -433,7 +456,8 @@ export class BoardEvaluator {
         connectivityPenalty: tightMetrics.stranded,
         tightSpaceScore: tightMetrics.tightSpaceScore,
         tailReachable: tightMetrics.tailReachable,
-        aggression
+        aggression,
+        trapped
       },
       territoryCells: bfsResult.territoryCells
     };
@@ -481,7 +505,7 @@ export class BoardEvaluator {
     }
     
     // Blue: "be near, keep the path open". Closeness + reachability penalty.
-    const reachable = onTarget || this.isCellReachableFrom(graph, head, waypoint, allSnakes, ourSnake);
+    const reachable = onTarget || this.isCellReachableFrom(graph, head, waypoint, ourSnake);
     return {
       waypointGoto: 0,
       waypointNear: closeness + (reachable ? 0 : -1)
@@ -497,17 +521,14 @@ export class BoardEvaluator {
     graph: BoardGraph,
     start: Coord,
     target: Coord,
-    allSnakes: Snake[],
     ourSnake: Snake
   ): boolean {
     const targetKey = graph.coordToKey(target);
-    
-    // Our own body (except tail) blocks reachability
-    const ownBody = new Set<string>();
-    for (let i = 0; i < ourSnake.body.length - 1; i++) {
-      ownBody.add(graph.coordToKey(ourSnake.body[i]));
-    }
-    
+
+    // Single source of truth for our own passability (own body blocks, own tail
+    // and other snakes' bodies recede under optimistic turn-aware passability).
+    const pass = graph.passabilityFor(ourSnake.id, { optimistic: true });
+
     const visited = new Set<string>();
     visited.add(graph.coordToKey(start));
     let level: Coord[] = [start];
@@ -529,8 +550,7 @@ export class BoardEvaluator {
           const k = graph.coordToKey(n);
           if (visited.has(k)) continue;
           if (k === targetKey) return true;  // reached
-          if (ownBody.has(k)) continue;
-          if (!graph.isPassableAtTurn(n, turn)) continue;
+          if (!pass.passable(n, turn)) continue;
           visited.add(k);
           next.push(n);
         }
@@ -576,11 +596,9 @@ export class BoardEvaluator {
     const graph = new BoardGraph(gameState);
     const targetKey = graph.coordToKey(waypoint);
 
-    // Our own body (except tail) blocks the route — same rule as reachability.
-    const ownBody = new Set<string>();
-    for (let i = 0; i < ourSnake.body.length - 1; i++) {
-      ownBody.add(graph.coordToKey(ourSnake.body[i]));
-    }
+    // Same passability as reachability: our own body blocks, everyone else uses
+    // optimistic turn-aware passability.
+    const pass = graph.passabilityFor(ourSnake.id, { optimistic: true });
 
     const startKey = graph.coordToKey(head);
     const parent = new Map<string, Coord>();
@@ -609,8 +627,7 @@ export class BoardEvaluator {
             found = true;
             break;
           }
-          if (ownBody.has(k)) continue;
-          if (!graph.isPassableAtTurn(n, turn)) continue;
+          if (!pass.passable(n, turn)) continue;
           visited.add(k);
           parent.set(k, cur);
           next.push(n);
@@ -697,40 +714,19 @@ export class BoardEvaluator {
    */
   private calculateTightSpaceMetrics(
     graph: BoardGraph,
-    ourSnake: Snake,
-    allSnakes: Snake[]
+    ourSnake: Snake
   ): { stranded: number; tightSpaceScore: number; tailReachable: number } {
     const head = ourSnake.head;
     const snakeLength = ourSnake.length;
-    const tailKey = graph.coordToKey(ourSnake.body[ourSnake.body.length - 1]);
-    const headKey = graph.coordToKey(head);
-    
-    // Block other snakes' tails (we can chase our own tail, not others')
-    const ourInvulnerability = ourSnake.invulnerabilityLevel ?? 0;
-    const otherTails = new Set<string>();
-    for (const s of allSnakes) {
-      if (s.health <= 0) continue;
-      if (s.id === ourSnake.id) continue;
-      if ((s.invulnerabilityLevel ?? 0) < ourInvulnerability) continue;
-      otherTails.add(graph.coordToKey(s.body[s.body.length - 1]));
-    }
-    
-    // Build set of our own body cells (excluding tail and head); we never walk through these
-    const ownBody = new Set<string>();
-    for (let i = 0; i < ourSnake.body.length - 1; i++) {
-      const k = graph.coordToKey(ourSnake.body[i]);
-      if (k === headKey) continue;
-      ownBody.add(k);
-    }
-    
-    const isPassable = (coord: Coord, turn: number): boolean => {
-      if (!graph.isInBounds(coord)) return false;
-      const k = graph.coordToKey(coord);
-      if (k === headKey) return false; // treat head as removed for reachability
-      if (ownBody.has(k)) return false;
-      if (otherTails.has(k)) return false;
-      return graph.isPassableAtTurn(coord, turn);
-    };
+
+    // Shared snake-relative passability (single source of truth on BoardGraph).
+    // Survival reasoning: don't bank on enemy tails vacating.
+    const pass = graph.passabilityFor(ourSnake.id, { optimistic: true, opponentTailsAlwaysImpassable: true });
+    const tailKey = pass.tailKey;
+    const headKey = pass.headKey;
+
+    const isPassable = (coord: Coord, turn: number): boolean =>
+      pass.passable(coord, turn);
     
     // Step 1: identify head-neighbors (turn-1 passable from head)
     const headNeighbors: Coord[] = [
@@ -871,7 +867,7 @@ export class BoardEvaluator {
    * Returns scores for self, allies, and opponents
    * @param optimistic - If true, uses optimistic passability (body segments disappear over time)
    */
-  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, width: number, height: number, optimistic: boolean = false): 
+  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, optimistic: boolean = false): 
     { self: number; allies: number; opponents: number } {
     
     let selfScore = 0;
@@ -882,7 +878,7 @@ export class BoardEvaluator {
       if (snake.health <= 0) continue; // Skip dead snakes
       
       // Calculate space score for this snake
-      const spaceScore = this.calculateSnakeSpace(graph, snake, allSnakes, width, height, optimistic);
+      const spaceScore = this.calculateSnakeSpace(graph, snake, optimistic);
       
       // Categorize and accumulate scores
       if (snake.id === ourSnakeId) {
@@ -907,114 +903,97 @@ export class BoardEvaluator {
    *                     are considered passable if they will have disappeared by
    *                     the turn we reach them (using conservative disappear turn).
    */
-  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, allSnakes: Snake[], width: number, height: number, optimistic: boolean = false): number {
+  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, optimistic: boolean = false): number {
+    const region = this.computeReachableRegion(graph, snake, optimistic);
+    return this.spaceScoreFromRegion(region, snake.length);
+  }
+
+  /**
+   * Flood-fill the cells reachable by a snake from its head, using the shared
+   * BoardGraph snake-relative passability (single source of truth). Returns the
+   * data needed for survival reasoning:
+   *  - reachableCount: number of reachable cells INCLUDING the head;
+   *  - tailReachable: whether the snake's own tail cell is reachable (tail-chase);
+   *  - parityBound: checkerboard upper bound on the longest simple path through the
+   *    reachable region: 2 * min(white, black) + 1. A snake alternates cell colors
+   *    each step, so no simple path can exceed this. This is what prevents the
+   *    optimistic flood-fill from over-counting a 1-wide dead-end corridor as
+   *    survivable space.
+   *
+   * @param optimistic - if true, body segments are passable once they will have
+   *                     receded by the BFS arrival turn (turn-aware passability).
+   */
+  private computeReachableRegion(
+    graph: BoardGraph,
+    snake: Snake,
+    optimistic: boolean
+  ): { reachableCount: number; tailReachable: boolean; parityBound: number } {
+    // Survival reasoning: don't bank on enemy tails vacating.
+    const pass = graph.passabilityFor(snake.id, { optimistic, opponentTailsAlwaysImpassable: true });
     const startPos = snake.head;
-    const snakeLength = snake.length;
-    const snakeTailKey = graph.coordToKey(snake.body[snake.body.length - 1]);
-    
-    // Build a set of cells that belong to our own snake's body (excluding tail)
-    // We never want to consider our own body as passable even with optimistic mode
-    const ownBodyCells = new Set<string>();
-    for (let i = 0; i < snake.body.length - 1; i++) {  // Exclude tail
-      ownBodyCells.add(graph.coordToKey(snake.body[i]));
-    }
-    
-    // Build a set of other snakes' tails to block (we can chase our own tail, not others')
-    // Skip tails of snakes with lower invulnerability level than ours (their bodies are passable)
-    const ourInvulnerability = snake.invulnerabilityLevel ?? 0;
-    const otherSnakeTails = new Set<string>();
-    for (const otherSnake of allSnakes) {
-      if (otherSnake.health <= 0) continue;
-      if (otherSnake.id === snake.id) continue;
-      // If we can sever through this snake, its tail is not an additional blocker
-      if ((otherSnake.invulnerabilityLevel ?? 0) < ourInvulnerability) continue;
-      const tail = otherSnake.body[otherSnake.body.length - 1];
-      otherSnakeTails.add(graph.coordToKey(tail));
-    }
-    
-    // Track visited cells with their arrival turn for level-based BFS
-    const visited = new Map<string, number>();  // key -> arrivalTurn
-    
-    interface QueueItem {
-      position: Coord;
-      turn: number;
-    }
-    
-    let currentLevel: QueueItem[] = [{ position: startPos, turn: 0 }];
-    visited.set(graph.coordToKey(startPos), 0);
-    
-    let cellsFound = 1; // Start with 1 for the head position
-    let foundOwnTail = false;
-    
+
+    const visited = new Set<string>();
+    visited.add(graph.coordToKey(startPos));
+
+    let reachableCount = 1; // head occupies a cell
+    let tailReachable = false;
+    let white = (startPos.x + startPos.y) % 2 === 0 ? 1 : 0;
+    let black = 1 - white;
+
+    let currentLevel: { pos: Coord; turn: number }[] = [{ pos: startPos, turn: 0 }];
+
     while (currentLevel.length > 0) {
-      const nextLevel: QueueItem[] = [];
-      
-      for (const { position: current, turn: currentTurn } of currentLevel) {
-        const arrivalTurn = currentTurn + 1;
-        
-        // Get all four potential neighbors
+      const nextLevel: { pos: Coord; turn: number }[] = [];
+
+      for (const { pos, turn } of currentLevel) {
+        const arrivalTurn = turn + 1;
         const neighbors: Coord[] = [
-          { x: current.x, y: current.y + 1 },  // up
-          { x: current.x, y: current.y - 1 },  // down
-          { x: current.x - 1, y: current.y },  // left
-          { x: current.x + 1, y: current.y }   // right
+          { x: pos.x, y: pos.y + 1 },
+          { x: pos.x, y: pos.y - 1 },
+          { x: pos.x - 1, y: pos.y },
+          { x: pos.x + 1, y: pos.y }
         ];
-        
+
         for (const neighbor of neighbors) {
-          // Check bounds using BoardGraph (single source of truth)
-          if (!graph.isInBounds(neighbor)) {
-            continue;
-          }
-          
-          const neighborKey = graph.coordToKey(neighbor);
-          
-          // Skip if already visited
-          if (visited.has(neighborKey)) continue;
-          
-          // Never pass through our own body (except tail check below)
-          if (ownBodyCells.has(neighborKey)) continue;
-          
-          // Block other snakes' tails for space calculation
-          if (otherSnakeTails.has(neighborKey)) continue;
-          
-          // Check passability - either standard or optimistic
-          let isPassable: boolean;
-          if (optimistic) {
-            // Use optimistic passability - considers body segments passable
-            // if they will have disappeared by arrivalTurn
-            isPassable = graph.isPassableAtTurn(neighbor, arrivalTurn);
-          } else {
-            // Standard passability check
-            isPassable = graph.isPassable(neighbor);
-          }
-          
-          if (!isPassable) continue;
-          
-          // Mark as visited and count
-          visited.set(neighborKey, arrivalTurn);
-          cellsFound++;
-          
-          // Check if we reached our own tail
-          if (neighborKey === snakeTailKey) {
-            foundOwnTail = true;
-          }
-          
-          // Continue searching from this cell
-          nextLevel.push({ position: neighbor, turn: arrivalTurn });
+          const key = graph.coordToKey(neighbor);
+          if (visited.has(key)) continue;
+          if (!pass.passable(neighbor, arrivalTurn)) continue;
+
+          visited.add(key);
+          reachableCount++;
+          if ((neighbor.x + neighbor.y) % 2 === 0) white++; else black++;
+          if (key === pass.tailKey) tailReachable = true;
+
+          nextLevel.push({ pos: neighbor, turn: arrivalTurn });
         }
       }
-      
+
       currentLevel = nextLevel;
     }
-    
-    // Base: +3 if enough space, -3 if not
-    // Having enough space means EITHER:
-    // 1. Can reach at least as many cells as our length
-    // 2. Can reach our own tail AND have reasonable space (at least half our length)
-    const hasEnoughSpace = cellsFound >= snakeLength || 
-                          (foundOwnTail && cellsFound >= Math.max(3, Math.floor(snakeLength / 2)));
-    const baseScore = hasEnoughSpace ? 3 : -3;
-    return baseScore;
+
+    const parityBound = 2 * Math.min(white, black) + 1;
+    return { reachableCount, tailReachable, parityBound };
+  }
+
+  /**
+   * Map a reachable region to the coarse ±3 space score.
+   * Having enough space means EITHER:
+   *  1. we can chase our own tail (tail reachable) AND have reasonable room
+   *     (parity-bounded longest path >= half our length), OR
+   *  2. the parity-bounded longest path through the region is at least our length
+   *     (enough genuine room to outlast our body without trapping ourselves).
+   * Using the parity bound instead of the raw reachable count prevents a 1-wide
+   * dead-end from being scored as enough space.
+   */
+  private spaceScoreFromRegion(
+    region: { reachableCount: number; tailReachable: boolean; parityBound: number },
+    snakeLength: number
+  ): number {
+    const longestPathBound = Math.min(region.reachableCount, region.parityBound);
+    const hasEnoughSpace = region.tailReachable
+      ? longestPathBound >= Math.max(3, Math.floor(snakeLength / 2))
+      : longestPathBound >= snakeLength;
+    return hasEnoughSpace ? 3 : -3;
   }
   
   /**
@@ -1047,7 +1026,8 @@ export class BoardEvaluator {
       connectivityPenaltyScore: stats.connectivityPenalty * this.weights.connectivityPenalty,
       tightSpaceScoreScore: stats.tightSpaceScore * this.weights.tightSpaceScore,
       tailReachableScore: stats.tailReachable * this.weights.tailReachable,
-      aggressionScore: stats.aggression * this.weights.aggression
+      aggressionScore: stats.aggression * this.weights.aggression,
+      trappedScore: stats.trapped * this.weights.trapped
     };
   }
   
@@ -1080,6 +1060,7 @@ export class BoardEvaluator {
            weighted.connectivityPenaltyScore +
            weighted.tightSpaceScoreScore +
            weighted.tailReachableScore +
-           weighted.aggressionScore;
+           weighted.aggressionScore +
+           weighted.trappedScore;
   }
 }
