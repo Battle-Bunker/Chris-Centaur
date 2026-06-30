@@ -236,6 +236,14 @@ export class GameWebSocketServer {
       this.broadcastLobbyUpdate();
     });
 
+    // Reactive staged-arrow sync: the game manager coalesces every staged-move
+    // / intent change into one notification per game per tick, so we just push
+    // the current selections snapshot (which carries staged moves, premoves,
+    // waypoints, routes and intent modes) to subscribers.
+    this.gameManager.onStagedChange((gameId) => {
+      this.broadcastSelectionsUpdate(gameId);
+    });
+
     this.gameManager.onGameEnd((gameId, snakeId, finalGameState, gameOver) => {
       const finalSnakes = finalGameState.board.snakes || [];
       const survived = finalSnakes.some(s => s.id === snakeId);
@@ -315,7 +323,7 @@ export class GameWebSocketServer {
               moveCommitted: controlled.moveCommittedThisTurn,
               committedMove: controlled.committedMove,
               botRecommendation: controlled.botRecommendation,
-              stagedMove: controlled.pendingMove?.userSelectedMove || null,
+              stagedMove: controlled.intent.kind === 'manual' ? controlled.intent.move : null,
             });
           }
         } else if (result.contestedBy) {
@@ -397,8 +405,9 @@ export class GameWebSocketServer {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
+            // setUserSelection re-stages the move, which fires the coalesced
+            // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
             this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
-            this.broadcastSelectionsUpdate(client.gameId);
           }
         }
         break;
@@ -408,10 +417,11 @@ export class GameWebSocketServer {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
         if (!snakeId) break;
-        const ok = this.gameManager.setPremoveQueue(
+        // On success setPremoveQueue re-stages the move, firing the coalesced
+        // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
+        this.gameManager.setPremoveQueue(
           client.gameId, snakeId, msg.queue, client.userId
         );
-        if (ok) this.broadcastSelectionsUpdate(client.gameId);
         break;
       }
 
@@ -419,11 +429,12 @@ export class GameWebSocketServer {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
         if (!snakeId) break;
-        // msg.waypoint may be null (clear) or {type, x, y}
-        const ok = this.gameManager.setWaypoint(
+        // msg.waypoint may be null (clear) or {type, x, y}. On success
+        // setWaypoint re-stages the move, firing the coalesced onStagedChange →
+        // broadcastSelectionsUpdate; no explicit broadcast.
+        this.gameManager.setWaypoint(
           client.gameId, snakeId, msg.waypoint ?? null, client.userId
         );
-        if (ok) this.broadcastSelectionsUpdate(client.gameId);
         break;
       }
 
@@ -616,19 +627,15 @@ export class GameWebSocketServer {
   }
 
   // Staged moves are the single source of truth for the staged-arrow render on
-  // every client. Both the staged arrow and the committed move are pure reads
-  // of the server-maintained `stagedMove` / `committedMove` fields — they can
-  // never diverge from what the deadline commit will use. Color/source are
-  // derived from activeIntentMode: heuristic = grey/'bot' (bot-seeded), any
-  // human method (manual/queue/waypoint) = the controlling user's color.
+  // every client. Both the staged arrow and the committed move are pure reads of
+  // the server-maintained `staged` / `committedMove` fields — they can never
+  // diverge from what the deadline commit will use. Color/source are derived from
+  // the staged record's source: heuristic = grey/'bot' (bot-seeded), any human
+  // method (manual/queue/waypoint) = the controlling user's color.
   //
-  // Every controlled snake gets an entry, gated ONLY on having a resolved
-  // stagedMove — NOT on an in-flight pendingMove. `stagedMove` is kept current
-  // for every snake by refreshStagedMove (turn rollover re-derives it for all
-  // snakes against the new board), so a snake that isn't the one whose /move
-  // triggered the current broadcast still has a valid staged move to show. The
-  // client only draws an arrow for snakes present on the board, so eliminated
-  // snakes are naturally skipped there.
+  // Every controlled snake gets an entry, gated ONLY on having a `staged` record
+  // — NOT on an in-flight pendingMove. The client only draws an arrow for snakes
+  // present on the board, so eliminated snakes are naturally skipped there.
   private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
@@ -639,12 +646,11 @@ export class GameWebSocketServer {
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
-      // Colour/source reflect the TRUE origin of the resolved staged move
-      // (stagedMoveSource), NOT the nominal activeIntentMode. A waypoint/queue
-      // that fell back to the bot's recommendation this turn resolves to source
-      // 'bot'/'fallback' and renders grey — so a user-coloured arrow always
-      // guarantees the user's own move will commit (Bug A).
-      const isBot = cs.stagedMoveSource === 'bot' || cs.stagedMoveSource === 'fallback';
+      // Colour/source reflect the TRUE origin of the staged move, NOT the nominal
+      // activeIntentMode. A waypoint/queue that fell back to the bot's move this
+      // turn has source 'bot'/'fallback' and renders grey — so a user-coloured
+      // arrow always guarantees the user's own move will commit (Bug A).
+      const isBot = cs.staged?.source === 'bot' || cs.staged?.source === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
       // `fatal` flags a certain-death move so the client can warn the human; it
       // NEVER changes what commits (the staged move is sacrosanct).
@@ -653,8 +659,8 @@ export class GameWebSocketServer {
         staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed', fatal };
         continue;
       }
-      if (!cs.stagedMove) continue;
-      staged[snakeId] = { move: cs.stagedMove, committed: false, color, source: cs.stagedMoveSource, fatal };
+      if (!cs.staged) continue;
+      staged[snakeId] = { move: cs.staged.move, committed: false, color, source: cs.staged.source, fatal };
     }
     return staged;
   }
