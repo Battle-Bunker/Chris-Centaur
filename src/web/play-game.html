@@ -1139,9 +1139,17 @@
         if (userSelectedMove) {
           moveState.selectedMove = userSelectedMove;
         } else {
-          const bestMove = getBestBotMove();
-          if (bestMove) {
-            moveState.selectedMove = bestMove;
+          // Default the highlighted candidate to this snake's currently staged
+          // move (grey bot-seeded or user-colored staged arrow) so the initial
+          // selection matches what the snake is actually about to do. Fall back
+          // to the best bot move if no staged move exists.
+          const staged = stagedMoves[snakeId];
+          const stagedMove = staged && staged.move ? staged.move : null;
+          const defaultMove = (stagedMove && moveState.moves[stagedMove])
+            ? stagedMove
+            : getBestBotMove();
+          if (defaultMove) {
+            moveState.selectedMove = defaultMove;
           }
         }
       }
