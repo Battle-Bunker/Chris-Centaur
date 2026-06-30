@@ -305,11 +305,19 @@
     }
     .view-mode-badge.live { background: rgba(76,175,80,0.18); color: #81c784; }
     .view-mode-badge.historic { background: rgba(255,152,0,0.18); color: #ffb74d; }
-    .return-live-btn {
-      background: #2e7d32; color: #fff; border: none; padding: 6px 14px;
-      border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    .turn-nav-row {
+      display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px;
     }
-    .return-live-btn:hover { background: #388e3c; }
+    .turn-nav-btn {
+      background: #2e7d32; color: #fff; border: none; padding: 6px 12px; min-width: 40px;
+      border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; line-height: 1.2;
+    }
+    .turn-nav-btn:hover:not(:disabled) { background: #388e3c; }
+    .turn-nav-btn:disabled { background: #333; color: #666; cursor: default; }
+    .turn-nav-counter {
+      font-size: 13px; font-weight: 700; color: #ddd; min-width: 84px; text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
     .turn-controls-info { margin-top: 6px; font-size: 12px; color: #888; min-height: 14px; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
@@ -401,7 +409,13 @@
             <div class="turn-controls-row">
               <span class="view-mode-badge live" id="viewModeBadge">● LIVE</span>
               <input type="range" id="playTurnSlider" class="turn-slider" min="0" max="0" value="0">
-              <button id="returnToLiveBtn" class="return-live-btn" onclick="returnToLive()" style="display:none;">Return to live ⏭</button>
+            </div>
+            <div class="turn-nav-row">
+              <button id="navStartBtn" class="turn-nav-btn" title="Go to start" onclick="navGoToStart()">|&#x25C0;</button>
+              <button id="navPrevBtn" class="turn-nav-btn" title="Previous turn" onclick="navPrevTurn()">&#x2190;</button>
+              <span class="turn-nav-counter" id="turnNavCounter">0 of 0</span>
+              <button id="navNextBtn" class="turn-nav-btn" title="Next turn" onclick="navNextTurn()">&#x2192;</button>
+              <button id="navEndBtn" class="turn-nav-btn" title="Go to live" onclick="navGoToEnd()">&#x25B6;|</button>
             </div>
             <div class="turn-controls-info" id="turnControlsInfo"></div>
           </div>
@@ -549,8 +563,12 @@
     let historicIndex = 0;            // current decision index being viewed
     let historicTurnNumber = 0;       // current turn number being viewed
     let historicMoveState = null;     // moveState for the historic board/breakdown
-    let historicLoading = false;      // guard against concurrent fetches
     let historicCacheStale = false;   // set when new live turns arrive mid-scrub
+    const historicInflight = new Map(); // snakeId → in-flight fetch promise (dedupe)
+    let isScrubbing = false;          // true while the user is touching the slider
+    let scrubLoadToken = 0;           // latest-wins token for async historic loads
+    let scrubRenderPending = false;   // rAF coalescing flag for live drag rendering
+    let scrubRenderTurn = 0;          // latest dragged turn awaiting a preview frame
 
     // ────────────────────────────────────────────────────────────────────────
     // Selection vs. staging vs. commit (three distinct concepts):
@@ -2137,29 +2155,32 @@
       // next fetch picks up the freshly-logged turns.
       if (historicCacheStale) {
         historicCache.clear();
+        historicInflight.clear();
         historicCacheStale = false;
       }
-      const cached = historicCache.get(snakeId);
-      if (cached) {
-        historicDecisions = cached.decisions;
-        historicTurnToIndex = cached.turnToIndex;
-        return historicDecisions.length > 0;
+      let entry = historicCache.get(snakeId);
+      if (!entry) {
+        // Coalesce concurrent loads for the same snake onto one promise so rapid
+        // scrubbing never spawns duplicate fetches or falsely reports "no data"
+        // while a load is already in flight.
+        let p = historicInflight.get(snakeId);
+        if (!p) {
+          p = fetchHistoricDecisions(snakeId)
+            .then((e) => { historicCache.set(snakeId, e); return e; })
+            .finally(() => { historicInflight.delete(snakeId); });
+          historicInflight.set(snakeId, p);
+          p.then(() => prefetchHistoricTeam()).catch(() => {});
+        }
+        try {
+          entry = await p;
+        } catch (err) {
+          console.error('Failed to load historic turns:', err);
+          return false;
+        }
       }
-      if (historicLoading) return false;
-      historicLoading = true;
-      try {
-        const entry = await fetchHistoricDecisions(snakeId);
-        historicCache.set(snakeId, entry);
-        historicDecisions = entry.decisions;
-        historicTurnToIndex = entry.turnToIndex;
-        prefetchHistoricTeam();
-        return entry.decisions.length > 0;
-      } catch (err) {
-        console.error('Failed to load historic turns:', err);
-        return false;
-      } finally {
-        historicLoading = false;
-      }
+      historicDecisions = entry.decisions;
+      historicTurnToIndex = entry.turnToIndex;
+      return historicDecisions.length > 0;
     }
 
     // Fetch one snake's logged decisions and build a turn→index map. Shared by
@@ -2200,7 +2221,7 @@
     // logged decisions (only controlled/bot-logged snakes have logs) and re-renders
     // the same turn so the user keeps their place on the slider.
     async function switchHistoricSnake(snakeId) {
-      if (!snakeId || historicLoading) return;
+      if (!snakeId) return;
       const currentView = historicDecisions && historicDecisions[historicIndex]
         && historicDecisions[historicIndex].snake_id;
       if (snakeId === currentView) return;
@@ -2232,7 +2253,14 @@
       // Switch mode before awaiting the fetch so any live update arriving during
       // the load doesn't repaint/advance the board out from under the user.
       viewMode = 'historic';
+      // The selected turn lives in the slider (value) domain and is kept exactly
+      // as the user picked it — we never echo a snapped data turn back to it.
+      historicTurnNumber = Math.max(0, Math.min(liveMaxTurn, turnNumber));
+      // Latest-wins: stamp this load so a stale async resolution (an earlier,
+      // slower scrub) can detect it has been superseded and bail out.
+      const token = ++scrubLoadToken;
       const ok = await ensureHistoricDecisions();
+      if (token !== scrubLoadToken) return; // a newer scrub/return-to-live won
       if (!ok) {
         showBannerNotice('No history recorded yet');
         returnToLive();
@@ -2244,13 +2272,15 @@
       if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
       const timerEl = document.getElementById('timerDisplay');
       if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }
-      const idx = decisionIndexForTurn(turnNumber);
+      const idx = decisionIndexForTurn(historicTurnNumber);
       renderHistoricTurn(idx);
       updateTurnControls();
     }
 
     function returnToLive() {
       viewMode = 'live';
+      // Supersede any in-flight historic load so it can't repaint over live.
+      scrubLoadToken++;
       historicSnakeId = null;
       historicMoveState = null;
       document.getElementById('boardOverlay').innerHTML = '';
@@ -2267,15 +2297,60 @@
       updateTurnControls();
     }
 
-    function scrubHistoric(delta) {
-      const target = Math.max(0, Math.min(liveMaxTurn, historicTurnNumber + delta));
-      const slider = document.getElementById('playTurnSlider');
-      if (slider) slider.value = target;
+    // The single coalesced commit path. Every entry point (slider release,
+    // keyboard arrows, nav buttons) funnels through here so live/history mode is
+    // decided once, against the stable liveMaxTurn reference.
+    function commitScrub(turnNumber) {
+      const target = Math.max(0, Math.min(liveMaxTurn, turnNumber));
       if (target >= liveMaxTurn) {
+        if (viewMode === 'live') { updateTurnControls(); return; }
         returnToLive();
       } else {
         enterHistoric(target);
       }
+    }
+
+    function scrubHistoric(delta) {
+      const base = (viewMode === 'historic') ? historicTurnNumber : liveMaxTurn;
+      commitScrub(base + delta);
+    }
+
+    // Cheap preview while dragging: update only the counter + button states from
+    // the dragged value. No fetch, no reflow, no slider writes — the pointer owns
+    // the thumb until release.
+    function previewScrub(turnNumber) {
+      updateNavButtons(Math.max(0, Math.min(liveMaxTurn, turnNumber)));
+    }
+
+    function navGoToStart() { commitScrub(0); }
+    function navPrevTurn() {
+      const base = (viewMode === 'historic') ? historicTurnNumber : liveMaxTurn;
+      commitScrub(base - 1);
+    }
+    function navNextTurn() {
+      const base = (viewMode === 'historic') ? historicTurnNumber : liveMaxTurn;
+      commitScrub(base + 1);
+    }
+    function navGoToEnd() { returnToLive(); }
+
+    // Sync the counter text and per-button enabled state for the given displayed
+    // turn. Computed purely from displayTurn vs liveMaxTurn so it works for both
+    // committed states and the live drag preview.
+    function updateNavButtons(displayTurn) {
+      const counter = document.getElementById('turnNavCounter');
+      const startBtn = document.getElementById('navStartBtn');
+      const prevBtn = document.getElementById('navPrevBtn');
+      const nextBtn = document.getElementById('navNextBtn');
+      const endBtn = document.getElementById('navEndBtn');
+      if (!counter || !startBtn || !prevBtn || !nextBtn || !endBtn) return;
+
+      counter.textContent = `${displayTurn} of ${liveMaxTurn}`;
+      const atStart = displayTurn <= 0;
+      const atLive = displayTurn >= liveMaxTurn;
+      startBtn.disabled = atStart;
+      prevBtn.disabled = atStart;
+      nextBtn.disabled = atLive;
+      endBtn.disabled = atLive;
     }
 
     function updateTurnControls() {
@@ -2283,34 +2358,46 @@
       const slider = document.getElementById('playTurnSlider');
       const badge = document.getElementById('viewModeBadge');
       const info = document.getElementById('turnControlsInfo');
-      const liveBtn = document.getElementById('returnToLiveBtn');
-      if (!controls || !slider || !badge || !info || !liveBtn) return;
+      if (!controls || !slider || !badge || !info) return;
 
       controls.style.display = liveMaxTurn > 0 ? 'block' : 'none';
+
+      // While the user is touching the slider, they are the sole writer of its
+      // value/geometry and of the counter — defer every programmatic write so a
+      // live update can't yank the thumb or rescale the track mid-drag.
+      if (isScrubbing) return;
+
+      // Idle: safe to apply deferred geometry and re-sync the thumb to state.
       slider.max = liveMaxTurn;
+      const displayTurn = (viewMode === 'historic') ? historicTurnNumber : liveMaxTurn;
+      slider.value = displayTurn;
 
       if (viewMode === 'historic') {
-        slider.value = historicTurnNumber;
         badge.textContent = '\u23F8 HISTORY';
         badge.className = 'view-mode-badge historic';
         info.textContent = `Viewing turn ${historicTurnNumber} (read-only) \u00B7 live is at turn ${liveMaxTurn} \u00B7 click a snake to inspect it`;
-        liveBtn.style.display = 'inline-block';
       } else {
-        slider.value = liveMaxTurn;
         badge.textContent = '\u25CF LIVE';
         badge.className = 'view-mode-badge live';
         info.textContent = 'Following the live game \u00B7 drag the slider to review earlier turns';
-        liveBtn.style.display = 'none';
       }
+      updateNavButtons(displayTurn);
     }
 
     // Mirrors the Game History viewer's per-turn render: same BoardRenderer
     // entry points, same decision-log data shape, just with interactivity off.
-    function renderHistoricTurn(idx) {
+    function renderHistoricTurn(idx, opts) {
       const turn = historicDecisions && historicDecisions[idx];
       if (!turn || !turn.game_state) return;
+      // During a continuous drag we render the board (canvas + overlay) every
+      // frame but skip the heavier side-panel DOM rebuild; the full render runs
+      // once on commit/release.
+      const lightweight = !!(opts && opts.lightweight);
       historicIndex = idx;
-      historicTurnNumber = turn.game_state?.turn ?? turn.turn;
+      // The rendered (data) turn may differ from the user-selected turn when logs
+      // are sparse. Keep historicTurnNumber (the slider/value domain) untouched;
+      // only the "Turn:" header reflects the actual data turn on screen.
+      const renderedTurn = turn.game_state?.turn ?? turn.turn;
 
       const head = turn.game_state.you?.head
         || turn.game_state.board.snakes.find(s => s.id === turn.snake_id)?.body[0];
@@ -2320,15 +2407,58 @@
       historicMoveState.selectedMove = null;
       historicMoveState.selectedSnake = null;
 
-      document.getElementById('currentTurn').textContent = historicTurnNumber;
+      document.getElementById('currentTurn').textContent = renderedTurn;
       document.getElementById('firstMoveIndicator').style.display = 'none';
 
       renderHistoricBoard(turn);
+      if (lightweight) return;
       BoardRenderer.renderSnakeInfo(
         document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id, null,
         { groupByTeam: true, onSelectSnake: switchHistoricSnake, selectableSnakeIds: controlledSnakeIds }
       );
       showHistoricSelectionPanel(turn);
+    }
+
+    // ── Live drag rendering ──────────────────────────────────────────────────
+    // Paint the historic board for the dragged turn on every animation frame,
+    // straight from the in-memory cache (no fetch, no slider writes). Coalesced
+    // behind a single rAF so many input events collapse to one render per frame.
+    function schedulePreviewRender(turnNumber) {
+      scrubRenderTurn = Math.max(0, Math.min(liveMaxTurn, turnNumber));
+      if (scrubRenderPending) return;
+      scrubRenderPending = true;
+      requestAnimationFrame(renderPreviewFrame);
+    }
+
+    function renderPreviewFrame() {
+      scrubRenderPending = false;
+      if (!isScrubbing) return;
+      const target = scrubRenderTurn;
+      // At/over the live edge there is nothing historic to show — let the commit
+      // path decide between live and history on release.
+      if (target >= liveMaxTurn) return;
+      // Render only from data already in memory. If the inspected snake's logs
+      // aren't loaded yet, kick a (deduped) load and repaint once it lands.
+      if (!historicDecisions || historicDecisions.length === 0) {
+        ensureHistoricDecisions().then((ok) => {
+          if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
+        });
+        return;
+      }
+      // Suppress live repaints while previewing so an incoming live turn can't
+      // overwrite the frame the user is scrubbing to.
+      viewMode = 'historic';
+      const idx = decisionIndexForTurn(target);
+      if (idx >= 0) renderHistoricTurn(idx, { lightweight: true });
+    }
+
+    // Warm the inspected snake's logs the instant the pointer lands so the first
+    // drag frame can render without waiting on the network.
+    function primeHistoricForScrub() {
+      if (historicDecisions && historicDecisions.length > 0) return;
+      ensureHistoricDecisions().then((ok) => {
+        if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
+      });
     }
 
     // Mirror of the Game History viewer's buildOurDeaths: our own snake's death
@@ -2471,14 +2601,41 @@
       }
     }
 
-    document.getElementById('playTurnSlider').addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      if (val >= liveMaxTurn) {
-        returnToLive();
-      } else {
-        enterHistoric(val);
-      }
-    });
+    (function setupTurnSlider() {
+      const slider = document.getElementById('playTurnSlider');
+      if (!slider) return;
+
+      // Take the interaction lock the instant the pointer lands so a live update
+      // arriving before the first move can't reposition the thumb, and warm the
+      // logs so the first drag frame can render straight from cache.
+      slider.addEventListener('pointerdown', () => {
+        isScrubbing = true;
+        scrubRenderTurn = parseInt(slider.value, 10);
+        primeHistoricForScrub();
+      });
+
+      // Dragging updates the cheap counter/buttons immediately and schedules a
+      // cache-only, rAF-coalesced board repaint so the board tracks the drag
+      // without any network round-trip. The full (heavy) render runs on commit.
+      slider.addEventListener('input', (e) => {
+        isScrubbing = true;
+        const val = parseInt(e.target.value, 10);
+        previewScrub(val);
+        schedulePreviewRender(val);
+      });
+
+      // Release/commit: drop the lock, apply any deferred geometry, then run the
+      // coalesced load for the released value. Idempotent across pointerup+change.
+      const finish = () => {
+        if (!isScrubbing) return;
+        isScrubbing = false;
+        slider.max = liveMaxTurn;
+        commitScrub(parseInt(slider.value, 10));
+      };
+      document.addEventListener('pointerup', finish);
+      slider.addEventListener('change', finish); // keyboard (Home/End/PageUp) path
+      slider.addEventListener('blur', finish);
+    })();
 
     document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
 
