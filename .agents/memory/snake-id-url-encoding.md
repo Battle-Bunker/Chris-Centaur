@@ -4,8 +4,8 @@ description: Logged snake IDs include a '#suffix'; using them raw in query strin
 ---
 
 Battlesnake snake IDs for centaur-controlled snakes look like `BASEID#mepf2x`
-(a base id plus a `#`-delimited suffix per controlled snake). The base/king snake
-has no suffix.
+(a base id plus a `#`-delimited suffix per controlled snake). The base snake
+(no per-snake suffix) has no `#`.
 
 **The trap:** putting such an id raw into a URL query string
 (`?snake_id=BASEID#mepf2x`) makes the browser treat `#mepf2x` as the URL
@@ -14,7 +14,8 @@ has no suffix.
 
 **Rule:** always `encodeURIComponent(snakeId)` (and game ids) when building any
 URL that carries a snake id. This bit the history viewer when the default
-perspective changed from the base snake to the king (which has a `#` suffix).
+perspective changed from the base snake to the longest/primary member (which has
+a `#` suffix).
 
 **How to apply:** any new fetch/link in the history or play UI that includes a
 snake id in the path or query must encode it.

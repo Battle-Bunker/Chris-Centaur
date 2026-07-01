@@ -94,7 +94,7 @@ export interface GameTeamMember {
 
 // One left-panel entry: a single team within a single game, framed from our
 // team's perspective. `default_snake_id` is the member the viewer should load
-// first (the king/longest).
+// first (the longest/primary member).
 export interface GameTeamGroup {
   game_id: string;
   team_key: string;
@@ -602,14 +602,14 @@ export class DecisionLogger {
       if (!group.team_color && row.color) group.team_color = row.color;
     }
 
-    // Default perspective per group = the king (longest member), matching how
-    // scoring works in this variant.
+    // Default perspective per group = the longest member (primary), a neutral
+    // default for the viewer.
     for (const group of groups.values()) {
-      let king = group.snakes[0];
+      let primary = group.snakes[0];
       for (const member of group.snakes) {
-        if ((member.length ?? 0) > (king.length ?? 0)) king = member;
+        if ((member.length ?? 0) > (primary.length ?? 0)) primary = member;
       }
-      group.default_snake_id = king.snake_id;
+      group.default_snake_id = primary.snake_id;
     }
 
     return Array.from(groups.values());

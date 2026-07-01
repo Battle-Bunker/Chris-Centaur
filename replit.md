@@ -8,18 +8,17 @@ Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticat
 
 This bot is specifically designed to play a team-based Battlesnake variant with the following unique rules:
 
-**King Bot Scoring System:**
-- Each team has a designated "king" snake (which this bot plays as)
-- The team's final score is determined **solely by the king's length** at the end of the game
-- The game ends when either:
-  - At most one team remains alive, OR
-  - 100 turns have elapsed (whichever happens first)
+**Team Snek Scoring System:**
+- **All snakes are equivalent** — no privileged snake exists. Every snake on a team counts.
+- **Control (Centaur):** any snake can be driven by a human or the bot in the same game, so strategy applies per-snake, not to one privileged snake.
+- **Scoring:** a team's final score is the **sum of the lengths of that team's snakes still alive at game end**. Dead snakes contribute nothing.
+- **Game end:** at the **turn limit declared by the server in the game settings**; if no turn limit is declared, the game ends when **only one team remains**.
 
 **Strategic Implications:**
-- **Survival is paramount**: The king must protect its life at all costs since death means zero points
-- **Conservative play**: Avoid risky confrontations, especially head-to-head collisions with larger snakes
-- **Maximize food collection**: Since score = length, collecting food directly increases the team's score
-- **Territory control**: Controlling food-rich territory is essential for sustained growth
+- **Survival matters**: A dead snake scores zero, so keeping every controllable snake alive protects the team's score.
+- **Conservative play**: Avoid risky confrontations, especially head-to-head collisions with larger snakes.
+- **Maximize food collection**: Since score = summed length, collecting food directly increases the team's score.
+- **Territory control**: Controlling food-rich territory is essential for sustained growth across all of a team's snakes.
 - **Food proximity vs. consumption**: The bot distinguishes between:
   - Being near food (proximity) - important for positioning
   - Actually eating food - directly increases score and should be highly rewarded
