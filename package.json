@@ -25,6 +25,8 @@
   "description": "TypeScript Battlesnake AI using Voronoi territory maximization",
   "dependencies": {
     "@google-cloud/storage": "^7.17.1",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "pg": "^8.16.3",
     "ws": "^8.19.0"

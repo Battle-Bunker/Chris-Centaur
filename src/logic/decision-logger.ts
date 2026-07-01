@@ -1,4 +1,6 @@
-import { Pool } from 'pg';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { db, pool } from '../database/db';
+import { decisionLogs } from '../database/schema';
 import { Direction } from '../types/battlesnake';
 import { TeamDetector } from './team-detector';
 
@@ -146,12 +148,9 @@ type QueueItem =
   | { kind: 'outcome'; update: OutcomeUpdate };
 
 const BATCH_SIZE = 100;
-const COLUMNS_PER_ROW = 11;
 
 export class DecisionLogger {
   private static instance: DecisionLogger;
-  private pool: Pool;
-  private isInitialized = false;
 
   private readonly MAX_QUEUE_SIZE = 50000;
   private readonly MAX_RETRIES = 3;
@@ -165,17 +164,8 @@ export class DecisionLogger {
   private wakeup: (() => void) | null = null;
 
   private constructor() {
-    this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 4,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
-
-    this.initialize().catch(error => {
-      console.error('[DecisionLogger] Failed to initialize on startup:', error);
-    });
-
+    // Schema is owned by Drizzle (db:push in dev, Publish diff in prod); this
+    // class assumes the tables already exist and does no startup-time DDL.
     this.workerPromise = this.runWorkerLoop();
   }
 
@@ -184,49 +174,6 @@ export class DecisionLogger {
       DecisionLogger.instance = new DecisionLogger();
     }
     return DecisionLogger.instance;
-  }
-
-  private async initialize(): Promise<void> {
-    if (this.isInitialized) return;
-
-    try {
-      await this.pool.query(`
-        CREATE TABLE IF NOT EXISTS decision_logs (
-          id SERIAL PRIMARY KEY,
-          timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          game_id VARCHAR(255) NOT NULL,
-          snake_id VARCHAR(255) NOT NULL,
-          snake_name VARCHAR(255),
-          turn INTEGER NOT NULL,
-          position_x INTEGER NOT NULL,
-          position_y INTEGER NOT NULL,
-          health INTEGER NOT NULL,
-          safe_moves TEXT[],
-          chosen_move VARCHAR(10) NOT NULL,
-          move_evaluations JSONB NOT NULL,
-          game_state JSONB NOT NULL,
-          server_outcome JSONB,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
-
-      // Backfill the server_outcome column for tables created before this
-      // feature. Holds the engine-reported final head/alive state for OUR snake
-      // (intended-vs-actual death rendering); older rows simply stay NULL.
-      await this.pool.query('ALTER TABLE decision_logs ADD COLUMN IF NOT EXISTS server_outcome JSONB;');
-
-      await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_game_id ON decision_logs(game_id);');
-      await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_snake_id ON decision_logs(snake_id);');
-      await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_turn ON decision_logs(turn);');
-      await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_timestamp ON decision_logs(timestamp);');
-      await this.pool.query('CREATE INDEX IF NOT EXISTS idx_decision_logs_game_snake_turn ON decision_logs(game_id, snake_id, turn);');
-
-      this.isInitialized = true;
-      console.log('[DecisionLogger] Database schema initialized');
-    } catch (error) {
-      console.error('[DecisionLogger] Failed to initialize schema:', error);
-      throw error;
-    }
   }
 
   // Synchronous, non-blocking enqueue. Pre-serializes everything so the live
@@ -307,13 +254,6 @@ export class DecisionLogger {
   }
 
   private async runWorkerLoop(): Promise<void> {
-    // Ensure schema is up before we start draining.
-    try {
-      await this.initialize();
-    } catch {
-      // initialize() will retry on first insert attempt
-    }
-
     while (this.workerRunning || this.queue.length > 0) {
       if (this.queue.length === 0) {
         if (!this.workerRunning) break;
@@ -351,19 +291,17 @@ export class DecisionLogger {
   }
 
   private async applyOutcome(update: OutcomeUpdate): Promise<void> {
-    await this.initialize();
     // Attach the outcome to the most recent logged row for this game+snake
     // (the final decision, whose chosen_move is the intended-but-fatal move).
-    await this.pool.query(
-      `UPDATE decision_logs SET server_outcome = $1::jsonb
-       WHERE id = (
-         SELECT id FROM decision_logs
-         WHERE game_id = $2 AND snake_id = $3
-         ORDER BY turn DESC, id DESC
-         LIMIT 1
-       )`,
-      [update.outcomeJson, update.gameId, update.snakeId],
-    );
+    await db.execute(sql`
+      UPDATE decision_logs SET server_outcome = ${update.outcomeJson}::jsonb
+      WHERE id = (
+        SELECT id FROM decision_logs
+        WHERE game_id = ${update.gameId} AND snake_id = ${update.snakeId}
+        ORDER BY turn DESC, id DESC
+        LIMIT 1
+      )
+    `);
   }
 
   private async applyOutcomeWithRetry(update: OutcomeUpdate): Promise<void> {
@@ -385,33 +323,25 @@ export class DecisionLogger {
 
   private async insertBatch(rows: SerializedRow[]): Promise<void> {
     if (rows.length === 0) return;
-    await this.initialize();
 
-    const values: any[] = [];
-    const valuePlaceholders: string[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const base = i * COLUMNS_PER_ROW;
-      valuePlaceholders.push(
-        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11})`,
-      );
-      values.push(
-        r.gameId, r.snakeId, r.snakeName, r.turn,
-        r.positionX, r.positionY, r.health,
-        r.safeMoves, r.chosenMove,
-        r.moveEvaluationsJson, r.gameStateJson,
-      );
-    }
-
-    const query = `
-      INSERT INTO decision_logs (
-        game_id, snake_id, snake_name, turn,
-        position_x, position_y, health,
-        safe_moves, chosen_move, move_evaluations, game_state
-      ) VALUES ${valuePlaceholders.join(',')}
-    `;
-
-    await this.pool.query(query, values);
+    // The JSON blobs are kept as pre-serialized strings (memory win) and cast to
+    // jsonb via sql`...` so Drizzle doesn't double-encode them. Omitted columns
+    // (id/timestamp/created_at/server_outcome) use their defaults.
+    await db.insert(decisionLogs).values(
+      rows.map(r => ({
+        gameId: r.gameId,
+        snakeId: r.snakeId,
+        snakeName: r.snakeName,
+        turn: r.turn,
+        positionX: r.positionX,
+        positionY: r.positionY,
+        health: r.health,
+        safeMoves: r.safeMoves,
+        chosenMove: r.chosenMove,
+        moveEvaluations: sql`${r.moveEvaluationsJson}::jsonb`,
+        gameState: sql`${r.gameStateJson}::jsonb`,
+      })),
+    );
   }
 
   private async insertSingleWithRetry(row: SerializedRow): Promise<void> {
@@ -442,42 +372,41 @@ export class DecisionLogger {
     offset?: number;
   }): Promise<any[]> {
     try {
-      await this.initialize();
+      const conditions = [];
+      if (filters.gameId) conditions.push(eq(decisionLogs.gameId, filters.gameId));
+      if (filters.snakeId) conditions.push(eq(decisionLogs.snakeId, filters.snakeId));
+      if (filters.startTurn !== undefined) conditions.push(gte(decisionLogs.turn, filters.startTurn));
+      if (filters.endTurn !== undefined) conditions.push(lte(decisionLogs.turn, filters.endTurn));
 
-      let query = 'SELECT * FROM decision_logs WHERE 1=1';
-      const values: any[] = [];
-      let paramCount = 0;
+      // Alias to snake_case so the returned shape matches what the routes/UI
+      // already read (position_x, safe_moves, chosen_move, etc.).
+      let query = db
+        .select({
+          id: decisionLogs.id,
+          timestamp: decisionLogs.timestamp,
+          game_id: decisionLogs.gameId,
+          snake_id: decisionLogs.snakeId,
+          snake_name: decisionLogs.snakeName,
+          turn: decisionLogs.turn,
+          position_x: decisionLogs.positionX,
+          position_y: decisionLogs.positionY,
+          health: decisionLogs.health,
+          safe_moves: decisionLogs.safeMoves,
+          chosen_move: decisionLogs.chosenMove,
+          move_evaluations: decisionLogs.moveEvaluations,
+          game_state: decisionLogs.gameState,
+          server_outcome: decisionLogs.serverOutcome,
+          created_at: decisionLogs.createdAt,
+        })
+        .from(decisionLogs)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(decisionLogs.gameId, decisionLogs.snakeId, decisionLogs.turn)
+        .$dynamic();
 
-      if (filters.gameId) {
-        query += ` AND game_id = $${++paramCount}`;
-        values.push(filters.gameId);
-      }
-      if (filters.snakeId) {
-        query += ` AND snake_id = $${++paramCount}`;
-        values.push(filters.snakeId);
-      }
-      if (filters.startTurn !== undefined) {
-        query += ` AND turn >= $${++paramCount}`;
-        values.push(filters.startTurn);
-      }
-      if (filters.endTurn !== undefined) {
-        query += ` AND turn <= $${++paramCount}`;
-        values.push(filters.endTurn);
-      }
+      if (filters.limit) query = query.limit(filters.limit);
+      if (filters.offset) query = query.offset(filters.offset);
 
-      query += ' ORDER BY game_id, snake_id, turn';
-
-      if (filters.limit) {
-        query += ` LIMIT $${++paramCount}`;
-        values.push(filters.limit);
-      }
-      if (filters.offset) {
-        query += ` OFFSET $${++paramCount}`;
-        values.push(filters.offset);
-      }
-
-      const result = await this.pool.query(query, values);
-      return result.rows;
+      return await query;
     } catch (error) {
       console.error('[DecisionLogger] Failed to query logs:', error);
       return [];
@@ -486,13 +415,11 @@ export class DecisionLogger {
 
   public async getGames(): Promise<GameTeamGroup[]> {
     try {
-      await this.initialize();
-
       // Per (game, snake) aggregate stats joined with a representative (latest)
       // logged game state so we can derive each snake's team identity. We only
       // pull the squad/color/length out of the JSONB blob rather than the whole
       // game_state to keep the listing payload small.
-      const query = `
+      const result = await db.execute(sql`
         WITH agg AS (
           SELECT
             game_id,
@@ -532,10 +459,8 @@ export class DecisionLogger {
         JOIN latest l USING (game_id, snake_id)
         ORDER BY a.timestamp DESC
         LIMIT 500
-      `;
-
-      const result = await this.pool.query(query);
-      return this.groupGamesByTeam(result.rows);
+      `);
+      return this.groupGamesByTeam(result.rows as any);
     } catch (error) {
       console.error('[DecisionLogger] Failed to get games:', error);
       return [];
@@ -617,12 +542,10 @@ export class DecisionLogger {
 
   public async clearOldLogs(daysToKeep: number = 7): Promise<void> {
     try {
-      await this.initialize();
-      const query = `
-        DELETE FROM decision_logs 
-        WHERE timestamp < NOW() - INTERVAL '${daysToKeep} days'
-      `;
-      await this.pool.query(query);
+      await db.execute(sql`
+        DELETE FROM decision_logs
+        WHERE timestamp < NOW() - (${daysToKeep} * INTERVAL '1 day')
+      `);
       console.log(`[DecisionLogger] Cleared logs older than ${daysToKeep} days`);
     } catch (error) {
       console.error('[DecisionLogger] Failed to clear old logs:', error);
@@ -643,7 +566,7 @@ export class DecisionLogger {
       console.log('[DecisionLogger] Shutdown complete. All entries flushed.');
     }
 
-    await this.pool.end();
+    await pool.end();
   }
 
   public getQueueStats(): { queueSize: number; droppedCount: number; maxQueueSize: number } {

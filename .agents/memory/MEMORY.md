@@ -6,3 +6,4 @@
 - [decision-log turn offset](decision-log-turn-offset.md) — `decision_logs.turn` is +1 vs `game_state.turn`/live board numbering; align live↔logged turns via `game_state.turn`, not the `turn` column.
 - [BoardGraph passability layers](boardgraph-passability-layers.md) — physical (Voronoi, no severability) vs subjective `passabilityFor(id)`; severability strict & expiry-aware via server `invulnerabilityExpiryTurn`.
 - [Trap / fatal-pocket survival](trap-survival.md) — `trapped` heuristic + candidate-level veto; parity-bounded reachable region stops floodfill over-count; just-ate (head-on-food) tail never vacates.
+- [Drizzle schema ownership](drizzle-schema-ownership.md) — schema.ts is source of truth, NO startup DDL; dev via post-merge db:push, prod via Publish; jsonb pre-serialized strings must be cast `sql\`${s}::jsonb\`` or Drizzle double-encodes.
