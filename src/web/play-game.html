@@ -1563,13 +1563,11 @@
       if (viewMode === 'historic') { handleHistoricCanvasClick(event); return; }
 
       const canvas = document.getElementById('gameCanvas');
-      const rect = canvas.getBoundingClientRect();
       const board = currentGameState.board;
-      const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
-      const clickX = event.clientX - rect.left;
-      const clickY = event.clientY - rect.top;
-      const boardX = Math.floor(clickX / cellSize);
-      const boardY = board.height - 1 - Math.floor(clickY / cellSize);
+      const cell = BoardRenderer.getClickedCell(canvas, board, event);
+      if (!cell) return;
+      const boardX = cell.x;
+      const boardY = cell.y;
 
       // Waypoint handling for the currently selected snake:
       // - Alt-click sets a green "goto" waypoint (auto-clears on arrival).
@@ -2529,29 +2527,23 @@
       const turn = historicDecisions && historicDecisions[historicIndex];
       if (!turn || !historicMoveState) return;
       const canvas = document.getElementById('gameCanvas');
-      const rect = canvas.getBoundingClientRect();
       const board = turn.game_state.board;
-      const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
-      const boardX = Math.floor((event.clientX - rect.left) / cellSize);
-      const boardY = board.height - 1 - Math.floor((event.clientY - rect.top) / cellSize);
+      const cell = BoardRenderer.getClickedCell(canvas, board, event);
+      if (!cell) return;
 
       // Clicking a *different* controlled snake's body switches the inspected
       // perspective (loads its logged decisions for this same turn). Only
       // controlled (bot-logged) snakes have decision logs to inspect.
       const currentView = turn.snake_id;
-      for (const snake of board.snakes) {
-        if (!controlledSnakeIds.has(snake.id) || snake.id === currentView) continue;
-        if (snake.body.some(seg => seg.x === boardX && seg.y === boardY)) {
-          switchHistoricSnake(snake.id);
-          return;
-        }
+      const target = BoardRenderer.findSnakeAtCell(board, cell,
+        s => controlledSnakeIds.has(s.id) && s.id !== currentView);
+      if (target) {
+        switchHistoricSnake(target.id);
+        return;
       }
 
       // Otherwise, toggle a Voronoi territory highlight for the clicked cell.
-      let clickedSnake = null;
-      for (const [sid, cells] of Object.entries(historicMoveState.territoryCells || {})) {
-        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) { clickedSnake = sid; break; }
-      }
+      const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(historicMoveState.territoryCells, cell);
       if (clickedSnake) {
         historicMoveState.selectedSnake =
           (historicMoveState.selectedSnake === clickedSnake) ? null : clickedSnake;

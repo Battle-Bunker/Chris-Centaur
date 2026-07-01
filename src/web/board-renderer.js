@@ -85,6 +85,46 @@ const BoardRenderer = (function () {
     return null;
   }
 
+  // Single source of truth for on-board click hit-testing. Maps a click event
+  // to a board cell using the CSS-displayed size (`getBoundingClientRect`) for
+  // BOTH the cell size and the click offset, so it stays correct when the canvas
+  // is scaled by CSS (its internal pixel buffer can differ from its rendered
+  // size). Returns the board cell `{x, y}` (origin bottom-left, matching the
+  // renderer's coordinate system). Callers should range-check against the board.
+  function getClickedCell(canvas, board, event) {
+    if (!canvas || !board) return null;
+    const rect = canvas.getBoundingClientRect();
+    const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
+    if (!cellSize) return null;
+    const x = Math.floor((event.clientX - rect.left) / cellSize);
+    const y = board.height - 1 - Math.floor((event.clientY - rect.top) / cellSize);
+    return { x, y };
+  }
+
+  // Find the first snake whose body occupies `cell`. An optional `filter(snake)`
+  // predicate lets each surface keep its own clickability gating rule.
+  function findSnakeAtCell(board, cell, filter) {
+    if (!board || !cell) return null;
+    for (const snake of board.snakes) {
+      if (filter && !filter(snake)) continue;
+      if (snake.body.some((seg) => seg.x === cell.x && seg.y === cell.y)) {
+        return snake;
+      }
+    }
+    return null;
+  }
+
+  // Find the id of the snake whose Voronoi territory owns `cell`, or null.
+  function findTerritoryOwnerAtCell(territoryCells, cell) {
+    if (!territoryCells || !cell) return null;
+    for (const [sid, cells] of Object.entries(territoryCells)) {
+      if (cells && cells.some((c) => c.x === cell.x && c.y === cell.y)) {
+        return sid;
+      }
+    }
+    return null;
+  }
+
   // Draw a dead-head marker at a board cell. A solid marker (shadow=false) is a
   // filled disc in the snake's color with a white ✗; a shadow marker
   // (shadow=true) is a ghosted/translucent disc with a dashed outline and a
@@ -1965,6 +2005,9 @@ const BoardRenderer = (function () {
     getDisappearedSnakes,
     drawDeathMarker,
     drawUnknownDeathMarker,
+    getClickedCell,
+    findSnakeAtCell,
+    findTerritoryOwnerAtCell,
     _moveClickHandler: null,
   };
 })();

@@ -738,34 +738,22 @@
       if (!turnData || currentTurn < 0 || currentTurn >= turnData.length) return;
       const turn = turnData[currentTurn];
       const canvas = document.getElementById('gameCanvas');
-      const rect = canvas.getBoundingClientRect();
       const board = turn.game_state.board;
-      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
-      const clickX = event.clientX - rect.left;
-      const clickY = event.clientY - rect.top;
-      const boardX = Math.floor(clickX / cellSize);
-      const boardY = board.height - 1 - Math.floor(clickY / cellSize);
+      const cell = BoardRenderer.getClickedCell(canvas, board, event);
+      if (!cell) return;
 
       // Click one of our team's snakes to switch the inspected perspective to it
       // (mirrors selecting it from the team list, just from the board directly).
       const ourKey = BoardRenderer.getTeamKey(board.snakes.find(s => s.id === currentSnakeId));
-      for (const snake of board.snakes) {
-        if (snake.id === currentSnakeId) continue;
-        if (BoardRenderer.getTeamKey(snake) !== ourKey) continue;
-        if (snake.body.some(seg => seg.x === boardX && seg.y === boardY)) {
-          selectPerspectiveSnake(snake.id);
-          return;
-        }
+      const teammate = BoardRenderer.findSnakeAtCell(board, cell,
+        s => s.id !== currentSnakeId && BoardRenderer.getTeamKey(s) === ourKey);
+      if (teammate) {
+        selectPerspectiveSnake(teammate.id);
+        return;
       }
 
-      let clickedSnake = null;
-      for (const [snakeId, cells] of Object.entries(moveState.territoryCells)) {
-        if (cells && cells.some(c => c.x === boardX && c.y === boardY)) {
-          clickedSnake = snakeId;
-          break;
-        }
-      }
-      
+      const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(moveState.territoryCells, cell);
+
       if (clickedSnake) {
         moveState.selectedSnake = (moveState.selectedSnake === clickedSnake) ? null : clickedSnake;
         renderBoardView(turn);
