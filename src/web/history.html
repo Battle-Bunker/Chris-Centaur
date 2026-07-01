@@ -769,7 +769,7 @@
       currentTurn = turnIndex;
       
       moveState = BoardRenderer.processMoveEvaluations(
-        turn.move_evaluations, turn.safe_moves, turn.game_state.you.head, turn.chosen_move
+        turn.move_evaluations, turn.safe_moves, turn.game_state.you.head, turn.bot_recommendation
       );
       
       document.getElementById('currentTurn').textContent = turn.turn;
@@ -799,23 +799,28 @@
     }
 
     function buildOurDeaths(turn) {
-      // Our own snake's death markers only render on the final logged turn, the
-      // one the engine tagged with server_outcome on game end. Shadow = the move
-      // we intended (head + chosen_move); solid = where the server actually put
-      // us. Older logs have no server_outcome → no markers (rendered gracefully).
-      const outcome = turn.server_outcome;
-      if (!outcome || outcome.alive) return [];
+      // Our own snake's death markers only render on the final logged turn — the
+      // row whose `server_move` was back-filled from the next turn's lastMoves,
+      // meaning the snake stepped and then was gone (its death turn). Solid =
+      // where the server actually put us (head + server_move); shadow = the move
+      // we submitted (head + submitted_move) only when it differs. Rows without
+      // server_move (mid-game, or older logs) → no markers.
+      if (currentTurn !== turnData.length - 1) return [];
+      const serverMove = turn.server_move;
+      if (!serverMove) return [];
       const snakes = turn.game_state?.board?.snakes || [];
       const ourSnake = snakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
       const head = ourSnake?.body?.[0] || ourSnake?.head;
-      const intendedHead = head && turn.chosen_move ? applyMove(head, turn.chosen_move) : null;
-      const actualHead =
-        outcome.finalHeadX != null && outcome.finalHeadY != null
-          ? { x: outcome.finalHeadX, y: outcome.finalHeadY }
+      if (!head) return [];
+      const actualHead = applyMove(head, serverMove);
+      const submittedMove = turn.submitted_move;
+      const intendedHead =
+        submittedMove && submittedMove !== serverMove
+          ? applyMove(head, submittedMove)
           : null;
       return [{
         id: turn.snake_id,
-        lastHead: head || null,
+        lastHead: head,
         intendedHead,
         actualHead,
         color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
@@ -828,7 +833,7 @@
       const prevTurn = currentTurn > 0 ? turnData[currentTurn - 1] : null;
       BoardRenderer.renderBoard(canvas, turn.game_state, moveState, {
         snakeId: turn.snake_id,
-        chosenMove: turn.chosen_move,
+        chosenMove: turn.bot_recommendation,
         showChosenArrow: true,
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildOurDeaths(turn),

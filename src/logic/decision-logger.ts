@@ -12,7 +12,7 @@ export interface DecisionLogEntry {
   position: { x: number; y: number };
   health: number;
   safeMoves: Direction[];
-  chosenMove: Direction;
+  botRecommendation: Direction;
   moveEvaluations: {
     move: Direction;
     score: number;
@@ -78,7 +78,7 @@ interface SerializedRow {
   positionY: number;
   health: number;
   safeMoves: Direction[];
-  chosenMove: Direction;
+  botRecommendation: Direction;
   moveEvaluationsJson: string;
   gameStateJson: string;
   retries: number;
@@ -122,30 +122,28 @@ function prettifyTeamName(teamId: string | null | undefined): string | null {
     .join(' ');
 }
 
-// Server-reported outcome for OUR snake at game end. Recorded separately from
-// the per-move insert because it only becomes known on /end (the engine reports
-// where our snake actually finished, which can differ from the move we intended
-// to submit due to latency, timeouts, or the server overruling).
-export interface GameOutcome {
-  finalHeadX: number;
-  finalHeadY: number;
-  alive: boolean;
-}
-
-interface OutcomeUpdate {
+// A back-fill onto an already-inserted decision row: the final move we actually
+// submitted to the server (submitted_move) or the move the server reported it
+// made (server_move, read from the next turn's lastMoves map). Both target a
+// specific (game, snake, turn) row and always land on decision_logs.turn = the
+// board turn's decision row (see recordSubmittedMove / recordServerMoves for the
+// turn-offset math).
+interface MoveUpdate {
   gameId: string;
   snakeId: string;
-  outcomeJson: string;
+  turn: number;
+  column: 'submitted_move' | 'server_move';
+  move: Direction;
   retries: number;
 }
 
-// The async worker queue holds either per-move inserts or game-end outcome
-// updates. Outcomes are always enqueued AFTER the snake's final insert, and the
-// worker processes all inserts in a batch before any outcomes in the same
-// batch, so the row an outcome targets always exists by the time we UPDATE it.
+// The async worker queue holds either per-move inserts or move-column back-fills.
+// A back-fill always targets a row inserted at least a full turn earlier, and the
+// worker processes all inserts in a batch before any move-updates in the same
+// batch, so the row a back-fill targets exists by the time we UPDATE it.
 type QueueItem =
   | { kind: 'insert'; row: SerializedRow }
-  | { kind: 'outcome'; update: OutcomeUpdate };
+  | { kind: 'moveUpdate'; update: MoveUpdate };
 
 const BATCH_SIZE = 100;
 
@@ -202,7 +200,7 @@ export class DecisionLogger {
       positionY: entry.position.y,
       health: entry.health,
       safeMoves: entry.safeMoves,
-      chosenMove: entry.chosenMove,
+      botRecommendation: entry.botRecommendation,
       moveEvaluationsJson,
       gameStateJson,
       retries: 0,
@@ -221,21 +219,35 @@ export class DecisionLogger {
     this.signalWakeup();
   }
 
-  // Record the engine-reported final outcome for OUR snake at game end. Called
-  // from the /end route. Enqueued so it processes after the snake's final-move
-  // insert; the worker updates the latest logged row for this game+snake.
-  public recordGameOutcome(gameId: string, snakeId: string, outcome: GameOutcome): void {
-    let outcomeJson: string;
-    try {
-      outcomeJson = JSON.stringify(outcome);
-    } catch (e) {
-      console.error('[DecisionLogger] Failed to serialize outcome, dropping:', e);
-      return;
-    }
+  // Record the final move we actually submitted to the game server for a snake's
+  // turn. Called from the commit path (resolvePendingMove). `turn` must be the
+  // decision_logs.turn of the target row: a move committed for board turn N was
+  // logged with decision_logs.turn = N+1, so callers pass boardTurn + 1.
+  public recordSubmittedMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
     this.queue.push({
-      kind: 'outcome',
-      update: { gameId, snakeId, outcomeJson, retries: 0 },
+      kind: 'moveUpdate',
+      update: { gameId, snakeId, turn, column: 'submitted_move', move, retries: 0 },
     });
+    this.signalWakeup();
+  }
+
+  // Back-fill the server-decided move for every snake from a freshly-arrived
+  // game state's `lastMoves` map. `lastMoves` on board turn T describes the moves
+  // that transitioned turn T-1 → T; those are the server-decided moves for each
+  // snake's decision at board turn T-1, whose rows were logged with
+  // decision_logs.turn = (T-1)+1 = T. So the update key is exactly the arriving
+  // turn T. Iterating ALL entries lets a still-alive peer's next move back-fill a
+  // snake that has since died (it takes no further /move of its own). Updates for
+  // snakes we never logged (enemies) simply match zero rows.
+  public recordServerMoves(gameId: string, turn: number, lastMoves: Record<string, Direction> | null | undefined): void {
+    if (!lastMoves) return;
+    for (const [snakeId, move] of Object.entries(lastMoves)) {
+      if (!move) continue;
+      this.queue.push({
+        kind: 'moveUpdate',
+        update: { gameId, snakeId, turn, column: 'server_move', move, retries: 0 },
+      });
+    }
     this.signalWakeup();
   }
 
@@ -262,13 +274,13 @@ export class DecisionLogger {
       }
 
       const batch = this.queue.splice(0, BATCH_SIZE);
-      // Process all inserts in the batch first, then outcome updates, so an
-      // outcome enqueued right after its snake's final insert finds the row.
+      // Process all inserts in the batch first, then move-column back-fills, so a
+      // back-fill enqueued in the same batch as its target's insert finds the row.
       const rows = batch
         .filter((item): item is { kind: 'insert'; row: SerializedRow } => item.kind === 'insert')
         .map(item => item.row);
-      const outcomes = batch
-        .filter((item): item is { kind: 'outcome'; update: OutcomeUpdate } => item.kind === 'outcome')
+      const moveUpdates = batch
+        .filter((item): item is { kind: 'moveUpdate'; update: MoveUpdate } => item.kind === 'moveUpdate')
         .map(item => item.update);
 
       if (rows.length > 0) {
@@ -284,35 +296,35 @@ export class DecisionLogger {
         }
       }
 
-      for (const update of outcomes) {
-        await this.applyOutcomeWithRetry(update);
+      for (const update of moveUpdates) {
+        await this.applyMoveUpdateWithRetry(update);
       }
     }
   }
 
-  private async applyOutcome(update: OutcomeUpdate): Promise<void> {
-    // Attach the outcome to the most recent logged row for this game+snake
-    // (the final decision, whose chosen_move is the intended-but-fatal move).
+  private async applyMoveUpdate(update: MoveUpdate): Promise<void> {
+    // Back-fill submitted_move / server_move onto the exact decision row for this
+    // (game, snake, turn). No-op (zero rows) if the row doesn't exist — e.g. an
+    // enemy snake we never logged, or turn 0 (which is answered without a strategy
+    // decision, so it's never logged).
+    const column = update.column === 'submitted_move' ? sql`submitted_move` : sql`server_move`;
     await db.execute(sql`
-      UPDATE decision_logs SET server_outcome = ${update.outcomeJson}::jsonb
-      WHERE id = (
-        SELECT id FROM decision_logs
-        WHERE game_id = ${update.gameId} AND snake_id = ${update.snakeId}
-        ORDER BY turn DESC, id DESC
-        LIMIT 1
-      )
+      UPDATE decision_logs SET ${column} = ${update.move}
+      WHERE game_id = ${update.gameId}
+        AND snake_id = ${update.snakeId}
+        AND turn = ${update.turn}
     `);
   }
 
-  private async applyOutcomeWithRetry(update: OutcomeUpdate): Promise<void> {
+  private async applyMoveUpdateWithRetry(update: MoveUpdate): Promise<void> {
     while (true) {
       try {
-        await this.applyOutcome(update);
+        await this.applyMoveUpdate(update);
         return;
       } catch (error) {
         update.retries++;
         if (update.retries > this.MAX_RETRIES) {
-          console.error(`[DecisionLogger] Failed to record outcome after ${this.MAX_RETRIES} retries for game ${update.gameId}, snake ${update.snakeId}:`, error);
+          console.error(`[DecisionLogger] Failed to record ${update.column} after ${this.MAX_RETRIES} retries for game ${update.gameId}, snake ${update.snakeId}, turn ${update.turn}:`, error);
           return;
         }
         const delay = this.RETRY_DELAY_MS * Math.pow(2, update.retries - 1) * (0.5 + Math.random() * 0.5);
@@ -326,7 +338,8 @@ export class DecisionLogger {
 
     // The JSON blobs are kept as pre-serialized strings (memory win) and cast to
     // jsonb via sql`...` so Drizzle doesn't double-encode them. Omitted columns
-    // (id/timestamp/created_at/server_outcome) use their defaults.
+    // (id/timestamp/created_at/submitted_move/server_move) use their defaults; the
+    // two move columns are back-filled later via recordSubmittedMove/recordServerMoves.
     await db.insert(decisionLogs).values(
       rows.map(r => ({
         gameId: r.gameId,
@@ -337,7 +350,7 @@ export class DecisionLogger {
         positionY: r.positionY,
         health: r.health,
         safeMoves: r.safeMoves,
-        chosenMove: r.chosenMove,
+        botRecommendation: r.botRecommendation,
         moveEvaluations: sql`${r.moveEvaluationsJson}::jsonb`,
         gameState: sql`${r.gameStateJson}::jsonb`,
       })),
@@ -379,7 +392,7 @@ export class DecisionLogger {
       if (filters.endTurn !== undefined) conditions.push(lte(decisionLogs.turn, filters.endTurn));
 
       // Alias to snake_case so the returned shape matches what the routes/UI
-      // already read (position_x, safe_moves, chosen_move, etc.).
+      // already read (position_x, safe_moves, bot_recommendation, etc.).
       let query = db
         .select({
           id: decisionLogs.id,
@@ -392,10 +405,11 @@ export class DecisionLogger {
           position_y: decisionLogs.positionY,
           health: decisionLogs.health,
           safe_moves: decisionLogs.safeMoves,
-          chosen_move: decisionLogs.chosenMove,
+          bot_recommendation: decisionLogs.botRecommendation,
+          submitted_move: decisionLogs.submittedMove,
+          server_move: decisionLogs.serverMove,
           move_evaluations: decisionLogs.moveEvaluations,
           game_state: decisionLogs.gameState,
-          server_outcome: decisionLogs.serverOutcome,
           created_at: decisionLogs.createdAt,
         })
         .from(decisionLogs)

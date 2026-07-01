@@ -82,6 +82,12 @@ app.post('/move', async (req, res) => {
   }
   gameManager.updateGameState(gameId, snakeId, gameState);
 
+  // Back-fill the server-decided move for every snake from this state's lastMoves
+  // (the moves that produced THIS turn). Runs on every /move — plain or centaur —
+  // so a still-alive peer's move fills in a snake that has since died. The update
+  // key is this arriving turn (= the decision-row turn for the prior board turn).
+  decisionLogger.recordServerMoves(gameId, gameState.turn, gameState.lastMoves);
+
   const gameTimeout = gameState.game.timeout || 500;
   const turnExpiryTime = (gameState.game as any).turnExpiryTime || null;
   gameManager.recordTurnArrival(gameId, arrivalTime, gameTimeout, turnExpiryTime);
@@ -175,19 +181,9 @@ app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
   logger.endGame(gameState);
 
-  // Record where the engine reported OUR snake actually finished so the History
-  // viewer can show the actual (solid) death head vs the intended move (shadow).
-  // A snake removed from board.snakes died; one still present survived/won.
-  const ourHead = gameState.you?.head;
-  if (ourHead) {
-    const alive = (gameState.board?.snakes || []).some(s => s.id === gameState.you.id);
-    decisionLogger.recordGameOutcome(gameState.game.id, gameState.you.id, {
-      finalHeadX: ourHead.x,
-      finalHeadY: ourHead.y,
-      alive,
-    });
-  }
-
+  // No final-head derivation here: a snake's authoritative final move comes from
+  // the NEXT turn's lastMoves (back-filled into server_move on every /move), not
+  // from the /end payload.
   gameManager.endGame(gameState.game.id, gameState.you.id, gameState);
   voronoiStrategy.onGameEnd(gameState.game.id);
   res.status(200).send('ok');

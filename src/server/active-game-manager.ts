@@ -2,6 +2,7 @@ import { GameState, BoardSnapshot, Direction, Coord } from '../types/battlesnake
 import { Response } from 'express';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { BoardGraph } from '../logic/board-graph';
+import { DecisionLogger } from '../logic/decision-logger';
 
 export interface MoveEvaluation {
   move: Direction;
@@ -1589,6 +1590,12 @@ export class ActiveGameManager {
 
     controlled.moveCommittedThisTurn = true;
     controlled.committedMove = move;
+
+    // Persist the move we actually submitted onto this turn's decision row. The
+    // move was committed for board turn `pending.turn`, whose decision was logged
+    // with decision_logs.turn = pending.turn + 1 (the logger records the turn the
+    // move executes INTO), so that +1 is the update key.
+    DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, pending.turn + 1, move);
 
     // Re-anchor the green goto route at the cell we'll occupy after this
     // committed move, so the rendered path — and next turn's first step —

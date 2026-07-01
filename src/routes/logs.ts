@@ -39,18 +39,15 @@ router.get('/api/logs', async (req, res) => {
         position_y: log.position_y,
         health: log.health,
         safe_moves: log.safe_moves,
-        chosen_move: log.chosen_move,
+        bot_recommendation: log.bot_recommendation,
+        submitted_move: log.submitted_move ?? null,
+        server_move: log.server_move ?? null,
         move_evaluations: typeof log.move_evaluations === 'string' 
           ? JSON.parse(log.move_evaluations)
           : log.move_evaluations,
         game_state: typeof log.game_state === 'string'
           ? JSON.parse(log.game_state)
           : log.game_state,
-        server_outcome: log.server_outcome == null
-          ? null
-          : (typeof log.server_outcome === 'string'
-            ? JSON.parse(log.server_outcome)
-            : log.server_outcome),
         timestamp: log.timestamp
       }))
     });

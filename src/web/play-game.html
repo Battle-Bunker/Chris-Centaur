@@ -522,7 +522,10 @@
     let moveState = null;
     let currentGameState = null;
     let previousGameState = null;  // prior-turn board, for dead-head markers
-    let deadOurSnakes = {};        // { [snakeId]: { id, intendedHead, actualHead, color, emoji } }
+    // Per-snake last move WE committed ({ [snakeId]: 'up' }). Overwritten on each
+    // commit and never cleared, so a snake that dies retains the move it submitted
+    // on its death turn — the ghost (intended) marker for that snake's death.
+    let lastCommittedMoves = {};
     let moveSubmitted = false;
     let userSelectedMove = null;
     let turnTimerInterval = null;
@@ -939,6 +942,11 @@
               csData.moveCommitted = true;
               csData.committedMove = msg.move;
             }
+            // Remember the move we actually submitted for this snake so, if it
+            // dies this turn, the renderer can draw its intended (ghost) head.
+            if (msg.move) {
+              lastCommittedMoves[msg.snakeId] = msg.move;
+            }
             // The server re-anchors the green goto route at the committed-move
             // destination, so refresh the route/mode maps here too.
             if (msg.routes) {
@@ -972,43 +980,13 @@
           // kept playing after ours died, plus the death-state turn itself).
           // We render that final state, then surface a Game Over banner.
           // Guard against a stale/duplicate /end rolling the UI backwards.
+          //
+          // No death-head derivation from /end here: a dead snake's authoritative
+          // final move comes from the NEXT turn's lastMoves, which the renderer
+          // reads off the board-update transition (previousGameState → current).
+          // The intended (ghost) head comes from lastCommittedMoves. See
+          // renderGameBoard.
           const currentTurn = currentGameState?.turn ?? -1;
-          // Capture our snake's death markers BEFORE overwriting currentGameState
-          // with the final state (which no longer contains the dead snake). The
-          // intended head comes from the move we staged/committed; the actual
-          // head from the engine-reported final state.
-          if (!msg.survived) {
-            const ourSnake = (currentGameState?.board?.snakes || []).find(
-              s => s.id === msg.snakeId
-            );
-            const head = ourSnake?.body?.[0] || ourSnake?.head || null;
-            const staged = stagedMoves[msg.snakeId];
-            const move = staged && staged.move ? staged.move : null;
-            const intendedHead = head && move ? applyMoveToCell(head, move) : head;
-            const finalYou = msg.finalGameState?.you;
-            const actualHead =
-              finalYou && finalYou.id === msg.snakeId ? finalYou.head : null;
-            // Render the snake's real last-known body (no fabricated advance).
-            // The intended move (shadow) and the server-reported actual head
-            // (solid) ride on top to show where it went.
-            const deathBody = ourSnake?.body
-              ? ourSnake.body.slice()
-              : head
-                ? [head]
-                : [];
-            deadOurSnakes[msg.snakeId] = {
-              id: msg.snakeId,
-              lastHead: head || null,
-              intendedHead,
-              actualHead,
-              body: deathBody,
-              color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
-              emoji: ourSnake?.emoji || '\u{1F40D}',
-              // Death markers belong to the death turn only; subsequent turns
-              // (other snakes keep playing) must not keep painting them.
-              deathTurn: msg.finalGameState?.turn ?? currentGameState?.turn ?? null,
-            };
-          }
           if (msg.finalGameState && msg.finalGameState.turn >= currentTurn) {
             if (
               currentGameState &&
@@ -1270,15 +1248,13 @@
       // human-staged ones in the controller's color, and committed ones as a
       // double arrow (see board-renderer). The client renders the broadcast
       // stagedMoves snapshot directly — no local synthesis.
-      // Only feed death markers for snakes actually missing from the live board
-      // (so a stale entry can't paint over a still-alive snake) AND only on the
-      // exact death turn — once the game advances, the marker must disappear.
-      const liveIds = new Set(currentGameState.board.snakes.map(s => s.id));
-      const curTurn = currentGameState.turn;
-      const ourDeaths = Object.values(deadOurSnakes).filter(
-        d => !liveIds.has(d.id) && d.deathTurn === curTurn
-      );
-
+      // Death markers are derived uniformly for every snake (ours and enemies)
+      // by the renderer's disappearance path: a snake present last turn but gone
+      // this turn gets a solid marker from currentGameState.lastMoves (the move
+      // that killed it) and — for snakes we controlled — a ghost marker from the
+      // move we committed (lastCommittedMoves), drawn only when it differs. This
+      // naturally shows only on the death turn: next turn the snake is already
+      // absent from previousBoard, so no marker is drawn.
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
@@ -1287,10 +1263,10 @@
         holds: holds,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
-        ourDeaths: ourDeaths,
-        // Authoritative per-snake moves from the engine; lets the renderer mark
-        // other snakes' true death cells instead of an "unknown ?" guess.
+        // Authoritative per-snake moves from the engine → solid death heads.
         lastMoves: currentGameState?.lastMoves || null,
+        // The moves we committed → ghost (intended) death heads for our snakes.
+        submittedMoves: lastCommittedMoves,
       });
 
       // Q-mode visual cue: outline the four orthogonally-adjacent cells to
@@ -2400,7 +2376,7 @@
       const head = turn.game_state.you?.head
         || turn.game_state.board.snakes.find(s => s.id === turn.snake_id)?.body[0];
       historicMoveState = BoardRenderer.processMoveEvaluations(
-        turn.move_evaluations, turn.safe_moves, head, turn.chosen_move
+        turn.move_evaluations, turn.safe_moves, head, turn.bot_recommendation
       );
       historicMoveState.selectedMove = null;
       historicMoveState.selectedSnake = null;
@@ -2460,23 +2436,27 @@
     }
 
     // Mirror of the Game History viewer's buildOurDeaths: our own snake's death
-    // markers render only on the final logged turn (server_outcome present and
-    // alive=false). Shadow = intended (head + chosen_move), solid = the server's
-    // reported final head. Older logs without server_outcome → no markers.
+    // markers render only on the final logged turn — the row whose `server_move`
+    // was back-filled from the next turn's lastMoves (the snake stepped, then was
+    // gone). Solid = head + server_move; ghost = head + submitted_move, only when
+    // it differs. Rows without server_move (mid-game / older logs) → no markers.
     function buildHistoricOurDeaths(turn) {
-      const outcome = turn.server_outcome;
-      if (!outcome || outcome.alive) return [];
+      if (historicIndex !== historicDecisions.length - 1) return [];
+      const serverMove = turn.server_move;
+      if (!serverMove) return [];
       const snakes = turn.game_state?.board?.snakes || [];
       const ourSnake = snakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
       const head = ourSnake?.body?.[0] || ourSnake?.head;
-      const intendedHead = head && turn.chosen_move ? applyMoveToCell(head, turn.chosen_move) : null;
-      const actualHead =
-        outcome.finalHeadX != null && outcome.finalHeadY != null
-          ? { x: outcome.finalHeadX, y: outcome.finalHeadY }
+      if (!head) return [];
+      const actualHead = applyMoveToCell(head, serverMove);
+      const submittedMove = turn.submitted_move;
+      const intendedHead =
+        submittedMove && submittedMove !== serverMove
+          ? applyMoveToCell(head, submittedMove)
           : null;
       return [{
         id: turn.snake_id,
-        lastHead: head || null,
+        lastHead: head,
         intendedHead,
         actualHead,
         color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
@@ -2492,7 +2472,7 @@
       const prevTurn = historicIndex > 0 ? historicDecisions[historicIndex - 1] : null;
       BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
         snakeId: turn.snake_id,
-        chosenMove: turn.chosen_move,
+        chosenMove: turn.bot_recommendation,
         showChosenArrow: true,
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildHistoricOurDeaths(turn),

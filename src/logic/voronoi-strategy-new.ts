@@ -256,7 +256,7 @@ export class VoronoiStrategy {
       position: gameState.you.head,
       health: gameState.you.health,
       safeMoves: decision.candidateMoves,  // Only the moves we actually evaluated!
-      chosenMove: decision.move,
+      botRecommendation: decision.move,
       moveEvaluations,
       gameState,
       territoryCells: territoryCellsObj

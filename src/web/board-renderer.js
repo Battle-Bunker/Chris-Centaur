@@ -1171,18 +1171,19 @@ const BoardRenderer = (function () {
     // historic scrubbing, and /history. We build one unified list of death
     // entries, then derive each snake's authoritative final cell + intended
     // (staged) cell the same way for every consumer:
-    //   - `actual` (solid marker): where the server actually put the snake. Taken
-    //     from an explicit actualHead (our own snake's server_outcome / final
-    //     state) when present, else derived from the engine's authoritative
-    //     `lastMoves` map (last-known head stepped one cell in the recorded
-    //     direction). This replaces the old "unknown ?" guess for other snakes.
-    //   - `intended` (shadow marker): the move we staged/tried to submit. Taken
-    //     from an explicit intendedHead (our own snake) when present, else
-    //     derived from the staged-move map. Only drawn when it differs from the
-    //     authoritative cell.
+    //   - `actual` (solid marker): the server-decided final cell. Taken from an
+    //     explicit actualHead (history: last-known head stepped by server_move)
+    //     when present, else derived from the engine's authoritative `lastMoves`
+    //     map (last-known head stepped one cell in the recorded direction). Same
+    //     source for our snakes and enemies.
+    //   - `intended` (shadow marker): the move we actually submitted. Taken from
+    //     an explicit intendedHead (history: last-known head stepped by
+    //     submitted_move) when present, else the `submittedMoves` map (live:
+    //     client-tracked committed move), else the staged-move map. Only drawn
+    //     when it differs from the server-decided cell.
     //   - When neither an explicit actualHead nor `lastMoves` is available
-    //     (older logs that predate the field), fall back to the "unknown ?"
-    //     marker at the last-known head.
+    //     (older logs, or the game's terminal move with no following state),
+    //     fall back to the "unknown ?" marker at the last-known head.
     const ourDeaths = options?.ourDeaths || [];
     const excludeIds = new Set(
       ourDeaths.map((d) => d.id).filter((id) => id != null),
@@ -1200,6 +1201,10 @@ const BoardRenderer = (function () {
     // for free); an explicit option can override it.
     const lastMoves = options?.lastMoves || gameState?.lastMoves || null;
     const stagedMovesForDeaths = options?.stagedMoves || null;
+    // Live: the client tracks the move it actually committed per snake ({id: move}).
+    // A dead snake is gone from the server's staged-move broadcast, so this map is
+    // the only source for its intended (ghost) cell.
+    const submittedMovesForDeaths = options?.submittedMoves || null;
 
     const deathEntries = [];
     if (deadSnakes) {
@@ -1241,8 +1246,15 @@ const BoardRenderer = (function () {
       if (!actual && lastMoves && d.id != null && d.lastHead) {
         actual = applyDirection(d.lastHead, lastMoves[d.id]);
       }
-      // Intended/staged cell: explicit override first, else staged-move map.
+      // Intended/submitted cell: explicit override first, else the live
+      // committed-move map, else the staged-move map.
       let intended = d.intendedHead || null;
+      if (!intended && submittedMovesForDeaths && d.id != null && d.lastHead) {
+        const submitted = submittedMovesForDeaths[d.id];
+        if (submitted) {
+          intended = applyDirection(d.lastHead, submitted);
+        }
+      }
       if (!intended && stagedMovesForDeaths && d.id != null && d.lastHead) {
         const staged = stagedMovesForDeaths[d.id];
         if (staged && staged.move) {

@@ -19,6 +19,23 @@ diff (which prompts the user to confirm renames, preventing drop+add data loss).
 - One shared pg Pool + Drizzle client in `src/database/db.ts`; don't spin up
   per-class `new Pool(...)`.
 
+## `db:push` can't resolve renames non-interactively
+
+`drizzle-kit push --force` still opens an **interactive TTY prompt** to decide
+whether a changed column is a rename vs a drop+add — and `--force` does NOT
+suppress it. In the agent shell there is no TTY, so it dies with "Interactive
+prompts require a TTY terminal" *after* pulling the schema (leaving the DB
+unchanged).
+
+**Why:** a column rename is ambiguous to the differ; drop+add would silently
+lose the column's data, so it insists a human confirm.
+
+**How to apply:** when a schema change includes a rename, apply the exact DDL by
+hand against the dev DB (via the `executeSql` code-exec callback):
+`ALTER TABLE t RENAME COLUMN old TO new;` plus any ADD/DROP. Then run
+`db:push -- --force` to confirm it reports "no changes" (schema.ts ⇄ DB in sync).
+Prod still goes through the Publish diff, which prompts the user for the rename.
+
 ## jsonb pre-serialized-string insert gotcha
 
 DecisionLogger keeps its JSON blobs as **pre-serialized strings** (a deliberate

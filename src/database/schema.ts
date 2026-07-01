@@ -31,10 +31,11 @@ export const decisionLogs = pgTable(
     positionY: integer('position_y').notNull(),
     health: integer('health').notNull(),
     safeMoves: text('safe_moves').array(),
-    chosenMove: varchar('chosen_move', { length: 10 }).notNull(),
+    botRecommendation: varchar('bot_recommendation', { length: 10 }).notNull(),
+    submittedMove: varchar('submitted_move', { length: 10 }),
+    serverMove: varchar('server_move', { length: 10 }),
     moveEvaluations: jsonb('move_evaluations').notNull(),
     gameState: jsonb('game_state').notNull(),
-    serverOutcome: jsonb('server_outcome'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   table => [
