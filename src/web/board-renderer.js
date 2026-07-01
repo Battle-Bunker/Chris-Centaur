@@ -1361,14 +1361,24 @@ const BoardRenderer = (function () {
   // Builds the HTML for one snake row. `opts` controls history-viewer extras:
   // selectable (clickable to switch perspective) and active (current
   // perspective). Without opts it renders the plain play-page row.
-  function renderSnakeInfoItem(snake, ourSnakeId, holdsMap, opts) {
+  function renderSnakeInfoItem(snake, ourSnakeId, holdsMap, opts, currentTurn) {
     const isOurSnake = snake.id === ourSnakeId;
     const snakeColor = snake.customizations?.color || snake.color || "#888888";
     const invulnLevel = snake.invulnerabilityLevel || 0;
-    const invulnDisplay =
-      invulnLevel !== 0
-        ? `<span>${invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F"} ${invulnLevel}</span>`
-        : "";
+    let invulnDisplay = "";
+    if (invulnLevel !== 0) {
+      const icon = invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F";
+      // Turns remaining (inclusive of the current turn) from the absolute expiry
+      // turn supplied by the server. Falls back to just the level when the expiry
+      // is missing (older logs) or already passed at the displayed turn.
+      const expiry = snake.invulnerabilityExpiryTurn;
+      let turnsSuffix = "";
+      if (typeof expiry === "number" && typeof currentTurn === "number") {
+        const remaining = expiry - currentTurn + 1;
+        if (remaining >= 1) turnsSuffix = ` \u00B7 ${remaining}t`;
+      }
+      invulnDisplay = `<span>${icon} ${invulnLevel}${turnsSuffix}</span>`;
+    }
     const emojiDisplay = snake.emoji || "\u{1F40D}";
     const holdCount = holdsMap[snake.id] || 0;
     const holdBadge = holdCount > 0
@@ -1411,10 +1421,11 @@ const BoardRenderer = (function () {
     }
     const holdsMap = holds || {};
     const snakes = gameState.board.snakes;
+    const currentTurn = gameState.turn;
 
     if (!options || !options.groupByTeam) {
       container.innerHTML = snakes
-        .map((snake) => renderSnakeInfoItem(snake, ourSnakeId, holdsMap, null))
+        .map((snake) => renderSnakeInfoItem(snake, ourSnakeId, holdsMap, null, currentTurn))
         .join("");
       return;
     }
@@ -1464,7 +1475,7 @@ const BoardRenderer = (function () {
                 isOurTeam &&
                 (selectableIds ? selectableIds.has(snake.id) : true),
               active: snake.id === ourSnakeId,
-            }),
+            }, currentTurn),
           )
           .join("");
         return `
