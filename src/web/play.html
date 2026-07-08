@@ -321,7 +321,7 @@
     }
 
     function openGame(gameId) {
-      window.location.href = `/play/${gameId}`;
+      window.location.href = `/game/${encodeURIComponent(gameId)}`;
     }
 
     connectWebSocket();

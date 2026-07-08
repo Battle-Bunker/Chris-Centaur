@@ -502,7 +502,8 @@
   <script src="/connection-debug.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
-    const gameId = pathParts[2] || '';
+    // Works for both /game/:id (unified) and legacy /play/:id URLs.
+    const gameId = decodeURIComponent(pathParts[2] || '');
 
     if (!sessionStorage.getItem('centaurUserId')) {
       sessionStorage.setItem('centaurUserId', crypto.randomUUID());
@@ -558,6 +559,11 @@
     // keep flowing into the live-state variables above while scrubbing; they
     // just don't yank the displayed board until the user returns to live.
     let viewMode = 'live';            // 'live' | 'historic'
+    // Finished games have no live WebSocket state: the whole page becomes a
+    // read-only replay driven entirely by /api/logs. In this mode viewMode is
+    // always 'historic', liveMaxTurn is the last logged turn, and there is no
+    // live edge to return to.
+    let finishedMode = false;
     let liveMaxTurn = 0;              // highest live turn seen → slider max
     let historicSnakeId = null;       // snake perspective being inspected (null = default)
     const historicCache = new Map();  // snakeId → { decisions, turnToIndex }
@@ -566,12 +572,16 @@
     let historicIndex = 0;            // current decision index being viewed
     let historicTurnNumber = 0;       // current turn number being viewed
     let historicMoveState = null;     // moveState for the historic board/breakdown
-    let historicCacheStale = false;   // set when new live turns arrive mid-scrub
     const historicInflight = new Map(); // snakeId → in-flight fetch promise (dedupe)
     let isScrubbing = false;          // true while the user is touching the slider
     let scrubLoadToken = 0;           // latest-wins token for async historic loads
     let scrubRenderPending = false;   // rAF coalescing flag for live drag rendering
     let scrubRenderTurn = 0;          // latest dragged turn awaiting a preview frame
+    // Which control owns the arrow keys while viewing history ("active element"
+    // principle): the last thing the user interacted with. Touching the scrub
+    // bar → arrows scrub turns; selecting a snake or a candidate move → arrows
+    // move the candidate selector. Esc hands focus back to the scrubber.
+    let historicKeyFocus = 'scrubber'; // 'scrubber' | 'candidates'
 
     // ────────────────────────────────────────────────────────────────────────
     // Selection vs. staging vs. commit (three distinct concepts):
@@ -607,6 +617,32 @@
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
 
+    // If the WebSocket never opens (or the game turns out to be finished, so the
+    // server keeps no live state and pushes no board), don't sit on the
+    // "Connecting… / Waiting for game data" overlay forever. Ask the REST API
+    // whether the game is active: 404 => load the read-only replay without a WS;
+    // 200 => it's genuinely live, so keep waiting for the socket; network error
+    // => surface a clear "can't reach server" message instead of an infinite
+    // spinner.
+    async function resolveFinishedIfNotLive() {
+      if (finishedMode || currentGameState) return;
+      try {
+        const resp = await fetch(`/api/play/game/${encodeURIComponent(gameId)}`);
+        if (resp.ok) return; // live on the server; keep waiting for the WS
+        if (resp.status === 404) {
+          enterFinishedMode();
+          return;
+        }
+      } catch (e) {
+        console.error('Live-state check failed:', e);
+        const overlay = document.getElementById('waitingOverlay');
+        if (overlay && !finishedMode && !currentGameState) {
+          overlay.innerHTML =
+            '<h2>Can\u2019t reach the server</h2><p>The game server isn\u2019t responding. Please refresh in a moment.</p>';
+        }
+      }
+    }
+
     function connectWebSocket() {
       const statusEl = document.getElementById('connectionStatus');
       statusEl.className = 'connection-status connecting';
@@ -615,7 +651,12 @@
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
+      const openTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) resolveFinishedIfNotLive();
+      }, 4000);
+
       ws.onopen = () => {
+        clearTimeout(openTimeout);
         statusEl.className = 'connection-status connected';
         statusEl.textContent = 'Connected';
         ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId }));
@@ -676,6 +717,13 @@
           break;
         case 'game-subscribed':
           myColor = msg.userColor || '#888888';
+          // No live board state means the game is not active on the server:
+          // it either finished or never existed. Fall back to a read-only
+          // replay driven entirely by the decision logs.
+          if (!msg.boardState && !finishedMode) {
+            enterFinishedMode();
+            break;
+          }
           if (msg.boardState) {
             currentGameState = msg.boardState;
           }
@@ -777,11 +825,10 @@
             if (selectedSnakeId) {
               updateMoveControls();
             }
-          } else {
-            // Viewing history: keep live state fresh + the slider range growing,
-            // but leave the inspected turn on screen.
-            invalidateHistoricCache();
           }
+          // While viewing history, the slider range keeps growing with
+          // liveMaxTurn (set above); cached old turns stay valid, and a newer
+          // tail is fetched on demand only if the user scrubs past it.
           updateTurnControls();
           break;
 
@@ -996,7 +1043,6 @@
             }
             currentGameState = msg.finalGameState;
             liveMaxTurn = Math.max(liveMaxTurn, msg.finalGameState.turn);
-            invalidateHistoricCache();
             if (viewMode === 'live') {
               document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
               document.getElementById('firstMoveIndicator').style.display = 'none';
@@ -1031,6 +1077,13 @@
             }
           }
           renderGameOverBanner();
+          // The whole game is over: reactively convert this live page into the
+          // exact read-only replay it would be if freshly opened as a finished
+          // game — historic scrubbing, log-driven perspective, no live chrome.
+          // enterFinishedMode() is idempotent (guards on finishedMode).
+          if (msg.gameOver) {
+            enterFinishedMode();
+          }
           break;
         }
       }
@@ -1088,8 +1141,6 @@
         renderGameBoard();
         renderSnakeInfo();
         startTurnTimer();
-      } else {
-        invalidateHistoricCache();
       }
       updateTurnControls();
     }
@@ -1533,10 +1584,13 @@
     }
 
     function handleCanvasClick(event) {
-      if (!currentGameState) return;
-      // Read-only history mode: clicks toggle territory highlight only — no
-      // snake selection, waypoint, or premove control (those are live-only).
+      // Read-only history mode: clicks switch the inspected snake perspective or
+      // toggle a territory highlight. Handle this BEFORE the live guard below,
+      // because a finished game loaded from logs has no live currentGameState —
+      // the historic handler reads historicDecisions instead. (Without this,
+      // board-body clicks silently did nothing in finished games.)
       if (viewMode === 'historic') { handleHistoricCanvasClick(event); return; }
+      if (!currentGameState) return;
 
       const canvas = document.getElementById('gameCanvas');
       const board = currentGameState.board;
@@ -2009,9 +2063,20 @@
         e.preventDefault();
       }
 
-      // In read-only history mode, Left/Right scrub turns; all control keys are
-      // inert so nothing gets staged/committed/selected while reviewing.
+      // In read-only history mode, arrow keys go to whichever control the user
+      // interacted with last (browser "active element" principle): the candidate
+      // move selector after selecting a snake/candidate, otherwise the scrubber.
+      // All live-control keys stay inert so nothing gets staged/committed.
       if (viewMode === 'historic') {
+        if (historicKeyFocus === 'candidates' && historicMoveState) {
+          if (e.key === 'Escape') { historicKeyFocus = 'scrubber'; return; }
+          const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.key];
+          if (dir) {
+            if (historicMoveState.moves && historicMoveState.moves[dir]) historicSelectMove(dir);
+            return;
+          }
+          return;
+        }
         if (e.key === 'ArrowLeft') scrubHistoric(-1);
         else if (e.key === 'ArrowRight') scrubHistoric(1);
         return;
@@ -2103,10 +2168,6 @@
 
     // ── Turn scrubbing implementation ───────────────────────────────────────
 
-    function invalidateHistoricCache() {
-      historicCacheStale = true;
-    }
-
     // Pick which controlled snake's logged decisions to render in history mode.
     // Prefer the currently selected snake (if controlled), else the first
     // controlled snake. These are the bot-logged snakes, so /api/logs has their
@@ -2122,38 +2183,47 @@
       return first.done ? null : first.value;
     }
 
-    async function ensureHistoricDecisions() {
+    // Load one snake's logged decisions, coalescing concurrent/duplicate
+    // requests onto a single in-flight promise and caching the (~2MB) result.
+    // Historic logs are immutable except for the growing tail, so a cached entry
+    // is REUSED unless the caller needs a turn beyond what we've already fetched
+    // (live games only). This is what keeps snake selection instant: no whole-
+    // cache nuke on every live tick, and no duplicate 2MB fetches per click.
+    function loadSnakeDecisions(snakeId, targetTurn) {
+      const entry = historicCache.get(snakeId);
+      if (entry) {
+        const needsNewerTail =
+          !finishedMode &&
+          targetTurn != null &&
+          targetTurn > entry.maxTurn &&
+          entry.maxTurn < liveMaxTurn;
+        if (!needsNewerTail) return Promise.resolve(entry);
+      }
+      let p = historicInflight.get(snakeId);
+      if (!p) {
+        p = fetchHistoricDecisions(snakeId)
+          .then((e) => { historicCache.set(snakeId, e); return e; })
+          .finally(() => { historicInflight.delete(snakeId); });
+        historicInflight.set(snakeId, p);
+      }
+      return p;
+    }
+
+    async function ensureHistoricDecisions(targetTurn) {
       const snakeId = getHistoricSnakeId();
       if (!snakeId) return false;
-      // New live turns arrived while scrubbing → drop every snake's cache so the
-      // next fetch picks up the freshly-logged turns.
-      if (historicCacheStale) {
-        historicCache.clear();
-        historicInflight.clear();
-        historicCacheStale = false;
-      }
-      let entry = historicCache.get(snakeId);
-      if (!entry) {
-        // Coalesce concurrent loads for the same snake onto one promise so rapid
-        // scrubbing never spawns duplicate fetches or falsely reports "no data"
-        // while a load is already in flight.
-        let p = historicInflight.get(snakeId);
-        if (!p) {
-          p = fetchHistoricDecisions(snakeId)
-            .then((e) => { historicCache.set(snakeId, e); return e; })
-            .finally(() => { historicInflight.delete(snakeId); });
-          historicInflight.set(snakeId, p);
-          p.then(() => prefetchHistoricTeam()).catch(() => {});
-        }
-        try {
-          entry = await p;
-        } catch (err) {
-          console.error('Failed to load historic turns:', err);
-          return false;
-        }
+      let entry;
+      try {
+        entry = await loadSnakeDecisions(snakeId, targetTurn);
+      } catch (err) {
+        console.error('Failed to load historic turns:', err);
+        return false;
       }
       historicDecisions = entry.decisions;
       historicTurnToIndex = entry.turnToIndex;
+      // Warm the rest of the team in the background. Coalesced + cached, so this
+      // is a cheap no-op once every snake is loaded.
+      prefetchHistoricTeam();
       return historicDecisions.length > 0;
     }
 
@@ -2168,13 +2238,15 @@
       const data = await resp.json();
       const decisions = (data && data.decisions) || [];
       const turnToIndex = {};
+      let maxTurn = 0;
       // Key by game_state.turn so the slider aligns with the live "Turn:"
       // header (the decision-log `turn` column is offset by one).
       decisions.forEach((d, i) => {
         const t = d.game_state?.turn ?? d.turn;
         turnToIndex[t] = i;
+        if (t > maxTurn) maxTurn = t;
       });
-      return { decisions, turnToIndex };
+      return { decisions, turnToIndex, maxTurn };
     }
 
     // Warm the cache for our other controlled snakes in the background so that
@@ -2182,12 +2254,8 @@
     // paying a network round-trip per selection.
     function prefetchHistoricTeam() {
       for (const sid of controlledSnakeIds) {
-        if (historicCache.has(sid)) continue;
-        fetchHistoricDecisions(sid)
-          .then((entry) => {
-            if (!historicCache.has(sid)) historicCache.set(sid, entry);
-          })
-          .catch(() => {});
+        if (historicCache.has(sid) || historicInflight.has(sid)) continue;
+        loadSnakeDecisions(sid, null).catch(() => {});
       }
     }
 
@@ -2196,12 +2264,16 @@
     // the same turn so the user keeps their place on the slider.
     async function switchHistoricSnake(snakeId) {
       if (!snakeId) return;
+      // Selecting a snake hands the arrow keys to the candidate selector.
+      historicKeyFocus = 'candidates';
+      const sliderEl = document.getElementById('playTurnSlider');
+      if (sliderEl && document.activeElement === sliderEl) sliderEl.blur();
       const currentView = historicDecisions && historicDecisions[historicIndex]
         && historicDecisions[historicIndex].snake_id;
       if (snakeId === currentView) return;
       historicSnakeId = snakeId;
       const turnToShow = historicTurnNumber;
-      const ok = await ensureHistoricDecisions();
+      const ok = await ensureHistoricDecisions(turnToShow);
       if (!ok) {
         showBannerNotice('No history recorded for that snake');
         return;
@@ -2223,6 +2295,76 @@
       return best === -1 ? 0 : best;
     }
 
+    // Strip every live-only affordance from the page. Used for finished games,
+    // where there is nothing to control and no live turn to follow.
+    function hideLiveOnlyChrome() {
+      ['submitAllBtn', 'suicideBtn', 'releaseAllBtn', 'timerDisplay', 'pingDisplay', 'gameOverBanner']
+        .forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = 'none';
+        });
+      const legend = document.querySelector('.kbd-legend');
+      if (legend) legend.style.display = 'none';
+      const users = document.getElementById('connectedUsers');
+      if (users) users.style.display = 'none';
+      const firstMove = document.getElementById('firstMoveIndicator');
+      if (firstMove) firstMove.style.display = 'none';
+    }
+
+    // Turn the page into a pure read-only replay for a game that is not live.
+    // Discovers our team's logged snakes from /api/logs/games, loads the default
+    // snake's decisions, and opens on the final logged turn. Perspective
+    // switching, turn scrubbing and the heuristic breakdown all work through the
+    // same historic code path the live view uses when scrubbed back.
+    async function enterFinishedMode() {
+      if (finishedMode) return;
+      finishedMode = true;
+      viewMode = 'historic';
+      hideLiveOnlyChrome();
+
+      const overlay = document.getElementById('waitingOverlay');
+
+      let group = null;
+      try {
+        const resp = await fetch('/api/logs/games');
+        const games = await resp.json();
+        group = (games || []).find((g) => g.game_id === gameId) || null;
+      } catch (err) {
+        console.error('Failed to load game list for finished game:', err);
+      }
+
+      if (!group) {
+        if (overlay) {
+          overlay.innerHTML =
+            '<h2>Game not found</h2><p>This game is not live and has no recorded history.</p>';
+        }
+        return;
+      }
+
+      controlledSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
+      historicSnakeId = group.default_snake_id;
+
+      const ok = await ensureHistoricDecisions();
+      if (!ok) {
+        if (overlay) {
+          overlay.innerHTML =
+            '<h2>Game not found</h2><p>No decision logs were recorded for this game.</p>';
+        }
+        return;
+      }
+
+      // The last logged turn is the effective "live edge" for scrubbing.
+      liveMaxTurn = 0;
+      for (const d of historicDecisions) {
+        const t = d.game_state?.turn ?? d.turn;
+        if (t > liveMaxTurn) liveMaxTurn = t;
+      }
+
+      document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
+      showGameUI();
+      enterHistoric(liveMaxTurn);
+    }
+
     async function enterHistoric(turnNumber) {
       // Switch mode before awaiting the fetch so any live update arriving during
       // the load doesn't repaint/advance the board out from under the user.
@@ -2233,7 +2375,7 @@
       // Latest-wins: stamp this load so a stale async resolution (an earlier,
       // slower scrub) can detect it has been superseded and bail out.
       const token = ++scrubLoadToken;
-      const ok = await ensureHistoricDecisions();
+      const ok = await ensureHistoricDecisions(historicTurnNumber);
       if (token !== scrubLoadToken) return; // a newer scrub/return-to-live won
       if (!ok) {
         showBannerNotice('No history recorded yet');
@@ -2252,6 +2394,12 @@
     }
 
     function returnToLive() {
+      // A finished game has no live edge; snap to the last logged turn instead
+      // of blanking the board on a non-existent live state.
+      if (finishedMode) {
+        enterHistoric(liveMaxTurn);
+        return;
+      }
       viewMode = 'live';
       // Supersede any in-flight historic load so it can't repaint over live.
       scrubLoadToken++;
@@ -2275,8 +2423,13 @@
     // keyboard arrows, nav buttons) funnels through here so live/history mode is
     // decided once, against the stable liveMaxTurn reference.
     function commitScrub(turnNumber) {
+      // Any turn navigation (slider, nav buttons, keyboard scrub) hands the
+      // arrow keys back to the scrubber.
+      historicKeyFocus = 'scrubber';
       const target = Math.max(0, Math.min(liveMaxTurn, turnNumber));
-      if (target >= liveMaxTurn) {
+      // Finished games have no live edge: every position is historic, including
+      // the last turn.
+      if (!finishedMode && target >= liveMaxTurn) {
         if (viewMode === 'live') { updateTurnControls(); return; }
         returnToLive();
       } else {
@@ -2305,7 +2458,10 @@
       const base = (viewMode === 'historic') ? historicTurnNumber : liveMaxTurn;
       commitScrub(base + 1);
     }
-    function navGoToEnd() { returnToLive(); }
+    function navGoToEnd() {
+      if (finishedMode) { commitScrub(liveMaxTurn); return; }
+      returnToLive();
+    }
 
     // Sync the counter text and per-button enabled state for the given displayed
     // turn. Computed purely from displayTurn vs liveMaxTurn so it works for both
@@ -2347,9 +2503,15 @@
       slider.value = displayTurn;
 
       if (viewMode === 'historic') {
-        badge.textContent = '\u23F8 HISTORY';
-        badge.className = 'view-mode-badge historic';
-        info.textContent = `Viewing turn ${historicTurnNumber} (read-only) \u00B7 live is at turn ${liveMaxTurn} \u00B7 click a snake to inspect it`;
+        if (finishedMode) {
+          badge.textContent = '\u25A0 FINISHED';
+          badge.className = 'view-mode-badge historic';
+          info.textContent = `Viewing turn ${historicTurnNumber} of ${liveMaxTurn} (finished game) \u00B7 click a snake to inspect it`;
+        } else {
+          badge.textContent = '\u23F8 HISTORY';
+          badge.className = 'view-mode-badge historic';
+          info.textContent = `Viewing turn ${historicTurnNumber} (read-only) \u00B7 live is at turn ${liveMaxTurn} \u00B7 click a snake to inspect it`;
+        }
       } else {
         badge.textContent = '\u25CF LIVE';
         badge.className = 'view-mode-badge live';
@@ -2489,6 +2651,7 @@
     // shows that move's heuristic breakdown, exactly like the history viewer.
     function historicSelectMove(direction) {
       if (!historicMoveState) return;
+      historicKeyFocus = 'candidates';
       historicMoveState.selectedMove = direction;
       const turn = historicDecisions[historicIndex];
       BoardRenderer.renderMoveButtons(
@@ -2581,6 +2744,7 @@
       // arriving before the first move can't reposition the thumb, and warm the
       // logs so the first drag frame can render straight from cache.
       slider.addEventListener('pointerdown', () => {
+        historicKeyFocus = 'scrubber';
         isScrubbing = true;
         scrubRenderTurn = parseInt(slider.value, 10);
         primeHistoricForScrub();
@@ -2590,6 +2754,7 @@
       // cache-only, rAF-coalesced board repaint so the board tracks the drag
       // without any network round-trip. The full (heavy) render runs on commit.
       slider.addEventListener('input', (e) => {
+        historicKeyFocus = 'scrubber';
         isScrubbing = true;
         const val = parseInt(e.target.value, 10);
         previewScrub(val);

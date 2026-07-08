@@ -426,6 +426,9 @@ export class ActiveGameManager {
     this.notifyGameListChange('removed', gameId, snakeId);
 
     const gameOver = game.controlledSnakes.size === 0;
+    console.log(
+      `[ActiveGameManager] endGame ${gameId}:${snakeId} processed — acceptedFinalState=${acceptedFinalState}, controlledSnakesRemaining=${game.controlledSnakes.size}, gameOver=${gameOver}`,
+    );
     // Only emit snake-ended when the final state is fresh enough to apply.
     // A stale /end shouldn't rewind the UI's rendered turn.
     if (finalGameState && acceptedFinalState) {
@@ -981,7 +984,9 @@ export class ActiveGameManager {
   // move they staged is certain death.
   private isMoveFatal(gameId: string, snakeId: string, move: Direction): boolean {
     const game = this.games.get(gameId);
-    if (!game?.boardState) return false;
+    // After /end the stored boardState can be a final payload with no `board`
+    // (scores/winners only), so a UI staged-move hint has nothing to evaluate.
+    if (!game?.boardState?.board?.snakes) return false;
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
     const head = snake?.head || snake?.body?.[0];
     if (!head) return false;

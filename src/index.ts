@@ -179,6 +179,30 @@ app.post('/move', async (req, res) => {
 
 app.post('/end', (req, res) => {
   const gameState: GameState = req.body;
+
+  // Prominent, greppable diagnostics so we can confirm the (custom) game engine
+  // actually calls /end and inspect the exact shape it sends. /end is infrequent
+  // (at most once per snake per game), so logging the full payload is cheap.
+  try {
+    const snakes = gameState?.board?.snakes || [];
+    console.log('========== [/end] RECEIVED ==========');
+    console.log(
+      `[/end] game.id=${gameState?.game?.id} turn=${gameState?.turn} ruleset=${(gameState?.game as any)?.ruleset?.name}`,
+    );
+    console.log(
+      `[/end] you.id=${gameState?.you?.id} you.name=${gameState?.you?.name} you.health=${gameState?.you?.health} you.len=${gameState?.you?.body?.length}`,
+    );
+    console.log(
+      `[/end] board snakes still present=${snakes.length}: ${JSON.stringify(
+        snakes.map((s) => ({ id: s.id, name: s.name, health: s.health, len: s.body?.length })),
+      )}`,
+    );
+    console.log(`[/end] top-level keys=${JSON.stringify(Object.keys(gameState || {}))}`);
+    console.log(`[/end] raw payload=${JSON.stringify(gameState)}`);
+  } catch (e) {
+    console.error('[/end] failed to log payload shape:', e);
+  }
+
   logger.endGame(gameState);
 
   // No final-head derivation here: a snake's authoritative final move comes from
@@ -210,8 +234,15 @@ app.get('/play', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play.html'));
 });
 
-app.get('/play/:gameId', (req, res) => {
+// Unified game viewer: works for both live (WebSocket) and finished
+// (decision-log replay) games. See src/web/play-game.html.
+app.get('/game/:id', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
+});
+
+// Legacy live-game URL now redirects to the unified viewer.
+app.get('/play/:gameId', (req, res) => {
+  res.redirect(302, `/game/${encodeURIComponent(req.params.gameId)}`);
 });
 
 app.get('/connection-debug', (req, res) => {

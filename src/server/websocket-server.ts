@@ -245,9 +245,13 @@ export class GameWebSocketServer {
     });
 
     this.gameManager.onGameEnd((gameId, snakeId, finalGameState, gameOver) => {
-      const finalSnakes = finalGameState.board.snakes || [];
+      const finalSnakes = finalGameState.board?.snakes || [];
       const survived = finalSnakes.some(s => s.id === snakeId);
       const won = survived && finalSnakes.length === 1;
+      const clientCount = this.clientsForGame(gameId);
+      console.log(
+        `[WS] broadcasting snake-ended for ${gameId}:${snakeId} — turn=${finalGameState.turn}, gameOver=${gameOver}, survived=${survived}, subscribers=${clientCount}`,
+      );
       this.broadcastToGame(gameId, {
         type: 'snake-ended',
         gameId,
@@ -726,6 +730,19 @@ export class GameWebSocketServer {
         this.sendRaw(client, data, msg.type);
       }
     }
+  }
+
+  /** Count live (OPEN, non-lobby) subscribers currently watching a game. Used
+   *  for diagnostics so we can tell whether a snake-ended broadcast actually had
+   *  any client to reach. */
+  private clientsForGame(gameId: string): number {
+    let n = 0;
+    for (const client of this.clients) {
+      if (client.gameId === gameId && !client.isLobby && client.ws.readyState === WebSocket.OPEN) {
+        n++;
+      }
+    }
+    return n;
   }
 
   private send(ws: WebSocket, msg: any): void {

@@ -1,4 +1,6 @@
 - [Active intent mode invariant](intent-mode-invariant.md) — centaur play: one active next-move source per snake; all changes via transitionIntentMode; manual is single-turn, queue/waypoint persist.
+- [Live→finished convergence](live-to-finished-convergence.md) — on gameOver the live page must converge to the exact static replay via the single enterFinishedMode path; never a bespoke game-over live view.
+- [Duplicate workflow port collision](duplicate-workflow-port-collision.md) — flaky 502s / frozen live games are often two workflows both binding port 5000 (EADDRINUSE); keep ONE, check workflow status first.
 - [Combat invulnerability precedence](combat-invulnerability-precedence.md) — H2H winner = max invuln first, length only tiebreaks equal-invuln; aggression hunts strictly-out-invulnerated enemies; new heuristics must wire all synced surfaces.
 - [Dead-snake death markers](dead-snake-head-advance.md) — NEVER fabricate a death cell; server removes dead snakes immediately so only last-known pos exists. Our snake: shadow=intended move, solid=server final head. Dead body = "\" striped team color.
 - [Snake IDs contain '#'](snake-id-url-encoding.md) — centaur snake ids are `BASEID#suffix`; raw in a URL the '#suffix' becomes a fragment and the wrong snake loads. Always encodeURIComponent.
@@ -8,3 +10,4 @@
 - [Trap / fatal-pocket survival](trap-survival.md) — `trapped` heuristic + candidate-level veto; parity-bounded reachable region stops floodfill over-count; just-ate (head-on-food) tail never vacates.
 - [Drizzle schema ownership](drizzle-schema-ownership.md) — schema.ts is source of truth, NO startup DDL; dev via post-merge db:push, prod via Publish; jsonb pre-serialized strings must be cast `sql\`${s}::jsonb\`` or Drizzle double-encodes.
 - [3-tier clearance + contest-aware survival](clearance-model.md) — clearance=static|conservative|optimistic; survival floods head over Voronoi wonCells; conservativeDisappearTurn = physical +1; self-space collapsed to single `selfSpace`.
+- [Historic cache thrash](historic-cache-thrash.md) — /game viewer: ~2MB/snake logs; never nuke cache on live tick or duplicate in-flight fetch; /end body has no `board` (guard `.board?.snakes`).

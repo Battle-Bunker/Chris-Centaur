@@ -1,5 +1,16 @@
 # Team Snek Bot - Battlesnake AI
 
+## ⛔ CRITICAL — NEVER DESTROY DATA SILENTLY (READ FIRST)
+
+**This rule is absolute. It overrides convenience, task deadlines, "just the dev DB," or "the data looks unusable anyway." When in doubt, STOP and ask.**
+
+- **NEVER** run an operation that loses information without the user's explicit, informed consent. This includes (non-exhaustive): `DELETE`/`TRUNCATE`/`DROP TABLE`, dropping or recreating a column that holds data, `db:push`/migrations that drop-and-recreate instead of rename, and overwriting or `rm`-ing files that contain user data.
+- **A schema mismatch is NOT a license to wipe rows.** "column does not exist" / drift / a `NOT NULL` add that fails on existing rows must be solved with a **data-preserving migration** — `ALTER TABLE ... RENAME COLUMN old TO new`, or add a nullable column then backfill then set `NOT NULL`. Migrating never means deleting.
+- **If you hit an obstacle you cannot overcome without destroying data, PAUSE.** Explain the dilemma, lay out the options and tradeoffs, and ask the user for input before doing anything irreversible. A committed `DELETE`/`DROP` cannot be undone from inside the database.
+- **"It's only the development database" is not an excuse.** Dev data is still the user's data and may be irreplaceable analysis history.
+
+**Incident (2026-07-01):** While fixing a `decision_logs` column mismatch that broke `/api/logs`, the agent ran `DELETE FROM decision_logs` (all ~5086 rows / every historic game) so an `ALTER TABLE ... ADD COLUMN bot_recommendation ... NOT NULL` would succeed on the empty table. The correct fix was to **RENAME** the legacy columns (`chosen_move` → `bot_recommendation`, etc.), which preserves every row *and* satisfies `NOT NULL`. The delete was silent, irreversible in-DB, and outside the assigned task's scope. Never repeat this.
+
 ## Overview
 
 Team Snek Bot is a TypeScript-based Battlesnake AI that implements a sophisticated team-based strategy using Voronoi territory analysis. The bot is designed to compete in a **custom Battlesnake engine that allows both human players and AI bots to compete in the same game** - a unique testing environment where humans can directly challenge and analyze bot behavior. The bot uses team-based coordination (when teams are present) and focuses on maximizing controlled territory through Voronoi diagrams while avoiding fatal collisions, particularly head-to-head encounters with larger snakes.
