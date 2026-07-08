@@ -34,14 +34,45 @@ absolute guarantee. Don't collapse them into one.
 parityBound}`. **parityBound = 2*min(white,black)+1** is a checkerboard upper
 bound on the longest *simple* path (a snake alternates cell colors each step).
 
-`spaceScoreFromRegion`: longestPathBound = min(reachableCount, parityBound).
-- tailReachable → enough space if longestPathBound >= max(3, floor(L/2))
-- else → enough space if longestPathBound >= L
-
 **Why parity:** raw reachable-count over-counts a wide-but-unwalkable blob (e.g. a
 plus/cross shape) as survivable. Using the parity bound stops a dead-end from
-flipping to +3. `trapped` is derived from the SAME region:
-`trapped = (tailReachable || longestPathBound >= L) ? 0 : 1`.
+flipping to survivable.
+
+### `trapped` uses BOTH an upper AND a lower bound (the key insight)
+
+`optimisticRoom = min(reachableCount, parityBound)` is an **UPPER** bound on the
+longest simple path — it says a path *could* be that long, NOT that one *exists*.
+Relying on `optimisticRoom >= L` alone (the old logic) over-counts a dead-end
+pocket you fit into but can't escape ("no return journey" — an articulation point
+splits the reachable area so no single simple path uses all of it). Fix: confirm
+with a **constructive LOWER bound**.
+
+Current `trapped` logic (optimistic clearance):
+1. `tailReachable` → 0 (tail-chase survives forever).
+2. else `optimisticRoom < L` → 1 (upper bound already rules out an escape; cheap).
+3. else run `greedyLongestWalk` (Warnsdorff-ordered greedy DFS: step to the
+   passable-unvisited neighbour with the FEWEST onward free neighbours, no
+   backtracking, O(V), capped at L). Not trapped iff the walk actually reaches L
+   moves or stumbles onto the tail. The walk builds a real path, so its length is
+   a guaranteed lower bound on survivable moves.
+
+**Why:** upper bound catches "obviously too small" cheaply; the greedy walk catches
+the deceptive "fits by area but no walkable path" pocket. Warnsdorff is near-optimal
+on grids, so false-positive traps are rare. Kept conservative on purpose: the
+generous flood's `tailReachable`/parity short-circuits still win (trapped=0), so the
+walk only ADDS traps in the narrow "not tail-reachable AND area>=L" window — it
+never vetoes a move the old logic allowed via tail-chase.
+
+**Modeling gotcha (why this branch is rarely hit, and hard to unit-test):** under
+`optimistic` clearance the time-expanding flood lets enemy/other bodies RECEDE over
+time (a cell blocked at its first arrival turn is reached later via a longer path
+once it vacates). So enemy walls dissolve and `tailReachable` usually becomes true —
+you cannot build a sealed pocket out of enemy bodies under optimistic clearance.
+Only OUR OWN body + board edges are permanent walls, and self-walling a region whose
+area >= L needs a large ring (perimeter grows with area), so triggering step 3
+through `evaluateBoard` needs a big permanently-sealed articulation chamber that is
+impractical to encode compactly. Unit-test `greedyLongestWalk` directly instead
+(open board → reaches cap; sealed box → stalls well under L).
 
 ## Single source of truth for snake-relative passability
 

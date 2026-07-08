@@ -553,8 +553,7 @@ export class DecisionEngine {
       enemyTerritory: 0,
       enemyLength: 0,
       edgePenalty: 0,
-      selfEnoughSpace: 0,
-      selfSpaceOptimistic: 0,
+      selfSpace: 0,
       alliesEnoughSpace: 0,
       opponentsEnoughSpace: 0,
       kills: 0,
@@ -563,9 +562,6 @@ export class DecisionEngine {
       allyH2HRisk: 0,
       waypointGoto: 0,
       waypointNear: 0,
-      connectivityPenalty: 0,
-      tightSpaceScore: 0,
-      tailReachable: 0,
       aggression: 0,
       trapped: 0
     };
@@ -583,8 +579,7 @@ export class DecisionEngine {
       enemyTerritoryScore: 0,
       enemyLengthScore: 0,
       edgePenaltyScore: 0,
-      selfEnoughSpaceScore: 0,
-      selfSpaceOptimisticScore: 0,
+      selfSpaceScore: 0,
       alliesEnoughSpaceScore: 0,
       opponentsEnoughSpaceScore: 0,
       killsScore: 0,
@@ -593,9 +588,6 @@ export class DecisionEngine {
       allyH2HRiskScore: 0,
       waypointGotoScore: 0,
       waypointNearScore: 0,
-      connectivityPenaltyScore: 0,
-      tightSpaceScoreScore: 0,
-      tailReachableScore: 0,
       aggressionScore: 0,
       trappedScore: 0
     };
@@ -617,8 +609,7 @@ export class DecisionEngine {
       sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
       sumStats.enemyLength += evaluation.stats.enemyLength;
       sumStats.edgePenalty += evaluation.stats.edgePenalty;
-      sumStats.selfEnoughSpace += evaluation.stats.selfEnoughSpace;
-      sumStats.selfSpaceOptimistic += evaluation.stats.selfSpaceOptimistic;
+      sumStats.selfSpace += evaluation.stats.selfSpace;
       sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
       sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
       sumStats.kills += evaluation.stats.kills;
@@ -627,9 +618,6 @@ export class DecisionEngine {
       sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
       sumStats.waypointGoto += evaluation.stats.waypointGoto;
       sumStats.waypointNear += evaluation.stats.waypointNear;
-      sumStats.connectivityPenalty += evaluation.stats.connectivityPenalty;
-      sumStats.tightSpaceScore += evaluation.stats.tightSpaceScore;
-      sumStats.tailReachable += evaluation.stats.tailReachable;
       sumStats.aggression += evaluation.stats.aggression;
       sumStats.trapped += evaluation.stats.trapped;
       
@@ -646,8 +634,7 @@ export class DecisionEngine {
       sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
       sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
       sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
-      sumWeighted.selfEnoughSpaceScore += evaluation.weighted.selfEnoughSpaceScore;
-      sumWeighted.selfSpaceOptimisticScore += evaluation.weighted.selfSpaceOptimisticScore;
+      sumWeighted.selfSpaceScore += evaluation.weighted.selfSpaceScore;
       sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
       sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
       sumWeighted.killsScore += evaluation.weighted.killsScore;
@@ -656,9 +643,6 @@ export class DecisionEngine {
       sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
       sumWeighted.waypointGotoScore += evaluation.weighted.waypointGotoScore;
       sumWeighted.waypointNearScore += evaluation.weighted.waypointNearScore;
-      sumWeighted.connectivityPenaltyScore += evaluation.weighted.connectivityPenaltyScore;
-      sumWeighted.tightSpaceScoreScore += evaluation.weighted.tightSpaceScoreScore;
-      sumWeighted.tailReachableScore += evaluation.weighted.tailReachableScore;
       sumWeighted.aggressionScore += evaluation.weighted.aggressionScore;
       sumWeighted.trappedScore += evaluation.weighted.trappedScore;
       
@@ -684,8 +668,7 @@ export class DecisionEngine {
         enemyTerritory: sumStats.enemyTerritory / count,
         enemyLength: sumStats.enemyLength / count,
         edgePenalty: sumStats.edgePenalty / count,
-        selfEnoughSpace: sumStats.selfEnoughSpace / count,
-        selfSpaceOptimistic: sumStats.selfSpaceOptimistic / count,
+        selfSpace: sumStats.selfSpace / count,
         alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
         opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
         kills: sumStats.kills / count,
@@ -694,9 +677,6 @@ export class DecisionEngine {
         allyH2HRisk: sumStats.allyH2HRisk / count,
         waypointGoto: sumStats.waypointGoto / count,
         waypointNear: sumStats.waypointNear / count,
-        connectivityPenalty: sumStats.connectivityPenalty / count,
-        tightSpaceScore: sumStats.tightSpaceScore / count,
-        tailReachable: sumStats.tailReachable / count,
         aggression: sumStats.aggression / count,
         trapped: sumStats.trapped / count
       },
@@ -714,8 +694,7 @@ export class DecisionEngine {
         enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
         enemyLengthScore: sumWeighted.enemyLengthScore / count,
         edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
-        selfEnoughSpaceScore: sumWeighted.selfEnoughSpaceScore / count,
-        selfSpaceOptimisticScore: sumWeighted.selfSpaceOptimisticScore / count,
+        selfSpaceScore: sumWeighted.selfSpaceScore / count,
         alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
         opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
         killsScore: sumWeighted.killsScore / count,
@@ -724,9 +703,6 @@ export class DecisionEngine {
         allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count,
         waypointGotoScore: sumWeighted.waypointGotoScore / count,
         waypointNearScore: sumWeighted.waypointNearScore / count,
-        connectivityPenaltyScore: sumWeighted.connectivityPenaltyScore / count,
-        tightSpaceScoreScore: sumWeighted.tightSpaceScoreScore / count,
-        tailReachableScore: sumWeighted.tailReachableScore / count,
         aggressionScore: sumWeighted.aggressionScore / count,
         trappedScore: sumWeighted.trappedScore / count
       }

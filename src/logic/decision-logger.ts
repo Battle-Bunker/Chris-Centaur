@@ -44,9 +44,7 @@ export interface DecisionLogEntry {
       enemyH2HRisk?: number;
       allyH2HRisk?: number;
 
-      connectivityPenalty?: number;
-      tightSpaceScore?: number;
-      tailReachable?: number;
+      selfSpace?: number;
 
       aggression?: number;
       trapped?: number;

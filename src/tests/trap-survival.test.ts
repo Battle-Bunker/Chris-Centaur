@@ -67,7 +67,8 @@ describe('Trap survival', () => {
       const result = evaluator.evaluateBoard(gameState, 'our-snake', new Set(['our-snake']));
 
       expect(result.stats.trapped).toBe(0);
-      expect(result.stats.selfEnoughSpace).toBeGreaterThanOrEqual(3);
+      // Open board: room >> length, so sqrt(room/length) scores above 1.0
+      expect(result.stats.selfSpace).toBeGreaterThan(1);
     });
 
     it('is 1 for a snake sealed inside a box it cannot escape or tail-chase out of', () => {
@@ -93,7 +94,8 @@ describe('Trap survival', () => {
       const result = evaluator.evaluateBoard(gameState, 'our-snake', new Set(['our-snake']));
 
       expect(result.stats.trapped).toBe(1);
-      expect(result.stats.selfEnoughSpace).toBe(-3);
+      // Sealed box: no reachable room, so sqrt(room/length) stays well under 1.0
+      expect(result.stats.selfSpace).toBeLessThan(1);
     });
 
     it('applies the strongly-negative trapped weight in the weighted score', () => {
@@ -146,8 +148,69 @@ describe('Trap survival', () => {
       const result = evaluator.evaluateBoard(gameState, 'our-snake', new Set(['our-snake']));
 
       expect(result.stats.trapped).toBe(1);
-      expect(result.stats.selfEnoughSpace).toBe(-3);
-      expect(result.stats.selfSpaceOptimistic).toBe(-3);
+      // selfSpace is sqrt(room/length): a fatal pocket has a little reachable room
+      // but far below the body length, so it stays strictly between 0 and 1.
+      expect(result.stats.selfSpace).toBeGreaterThan(0);
+      expect(result.stats.selfSpace).toBeLessThan(1);
+    });
+  });
+
+  describe('greedy longest-path walk (constructive lower bound)', () => {
+    // The `trapped` signal's over-count fix relies on greedyLongestWalk: a
+    // Warnsdorff-ordered simple-path walk whose achieved length is a guaranteed
+    // LOWER bound on survivable moves (unlike the parity/area figure, which is an
+    // upper bound that over-counts dead-end pockets). These exercise the helper
+    // directly, since triggering the branch through evaluateBoard requires a large
+    // permanently-sealed pocket that is impractical to encode compactly.
+    const callWalk = (
+      graph: BoardGraph,
+      snake: Snake,
+      cap: number
+    ): { walkLength: number; tailReached: boolean } => {
+      const evaluator = new BoardEvaluator();
+      return (evaluator as any).greedyLongestWalk(graph, snake, 'optimistic', cap);
+    };
+
+    it('walks freely up to the cap in open space', () => {
+      const snake = makeSnake('our-snake', [
+        { x: 5, y: 5 },
+        { x: 5, y: 4 },
+        { x: 5, y: 3 }
+      ]);
+      const gameState = makeGameState([snake], snake);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+
+      const walk = callWalk(graph, snake, 10);
+
+      // Open 11x11 board: the walk easily reaches the requested cap of 10 moves.
+      expect(walk.walkLength).toBe(10);
+    });
+
+    it('stalls far short of body length inside a sealed box (a true dead end)', () => {
+      // Same closed-box coil as the sealed-box trapped test: the head at (1,1) can
+      // only reach the tiny pocket cell (1,2), then dead-ends. A constructive walk
+      // therefore stalls almost immediately, well under the body length of 11.
+      const body: Coord[] = [
+        { x: 1, y: 1 },
+        { x: 2, y: 1 },
+        { x: 2, y: 2 },
+        { x: 2, y: 3 },
+        { x: 1, y: 3 },
+        { x: 0, y: 3 },
+        { x: 0, y: 2 },
+        { x: 0, y: 1 },
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 2, y: 0 }
+      ];
+      const snake = makeSnake('our-snake', body);
+      const gameState = makeGameState([snake], snake);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+
+      const walk = callWalk(graph, snake, snake.length);
+
+      expect(walk.walkLength).toBeLessThan(snake.length);
+      expect(walk.tailReached).toBe(false);
     });
   });
 
@@ -237,8 +300,8 @@ describe('Trap survival', () => {
     });
   });
 
-  describe('consolidated snake-relative passability', () => {
-    it('blocks own body, allows own tail, and only force-blocks enemy tails on request', () => {
+  describe('consolidated snake-relative passability (clearance model)', () => {
+    it('blocks own interior in all modes, allows own vacating tail, and gates enemy interior by clearance', () => {
       const ourBody: Coord[] = [
         { x: 5, y: 5 },
         { x: 5, y: 4 },
@@ -250,7 +313,7 @@ describe('Trap survival', () => {
         { x: 8, y: 6 }
       ];
       const our = makeSnake('our-snake', ourBody, { health: 90 });
-      // Distinct color => distinct team, so opponent-tail blocking applies.
+      // Distinct color => distinct team, so severability/clearance reasoning applies.
       const enemy = makeSnake('enemy', enemyBody, {
         health: 90,
         customizations: { color: '#00FF00', head: 'default', tail: 'default' }
@@ -258,20 +321,30 @@ describe('Trap survival', () => {
       const gameState = makeGameState([our, enemy], our);
       const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
 
-      const pass = graph.passabilityFor('our-snake', { optimistic: true });
+      const staticPass = graph.passabilityFor('our-snake', { clearance: 'static' });
+      const conservative = graph.passabilityFor('our-snake', { clearance: 'conservative' });
+      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
 
-      // Own mid-body is never passable.
-      expect(pass.passable({ x: 5, y: 4 }, 1)).toBe(false);
-      // Own tail is passable (we can chase it).
-      expect(pass.passable({ x: 5, y: 3 }, 1)).toBe(true);
-      // By default an enemy tail is assumed to vacate, so it is passable.
-      expect(pass.passable({ x: 8, y: 6 }, 1)).toBe(true);
-      // ...but is force-blocked when opponentTailsAlwaysImpassable is set.
-      const passBlocked = graph.passabilityFor('our-snake', {
-        optimistic: true,
-        opponentTailsAlwaysImpassable: true
-      });
-      expect(passBlocked.passable({ x: 8, y: 6 }, 1)).toBe(false);
+      // Our own interior segment is never passable, in ANY clearance mode: we can
+      // never bank on our own body vacating ahead of our head.
+      for (const pass of [staticPass, conservative, optimistic]) {
+        expect(pass.passable({ x: 5, y: 4 }, 1)).toBe(false);
+      }
+
+      // Our own tail vacates next turn (grow-next-turn, not just-ate). Static and
+      // optimistic clearance treat it as passable on arrival (turn 1).
+      expect(staticPass.passable({ x: 5, y: 3 }, 1)).toBe(true);
+      expect(optimistic.passable({ x: 5, y: 3 }, 1)).toBe(true);
+      // Conservative clearance adds a one-turn survival safety buffer, so the same
+      // tail cell is not banked on until turn 2 (physical vacate turn + 1).
+      expect(conservative.passable({ x: 5, y: 3 }, 1)).toBe(false);
+      expect(conservative.passable({ x: 5, y: 3 }, 2)).toBe(true);
+
+      // Enemy INTERIOR segment (8,7) vacates on turn 2 under optimistic timing but
+      // is a hard wall under static clearance. This is the tier that replaced the
+      // old opponentTailsAlwaysImpassable flag: static never banks on bodies moving.
+      expect(staticPass.passable({ x: 8, y: 7 }, 2)).toBe(false);
+      expect(optimistic.passable({ x: 8, y: 7 }, 2)).toBe(true);
     });
   });
 });

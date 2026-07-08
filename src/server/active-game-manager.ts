@@ -988,7 +988,7 @@ export class ActiveGameManager {
     try {
       const graph = new BoardGraph(game.boardState);
       const dest = ActiveGameManager.destinationOf(head, move);
-      return !graph.passabilityFor(snakeId, { optimistic: true }).passable(dest, 1);
+      return !graph.passabilityFor(snakeId, { clearance: 'optimistic' }).passable(dest, 1);
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);

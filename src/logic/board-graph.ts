@@ -49,7 +49,12 @@ interface SegmentRecord {
   isTail: boolean;
   // Turn this cell vacates if the owner never eats (pure geometry).
   optimisticDisappearTurn: number;
-  // Turn this cell vacates accounting for food the owner could eat first.
+  // PHYSICAL vacate turn: geometry + food the owner could eat first, with NO
+  // survival safety buffer. This is the true "cell is free" turn used by the
+  // subject-agnostic Voronoi physical layer (isPassableAtTurn).
+  physicalDisappearTurn: number;
+  // SURVIVAL-conservative vacate turn: physical timing plus a one-turn safety
+  // buffer. Used only by the pessimistic 'conservative' clearance mode.
   conservativeDisappearTurn: number;
   // Whether this cell blocks under static (non-turn-aware) rules. Interior
   // segments are always blocked; tails depend on growth timing / just-ate.
@@ -64,14 +69,22 @@ export interface SnakePassability {
   passable: (coord: Coord, arrivalTurn: number) => boolean;
 }
 
+// How much body-segment clearance to assume when deciding passability:
+//  - 'static':       no look-ahead. A body cell is passable only if it is an
+//                    immediately-vacating tail (!staticBlocked); interior body
+//                    is always a wall. Bodies treated as static walls.
+//  - 'conservative': a cell is passable once its conservative disappear turn has
+//                    passed. Conservative timing accounts for food the owner
+//                    could eat (keeps growing) plus a one-turn safety buffer, so
+//                    this is the timing used by survival reasoning.
+//  - 'optimistic':   a cell is passable once its optimistic disappear turn has
+//                    passed. Optimistic timing is pure tail geometry plus only
+//                    the single eat we can confirm this turn.
+export type ClearanceMode = 'static' | 'conservative' | 'optimistic';
+
 export interface PassabilityOptions {
-  // Use turn-aware passability (body segments recede over time). When false,
-  // bodies are treated as static walls (tails still follow their vacate rule).
-  optimistic?: boolean;
-  // Treat enemy (non-teammate) tails as permanently impassable instead of
-  // assuming they vacate. Lets survival heuristics avoid the residual risk that
-  // an opponent's tail fails to free up (e.g. because the opponent ate).
-  opponentTailsAlwaysImpassable?: boolean;
+  // Body-segment clearance model. Defaults to 'static'.
+  clearance?: ClearanceMode;
 }
 
 export class BoardGraph {
@@ -120,14 +133,15 @@ export class BoardGraph {
     this.buildSnakeMeta(board.snakes);
 
     // Phase 1: segments + hazards + static blocked set + adjacency. After this,
-    // passabilityFor({ optimistic: false }) is fully functional.
+    // passabilityFor({ clearance: 'static' }) is fully functional.
     this.buildSegments(board.snakes, board.food, board.hazards);
     this.buildAdjacency();
 
     // Phase 2: food reach via the static predicate, then fill in each segment's
-    // conservativeDisappearTurn. After this, the optimistic layer is correct.
+    // optimistic + conservative disappear turns. After this, the turn-aware
+    // clearance layers ('optimistic' and 'conservative') are correct.
     this.calculateSnakeFoodReachability(board.snakes, board.food);
-    this.fillConservativeDisappearTurns(board.snakes);
+    this.fillDisappearTurns(board.snakes);
   }
 
   private buildSnakeMeta(snakes: Snake[]): void {
@@ -179,10 +193,13 @@ export class BoardGraph {
           }
         }
 
+        // Both disappear turns start at the pure-geometry base (turnsFromTail)
+        // and are pushed out by fillDisappearTurns once food reach is known.
         this.segmentAt.set(key, {
           snakeId: snake.id,
           isTail,
           optimisticDisappearTurn: turnsFromTail,
+          physicalDisappearTurn: turnsFromTail,
           conservativeDisappearTurn: turnsFromTail,
           staticBlocked
         });
@@ -232,9 +249,9 @@ export class BoardGraph {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
 
-      // Static (non-optimistic) so this does not read conservativeDisappearTurn,
-      // which doesn't exist yet — this is what breaks the build-order cycle.
-      const pass = this.passabilityFor(snake.id, { optimistic: false }).passable;
+      // Static clearance so this does not read the disappear turns, which don't
+      // exist yet — this is what breaks the build-order cycle.
+      const pass = this.passabilityFor(snake.id, { clearance: 'static' }).passable;
 
       const foodByTurn: number[] = [];
       const visited = new Set<CellKey>();
@@ -265,10 +282,23 @@ export class BoardGraph {
     }
   }
 
-  private fillConservativeDisappearTurns(snakes: Snake[]): void {
+  /**
+   * Fill each segment's optimistic + conservative disappear turns from the
+   * pure-geometry base (turnsFromTail) and the owner's food reach:
+   *  - optimistic  = base + (canEatThisTurn ? 1 : 0). Only the single eat we can
+   *    confirm this turn (a food cell reachable in one step) is granted.
+   *  - physical    = base + potentialFoodEaten. The true vacate turn (geometry +
+   *    every food the owner could reach in time to still be growing when we
+   *    arrive), with NO safety buffer. Used by the subject-agnostic Voronoi layer.
+   *  - conservative = physical + 1. The physical vacate turn plus a one-turn
+   *    safety buffer; this is what pessimistic survival reasoning banks on.
+   */
+  private fillDisappearTurns(snakes: Snake[]): void {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
-      const cumulativeFoodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
+      const foodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
+      // Can this snake move onto a food cell in a single move this turn?
+      const canEatThisTurn = (foodByTurn[1] ?? 0) > 0 ? 1 : 0;
 
       for (let i = 1; i < snake.body.length; i++) {
         const key = this.coordToKey(snake.body[i]);
@@ -276,16 +306,18 @@ export class BoardGraph {
         // Skip cells overwritten by another snake's overlapping segment.
         if (!seg || seg.snakeId !== snake.id) continue;
 
-        const optimistic = seg.optimisticDisappearTurn;
-        let conservative = optimistic;
-        if (optimistic <= this.config.maxLookaheadTurns) {
-          let potentialFoodEaten = 0;
-          for (let t = 0; t <= optimistic && t < cumulativeFoodByTurn.length; t++) {
-            potentialFoodEaten += cumulativeFoodByTurn[t];
+        const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
+
+        seg.optimisticDisappearTurn = base + canEatThisTurn;
+
+        let potentialFoodEaten = 0;
+        if (base <= this.config.maxLookaheadTurns) {
+          for (let t = 0; t <= base && t < foodByTurn.length; t++) {
+            potentialFoodEaten += foodByTurn[t];
           }
-          conservative = optimistic + potentialFoodEaten;
         }
-        seg.conservativeDisappearTurn = conservative;
+        seg.physicalDisappearTurn = base + potentialFoodEaten;
+        seg.conservativeDisappearTurn = seg.physicalDisappearTurn + 1;
       }
     }
   }
@@ -320,9 +352,9 @@ export class BoardGraph {
    *  - own tail: passable per the vacate rule (it can chase its tail);
    *  - another snake STRICTLY less invulnerable than us (at the arrival turn):
    *    fully severable, so its body is passable;
-   *  - other tails: assumed to vacate by default, OR force-blocked for enemies
-   *    when opponentTailsAlwaysImpassable is set;
-   *  - other interior body: wall (or recedes, under optimistic).
+   *  - other bodies: recede per the chosen `clearance` mode. Enemy-tail risk is
+   *    modelled by the conservative clearance timing (which never banks on an
+   *    opponent's tail vacating early), not by a separate force-block flag.
    *
    * Severability uses a STRICT inequality (owner < subject): equal invulnerability
    * never grants passage, so we never bank on winning on equal footing.
@@ -331,9 +363,17 @@ export class BoardGraph {
     const subject = this.snakeMeta.get(subjectId);
     const headKey = subject?.headKey ?? '';
     const tailKey = subject?.tailKey ?? '';
-    const subjectTeam = subject?.teamId;
-    const optimistic = opts?.optimistic ?? false;
-    const oppTailsBlocked = opts?.opponentTailsAlwaysImpassable ?? false;
+    const clearance: ClearanceMode = opts?.clearance ?? 'static';
+
+    // Has `seg` receded (become passable) by `arrivalTurn` under the clearance
+    // mode? Under 'static' only an immediately-vacating tail counts.
+    const recededByClearance = (seg: SegmentRecord, arrivalTurn: number): boolean => {
+      switch (clearance) {
+        case 'static': return !seg.staticBlocked;
+        case 'conservative': return seg.conservativeDisappearTurn <= arrivalTurn;
+        case 'optimistic': return seg.optimisticDisappearTurn <= arrivalTurn;
+      }
+    };
 
     const passable = (coord: Coord, arrivalTurn: number): boolean => {
       if (!this.isInBounds(coord)) return false;
@@ -345,9 +385,10 @@ export class BoardGraph {
       if (!seg) return true; // empty cell (including other snakes' heads)
 
       if (seg.snakeId === subjectId) {
-        // Our own body: interior is a wall, tail follows the vacate rule.
+        // Our own body: interior is always a wall (we cannot count on our own
+        // body vacating ahead of our head); only our tail follows the vacate rule.
         if (!seg.isTail) return false;
-        return optimistic ? seg.conservativeDisappearTurn <= arrivalTurn : !seg.staticBlocked;
+        return recededByClearance(seg, arrivalTurn);
       }
 
       // Another snake's segment. Severable if we strictly out-invulnerate the
@@ -357,16 +398,9 @@ export class BoardGraph {
         return true;
       }
 
-      if (seg.isTail) {
-        if (oppTailsBlocked) {
-          const ownerTeam = this.snakeMeta.get(seg.snakeId)?.teamId;
-          if (ownerTeam !== subjectTeam) return false; // don't bank on an enemy tail vacating
-        }
-        return optimistic ? seg.conservativeDisappearTurn <= arrivalTurn : !seg.staticBlocked;
-      }
-
-      // Other snake's interior body.
-      return optimistic ? seg.conservativeDisappearTurn <= arrivalTurn : false;
+      // Otherwise the cell is passable only once the owner's body has receded
+      // there under the chosen clearance timing (tail and interior alike).
+      return recededByClearance(seg, arrivalTurn);
     };
 
     return { headKey, tailKey, passable };
@@ -404,7 +438,8 @@ export class BoardGraph {
 
   /**
    * Physical turn-aware passability (no severability). For body segments, the
-   * cell is passable once its conservative disappear turn has passed.
+   * cell is passable once its PHYSICAL disappear turn has passed (no survival
+   * safety buffer — that buffer belongs to the 'conservative' clearance mode).
    */
   isPassableAtTurn(coord: Coord, arrivalTurn: number): boolean {
     if (!this.isInBounds(coord)) return false;
@@ -412,7 +447,7 @@ export class BoardGraph {
     const seg = this.segmentAt.get(key);
     if (seg) {
       if (arrivalTurn <= this.config.maxLookaheadTurns) {
-        return seg.conservativeDisappearTurn <= arrivalTurn;
+        return seg.physicalDisappearTurn <= arrivalTurn;
       }
       return !this.blockedCells.has(key);
     }

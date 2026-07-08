@@ -1582,8 +1582,7 @@ const BoardRenderer = (function () {
         enemyTerritoryScore: 0,
         enemyLengthScore: 0,
         edgePenaltyScore: 0,
-        selfEnoughSpaceScore: 0,
-        selfSpaceOptimisticScore: 0,
+        selfSpaceScore: 0,
         alliesEnoughSpaceScore: 0,
         opponentsEnoughSpaceScore: 0,
         killsScore: 0,
@@ -1592,9 +1591,6 @@ const BoardRenderer = (function () {
         allyH2HRiskScore: 0,
         waypointGotoScore: 0,
         waypointNearScore: 0,
-        connectivityPenaltyScore: 0,
-        tightSpaceScoreScore: 0,
-        tailReachableScore: 0,
         aggressionScore: 0,
         trappedScore: 0,
         fertileScore: 0,
@@ -1718,20 +1714,10 @@ const BoardRenderer = (function () {
       {
         name: "Self Space",
         value:
-          breakdown.selfEnoughSpace ?? breakdown.stats?.selfEnoughSpace ?? 0,
-        weight: breakdown.weights?.selfEnoughSpace ?? 10,
-        weightedScore: breakdown.weighted?.selfEnoughSpaceScore ?? 0,
-        averageWeighted: averageWeighted.selfEnoughSpaceScore ?? 0,
-      },
-      {
-        name: "Self Space (Optimistic)",
-        value:
-          breakdown.selfSpaceOptimistic ??
-          breakdown.stats?.selfSpaceOptimistic ??
-          0,
-        weight: breakdown.weights?.selfSpaceOptimistic ?? 5,
-        weightedScore: breakdown.weighted?.selfSpaceOptimisticScore ?? 0,
-        averageWeighted: averageWeighted.selfSpaceOptimisticScore ?? 0,
+          breakdown.selfSpace ?? breakdown.stats?.selfSpace ?? "—",
+        weight: breakdown.weights?.selfSpace ?? 120,
+        weightedScore: breakdown.weighted?.selfSpaceScore ?? "—",
+        averageWeighted: averageWeighted.selfSpaceScore ?? "—",
       },
       {
         name: "Allies Space",
@@ -1739,7 +1725,7 @@ const BoardRenderer = (function () {
           breakdown.alliesEnoughSpace ??
           breakdown.stats?.alliesEnoughSpace ??
           0,
-        weight: breakdown.weights?.alliesEnoughSpace ?? 5,
+        weight: breakdown.weights?.alliesEnoughSpace ?? 15,
         weightedScore: breakdown.weighted?.alliesEnoughSpaceScore ?? 0,
         averageWeighted: averageWeighted.alliesEnoughSpaceScore ?? 0,
       },
@@ -1749,7 +1735,7 @@ const BoardRenderer = (function () {
           breakdown.opponentsEnoughSpace ??
           breakdown.stats?.opponentsEnoughSpace ??
           0,
-        weight: breakdown.weights?.opponentsEnoughSpace ?? -5,
+        weight: breakdown.weights?.opponentsEnoughSpace ?? -15,
         weightedScore: breakdown.weighted?.opponentsEnoughSpaceScore ?? 0,
         averageWeighted: averageWeighted.opponentsEnoughSpaceScore ?? 0,
       },
@@ -1794,27 +1780,6 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.waypointNear ?? 0,
         weightedScore: breakdown.weighted?.waypointNearScore ?? 0,
         averageWeighted: averageWeighted.waypointNearScore ?? 0,
-      },
-      {
-        name: "Connectivity Penalty (stranded cells)",
-        value: breakdown.connectivityPenalty ?? "—",
-        weight: breakdown.weights?.connectivityPenalty ?? 0,
-        weightedScore: breakdown.weighted?.connectivityPenaltyScore ?? 0,
-        averageWeighted: averageWeighted.connectivityPenaltyScore ?? 0,
-      },
-      {
-        name: "Tight-Space Score",
-        value: breakdown.tightSpaceScore ?? "—",
-        weight: breakdown.weights?.tightSpaceScore ?? 0,
-        weightedScore: breakdown.weighted?.tightSpaceScoreScore ?? 0,
-        averageWeighted: averageWeighted.tightSpaceScoreScore ?? 0,
-      },
-      {
-        name: "Tail Reachable",
-        value: breakdown.tailReachable ?? "—",
-        weight: breakdown.weights?.tailReachable ?? 0,
-        weightedScore: breakdown.weighted?.tailReachableScore ?? 0,
-        averageWeighted: averageWeighted.tailReachableScore ?? 0,
       },
       {
         name: "Aggression (hunt weaker)",

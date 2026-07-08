@@ -76,15 +76,16 @@ The Game History viewer now displays Voronoi territory overlays on the game boar
 
 **Note**: Territory visualization only appears for games logged after 2025-12-17. Older game logs don't have territory cell data.
 
-## Tight-Space Survival Heuristics (Added 2026-05-21)
+## Self-Space Heuristic Simplification (2026-07-01)
 
-Three new heuristics in `BoardEvaluator` help the bot survive in confined corridors:
+The bot's self-space reasoning collapsed from many overlapping metrics into a single continuous heuristic plus the existing hard trap veto:
 
-1. **Connectivity Penalty** — counts cells stranded when the candidate head is an articulation point of the optimistically-reachable region. Computed by union-find over per-neighbor BFS components. Always active.
-2. **Tight-Space Score** — bounded longest-simple-path approximation: `min(reachable, 2*min(white,black)+1)` (checkerboard parity bound). Only active when `reachable < snakeLength * tightSpaceThreshold`.
-3. **Tail Reachable** — 1 if our own tail cell is in the largest reachable component (under optimistic passability). Gated by the same tight-space threshold.
+1. **`selfSpace`** — continuous survival room from the contest-aware conservative region (the cells we win the Voronoi race for, parity-bounded so a true dead-end is never over-counted). Scored as `sqrt(min(reachable, parityBound) / snakeLength)`, so room exactly equal to our body length scores 1.0 (the survival threshold), 4× length → 2.0, ¼ length → 0.5. Strictly increasing (more room always preferred) but sub-linear, so a huge open board no longer overwhelms the total.
+2. **`trapped`** — hard veto: 1 when the candidate head enters a clearly-fatal pocket, carrying a strongly-negative weight plus a candidate-level veto in the decision engine. We are NOT trapped if we can tail-chase (reach our own tail). Otherwise the pocket's survivability is checked with two bounds: the parity/area figure is an **upper** bound (room a path *could* have) used as a cheap early-out (below body length → trapped), and — because that upper bound over-counts dead-end pockets you fit into but can't escape ("no return journey") — a **Warnsdorff-ordered greedy longest-path walk** provides a constructive **lower** bound (a real, non-revisiting path); we are only safe if that walk actually reaches our body length.
 
-All three are weight-tunable in `config.html` (Tight-Space Survival section), logged per-move in `decision_logs.move_evaluations`, and rendered as rows in the Game History viewer breakdown (with `?? "—"` fallback for older logs). They participate in `calculateTotalScore` and `averageEvaluations` like every other heuristic.
+The team/enemy pair (`alliesEnoughSpace` / `opponentsEnoughSpace`) is untouched: each is still the flat ±1 sum across allied/opponent snakes.
+
+**Removed** (folded into `selfSpace` or deleted as redundant): `selfEnoughSpace`, `selfSpaceConservative`, `selfSpaceOptimistic`, `tightSpaceScore`, `tightSpaceThreshold`, `connectivityPenalty`, `tailReachable` (as a scored heuristic — the region computation still tracks tail reachability internally), `spacePlentyMultiplier`, plus the old tanh saturation helpers. All synced surfaces (config.html, board-renderer.js history viewer, decision-logger types, env-var defaults) were updated in lockstep; the history viewer keeps a `?? "—"` fallback so older logs still render.
 
 ## Known Replit Platform Issues
 
@@ -173,10 +174,7 @@ Tool for diagnosing client disconnects from the centaur play pages.
   - `optimisticDisappearTurn`: Turn when segment disappears if snake doesn't eat
   - `conservativeDisappearTurn`: Accounts for food reachable within lookahead turns (configurable via `maxLookaheadTurns`, default 5)
   - Both Voronoi BFS and Space BFS support an `optimistic` flag to consider body segments passable if they'll disappear by arrival time
-- **Dual Space Heuristics** - Two independent space metrics for the snake:
-  - `selfEnoughSpace`: Conservative space calculation (body segments always block)
-  - `selfSpaceOptimistic`: Optimistic space calculation (body segments passable if they'll disappear by arrival time)
-  - These can be weighted independently in the config UI for fine-tuned control
+- **Self-Space Heuristic** - A single continuous `selfSpace` metric for the snake: `sqrt(min(reachable, parityBound) / snakeLength)` computed from the contest-aware conservative region (room == body length → 1.0). See "Self-Space Heuristic Simplification (2026-07-01)" above. The hard `trapped` veto handles clearly-fatal pockets separately.
 - **Single-Pass Multi-Source BFS** - `MultiSourceBFS` replaces multiple O(S × (W×H)²) implementations with single O(W×H) pass, computing Voronoi territories with tie-awareness (neutralizing equidistant cells)
 - **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
 - **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function using the efficient multi-source BFS for territory, food control, and distance calculations

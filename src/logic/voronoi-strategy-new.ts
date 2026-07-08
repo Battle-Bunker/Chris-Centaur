@@ -72,8 +72,7 @@ export class VoronoiStrategy {
       enemyTerritory: config.enemyTerritory,
       enemyLength: config.enemyLength,
       edgePenalty: config.edgePenalty,
-      selfEnoughSpace: config.selfEnoughSpace,
-      selfSpaceOptimistic: config.selfSpaceOptimistic,
+      selfSpace: config.selfSpace,
       alliesEnoughSpace: config.alliesEnoughSpace,
       opponentsEnoughSpace: config.opponentsEnoughSpace,
       kills: config.kills,
@@ -82,10 +81,6 @@ export class VoronoiStrategy {
       allyH2HRisk: config.allyH2HRisk,
       waypointGoto: config.waypointGoto,
       waypointNear: config.waypointNear,
-      connectivityPenalty: config.connectivityPenalty,
-      tightSpaceScore: config.tightSpaceScore,
-      tailReachable: config.tailReachable,
-      tightSpaceThreshold: config.tightSpaceThreshold,
       aggression: config.aggression,
       trapped: config.trapped
     };
@@ -126,10 +121,9 @@ export class VoronoiStrategy {
       enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
       enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
       edgePenalty: parseFloat(process.env.WEIGHT_EDGE_PENALTY || '0'),
-      selfEnoughSpace: parseFloat(process.env.WEIGHT_SELF_ENOUGH_SPACE || '20'),
-      selfSpaceOptimistic: parseFloat(process.env.WEIGHT_SELF_SPACE_OPTIMISTIC || '5'),
-      alliesEnoughSpace: parseFloat(process.env.WEIGHT_ALLIES_ENOUGH_SPACE || '10'),
-      opponentsEnoughSpace: parseFloat(process.env.WEIGHT_OPPONENTS_ENOUGH_SPACE || '-15'),
+      selfSpace: parseFloat(process.env.WEIGHT_SELF_SPACE || '120'),
+      alliesEnoughSpace: parseFloat(process.env.WEIGHT_ALLIES_ENOUGH_SPACE || '30'),
+      opponentsEnoughSpace: parseFloat(process.env.WEIGHT_OPPONENTS_ENOUGH_SPACE || '-45'),
       kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
       deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
     };
@@ -204,7 +198,7 @@ export class VoronoiStrategy {
         enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
         enemyLength: evaluation.averageBreakdown.stats.enemyLength,
         edgePenalty: evaluation.averageBreakdown.stats.edgePenalty,
-        selfEnoughSpace: evaluation.averageBreakdown.stats.selfEnoughSpace,
+        selfSpace: evaluation.averageBreakdown.stats.selfSpace,
         alliesEnoughSpace: evaluation.averageBreakdown.stats.alliesEnoughSpace,
         opponentsEnoughSpace: evaluation.averageBreakdown.stats.opponentsEnoughSpace,
         kills: evaluation.averageBreakdown.stats.kills,
@@ -213,9 +207,6 @@ export class VoronoiStrategy {
         allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
         waypointGoto: evaluation.averageBreakdown.stats.waypointGoto,
         waypointNear: evaluation.averageBreakdown.stats.waypointNear,
-        connectivityPenalty: evaluation.averageBreakdown.stats.connectivityPenalty,
-        tightSpaceScore: evaluation.averageBreakdown.stats.tightSpaceScore,
-        tailReachable: evaluation.averageBreakdown.stats.tailReachable,
         aggression: evaluation.averageBreakdown.stats.aggression,
         trapped: evaluation.averageBreakdown.stats.trapped,
         weights: evaluation.averageBreakdown.weights,
@@ -327,8 +318,8 @@ export class VoronoiStrategy {
       console.log(`│ Food Eaten          │ ${breakdown.stats.foodEaten.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodEaten.toString().padStart(7)} │ ${breakdown.weighted.foodEatenScore.toFixed(2).padStart(8)} │`);
       
       // Enhanced Space Detection
-      if (breakdown.stats.selfEnoughSpace !== undefined && breakdown.weights.selfEnoughSpace !== undefined) {
-        console.log(`│ Self Space          │ ${(breakdown.stats.selfEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.selfEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.selfEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
+      if (breakdown.stats.selfSpace !== undefined && breakdown.weights.selfSpace !== undefined) {
+        console.log(`│ Self Space          │ ${(breakdown.stats.selfSpace || 0).toFixed(2).padStart(8)} │ ×${(breakdown.weights.selfSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.selfSpaceScore || 0).toFixed(2).padStart(8)} │`);
       }
       if (breakdown.stats.alliesEnoughSpace !== undefined && breakdown.weights.alliesEnoughSpace !== undefined) {
         console.log(`│ Allies Space        │ ${(breakdown.stats.alliesEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.alliesEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.alliesEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);

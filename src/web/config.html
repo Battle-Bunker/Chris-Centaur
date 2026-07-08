@@ -441,21 +441,12 @@
                         <h3><span>🎯</span>Enhanced Space Detection</h3>
                         
                         <div class="config-item">
-                            <label for="selfEnoughSpace">Self Enough Space Weight</label>
+                            <label for="selfSpace">Self Space Weight</label>
                             <div class="input-group">
-                                <input type="range" id="selfEnoughSpace_slider" min="-50" max="50" step="1">
-                                <input type="number" id="selfEnoughSpace" min="-50" max="50" step="1">
+                                <input type="range" id="selfSpace_slider" min="-200" max="200" step="1">
+                                <input type="number" id="selfSpace" min="-200" max="200" step="1">
                             </div>
-                            <div class="description">Your snake's space availability (+3 if enough, -3 if trapped)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="selfSpaceOptimistic">Self Space Optimistic Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="selfSpaceOptimistic_slider" min="-50" max="50" step="1">
-                                <input type="number" id="selfSpaceOptimistic" min="-50" max="50" step="1">
-                            </div>
-                            <div class="description">Optimistic space (accounts for body segments disappearing over time)</div>
+                            <div class="description">Continuous survival room from the contest-aware conservative region (cells we win the Voronoi race for). sqrt-scaled and length-normalised: room equal to our body length scores 1.0, 4× → 2.0, ¼ → 0.5.</div>
                         </div>
                         
                         <div class="config-item">
@@ -474,47 +465,6 @@
                                 <input type="number" id="opponentsEnoughSpace" min="-50" max="50" step="1">
                             </div>
                             <div class="description">Opponents having space (negative = encourage trapping)</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Tight-Space Survival -->
-                    <div class="config-section">
-                        <h3><span>🪤</span>Tight-Space Survival</h3>
-                        
-                        <div class="config-item">
-                            <label for="connectivityPenalty">Connectivity Penalty Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="connectivityPenalty_slider" min="-200" max="0" step="1">
-                                <input type="number" id="connectivityPenalty" min="-200" max="0" step="1">
-                            </div>
-                            <div class="description">Penalty per stranded cell when our head is an articulation point (typically negative)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="tightSpaceScore">Tight-Space Score Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="tightSpaceScore_slider" min="0" max="200" step="1">
-                                <input type="number" id="tightSpaceScore" min="0" max="200" step="1">
-                            </div>
-                            <div class="description">Bounded longest-path-in-region approximation (parity-aware), active only in tight spaces</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="tailReachable">Tail Reachable Bonus Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="tailReachable_slider" min="0" max="500" step="5">
-                                <input type="number" id="tailReachable" min="0" max="500" step="5">
-                            </div>
-                            <div class="description">Strong survival bonus when our own tail is reachable; gated by tight-space threshold</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="tightSpaceThreshold">Tight-Space Threshold</label>
-                            <div class="input-group">
-                                <input type="range" id="tightSpaceThreshold_slider" min="0.5" max="5" step="0.1">
-                                <input type="number" id="tightSpaceThreshold" min="0.5" max="5" step="0.1">
-                            </div>
-                            <div class="description">Region is "tight" when reachable cells &lt; snakeLength × threshold; gates the two heuristics above</div>
                         </div>
                     </div>
                     
@@ -610,11 +560,10 @@
             'foodProximity', 'foodEaten',
             'enemyTerritory', 'enemyLength',
             'edgePenalty',
-            'selfEnoughSpace', 'selfSpaceOptimistic', 'alliesEnoughSpace', 'opponentsEnoughSpace',
+            'selfSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'enemyH2HRisk', 'allyH2HRisk',
             'waypointGoto', 'waypointNear',
-            'connectivityPenalty', 'tightSpaceScore', 'tailReachable', 'tightSpaceThreshold',
             'aggression', 'trapped',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
         ];
@@ -680,13 +629,6 @@
                         } else if (key === 'enemyH2HRisk' || key === 'allyH2HRisk') {
                             slider.min = -500;
                             slider.max = 0;
-                        } else if (key === 'connectivityPenalty') {
-                            slider.min = -200;
-                            slider.max = 0;
-                        } else if (key === 'tightSpaceScore') {
-                            slider.max = 200;
-                        } else if (key === 'tailReachable') {
-                            slider.max = 500;
                         } else if (key === 'aggression') {
                             slider.min = 0;
                             slider.max = 200;
@@ -694,10 +636,9 @@
                             slider.min = -2000;
                             slider.max = 0;
                             slider.step = 10;
-                        } else if (key === 'tightSpaceThreshold') {
-                            slider.min = 0.5;
-                            slider.max = 5;
-                            slider.step = 0.1;
+                        } else if (key === 'selfSpace') {
+                            slider.min = -200;
+                            slider.max = 200;
                         } else if (key === 'kills' || key === 'foodEaten') {
                             slider.max = 500;
                         } else if (key === 'waypointGoto' || key === 'waypointNear') {

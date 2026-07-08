@@ -36,6 +36,23 @@ hand against the dev DB (via the `executeSql` code-exec callback):
 `db:push -- --force` to confirm it reports "no changes" (schema.ts ⇄ DB in sync).
 Prod still goes through the Publish diff, which prompts the user for the rename.
 
+## Schema DDL does NOT propagate across isolated env DBs
+
+Each task agent works on its own DB copy. A `schema.ts` change committed by another
+task only altered **that task's** dev DB (manual DDL / db:push there). When you
+rebase those commits in, your `schema.ts` now expects columns your DB doesn't have,
+so every insert/update fails with `column "X" does not exist` and logging silently
+breaks.
+
+**Why:** the schema file travels with the code (git); the physical DDL does not.
+
+**How to apply:** after any rebase that touches `schema.ts`, reconcile your dev DB —
+run `db:push` and, for renames it can't do non-interactively, apply the DDL by hand
+(read the originating commit's message; it documents the exact rename/add/drop). Find
+the mapping by diffing `information_schema.columns` for the table against `schema.ts`;
+a NOT-NULL added col that maps to a removed NOT-NULL col is almost always a rename,
+not a drop+add. Confirm empty before dropping any removed column.
+
 ## jsonb pre-serialized-string insert gotcha
 
 DecisionLogger keeps its JSON blobs as **pre-serialized strings** (a deliberate

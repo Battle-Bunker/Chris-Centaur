@@ -27,8 +27,7 @@ export interface GameConfig {
   edgePenalty: number;
   
   // Enhanced space detection weights
-  selfEnoughSpace: number;
-  selfSpaceOptimistic: number;
+  selfSpace: number;       // Continuous contest-aware survival room (sqrt-scaled; room == length → 1.0)
   alliesEnoughSpace: number;
   opponentsEnoughSpace: number;
   
@@ -43,12 +42,6 @@ export interface GameConfig {
   // User-directed waypoint weights (set via centaur UI: alt-click = green goto, shift-click = blue near)
   waypointGoto: number;  // Strong pull toward green waypoint (go to this cell ASAP)
   waypointNear: number;  // Pull toward blue waypoint + keep path open to it
-
-  // Tight-space survival weights
-  connectivityPenalty: number;   // Weight per stranded cell when head is an articulation point (typically negative)
-  tightSpaceScore: number;       // Weight on bounded longest-path-in-region approximation
-  tailReachable: number;         // Bonus when our own tail is reachable (gated by tight-space threshold)
-  tightSpaceThreshold: number;   // tight when reachable < snakeLength * threshold; gates tightSpaceScore + tailReachable
 
   // Offensive aggression weight
   aggression: number;            // Reward for hunting enemies we strictly out-invulnerate (closing in on / landing on their head/body)
@@ -92,10 +85,9 @@ export const DEFAULT_CONFIG: GameConfig = {
   edgePenalty: 50.0,
   
   // Enhanced space detection weights
-  selfEnoughSpace: 10.0,
-  selfSpaceOptimistic: 5.0,
-  alliesEnoughSpace: 5.0,
-  opponentsEnoughSpace: -5.0,
+  selfSpace: 120,
+  alliesEnoughSpace: 15.0,
+  opponentsEnoughSpace: -15.0,
   
   // Life/death weights
   kills: 0,
@@ -112,12 +104,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   // penalty (-500) still wins because it's a flat per-death stat.
   waypointGoto: 2500,  // Strong pull toward green waypoint — top priority after survival
   waypointNear: 2000,  // Pull toward blue waypoint + path-open bonus
-
-  // Tight-space survival weights
-  connectivityPenalty: -20,
-  tightSpaceScore: 30,
-  tailReachable: 100,
-  tightSpaceThreshold: 2.0,
 
   // Offensive aggression weight (conservative: max stat 2 → max +50, far below the
   // death penalty of -500, so survival always dominates aggression)
