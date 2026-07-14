@@ -1,15 +1,12 @@
 # Team Snek Bot - Battlesnake AI
 
-## ⛔ CRITICAL — NEVER DESTROY DATA SILENTLY (READ FIRST)
+## ⛔ CRITICAL — NEVER DESTROY DATA SILENTLY
 
-**This rule is absolute. It overrides convenience, task deadlines, "just the dev DB," or "the data looks unusable anyway." When in doubt, STOP and ask.**
+**Absolute rule; overrides convenience, deadlines, or "just the dev DB". When in doubt, STOP and ask.**
 
-- **NEVER** run an operation that loses information without the user's explicit, informed consent. This includes (non-exhaustive): `DELETE`/`TRUNCATE`/`DROP TABLE`, dropping or recreating a column that holds data, `db:push`/migrations that drop-and-recreate instead of rename, and overwriting or `rm`-ing files that contain user data.
-- **A schema mismatch is NOT a license to wipe rows.** "column does not exist" / drift / a `NOT NULL` add that fails on existing rows must be solved with a **data-preserving migration** — `ALTER TABLE ... RENAME COLUMN old TO new`, or add a nullable column then backfill then set `NOT NULL`. Migrating never means deleting.
-- **If you hit an obstacle you cannot overcome without destroying data, PAUSE.** Explain the dilemma, lay out the options and tradeoffs, and ask the user for input before doing anything irreversible. A committed `DELETE`/`DROP` cannot be undone from inside the database.
-- **"It's only the development database" is not an excuse.** Dev data is still the user's data and may be irreplaceable analysis history.
-
-**Incident (2026-07-01):** While fixing a `decision_logs` column mismatch that broke `/api/logs`, the agent ran `DELETE FROM decision_logs` (all ~5086 rows / every historic game) so an `ALTER TABLE ... ADD COLUMN bot_recommendation ... NOT NULL` would succeed on the empty table. The correct fix was to **RENAME** the legacy columns (`chosen_move` → `bot_recommendation`, etc.), which preserves every row *and* satisfies `NOT NULL`. The delete was silent, irreversible in-DB, and outside the assigned task's scope. Never repeat this.
+- **NEVER** run an operation that loses information (`DELETE`/`TRUNCATE`/`DROP`, drop-and-recreate migrations, overwriting data files) without the user's explicit, informed consent.
+- **A schema mismatch is NOT a license to wipe rows.** Use data-preserving migrations: `RENAME COLUMN`, or add nullable → backfill → set `NOT NULL`.
+- **If blocked without a data-preserving path, PAUSE** and ask the user with options and tradeoffs before doing anything irreversible.
 
 ## Overview
 
@@ -39,215 +36,33 @@ This bot is specifically designed to play a team-based Battlesnake variant with 
 - Preferred communication style: Simple, everyday language.
 - **Technical Debt Policy**: Prioritize minimizing technical debt over backwards compatibility. Clean, maintainable code is more important than supporting deprecated features since there are no external users.
 
-## Critical System Synchronization Notes
-
-**IMPORTANT: When making changes to the Battlesnake AI system, ensure ALL components remain synchronized:**
-
-1. **Backend-Frontend Data Flow**: Changes to data structures in the backend (board-evaluator.ts, decision-engine.ts, voronoi-strategy-new.ts) MUST be reflected in:
-   - Decision logger database schema (decision-logger.ts)
-   - Frontend UI display logic (src/web/history.html)
-   - Any API response formats
-
-2. **Adding New Heuristics Pattern**: When adding ANY new heuristic to the snake AI:
-   - Add to core logic (board-evaluator.ts, decision-engine.ts)
-   - Add to configuration interface (src/web/config.html)
-   - **MUST ALSO** add to history viewer (src/web/history.html) for display
-   - Update both weighted sums initialization AND display metrics config
-   - Failure to update BOTH config and history will result in incomplete UI
-
-3. **Field Name Changes**: If renaming or restructuring fields (e.g., fertileTerritory → myTerritory + myControlledFood):
-   - Update TypeScript interfaces in ALL files
-   - Update database logging to use new field names
-   - Update frontend JavaScript to read and display new field names
-   - Ensure backward compatibility for existing logged data
-
-4. **Testing Must Be End-to-End**: 
-   - Don't just check console logs or API responses
-   - ALWAYS open the Game History viewer UI to verify changes are displayed correctly
-   - Test with actual game data from the database, not just curl commands
-
-5. **Common Failure Points**:
-   - Frontend UI still using old field names while backend uses new ones
-   - Weighted score calculations not matching between backend and frontend
-   - Database schema out of sync with logged data structure
-   - Total scores not adding up correctly in the UI
-   - **New heuristics missing from history viewer while present in config**
-
-Remember: A change isn't complete until it works in the user-facing UI, not just in the logs!
-
-## Game History Viewer Features
-
-### Voronoi Territory Visualization (Added 2025-12-17)
-The Game History viewer now displays Voronoi territory overlays on the game board:
-- **Territory Overlay**: Each snake's controlled territory is displayed with the snake's color at 15% opacity
-- **Click to Highlight**: Click on any snake's territory to highlight it (increases opacity to 40%)
-- **Click Again to Deselect**: Click the same territory again or click empty space to remove highlight
-- **Data Storage**: Territory cells are stored in `move_evaluations` JSONB field as `{evaluations: [...], territoryCells: {...}}`
-- **Backward Compatibility**: Frontend handles both old array format and new object format for move_evaluations
-
-**Note**: Territory visualization only appears for games logged after 2025-12-17. Older game logs don't have territory cell data.
-
-## Self-Space Heuristic Simplification (2026-07-01)
-
-The bot's self-space reasoning collapsed from many overlapping metrics into a single continuous heuristic plus the existing hard trap veto:
-
-1. **`selfSpace`** — continuous survival room from the contest-aware conservative region (the cells we win the Voronoi race for, parity-bounded so a true dead-end is never over-counted). Scored as `sqrt(min(reachable, parityBound) / snakeLength)`, so room exactly equal to our body length scores 1.0 (the survival threshold), 4× length → 2.0, ¼ length → 0.5. Strictly increasing (more room always preferred) but sub-linear, so a huge open board no longer overwhelms the total.
-2. **`trapped`** — hard veto: 1 when the candidate head enters a clearly-fatal pocket, carrying a strongly-negative weight plus a candidate-level veto in the decision engine. We are NOT trapped if we can tail-chase (reach our own tail). Otherwise the pocket's survivability is checked with two bounds: the parity/area figure is an **upper** bound (room a path *could* have) used as a cheap early-out (below body length → trapped), and — because that upper bound over-counts dead-end pockets you fit into but can't escape ("no return journey") — a **Warnsdorff-ordered greedy longest-path walk** provides a constructive **lower** bound (a real, non-revisiting path); we are only safe if that walk actually reaches our body length.
-
-The team/enemy pair (`alliesEnoughSpace` / `opponentsEnoughSpace`) is untouched: each is still the flat ±1 sum across allied/opponent snakes.
-
-**Removed** (folded into `selfSpace` or deleted as redundant): `selfEnoughSpace`, `selfSpaceConservative`, `selfSpaceOptimistic`, `tightSpaceScore`, `tightSpaceThreshold`, `connectivityPenalty`, `tailReachable` (as a scored heuristic — the region computation still tracks tail reachability internally), `spacePlentyMultiplier`, plus the old tanh saturation helpers. All synced surfaces (config.html, board-renderer.js history viewer, decision-logger types, env-var defaults) were updated in lockstep; the history viewer keeps a `?? "—"` fallback so older logs still render.
-
-## Known Replit Platform Issues
-
-### Broken run_test Tool (Beta) - Critical Testing Limitation
-
-**Issue**: The Replit run_test tool for browser-based UI testing is fundamentally broken and cannot be used reliably.
-
-**Observed Behavior**:
-- Tool appears temporarily when app testing is toggled on/off but disappears immediately on subsequent conversation turns
-- Even when present in the tool list, attempting to invoke it fails silently or with errors
-- Tool injection appears to happen only on the exact turn when app testing is toggled, not persisting beyond that
-- System prompt continues to reference the tool even when it's not available in the actual tool set
-- Switching between Plan/Build modes does not restore the tool
-- Disabling "high power mode" does not fix the issue
-
-**Workaround Policy**: 
-- **DO NOT attempt to use run_test tool** - it will waste time and credits
-- **For UI testing of the Game History viewer**: Request manual screenshots from the user
-- **Required screenshots for validation**:
-  1. Game History viewer with a recent game loaded showing the decision breakdown
-  2. Verification that new fields (My Territory, My Controlled Food) display correctly
-  3. Confirmation that weighted scores calculate and display properly
-  4. Check that totals add up correctly in the UI
-- **Always ask user for manual testing** before declaring success on any UI-affecting changes
-
-## Centaur Play Mode (Rearchitected 2026-03-24)
-
-Human-in-the-loop mode with unified multi-snake game control. Multiple users can view and control snakes in the same game via RTS-style click-to-select interaction.
-
-### Key Components
-- **`/play`** - Lobby page showing one card per unique game (full-width, sorted descending by start time), listing all controlled snakes within each card
-- **`/play/<game-id>`** - Unified live game page displaying shared board state with click-to-select snake control
-- **`src/server/active-game-manager.ts`** - In-memory singleton with `Map<gameId, ActiveGame>` data model. ActiveGame holds shared board state, controlled snakes with selection/commit state, connected users with colors, and color palette pool
-- **`src/server/websocket-server.ts`** - WebSocket server with per-game subscriptions, selection management, user connect/disconnect handling
-- **`src/web/board-renderer.js`** - Shared rendering module with unified `renderSnakeUnified` function supporting selection glow, outer borders (invulnerability), body fill, and inner borders (gold dotted for controlled snakes)
-- **`src/routes/play.ts`** - REST API for deduplicated game listing and per-game state
-
-### Multi-Snake Control Flow
-1. Each browser tab creates a sessionStorage-scoped UUID user entity
-2. Server assigns a distinct highlight color from a maximally-distinct palette
-3. Clicking a controlled snake's body/head selects it (sends `select-snake`)
-4. Selected snake shows score-colored candidate moves and active move buttons
-5. Unselected snakes run on auto-pilot (bot submits moves automatically)
-6. If another user already selected the snake, a confirmation dialog allows takeover
-7. When a move is committed: purple checkmark on destination cell, analytics frozen
-8. Timer shows estimated remaining time using server-measured ping to game server
-9. Arrow keys, Space, Escape work for move selection/submission/deselection
-
-### WebSocket Message Types
-- `subscribe-game` / `game-subscribed` - Per-game subscription with user color assignment
-- `select-snake` / `snake-selected` / `selection-contested` / `selection-revoked` / `selections-update` - Selection management
-- `board-update` - Shared board state per turn
-- `snake-turn-update` - Per-controlled-snake evaluations
-- `select-move` / `submit-move` / `move-submitted` / `move-committed` - Move control
-- `subscribe-lobby` / `lobby-update` - Lobby updates
-
-### Deployment
-- Uses autoscale with max 1 machine (cost-efficient when idle, but ensures single-instance for WebSocket + in-memory state)
-- WebSocket path: `/ws`
-
-### WebSocket Connection Debugger (Added 2026-04-29)
-Tool for diagnosing client disconnects from the centaur play pages.
-
-**Server-side** (`src/utils/connection-logger.ts`): Singleton that records every WS event (connect, subscribe, disconnect, error) to `connection-logs/ws-connections.log` as NDJSON, plus an in-memory ring buffer (last 1000 events) for the live debug UI. Each event has a server-assigned `connId`, IP, user agent, and where applicable: close code, reason, duration.
-
-**Client-side** (`src/web/connection-debug.js`): Lightweight helper attached to the WebSocket lifecycle on both `play.html` and `play-game.html`. Renders a collapsible status panel (bottom-right) showing live state, uptime, counters, and last close code/reason. Posts every client-side event (open, close, error, page-hidden/visible/unload, reconnect attempts) to the server so they end up in the log file too.
-
-**Endpoints** (`src/routes/connection-debug.ts`):
-- `GET /connection-debug` — full event viewer page with stats and filterable table
-- `GET /api/connection-log/recent?limit=N` — recent events + counters JSON
-- `GET /api/connection-log/download` — download the raw NDJSON log file
-- `POST /api/connection-log/client` — accepts client-reported events
-
 ## System Architecture
 
-### Backend Framework
-- **Express.js REST API** - Lightweight web server handling Battlesnake protocol endpoints (`/`, `/start`, `/move`)
-- **WebSocket Server** - Real-time communication for centaur play mode via `ws` library, attached to the Express HTTP server
-- **TypeScript** - Provides type safety and better development experience with full type definitions for Battlesnake game state
-- **Node.js Runtime** - Single-threaded event loop suitable for real-time game responses
-- **Async Logging System** - Non-blocking database logging using promise chains ensures sub-100ms response times while preserving decision data
+### Backend
+- **Express + TypeScript + Node.js** — REST API serving the Battlesnake protocol endpoints (`/`, `/start`, `/move`) plus the web UI, with a WebSocket server (`ws`, path `/ws`) attached to the same HTTP server for centaur play.
+- **Async decision logging** — non-blocking queued logging to PostgreSQL keeps `/move` responses fast (typically well under the 500ms limit); bounded queue, batching, retries with backoff, graceful-shutdown flush.
 
-### Core Game Logic Architecture (Clean Architecture - Updated 2025-12-30)
-- **Board Graph Abstraction** - `BoardGraph` class is the **single source of truth for passability logic**: walls, snake bodies, and hazards. Exposes `isPassable()`, `isInBounds()`, `isPassableAtTurn()`, and `getBlockedCells()` methods. Handles tail growth timing variants ("grow-same-turn" vs "grow-next-turn"). All other components defer to BoardGraph for collision checking.
-- **Optimistic Passability System** - BoardGraph now calculates when each body segment will disappear:
-  - `optimisticDisappearTurn`: Turn when segment disappears if snake doesn't eat
-  - `conservativeDisappearTurn`: Accounts for food reachable within lookahead turns (configurable via `maxLookaheadTurns`, default 5)
-  - Both Voronoi BFS and Space BFS support an `optimistic` flag to consider body segments passable if they'll disappear by arrival time
-- **Self-Space Heuristic** - A single continuous `selfSpace` metric for the snake: `sqrt(min(reachable, parityBound) / snakeLength)` computed from the contest-aware conservative region (room == body length → 1.0). See "Self-Space Heuristic Simplification (2026-07-01)" above. The hard `trapped` veto handles clearly-fatal pockets separately.
-- **Single-Pass Multi-Source BFS** - `MultiSourceBFS` replaces multiple O(S × (W×H)²) implementations with single O(W×H) pass, computing Voronoi territories with tie-awareness (neutralizing equidistant cells)
-- **Unified Move Analysis** - `MoveAnalyzer` class provides single source of truth for move enumeration, returning {safe: Direction[], risky: Direction[]} sets with consistent safety definitions
-- **Unified Board Evaluation** - `BoardEvaluator` class offers single scoring function using the efficient multi-source BFS for territory, food control, and distance calculations
-- **Decision Engine Orchestration** - `DecisionEngine` coordinates clean flow: enumeration → candidate selection → simulation → evaluation → aggregation → decision
-- **Strategy Pattern** - Main game logic in `VoronoiStrategy` uses new clean architecture components for principled decision making
-- **Team Detection System** - Automatic team identification using squad fields or color matching as fallback
-- **Accurate Territory Analysis** - Fixed critical bug where snake reported 60+ controlled cells when actually controlling ~1; now correctly computes Voronoi territories with tie-handling
-- **Consistent Move Selection** - Uses safe moves when available, otherwise all risky moves as candidates; only evaluates and logs actual candidate moves
-- **Time-bounded Evaluation** - Move evaluation with configurable time limits to respect Battlesnake's 500ms response requirement
+### Core Game Logic
+- **`BoardGraph`** — single source of truth for passability (walls, snake bodies, hazards, tail-growth timing); all collision checks defer to it. Supports tiered clearance (static / conservative / optimistic) based on when body segments will vacate.
+- **`MultiSourceBFS`** — single-pass Voronoi territory computation with tie-awareness.
+- **`MoveAnalyzer`** — single source of truth for move enumeration ({safe, risky} sets).
+- **`BoardEvaluator`** — unified scoring (territory, food control, space/survival heuristics, hard `trapped` veto for fatal pockets).
+- **`DecisionEngine`** — orchestrates enumeration → candidate selection → simulation → evaluation → aggregation → decision, time-bounded to respect the response deadline.
+- **`VoronoiStrategy`** — swappable main strategy using the components above.
+- **`TeamDetector`** — team identification via squad fields with color-matching fallback; degrades gracefully to individual play.
 
-### Key Architectural Decisions
+### Centaur Play Mode
+Human-in-the-loop mode: multiple users can view and control snakes in the same live game via RTS-style click-to-select.
+- **`/play`** — lobby listing one card per game with its controlled snakes.
+- **`/game/:id`** — unified game viewer serving both live games (WebSocket) and finished games (decision-log replay) from the same page.
+- Server keeps active game state in an in-memory singleton; unselected snakes run on bot auto-pilot; selections, move staging/commit, and per-turn evaluations flow over per-game WebSocket subscriptions.
+- A WebSocket connection debugger logs all connection events (server file + `/connection-debug` viewer) for diagnosing client disconnects.
 
-**Modular Strategy System**: The `VoronoiStrategy` class is designed to be swappable, allowing for different AI strategies while maintaining the same interface. This separation makes it easy to A/B test different approaches or adapt to different game modes.
+### Database
+- **PostgreSQL (Neon)** stores per-move decision logs for analysis and replay.
+- **Schema is owned by Drizzle**: `src/database/schema.ts` is the source of truth, there is no startup DDL; dev sync via `npm run db:push`, production via the Publish schema diff.
 
-**Team-first Design**: The `TeamDetector` prioritizes squad-based team identification over color matching, enabling proper coordination in team games while gracefully degrading to individual play when no teams are present.
-
-**Simulation-based Decision Making**: Rather than simple heuristics, the bot runs multiple simulations of potential moves to evaluate outcomes, providing more sophisticated decision making at the cost of computational complexity.
-
-**Configurable Performance Tuning**: The `SimulationConfig` allows runtime adjustment of simulation parameters, enabling optimization for different hardware environments or game conditions.
-
-### Data Flow
-1. Battlesnake platform sends game state to `/move` endpoint
-2. `TeamDetector` analyzes all snakes to identify teammates and enemies
-3. `VoronoiStrategy` evaluates each safe move through territory simulation
-4. Best move selected based on territory control and survival probability
-5. Response returned within 500ms timeout requirement (typically under 75ms)
-6. Decision data queued for async database logging without blocking response
-
-### Error Handling and Failsafes
-- Safe move validation prevents immediate collisions
-- Fallback move selection when no optimal moves found
-- Time-bounded evaluation prevents timeout failures
-- Graceful degradation when team detection fails
-- Async logging with promise chains eliminates race conditions
-- Queue bounds (10,000 entries) with FIFO drop policy prevent memory exhaustion
-- Retry mechanism with exponential backoff for transient database failures
-- Graceful shutdown flushes pending logs to prevent data loss
-
-## External Dependencies
-
-### Runtime Dependencies
-- **Express 5.1.0** - Web server framework for handling HTTP requests from Battlesnake platform
-- **TypeScript 5.9.2** - Compile-time type checking and modern JavaScript features
-- **ts-node 10.9.2** - Direct TypeScript execution for development workflow
-- **pg (PostgreSQL client)** - Database driver for decision logging
-
-### Development Dependencies
-- **Nodemon 3.1.10** - Automatic server restart during development
-- **@types/express** and **@types/node** - TypeScript definitions for better IDE support
-
-### External Service Integration
-- **Battlesnake Platform API** - Receives game states via webhook and responds with move decisions following the official Battlesnake API v1 protocol
-- **PostgreSQL Database (Neon)** - Stores game decision logs for analysis and debugging; auto-initializes schema on first connection
-- **No Authentication Required** - Public webhook endpoint as per Battlesnake requirements
-
-### Database Schema
-- **Auto-initialization**: The `DecisionLogger` class automatically creates the `decision_logs` table and indexes on first connection
-- **Schema location**: Defined in `src/logic/decision-logger.ts` initialize() method
-- **Important fix (2025-10-15)**: Split multi-statement schema SQL into separate queries for pg client compatibility
-
-### Deployment Requirements
-- **Port Configuration** - Configurable via PORT environment variable (defaults to 5000)
-- **Static Web Assets** - Serves configuration interface from `/src/web` directory
-- **Build Process** - TypeScript compilation to `dist/` directory for production deployment
-- **Database Environment Variables** - Automatically configured by Replit (DATABASE_URL, PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT)
+### Deployment
+- Autoscale with max 1 machine (single instance required for WebSocket + in-memory game state).
+- Port configurable via `PORT` (default 5000); static web assets served from `src/web`; TypeScript compiled to `dist/` for production; database env vars provided by Replit.
+- Public webhook endpoints, no authentication (per Battlesnake protocol).

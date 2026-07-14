@@ -28,7 +28,7 @@ Own interior is ALWAYS treated as a wall regardless of clearance. Severability o
 **SUPERSEDED (2026-07-01 self-space simplification):** the three-metric design below
 (`selfEnoughSpace` + `selfSpaceConservative` + `selfSpaceOptimistic`, tanh saturation,
 `spacePlentyMultiplier`) was **collapsed into a single continuous `selfSpace`** plus the
-`trapped` veto (user-approved; see replit.md "Self-Space Heuristic Simplification"). This
+`trapped` veto (user-approved, 2026-07-01). This
 supersedes the original task #69 "Done looks like" bullets that asked for three metrics.
 
 Current state:

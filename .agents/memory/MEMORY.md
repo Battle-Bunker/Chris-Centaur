@@ -11,3 +11,6 @@
 - [Drizzle schema ownership](drizzle-schema-ownership.md) — schema.ts is source of truth, NO startup DDL; dev via post-merge db:push, prod via Publish; jsonb pre-serialized strings must be cast `sql\`${s}::jsonb\`` or Drizzle double-encodes.
 - [3-tier clearance + contest-aware survival](clearance-model.md) — clearance=static|conservative|optimistic; survival floods head over Voronoi wonCells; conservativeDisappearTurn = physical +1; self-space collapsed to single `selfSpace`.
 - [Historic cache thrash](historic-cache-thrash.md) — /game viewer: ~2MB/snake logs; never nuke cache on live tick or duplicate in-flight fetch; /end body has no `board` (guard `.board?.snakes`).
+- [Data destruction incident](data-destruction-incident.md) — why the never-destroy-data rule exists: an agent ran DELETE FROM decision_logs to satisfy a NOT NULL add; the fix was RENAME COLUMN.
+- [UI sync + manual testing](ui-sync-and-testing.md) — backend field/heuristic changes must land on every UI surface in lockstep; UI validation is manual via user screenshots, not automated browser tests.
+- [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations, territoryCells}`; pre-2025-12-17 rows are a bare array — readers must handle both.
