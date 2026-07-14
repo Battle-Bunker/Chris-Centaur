@@ -1365,7 +1365,17 @@
       if (selectedSnakeId && moveState && !moveSubmitted && !premoveMode) {
         BoardRenderer.createBoardOverlay(
           document.getElementById('boardOverlay'), canvas,
-          currentGameState.board, moveState, selectMove
+          currentGameState.board, moveState,
+          // Alt/shift clicks on candidate cells are waypoint clicks — forward
+          // them to the canvas handler (which owns the waypoint logic) instead
+          // of moving the purple move selection. Plain clicks select the move.
+          (direction, e) => {
+            if (e && (e.altKey || e.shiftKey)) {
+              handleCanvasClick(e);
+            } else {
+              selectMove(direction);
+            }
+          }
         );
       } else {
         document.getElementById('boardOverlay').innerHTML = '';

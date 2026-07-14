@@ -1326,7 +1326,7 @@ const BoardRenderer = (function () {
 
       button.onclick = (e) => {
         e.stopPropagation();
-        onCellClick(move.direction);
+        onCellClick(move.direction, e);
       };
       const scoreText =
         move.score != null
