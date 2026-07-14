@@ -38,8 +38,8 @@ export interface DecisionLogEntry {
       kills?: number;
       deaths?: number;
 
-      waypointGoto?: number;
-      waypointNear?: number;
+      gotoProgress?: number;
+      nearProgress?: number;
 
       enemyH2HRisk?: number;
       allyH2HRisk?: number;

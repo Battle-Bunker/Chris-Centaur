@@ -39,9 +39,13 @@ export interface GameConfig {
   enemyH2HRisk: number;  // Penalty for potential h2h with equal/larger enemies
   allyH2HRisk: number;   // Penalty for potential h2h with equal/larger allies
   
-  // User-directed waypoint weights (set via centaur UI: alt-click = green goto, shift-click = blue near)
-  waypointGoto: number;  // Strong pull toward green waypoint (go to this cell ASAP)
-  waypointNear: number;  // Pull toward blue waypoint + keep path open to it
+  // User-directed waypoint weights (set via centaur UI: alt-click = green goto,
+  // shift-click = blue near). Applied to the bounded per-move shortest-path
+  // progress stat (optimal next move = +1, sideways 0, backward -1, cut off -2),
+  // so the weight IS the bonus the goto/near-preferred move receives in the
+  // heuristic matrix. Keep below deaths (500) / trapped (600) so survival wins.
+  gotoProgress: number;  // Bonus for the optimal next move toward the green target
+  nearProgress: number;  // Bonus for closing on the blue target without reaching/cutting it off
 
   // Offensive aggression weight
   aggression: number;            // Reward for hunting enemies we strictly out-invulnerate (closing in on / landing on their head/body)
@@ -97,13 +101,13 @@ export const DEFAULT_CONFIG: GameConfig = {
   enemyH2HRisk: -100,  // Penalty for potential h2h with equal/larger enemies
   allyH2HRisk: -50,    // Penalty for potential h2h with equal/larger allies
   
-  // User-directed waypoint weights (off by default — only active when user sets a waypoint)
-  // Waypoint weights are intentionally huge: closeness gradient per cell-step
-  // is ~1/boardSize ≈ 0.09, so the weight must be in the thousands for one
-  // step toward the target to clearly dominate other heuristics. Death
-  // penalty (-500) still wins because it's a flat per-death stat.
-  waypointGoto: 2500,  // Strong pull toward green waypoint — top priority after survival
-  waypointNear: 2000,  // Pull toward blue waypoint + path-open bonus
+  // User-directed waypoint weights (only active when a waypoint is set). The
+  // stat is the bounded per-move shortest-path progress (optimal step = +1), so
+  // the weight is the flat bonus the optimal move gets over a sideways move.
+  // 300/250 outvote food/territory pulls but stay below deaths (-500) and
+  // trapped (-600), so the snake follows the target without dying for it.
+  gotoProgress: 300,   // Bonus for the optimal next move toward the green target
+  nearProgress: 250,   // Bonus for closing on the blue target without reaching/cutting it off
 
   // Offensive aggression weight (conservative: max stat 2 → max +50, far below the
   // death penalty of -500, so survival always dominates aggression)

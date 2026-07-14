@@ -120,7 +120,8 @@
     .intent-mode-badge.mode-heuristic { background: #777; }
     .intent-mode-badge.mode-manual { background: #9c27b0; }
     .intent-mode-badge.mode-queue { background: #2196F3; }
-    .intent-mode-badge.mode-waypoint { background: #4CAF50; }
+    .intent-mode-badge.mode-goto { background: #4CAF50; }
+    .intent-mode-badge.mode-near { background: #1565c0; }
     .no-selection-msg {
       text-align: center; padding: 20px; color: #666; font-size: 14px;
     }
@@ -379,21 +380,26 @@
               <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
                 <span class="kbd-key" style="background:#2e7d32; color:#fff;">Alt + Click</span> Goto
                 <span class="kbd-tip">
-                  <strong>Alt-click — green "goto" waypoint</strong><br>
-                  Sets a target cell that strongly pulls the selected snake
-                  toward it. Auto-clears when the snake's head arrives. The
-                  bot still avoids death, so it won't suicide into a wall to
-                  reach the target. Click the green cell again to cancel.
+                  <strong>Alt-click — green "goto" target</strong><br>
+                  Sets a target cell the bot weighs heavily: the optimal next
+                  step toward it gets a big scoring bonus, but survival
+                  heuristics can still overrule it, so the snake detours around
+                  danger instead of dying for the target. The green path shows
+                  the move actually staged plus the shortest path onward.
+                  <strong>Shift+Alt-click appends</strong> more targets to a
+                  queue — each clears on arrival. Alt-click a queued cell to
+                  remove it; alt-click the only target to cancel.
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(33,150,243,0.18); border-color:#2196f3;">
                 <span class="kbd-key" style="background:#1565c0; color:#fff;">Shift + Click</span> Near
                 <span class="kbd-tip">
                   <strong>Shift-click — blue "near" waypoint</strong><br>
-                  Sets a target the snake should stay near while keeping a
-                  reachable path to it (so it won't trap itself away from the
-                  spot). Stays until you clear it — click the blue cell again
-                  to remove. Setting any new waypoint replaces the old one.
+                  The snake closes distance to the target but never steps onto
+                  it, and avoids moves that would cut off its shortest path to
+                  the spot. Weighted into the bot's scoring like Goto, so
+                  survival still wins. Stays until you clear it — click the
+                  blue cell again to remove.
                 </span>
               </span>
             </div>
@@ -563,9 +569,9 @@
     let stagedMoves = {};
     let premoveMode = false;
     let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
-    let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
-    let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
-    let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
+    let waypoints = {};      // { [snakeId]: {type:'green'|'blue', cells:[{x,y},...]} } — green carries the goto queue in order (cells[0] active), blue one cell
+    let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — green "goto" display path; cells[0] is the STAGED next move, the rest the shortest path from it
+    let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'goto'|'near' } — active next-move source
     let premoveBannerNoticeTimer = null;
 
     // ── Turn scrubbing (live vs historic view) ──────────────────────────────
@@ -1265,8 +1271,8 @@
     }
 
     // Reflect the snake's active next-move source (Heuristic | Manual | Queue |
-    // Waypoint) as a colored badge next to its name. Colors match the board
-    // overlays: blue = queue, green = waypoint route.
+    // Goto | Near) as a colored badge next to its name. Colors match the board
+    // overlays: blue = queue/near, green = goto route.
     function updateIntentModeBadge() {
       const badge = document.getElementById('intentModeBadge');
       if (!badge) return;
@@ -1275,7 +1281,8 @@
         heuristic: 'Heuristic',
         manual: 'Manual',
         queue: 'Queue',
-        waypoint: 'Waypoint',
+        goto: 'Goto',
+        near: 'Near',
       };
       badge.textContent = labels[mode] || 'Heuristic';
       badge.className = `intent-mode-badge mode-${mode}`;
@@ -1657,15 +1664,27 @@
     // Authoritative state lives on the server (same pattern as premove queues).
     // The controlling user clicks → we send `set-waypoint` → server stores it
     // on the snake → broadcasts to every subscriber. Clearing sends `null`.
-    function setWaypointForSnake(snakeId, waypoint) {
+    // `append=true` (green only) toggles the cell in the goto target queue.
+    // The local mirror is updated optimistically with the same toggle rules the
+    // server applies; the next broadcast is authoritative either way.
+    function setWaypointForSnake(snakeId, waypoint, append = false) {
       if (!snakeId) return;
       if (waypoint === null) {
         delete waypoints[snakeId];
+      } else if (append && waypoints[snakeId]?.type === 'green' && waypoint.type === 'green') {
+        const cells = waypoints[snakeId].cells;
+        const idx = cells.findIndex(c => c.x === waypoint.x && c.y === waypoint.y);
+        if (idx >= 0) {
+          cells.splice(idx, 1);
+          if (cells.length === 0) delete waypoints[snakeId];
+        } else {
+          cells.push({ x: waypoint.x, y: waypoint.y });
+        }
       } else {
-        waypoints[snakeId] = waypoint;
+        waypoints[snakeId] = { type: waypoint.type, cells: [{ x: waypoint.x, y: waypoint.y }] };
       }
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint }));
+        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint, append }));
       }
       renderGameBoard();
     }
@@ -1687,26 +1706,40 @@
       const boardY = cell.y;
 
       // Waypoint handling for the currently selected snake:
-      // - Alt-click sets a green "goto" waypoint (auto-clears on arrival).
+      // - Alt-click sets a green "goto" target (replaces the queue; auto-clears
+      //   on arrival). Alt-clicking the sole existing target clears it.
+      // - Shift+Alt-click APPENDS a green target to the goto queue (clicking an
+      //   already-queued cell removes it from the queue).
       // - Shift-click sets a blue "near" waypoint (manual clear only).
-      // - Plain click on the existing waypoint cell clears it (per spec).
+      // - Plain click on an existing waypoint cell clears the whole plan.
       if (selectedSnakeId &&
           boardX >= 0 && boardX < board.width &&
           boardY >= 0 && boardY < board.height) {
         const current = waypoints[selectedSnakeId];
-        const onWaypointCell = current && current.x === boardX && current.y === boardY;
+        const cells = current?.cells || [];
+        const onWaypointCell = cells.some(c => c.x === boardX && c.y === boardY);
 
-        if (event.altKey || event.shiftKey) {
-          if (onWaypointCell) {
+        if (event.altKey) {
+          const appendGoto = event.shiftKey && current?.type === 'green';
+          if (!appendGoto && onWaypointCell && cells.length === 1) {
+            // Toggling the sole existing target off.
             setWaypointForSnake(selectedSnakeId, null);
             return;
           }
-          const type = event.altKey ? 'green' : 'blue';
-          setWaypointForSnake(selectedSnakeId, { type, x: boardX, y: boardY });
+          setWaypointForSnake(selectedSnakeId, { type: 'green', x: boardX, y: boardY }, appendGoto);
           return;
         }
 
-        // Plain-click on the waypoint cell clears it. Only triggers when no
+        if (event.shiftKey) {
+          if (onWaypointCell && current?.type === 'blue') {
+            setWaypointForSnake(selectedSnakeId, null);
+            return;
+          }
+          setWaypointForSnake(selectedSnakeId, { type: 'blue', x: boardX, y: boardY });
+          return;
+        }
+
+        // Plain-click on a waypoint cell clears the plan. Only triggers when no
         // controlled snake body occupies that cell, so it doesn't steal
         // snake-selection clicks.
         if (onWaypointCell) {
@@ -2012,33 +2045,61 @@
       ctx.restore();
     }
 
-    // Draw a translucent filled square + thick border on the waypoint cell,
-    // green for "goto" / blue for "near". Uses the same canvas-coordinate
-    // convention as drawPremoveOverlay (y is flipped).
+    // Draw translucent filled squares + thick borders on every waypoint cell,
+    // green for "goto" / blue for "near". Green renders the whole target queue:
+    // cells[0] (the active target) at full strength, later queued targets dimmer
+    // with a 2,3,… order badge. Uses the same canvas-coordinate convention as
+    // drawPremoveOverlay (y is flipped).
     function drawWaypointOverlay(canvas, waypoint, board, cellSize) {
-      if (!waypoint) return;
+      if (!waypoint || !waypoint.cells || waypoint.cells.length === 0) return;
       const ctx = canvas.getContext('2d');
       const isGreen = waypoint.type === 'green';
-      const fill = isGreen ? 'rgba(76, 175, 80, 0.35)' : 'rgba(33, 150, 243, 0.30)';
       const stroke = isGreen ? '#2e7d32' : '#1565c0';
-      const px = waypoint.x * cellSize;
-      const py = (board.height - 1 - waypoint.y) * cellSize;
-      const pad = Math.max(2, cellSize * 0.08);
-      ctx.save();
-      ctx.fillStyle = fill;
-      ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = Math.max(2, cellSize * 0.07);
-      ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-      // Diagonal cross marker so target reads clearly even when overlapping a snake
-      ctx.beginPath();
-      ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
-      ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
-      ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
-      ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
-      ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
-      ctx.stroke();
-      ctx.restore();
+      waypoint.cells.forEach((cell, i) => {
+        const active = i === 0;
+        const alpha = active ? 1 : 0.55;
+        const fill = isGreen
+          ? `rgba(76, 175, 80, ${active ? 0.35 : 0.20})`
+          : 'rgba(33, 150, 243, 0.30)';
+        const px = cell.x * cellSize;
+        const py = (board.height - 1 - cell.y) * cellSize;
+        const pad = Math.max(2, cellSize * 0.08);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = fill;
+        ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = Math.max(2, cellSize * 0.07);
+        ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+        // Diagonal cross marker so target reads clearly even when overlapping a snake
+        ctx.beginPath();
+        ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
+        ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
+        ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
+        ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
+        ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
+        ctx.stroke();
+        // Order badge for queued (non-active) goto targets.
+        if (isGreen && waypoint.cells.length > 1) {
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = stroke;
+          const r = Math.max(6, cellSize * 0.18);
+          const cx = px + cellSize - r - 1;
+          const cy = py + r + 1;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.fillStyle = stroke;
+          ctx.font = `bold ${Math.max(8, cellSize * 0.24)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(i + 1), cx, cy);
+        }
+        ctx.restore();
+      });
     }
 
     function drawPremoveOverlay(canvas, snake, queue, board, cellSize, color) {

@@ -5,10 +5,17 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation, EvaluationContext, WaypointContext } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation, EvaluationContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import {
+  WaypointContext,
+  WaypointProgress,
+  waypointDistance,
+  gotoProgressStat,
+  nearProgressStat,
+} from './waypoint-pathing';
 
 export interface MoveDecision {
   move: Direction;
@@ -51,10 +58,34 @@ export interface DecisionConfig {
     // Head-to-head risk weights
     enemyH2HRisk?: number;
     allyH2HRisk?: number;
-    // Waypoint weights
-    waypointGoto?: number;
-    waypointNear?: number;
+    // Waypoint progress weights
+    gotoProgress?: number;
+    nearProgress?: number;
   };
+}
+
+// The candidate-level fatal-pocket veto threshold: a move whose averaged
+// `trapped` signal is at/above this leads into a clearly-fatal dead-end pocket
+// and must never be picked while a non-fatal alternative exists.
+export const FATAL_TRAP_THRESHOLD = 0.5;
+
+/**
+ * The single move-selection rule, shared by the decision engine and the
+ * server's waypoint re-bias (ActiveGameManager): apply the fatal-pocket veto
+ * (drop candidates with trapped >= threshold unless ALL are fatal), then take
+ * the highest score. Returns null for an empty candidate list.
+ */
+export function pickBestMove(
+  candidates: Array<{ move: Direction; score: number; trapped: number }>
+): Direction | null {
+  if (candidates.length === 0) return null;
+  const nonFatal = candidates.filter(c => c.trapped < FATAL_TRAP_THRESHOLD);
+  const pool = nonFatal.length > 0 ? nonFatal : candidates;
+  let best = pool[0];
+  for (const c of pool) {
+    if (c.score > best.score) best = c;
+  }
+  return best.move;
 }
 
 export class DecisionEngine {
@@ -105,6 +136,13 @@ export class DecisionEngine {
     
     // Get move analysis with h2h risk details
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
+
+    // Per-move waypoint progress (centaur goto/near): computed ONCE here from the
+    // pre-move board with the shared waypoint pathfinder, then injected into every
+    // evaluation of that move. The optimal next move along a shortest path to the
+    // target gets the maximum stat; the weight (config gotoProgress/nearProgress)
+    // decides how strongly it pulls against the rest of the matrix.
+    const waypointProgressByMove = this.computeWaypointProgressByMove(gameState, graph, waypoint);
     
     // Consider ALL non-lethal moves (safe + risky) - h2h risk is now a weighted penalty
     let ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
@@ -138,13 +176,13 @@ export class DecisionEngine {
         gameState, 
         gameState.you.id, 
         teamSnakeIds,
-        { 
+        {
           prevFoodSet,
           h2hRisk: {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
           },
-          waypoint
+          waypointProgress: waypointProgressByMove?.get(ourMoves[0]) ?? null
         }
       );
       
@@ -212,10 +250,10 @@ export class DecisionEngine {
           averageScore: -1000,
           numStates: 0,
           averageBreakdown: this.boardEvaluator.evaluateBoard(
-            gameState, 
-            gameState.you.id, 
+            gameState,
+            gameState.you.id,
             teamSnakeIds,
-            { prevFoodSet, h2hRisk: h2hRiskCtx, waypoint }
+            { prevFoodSet, h2hRisk: h2hRiskCtx, waypointProgress: waypointProgressByMove?.get(move) ?? null }
           )
         });
         continue;
@@ -230,11 +268,11 @@ export class DecisionEngine {
           state.gameState, 
           gameState.you.id, 
           teamSnakeIds,
-          { 
+          {
             prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
             h2hRisk: h2hRiskCtx,  // Pass h2h risk to evaluator
             simulatedSnakeIds: state.simulatedSnakeIds,  // Snakes that were simulated get startDelay: 1
-            waypoint
+            waypointProgress: waypointProgressByMove?.get(move) ?? null
           }
         );
         totalScore += evaluation.score;
@@ -254,26 +292,18 @@ export class DecisionEngine {
       });
     }
     
-    // Select the best move with a candidate-level fatal-pocket veto.
-    // A move whose averaged `trapped` signal is at/above the fatal threshold leads
-    // into a clearly-fatal dead-end pocket (no tail-chase, not enough room to
-    // outlast our length). We must never pick such a move when a non-fatal
-    // alternative exists — even if the pocket happens to score higher (e.g. a
-    // waypoint sitting inside it). This is the hard guarantee on top of the
-    // strongly-negative `trapped` weight. If EVERY candidate is fatal, we fall
-    // back to scoring among all of them (least-bad death).
-    const FATAL_TRAP_THRESHOLD = 0.5;
-    const nonFatal = evaluations.filter(e => e.averageBreakdown.stats.trapped < FATAL_TRAP_THRESHOLD);
-    const selectionPool = nonFatal.length > 0 ? nonFatal : evaluations;
-    
-    let bestMove = selectionPool[0].move;
-    let bestScore = -Infinity;
-    for (const evalResult of selectionPool) {
-      if (evalResult.averageScore > bestScore) {
-        bestScore = evalResult.averageScore;
-        bestMove = evalResult.move;
-      }
-    }
+    // Select the best move via the shared rule: candidate-level fatal-pocket
+    // veto (a move whose averaged `trapped` signal is at/above the threshold
+    // leads into a clearly-fatal dead-end pocket and must never be picked when
+    // a non-fatal alternative exists — even if it scores higher, e.g. a waypoint
+    // sitting inside the pocket), then highest average score. The same
+    // `pickBestMove` is used by the server's waypoint re-bias so staging can
+    // never select differently than the engine would.
+    const bestMove = pickBestMove(evaluations.map(e => ({
+      move: e.move,
+      score: e.averageScore,
+      trapped: e.averageBreakdown.stats.trapped,
+    }))) ?? evaluations[0].move;
     
     // Compute projected territory per move (asymmetric BFS)
     const teamSnakeIdsForBFS = new Set<string>();
@@ -323,6 +353,40 @@ export class DecisionEngine {
     };
   }
   
+  /**
+   * Compute the per-move waypoint progress stats for the active goto/near
+   * target: BFS shortest-path distance from the current head (baseline) and
+   * from each candidate destination cell (startTurn 1 — the probe cell is one
+   * move in the future), mapped through the pure progress-stat functions.
+   * Returns null when no waypoint is active so callers can skip the ctx field.
+   */
+  private computeWaypointProgressByMove(
+    gameState: GameState,
+    graph: BoardGraph,
+    waypoint: WaypointContext | null | undefined
+  ): Map<Direction, WaypointProgress> | null {
+    if (!waypoint) return null;
+    const youId = gameState.you.id;
+    const head = gameState.you.head;
+    const target = waypoint.target;
+    const baseDist = waypointDistance(gameState, youId, head, target, { graph });
+
+    const result = new Map<Direction, WaypointProgress>();
+    const allMoves: Direction[] = ['up', 'down', 'left', 'right'];
+    for (const move of allMoves) {
+      const dest = this.getMovePosition(head, move);
+      const candDist = waypointDistance(gameState, youId, dest, target, { graph, startTurn: 1 });
+      const stat = waypoint.kind === 'goto'
+        ? gotoProgressStat(baseDist, candDist)
+        : nearProgressStat(baseDist, candDist);
+      result.set(move, {
+        gotoProgress: waypoint.kind === 'goto' ? stat : 0,
+        nearProgress: waypoint.kind === 'near' ? stat : 0,
+      });
+    }
+    return result;
+  }
+
   /**
    * Called when a game ends. Releases per-game state so it doesn't leak.
    */
@@ -560,8 +624,8 @@ export class DecisionEngine {
       deaths: 0,
       enemyH2HRisk: 0,
       allyH2HRisk: 0,
-      waypointGoto: 0,
-      waypointNear: 0,
+      gotoProgress: 0,
+      nearProgress: 0,
       aggression: 0,
       trapped: 0
     };
@@ -586,8 +650,8 @@ export class DecisionEngine {
       deathsScore: 0,
       enemyH2HRiskScore: 0,
       allyH2HRiskScore: 0,
-      waypointGotoScore: 0,
-      waypointNearScore: 0,
+      gotoProgressScore: 0,
+      nearProgressScore: 0,
       aggressionScore: 0,
       trappedScore: 0
     };
@@ -616,8 +680,8 @@ export class DecisionEngine {
       sumStats.deaths += evaluation.stats.deaths;
       sumStats.enemyH2HRisk += evaluation.stats.enemyH2HRisk;
       sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
-      sumStats.waypointGoto += evaluation.stats.waypointGoto;
-      sumStats.waypointNear += evaluation.stats.waypointNear;
+      sumStats.gotoProgress += evaluation.stats.gotoProgress;
+      sumStats.nearProgress += evaluation.stats.nearProgress;
       sumStats.aggression += evaluation.stats.aggression;
       sumStats.trapped += evaluation.stats.trapped;
       
@@ -641,8 +705,8 @@ export class DecisionEngine {
       sumWeighted.deathsScore += evaluation.weighted.deathsScore;
       sumWeighted.enemyH2HRiskScore += evaluation.weighted.enemyH2HRiskScore;
       sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
-      sumWeighted.waypointGotoScore += evaluation.weighted.waypointGotoScore;
-      sumWeighted.waypointNearScore += evaluation.weighted.waypointNearScore;
+      sumWeighted.gotoProgressScore += evaluation.weighted.gotoProgressScore;
+      sumWeighted.nearProgressScore += evaluation.weighted.nearProgressScore;
       sumWeighted.aggressionScore += evaluation.weighted.aggressionScore;
       sumWeighted.trappedScore += evaluation.weighted.trappedScore;
       
@@ -675,8 +739,8 @@ export class DecisionEngine {
         deaths: sumStats.deaths / count,
         enemyH2HRisk: sumStats.enemyH2HRisk / count,
         allyH2HRisk: sumStats.allyH2HRisk / count,
-        waypointGoto: sumStats.waypointGoto / count,
-        waypointNear: sumStats.waypointNear / count,
+        gotoProgress: sumStats.gotoProgress / count,
+        nearProgress: sumStats.nearProgress / count,
         aggression: sumStats.aggression / count,
         trapped: sumStats.trapped / count
       },
@@ -701,8 +765,8 @@ export class DecisionEngine {
         deathsScore: sumWeighted.deathsScore / count,
         enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
         allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count,
-        waypointGotoScore: sumWeighted.waypointGotoScore / count,
-        waypointNearScore: sumWeighted.waypointNearScore / count,
+        gotoProgressScore: sumWeighted.gotoProgressScore / count,
+        nearProgressScore: sumWeighted.nearProgressScore / count,
         aggressionScore: sumWeighted.aggressionScore / count,
         trappedScore: sumWeighted.trappedScore / count
       }
