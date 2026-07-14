@@ -566,6 +566,13 @@
     let finishedMode = false;
     let liveMaxTurn = 0;              // highest live turn seen → slider max
     let historicSnakeId = null;       // snake perspective being inspected (null = default)
+    // Snakes with logged decisions in THIS game, derived from the logs metadata
+    // API (same source enterFinishedMode uses). Selectability while scrubbing
+    // history must be keyed on this HISTORICAL fact — not on the live
+    // controlledSnakeIds set, which drops a snake the instant it dies (or on
+    // reconnect after a death), making its logged past un-inspectable.
+    let historyLoggedSnakeIds = new Set();
+    let historyLoggedFetch = null;    // in-flight/settled fetch promise (fetch once per page)
     const historicCache = new Map();  // snakeId → { decisions, turnToIndex }
     let historicDecisions = null;     // decisions for the currently-viewed snake
     let historicTurnToIndex = {};     // turn number → index into historicDecisions
@@ -2178,18 +2185,59 @@
 
     // ── Turn scrubbing implementation ───────────────────────────────────────
 
-    // Pick which controlled snake's logged decisions to render in history mode.
-    // Prefer the currently selected snake (if controlled), else the first
-    // controlled snake. These are the bot-logged snakes, so /api/logs has their
-    // per-turn evaluations.
+    // The set of snakes selectable/inspectable in history mode: everything with
+    // logged decisions (historyLoggedSnakeIds) UNIONED with the live controlled
+    // set — a currently-live snake may not yet appear in the games metadata
+    // until its logs land, and a since-dead snake only appears in the logged
+    // set. Live control gating (selectSnakeForControl etc.) intentionally keeps
+    // using controlledSnakeIds alone.
+    function historicSelectableIds() {
+      if (historyLoggedSnakeIds.size === 0) return controlledSnakeIds;
+      const union = new Set(historyLoggedSnakeIds);
+      for (const id of controlledSnakeIds) union.add(id);
+      return union;
+    }
+
+    // Lazily discover which snakes have logged decisions in this game (same
+    // /api/logs/games source enterFinishedMode uses). Fetched once, on first
+    // entry into history mode during a live game. On arrival, re-renders the
+    // current historic turn so since-dead teammates become clickable.
+    function ensureHistoryLoggedSnakeIds() {
+      if (historyLoggedFetch) return historyLoggedFetch;
+      historyLoggedFetch = fetch('/api/logs/games')
+        .then((r) => r.json())
+        .then((games) => {
+          const group = (games || []).find((g) => g.game_id === gameId);
+          if (!group) return;
+          historyLoggedSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
+          // Refresh the panel/board so newly-selectable snakes get their
+          // clickable affordance, and warm their decision caches.
+          if (viewMode === 'historic' && !finishedMode &&
+              historicDecisions && historicDecisions[historicIndex]) {
+            prefetchHistoricTeam();
+            renderHistoricTurn(historicIndex);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load logged-snake list:', err);
+          historyLoggedFetch = null; // allow a retry on the next history entry
+        });
+      return historyLoggedFetch;
+    }
+
+    // Pick which snake's logged decisions to render in history mode. Prefer the
+    // snake already being inspected, else the currently selected snake, else
+    // the first selectable one. These are the bot-logged snakes, so /api/logs
+    // has their per-turn evaluations.
     function getHistoricSnakeId() {
-      if (historicSnakeId && controlledSnakeIds.has(historicSnakeId)) {
+      const selectable = historicSelectableIds();
+      if (historicSnakeId && selectable.has(historicSnakeId)) {
         return historicSnakeId;
       }
-      if (selectedSnakeId && controlledSnakeIds.has(selectedSnakeId)) {
+      if (selectedSnakeId && selectable.has(selectedSnakeId)) {
         return selectedSnakeId;
       }
-      const first = controlledSnakeIds.values().next();
+      const first = selectable.values().next();
       return first.done ? null : first.value;
     }
 
@@ -2263,7 +2311,7 @@
     // switching perspective (list click or board click) is instant instead of
     // paying a network round-trip per selection.
     function prefetchHistoricTeam() {
-      for (const sid of controlledSnakeIds) {
+      for (const sid of historicSelectableIds()) {
         if (historicCache.has(sid) || historicInflight.has(sid)) continue;
         loadSnakeDecisions(sid, null).catch(() => {});
       }
@@ -2379,6 +2427,9 @@
       // Switch mode before awaiting the fetch so any live update arriving during
       // the load doesn't repaint/advance the board out from under the user.
       viewMode = 'historic';
+      // Kick off (once) the logged-snake discovery so since-dead teammates
+      // become selectable; fire-and-forget, it re-renders when it lands.
+      if (!finishedMode) ensureHistoryLoggedSnakeIds();
       // The selected turn lives in the slider (value) domain and is kept exactly
       // as the user picked it — we never echo a snapped data turn back to it.
       historicTurnNumber = Math.max(0, Math.min(liveMaxTurn, turnNumber));
@@ -2560,7 +2611,7 @@
       if (lightweight) return;
       BoardRenderer.renderSnakeInfo(
         document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id, null,
-        { groupByTeam: true, onSelectSnake: switchHistoricSnake, selectableSnakeIds: controlledSnakeIds }
+        { groupByTeam: true, onSelectSnake: switchHistoricSnake, selectableSnakeIds: historicSelectableIds() }
       );
       showHistoricSelectionPanel(turn);
     }
@@ -2688,8 +2739,9 @@
       // perspective (loads its logged decisions for this same turn). Only
       // controlled (bot-logged) snakes have decision logs to inspect.
       const currentView = turn.snake_id;
+      const selectable = historicSelectableIds();
       const target = BoardRenderer.findSnakeAtCell(board, cell,
-        s => controlledSnakeIds.has(s.id) && s.id !== currentView);
+        s => selectable.has(s.id) && s.id !== currentView);
       if (target) {
         switchHistoricSnake(target.id);
         return;
