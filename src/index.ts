@@ -146,9 +146,10 @@ app.post('/move', async (req, res) => {
     try {
       const teams = teamDetector.detectTeams(gameState.board.snakes);
       const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
-      // Pull the user-directed waypoint (if any) so the bot can heuristically
-      // honor click-targets set in centaur play mode.
-      const waypoint = gameManager.getWaypoint(gameId, snakeId);
+      // Pull the active user-directed waypoint target (if any) — head of the
+      // goto queue or the near target — so the decision engine integrates its
+      // progress weight into the heuristic matrix.
+      const waypoint = gameManager.getActiveWaypointTarget(gameId, snakeId);
       const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam, waypoint);
 
       const turnData: TurnData = {

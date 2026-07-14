@@ -253,7 +253,7 @@ describe('Trap survival', () => {
 
       // Waypoint sits inside the fatal pocket (0,0). The waypoint reward is large,
       // but the veto must still keep the snake out of the pocket.
-      const decision = engine.decide(gameState, new Set(['our-snake']), { type: 'green', x: 0, y: 0 });
+      const decision = engine.decide(gameState, new Set(['our-snake']), { kind: 'goto', target: { x: 0, y: 0 } });
 
       expect(decision.move).toBe('up');
     });

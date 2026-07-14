@@ -44,6 +44,7 @@ const USER_INTENT_TYPES = new Set([
   'suicide-all',
   'select-move',
   'set-premove',
+  'set-waypoint',
   'set-nickname',
   'activity',
 ]);
@@ -449,11 +450,13 @@ export class GameWebSocketServer {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
         if (!snakeId) break;
-        // msg.waypoint may be null (clear) or {type, x, y}. On success
-        // setWaypoint re-stages the move, firing the coalesced onStagedChange →
-        // broadcastSelectionsUpdate; no explicit broadcast.
+        // msg.waypoint may be null (clear) or {type, x, y}; msg.append=true
+        // (green only, Shift+Alt+click) toggles the cell in the goto target
+        // queue instead of replacing it. On success setWaypoint re-stages the
+        // move, firing the coalesced onStagedChange → broadcastSelectionsUpdate;
+        // no explicit broadcast.
         this.gameManager.setWaypoint(
-          client.gameId, snakeId, msg.waypoint ?? null, client.userId
+          client.gameId, snakeId, msg.waypoint ?? null, client.userId, !!msg.append
         );
         break;
       }

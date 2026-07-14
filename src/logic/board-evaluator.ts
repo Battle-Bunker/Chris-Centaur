@@ -7,6 +7,7 @@
 import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { WaypointProgress } from './waypoint-pathing';
 
 export interface HeuristicStats {
   // My snake stats
@@ -45,9 +46,13 @@ export interface HeuristicStats {
   enemyH2HRisk: number;       // 1 if move has h2h risk with enemy, 0 otherwise
   allyH2HRisk: number;        // 1 if move has h2h risk with ally, 0 otherwise
   
-  // User-directed waypoint heuristics (0 when no waypoint is set for this snake)
-  waypointGoto: number;       // Green waypoint: closeness [0,1] + bonus 1 when on target → [0, 2]
-  waypointNear: number;       // Blue waypoint: closeness [0,1] + reachability (+0 reachable, -1 cut off) → [-1, 1]
+  // User-directed waypoint heuristics (0 when no waypoint is set for this snake).
+  // Per-move shortest-path progress stats, computed by the decision engine from
+  // the shared waypoint pathfinder and injected via EvaluationContext:
+  //   +1 the move is the first step of a shortest path to the target,
+  //    0 sideways, -1 backward, -2 target cut off (near also: -2 landing ON it).
+  gotoProgress: number;       // Green "goto" target progress ∈ [-2, 1]
+  nearProgress: number;       // Blue "near" target progress ∈ [-2, 1]
 
   // Offensive aggression heuristic
   aggression: number;           // Reward [0,2] for closing in on / landing on the head/body of an enemy we strictly out-invulnerate; 0 otherwise
@@ -69,18 +74,15 @@ export interface H2HRiskContext {
   allyH2HRisk?: number;   // 1 if this move has h2h risk with ally, 0 otherwise
 }
 
-export interface WaypointContext {
-  type: 'green' | 'blue';
-  x: number;
-  y: number;
-}
-
 export interface EvaluationContext {
   prevFoodSet?: Set<string>;  // Food positions from previous board state
   optimistic?: boolean;       // Use optimistic passability for body segments
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
-  waypoint?: WaypointContext | null;  // User-directed waypoint for our snake (centaur play mode)
+  // Per-move waypoint progress stats for the move being evaluated (centaur play
+  // mode). Computed once per candidate move in the decision engine via the
+  // shared waypoint pathfinder — the evaluator just weighs them.
+  waypointProgress?: WaypointProgress | null;
 }
 
 export interface HeuristicWeights {
@@ -119,9 +121,11 @@ export interface HeuristicWeights {
   enemyH2HRisk: number;       // Penalty for h2h risk with enemy
   allyH2HRisk: number;        // Penalty for h2h risk with ally
   
-  // Waypoint weights
-  waypointGoto: number;
-  waypointNear: number;
+  // Waypoint weights: applied to the bounded per-move progress stats. High
+  // enough that the optimal step toward a target outvotes ordinary positional
+  // heuristics, but bounded (stat ∈ [-2, 1]) so death/trapped still dominate.
+  gotoProgress: number;
+  nearProgress: number;
 
   // Offensive aggression weight
   aggression: number;           // Weight applied to the aggression reward (positive, conservative so survival dominates)
@@ -167,8 +171,8 @@ export interface WeightedScores {
   allyH2HRiskScore: number;
   
   // Waypoint weighted scores
-  waypointGotoScore: number;
-  waypointNearScore: number;
+  gotoProgressScore: number;
+  nearProgressScore: number;
 
   // Offensive aggression weighted score
   aggressionScore: number;
@@ -219,9 +223,13 @@ export class BoardEvaluator {
       enemyH2HRisk: -100,       // Penalty for h2h risk with enemy
       allyH2HRisk: -50,         // Penalty for h2h risk with ally
       
-      // Waypoint weights (only active when a waypoint is set)
-      waypointGoto: 2500,       // Strong pull toward green waypoint (utmost priority after survival)
-      waypointNear: 2000,       // Pull toward blue waypoint + path-open bonus
+      // Waypoint weights (only active when a waypoint is set). The stat is the
+      // bounded per-move shortest-path progress (optimal step = +1), so the
+      // weight IS the bonus the optimal move gets. 300 outvotes food/territory
+      // pulls but stays below deaths (-500) / trapped (-600), so the snake
+      // follows the user's target without ever dying for it.
+      gotoProgress: 300,        // Bonus for the optimal next move toward the green target
+      nearProgress: 250,        // Bonus for closing on the blue target without reaching/cutting it off
 
       // Offensive aggression weight (conservative: max stat 2 → max +50, far below
       // the death penalty of -500, so survival always dominates aggression)
@@ -296,8 +304,8 @@ export class BoardEvaluator {
           deaths: 1,
           enemyH2HRisk: 0,
           allyH2HRisk: 0,
-          waypointGoto: 0,
-          waypointNear: 0,
+          gotoProgress: 0,
+          nearProgress: 0,
           aggression: 0,
           trapped: 0   // death is already captured by deaths:1; avoid double-penalizing
         },
@@ -415,10 +423,11 @@ export class BoardEvaluator {
       trapped = (walk.tailReached || walk.walkLength >= ourSnake.length) ? 0 : 1;
     }
     
-    // Calculate user-directed waypoint heuristics (centaur play mode)
-    const { waypointGoto, waypointNear } = this.calculateWaypointStats(
-      graph, ourSnake, board.snakes, ctx?.waypoint ?? null, board.width, board.height
-    );
+    // User-directed waypoint progress stats are per-move context (like h2hRisk):
+    // the decision engine computes them once per candidate move with the shared
+    // waypoint pathfinder and injects them here for weighing.
+    const gotoProgress = ctx?.waypointProgress?.gotoProgress ?? 0;
+    const nearProgress = ctx?.waypointProgress?.nearProgress ?? 0;
 
     // Calculate offensive aggression toward enemies we strictly out-invulnerate
     const aggression = this.calculateAggression(ourSnake, board.snakes, teamSnakeIds, board.width, board.height);
@@ -445,8 +454,8 @@ export class BoardEvaluator {
         deaths: isDead ? 1 : 0,
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
         allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
-        waypointGoto,
-        waypointNear,
+        gotoProgress,
+        nearProgress,
         aggression,
         trapped
       },
@@ -454,193 +463,6 @@ export class BoardEvaluator {
     };
   }
   
-  /**
-   * Calculate the two waypoint heuristics for a user-set waypoint.
-   * Returns 0 for both if no waypoint is set.
-   *
-   * Green (goto): closeness [0,1] + flat +1 bonus when head is exactly on the waypoint.
-   *   Range [0, 2]. With weight 150 the max contribution is +300, well below the
-   *   deaths penalty (-500), so the snake will never willingly die for a waypoint.
-   *
-   * Blue (near): closeness [0,1] PLUS a path-openness term — small BFS from the
-   *   new head; if the waypoint is reachable we add 0, if it isn't we add -1.
-   *   This penalises moves that cut the snake off from the waypoint, encouraging
-   *   "stay near AND keep the path open" behaviour the user asked for.
-   */
-  private calculateWaypointStats(
-    graph: BoardGraph,
-    ourSnake: Snake,
-    allSnakes: Snake[],
-    waypoint: WaypointContext | null | undefined,
-    width: number,
-    height: number
-  ): { waypointGoto: number; waypointNear: number } {
-    if (!waypoint) return { waypointGoto: 0, waypointNear: 0 };
-    if (waypoint.x < 0 || waypoint.x >= width || waypoint.y < 0 || waypoint.y >= height) {
-      return { waypointGoto: 0, waypointNear: 0 };
-    }
-    
-    const head = ourSnake.head;
-    const distance = Math.abs(head.x - waypoint.x) + Math.abs(head.y - waypoint.y);
-    const boardSize = Math.max(width, height);
-    const closeness = Math.max(0, (boardSize - distance) / boardSize);
-    const onTarget = head.x === waypoint.x && head.y === waypoint.y;
-    
-    if (waypoint.type === 'green') {
-      // Goto: head on the cell is the goal. Give a big flat bonus on arrival,
-      // otherwise closeness pulls us in.
-      return {
-        waypointGoto: onTarget ? 2 : closeness,
-        waypointNear: 0
-      };
-    }
-    
-    // Blue: "be near, keep the path open". Closeness + reachability penalty.
-    const reachable = onTarget || this.isCellReachableFrom(graph, head, waypoint, ourSnake);
-    return {
-      waypointGoto: 0,
-      waypointNear: closeness + (reachable ? 0 : -1)
-    };
-  }
-  
-  /**
-   * Small BFS from `start` checking whether `target` is reachable, treating
-   * our own body (except tail) as blocked and using optimistic passability for
-   * everyone else. Bounded so it can't blow up on big empty boards.
-   */
-  private isCellReachableFrom(
-    graph: BoardGraph,
-    start: Coord,
-    target: Coord,
-    ourSnake: Snake
-  ): boolean {
-    const targetKey = graph.coordToKey(target);
-
-    // Single source of truth for our own passability (own body blocks, own tail
-    // and other snakes' bodies recede under optimistic turn-aware passability).
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
-
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(start));
-    let level: Coord[] = [start];
-    let turn = 0;
-    const maxCells = 400;  // cap work — board is at most ~19x19 → 361 cells
-    
-    while (level.length > 0 && visited.size < maxCells) {
-      const next: Coord[] = [];
-      turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) return true;  // reached
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          next.push(n);
-        }
-      }
-      level = next;
-    }
-    return false;
-  }
-
-  /**
-   * Produce the full sequence of cells the waypoint pathfinder would follow
-   * from our head to a green ("goto") waypoint, EXCLUDING the head cell. This
-   * is the live "goto route" rendered on the centaur play board.
-   *
-   * Reuses exactly the same passability as `isCellReachableFrom` (our own body
-   * except the tail blocks; everyone else uses optimistic turn-aware
-   * passability), so the drawn route matches what the goto heuristic actually
-   * rewards. A breadth-first search guarantees a shortest legal path, which is
-   * what the closeness-driven goto heuristic pulls toward.
-   *
-   * Returns [] when there's no green waypoint, it's out of bounds / on the
-   * head, or the target is unreachable.
-   */
-  computeWaypointRoute(
-    gameState: GameState,
-    ourSnakeId: string,
-    waypoint: WaypointContext | null | undefined,
-    startHead?: Coord
-  ): Coord[] {
-    if (!waypoint || waypoint.type !== 'green') return [];
-    const board = gameState.board;
-    if (waypoint.x < 0 || waypoint.x >= board.width || waypoint.y < 0 || waypoint.y >= board.height) {
-      return [];
-    }
-    const ourSnake = board.snakes.find(s => s.id === ourSnakeId);
-    if (!ourSnake) return [];
-    // Path from `startHead` when supplied (the cell the snake will occupy after
-    // a move it has already committed this turn) so the route — and its first
-    // step — anchor where the snake will actually be, not the stale head.
-    const head = startHead ?? ourSnake.head;
-    if (head.x === waypoint.x && head.y === waypoint.y) return [];
-
-    const graph = new BoardGraph(gameState);
-    const targetKey = graph.coordToKey(waypoint);
-
-    // Same passability as reachability: our own body blocks, everyone else uses
-    // optimistic turn-aware passability.
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
-
-    const startKey = graph.coordToKey(head);
-    const parent = new Map<string, Coord>();
-    const visited = new Set<string>([startKey]);
-    let level: Coord[] = [head];
-    let turn = 0;
-    const maxCells = 400;  // board is at most ~19x19 → 361 cells
-
-    let found = false;
-    while (level.length > 0 && visited.size < maxCells && !found) {
-      const next: Coord[] = [];
-      turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) {
-            parent.set(k, cur);
-            found = true;
-            break;
-          }
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          parent.set(k, cur);
-          next.push(n);
-        }
-        if (found) break;
-      }
-      level = next;
-    }
-
-    if (!found) return [];
-
-    // Reconstruct head → target, then drop the head (the overlay anchors at it).
-    const route: Coord[] = [];
-    let cur: Coord | undefined = { x: waypoint.x, y: waypoint.y };
-    while (cur && !(cur.x === head.x && cur.y === head.y)) {
-      route.push(cur);
-      cur = parent.get(graph.coordToKey(cur));
-    }
-    route.reverse();
-    return route;
-  }
-
   /**
    * Offensive aggression heuristic. Rewards a candidate position for closing in
    * on (or landing on) the head/body of any enemy we are STRICTLY more invulnerable
@@ -1015,8 +837,8 @@ export class BoardEvaluator {
       deathsScore: stats.deaths * this.weights.deaths,
       enemyH2HRiskScore: stats.enemyH2HRisk * this.weights.enemyH2HRisk,
       allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk,
-      waypointGotoScore: stats.waypointGoto * this.weights.waypointGoto,
-      waypointNearScore: stats.waypointNear * this.weights.waypointNear,
+      gotoProgressScore: stats.gotoProgress * this.weights.gotoProgress,
+      nearProgressScore: stats.nearProgress * this.weights.nearProgress,
       aggressionScore: stats.aggression * this.weights.aggression,
       trappedScore: stats.trapped * this.weights.trapped
     };
@@ -1045,8 +867,8 @@ export class BoardEvaluator {
            weighted.deathsScore +
            weighted.enemyH2HRiskScore +
            weighted.allyH2HRiskScore +
-           weighted.waypointGotoScore +
-           weighted.waypointNearScore +
+           weighted.gotoProgressScore +
+           weighted.nearProgressScore +
            weighted.aggressionScore +
            weighted.trappedScore;
   }
