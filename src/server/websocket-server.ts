@@ -178,6 +178,8 @@ export class GameWebSocketServer {
         gameState: gameState,
         turnExpiryTime: game?.turnExpiryTime || null,
         measuredPing: this.gameManager.getMeasuredPing(),
+        commitBufferMs: this.gameManager.getCommitBuffer(gameId),
+        effectiveCommitBufferMs: this.gameManager.getEffectiveCommitBuffer(gameId),
         selections: this.getSelectionsForGame(gameId),
         holds: this.gameManager.getHoldStates(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
@@ -297,6 +299,20 @@ export class GameWebSocketServer {
         });
 
         this.broadcastSelectionsUpdate(gameId);
+        break;
+      }
+
+      case 'set-commit-buffer': {
+        if (!client.gameId) break;
+        const applied = this.gameManager.setCommitBuffer(client.gameId, msg.bufferMs);
+        if (applied !== null) {
+          // Broadcast so every viewer's countdown uses the same buffer.
+          this.broadcastToGame(client.gameId, {
+            type: 'commit-buffer-update',
+            gameId: client.gameId,
+            commitBufferMs: applied,
+          });
+        }
         break;
       }
 

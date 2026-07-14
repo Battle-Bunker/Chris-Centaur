@@ -131,7 +131,20 @@ export interface ActiveGame {
   colorReleaseTimers: Map<string, NodeJS.Timeout>;
   turnExpiryTime: number | null;
   currentTurn: number;
+  // User-configurable safety-timer buffer (ms). The safety timer commits the
+  // staged move at gameServerDeadline − commitBufferMs. Adjustable live from
+  // the play page; shared by all viewers of the game.
+  commitBufferMs: number;
+  // The buffer actually used to arm the current turn's safety timer. Differs
+  // from commitBufferMs on turn 0 (warm-up) and when the setting changes
+  // mid-turn (the armed timer keeps the old value). Clients count down with
+  // this so 0.0s always coincides with the real commit moment.
+  effectiveCommitBufferMs: number;
 }
+
+export const DEFAULT_COMMIT_BUFFER_MS = 500;
+export const MIN_COMMIT_BUFFER_MS = 100;
+export const MAX_COMMIT_BUFFER_MS = 5000;
 
 const DISTINCT_COLORS = [
   '#e6194B', '#f58231', '#ffe119', '#bfef45',
@@ -350,6 +363,8 @@ export class ActiveGameManager {
         colorReleaseTimers: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
+        commitBufferMs: DEFAULT_COMMIT_BUFFER_MS,
+        effectiveCommitBufferMs: DEFAULT_COMMIT_BUFFER_MS,
       };
       this.games.set(gameId, game);
     }
@@ -758,6 +773,8 @@ export class ActiveGameManager {
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
+    commitBufferMs: number;
+    effectiveCommitBufferMs: number;
   } | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -810,7 +827,28 @@ export class ActiveGameManager {
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
       measuredPing: this.gameServerPing,
+      commitBufferMs: game.commitBufferMs,
+      effectiveCommitBufferMs: game.effectiveCommitBufferMs,
     };
+  }
+
+  getCommitBuffer(gameId: string): number {
+    return this.games.get(gameId)?.commitBufferMs ?? DEFAULT_COMMIT_BUFFER_MS;
+  }
+
+  getEffectiveCommitBuffer(gameId: string): number {
+    return this.games.get(gameId)?.effectiveCommitBufferMs ?? DEFAULT_COMMIT_BUFFER_MS;
+  }
+
+  setCommitBuffer(gameId: string, bufferMs: number): number | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+    const clamped = Math.round(
+      Math.min(MAX_COMMIT_BUFFER_MS, Math.max(MIN_COMMIT_BUFFER_MS, Number(bufferMs) || DEFAULT_COMMIT_BUFFER_MS))
+    );
+    game.commitBufferMs = clamped;
+    console.log(`[ActiveGameManager] Commit buffer for ${gameId} set to ${clamped}ms`);
+    return clamped;
   }
 
   getWaypoint(gameId: string, snakeId: string): { type: 'green' | 'blue'; x: number; y: number } | null {
@@ -1335,19 +1373,13 @@ export class ActiveGameManager {
     }
 
     // The committed move still has to travel back to the game server before its
-    // deadline (serverExpiryTime). Derive the safety-timer buffer from the
-    // measured round-trip ping (already tracked for the client countdown) plus a
-    // small jitter margin, instead of a flat cushion — on a slow link a fixed
-    // buffer can let the response land after the deadline, where the game server
-    // applies its own default (continue straight). Keep EXTRA_NETWORK_BUFFER_MS
-    // as the floor: the bot deployment (Australia) is far from the game server
-    // (North America), and the ping is currently measured against a hardcoded
-    // engine URL that may not reflect the real game server's RTT, so a generous
-    // cross-region minimum protects against timeouts while the ping term lets the
-    // buffer grow further when the measured latency is even higher. Turn 0 keeps
-    // the large first-move warm-up buffer.
-    const EXTRA_NETWORK_BUFFER_MS = 1500;
-    const bufferMs = turn === 0 ? 5000 : Math.max(this.gameServerPing + 30, EXTRA_NETWORK_BUFFER_MS);
+    // deadline (serverExpiryTime). The buffer is user-configurable per game
+    // (adjustable live from the play page, shared by all viewers) so the
+    // player can trade decision time against network safety margin explicitly.
+    // The measured ping remains a displayed diagnostic only. Turn 0 keeps the
+    // large first-move warm-up buffer.
+    const bufferMs = turn === 0 ? Math.max(5000, game.commitBufferMs) : game.commitBufferMs;
+    game.effectiveCommitBufferMs = bufferMs;
     let timeoutMs: number;
     if (serverExpiryTime) {
       const now = Date.now();
