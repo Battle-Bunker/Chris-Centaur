@@ -58,6 +58,34 @@
       body.idle-disconnected .ws-status,
       body.idle-disconnected .connection-status { opacity: 0.4; }
       body.idle-disconnected .timer-display { opacity: 0.4; }
+      .server-state-badge {
+        position: fixed; bottom: 14px; left: 14px; z-index: 9500;
+        display: flex; align-items: center; gap: 7px;
+        padding: 6px 12px; border-radius: 999px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+        background: rgba(30, 30, 30, 0.92); border: 1px solid #444;
+        color: #e0e0e0; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        pointer-events: none; user-select: none;
+      }
+      .server-state-badge .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #888; flex: 0 0 auto;
+      }
+      .server-state-badge.state-active .dot {
+        background: #4CAF50;
+        box-shadow: 0 0 6px rgba(76, 175, 80, 0.8);
+        animation: server-badge-pulse 2s ease-in-out infinite;
+      }
+      .server-state-badge.state-active { border-color: #3c6e3e; }
+      .server-state-badge.state-reconnecting .dot { background: #FFC107; }
+      .server-state-badge.state-reconnecting { border-color: #8a6d1a; }
+      .server-state-badge.state-idle .dot { background: #777; }
+      .server-state-badge.state-idle { color: #999; }
+      @keyframes server-badge-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.45; }
+      }
     `;
     document.head.appendChild(style);
 
@@ -68,10 +96,18 @@
         <h2>Disconnected due to inactivity</h2>
         <p>Live updates are paused after 30 minutes without activity to save server cost. Reconnect to resume.</p>
         <button type="button" class="idle-reconnect-btn">Reconnect</button>
-        <div class="idle-overlay-hint">Any click or key press will also reconnect.</div>
+        <div class="idle-overlay-hint">Any click, tap, or key press will also reconnect.</div>
       </div>`;
     document.body.appendChild(overlay);
     return overlay;
+  }
+
+  function buildBadge() {
+    const badge = document.createElement('div');
+    badge.className = 'server-state-badge state-reconnecting';
+    badge.innerHTML = `<span class="dot"></span><span class="server-state-label">Connecting…</span>`;
+    document.body.appendChild(badge);
+    return badge;
   }
 
   class IdleWatcher {
@@ -84,6 +120,8 @@
       this.suppressReconnect = false;
       this.overlay = buildOverlay();
       this.reconnectBtn = this.overlay.querySelector('.idle-reconnect-btn');
+      this.badge = buildBadge();
+      this.badgeLabel = this.badge.querySelector('.server-state-label');
 
       const onActivity = () => this._markActivity();
       ['keydown', 'mousedown', 'mousemove', 'touchstart', 'wheel'].forEach(ev => {
@@ -100,14 +138,14 @@
         e.stopPropagation();
         this._userInitiatedReconnect();
       });
-      // Any user interaction while the overlay is up also reconnects.
-      // Listen broadly (mouse, touch, wheel, keys) so coming back to the tab
-      // and doing literally anything brings the socket back without forcing
-      // the user to find the button.
+      // Deliberate user interaction while the overlay is up also reconnects.
+      // Only intentional gestures count (click / tap / key press) — passive
+      // mouse movement or scrolling over the tab must NOT wake the server,
+      // since it doesn't reflect an intent to interact with the game.
       const reconnectIfIdle = () => {
         if (this.idleTriggered) this._userInitiatedReconnect();
       };
-      ['mousedown', 'mousemove', 'wheel', 'touchstart', 'keydown'].forEach(ev => {
+      ['mousedown', 'touchstart', 'keydown'].forEach(ev => {
         document.addEventListener(ev, reconnectIfIdle, { passive: true });
       });
 
@@ -126,6 +164,13 @@
 
     _markActivity() {
       this.lastActivityAt = Date.now();
+    }
+
+    /** Update the always-visible server-state badge.
+     *  state: 'active' | 'reconnecting' | 'idle' */
+    _setBadge(state, label) {
+      this.badge.className = 'server-state-badge state-' + state;
+      this.badgeLabel.textContent = label;
     }
 
     _keepalive() {
@@ -161,6 +206,7 @@
       this.idleTriggered = false;
       this.overlay.classList.remove('active');
       document.body.classList.remove('idle-disconnected');
+      this._setBadge('active', 'Server active');
     }
 
     onClose(event) {
@@ -174,6 +220,10 @@
         this.suppressReconnect = true;
         this._showIdleOverlay();
         return true;
+      }
+      if (!this.isIdleClose(event)) {
+        // Transient drop — the caller's auto-reconnect loop will retry.
+        this._setBadge('reconnecting', 'Reconnecting…');
       }
       // If the close was the idle one (either initiated by us in _tick OR
       // by the server's sweep), leave the overlay up, suppress the caller's
@@ -223,6 +273,7 @@
     _showIdleOverlay() {
       this.overlay.classList.add('active');
       document.body.classList.add('idle-disconnected');
+      this._setBadge('idle', 'Server idle');
     }
 
     _userInitiatedReconnect() {
@@ -231,6 +282,7 @@
       this.suppressReconnect = false;
       this.overlay.classList.remove('active');
       document.body.classList.remove('idle-disconnected');
+      this._setBadge('reconnecting', 'Reconnecting…');
       this._markActivity();
       if (typeof this.reconnect === 'function') {
         try { this.reconnect(); } catch (e) { console.error(e); }
