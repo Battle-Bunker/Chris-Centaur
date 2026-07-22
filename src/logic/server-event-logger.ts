@@ -8,6 +8,14 @@ export type ServerEventType = 'boot' | 'shutdown' | 'woke' | 'went-idle';
 // server is still considered "active by game traffic". Bot-only games send no
 // WebSocket traffic, so without this window they'd never show as active.
 const GAME_ACTIVE_WINDOW_MS = 60 * 1000;
+// How long after the last real user-intent message (state-mutating actions
+// like select-snake / select-move, or the activity heartbeat that only fires
+// when the user genuinely interacted) the server counts as "active by user".
+// Merely opening a page / holding a WebSocket open does NOT count — a passive
+// open tab is exactly the "up but idle" waste band the timeline audits.
+// 3 minutes comfortably covers the 2-minute activity-heartbeat cadence so an
+// actively-interacting user doesn't flap between active and idle.
+const USER_ACTIVE_WINDOW_MS = 3 * 60 * 1000;
 // Cadence for the decay check that notices the game-traffic window expiring.
 // Unref'd so it never keeps the process alive on its own.
 const DECAY_CHECK_INTERVAL_MS = 15 * 1000;
@@ -16,10 +24,11 @@ const DECAY_CHECK_INTERVAL_MS = 15 * 1000;
  * Records server lifecycle/activity events (boot, shutdown, woke, went-idle)
  * into the server_events table for the /activity autoscale audit page.
  *
- * Activity model: the server is "active" while at least one live WebSocket
- * connection exists OR a Battlesnake game request arrived within the last
- * GAME_ACTIVE_WINDOW_MS. Transitions between active and idle emit exactly one
- * woke / went-idle event each.
+ * Activity model: the server is "active" while a real user-intent message
+ * (state-mutating action) arrived within USER_ACTIVE_WINDOW_MS OR a
+ * Battlesnake game request arrived within GAME_ACTIVE_WINDOW_MS. Open
+ * WebSocket connections alone do NOT count — passively open pages are "up
+ * but idle". Transitions emit exactly one woke / went-idle event each.
  *
  * All writes are fire-and-forget (non-blocking): a failed insert is logged and
  * dropped — event logging must never slow down /move or block shutdown.
@@ -28,6 +37,7 @@ export class ServerEventLogger {
   private static instance: ServerEventLogger;
 
   private wsConnections = 0;
+  private lastUserIntentAt = 0;
   private lastGameRequestAt = 0;
   private lastGameRequestGameId: string | null = null;
   private active = false;
@@ -74,10 +84,20 @@ export class ServerEventLogger {
     ]);
   }
 
-  /** Called by the WebSocket server whenever the live connection count changes. */
+  /** Called by the WebSocket server whenever the live connection count
+   *  changes. Connection count alone does NOT make the server "active" —
+   *  it is tracked only for event detail; activity requires user intent
+   *  or game traffic. */
   public setConnectionCount(count: number): void {
     this.wsConnections = Math.max(0, count);
     this.evaluate('websocket');
+  }
+
+  /** Called when a real user-intent (state-mutating) WebSocket message
+   *  arrives. This — not mere connections — is what marks the server active. */
+  public recordUserIntent(): void {
+    this.lastUserIntentAt = Date.now();
+    this.evaluate('user-intent');
   }
 
   /** Called on inbound Battlesnake requests (/start, /move) so bot-only games
@@ -89,9 +109,10 @@ export class ServerEventLogger {
   }
 
   private isActiveNow(): boolean {
+    const now = Date.now();
     return (
-      this.wsConnections > 0 ||
-      Date.now() - this.lastGameRequestAt < GAME_ACTIVE_WINDOW_MS
+      now - this.lastUserIntentAt < USER_ACTIVE_WINDOW_MS ||
+      now - this.lastGameRequestAt < GAME_ACTIVE_WINDOW_MS
     );
   }
 

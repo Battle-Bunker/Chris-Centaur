@@ -89,12 +89,12 @@
       ['keydown', 'mousedown', 'mousemove', 'touchstart', 'wheel'].forEach(ev => {
         document.addEventListener(ev, onActivity, { passive: true });
       });
-      document.addEventListener('visibilitychange', () => {
-        // Becoming visible counts as activity; becoming hidden does NOT
-        // reset the timer (a backgrounded tab is exactly what we want to
-        // eventually disconnect).
-        if (!document.hidden) this._markActivity();
-      });
+      // NOTE: visibilitychange deliberately does NOT count as activity.
+      // Merely focusing / switching back to a tab is passive presence, not
+      // intent — counting it would let an abandoned-but-occasionally-focused
+      // tab reset the idle clock (and auto-reconnect), keeping the autoscale
+      // server alive with nobody actually interacting. Only real gestures
+      // (key press, click, tap, scroll, mouse move) mark activity.
 
       this.reconnectBtn.addEventListener('click', (e) => {
         e.stopPropagation();

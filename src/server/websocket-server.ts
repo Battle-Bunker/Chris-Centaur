@@ -129,6 +129,14 @@ export class GameWebSocketServer {
             if (client.userId) {
               this.userActivity.set(client.userId, client.lastActivityAt);
             }
+            // Real state-mutating intent — this (not mere connections or
+            // presence heartbeats) marks the server "active" on the
+            // /activity timeline. The 'activity' heartbeat fires on any
+            // gesture (mouse move, tab focus) and only feeds the idle
+            // clock above, never the activity timeline.
+            if (msg.type !== 'activity') {
+              ServerEventLogger.getInstance().recordUserIntent();
+            }
           }
           this.handleMessage(client, msg);
         } catch (e) {
@@ -598,6 +606,18 @@ export class GameWebSocketServer {
   private startIdleSweep(): void {
     if (this.idleSweepInterval) return;
     this.idleSweepInterval = setInterval(async () => {
+      // With zero clients there is nothing to sweep — skip entirely (including
+      // the config read) so an idle server generates no background database
+      // traffic that could keep the autoscale instance from draining to zero.
+      if (this.clients.size === 0) {
+        if (this.userActivity.size > 0) {
+          const pruneCutoff = Date.now() - this.idleTimeoutMs * 2;
+          for (const [userId, ts] of this.userActivity) {
+            if (ts < pruneCutoff) this.userActivity.delete(userId);
+          }
+        }
+        return;
+      }
       // Refresh the timeout from config (best-effort; keep last value on error).
       try {
         const minutes = await this.configStore.get('idleTimeoutMinutes');

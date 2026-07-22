@@ -22,3 +22,7 @@ The proxy in front of the deployed app drops idle WebSockets at ~300s (close cod
 ## Scale-to-zero timing (verified 2026-07-22)
 
 Replit autoscale shuts the instance down after **15 minutes** with no inbound requests — not 5. Billing is for CPU/memory during request processing, so an up-but-idle tail is expected and mostly unbilled. When auditing the /activity timeline, an amber "up but idle" band of up to ~15 min after the last request is normal platform behavior, not an app bug. Outbound traffic (engine ping, DB queries) does not count as requests and does not delay scale-down.
+
+## Timeline "active" = intent only (2026-07-22)
+
+/activity "active" requires a state-mutating WS message (USER_INTENT_TYPES minus the `activity` heartbeat, 3-min window) or /start//move traffic (60s window). Open WS connections alone are "up but idle". Passive tabs are network-silent while disconnected: connection-log events queue in localStorage and flush on the next deliberate reconnect; tab-focus (visibilitychange) never counts as activity. When idle, server makes no background traffic: engine ping skipped with 0 games, idle-sweep config read skipped with 0 clients.

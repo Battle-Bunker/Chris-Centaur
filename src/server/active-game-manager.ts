@@ -315,6 +315,10 @@ export class ActiveGameManager {
     if (this.pingInterval) return;
 
     const pingGameServer = async () => {
+      // Only measure ping while games are actually running. A truly idle
+      // server must generate zero background network traffic, or the
+      // autoscale platform may never consider the instance quiescent.
+      if (this.games.size === 0) return;
       try {
         const start = Date.now();
         const response = await fetch(gameServerUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
