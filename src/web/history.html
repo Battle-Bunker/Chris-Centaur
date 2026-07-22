@@ -77,7 +77,11 @@
     </div>
   </div>
 
+  <script src="/idle-policy.js"></script>
+  <script src="/server-status-badge.js"></script>
   <script>
+    window.ServerStatusBadge.attachStandalone();
+
     function escapeHtml(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

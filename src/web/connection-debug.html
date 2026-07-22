@@ -99,7 +99,11 @@
     </div>
   </div>
 
+  <script src="/idle-policy.js"></script>
+  <script src="/server-status-badge.js"></script>
   <script>
+    window.ServerStatusBadge.attachStandalone();
+
     const rowsEl = document.getElementById('rows');
     const statsEl = document.getElementById('stats');
     const logFilePathEl = document.getElementById('logFilePath');

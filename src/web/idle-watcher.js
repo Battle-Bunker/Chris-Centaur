@@ -58,34 +58,6 @@
       body.idle-disconnected .ws-status,
       body.idle-disconnected .connection-status { opacity: 0.4; }
       body.idle-disconnected .timer-display { opacity: 0.4; }
-      .server-state-badge {
-        position: fixed; bottom: 14px; left: 14px; z-index: 9500;
-        display: flex; align-items: center; gap: 7px;
-        padding: 6px 12px; border-radius: 999px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
-        background: rgba(30, 30, 30, 0.92); border: 1px solid #444;
-        color: #e0e0e0; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
-        pointer-events: none; user-select: none;
-      }
-      .server-state-badge .dot {
-        width: 9px; height: 9px; border-radius: 50%;
-        background: #888; flex: 0 0 auto;
-      }
-      .server-state-badge.state-active .dot {
-        background: #4CAF50;
-        box-shadow: 0 0 6px rgba(76, 175, 80, 0.8);
-        animation: server-badge-pulse 2s ease-in-out infinite;
-      }
-      .server-state-badge.state-active { border-color: #3c6e3e; }
-      .server-state-badge.state-reconnecting .dot { background: #FFC107; }
-      .server-state-badge.state-reconnecting { border-color: #8a6d1a; }
-      .server-state-badge.state-idle .dot { background: #777; }
-      .server-state-badge.state-idle { color: #999; }
-      @keyframes server-badge-pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.45; }
-      }
     `;
     document.head.appendChild(style);
 
@@ -102,14 +74,6 @@
     return overlay;
   }
 
-  function buildBadge() {
-    const badge = document.createElement('div');
-    badge.className = 'server-state-badge state-reconnecting';
-    badge.innerHTML = `<span class="dot"></span><span class="server-state-label">Connecting…</span>`;
-    document.body.appendChild(badge);
-    return badge;
-  }
-
   class IdleWatcher {
     constructor(opts) {
       this.getWS = opts.getWS;
@@ -120,8 +84,6 @@
       this.suppressReconnect = false;
       this.overlay = buildOverlay();
       this.reconnectBtn = this.overlay.querySelector('.idle-reconnect-btn');
-      this.badge = buildBadge();
-      this.badgeLabel = this.badge.querySelector('.server-state-label');
 
       const onActivity = () => this._markActivity();
       ['keydown', 'mousedown', 'mousemove', 'touchstart', 'wheel'].forEach(ev => {
@@ -166,11 +128,10 @@
       this.lastActivityAt = Date.now();
     }
 
-    /** Update the always-visible server-state badge.
-     *  state: 'active' | 'reconnecting' | 'idle' */
+    /** Update the always-visible server-state badge (shared component from
+     *  server-status-badge.js). state: 'active' | 'reconnecting' | 'idle' */
     _setBadge(state, label) {
-      this.badge.className = 'server-state-badge state-' + state;
-      this.badgeLabel.textContent = label;
+      if (window.ServerStatusBadge) window.ServerStatusBadge.set(state, label);
     }
 
     _keepalive() {
