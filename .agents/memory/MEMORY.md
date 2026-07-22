@@ -16,4 +16,5 @@
 - [Idle reconnect billing loop](idle-reconnect-billing.md) — reconnect/subscribe must NEVER count as user activity; idle clock persists per userId across reconnects, else one abandoned tab bills 24/7.
 - [Server activity timeline](server-activity-timeline.md) — /activity audits autoscale; viewer must never poll, event writes fire-and-forget, missing shutdown = end-unknown closed by next boot.
 - [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations, territoryCells}`; pre-2025-12-17 rows are a bare array — readers must handle both.
+- [Fatal-move consent + neck guards](fatal-consent-and-neck-guards.md) — human certain-death moves need a branded consent minted only at dialog-confirm/kill-all; adjacency ≠ valid move — reject the just-vacated neck.
 - [Dev auto-reload quirks](dev-auto-reload.md) — dev workflow uses `node --watch` (not nodemon: the minimatch v10 override breaks nodemon); merges/edits reload automatically, no manual restart.

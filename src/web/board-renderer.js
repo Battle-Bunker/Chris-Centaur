@@ -1062,8 +1062,23 @@ const BoardRenderer = (function () {
       let arrowMove = null;
       let arrowColor = "#4CAF50";
       let arrowCommitted = false;
+      // Replay styling (options.chosenMoveStyle):
+      //   'submitted' (default)   — solid arrow: the move actually sent to the
+      //                             game server (ground truth).
+      //   'recommendation-only'   — dashed grey arrow: no submitted_move was
+      //                             logged for this row, so the arrow shows the
+      //                             bot's recommendation only.
+      // options.secondaryMove — a thin dashed grey hint arrow for the bot's
+      // recommendation when it differs from the submitted move.
+      let arrowDashed = false;
+      let secondaryMove = null;
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
         arrowMove = chosenMove;
+        if (options?.chosenMoveStyle === "recommendation-only") {
+          arrowColor = "#9E9E9E";
+          arrowDashed = true;
+        }
+        secondaryMove = options?.secondaryMove || null;
       } else if (interactive && stagedForThisSnake) {
         arrowMove = stagedForThisSnake.move;
         arrowColor = stagedForThisSnake.color || "#4CAF50";
@@ -1074,60 +1089,80 @@ const BoardRenderer = (function () {
         if (shead) {
           const x = shead.x * cellSize;
           const y = (board.height - 1 - shead.y) * cellSize;
-          // Staged and committed arrows share the same color (grey for the
-          // bot, the controller's color for a human). The ONLY visual
-          // difference is the arrowhead count: a staged move draws a single
-          // chevron, a committed move a double chevron. Both lines are solid.
-          ctx.strokeStyle = arrowColor;
-          ctx.fillStyle = arrowColor;
-          ctx.lineWidth = Math.max(cellSize * 0.18, 6);
-          ctx.setLineDash([]);
           const centerX = x + cellSize / 2;
           const centerY = y + cellSize / 2;
           const arrowLen = cellSize * 1.2;
-          let endX = centerX;
-          let endY = centerY;
-          switch (arrowMove) {
-            case "up":
-              endY -= arrowLen;
-              break;
-            case "down":
-              endY += arrowLen;
-              break;
-            case "left":
-              endX -= arrowLen;
-              break;
-            case "right":
-              endX += arrowLen;
-              break;
-          }
-          ctx.beginPath();
-          ctx.moveTo(centerX, centerY);
-          ctx.lineTo(endX, endY);
-          ctx.stroke();
-          const angle = Math.atan2(endY - centerY, endX - centerX);
-          const headSize = Math.max(cellSize * 0.45, 18);
-          // Draw `count` chevrons stacked back along the shaft so a committed
-          // move reads as a clear double arrow (»).
-          const drawHead = (tipX, tipY) => {
-            ctx.beginPath();
-            ctx.moveTo(tipX, tipY);
-            ctx.lineTo(
-              tipX - headSize * Math.cos(angle - Math.PI / 6),
-              tipY - headSize * Math.sin(angle - Math.PI / 6),
-            );
-            ctx.lineTo(
-              tipX - headSize * Math.cos(angle + Math.PI / 6),
-              tipY - headSize * Math.sin(angle + Math.PI / 6),
-            );
-            ctx.closePath();
-            ctx.fill();
+          const endpointFor = (move) => {
+            let ex = centerX;
+            let ey = centerY;
+            switch (move) {
+              case "up":
+                ey -= arrowLen;
+                break;
+              case "down":
+                ey += arrowLen;
+                break;
+              case "left":
+                ex -= arrowLen;
+                break;
+              case "right":
+                ex += arrowLen;
+                break;
+            }
+            return { ex, ey };
           };
-          drawHead(endX, endY);
-          if (arrowCommitted) {
-            const back = headSize * 0.7;
-            drawHead(endX - back * Math.cos(angle), endY - back * Math.sin(angle));
+          const drawArrow = (move, color, lineWidth, dashed, headScale, chevrons) => {
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.setLineDash(dashed ? [lineWidth * 1.6, lineWidth * 1.4] : []);
+            const { ex, ey } = endpointFor(move);
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const angle = Math.atan2(ey - centerY, ex - centerX);
+            const headSize = Math.max(cellSize * 0.45, 18) * headScale;
+            const drawHead = (tipX, tipY) => {
+              ctx.beginPath();
+              ctx.moveTo(tipX, tipY);
+              ctx.lineTo(
+                tipX - headSize * Math.cos(angle - Math.PI / 6),
+                tipY - headSize * Math.sin(angle - Math.PI / 6),
+              );
+              ctx.lineTo(
+                tipX - headSize * Math.cos(angle + Math.PI / 6),
+                tipY - headSize * Math.sin(angle + Math.PI / 6),
+              );
+              ctx.closePath();
+              ctx.fill();
+            };
+            drawHead(ex, ey);
+            if (chevrons > 1) {
+              const back = headSize * 0.7;
+              drawHead(ex - back * Math.cos(angle), ey - back * Math.sin(angle));
+            }
+            return { ex, ey };
+          };
+
+          // Secondary bot-recommendation hint FIRST so the primary draws over it.
+          if (secondaryMove && secondaryMove !== arrowMove) {
+            drawArrow(secondaryMove, "#9E9E9E", Math.max(cellSize * 0.08, 3), true, 0.6, 1);
           }
+
+          // Staged and committed arrows share the same color (grey for the
+          // bot, the controller's color for a human). The ONLY visual
+          // difference is the arrowhead count: a staged move draws a single
+          // chevron, a committed move a double chevron.
+          const { ex: endX, ey: endY } = drawArrow(
+            arrowMove,
+            arrowColor,
+            Math.max(cellSize * 0.18, 6),
+            arrowDashed,
+            1,
+            arrowCommitted ? 2 : 1,
+          );
 
           // Fatal-move warning: the staged/committed move walks the head into
           // certain death (wall, own body, or a non-severable enemy). The move

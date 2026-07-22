@@ -104,7 +104,7 @@ describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
 
     // Turn 1 for A: previous-turn-cleanup commits A's turn-0 pending. Its staged
     // move is tagged turn 0, the pending it answers is turn 0 → match → used.
-    processMove(gameId, 'A', snakes, 1, 'down');
+    processMove(gameId, 'A', snakes, 1, 'left');
 
     expect(resA0.json).toHaveBeenCalledTimes(1);
     expect(resA0.json.mock.calls[0][0].move).toBe('right');
@@ -124,7 +124,7 @@ describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
 
     // A advances the shared board to turn 1. With the cross-snake refresh removed,
     // B's staged move must remain tagged for turn 0 (not repopulated for turn 1).
-    processMove(gameId, 'A', snakes, 1, 'down');
+    processMove(gameId, 'A', snakes, 1, 'left');
     expect(csB.staged?.turn).toBe(0);
 
     // B's own /move for turn 1 wipes then re-derives B's staged move for turn 1.
@@ -148,7 +148,7 @@ describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
 
     // A's /move for turn 1 advances the shared board while B's turn-0 pending is
     // still unresolved. B must be untouched.
-    processMove(gameId, 'A', snakes, 1, 'down');
+    processMove(gameId, 'A', snakes, 1, 'left');
     expect(csB.staged?.turn).toBe(0);
 
     // B's /move for turn 1: setPendingMove runs previous-turn-cleanup for B's
@@ -181,7 +181,7 @@ describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
 
     // A advances the shared board to turn 1. B must be completely untouched: still
     // manual, same staged move, still tagged turn 0 (no cross-snake revert/retag).
-    processMove(gameId, 'A', snakes, 1, 'down');
+    processMove(gameId, 'A', snakes, 1, 'left');
     expect(csB.intent.kind).toBe('manual');
     expect(csB.staged?.move).toBe('left');
     expect(csB.staged?.turn).toBe(0);
@@ -212,7 +212,7 @@ describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
     // Register both snakes on turn 0, then advance the shared board to turn 1 via A.
     processMove(gameId, 'A', snakes, 0, 'right');
     processMove(gameId, 'B', snakes, 0, 'left');
-    processMove(gameId, 'A', snakes, 1, 'down');
+    processMove(gameId, 'A', snakes, 1, 'left');
 
     // B's turn-1 /move: create the pending FIRST, then simulate the user staging a
     // manual move while the bot is still computing (setUserSelection runs before

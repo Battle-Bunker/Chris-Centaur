@@ -43,6 +43,7 @@ const USER_INTENT_TYPES = new Set([
   'release-all-holds',
   'suicide-all',
   'select-move',
+  'confirm-fatal-move',
   'set-premove',
   'set-nickname',
   'activity',
@@ -268,6 +269,21 @@ export class GameWebSocketServer {
       this.broadcastSelectionsUpdate(gameId);
     });
 
+    // Fatal-move consent gate: when the manager blocks an unconsented human
+    // certain-death move, prompt ONLY the controlling user to confirm it.
+    this.gameManager.onFatalConfirmationNeeded((gameId, snakeId, move, turn) => {
+      const game = this.gameManager.getGame(gameId);
+      const userId = game?.controlledSnakes.get(snakeId)?.selectedBy;
+      if (!userId) return;
+      this.sendToUser(gameId, userId, {
+        type: 'fatal-move-confirmation-needed',
+        gameId,
+        snakeId,
+        move,
+        turn,
+      });
+    });
+
     this.gameManager.onGameEnd((gameId, snakeId, finalGameState, gameOver) => {
       const finalSnakes = finalGameState.board?.snakes || [];
       const survived = finalSnakes.some(s => s.id === snakeId);
@@ -461,6 +477,22 @@ export class GameWebSocketServer {
             // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
             this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
           }
+        }
+        break;
+      }
+
+      case 'confirm-fatal-move': {
+        // The user accepted the fatal-move confirmation dialog. The manager
+        // re-validates fatality server-side and mints the consent brand there;
+        // this message is only the claim. Late confirmations (turn already
+        // committed) return false and are reported back.
+        const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
+        const snakeId = msg.snakeId;
+        if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
+          const staged = this.gameManager.confirmFatalMove(
+            client.gameId, snakeId, msg.move as Direction, client.userId
+          );
+          this.send(client.ws, { type: 'confirm-fatal-move-result', snakeId, move: msg.move, staged });
         }
         break;
       }

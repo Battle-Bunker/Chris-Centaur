@@ -501,6 +501,17 @@
     </div>
   </div>
 
+  <div class="confirm-dialog-overlay" id="fatalMoveDialog">
+    <div class="confirm-dialog">
+      <h3>⚠ Certain Death</h3>
+      <p id="fatalMoveDialogText">This move is certain death. Confirm it anyway?</p>
+      <div class="confirm-dialog-buttons">
+        <button class="confirm-btn" id="confirmFatalMoveBtn">Confirm (Enter)</button>
+        <button class="cancel-btn" id="cancelFatalMoveBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
@@ -811,6 +822,9 @@
           break;
 
         case 'board-update':
+          // A new turn makes a pending fatal-move confirmation stale: the old
+          // turn already committed (bot fallback), so silently drop the dialog.
+          hideFatalMoveDialog();
           // Snapshot the prior turn's board before overwriting so the renderer
           // can mark heads of snakes that vanished this turn. Only re-anchor the
           // snapshot when the turn actually advances (board-update can re-fire
@@ -949,6 +963,14 @@
           }
           break;
         }
+
+        case 'fatal-move-confirmation-needed':
+          // The server blocked our unconsented certain-death move and staged
+          // the bot's move instead. Ask the user to confirm; on confirm the
+          // server re-validates + stages the fatal move with consent. If the
+          // turn ends first, the dialog is stale and hides on board-update.
+          showFatalMoveDialog(msg.snakeId, msg.move, msg.turn);
+          break;
 
         case 'selections-update':
           selections = msg.selections || {};
@@ -1566,6 +1588,50 @@
       updateMoveControls();
       renderGameBoard();
     }
+
+    // ── Fatal-move confirmation dialog ──────────────────────────────────
+    // Shown when the server's consent gate blocked our certain-death move
+    // (manual / queue / waypoint step) and staged the bot's move instead.
+    // Enter or the Confirm button sends confirm-fatal-move (the server
+    // re-validates fatality and stages the move with consent); Escape,
+    // Cancel, or a click outside the dialog dismisses it — the bot fallback
+    // stays staged and commits at the deadline.
+    let fatalMovePrompt = null; // { snakeId, move, turn } | null
+
+    function showFatalMoveDialog(snakeId, move, turn) {
+      fatalMovePrompt = { snakeId, move, turn };
+      const text = document.getElementById('fatalMoveDialogText');
+      text.textContent =
+        `Moving ${String(move).toUpperCase()} is certain death for this snake. ` +
+        `Without confirmation, the bot's move commits instead at the deadline. ` +
+        `Press Enter to confirm the fatal move, or click outside to cancel.`;
+      document.getElementById('fatalMoveDialog').classList.add('active');
+    }
+
+    function hideFatalMoveDialog() {
+      fatalMovePrompt = null;
+      document.getElementById('fatalMoveDialog').classList.remove('active');
+    }
+
+    function confirmFatalMove() {
+      const prompt = fatalMovePrompt;
+      hideFatalMoveDialog();
+      if (!prompt) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'confirm-fatal-move',
+          snakeId: prompt.snakeId,
+          move: prompt.move,
+        }));
+      }
+    }
+
+    document.getElementById('confirmFatalMoveBtn').addEventListener('click', confirmFatalMove);
+    document.getElementById('cancelFatalMoveBtn').addEventListener('click', hideFatalMoveDialog);
+    // Click on the dimmed backdrop (outside the dialog box) cancels.
+    document.getElementById('fatalMoveDialog').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) hideFatalMoveDialog();
+    });
 
     function getBestBotMove() {
       if (!moveState) return null;
@@ -2187,6 +2253,17 @@
         return;
       }
 
+      if (document.getElementById('fatalMoveDialog').classList.contains('active')) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmFatalMove();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          hideFatalMoveDialog();
+        }
+        return;
+      }
+
       if (e.key === 'Enter') {
         // Commit every staged move now (benign "commit now"). The confirm/
         // takeover dialog branch above intercepts Enter and returns first, so
@@ -2770,9 +2847,19 @@
       // vanished this turn; lastMoves (on game_state) then marks their true
       // death cell. Both come from the same /api/logs data the live view uses.
       const prevTurn = historicIndex > 0 ? historicDecisions[historicIndex - 1] : null;
+      // The primary arrow shows the move that was actually SUBMITTED to the
+      // game server for this turn (ground truth). Rows without submitted_move
+      // (older logs / unresolved turns) fall back to the bot recommendation,
+      // rendered in a visually distinct "recommendation only" style. When the
+      // submitted move differs from the bot's recommendation, the bot's pick
+      // is drawn as a thin secondary hint so overrides are visible.
+      const submitted = turn.submitted_move || null;
+      const botRec = turn.bot_recommendation || null;
       BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
         snakeId: turn.snake_id,
-        chosenMove: turn.bot_recommendation,
+        chosenMove: submitted || botRec,
+        chosenMoveStyle: submitted ? 'submitted' : 'recommendation-only',
+        secondaryMove: submitted && botRec && submitted !== botRec ? botRec : null,
         showChosenArrow: true,
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildHistoricOurDeaths(turn),

@@ -38,9 +38,28 @@ interface PendingMove {
 
 export type IntendedMoveSource = 'manual' | 'queue' | 'waypoint' | 'bot' | 'fallback';
 
+// ── Fatal-move consent brand ────────────────────────────────────────────────
+// A branded value proving a HUMAN explicitly consented to staging a
+// certain-death move. There are exactly TWO mint points, both server-side and
+// both inside this module (the symbol and mint function are deliberately NOT
+// exported, so no other code path can forge consent):
+//   1. confirmFatalMove — the dialog-accept message handler's entry point,
+//      which re-validates fatality server-side before minting.
+//   2. The kill-all / armed-suicide path, which is deliberate death by design.
+// The brand rides on the manual intent, flows through computeIntendedMove into
+// stageMove (the single staged-move writer), which refuses to stage an
+// unconsented human certain-death move and falls back to the bot's move.
+declare const fatalConsentBrand: unique symbol;
+export type FatalMoveConsent = { readonly [fatalConsentBrand]: true };
+function mintFatalMoveConsent(): FatalMoveConsent {
+  return Object.freeze({}) as FatalMoveConsent;
+}
+
 export interface IntendedMove {
   direction: Direction;
   source: IntendedMoveSource;
+  // Present only when a manual intent carries fatal-move consent.
+  consent?: FatalMoveConsent;
 }
 
 // A controlled snake's resolved next move, bound as one atomic value to the
@@ -65,7 +84,7 @@ export interface StagedMove {
 //               'goto' carries a live `route`, blue 'near' leaves it empty
 export type SnakeIntent =
   | { kind: 'heuristic' }
-  | { kind: 'manual'; move: Direction }
+  | { kind: 'manual'; move: Direction; fatalConsent?: FatalMoveConsent }
   | { kind: 'queue'; cells: Coord[] }
   | { kind: 'waypoint'; style: 'green' | 'blue'; target: Coord; route: Coord[] };
 
@@ -100,6 +119,11 @@ export interface ControlledSnake {
   // (snakeId, turn). Written only by `stageMove`; the safety-timer commit and the
   // staged-arrow broadcast are pure reads. `null` until staged for the turn.
   staged: StagedMove | null;
+  // Dedupe for the fatal-move confirmation prompt: the (turn, move) we last
+  // asked the user to confirm, so repeated re-stages within the same turn
+  // don't spam the dialog.
+  fatalPromptTurn: number | null;
+  fatalPromptMove: Direction | null;
 }
 
 export interface ConnectedUser {
@@ -167,6 +191,9 @@ export type GameEndCallback = (gameId: string, snakeId: string, finalGameState: 
 // staged move / intent changed, so the WS layer can push the staged-arrow +
 // intent projections without each mutation site broadcasting explicitly.
 export type StagedChangeCallback = (gameId: string) => void;
+// Fired when a human-sourced staged move was blocked by the fatal-move consent
+// gate — the client should show the confirmation dialog for (snakeId, move).
+export type FatalConfirmationCallback = (gameId: string, snakeId: string, move: Direction, turn: number) => void;
 
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
@@ -177,6 +204,7 @@ export class ActiveGameManager {
   private gameListChangeCallbacks: GameListChangeCallback[] = [];
   private gameEndCallbacks: GameEndCallback[] = [];
   private stagedChangeCallbacks: StagedChangeCallback[] = [];
+  private fatalConfirmationCallbacks: FatalConfirmationCallback[] = [];
   // Games whose staged move changed since the last flush. Coalesced into one
   // notification per event-loop tick so a burst of stageMove calls within a
   // single operation broadcasts at most once.
@@ -220,6 +248,20 @@ export class ActiveGameManager {
 
   onStagedChange(callback: StagedChangeCallback): void {
     this.stagedChangeCallbacks.push(callback);
+  }
+
+  onFatalConfirmationNeeded(callback: FatalConfirmationCallback): void {
+    this.fatalConfirmationCallbacks.push(callback);
+  }
+
+  private notifyFatalConfirmationNeeded(gameId: string, snakeId: string, move: Direction, turn: number): void {
+    for (const cb of this.fatalConfirmationCallbacks) {
+      try {
+        cb(gameId, snakeId, move, turn);
+      } catch (e) {
+        console.error('Error in fatal confirmation callback:', e);
+      }
+    }
   }
 
   // Mark a game's staged move as changed. Coalesces a burst of stageMove calls
@@ -399,6 +441,8 @@ export class ActiveGameManager {
         suicideArmed: false,
         intent: { kind: 'heuristic' },
         staged: null,
+        fatalPromptTurn: null,
+        fatalPromptMove: null,
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
@@ -574,7 +618,11 @@ export class ActiveGameManager {
         const move = computeSuicideMove(controlled.pendingMove.turnData.gameState);
         console.log(`[ActiveGameManager] SUICIDE: immediately submitting ${move} for ${gameId}:${snakeId}`);
         controlled.suicideArmed = false;
-        this.resolvePendingMove(gameId, snakeId, move, 'suicide');
+        // Kill-all is the second fatal-consent mint point: stage the suicide
+        // move WITH consent so it flows through the single staged-move writer
+        // (and its gate) instead of bypassing it, then commit it immediately.
+        this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: mintFatalMoveConsent() });
+        this.resolvePendingMove(gameId, snakeId, controlled.staged?.move ?? move, 'suicide');
       }
     }
     if (affected.length > 0) {
@@ -1078,7 +1126,7 @@ export class ActiveGameManager {
     const intent = controlled?.intent;
 
     if (intent?.kind === 'manual') {
-      return { direction: intent.move, source: 'manual' };
+      return { direction: intent.move, source: 'manual', consent: intent.fatalConsent };
     }
 
     if (intent?.kind === 'queue') {
@@ -1133,7 +1181,41 @@ export class ActiveGameManager {
     if (controlled.intent.route.length === 0) return null;
     const anchor = this.getProjectedHead(gameId, snakeId);
     if (!anchor) return null;
-    return ActiveGameManager.directionFromTo(anchor, controlled.intent.route[0]);
+    const target = controlled.intent.route[0];
+    if (this.isStepBehindAnchor(gameId, snakeId, target)) {
+      console.warn(`[ActiveGameManager] Stale goto route for ${gameId}:${snakeId}: first cell (${target.x},${target.y}) is the just-vacated neck — refusing 180° reversal, falling back to bot`);
+      return null;
+    }
+    return ActiveGameManager.directionFromTo(anchor, target);
+  }
+
+  // The cell the snake occupied immediately BEFORE the anchor cell that queue
+  // and goto-route steps are measured from. Stepping onto this cell is by
+  // definition a 180° reversal into the snake's own just-vacated neck (certain
+  // death by the game rules), so it can never be a valid queue/route step —
+  // adjacency alone is NOT sufficient validity.
+  //  - No move committed this turn → anchor is the live head; behind = body[1].
+  //  - Move already committed      → anchor is the projected head; behind = live head.
+  private cellBehindAnchor(gameId: string, snakeId: string): Coord | null {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game?.boardState?.board?.snakes || !controlled) return null;
+    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!head) return null;
+    if (controlled.moveCommittedThisTurn && controlled.committedMove) {
+      return head;
+    }
+    const neck = snake?.body?.[1];
+    if (neck && (neck.x !== head.x || neck.y !== head.y)) {
+      return neck;
+    }
+    return null;
+  }
+
+  private isStepBehindAnchor(gameId: string, snakeId: string, target: Coord): boolean {
+    const behind = this.cellBehindAnchor(gameId, snakeId);
+    return !!behind && behind.x === target.x && behind.y === target.y;
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1166,17 +1248,74 @@ export class ActiveGameManager {
     if (!controlled) return;
     const previous = controlled.staged;
     const intended = this.computeIntendedMove(gameId, snakeId);
+    const turn = game!.boardStateTurn;
+
+    // ── Fatal-move consent gate ─────────────────────────────────────────
+    // A HUMAN-sourced certain-death move (manual click, queue step, waypoint
+    // step) may only be staged when it carries a minted FatalMoveConsent.
+    // Without consent we stage the bot's move instead and ask the client to
+    // show a confirmation dialog. Bot-sourced moves are exempt: when the bot
+    // itself picks a fatal move there is no better alternative to offer.
+    let direction = intended.direction;
+    let source = intended.source;
+    const humanSourced = source === 'manual' || source === 'queue' || source === 'waypoint';
+    if (humanSourced && !intended.consent && this.isMoveFatal(gameId, snakeId, direction)) {
+      const fallback = controlled.botRecommendation;
+      console.warn(`[ActiveGameManager] FATAL-MOVE GATE for ${gameId}:${snakeId} turn ${turn}: unconsented ${source} move ${direction} is certain death — staging ${fallback ? `bot move ${fallback}` : `fallback 'up'`} instead, awaiting confirmation`);
+      if (controlled.fatalPromptTurn !== turn || controlled.fatalPromptMove !== direction) {
+        controlled.fatalPromptTurn = turn;
+        controlled.fatalPromptMove = direction;
+        this.notifyFatalConfirmationNeeded(gameId, snakeId, direction, turn);
+      }
+      if (fallback) {
+        direction = fallback;
+        source = 'bot';
+      } else {
+        direction = 'up';
+        source = 'fallback';
+      }
+    }
+
     controlled.staged = {
       snakeId,
-      turn: game!.boardStateTurn,
-      move: intended.direction,
-      source: intended.source,
+      turn,
+      move: direction,
+      source,
     };
+    this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
     // Reactive sync: every stage (the single point all intent changes funnel
     // through) marks the game dirty so the staged arrow + intent projections
     // are pushed to clients, coalesced to once per event-loop tick.
     this.notifyStagedChange(gameId);
+  }
+
+  // Permanent tripwire: a staged move whose destination is the snake's own
+  // neck (the just-vacated cell) is a guaranteed 180° self-collision. This
+  // should now be impossible for human-sourced moves (consent gate + neck
+  // guards), so any hit is a bug worth a full state dump — or a deliberate
+  // kill-all. Log-only; never alters the staged move.
+  private logReversalTripwire(gameId: string, controlled: ControlledSnake, move: Direction, source: IntendedMoveSource): void {
+    const game = this.games.get(gameId);
+    const snake = game?.boardState?.board?.snakes?.find(s => s.id === controlled.id);
+    const head = snake?.head || snake?.body?.[0];
+    const neck = snake?.body?.[1];
+    if (!head || !neck || (neck.x === head.x && neck.y === head.y)) return;
+    const dest = ActiveGameManager.destinationOf(head, move);
+    if (dest.x !== neck.x || dest.y !== neck.y) return;
+    console.warn(`[ActiveGameManager] REVERSAL TRIPWIRE for ${gameId}:${controlled.id}: staged ${source} move ${move} steps onto own neck. State: ${JSON.stringify({
+      turn: game?.boardStateTurn,
+      move,
+      source,
+      head,
+      neck,
+      projectedHead: this.getProjectedHead(gameId, controlled.id),
+      moveCommittedThisTurn: controlled.moveCommittedThisTurn,
+      committedMove: controlled.committedMove,
+      intent: controlled.intent,
+      staged: controlled.staged,
+      suicideArmed: controlled.suicideArmed,
+    })}`);
   }
 
   // Surfaces the two previously-silent failure modes whenever a move is staged:
@@ -1266,7 +1405,15 @@ export class ActiveGameManager {
     if (!controlled || controlled.intent.kind !== 'queue' || controlled.intent.cells.length === 0) return null;
     const anchor = this.getProjectedHead(gameId, snakeId);
     if (!anchor) return null;
-    return ActiveGameManager.directionFromTo(anchor, controlled.intent.cells[0]);
+    const target = controlled.intent.cells[0];
+    // Adjacency alone is not validity: a retained queue cell can be the cell
+    // the snake just vacated (its neck), and deriving a direction onto it is a
+    // guaranteed 180° self-collision. Refuse it; the caller falls back to bot.
+    if (this.isStepBehindAnchor(gameId, snakeId, target)) {
+      console.warn(`[ActiveGameManager] Stale premove queue for ${gameId}:${snakeId}: first cell (${target.x},${target.y}) is the just-vacated neck — refusing 180° reversal, falling back to bot`);
+      return null;
+    }
+    return ActiveGameManager.directionFromTo(anchor, target);
   }
 
   // Called after every resolved move to keep the queue in lock-step with the
@@ -1313,6 +1460,13 @@ export class ActiveGameManager {
         console.log(`[ActiveGameManager] Premove queue advanced for ${gameId}:${snakeId}: ${headInfo}, ${cells.length} remaining`);
         this.stageMove(gameId, snakeId);
       }
+    } else if (liveHead && next.x === liveHead.x && next.y === liveHead.y) {
+      // The queue's next cell is the cell we are LEAVING this turn. Holding it
+      // would make next turn's derived direction a 180° reversal into our own
+      // just-vacated neck (this was the root cause of real reversal deaths).
+      // The plan points backwards → it is stale, not "one ambiguous turn".
+      console.log(`[ActiveGameManager] Premove queue points backwards for ${gameId}:${snakeId}: ${headInfo}, clearing`);
+      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
     } else if (ActiveGameManager.directionFromTo(projected, next) !== null) {
       // Still adjacent to the plan head — a single ambiguous turn the bot
       // covered. Hold the queue; it resumes next turn from the projected head.
@@ -1544,7 +1698,12 @@ export class ActiveGameManager {
       const suicideMove = computeSuicideMove(turnData.gameState);
       console.log(`[ActiveGameManager] SUICIDE: submitting ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
       controlled.suicideArmed = false;
-      this.resolvePendingMove(gameId, snakeId, suicideMove, 'suicide');
+      // Second fatal-consent mint point (kill-all): stage with consent so the
+      // deliberate death passes the staged-move writer's gate, then commit.
+      this.setIntent(gameId, snakeId, { kind: 'manual', move: suicideMove, fatalConsent: mintFatalMoveConsent() });
+      // setIntent re-staged synchronously; the cast defeats TS's stale
+      // narrowing from the `controlled.staged = null` above.
+      this.resolvePendingMove(gameId, snakeId, (controlled.staged as StagedMove | null)?.move ?? suicideMove, 'suicide');
     }
 
     if (boardUpdated) {
@@ -1566,6 +1725,31 @@ export class ActiveGameManager {
 
     this.setIntent(gameId, snakeId, { kind: 'manual', move });
     console.log(`[ActiveGameManager] User staged move for ${gameId}:${snakeId}: ${move} (intent: ${controlled.intent.kind}, turn ${game.currentTurn}, not yet committed)`);
+  }
+
+  // The dialog-accept entry point — the FIRST fatal-consent mint point. Called
+  // by the WS layer when the controlling user confirmed the fatal-move dialog.
+  // The client message carries only the claim; fatality is RE-validated here,
+  // server-side, before consent is minted, and the consented manual intent is
+  // set through the normal single-writer path (setIntent → stageMove). If the
+  // turn already ended (pending resolved/gone), the confirmation is too late
+  // and is dropped — the bot fallback already committed. Returns whether the
+  // move was staged.
+  confirmFatalMove(gameId: string, snakeId: string, move: Direction, userId: string): boolean {
+    const game = this.games.get(gameId);
+    if (!game) return false;
+    const controlled = game.controlledSnakes.get(snakeId);
+    if (!controlled) return false;
+    if (controlled.selectedBy !== userId) return false;
+    if (!controlled.pendingMove || controlled.pendingMove.resolved) {
+      console.log(`[ActiveGameManager] Fatal-move confirmation for ${gameId}:${snakeId} (${move}) arrived after the turn ended — ignored (bot fallback already committed)`);
+      return false;
+    }
+    const stillFatal = this.isMoveFatal(gameId, snakeId, move);
+    const consent = stillFatal ? mintFatalMoveConsent() : undefined;
+    console.log(`[ActiveGameManager] User CONFIRMED ${stillFatal ? 'fatal' : 'no-longer-fatal'} move ${move} for ${gameId}:${snakeId} — staging with${consent ? '' : 'out'} consent`);
+    this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: consent });
+    return true;
   }
 
   updateGameState(gameId: string, snakeId: string, gameState: GameState): void {
