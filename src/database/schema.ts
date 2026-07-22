@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   index,
+  boolean,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -33,6 +34,10 @@ export const decisionLogs = pgTable(
     safeMoves: text('safe_moves').array(),
     botRecommendation: varchar('bot_recommendation', { length: 10 }).notNull(),
     submittedMove: varchar('submitted_move', { length: 10 }),
+    // True when the submitted move went through the fatal-move consent
+    // confirmation (dialog confirm or kill-all). Null on rows logged before
+    // this column existed or before the move was back-filled.
+    fatalConsent: boolean('fatal_consent'),
     serverMove: varchar('server_move', { length: 10 }),
     moveEvaluations: jsonb('move_evaluations').notNull(),
     gameState: jsonb('game_state').notNull(),

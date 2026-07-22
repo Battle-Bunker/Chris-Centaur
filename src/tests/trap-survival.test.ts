@@ -300,6 +300,97 @@ describe('Trap survival', () => {
     });
   });
 
+  describe('per-segment disappear-turn eat accounting', () => {
+    // Regression tests for the off-by-one that made the red fatal marker
+    // misfire: the "could eat this turn" bump used to be applied uniformly to
+    // EVERY body segment, including the tail. Under grow-next-turn timing an
+    // eat at turn t only delays segments whose vacate turn is strictly greater
+    // than t — the tail (vacate turn 1) is never delayed by a turn-1 eat.
+    const body: Coord[] = [
+      { x: 5, y: 5 }, // head
+      { x: 5, y: 4 }, // second-to-last (vacates turn 2)
+      { x: 5, y: 3 }  // tail (vacates turn 1)
+    ];
+    const tail = body[2];
+    const secondToLast = body[1];
+
+    it('keeps the tail passable at turn 1 with food adjacent to the head (grow-next-turn)', () => {
+      const snake = makeSnake('our-snake', body, { health: 90 });
+      // Food one step from the head: the snake COULD eat this turn, but that
+      // eat lands the same turn the tail vacates, so the tail is NOT delayed.
+      const food: Coord[] = [{ x: 6, y: 5 }];
+      const gameState = makeGameState([snake], snake, food);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+
+      // Physical layer: tail free on arrival.
+      expect(graph.isPassableAtTurn(tail, 1)).toBe(true);
+      // Optimistic subject-relative layer (drives the fatal-move marker).
+      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
+      expect(optimistic.passable(tail, 1)).toBe(true);
+    });
+
+    it('delays the tail by a possible turn-1 eat under grow-same-turn', () => {
+      // grow-same-turn: eating on turn 1 grows immediately, so the tail does
+      // not move on the eating turn itself — a turn-1 eat DOES delay it.
+      const snake = makeSnake('our-snake', body, { health: 90 });
+      const food: Coord[] = [{ x: 6, y: 5 }];
+      const gameState = makeGameState([snake], snake, food);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-same-turn' });
+
+      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
+      expect(optimistic.passable(tail, 1)).toBe(false);
+      expect(optimistic.passable(tail, 2)).toBe(true);
+    });
+
+    it('delays the second-to-last segment by a possible turn-1 eat (grow-next-turn)', () => {
+      const snake = makeSnake('our-snake', body, { health: 90 });
+      const food: Coord[] = [{ x: 6, y: 5 }];
+      const gameState = makeGameState([snake], snake, food);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+
+      // Geometric vacate turn 2 > eat turn 1, so the eat pushes it to turn 3.
+      // (Physical layer only: a snake's OWN interior is never passable to
+      // itself in passabilityFor, by design.)
+      expect(graph.isPassableAtTurn(secondToLast, 2)).toBe(false);
+      expect(graph.isPassableAtTurn(secondToLast, 3)).toBe(true);
+    });
+
+    it('does not delay anything when no food is reachable', () => {
+      const snake = makeSnake('our-snake', body, { health: 90 });
+      const gameState = makeGameState([snake], snake);
+      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
+        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
+        const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
+        expect(optimistic.passable(tail, 1)).toBe(true);
+        expect(graph.isPassableAtTurn(secondToLast, 2)).toBe(true);
+      }
+    });
+
+    it('still blocks a just-ate tail at turn 1 in all layers and both timings', () => {
+      const snake = makeSnake('our-snake', body, { health: 100 });
+      const food: Coord[] = [{ x: 5, y: 5 }]; // head on food => just ate
+      const gameState = makeGameState([snake], snake, food);
+      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
+        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
+        expect(graph.isPassableAtTurn(tail, 1)).toBe(false);
+        const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
+        expect(optimistic.passable(tail, 1)).toBe(false);
+      }
+    });
+
+    it('keeps the conservative +1 buffer on top of the corrected physical timing', () => {
+      const snake = makeSnake('our-snake', body, { health: 90 });
+      const food: Coord[] = [{ x: 6, y: 5 }];
+      const gameState = makeGameState([snake], snake, food);
+      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+
+      const conservative = graph.passabilityFor('our-snake', { clearance: 'conservative' });
+      // Tail: physical vacate turn 1 (not delayed by the turn-1 eat) + 1 buffer.
+      expect(conservative.passable(tail, 1)).toBe(false);
+      expect(conservative.passable(tail, 2)).toBe(true);
+    });
+  });
+
   describe('consolidated snake-relative passability (clearance model)', () => {
     it('blocks own interior in all modes, allows own vacating tail, and gates enemy interior by clearance', () => {
       const ourBody: Coord[] = [

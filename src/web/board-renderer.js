@@ -1170,7 +1170,10 @@ const BoardRenderer = (function () {
           // mark the destination cell with a red ⃠ (no-entry circle + X) to warn
           // the human. We keep the arrow's source colour intact so the warning
           // is additive, not a replacement.
-          if (stagedForThisSnake && stagedForThisSnake.fatal) {
+          // options.fatalConsented (replay): this turn's submitted move went
+          // through the fatal-move confirmation dialog — flag it with the same
+          // red no-entry marker so a deliberate death is visible in review.
+          if ((stagedForThisSnake && stagedForThisSnake.fatal) || options?.fatalConsented) {
             let dcx = 0, dcy = 0;
             switch (arrowMove) {
               case "up": dcy = 1; break;

@@ -2864,6 +2864,7 @@
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: buildHistoricOurDeaths(turn),
         lastMoves: turn.game_state?.lastMoves || null,
+        fatalConsented: !!turn.fatal_consent,
         interactive: false,
       });
       BoardRenderer.createBoardOverlay(
@@ -2935,7 +2936,23 @@
       const snake = turn.game_state.board.snakes.find(s => s.id === turn.snake_id);
       const name = snake?.name || turn.snake_name || turn.snake_id;
       const emoji = snake?.emoji || '\u{1F40D}';
-      document.getElementById('selectedSnakeName').textContent = `${emoji} ${name} (history)`;
+      const nameEl = document.getElementById('selectedSnakeName');
+      nameEl.textContent = `${emoji} ${name} (history)`;
+      // Confirmed-fatal note: this turn's submitted move went through the
+      // fatal-move confirmation dialog (deliberate death, not a bot mistake).
+      let fatalNote = document.getElementById('fatalConsentNote');
+      if (turn.fatal_consent) {
+        if (!fatalNote) {
+          fatalNote = document.createElement('span');
+          fatalNote.id = 'fatalConsentNote';
+          fatalNote.style.cssText = 'color: #ff1744; font-size: 12px; font-weight: 700; border: 1px solid #ff1744; border-radius: 10px; padding: 2px 8px; margin-left: 8px;';
+          fatalNote.textContent = '\u26A0 FATAL MOVE CONFIRMED BY USER';
+          nameEl.after(fatalNote);
+        }
+        fatalNote.style.display = '';
+      } else if (fatalNote) {
+        fatalNote.style.display = 'none';
+      }
 
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = 'none';
@@ -2951,6 +2968,8 @@
     }
 
     function restoreLiveSelectionPanel() {
+      const fatalNote = document.getElementById('fatalConsentNote');
+      if (fatalNote) fatalNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = '';
       const submitSection = document.querySelector('#moveControls .submit-section');

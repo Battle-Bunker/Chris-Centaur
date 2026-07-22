@@ -52,3 +52,8 @@ shared `moveEvaluations` breakdown builder in `voronoi-strategy-new.ts` (feeds B
 logging via `logDecision` AND `getBestMoveWithDebug` — one object, two consumers), the
 console breakdown table, `config.html` slider + configKeys, and `board-renderer.js` (shared
 by history.html and play-game.html). Use `?? "—"` fallback for older logs missing the field.
+
+## Per-segment eat accounting (disappear turns)
+Rule: an eat at turn t only delays body segments whose vacate turn comes AFTER the eat lands — grow-next-turn: vacate > t; grow-same-turn: vacate >= t. Turn-0 justAte (head on food) delays everything.
+**Why:** a uniform "could eat this turn" +1 applied to every segment falsely blocked the tail (which vacates the same turn the eat lands), making the red fatal marker misfire when staging onto a vacating tail near food.
+**How to apply:** any future change to fillDisappearTurns or clearance timing must keep the per-segment delay predicate; own interior body stays never-passable to the subject in passabilityFor (test interior timing via the physical isPassableAtTurn layer, not passabilityFor).

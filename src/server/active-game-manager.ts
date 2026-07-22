@@ -72,6 +72,10 @@ export interface StagedMove {
   readonly turn: number;
   readonly move: Direction;
   readonly source: IntendedMoveSource;
+  // True when this move carried explicit fatal-move consent (the user confirmed
+  // the certain-death dialog, or used kill-all). Recorded onto the decision log
+  // at commit so replays can distinguish a deliberate death from a bot mistake.
+  readonly fatalConsented: boolean;
 }
 
 // A controlled snake's intention: ONE discriminated union, so two sources can
@@ -1081,8 +1085,28 @@ export class ActiveGameManager {
     const head = snake?.head || snake?.body?.[0];
     if (!head) return false;
     try {
-      const graph = new BoardGraph(game.boardState);
       const dest = ActiveGameManager.destinationOf(head, move);
+
+      // Own-tail refinement: if the staged move steps onto our OWN tail and
+      // that cell has no food, then by definition we are NOT eating this turn,
+      // so no speculative "could eat" may keep the tail in place. The tail
+      // vacates unless the snake just ate (head already on food) — or, under
+      // grow-next-turn, the body is too short for the tail to move. The tail
+      // cell must be uniquely the tail (not stacked under an interior segment
+      // from a just-completed growth) for this shortcut to apply.
+      const body = snake?.body || [];
+      const tail = body[body.length - 1];
+      const isOwnTail = !!tail && dest.x === tail.x && dest.y === tail.y && body.length > 2;
+      const tailStacked = isOwnTail &&
+        body.slice(1, -1).some(seg => seg.x === tail.x && seg.y === tail.y);
+      const food = game.boardState.board.food || [];
+      const destHasFood = food.some(f => f.x === dest.x && f.y === dest.y);
+      if (isOwnTail && !tailStacked && !destHasFood) {
+        const justAte = food.some(f => f.x === head.x && f.y === head.y);
+        return justAte;
+      }
+
+      const graph = new BoardGraph(game.boardState);
       return !graph.passabilityFor(snakeId, { clearance: 'optimistic' }).passable(dest, 1);
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
@@ -1281,6 +1305,9 @@ export class ActiveGameManager {
       turn,
       move: direction,
       source,
+      // Consent only counts when the consented move is the one actually staged
+      // (the gate above may have replaced it with the bot fallback).
+      fatalConsented: !!intended.consent && direction === intended.direction,
     };
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
@@ -1820,7 +1847,12 @@ export class ActiveGameManager {
     // move was committed for board turn `pending.turn`, whose decision was logged
     // with decision_logs.turn = pending.turn + 1 (the logger records the turn the
     // move executes INTO), so that +1 is the update key.
-    DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, pending.turn + 1, move);
+    // The consent flag counts only when the staged record is bound to this exact
+    // turn and the committed move matches it (otherwise it's a bot/fallback move).
+    const staged = controlled.staged;
+    const fatalConsented = !!staged && staged.snakeId === snakeId &&
+      staged.turn === pending.turn && staged.move === move && staged.fatalConsented;
+    DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, pending.turn + 1, move, fatalConsented);
 
     // Re-anchor the green goto route at the cell we'll occupy after this
     // committed move, so the rendered path — and next turn's first step —

@@ -132,6 +132,8 @@ interface MoveUpdate {
   turn: number;
   column: 'submitted_move' | 'server_move';
   move: Direction;
+  // Only for submitted_move: whether the move carried fatal-move consent.
+  fatalConsent?: boolean;
   retries: number;
 }
 
@@ -221,10 +223,10 @@ export class DecisionLogger {
   // turn. Called from the commit path (resolvePendingMove). `turn` must be the
   // decision_logs.turn of the target row: a move committed for board turn N was
   // logged with decision_logs.turn = N+1, so callers pass boardTurn + 1.
-  public recordSubmittedMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
+  public recordSubmittedMove(gameId: string, snakeId: string, turn: number, move: Direction, fatalConsent: boolean = false): void {
     this.queue.push({
       kind: 'moveUpdate',
-      update: { gameId, snakeId, turn, column: 'submitted_move', move, retries: 0 },
+      update: { gameId, snakeId, turn, column: 'submitted_move', move, fatalConsent, retries: 0 },
     });
     this.signalWakeup();
   }
@@ -305,9 +307,18 @@ export class DecisionLogger {
     // (game, snake, turn). No-op (zero rows) if the row doesn't exist — e.g. an
     // enemy snake we never logged, or turn 0 (which is answered without a strategy
     // decision, so it's never logged).
-    const column = update.column === 'submitted_move' ? sql`submitted_move` : sql`server_move`;
+    if (update.column === 'submitted_move') {
+      await db.execute(sql`
+        UPDATE decision_logs
+        SET submitted_move = ${update.move}, fatal_consent = ${update.fatalConsent ?? false}
+        WHERE game_id = ${update.gameId}
+          AND snake_id = ${update.snakeId}
+          AND turn = ${update.turn}
+      `);
+      return;
+    }
     await db.execute(sql`
-      UPDATE decision_logs SET ${column} = ${update.move}
+      UPDATE decision_logs SET server_move = ${update.move}
       WHERE game_id = ${update.gameId}
         AND snake_id = ${update.snakeId}
         AND turn = ${update.turn}
@@ -405,6 +416,7 @@ export class DecisionLogger {
           safe_moves: decisionLogs.safeMoves,
           bot_recommendation: decisionLogs.botRecommendation,
           submitted_move: decisionLogs.submittedMove,
+          fatal_consent: decisionLogs.fatalConsent,
           server_move: decisionLogs.serverMove,
           move_evaluations: decisionLogs.moveEvaluations,
           game_state: decisionLogs.gameState,

@@ -284,12 +284,22 @@ export class BoardGraph {
 
   /**
    * Fill each segment's optimistic + conservative disappear turns from the
-   * pure-geometry base (turnsFromTail) and the owner's food reach:
-   *  - optimistic  = base + (canEatThisTurn ? 1 : 0). Only the single eat we can
-   *    confirm this turn (a food cell reachable in one step) is granted.
-   *  - physical    = base + potentialFoodEaten. The true vacate turn (geometry +
-   *    every food the owner could reach in time to still be growing when we
-   *    arrive), with NO safety buffer. Used by the subject-agnostic Voronoi layer.
+   * pure-geometry base (turnsFromTail) and the owner's food reach.
+   *
+   * Eat accounting is PER SEGMENT: an eat at turn t only delays segments whose
+   * (current, already-delayed) vacate turn comes after the eat takes effect.
+   * Under 'grow-next-turn' timing an eat at turn t delays only segments whose
+   * vacate turn is STRICTLY greater than t (the tail vacating at turn t itself
+   * has already moved when the eat lands). Under 'grow-same-turn' the tail
+   * stays put on the eating turn itself, so an eat at turn t delays segments
+   * whose vacate turn is >= t. Turn-0 "eats" (head already on food — justAte)
+   * delay everything, matching the static-layer blocked tail.
+   *
+   *  - optimistic  = base + only the eats we can CONFIRM: turn 0 (head on
+   *    food) and turn 1 (food one step away), applied per segment.
+   *  - physical    = base + every food the owner could reach in time to still
+   *    be growing when the segment would vacate, applied per segment with NO
+   *    safety buffer. Used by the subject-agnostic Voronoi layer.
    *  - conservative = physical + 1. The physical vacate turn plus a one-turn
    *    safety buffer; this is what pessimistic survival reasoning banks on.
    */
@@ -297,8 +307,28 @@ export class BoardGraph {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
       const foodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
-      // Can this snake move onto a food cell in a single move this turn?
+
+      // Does an eat at turn t delay a segment currently vacating at `vacate`?
+      const eatDelays = (vacate: number, t: number): boolean =>
+        this.config.tailGrowthTiming === 'grow-same-turn' ? vacate >= t : vacate > t;
+
+      // Apply eats (count per turn) to a segment's base vacate turn.
+      const applyEats = (base: number, eatsAtTurn: (t: number) => number, maxTurn: number): number => {
+        let vacate = base;
+        for (let t = 0; t <= maxTurn; t++) {
+          const eats = eatsAtTurn(t);
+          if (eats > 0 && eatDelays(vacate, t)) vacate += eats;
+        }
+        return vacate;
+      };
+
+      // Confirmed eats only: turn 0 = head already on food (justAte); turn 1 =
+      // a food cell reachable in a single move this turn.
+      const justAte = (foodByTurn[0] ?? 0) > 0 ? 1 : 0;
       const canEatThisTurn = (foodByTurn[1] ?? 0) > 0 ? 1 : 0;
+      const confirmedEats = (t: number): number =>
+        t === 0 ? justAte : t === 1 ? Math.min(canEatThisTurn, 1) : 0;
+      const potentialEats = (t: number): number => foodByTurn[t] ?? 0;
 
       for (let i = 1; i < snake.body.length; i++) {
         const key = this.coordToKey(snake.body[i]);
@@ -308,15 +338,13 @@ export class BoardGraph {
 
         const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
 
-        seg.optimisticDisappearTurn = base + canEatThisTurn;
+        seg.optimisticDisappearTurn = applyEats(base, confirmedEats, 1);
 
-        let potentialFoodEaten = 0;
         if (base <= this.config.maxLookaheadTurns) {
-          for (let t = 0; t <= base && t < foodByTurn.length; t++) {
-            potentialFoodEaten += foodByTurn[t];
-          }
+          seg.physicalDisappearTurn = applyEats(base, potentialEats, foodByTurn.length - 1);
+        } else {
+          seg.physicalDisappearTurn = base;
         }
-        seg.physicalDisappearTurn = base + potentialFoodEaten;
         seg.conservativeDisappearTurn = seg.physicalDisappearTurn + 1;
       }
     }
