@@ -622,6 +622,7 @@
     let scrubLoadToken = 0;           // latest-wins token for async historic loads
     let scrubRenderPending = false;   // rAF coalescing flag for live drag rendering
     let scrubRenderTurn = 0;          // latest dragged turn awaiting a preview frame
+    let snakeInfoRenderedTurn = -1;   // data turn the side snake list currently shows
     // Which control owns the arrow keys while viewing history ("active element"
     // principle): the last thing the user interacted with. Touching the scrub
     // bar → arrows scrub turns; selecting a snake or a candidate move → arrows
@@ -2878,13 +2879,21 @@
       document.getElementById('firstMoveIndicator').style.display = 'none';
 
       renderHistoricBoard();
+      // The snake list (alive/dead roster, lengths) must track the displayed
+      // turn even DURING a drag — a snake's death has to grey it out live as
+      // the user scrubs, not only on release. It's cheap enough to rebuild
+      // whenever the rendered data turn changes; only the heavier evaluation
+      // side panel waits for commit/release.
+      if (!lightweight || snakeInfoRenderedTurn !== renderedTurn) {
+        snakeInfoRenderedTurn = renderedTurn;
+        BoardRenderer.renderSnakeInfo(
+          document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(), null,
+          { groupByTeam: true, onSelectSnake: switchHistoricSnake,
+            selectableSnakeIds: historicSelectableIds(),
+            deadSnakes: deadSnakesFor(boardRow.game_state) }
+        );
+      }
       if (lightweight) return;
-      BoardRenderer.renderSnakeInfo(
-        document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(), null,
-        { groupByTeam: true, onSelectSnake: switchHistoricSnake,
-          selectableSnakeIds: historicSelectableIds(),
-          deadSnakes: deadSnakesFor(boardRow.game_state) }
-      );
       if (evalRow) showHistoricSelectionPanel(evalRow);
       else showHistoricNoDataPanel();
     }
