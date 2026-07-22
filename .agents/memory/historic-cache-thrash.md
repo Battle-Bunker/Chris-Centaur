@@ -11,6 +11,8 @@ Per-snake `/api/logs` payloads are large (~1-2MB each: full game_state + move_ev
 
 **How to apply:**
 - Reuse a cached snake entry unless the caller needs a turn beyond its cached `maxTurn` **and** more turns have since been logged (`!finishedMode && targetTurn > entry.maxTurn && entry.maxTurn < liveMaxTurn`). Finished games never refetch.
+- A DEAD snake's log never grows either: mark its cache entry `complete` (snake absent from the live board past its last logged turn) or the "growing tail" condition stays true forever and every scrub tick past its death re-fetches the 2MB log.
+- Board state while scrubbing must be resolvable from ANY cached team log (best row ≤ target turn across caches), never only the inspected snake's — otherwise a dead inspected snake freezes the board at its death turn.
 - Coalesce on-demand loads and background prefetch through ONE in-flight promise map (`historicInflight`) so a click rides an existing prefetch instead of starting a second 2MB request.
 - Live-turn handlers should only grow `liveMaxTurn` (for slider range); they must NOT invalidate cached old turns.
 

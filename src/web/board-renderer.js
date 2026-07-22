@@ -1413,6 +1413,7 @@ const BoardRenderer = (function () {
   // perspective). Without opts it renders the plain play-page row.
   function renderSnakeInfoItem(snake, ourSnakeId, holdsMap, opts, currentTurn) {
     const isOurSnake = snake.id === ourSnakeId;
+    const isDead = !!(opts && opts.dead);
     const snakeColor = snake.customizations?.color || snake.color || "#888888";
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
@@ -1440,14 +1441,20 @@ const BoardRenderer = (function () {
       "snake-info-item" +
       (selectable ? " selectable" : "") +
       (active ? " active-perspective" : "");
-    const clickAttr = selectable
-      ? ` data-select-snake="${snake.id}" style="cursor:pointer;"`
+    const styleParts = [];
+    if (selectable) styleParts.push("cursor:pointer;");
+    if (isDead) styleParts.push("opacity:0.45;filter:grayscale(0.6);");
+    const clickAttr =
+      (selectable ? ` data-select-snake="${snake.id}"` : "") +
+      (styleParts.length ? ` style="${styleParts.join("")}"` : "");
+    const deadSuffix = isDead
+      ? ' <span style="color:#aaa;font-weight:400;">(dead)</span>'
       : "";
     return `
         <div class="${itemClass}"${clickAttr}>
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
           <div class="snake-details">
-            <div class="snake-name">${emojiDisplay} ${snake.name}${isOurSnake ? " (You)" : ""}</div>
+            <div class="snake-name">${emojiDisplay} ${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
             <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
               <span>\u{1F4CF} ${snake.body.length}</span>
@@ -1472,17 +1479,30 @@ const BoardRenderer = (function () {
     const holdsMap = holds || {};
     const snakes = gameState.board.snakes;
     const currentTurn = gameState.turn;
+    // Dead snakes (options.deadSnakes) are appended to their team groups so the
+    // roster always shows every snake ever seen, greyed out with final length.
+    const boardIds = new Set(snakes.map((s) => s.id));
+    const deadSnakes = ((options && options.deadSnakes) || []).filter(
+      (s) => !boardIds.has(s.id),
+    );
+    const deadIds = new Set(deadSnakes.map((s) => s.id));
+    const allSnakes = snakes.concat(deadSnakes);
 
     if (!options || !options.groupByTeam) {
-      container.innerHTML = snakes
-        .map((snake) => renderSnakeInfoItem(snake, ourSnakeId, holdsMap, null, currentTurn))
+      container.innerHTML = allSnakes
+        .map((snake) =>
+          renderSnakeInfoItem(
+            snake, ourSnakeId, holdsMap,
+            deadIds.has(snake.id) ? { dead: true } : null, currentTurn,
+          ),
+        )
         .join("");
       return;
     }
 
     // Group snakes by team key.
     const teams = new Map();
-    for (const snake of snakes) {
+    for (const snake of allSnakes) {
       const key = getTeamKey(snake);
       if (!teams.has(key)) teams.set(key, []);
       teams.get(key).push(snake);
@@ -1493,8 +1513,8 @@ const BoardRenderer = (function () {
     // Identify our team even when there is no perspective snake set (e.g. live
     // play with nothing selected yet) by falling back to any selectable snake.
     const ourSnake =
-      snakes.find((s) => s.id === ourSnakeId) ||
-      (selectableIds ? snakes.find((s) => selectableIds.has(s.id)) : null);
+      allSnakes.find((s) => s.id === ourSnakeId) ||
+      (selectableIds ? allSnakes.find((s) => selectableIds.has(s.id)) : null);
     const ourTeamKey = ourSnake ? getTeamKey(ourSnake) : null;
 
     // Our team first, then enemy teams.
@@ -1523,8 +1543,9 @@ const BoardRenderer = (function () {
               selectable:
                 canSelect &&
                 isOurTeam &&
-                (selectableIds ? selectableIds.has(snake.id) : true),
+                (selectableIds ? selectableIds.has(snake.id) : !deadIds.has(snake.id)),
               active: snake.id === ourSnakeId,
+              dead: deadIds.has(snake.id),
             }, currentTurn),
           )
           .join("");

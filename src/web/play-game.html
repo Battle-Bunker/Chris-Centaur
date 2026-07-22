@@ -607,7 +607,17 @@
     let historicIndex = 0;            // current decision index being viewed
     let historicTurnNumber = 0;       // current turn number being viewed
     let historicMoveState = null;     // moveState for the historic board/breakdown
+    // What renderHistoricAtTurn resolved for the currently displayed turn:
+    // boardRow drives the board (may come from ANY cached team log), prevRow is
+    // the row before it in the SAME log (for death-marker detection), ownRow is
+    // the inspected snake's decision at that turn (null after its death).
+    let historicRenderCtx = null;
     const historicInflight = new Map(); // snakeId → in-flight fetch promise (dedupe)
+    // Every snake ever observed in this game (live updates or logged turns):
+    // id → { snake, turn } at its latest known appearance. Drives the
+    // full-roster team list so dead snakes stay visible (greyed out) with
+    // their final length.
+    const snakeLastSeen = new Map();
     let isScrubbing = false;          // true while the user is touching the slider
     let scrubLoadToken = 0;           // latest-wins token for async historic loads
     let scrubRenderPending = false;   // rAF coalescing flag for live drag rendering
@@ -1452,12 +1462,37 @@
       }
     }
 
+    // Record every snake present in a game state so the roster remembers dead
+    // snakes (with their final length) after the board drops them.
+    function recordSnakesSeen(gameState) {
+      if (!gameState || !gameState.board || !gameState.board.snakes) return;
+      const t = gameState.turn ?? 0;
+      for (const s of gameState.board.snakes) {
+        const prev = snakeLastSeen.get(s.id);
+        if (!prev || t >= prev.turn) snakeLastSeen.set(s.id, { snake: s, turn: t });
+      }
+    }
+
+    // Snakes known to this game but absent from the given board state — i.e.
+    // dead as of that turn. Returns their last-known snake objects.
+    function deadSnakesFor(gameState) {
+      if (!gameState || !gameState.board || !gameState.board.snakes) return [];
+      const alive = new Set(gameState.board.snakes.map((s) => s.id));
+      const dead = [];
+      for (const rec of snakeLastSeen.values()) {
+        if (!alive.has(rec.snake.id)) dead.push(rec.snake);
+      }
+      return dead;
+    }
+
     function renderSnakeInfo() {
       if (!currentGameState) return;
+      recordSnakesSeen(currentGameState);
       if (viewMode === 'historic') return;
       BoardRenderer.renderSnakeInfo(
         document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId, holds,
-        { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds }
+        { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds,
+          deadSnakes: deadSnakesFor(currentGameState) }
       );
     }
 
@@ -2366,10 +2401,9 @@
           historyLoggedSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
           // Refresh the panel/board so newly-selectable snakes get their
           // clickable affordance, and warm their decision caches.
-          if (viewMode === 'historic' && !finishedMode &&
-              historicDecisions && historicDecisions[historicIndex]) {
+          if (viewMode === 'historic' && !finishedMode && historicDecisions) {
             prefetchHistoricTeam();
-            renderHistoricTurn(historicIndex);
+            renderHistoricAtTurn(historicTurnNumber);
           }
         })
         .catch((err) => {
@@ -2408,7 +2442,8 @@
           !finishedMode &&
           targetTurn != null &&
           targetTurn > entry.maxTurn &&
-          entry.maxTurn < liveMaxTurn;
+          entry.maxTurn < liveMaxTurn &&
+          !snakeLogIsFinal(snakeId, entry);
         if (!needsNewerTail) return Promise.resolve(entry);
       }
       let p = historicInflight.get(snakeId);
@@ -2419,6 +2454,24 @@
         historicInflight.set(snakeId, p);
       }
       return p;
+    }
+
+    // A snake's log is FINAL (will never grow) once the game is over or the
+    // snake is dead. Without this, scrubbing past a dead snake's death turn in
+    // a live game re-fetches its ~2MB log on every tick forever, because the
+    // "growing tail" condition (targetTurn > maxTurn < liveMaxTurn) stays true.
+    function snakeLogIsFinal(snakeId, entry) {
+      if (entry.complete) return true;
+      if (finishedMode || gameEnded) { entry.complete = true; return true; }
+      // Dead: the live board has moved past the log's last turn and the snake
+      // is no longer on it.
+      if (currentGameState && currentGameState.board &&
+          (currentGameState.turn ?? 0) > entry.maxTurn &&
+          !currentGameState.board.snakes.some((s) => s.id === snakeId)) {
+        entry.complete = true;
+        return true;
+      }
+      return false;
     }
 
     async function ensureHistoricDecisions(targetTurn) {
@@ -2457,6 +2510,9 @@
         const t = d.game_state?.turn ?? d.turn;
         turnToIndex[t] = i;
         if (t > maxTurn) maxTurn = t;
+        // Feed the roster registry so since-dead snakes (ours and enemies)
+        // stay listed with their final length.
+        recordSnakesSeen(d.game_state);
       });
       return { decisions, turnToIndex, maxTurn };
     }
@@ -2467,7 +2523,15 @@
     function prefetchHistoricTeam() {
       for (const sid of historicSelectableIds()) {
         if (historicCache.has(sid) || historicInflight.has(sid)) continue;
-        loadSnakeDecisions(sid, null).catch(() => {});
+        // When a teammate's log lands while we're viewing history, re-render:
+        // it may extend the board coverage past the inspected snake's death.
+        loadSnakeDecisions(sid, null)
+          .then(() => {
+            if (viewMode === 'historic' && !isScrubbing) {
+              renderHistoricAtTurn(historicTurnNumber);
+            }
+          })
+          .catch(() => {});
       }
     }
 
@@ -2480,9 +2544,7 @@
       historicKeyFocus = 'candidates';
       const sliderEl = document.getElementById('playTurnSlider');
       if (sliderEl && document.activeElement === sliderEl) sliderEl.blur();
-      const currentView = historicDecisions && historicDecisions[historicIndex]
-        && historicDecisions[historicIndex].snake_id;
-      if (snakeId === currentView) return;
+      if (snakeId === getHistoricSnakeId()) return;
       historicSnakeId = snakeId;
       const turnToShow = historicTurnNumber;
       const ok = await ensureHistoricDecisions(turnToShow);
@@ -2490,8 +2552,21 @@
         showBannerNotice('No history recorded for that snake');
         return;
       }
-      renderHistoricTurn(decisionIndexForTurn(turnToShow));
+      renderHistoricAtTurn(turnToShow);
       updateTurnControls();
+    }
+
+    // Index of the last decision at or before turnNumber within one cache
+    // entry, or -1 when the entry has nothing at/before that turn.
+    function indexForTurnInEntry(entry, turnNumber) {
+      if (!entry || !entry.decisions || entry.decisions.length === 0) return -1;
+      if (entry.turnToIndex[turnNumber] != null) return entry.turnToIndex[turnNumber];
+      let best = -1;
+      for (let i = 0; i < entry.decisions.length; i++) {
+        const t = entry.decisions[i].game_state?.turn ?? entry.decisions[i].turn;
+        if (t <= turnNumber) best = i; else break;
+      }
+      return best;
     }
 
     // Map a desired turn number to the nearest logged decision index at or
@@ -2505,6 +2580,27 @@
         if (t <= turnNumber) best = i; else break;
       }
       return best === -1 ? 0 : best;
+    }
+
+    // Board state for a scrubbed turn can come from ANY cached team log, not
+    // just the inspected snake's — so the inspected snake dying never freezes
+    // the board. Returns the row with the highest game_state.turn <= target
+    // across all cached selectable snakes (plus the prior row in the same log,
+    // for death-marker detection), or null when nothing covers it.
+    function resolveBoardRow(turnNumber) {
+      let best = null;
+      for (const sid of historicSelectableIds()) {
+        const entry = historicCache.get(sid);
+        if (!entry) continue;
+        const i = indexForTurnInEntry(entry, turnNumber);
+        if (i < 0) continue;
+        const row = entry.decisions[i];
+        const t = row.game_state?.turn ?? row.turn;
+        if (!best || t > best.turn) {
+          best = { row, prevRow: i > 0 ? entry.decisions[i - 1] : null, turn: t };
+        }
+      }
+      return best;
     }
 
     // Strip every live-only affordance from the page. Used for finished games,
@@ -2603,8 +2699,7 @@
       if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
       const timerEl = document.getElementById('timerDisplay');
       if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }
-      const idx = decisionIndexForTurn(historicTurnNumber);
-      renderHistoricTurn(idx);
+      renderHistoricAtTurn(historicTurnNumber);
       updateTurnControls();
     }
 
@@ -2737,37 +2832,61 @@
 
     // Mirrors the Game History viewer's per-turn render: same BoardRenderer
     // entry points, same decision-log data shape, just with interactivity off.
-    function renderHistoricTurn(idx, opts) {
-      const turn = historicDecisions && historicDecisions[idx];
-      if (!turn || !turn.game_state) return;
+    // The BOARD is resolved from the best cached team log covering the turn
+    // (so the inspected snake dying never freezes scrubbing); the inspected
+    // snake's own log drives only its evaluation breakdown, which degrades to
+    // an explicit "no data" panel for turns after its death.
+    function renderHistoricAtTurn(turnNumber, opts) {
       // During a continuous drag we render the board (canvas + overlay) every
       // frame but skip the heavier side-panel DOM rebuild; the full render runs
       // once on commit/release.
       const lightweight = !!(opts && opts.lightweight);
-      historicIndex = idx;
+      const idx = decisionIndexForTurn(turnNumber);
+      const ownRow = (historicDecisions && idx >= 0) ? historicDecisions[idx] : null;
+      const ownTurn = ownRow ? (ownRow.game_state?.turn ?? ownRow.turn) : -1;
+      const best = resolveBoardRow(turnNumber);
+      let boardRow = ownRow;
+      let prevRow = (historicDecisions && idx > 0) ? historicDecisions[idx - 1] : null;
+      if (best && (!ownRow || best.turn > ownTurn)) {
+        boardRow = best.row;
+        prevRow = best.prevRow;
+      }
+      if (!boardRow || !boardRow.game_state) return;
+      historicIndex = idx >= 0 ? idx : 0;
       // The rendered (data) turn may differ from the user-selected turn when logs
       // are sparse. Keep historicTurnNumber (the slider/value domain) untouched;
       // only the "Turn:" header reflects the actual data turn on screen.
-      const renderedTurn = turn.game_state?.turn ?? turn.turn;
+      const renderedTurn = boardRow.game_state?.turn ?? boardRow.turn;
+      // The inspected snake's evaluation applies only when its own log covers
+      // the rendered turn (i.e. it was still alive and logging there).
+      const evalRow = (ownRow && ownTurn === renderedTurn) ? ownRow : null;
 
-      const head = turn.game_state.you?.head
-        || turn.game_state.board.snakes.find(s => s.id === turn.snake_id)?.body[0];
-      historicMoveState = BoardRenderer.processMoveEvaluations(
-        turn.move_evaluations, turn.safe_moves, head, turn.bot_recommendation
-      );
-      historicMoveState.selectedMove = null;
-      historicMoveState.selectedSnake = null;
+      if (evalRow) {
+        const head = evalRow.game_state.you?.head
+          || evalRow.game_state.board.snakes.find(s => s.id === evalRow.snake_id)?.body[0];
+        historicMoveState = BoardRenderer.processMoveEvaluations(
+          evalRow.move_evaluations, evalRow.safe_moves, head, evalRow.bot_recommendation
+        );
+        historicMoveState.selectedMove = null;
+        historicMoveState.selectedSnake = null;
+      } else {
+        historicMoveState = null;
+      }
+      historicRenderCtx = { boardRow, prevRow, ownRow: evalRow };
 
       document.getElementById('currentTurn').textContent = renderedTurn;
       document.getElementById('firstMoveIndicator').style.display = 'none';
 
-      renderHistoricBoard(turn);
+      renderHistoricBoard();
       if (lightweight) return;
       BoardRenderer.renderSnakeInfo(
-        document.getElementById('snakeInfoList'), turn.game_state, turn.snake_id, null,
-        { groupByTeam: true, onSelectSnake: switchHistoricSnake, selectableSnakeIds: historicSelectableIds() }
+        document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(), null,
+        { groupByTeam: true, onSelectSnake: switchHistoricSnake,
+          selectableSnakeIds: historicSelectableIds(),
+          deadSnakes: deadSnakesFor(boardRow.game_state) }
       );
-      showHistoricSelectionPanel(turn);
+      if (evalRow) showHistoricSelectionPanel(evalRow);
+      else showHistoricNoDataPanel();
     }
 
     // ── Live drag rendering ──────────────────────────────────────────────────
@@ -2799,8 +2918,7 @@
       // Suppress live repaints while previewing so an incoming live turn can't
       // overwrite the frame the user is scrubbing to.
       viewMode = 'historic';
-      const idx = decisionIndexForTurn(target);
-      if (idx >= 0) renderHistoricTurn(idx, { lightweight: true });
+      renderHistoricAtTurn(target, { lightweight: true });
     }
 
     // Warm the inspected snake's logs the instant the pointer lands so the first
@@ -2841,36 +2959,46 @@
       }];
     }
 
-    function renderHistoricBoard(turn) {
+    function renderHistoricBoard() {
+      const ctx = historicRenderCtx;
+      if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
       const canvas = document.getElementById('gameCanvas');
-      // The prior logged turn's board lets the renderer detect snakes that
-      // vanished this turn; lastMoves (on game_state) then marks their true
-      // death cell. Both come from the same /api/logs data the live view uses.
-      const prevTurn = historicIndex > 0 ? historicDecisions[historicIndex - 1] : null;
+      const turn = ctx.boardRow;
+      const own = ctx.ownRow; // inspected snake's decision, null after its death
+      // The prior logged turn's board (from the SAME log the board row came
+      // from) lets the renderer detect snakes that vanished this turn;
+      // lastMoves (on game_state) then marks their true death cell.
+      const prevTurn = ctx.prevRow;
       // The primary arrow shows the move that was actually SUBMITTED to the
       // game server for this turn (ground truth). Rows without submitted_move
       // (older logs / unresolved turns) fall back to the bot recommendation,
       // rendered in a visually distinct "recommendation only" style. When the
       // submitted move differs from the bot's recommendation, the bot's pick
-      // is drawn as a thin secondary hint so overrides are visible.
-      const submitted = turn.submitted_move || null;
-      const botRec = turn.bot_recommendation || null;
+      // is drawn as a thin secondary hint so overrides are visible. All of
+      // this applies only while the inspected snake has data for the turn.
+      const submitted = own ? (own.submitted_move || null) : null;
+      const botRec = own ? (own.bot_recommendation || null) : null;
       BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
-        snakeId: turn.snake_id,
+        snakeId: own ? own.snake_id : getHistoricSnakeId(),
         chosenMove: submitted || botRec,
         chosenMoveStyle: submitted ? 'submitted' : 'recommendation-only',
         secondaryMove: submitted && botRec && submitted !== botRec ? botRec : null,
-        showChosenArrow: true,
+        showChosenArrow: !!own,
         previousBoard: prevTurn?.game_state?.board || null,
-        ourDeaths: buildHistoricOurDeaths(turn),
+        ourDeaths: own ? buildHistoricOurDeaths(own) : [],
         lastMoves: turn.game_state?.lastMoves || null,
-        fatalConsented: !!turn.fatal_consent,
+        fatalConsented: !!(own && own.fatal_consent),
         interactive: false,
       });
-      BoardRenderer.createBoardOverlay(
-        document.getElementById('boardOverlay'), canvas, turn.game_state.board,
-        historicMoveState, historicSelectMove
-      );
+      const overlayEl = document.getElementById('boardOverlay');
+      if (historicMoveState) {
+        BoardRenderer.createBoardOverlay(
+          overlayEl, canvas, turn.game_state.board,
+          historicMoveState, historicSelectMove
+        );
+      } else {
+        overlayEl.innerHTML = '';
+      }
     }
 
     // Read-only candidate selection: clicking a candidate cell / move button
@@ -2879,11 +3007,10 @@
       if (!historicMoveState) return;
       historicKeyFocus = 'candidates';
       historicMoveState.selectedMove = direction;
-      const turn = historicDecisions[historicIndex];
       BoardRenderer.renderMoveButtons(
         document.getElementById('moveButtons'), historicMoveState, historicSelectMove
       );
-      renderHistoricBoard(turn);
+      renderHistoricBoard();
       const move = historicMoveState.moves[direction];
       if (move) {
         BoardRenderer.updateStatsTable(
@@ -2893,17 +3020,17 @@
     }
 
     function handleHistoricCanvasClick(event) {
-      const turn = historicDecisions && historicDecisions[historicIndex];
-      if (!turn || !historicMoveState) return;
+      const ctx = historicRenderCtx;
+      if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
       const canvas = document.getElementById('gameCanvas');
-      const board = turn.game_state.board;
+      const board = ctx.boardRow.game_state.board;
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
       if (!cell) return;
 
       // Clicking a *different* controlled snake's body switches the inspected
       // perspective (loads its logged decisions for this same turn). Only
       // controlled (bot-logged) snakes have decision logs to inspect.
-      const currentView = turn.snake_id;
+      const currentView = getHistoricSnakeId();
       const selectable = historicSelectableIds();
       const target = BoardRenderer.findSnakeAtCell(board, cell,
         s => selectable.has(s.id) && s.id !== currentView);
@@ -2912,15 +3039,19 @@
         return;
       }
 
+      // Territory highlighting needs the inspected snake's evaluation data,
+      // which doesn't exist for turns after its death.
+      if (!historicMoveState) return;
+
       // Otherwise, toggle a Voronoi territory highlight for the clicked cell.
       const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(historicMoveState.territoryCells, cell);
       if (clickedSnake) {
         historicMoveState.selectedSnake =
           (historicMoveState.selectedSnake === clickedSnake) ? null : clickedSnake;
-        renderHistoricBoard(turn);
+        renderHistoricBoard();
       } else if (historicMoveState.selectedSnake) {
         historicMoveState.selectedSnake = null;
-        renderHistoricBoard(turn);
+        renderHistoricBoard();
       }
     }
 
@@ -2965,6 +3096,34 @@
       BoardRenderer.updateStatsTable(
         document.getElementById('statsTableBody'), null, historicMoveState
       );
+    }
+
+    // Shown instead of the breakdown when the viewed turn is after the
+    // inspected snake's death: the board keeps rendering (from other team
+    // logs), but there is no decision data for this snake at this turn.
+    function showHistoricNoDataPanel() {
+      document.getElementById('noSelectionMsg').style.display = 'none';
+      document.getElementById('selectionUI').style.display = 'block';
+      document.getElementById('selectedSnakePanel').classList.remove('active');
+
+      const rec = snakeLastSeen.get(getHistoricSnakeId());
+      const name = rec?.snake?.name || getHistoricSnakeId() || 'Snake';
+      const emoji = rec?.snake?.emoji || '\u{1F40D}';
+      document.getElementById('selectedSnakeName').textContent = `${emoji} ${name} (history)`;
+
+      const fatalNote = document.getElementById('fatalConsentNote');
+      if (fatalNote) fatalNote.style.display = 'none';
+      const badge = document.getElementById('intentModeBadge');
+      if (badge) badge.style.display = 'none';
+      const submitSection = document.querySelector('#moveControls .submit-section');
+      if (submitSection) submitSection.style.display = 'none';
+
+      document.getElementById('moveButtons').innerHTML =
+        '<div style="grid-column: 1 / -1; color: #888; text-align: center; padding: 12px;">' +
+        'No decision data for this snake at this turn \u2014 it is dead.</div>';
+      document.getElementById('statsTableBody').innerHTML =
+        '<tr><td colspan="5" style="text-align: center; color: #888;">' +
+        'No decision data \u2014 snake is dead at this turn</td></tr>';
     }
 
     function restoreLiveSelectionPanel() {
