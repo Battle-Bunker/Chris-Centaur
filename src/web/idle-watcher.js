@@ -150,16 +150,31 @@
       // Fresh connection — clear any latent idle state. Note: we do NOT
       // reset lastActivityAt on (re)connect because that would mean a tab
       // that just lost its socket would silently extend its idle window.
-      // Server-side enforcement is the actual safety net.
+      // (This was once a real production bug: the proxy drops idle sockets
+      // after ~5 minutes, the auto-reconnect loop reconnected, and a
+      // _markActivity() call here reset the 30-minute idle clock on every
+      // reconnect — so an abandoned tab held the autoscale deployment alive
+      // 24/7. User-initiated reconnects mark activity in
+      // _userInitiatedReconnect BEFORE reconnecting, so this must stay
+      // activity-neutral.)
       this.suppressReconnect = false;
       this.idleTriggered = false;
       this.overlay.classList.remove('active');
       document.body.classList.remove('idle-disconnected');
-      // After a reconnect that was user-initiated, count it as activity.
-      this._markActivity();
     }
 
     onClose(event) {
+      // Regardless of WHY the socket closed (proxy timeout, network blip),
+      // if the user is already past the idle window there is no reason to
+      // auto-reconnect — doing so would keep the server alive with zero
+      // humans watching. Treat it exactly like an idle close.
+      if (!this.isIdleClose(event) &&
+          Date.now() - this.lastActivityAt >= POLICY.IDLE_TIMEOUT_MS) {
+        this.idleTriggered = true;
+        this.suppressReconnect = true;
+        this._showIdleOverlay();
+        return true;
+      }
       // If the close was the idle one (either initiated by us in _tick OR
       // by the server's sweep), leave the overlay up, suppress the caller's
       // reconnect loop, and arm the manual-reconnect path. Setting

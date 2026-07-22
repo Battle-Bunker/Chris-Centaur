@@ -13,4 +13,5 @@
 - [Historic cache thrash](historic-cache-thrash.md) — /game viewer: ~2MB/snake logs; never nuke cache on live tick or duplicate in-flight fetch; /end body has no `board` (guard `.board?.snakes`).
 - [Data destruction incident](data-destruction-incident.md) — why the never-destroy-data rule exists: an agent ran DELETE FROM decision_logs to satisfy a NOT NULL add; the fix was RENAME COLUMN.
 - [UI sync + manual testing](ui-sync-and-testing.md) — backend field/heuristic changes must land on every UI surface in lockstep; UI validation is manual via user screenshots, not automated browser tests.
+- [Idle reconnect billing loop](idle-reconnect-billing.md) — reconnect/subscribe must NEVER count as user activity; idle clock persists per userId across reconnects, else one abandoned tab bills 24/7.
 - [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations, territoryCells}`; pre-2025-12-17 rows are a bare array — readers must handle both.

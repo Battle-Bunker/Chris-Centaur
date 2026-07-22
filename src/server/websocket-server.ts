@@ -35,8 +35,6 @@ interface WSClient {
  *  — otherwise the idle sweep would never fire. The dedicated `activity`
  *  heartbeat from IdleWatcher is what keeps an active human "alive". */
 const USER_INTENT_TYPES = new Set([
-  'subscribe-game',
-  'subscribe-lobby',
   'select-snake',
   'deselect',
   'hold-snake',
@@ -60,6 +58,12 @@ export class GameWebSocketServer {
   private connLogger: ConnectionLogger;
   private idleSweepInterval: NodeJS.Timeout | null = null;
   private keepaliveInterval: NodeJS.Timeout | null = null;
+  // Last REAL user activity per userId, persisted across reconnects. Without
+  // this, every proxy-drop → auto-reconnect cycle produced a brand-new client
+  // whose lastActivityAt reset to "now" (and `subscribe-game` counted as
+  // intent), so no connection ever looked idle to the sweep and an abandoned
+  // tab kept the autoscale deployment alive indefinitely.
+  private userActivity: Map<string, number> = new Map();
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
@@ -115,6 +119,9 @@ export class GameWebSocketServer {
           const msg: WSMessage = JSON.parse(data.toString());
           if (msg && typeof msg.type === 'string' && USER_INTENT_TYPES.has(msg.type)) {
             client.lastActivityAt = Date.now();
+            if (client.userId) {
+              this.userActivity.set(client.userId, client.lastActivityAt);
+            }
           }
           this.handleMessage(client, msg);
         } catch (e) {
@@ -275,6 +282,16 @@ export class GameWebSocketServer {
         client.gameId = gameId;
         client.userId = userId;
         client.isLobby = false;
+
+        // Subscribing is NOT user intent (the auto-reconnect loop re-subscribes
+        // on every proxy drop). Restore this user's real idle clock so the
+        // sweep sees continuity across reconnects; first-time users start now.
+        const known = userId ? this.userActivity.get(userId) : undefined;
+        if (known !== undefined) {
+          client.lastActivityAt = known;
+        } else if (userId) {
+          this.userActivity.set(userId, client.lastActivityAt);
+        }
 
         this.connLogger.log({
           ts: Date.now(),
@@ -603,6 +620,13 @@ export class GameWebSocketServer {
             // best-effort: socket may already be tearing down
           }
         }
+      }
+      // Prune stale per-user activity records so the map can't grow without
+      // bound. Anything older than 2× the idle window is long past useful —
+      // any connection restoring it would be swept immediately anyway.
+      const pruneCutoff = Date.now() - IDLE_TIMEOUT_MS * 2;
+      for (const [userId, ts] of this.userActivity) {
+        if (ts < pruneCutoff) this.userActivity.delete(userId);
       }
     }, SERVER_IDLE_SWEEP_INTERVAL_MS);
     // Don't keep the event loop alive solely for the sweep timer.
