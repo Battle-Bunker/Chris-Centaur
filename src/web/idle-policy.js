@@ -1,5 +1,7 @@
 // Client mirror of src/shared/idle-policy.ts. Keep these constants in sync.
 window.IdlePolicy = {
+  // Default only — idle-watcher.js overwrites this at page load from the
+  // runtime config (idleTimeoutMinutes on the /config page).
   IDLE_TIMEOUT_MS: 30 * 60 * 1000,
   IDLE_CLOSE_CODE: 4001,
   IDLE_CLOSE_REASON: 'idle-timeout',

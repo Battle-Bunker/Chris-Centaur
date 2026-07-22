@@ -114,6 +114,27 @@
       this.checkInterval = setInterval(() => this._tick(),
         POLICY.IDLE_CHECK_INTERVAL_MS);
 
+      // One-time fetch of the runtime-configurable idle timeout
+      // (idleTimeoutMinutes on the /config page). A single request at page
+      // load — no polling, so it can't keep the server alive by itself.
+      // Falls back to the POLICY default if the fetch fails.
+      fetch('/api/config')
+        .then(r => r.json())
+        .then(data => {
+          const minutes = data && data.config && data.config.idleTimeoutMinutes;
+          if (typeof minutes === 'number' && minutes > 0) {
+            POLICY.IDLE_TIMEOUT_MS = minutes * 60 * 1000;
+            const p = this.overlay.querySelector('.idle-overlay-box p');
+            if (p) {
+              p.textContent =
+                `Live updates are paused after ${minutes} minute` +
+                `${minutes === 1 ? '' : 's'} without activity to save ` +
+                'server cost. Reconnect to resume.';
+            }
+          }
+        })
+        .catch(() => { /* keep default */ });
+
       // Unconditional connection keepalive. Sent on a steady cadence regardless
       // of whether the user has interacted, so a passive watcher never goes
       // silent and the proxy never drops the idle-but-open socket. This is

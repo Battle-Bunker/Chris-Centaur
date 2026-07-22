@@ -1,7 +1,9 @@
 // Shared idle-disconnect policy for the centaur play WebSocket connections.
 // Client mirror lives at src/web/idle-policy.js — keep the constants in sync.
 
-export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+// NOTE: the idle timeout itself is runtime-configurable via the config store
+// (`idleTimeoutMinutes` in game-config / the /config page). Server and client
+// both read it from config; the DEFAULT_CONFIG value (30 min) is the fallback.
 export const IDLE_CLOSE_CODE = 4001;
 export const IDLE_CLOSE_REASON = 'idle-timeout';
 export const ACTIVITY_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;

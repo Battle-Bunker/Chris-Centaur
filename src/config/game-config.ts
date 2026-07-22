@@ -59,6 +59,12 @@ export interface GameConfig {
   
   // Centaur play mode settings
   autoFirstMove: boolean;
+
+  // Idle policy: minutes without user activity before WebSocket connections
+  // are considered idle (client shows overlay, server sweeps the socket),
+  // releasing the autoscale deployment to scale to zero. Runtime-configurable
+  // so idle behavior can be tested in production without a redeploy.
+  idleTimeoutMinutes: number;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -124,5 +130,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   maxLookaheadTurns: 5,
   
   // Centaur play mode settings
-  autoFirstMove: false
+  autoFirstMove: false,
+
+  // Idle policy
+  idleTimeoutMinutes: 30
 };

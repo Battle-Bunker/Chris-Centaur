@@ -505,6 +505,15 @@
                             </div>
                             <div class="description">When OFF, bots wait for human input on the first turn. When ON, bots play automatically from the very first move (pure bot mode).</div>
                         </div>
+                        
+                        <div class="config-item">
+                            <label for="idleTimeoutMinutes">Idle Timeout (minutes)</label>
+                            <div class="input-group">
+                                <input type="range" id="idleTimeoutMinutes_slider" min="1" max="120" step="1">
+                                <input type="number" id="idleTimeoutMinutes" min="1" max="120" step="1">
+                            </div>
+                            <div class="description">Minutes without user activity before live pages disconnect and the server is allowed to scale to zero. Server picks up changes within ~1 minute; pages read it on load.</div>
+                        </div>
                     </div>
                     
                     <!-- Simulation Parameters -->
@@ -565,7 +574,8 @@
             'enemyH2HRisk', 'allyH2HRisk',
             'waypointGoto', 'waypointNear',
             'aggression', 'trapped',
-            'maxSimulationDepth', 'timeoutMs', 'nearbyDistance'
+            'maxSimulationDepth', 'timeoutMs', 'nearbyDistance',
+            'idleTimeoutMinutes'
         ];
         
         const booleanConfigKeys = ['autoFirstMove'];

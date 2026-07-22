@@ -4,8 +4,9 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, TurnData } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
+import { ConfigStore } from './configStore';
+import { DEFAULT_CONFIG } from '../config/game-config';
 import {
-  IDLE_TIMEOUT_MS,
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
   SERVER_IDLE_SWEEP_INTERVAL_MS,
@@ -64,6 +65,11 @@ export class GameWebSocketServer {
   // intent), so no connection ever looked idle to the sweep and an abandoned
   // tab kept the autoscale deployment alive indefinitely.
   private userActivity: Map<string, number> = new Map();
+  private configStore: ConfigStore = new ConfigStore();
+  // Current idle timeout in ms. Refreshed from the config store at the start
+  // of every sweep tick, so changing `idleTimeoutMinutes` on the /config page
+  // takes effect within one sweep interval (~1 minute) without a redeploy.
+  private idleTimeoutMs: number = DEFAULT_CONFIG.idleTimeoutMinutes * 60 * 1000;
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
@@ -590,8 +596,18 @@ export class GameWebSocketServer {
 
   private startIdleSweep(): void {
     if (this.idleSweepInterval) return;
-    this.idleSweepInterval = setInterval(() => {
-      const cutoff = Date.now() - IDLE_TIMEOUT_MS;
+    this.idleSweepInterval = setInterval(async () => {
+      // Refresh the timeout from config (best-effort; keep last value on error).
+      try {
+        const minutes = await this.configStore.get('idleTimeoutMinutes');
+        if (typeof minutes === 'number' && minutes > 0) {
+          this.idleTimeoutMs = minutes * 60 * 1000;
+        } else if (minutes === undefined) {
+          this.idleTimeoutMs = DEFAULT_CONFIG.idleTimeoutMinutes * 60 * 1000;
+        }
+      } catch { /* keep current value */ }
+
+      const cutoff = Date.now() - this.idleTimeoutMs;
       for (const client of this.clients) {
         if (client.ws.readyState !== WebSocket.OPEN) continue;
         if (client.lastActivityAt < cutoff) {
@@ -624,7 +640,7 @@ export class GameWebSocketServer {
       // Prune stale per-user activity records so the map can't grow without
       // bound. Anything older than 2× the idle window is long past useful —
       // any connection restoring it would be swept immediately anyway.
-      const pruneCutoff = Date.now() - IDLE_TIMEOUT_MS * 2;
+      const pruneCutoff = Date.now() - this.idleTimeoutMs * 2;
       for (const [userId, ts] of this.userActivity) {
         if (ts < pruneCutoff) this.userActivity.delete(userId);
       }
