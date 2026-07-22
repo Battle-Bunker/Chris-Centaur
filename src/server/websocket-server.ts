@@ -6,6 +6,7 @@ import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
+import { ServerEventLogger } from '../logic/server-event-logger';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -658,6 +659,10 @@ export class GameWebSocketServer {
       `[WebSocket] Active connections: ${this.clients.size} ` +
         `(${reason} conn=${connId})`,
     );
+    // Feed every connection-count change into the activity tracker so 0↔1
+    // transitions emit went-idle / woke server events (includes idle-sweep
+    // closes — they arrive here via the socket's close handler).
+    ServerEventLogger.getInstance().setConnectionCount(this.clients.size);
   }
 
   private handleDisconnect(client: WSClient): void {

@@ -58,6 +58,10 @@ Human-in-the-loop mode: multiple users can view and control snakes in the same l
 - Server keeps active game state in an in-memory singleton; unselected snakes run on bot auto-pilot; selections, move staging/commit, and per-turn evaluations flow over per-game WebSocket subscriptions.
 - A WebSocket connection debugger logs all connection events (server file + `/connection-debug` viewer) for diagnosing client disconnects.
 
+### Server Activity Page
+- **`/activity`** — audit page for autoscale behavior: horizontal bands (green = active with users/game traffic, amber = up but idle, gaps = scaled to zero) with zoom/pan and inspectable event markers. No auto-refresh timers — data loads only on user actions.
+- **`server_events` table** records boot, shutdown (written on SIGTERM with a bounded flush), and woke / went-idle transitions (WebSocket connection count 0↔1, plus inbound `/start`/`/move` traffic with a 60s activity window so bot-only games count). Periods with no shutdown event (crash/force-kill) are implicitly closed by the next boot and rendered as "end unknown".
+
 ### Database
 - **PostgreSQL (Neon)** stores per-move decision logs for analysis and replay.
 - **Schema is owned by Drizzle**: `src/database/schema.ts` is the source of truth, there is no startup DDL; dev sync via `npm run db:push`, production via the Publish schema diff.

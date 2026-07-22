@@ -47,6 +47,20 @@ export const decisionLogs = pgTable(
   ],
 );
 
+// Server lifecycle/activity events (boot, shutdown, woke, went-idle) powering
+// the /activity autoscale audit page. Dev and prod databases are separate, so
+// each database's rows are inherently their own environment — no env column.
+export const serverEvents = pgTable(
+  'server_events',
+  {
+    id: serial('id').primaryKey(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    eventType: varchar('event_type', { length: 32 }).notNull(),
+    detail: jsonb('detail'),
+  },
+  table => [index('idx_server_events_timestamp').on(table.timestamp)],
+);
+
 // Simple key/value configuration store backing the config UI.
 export const configStore = pgTable('config_store', {
   key: varchar('key', { length: 255 }).primaryKey(),

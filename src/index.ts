@@ -14,7 +14,9 @@ import logsRouter from './routes/logs';
 import configRouter from './routes/config';
 import playRouter from './routes/play';
 import connectionDebugRouter from './routes/connection-debug';
+import activityRouter from './routes/activity';
 import { ConnectionLogger } from './utils/connection-logger';
+import { ServerEventLogger } from './logic/server-event-logger';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -40,6 +42,7 @@ const teamDetector = new TeamDetector();
 const logger = new GameLogger();
 const decisionLogger = DecisionLogger.getInstance();
 const gameManager = ActiveGameManager.getInstance();
+const serverEventLogger = ServerEventLogger.getInstance();
 const firstMoveMoveAnalyzer = new MoveAnalyzer();
 
 function getMoveDestination(head: Coord, move: Direction): Coord {
@@ -65,6 +68,7 @@ app.get('/', (req, res) => {
 
 app.post('/start', (req, res) => {
   const gameState: GameState = req.body;
+  serverEventLogger.recordGameActivity(gameState?.game?.id || null);
   logger.startGame(gameState);
   gameManager.registerGame(gameState);
   res.status(200).send('ok');
@@ -75,6 +79,7 @@ app.post('/move', async (req, res) => {
   const gameState: GameState = req.body;
   const gameId = gameState.game.id;
   const snakeId = gameState.you.id;
+  serverEventLogger.recordGameActivity(gameId);
 
   const game = gameManager.getGame(gameId);
   if (!game || !game.controlledSnakes.has(snakeId)) {
@@ -217,6 +222,7 @@ app.use(logsRouter);
 app.use(configRouter);
 app.use(playRouter);
 app.use(connectionDebugRouter);
+app.use(activityRouter);
 
 app.get('/config', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
@@ -245,6 +251,11 @@ app.get('/play/:gameId', (req, res) => {
   res.redirect(302, `/game/${encodeURIComponent(req.params.gameId)}`);
 });
 
+// Server activity page: audit autoscale behavior (boot/idle/wake/shutdown).
+app.get('/activity', (req, res) => {
+  res.sendFile(path.join(__dirname, '../src/web/activity.html'));
+});
+
 app.get('/connection-debug', (req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/connection-debug.html'));
 });
@@ -260,10 +271,14 @@ httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Visit http://localhost:${port} for snake info`);
   console.log(`Visit http://localhost:${port}/config for configuration`);
   console.log(`Visit http://localhost:${port}/play for centaur play`);
+  serverEventLogger.recordBoot({ port, pid: process.pid });
 });
 
 async function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down gracefully...`);
+  // Write the shutdown event first, bounded by a short timeout so an
+  // unreachable database can never block process exit.
+  await serverEventLogger.recordShutdownAndFlush(signal);
   gameManager.shutdown();
   wsServer.shutdown();
   const decisionLogger = DecisionLogger.getInstance();

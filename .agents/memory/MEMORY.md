@@ -14,4 +14,5 @@
 - [Data destruction incident](data-destruction-incident.md) — why the never-destroy-data rule exists: an agent ran DELETE FROM decision_logs to satisfy a NOT NULL add; the fix was RENAME COLUMN.
 - [UI sync + manual testing](ui-sync-and-testing.md) — backend field/heuristic changes must land on every UI surface in lockstep; UI validation is manual via user screenshots, not automated browser tests.
 - [Idle reconnect billing loop](idle-reconnect-billing.md) — reconnect/subscribe must NEVER count as user activity; idle clock persists per userId across reconnects, else one abandoned tab bills 24/7.
+- [Server activity timeline](server-activity-timeline.md) — /activity audits autoscale; viewer must never poll, event writes fire-and-forget, missing shutdown = end-unknown closed by next boot.
 - [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations, territoryCells}`; pre-2025-12-17 rows are a bare array — readers must handle both.
