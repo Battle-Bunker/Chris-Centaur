@@ -18,3 +18,7 @@ The proxy in front of the deployed app drops idle WebSockets at ~300s (close cod
 **Why:** multiple days of 24h billing at full autoscale rate from a single forgotten tab (diagnosed July 2026 from deployment logs: reconnect every ~301s for days).
 
 **How to apply:** any new WS message type or reconnect path must be checked against these invariants; keepalives/pings/pongs are liveness only, never activity.
+
+## Scale-to-zero timing (verified 2026-07-22)
+
+Replit autoscale shuts the instance down after **15 minutes** with no inbound requests — not 5. Billing is for CPU/memory during request processing, so an up-but-idle tail is expected and mostly unbilled. When auditing the /activity timeline, an amber "up but idle" band of up to ~15 min after the last request is normal platform behavior, not an app bug. Outbound traffic (engine ping, DB queries) does not count as requests and does not delay scale-down.
