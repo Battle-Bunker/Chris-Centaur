@@ -6,22 +6,15 @@
  *   - amber  "Reconnecting…"   — transient drop, being restored
  *   - grey   "Server idle"     — idle window elapsed; page has released the server
  *
- * Two usage modes:
- *   1. WebSocket pages (play lobby / game viewer): idle-watcher.js drives the
- *      badge through window.ServerStatusBadge.set(state, label).
- *   2. Static pages (history / config): call
- *      window.ServerStatusBadge.attachStandalone() — checks server
- *      reachability once on load, then applies the same 30-minute idle
- *      policy locally. Deliberately NO background polling: a badge that
- *      pinged the server on a timer would itself keep the autoscale
- *      deployment alive (the exact bug this plumbing exists to prevent).
- *      Reachability is only re-checked on deliberate user interaction
- *      (click / tap / key press), throttled.
+ * Only used on pages with a live WebSocket (play lobby / game viewer), where
+ * idle-watcher.js drives it via window.ServerStatusBadge.set(state, label).
+ * Static pages (history / config) deliberately do NOT show this badge: they
+ * hold no live connection, so a status there would always read "active" and
+ * communicate nothing — and any polling to make it meaningful would itself
+ * keep the autoscale deployment alive (the exact bug this plumbing exists
+ * to prevent).
  */
 (function () {
-  const POLICY = window.IdlePolicy || { IDLE_TIMEOUT_MS: 30 * 60 * 1000 };
-  const RECHECK_THROTTLE_MS = 30 * 1000;
-
   let badge = null;
   let label = null;
 
@@ -75,52 +68,5 @@
     label.textContent = text;
   }
 
-  /** Standalone mode for pages without a WebSocket (history, config).
-   *  Checks reachability on load + on deliberate interaction (throttled),
-   *  and flips to "Server idle" after the shared idle window with no
-   *  deliberate interaction. Never polls in the background. */
-  function attachStandalone() {
-    ensureBadge();
-    let lastInteractionAt = Date.now();
-    let lastCheckAt = 0;
-    let isIdle = false;
-
-    async function checkReachable() {
-      lastCheckAt = Date.now();
-      try {
-        const resp = await fetch('/', { method: 'HEAD', cache: 'no-store' });
-        set(resp.ok ? 'active' : 'reconnecting',
-          resp.ok ? 'Server active' : 'Server unreachable');
-      } catch (e) {
-        set('reconnecting', 'Server unreachable');
-      }
-    }
-
-    const onDeliberate = () => {
-      lastInteractionAt = Date.now();
-      const wasIdle = isIdle;
-      isIdle = false;
-      // Re-verify reachability on genuine interaction, throttled — and
-      // always when waking from idle.
-      if (wasIdle || Date.now() - lastCheckAt >= RECHECK_THROTTLE_MS) {
-        checkReachable();
-      }
-    };
-    ['mousedown', 'touchstart', 'keydown'].forEach(ev => {
-      document.addEventListener(ev, onDeliberate, { passive: true });
-    });
-
-    // Local idle flip — pure UI state, no network traffic.
-    const idleCheck = setInterval(() => {
-      if (!isIdle && Date.now() - lastInteractionAt >= POLICY.IDLE_TIMEOUT_MS) {
-        isIdle = true;
-        set('idle', 'Server idle');
-      }
-    }, 30 * 1000);
-    if (typeof idleCheck.unref === 'function') idleCheck.unref();
-
-    checkReachable();
-  }
-
-  window.ServerStatusBadge = { set, attachStandalone };
+  window.ServerStatusBadge = { set };
 })();
