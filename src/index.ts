@@ -283,7 +283,10 @@ httpServer.listen(port, '0.0.0.0', () => {
   void gameRegistry.backfillFromDecisionLogs();
 });
 
+let shuttingDown = false;
 async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully...`);
   // Write the shutdown event first, bounded by a short timeout so an
   // unreachable database can never block process exit.
@@ -301,3 +304,32 @@ async function gracefulShutdown(signal: string) {
 
 process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
 process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });
+// Additional catchable signals — best-effort exit-cause instrumentation for
+// the /activity audit (autoscale's real kill is uncatchable; these cover
+// everything that IS catchable so an unlabeled gap truly means silent kill).
+process.on('SIGHUP', () => { void gracefulShutdown('SIGHUP'); });
+process.on('SIGQUIT', () => { void gracefulShutdown('SIGQUIT'); });
+process.on('SIGUSR2', () => { void gracefulShutdown('SIGUSR2'); });
+
+// Fatal error paths: record the cause (timeout-bounded flush) then exit
+// non-zero. Node's default behavior is preserved apart from the logging.
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err);
+  void serverEventLogger
+    .recordShutdownAndFlush('uncaughtException', 2000, { cause: String(err?.message || err) })
+    .finally(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection:', reason);
+  void serverEventLogger
+    .recordShutdownAndFlush('unhandledRejection', 2000, {
+      cause: String((reason as Error)?.message || reason),
+    })
+    .finally(() => process.exit(1));
+});
+// beforeExit fires when the event loop drains without an explicit exit — an
+// unexpected quiet death worth labeling. (recordShutdownAndFlush is a no-op
+// if an exit cause was already recorded.)
+process.on('beforeExit', (code) => {
+  void serverEventLogger.recordShutdownAndFlush('beforeExit', 2000, { code });
+});

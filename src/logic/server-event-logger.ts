@@ -1,8 +1,12 @@
-import { sql } from 'drizzle-orm';
+import { sql, eq, desc, inArray } from 'drizzle-orm';
 import { db } from '../database/db';
-import { serverEvents } from '../database/schema';
+import { serverEvents, serverLiveness } from '../database/schema';
 
-export type ServerEventType = 'boot' | 'shutdown' | 'woke' | 'went-idle';
+export type ServerEventType = 'boot' | 'shutdown' | 'woke' | 'went-idle' | 'suspended';
+
+/** Classification of how the previous process lifetime ended, computed at boot
+ *  from the previous lifetime's last heartbeat vs its last activity state. */
+export type PrevEndClass = 'graceful' | 'silent-kill' | 'crash' | 'unknown';
 
 // How long after the last inbound Battlesnake request (/start, /move) the
 // server is still considered "active by game traffic". Bot-only games send no
@@ -19,6 +23,13 @@ const USER_ACTIVE_WINDOW_MS = 3 * 60 * 1000;
 // Cadence for the decay check that notices the game-traffic window expiring.
 // Unref'd so it never keeps the process alive on its own.
 const DECAY_CHECK_INTERVAL_MS = 15 * 1000;
+// Liveness heartbeat cadence: upserts a single "last alive" row so the next
+// boot can bound when this process actually died (autoscale kills send no
+// catchable signal). Unref'd, fire-and-forget, produces no inbound requests.
+const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+// If a heartbeat tick fires this much later than scheduled within the same
+// process, the process was suspended/frozen (not killed) — record it.
+const SUSPEND_DRIFT_THRESHOLD_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
 /**
  * Records server lifecycle/activity events (boot, shutdown, woke, went-idle)
@@ -42,6 +53,15 @@ export class ServerEventLogger {
   private lastGameRequestGameId: string | null = null;
   private active = false;
   private decayInterval: NodeJS.Timeout | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private lastHeartbeatTickAt = 0;
+  private bootedAt: Date | null = null;
+  private exitRecorded = false;
+  // Settles once boot forensics has finished READING the previous lifetime's
+  // liveness row. Every heartbeat upsert waits on this so the new process can
+  // never overwrite the single server_liveness row before the previous
+  // lifetime's death bound has been read and recorded.
+  private forensicsRead: Promise<unknown> = Promise.resolve();
   // Chain of pending writes so shutdown() can flush what's in flight.
   private pendingWrites: Promise<void> = Promise.resolve();
   private shuttingDown = false;
@@ -55,26 +75,149 @@ export class ServerEventLogger {
     return ServerEventLogger.instance;
   }
 
-  /** Insert a boot event and start the game-traffic decay checker. */
+  /** Insert a boot event (with forensics about how the previous lifetime
+   *  ended) and start the game-traffic decay checker plus the liveness
+   *  heartbeat. */
   public recordBoot(detail?: Record<string, unknown>): void {
-    this.write('boot', detail ?? null);
+    this.bootedAt = new Date();
+    // Boot forensics first, then the boot event carrying the classification —
+    // both are chained onto pendingWrites so ordering is preserved and
+    // failures are logged-and-dropped like every other write.
+    const forensics = this.classifyPreviousEnd().catch((err: unknown) => {
+      console.error('[ServerEventLogger] Boot forensics failed:', (err as Error)?.message || err);
+      return null;
+    });
+    // Heartbeat upserts are gated on this read completing (see upsertHeartbeat)
+    // so the previous row can't be clobbered before it has been read.
+    this.forensicsRead = forensics;
+    const p = forensics.then(prev => {
+      this.write('boot', { ...(detail ?? {}), ...(prev ?? {}) });
+    });
+    this.pendingWrites = this.pendingWrites.then(() => p.then(() => undefined));
+
     if (!this.decayInterval) {
       this.decayInterval = setInterval(() => this.checkDecay(), DECAY_CHECK_INTERVAL_MS);
       if (typeof this.decayInterval.unref === 'function') this.decayInterval.unref();
     }
+    if (!this.heartbeatInterval) {
+      this.lastHeartbeatTickAt = Date.now();
+      this.heartbeatInterval = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
+      if (typeof this.heartbeatInterval.unref === 'function') this.heartbeatInterval.unref();
+      // Write the first heartbeat immediately so even a very short lifetime
+      // leaves a liveness bound.
+      this.upsertHeartbeat();
+    }
+  }
+
+  /**
+   * Compare the previous lifetime's last heartbeat against its last recorded
+   * event to classify how it ended:
+   * - 'graceful'    — a shutdown event was written (client already handles it)
+   * - 'silent-kill' — died while idle → autoscale scaled to zero
+   * - 'crash'       — died with recent activity (was active at last heartbeat)
+   * - 'unknown'     — no heartbeat data (pre-feature boots)
+   */
+  private async classifyPreviousEnd(): Promise<Record<string, unknown> | null> {
+    const [prev] = await db.select().from(serverLiveness).where(eq(serverLiveness.id, 1)).limit(1);
+    if (!prev) return { prevEndClass: 'unknown' satisfies PrevEndClass };
+    const prevLastAliveAt = prev.lastAliveAt.getTime();
+    // Last event written by (or before) the previous lifetime's death.
+    const [lastEvent] = await db
+      .select({ eventType: serverEvents.eventType, timestamp: serverEvents.timestamp })
+      .from(serverEvents)
+      .where(inArray(serverEvents.eventType, ['shutdown', 'woke', 'went-idle', 'boot']))
+      .orderBy(desc(serverEvents.timestamp), desc(serverEvents.id))
+      .limit(1);
+    let prevEndClass: PrevEndClass;
+    if (lastEvent?.eventType === 'shutdown') {
+      prevEndClass = 'graceful';
+    } else if (lastEvent?.eventType === 'went-idle' || lastEvent?.eventType === 'boot' || !lastEvent) {
+      // Idle (or never woke) at death → the platform scaled us to zero.
+      prevEndClass = 'silent-kill';
+    } else {
+      // Last known state was active — dying mid-activity is a crash.
+      prevEndClass = 'crash';
+    }
+    return {
+      prevEndClass,
+      prevPid: prev.pid,
+      prevLastAliveAt,
+      prevBootedAt: prev.bootedAt.getTime(),
+    };
+  }
+
+  /** Upsert the single liveness row (update-in-place, not an event append).
+   *  Always waits for boot forensics to finish reading the previous row first
+   *  — otherwise this upsert could erase the prior lifetime's death bound. */
+  private upsertHeartbeat(): void {
+    const now = new Date();
+    const lastActivity = Math.max(this.lastUserIntentAt, this.lastGameRequestAt);
+    const p = this.forensicsRead
+      .then(() => db
+        .insert(serverLiveness)
+      .values({
+        id: 1,
+        pid: process.pid,
+        bootedAt: this.bootedAt ?? now,
+        lastAliveAt: now,
+        lastActivityAt: lastActivity > 0 ? new Date(lastActivity) : null,
+      })
+      .onConflictDoUpdate({
+        target: serverLiveness.id,
+        set: {
+          pid: process.pid,
+          bootedAt: this.bootedAt ?? now,
+          lastAliveAt: now,
+          lastActivityAt: lastActivity > 0 ? new Date(lastActivity) : null,
+        },
+      }))
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        console.error('[ServerEventLogger] Heartbeat upsert failed:', (err as Error)?.message || err);
+      });
+    // Deliberately NOT chained onto pendingWrites: the heartbeat must never
+    // delay the shutdown flush, and a lost tick is harmless.
+    void p;
+  }
+
+  private heartbeatTick(): void {
+    if (this.shuttingDown) return;
+    const now = Date.now();
+    const sinceLast = now - this.lastHeartbeatTickAt;
+    // Suspend/freeze detection: the tick fired far later than scheduled
+    // within the same process — the runtime was paused, not killed.
+    if (sinceLast > SUSPEND_DRIFT_THRESHOLD_MS) {
+      this.write('suspended', {
+        gapMs: sinceLast,
+        expectedIntervalMs: HEARTBEAT_INTERVAL_MS,
+        resumedAt: now,
+      });
+    }
+    this.lastHeartbeatTickAt = now;
+    this.upsertHeartbeat();
   }
 
   /**
    * Write a shutdown event and wait briefly for all pending writes to land.
    * Bounded by `timeoutMs` so an unreachable database can never block exit.
    */
-  public async recordShutdownAndFlush(signal: string, timeoutMs = 2000): Promise<void> {
+  public async recordShutdownAndFlush(
+    signal: string,
+    timeoutMs = 2000,
+    extraDetail?: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.exitRecorded) return; // only the first exit cause wins
+    this.exitRecorded = true;
     this.shuttingDown = true;
     if (this.decayInterval) {
       clearInterval(this.decayInterval);
       this.decayInterval = null;
     }
-    this.write('shutdown', { signal, connections: this.wsConnections });
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    this.write('shutdown', { signal, connections: this.wsConnections, ...(extraDetail ?? {}) });
     await Promise.race([
       this.pendingWrites,
       new Promise<void>(resolve => {

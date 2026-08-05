@@ -95,6 +95,21 @@ export const serverEvents = pgTable(
   table => [index('idx_server_events_timestamp').on(table.timestamp)],
 );
 
+// Single-row liveness heartbeat for the /activity autoscale audit. The running
+// process upserts row id=1 every HEARTBEAT_INTERVAL (update-in-place, NOT an
+// append-per-tick log) so the next boot can bound when the previous process
+// actually died — Replit's autoscale kill sends no catchable signal, so
+// without this the timeline can't distinguish "up but idle" from
+// "scaled to zero". lastActivityAt mirrors the logger's last user/game
+// activity so boot forensics can classify silent-kill vs crash.
+export const serverLiveness = pgTable('server_liveness', {
+  id: integer('id').primaryKey(), // always 1 — single row
+  pid: integer('pid').notNull(),
+  bootedAt: timestamp('booted_at', { withTimezone: true }).notNull(),
+  lastAliveAt: timestamp('last_alive_at', { withTimezone: true }).notNull(),
+  lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
+});
+
 // Simple key/value configuration store backing the config UI.
 export const configStore = pgTable('config_store', {
   key: varchar('key', { length: 255 }).primaryKey(),

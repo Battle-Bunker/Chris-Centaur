@@ -95,12 +95,13 @@
     <div class="legend">
       <span class="item"><span class="swatch" style="background:#4CAF50"></span> Active (user actions / game traffic)</span>
       <span class="item"><span class="swatch" style="background:#e2a63d"></span> Up but idle (billed waste)</span>
-      <span class="item"><span class="swatch" style="background:repeating-linear-gradient(45deg,#555 0 3px,#333 3px 6px)"></span> End unknown (crash / force-kill)</span>
-      <span class="item"><span class="swatch" style="background:#222;border:1px dashed #555"></span> Gap = scaled to zero</span>
+      <span class="item"><span class="swatch" style="background:repeating-linear-gradient(45deg,#555 0 3px,#333 3px 6px)"></span> End bounded by last heartbeat (no shutdown event)</span>
+      <span class="item"><span class="swatch" style="background:#222;border:1px dashed #555"></span> Gap = scaled to zero (process dead)</span>
       <span class="item"><span class="marker-dot" style="background:#7ecbff"></span> boot</span>
       <span class="item"><span class="marker-dot" style="background:#ff8a80"></span> shutdown</span>
       <span class="item"><span class="marker-dot" style="background:#4CAF50"></span> woke</span>
       <span class="item"><span class="marker-dot" style="background:#e2a63d"></span> went-idle</span>
+      <span class="item"><span class="marker-dot" style="background:#c792ea"></span> suspended (process frozen, then resumed)</span>
     </div>
 
     <div class="chart-wrap">
@@ -111,6 +112,7 @@
     <div id="detailPanel"></div>
   </div>
 
+  <script src="/activity-periods.js"></script>
   <script>
     'use strict';
 
@@ -127,6 +129,7 @@
       shutdown: '#ff8a80',
       woke: '#4CAF50',
       'went-idle': '#e2a63d',
+      suspended: '#c792ea',
     };
 
     // View window (epoch ms). Start with the last 7 days.
@@ -198,59 +201,9 @@
     }
 
     // ---- Period/segment reconstruction from raw events ----
-
+    // Shared with the unit-tested module: src/web/activity-periods.js.
     function buildPeriods() {
-      periods = [];
-      let cur = null; // open period
-      let segStart = 0, segState = 'idle';
-
-      function closeSegment(at) {
-        if (!cur) return;
-        if (at > segStart) cur.segments.push({ start: segStart, end: at, state: segState });
-      }
-      function closePeriod(at, endKnown, openEnded) {
-        if (!cur) return;
-        closeSegment(at);
-        cur.end = at;
-        cur.endKnown = endKnown;
-        cur.openEnded = !!openEnded;
-        periods.push(cur);
-        cur = null;
-      }
-
-      for (const ev of events) {
-        if (ev.type === 'boot') {
-          // Implicitly close any period the previous process never shut down.
-          if (cur) closePeriod(ev.ts, false, false);
-          cur = { start: ev.ts, segments: [], end: 0, endKnown: true, openEnded: false };
-          segStart = ev.ts;
-          segState = 'idle';
-        } else if (!cur) {
-          // Events before the first loaded boot: synthesize an "unknown start"
-          // period so activity before the fetch window's first boot still shows.
-          cur = { start: ev.ts, segments: [], end: 0, endKnown: true, openEnded: false, startUnknown: true };
-          segStart = ev.ts;
-          segState = 'idle';
-          applyActivity(ev);
-        } else {
-          applyActivity(ev);
-        }
-      }
-
-      function applyActivity(ev) {
-        if (ev.type === 'woke' && segState !== 'active') {
-          closeSegment(ev.ts);
-          segStart = ev.ts; segState = 'active';
-        } else if (ev.type === 'went-idle' && segState !== 'idle') {
-          closeSegment(ev.ts);
-          segStart = ev.ts; segState = 'idle';
-        } else if (ev.type === 'shutdown') {
-          closePeriod(ev.ts, true, false);
-        }
-      }
-
-      // Still-open period: extend to serverNow as a live, open-ended period.
-      if (cur) closePeriod(Math.max(serverNow, segStart), true, true);
+      periods = ActivityPeriods.buildPeriods(events, serverNow);
     }
 
     // ---- Rendering ----
@@ -315,7 +268,8 @@
 
       // Activity bands
       for (const p of periods) {
-        if (p.end < viewStart || p.start > viewEnd) continue;
+        const drawEnd = p.deadUntil != null ? p.deadUntil : p.end;
+        if (drawEnd < viewStart || p.start > viewEnd) continue;
         for (const seg of p.segments) {
           const x1 = Math.max(0, xForTs(seg.start, w));
           const x2 = Math.min(w, xForTs(seg.end, w));
@@ -333,6 +287,18 @@
           ctx.setLineDash([3, 3]);
           ctx.beginPath(); ctx.moveTo(x2, bandTop); ctx.lineTo(x2, bandTop + bandH); ctx.stroke();
           ctx.setLineDash([]);
+          // Scaled-to-zero gap: dashed outline from the bounded end (last
+          // heartbeat) to the next boot — process dead, nothing billed.
+          if (p.deadUntil != null && p.deadUntil > p.end) {
+            const gx1 = Math.max(0, x2);
+            const gx2 = Math.min(w, xForTs(p.deadUntil, w));
+            if (gx2 > gx1 + 1) {
+              ctx.strokeStyle = '#555';
+              ctx.setLineDash([4, 4]);
+              ctx.strokeRect(gx1 + 1, bandTop + 1, gx2 - gx1 - 2, bandH - 2);
+              ctx.setLineDash([]);
+            }
+          }
         }
         // Open-ended (still running now): fade at right edge.
         if (p.openEnded) {
@@ -467,6 +433,10 @@
     function segmentAt(ts, my) {
       if (my < 60 || my > 150) return null;
       for (const p of periods) {
+        // Hover in the scaled-to-zero gap after a heartbeat-bounded end.
+        if (!p.endKnown && p.deadUntil != null && ts > p.end && ts <= p.deadUntil) {
+          return { deadGap: true, start: p.end, end: p.deadUntil, period: p };
+        }
         if (ts < p.start || ts > p.end) continue;
         for (const seg of p.segments) {
           if (ts >= seg.start && ts <= seg.end) return { ...seg, period: p };
@@ -486,9 +456,33 @@
     }
 
     function segText(seg) {
+      if (seg.deadGap) {
+        const cls = seg.period && seg.period.endClass;
+        let t = 'Scaled to zero (process dead)\n' + fmtTs(seg.start) + ' → ' + fmtTs(seg.end) +
+          '\nDuration: ' + fmtDur(seg.end - seg.start) +
+          '\nNo process was running here — nothing billed.';
+        t += cls === 'crash'
+          ? '\nPrevious lifetime ended by crash (died with recent activity).'
+          : '\nPrevious lifetime ended by silent kill (autoscale scaled to zero after idling).';
+        return t;
+      }
       const label = seg.state === 'active' ? 'Active (users/games)' : 'Up but idle';
       let txt = `${label}\n${fmtTs(seg.start)} → ${fmtTs(seg.end)}\nDuration: ${fmtDur(seg.end - seg.start)}`;
-      if (seg.period && !seg.period.endKnown) txt += '\n⚠ Period end unknown (no shutdown event — crash/force-kill; closed by next boot)';
+      if (seg.period && !seg.period.endKnown) {
+        const cls = seg.period.endClass;
+        if (cls === 'silent-kill') {
+          txt += '\n⚠ Ended by silent kill: platform scaled to zero (idle at last heartbeat).';
+          txt += '\nEnd bounded by last liveness heartbeat (±~1–2 min); the gap after it until the next boot is scaled-to-zero, not billed idle.';
+        } else if (cls === 'crash') {
+          txt += '\n⚠ Ended by crash: process died with recent activity (no shutdown event).';
+          txt += '\nEnd bounded by last liveness heartbeat (±~1–2 min).';
+        } else {
+          txt += '\n⚠ Period end unknown (no shutdown event and no heartbeat data — closed by next boot)';
+        }
+      }
+      if (seg.period && seg.period.endKnown && seg.period.endClass === 'crash') {
+        txt += '\n⚠ Ended by a caught fatal error (uncaughtException / unhandledRejection) — see the shutdown marker for the cause.';
+      }
       if (seg.period && seg.period.openEnded) txt += '\nServer still up (period open)';
       return txt;
     }
