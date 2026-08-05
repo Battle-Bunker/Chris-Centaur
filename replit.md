@@ -51,6 +51,15 @@ This bot is specifically designed to play a team-based Battlesnake variant with 
 - **`VoronoiStrategy`** — swappable main strategy using the components above.
 - **`TeamDetector`** — team identification via squad fields with color-matching fallback; degrades gracefully to individual play.
 
+### TacticToes Firebase Interface (optional)
+Direct-to-Firestore transport for the TacticToes server, alongside the Battlesnake HTTP endpoints (`src/firebase/`).
+- Enabled only when `TACTICTOES_BOT_ID`, `TACTICTOES_BOT_API_KEY`, `TACTICTOES_FIREBASE_PROJECT_ID` and `TACTICTOES_FIREBASE_API_KEY` are all set (see `.env.example`); otherwise the subsystem stays dormant.
+- **Auth**: exchanges the bot API key for a Firebase custom token via the server's `exchangeBotApiKey` callable, then `signInWithCustomToken`; the SDK auto-refreshes.
+- **Game discovery**: listens to `bots/{botId}/games` invite docs written by the server at game start; opens one game-doc listener per live game and stops when the game has winners or all owned snakes are dead.
+- **Multi-snake**: one bot identity drives every owned snake (Team Snek originals and clones), building one per-snake `GameState` view per turn via `src/firebase/translate.ts` — the exact perimeter-strip + y-flip transform the server's HTTP notifier applies, so the engine sees identical boards on either transport (invariant-tested in `src/tests/firebase-translate.test.ts`).
+- **Move staging**: each decision is staged as a `privateMoves` write (server resolves the turn with the last staged move before the deadline; re-staging is allowed), then committed to `moveStatuses.movedPlayerIDs` per `TACTICTOES_COMMIT_MODE`: `immediate`, `buffered` (default; commits `TACTICTOES_COMMIT_BUFFER_MS` before the turn deadline, keeping the re-stage window open), or `never` (rides the turn timer).
+- Decisions go through the same `VoronoiStrategy` instance as HTTP moves; centaur UI integration over this transport is future work (the manager's pending-move path is HTTP-response-coupled).
+
 ### Centaur Play Mode
 Human-in-the-loop mode: multiple users can view and control snakes in the same live game via RTS-style click-to-select.
 - **`/play`** — lobby listing one card per game with its controlled snakes.

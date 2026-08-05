@@ -18,6 +18,10 @@ import activityRouter from './routes/activity';
 import { ConnectionLogger } from './utils/connection-logger';
 import { ServerEventLogger } from './logic/server-event-logger';
 import { GameRegistry } from './logic/game-registry';
+import {
+  TacticToesFirebaseInterface,
+  firebaseInterfaceConfigFromEnv,
+} from './firebase/firebase-interface';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -273,6 +277,20 @@ const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);
 gameManager.startServerPing();
 
+// Optional direct-Firebase interface to TacticToes (staged Firestore moves
+// instead of HTTP pokes). Enabled when the TACTICTOES_* env vars are set.
+const ttFirebaseConfig = firebaseInterfaceConfigFromEnv(process.env);
+const ttFirebase = ttFirebaseConfig
+  ? new TacticToesFirebaseInterface(voronoiStrategy, ttFirebaseConfig)
+  : null;
+if (ttFirebase) {
+  ttFirebase.start().catch((err) => {
+    console.error('[tt-firebase] Failed to start Firebase interface:', err);
+  });
+} else {
+  console.log('[tt-firebase] Firebase interface not configured (TACTICTOES_* env vars unset)');
+}
+
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
   console.log(`Visit http://localhost:${port} for snake info`);
@@ -291,6 +309,7 @@ async function gracefulShutdown(signal: string) {
   // Write the shutdown event first, bounded by a short timeout so an
   // unreachable database can never block process exit.
   await serverEventLogger.recordShutdownAndFlush(signal);
+  if (ttFirebase) await ttFirebase.stop().catch(() => undefined);
   gameManager.shutdown();
   wsServer.shutdown();
   const decisionLogger = DecisionLogger.getInstance();
