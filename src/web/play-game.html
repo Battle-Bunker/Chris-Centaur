@@ -2684,58 +2684,137 @@
       if (firstMove) firstMove.style.display = 'none';
     }
 
+    // Loading indicator while the finished-game replay data is being fetched.
+    // Reuses the waiting overlay so it replaces "Connecting…" in place.
+    function showFinishedLoadingOverlay() {
+      const overlay = document.getElementById('waitingOverlay');
+      if (!overlay) return;
+      overlay.style.display = 'block';
+      overlay.innerHTML =
+        '<h2>Loading replay\u2026</h2><p>Fetching this game\u2019s recorded history</p>';
+    }
+
+    // Explicit, user-visible failure state for the finished-game load, with a
+    // Retry action — never a silent blank canvas. Resets the finishedMode guard
+    // so enterFinishedMode() can run again from the top.
+    function showFinishedError(title, detail) {
+      finishedMode = false; // allow a full re-entry on Retry
+      // On a fresh load there is no painted board to preserve — hide the (blank)
+      // game UI so the error is the only thing on screen.
+      if (!currentGameState) {
+        const gameUI = document.getElementById('gameUI');
+        if (gameUI) gameUI.style.display = 'none';
+      }
+      const overlay = document.getElementById('waitingOverlay');
+      if (!overlay) return;
+      overlay.style.display = 'block';
+      overlay.innerHTML =
+        `<h2>${escapeHtml(title)}</h2><p>${escapeHtml(detail)}</p>` +
+        '<button id="finishedRetryBtn" style="margin-top: 14px; background: #4CAF50; color: #fff; border: none; padding: 8px 24px; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer;">Retry</button>';
+      const btn = document.getElementById('finishedRetryBtn');
+      if (btn) btn.onclick = () => enterFinishedMode();
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
     // Turn the page into a pure read-only replay for a game that is not live.
     // Discovers our team's logged snakes from /api/logs/games, loads the default
     // snake's decisions, and opens on the final logged turn. Perspective
     // switching, turn scrubbing and the heuristic breakdown all work through the
     // same historic code path the live view uses when scrubbed back.
+    //
+    // Ordering contract: ALL live-chrome hiding, mode flips, and the loading
+    // indicator happen synchronously BEFORE the first await, so no live control
+    // or stale turn counter can be visible while logs are in flight. Every
+    // failure path ends in showFinishedError (with Retry) — never a silent
+    // blank canvas.
     async function enterFinishedMode() {
       if (finishedMode) return;
       finishedMode = true;
       viewMode = 'historic';
       hideLiveOnlyChrome();
+      if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
+      // Fresh load (no live board was ever received): reset the stale turn
+      // counter and show the loading state immediately, before any fetch.
+      const freshLoad = !currentGameState;
+      if (freshLoad) {
+        document.getElementById('currentTurn').textContent = '\u2013';
+        showFinishedLoadingOverlay();
+      }
 
-      const overlay = document.getElementById('waitingOverlay');
-
-      let group = null;
       try {
-        const resp = await fetch('/api/logs/games');
-        const games = await resp.json();
-        group = (games || []).find((g) => g.game_id === gameId) || null;
+        // Find this game in the logged-games list. If the game ended moments
+        // ago its logs may not be committed yet, so retry briefly with backoff
+        // before declaring it not found.
+        let group = null;
+        let networkFailed = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) await sleep(700 * attempt);
+          try {
+            const resp = await fetch('/api/logs/games');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const games = await resp.json();
+            group = (games || []).find((g) => g.game_id === gameId) || null;
+            networkFailed = false;
+          } catch (err) {
+            console.error('Failed to load game list for finished game:', err);
+            networkFailed = true;
+            continue;
+          }
+          if (group) break;
+        }
+
+        if (!group) {
+          showFinishedError(
+            networkFailed ? 'Can\u2019t load the replay' : 'Game not found',
+            networkFailed
+              ? 'The server could not be reached while loading this game\u2019s history.'
+              : 'This game is not live and has no recorded history.',
+          );
+          return;
+        }
+
+        controlledSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
+        historicSnakeId = group.default_snake_id;
+
+        // Load the default snake's decisions, retrying briefly (dropping any
+        // cached empty result) in case the logs are still being written.
+        let ok = await ensureHistoricDecisions();
+        for (let attempt = 1; attempt < 3 && !ok; attempt++) {
+          await sleep(700 * attempt);
+          const sid = getHistoricSnakeId();
+          if (sid) historicCache.delete(sid);
+          ok = await ensureHistoricDecisions();
+        }
+        if (!ok) {
+          showFinishedError(
+            'Replay unavailable',
+            'No decision logs could be loaded for this game.',
+          );
+          return;
+        }
+
+        // The last logged turn is the effective "live edge" for scrubbing.
+        // Turns are keyed by game_state.turn (the decision-log `turn` column is
+        // offset by +1), so this matches the actual final board turn.
+        liveMaxTurn = 0;
+        for (const d of historicDecisions) {
+          const t = d.game_state?.turn ?? d.turn;
+          if (t > liveMaxTurn) liveMaxTurn = t;
+        }
+
+        document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
+        showGameUI();
+        await enterHistoric(liveMaxTurn);
       } catch (err) {
-        console.error('Failed to load game list for finished game:', err);
+        console.error('Finished-game load failed:', err);
+        showFinishedError(
+          'Can\u2019t load the replay',
+          'Something went wrong while loading this game\u2019s history.',
+        );
       }
-
-      if (!group) {
-        if (overlay) {
-          overlay.innerHTML =
-            '<h2>Game not found</h2><p>This game is not live and has no recorded history.</p>';
-        }
-        return;
-      }
-
-      controlledSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
-      historicSnakeId = group.default_snake_id;
-
-      const ok = await ensureHistoricDecisions();
-      if (!ok) {
-        if (overlay) {
-          overlay.innerHTML =
-            '<h2>Game not found</h2><p>No decision logs were recorded for this game.</p>';
-        }
-        return;
-      }
-
-      // The last logged turn is the effective "live edge" for scrubbing.
-      liveMaxTurn = 0;
-      for (const d of historicDecisions) {
-        const t = d.game_state?.turn ?? d.turn;
-        if (t > liveMaxTurn) liveMaxTurn = t;
-      }
-
-      document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
-      showGameUI();
-      enterHistoric(liveMaxTurn);
     }
 
     async function enterHistoric(turnNumber) {
@@ -2754,6 +2833,15 @@
       const ok = await ensureHistoricDecisions(historicTurnNumber);
       if (token !== scrubLoadToken) return; // a newer scrub/return-to-live won
       if (!ok) {
+        // In finished mode there is no live view to fall back to — surface an
+        // explicit error (returnToLive would just re-enter here and loop).
+        if (finishedMode) {
+          showFinishedError(
+            'Replay unavailable',
+            'No decision logs could be loaded for this game.',
+          );
+          return;
+        }
         showBannerNotice('No history recorded yet');
         returnToLive();
         return;
