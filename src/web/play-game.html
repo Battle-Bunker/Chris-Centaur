@@ -667,6 +667,8 @@
     let owners = {};
     // Name tag currently under the mouse (renders ~90% translucent).
     let hoveredNameTagSnakeId = null;
+    let lastCanvasMousePos = null; // last {clientX, clientY} over the canvas
+    let nameTagHoverRerenderQueued = false;
     let stagedMoves = {};
     let premoveMode = false;
     let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
@@ -1572,6 +1574,25 @@
         );
       } else {
         document.getElementById('boardOverlay').innerHTML = '';
+      }
+
+      // Hover revalidation: tags move as the snakes do, so after each render
+      // re-hit-test the last known mouse position against the fresh tag rects.
+      // If the cursor is no longer over the tag it was hovering (or the mouse
+      // has left the canvas), clear/update the hover so no tag can get stuck
+      // in the faded state. Schedules at most one corrective re-render.
+      const freshHit = lastCanvasMousePos && viewMode === 'live'
+        ? BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos)
+        : null;
+      if (freshHit !== hoveredNameTagSnakeId) {
+        hoveredNameTagSnakeId = freshHit;
+        if (!nameTagHoverRerenderQueued) {
+          nameTagHoverRerenderQueued = true;
+          requestAnimationFrame(() => {
+            nameTagHoverRerenderQueued = false;
+            renderGameBoard();
+          });
+        }
       }
     }
 
@@ -3390,18 +3411,24 @@
 
     document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
 
-    // Hovering an owner name tag makes it ~90% translucent so the board under
-    // it stays readable; re-render only when the hovered tag actually changes.
+    // Hovering an owner name tag makes the whole tag clearly translucent so
+    // the board under it stays readable; re-render only when the hovered tag
+    // actually changes. The last mouse position is tracked so the hover can be
+    // revalidated against fresh hit rects after every render (tags move as the
+    // snakes do), and it is cleared on mouseleave so no tag can stay stuck in
+    // the faded state after the cursor leaves the canvas.
     document.getElementById('gameCanvas').addEventListener('mousemove', (event) => {
+      lastCanvasMousePos = { clientX: event.clientX, clientY: event.clientY };
       if (viewMode !== 'live') return;
       const canvas = document.getElementById('gameCanvas');
-      const hit = BoardRenderer.getNameTagAt(canvas, event);
+      const hit = BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos);
       if (hit !== hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = hit;
         renderGameBoard();
       }
     });
     document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
+      lastCanvasMousePos = null;
       if (hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = null;
         renderGameBoard();

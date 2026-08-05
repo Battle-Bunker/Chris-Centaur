@@ -832,6 +832,9 @@ const BoardRenderer = (function () {
     const turn = gameState.turn || 0;
 
     ctx.imageSmoothingEnabled = false;
+    // Alpha hygiene: never inherit transparency from a previous draw pass
+    // (e.g. an overlay that mutated globalAlpha without restoring it).
+    ctx.globalAlpha = 1;
 
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1342,6 +1345,40 @@ const BoardRenderer = (function () {
   // property): owned snakes get thin text + a thin border; the currently
   // selected snake's tag gets thicker, brighter lines. Hovering a tag drops it
   // to ~90% translucency so the board beneath stays readable.
+  // Draw an owner name tag as ONE atomic unit: the opacity is computed once
+  // from the tag's state and applied to background, outline, and text alike
+  // inside a single save/restore block. This guarantees the three parts can
+  // never appear/disappear independently, and no alpha can leak in or out.
+  function drawOwnerTag(ctx, rect, owner, fontSize, font, cellSize, state) {
+    const { selected, hovered } = state;
+    // Hovered → clearly translucent (board underneath visible, tag still
+    // legible). Selected → fully opaque. Default → slightly translucent.
+    const alpha = hovered ? 0.35 : selected ? 1 : 0.9;
+    const ownerColor = owner.color || "#555555";
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = font;
+    const r = rect.h * 0.3;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, rect.h, r);
+    else ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    // White background with owner-colored outline and dark text for contrast.
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = selected ? Math.max(2, cellSize * 0.07) : 1.5;
+    ctx.strokeStyle = ownerColor;
+    ctx.stroke();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      owner.name,
+      rect.x + rect.w / 2,
+      rect.y + rect.h / 2 + fontSize * 0.05,
+    );
+    ctx.restore();
+  }
+
   function renderOwnerNameTags(ctx, canvas, board, cellSize, options) {
     const owners = options?.owners || null;
     const rects = [];
@@ -1376,12 +1413,13 @@ const BoardRenderer = (function () {
       const hovered = hoveredId === snake.id;
 
       const fontSize = Math.max(9, cellSize * 0.32);
-      const font = `${selected ? "600" : "300"} ${fontSize}px sans-serif`;
+      const font = `${selected ? "600" : "400"} ${fontSize}px sans-serif`;
       ctx.save();
       ctx.font = font;
       const padX = fontSize * 0.45;
       const tagW = ctx.measureText(owner.name).width + padX * 2;
       const tagH = fontSize * 1.5;
+      ctx.restore();
 
       const neckCx = neck.x * cellSize + cellSize / 2;
       const neckCy = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
@@ -1427,29 +1465,16 @@ const BoardRenderer = (function () {
         }
         if (score === 0) break;
       }
-      if (!best) {
-        ctx.restore();
-        return;
-      }
+      if (!best) return;
 
-      // ~90% translucent while hovered; otherwise a readable translucency,
-      // slightly brighter for the selected snake.
-      const alpha = hovered ? 0.1 : selected ? 0.85 : 0.6;
-      ctx.globalAlpha = alpha;
-      const r = tagH * 0.3;
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(best.x, best.y, best.w, best.h, r);
-      else ctx.rect(best.x, best.y, best.w, best.h);
-      ctx.fillStyle = "#1a1a1a";
-      ctx.fill();
-      ctx.lineWidth = selected ? Math.max(2, cellSize * 0.07) : 1;
-      ctx.strokeStyle = owner.color || "#888888";
-      ctx.stroke();
-      ctx.fillStyle = owner.color || "#dddddd";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(owner.name, best.x + best.w / 2, best.y + best.h / 2 + fontSize * 0.05);
-      ctx.restore();
+      // The whole tag (background + outline + text) is one atomic unit drawn
+      // under a SINGLE alpha inside one save/restore block. Hover makes the
+      // entire tag clearly translucent (but still legible); nothing about the
+      // tag is ever drawn in a separate pass or with a different alpha.
+      drawOwnerTag(ctx, best, owner, fontSize, font, cellSize, {
+        selected,
+        hovered,
+      });
 
       rects.push({ snakeId: snake.id, ...best });
     });
