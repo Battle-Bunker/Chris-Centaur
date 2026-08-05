@@ -407,7 +407,7 @@
                 <input type="number" id="commitBufferInput" min="100" max="5000" step="100" style="width: 62px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 2px 4px; font-size: 11px;">
                 ms
               </label>
-              <div class="ping-display" id="pingDisplay"></div>
+              <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the Battlesnake engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
             </div>
           </div>
           <div class="turn-controls" id="turnControls" style="display:none;">
@@ -548,7 +548,50 @@
     let userSelectedMove = null;
     let turnTimerInterval = null;
     let turnExpiryTime = null;
-    let measuredPing = 0;
+    let measuredPing = 0; // server→Battlesnake-engine ping (kept internally; no longer shown as "Ping")
+
+    // ── Clock-skew estimation (NTP-style over the WS ping/pong) ──────────────
+    // The countdown compares the server's absolute turnExpiryTime against the
+    // local clock; a skewed system clock would show "Time!" instantly or extra
+    // time. We estimate offset = serverTime − clientTime − RTT/2 from each
+    // pong, keep a small rolling window preferring low-RTT samples (they bound
+    // the offset most tightly), and smooth with an EMA so the countdown never
+    // visibly jitters as new samples arrive.
+    // Dev sanity-check hook: ?clockBias=<ms> biases every local clock read so a
+    // fast (+) or slow (−) client clock can be simulated without touching the OS.
+    const DEV_CLOCK_BIAS_MS = (() => {
+      const v = parseInt(new URLSearchParams(window.location.search).get('clockBias'), 10);
+      return Number.isFinite(v) ? v : 0;
+    })();
+    function clientNow() { return Date.now() + DEV_CLOCK_BIAS_MS; }
+    const clockSync = { samples: [], offset: null, rtt: null };
+    // Offset-corrected "server now"; falls back to the raw local clock until
+    // the first pong sample lands.
+    function serverNow() {
+      return clientNow() + (clockSync.offset === null ? 0 : clockSync.offset);
+    }
+    function sendClockPing() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping', clientTime: clientNow() }));
+      }
+    }
+    function handlePongSample(msg) {
+      if (typeof msg.clientTime !== 'number' || typeof msg.serverTime !== 'number') return;
+      const rtt = clientNow() - msg.clientTime;
+      if (rtt < 0 || rtt > 10000) return; // clock stepped mid-flight or bogus
+      const offset = msg.serverTime - msg.clientTime - rtt / 2;
+      clockSync.samples.push({ rtt, offset });
+      if (clockSync.samples.length > 12) clockSync.samples.shift();
+      // Average the lower-RTT half of the window (min 1, max 5 samples).
+      const sorted = clockSync.samples.slice().sort((a, b) => a.rtt - b.rtt);
+      const n = Math.max(1, Math.min(5, Math.ceil(sorted.length / 2)));
+      const best = sorted.slice(0, n);
+      const target = best.reduce((s, x) => s + x.offset, 0) / best.length;
+      // Converge fast while the window is small (right after connect), then damp.
+      const alpha = clockSync.samples.length < 4 ? 0.5 : 0.15;
+      clockSync.offset = clockSync.offset === null ? target : clockSync.offset + (target - clockSync.offset) * alpha;
+      clockSync.rtt = clockSync.rtt === null ? rtt : Math.round(clockSync.rtt * 0.7 + rtt * 0.3);
+    }
     // Safety-timer buffer (ms): the server commits the staged move at
     // game-server deadline − commitBufferMs. Shared across all viewers;
     // last-used value remembered locally and re-applied on connect.
@@ -709,6 +752,9 @@
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         wsDebug.onOpen();
         idleWatcher.onConnected();
+        // Tight ping burst right after connect so a usable clock-offset
+        // estimate exists before the first turn deadline matters.
+        for (let i = 0; i < 5; i++) setTimeout(sendClockPing, 150 + i * 350);
       };
 
       ws.onmessage = (event) => {
@@ -1100,6 +1146,7 @@
           break;
 
         case 'pong':
+          handlePongSample(msg);
           break;
 
         case 'snake-ended': {
@@ -1729,7 +1776,21 @@
       const pingEl = document.getElementById('pingDisplay');
 
       turnTimerInterval = setInterval(() => {
-        pingEl.textContent = `Ping: ${measuredPing}ms`;
+        // Show the player's OWN round-trip to the Centaur server (from the WS
+        // ping/pong), not the server→engine ping — plus the clock skew we're
+        // correcting for. Skew is displayed client-relative: "clock +2.1s"
+        // means this machine's clock runs 2.1s fast vs the server.
+        if (clockSync.rtt !== null) {
+          let text = `Ping: ${clockSync.rtt}ms`;
+          if (clockSync.offset !== null) {
+            const skewMs = -clockSync.offset;
+            const sign = skewMs >= 0 ? '+' : '\u2212';
+            text += ` \u00b7 clock ${sign}${(Math.abs(skewMs) / 1000).toFixed(1)}s`;
+          }
+          pingEl.textContent = text;
+        } else {
+          pingEl.textContent = 'Ping: --';
+        }
 
         if (!turnExpiryTime || moveSubmitted) {
           timerEl.className = 'timer-display idle';
@@ -1740,7 +1801,10 @@
         // Count down to the actual commit moment: the server auto-commits the
         // staged move at (game-server deadline − buffer), so 0.0s coincides
         // with submission instead of stopping early at the raw deadline.
-        const remaining = Math.max(0, turnExpiryTime - effectiveCommitBufferMs - Date.now());
+        // serverNow() is the clock-skew-corrected server time, so the
+        // countdown, urgency threshold, and "Time!" all reflect the server's
+        // clock regardless of local skew.
+        const remaining = Math.max(0, turnExpiryTime - effectiveCommitBufferMs - serverNow());
         const seconds = (remaining / 1000).toFixed(1);
         timerEl.textContent = `${seconds}s`;
 
@@ -3189,11 +3253,7 @@
 
     document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
 
-    setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping', clientTime: Date.now() }));
-      }
-    }, 5000);
+    setInterval(sendClockPing, 5000);
 
     (() => {
       const bufferInput = document.getElementById('commitBufferInput');
