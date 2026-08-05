@@ -104,6 +104,17 @@ export interface GameTeamGroup {
   turns: number;
   default_snake_id: string;
   snakes: GameTeamMember[];
+  // Game-level metadata from the authoritative `games` table. Null when the
+  // information was never captured (e.g. no /end webhook was received).
+  started_at: string | null;
+  ended_at: string | null;
+  final_turn: number | null;
+  board_width: number | null;
+  board_height: number | null;
+  ruleset_name: string | null;
+  winner_snake_id: string | null;
+  winner_name: string | null;
+  end_reason: string | null;
 }
 
 // Turns a raw game-server team id like "team_red" into a friendly label
@@ -443,14 +454,27 @@ export class DecisionLogger {
       // logged game state so we can derive each snake's team identity. We only
       // pull the squad/color/length out of the JSONB blob rather than the whole
       // game_state to keep the listing payload small.
+      // The `games` table is the source of truth for which games exist and
+      // their metadata; decision_logs is joined only for per-snake/team detail
+      // (colors, lengths, turn counts). Games with a row but no decision logs
+      // yet (e.g. just-started) are naturally excluded, matching prior behavior.
       const result = await db.execute(sql`
-        WITH agg AS (
+        WITH g AS (
+          SELECT id, started_at, ended_at, final_turn,
+                 board_width, board_height, ruleset_name,
+                 winner_snake_id, winner_name, end_reason
+          FROM games
+          ORDER BY COALESCE(started_at, created_at) DESC
+          LIMIT 500
+        ),
+        agg AS (
           SELECT
             game_id,
             snake_id,
             MAX(turn) - MIN(turn) + 1 AS turns,
             MAX(timestamp) AS timestamp
           FROM decision_logs
+          WHERE game_id IN (SELECT id FROM g)
           GROUP BY game_id, snake_id
         ),
         latest AS (
@@ -467,6 +491,7 @@ export class DecisionLogger {
             game_state->'you'->'customizations'->>'color' AS color,
             (game_state->'you'->>'length')::int AS length
           FROM decision_logs
+          WHERE game_id IN (SELECT id FROM g)
           ORDER BY game_id, snake_id, turn DESC
         )
         SELECT
@@ -478,11 +503,20 @@ export class DecisionLogger {
           l.squad,
           l.team_id,
           l.color,
-          l.length
-        FROM agg a
+          l.length,
+          g.started_at,
+          g.ended_at,
+          g.final_turn,
+          g.board_width,
+          g.board_height,
+          g.ruleset_name,
+          g.winner_snake_id,
+          g.winner_name,
+          g.end_reason
+        FROM g
+        JOIN agg a ON a.game_id = g.id
         JOIN latest l USING (game_id, snake_id)
         ORDER BY a.timestamp DESC
-        LIMIT 500
       `);
       return this.groupGamesByTeam(result.rows as any);
     } catch (error) {
@@ -506,6 +540,15 @@ export class DecisionLogger {
       team_id: string | null;
       color: string | null;
       length: number | null;
+      started_at: string | null;
+      ended_at: string | null;
+      final_turn: number | null;
+      board_width: number | null;
+      board_height: number | null;
+      ruleset_name: string | null;
+      winner_snake_id: string | null;
+      winner_name: string | null;
+      end_reason: string | null;
     }[],
   ): GameTeamGroup[] {
     const groups = new Map<string, GameTeamGroup>();
@@ -533,6 +576,15 @@ export class DecisionLogger {
           turns,
           default_snake_id: row.snake_id,
           snakes: [],
+          started_at: row.started_at ?? null,
+          ended_at: row.ended_at ?? null,
+          final_turn: row.final_turn ?? null,
+          board_width: row.board_width ?? null,
+          board_height: row.board_height ?? null,
+          ruleset_name: row.ruleset_name ?? null,
+          winner_snake_id: row.winner_snake_id ?? null,
+          winner_name: row.winner_name ?? null,
+          end_reason: row.end_reason ?? null,
         };
         groups.set(groupKey, group);
       }

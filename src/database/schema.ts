@@ -52,6 +52,35 @@ export const decisionLogs = pgTable(
   ],
 );
 
+// Authoritative per-game metadata record. One row per game, keyed by the game
+// server's game ID string (same value as decision_logs.game_id, so no FK
+// refactoring is needed). Inserted at game start (or first /move as fallback),
+// finalized by the /end webhook. Games that never receive /end keep null end
+// fields. Historical games are backfilled from decision_logs (see GameRegistry).
+export const games = pgTable(
+  'games',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    finalTurn: integer('final_turn'),
+    boardWidth: integer('board_width'),
+    boardHeight: integer('board_height'),
+    rulesetName: varchar('ruleset_name', { length: 64 }),
+    gameMode: varchar('game_mode', { length: 64 }),
+    timeoutMs: integer('timeout_ms'),
+    // Where the game came from, per the game server (e.g. "custom", "league"),
+    // or "backfill" for rows reconstructed from decision logs.
+    source: varchar('source', { length: 64 }),
+    winnerSnakeId: varchar('winner_snake_id', { length: 255 }),
+    winnerName: varchar('winner_name', { length: 255 }),
+    endReason: varchar('end_reason', { length: 64 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index('idx_games_started_at').on(table.startedAt)],
+);
+
 // Server lifecycle/activity events (boot, shutdown, woke, went-idle) powering
 // the /activity autoscale audit page. Dev and prod databases are separate, so
 // each database's rows are inherently their own environment — no env column.

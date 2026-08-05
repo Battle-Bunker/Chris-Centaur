@@ -128,6 +128,20 @@
         return `<span class="snake-tag">${dot}${escapeHtml(s.snake_name || 'Snake')}${len}</span>`;
       }).join('');
 
+      // Game-level metadata from the authoritative games table (null when the
+      // info was never captured, e.g. no end webhook).
+      const bits = [];
+      if (group.board_width && group.board_height) bits.push(`${group.board_width}\u00d7${group.board_height}`);
+      if (group.ruleset_name) bits.push(group.ruleset_name);
+      if (group.end_reason === 'draw') {
+        bits.push('Draw');
+      } else if (group.winner_name || group.winner_snake_id) {
+        bits.push(`Winner: ${group.winner_name || group.winner_snake_id}`);
+      }
+      const metaBits = bits.length
+        ? ` \u00b7 ${bits.map(escapeHtml).join(' \u00b7 ')}`
+        : '';
+
       return `
         <div class="game-card" onclick="openGame('${escapeHtml(group.game_id)}')">
           <div class="game-card-header">
@@ -135,7 +149,7 @@
             ${timestamp ? `<span class="game-card-time">${escapeHtml(timestamp)}</span>` : ''}
           </div>
           <div class="game-card-id">${escapeHtml(group.game_id)}</div>
-          <div class="game-card-meta">Turns: ${escapeHtml(group.turns)}</div>
+          <div class="game-card-meta">Turns: ${escapeHtml(group.turns)}${metaBits}</div>
           <div class="game-card-snakes">${snakeTags}</div>
         </div>
       `;
