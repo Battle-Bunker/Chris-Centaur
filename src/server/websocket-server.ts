@@ -45,7 +45,6 @@ const USER_INTENT_TYPES = new Set([
   'select-move',
   'confirm-fatal-move',
   'set-premove',
-  'set-nickname',
   'activity',
 ]);
 
@@ -310,6 +309,24 @@ export class GameWebSocketServer {
       case 'subscribe-game': {
         const gameId = msg.gameId || '';
         const userId = msg.userId || '';
+        const playerName = typeof msg.playerName === 'string' ? msg.playerName : '';
+
+        // Enrol FIRST (race-safe uniqueness check inside the manager) so a
+        // rejected name never becomes a subscribed operator. Only active games
+        // enrol — a finished/unknown game returns null and the client falls
+        // back to the read-only replay with no login gate.
+        const enrolResult = this.gameManager.addConnectedUser(gameId, userId, playerName);
+        if (enrolResult && 'error' in enrolResult) {
+          this.send(client.ws, {
+            type: 'enrol-error',
+            gameId,
+            error: enrolResult.error,
+            enrolledNames: this.gameManager.getEnrolledNames(gameId, userId),
+          });
+          break;
+        }
+        const user = enrolResult?.user ?? null;
+
         client.gameId = gameId;
         client.userId = userId;
         client.isLobby = false;
@@ -335,7 +352,6 @@ export class GameWebSocketServer {
           details: { kind: 'game' },
         });
 
-        const user = this.gameManager.addConnectedUser(gameId, userId);
         const gameState = this.gameManager.getGameState(gameId);
 
         this.send(client.ws, {
@@ -343,6 +359,7 @@ export class GameWebSocketServer {
           gameId,
           userId,
           userColor: user?.color || '#888888',
+          playerName: user?.name || null,
           ...(gameState || {}),
         });
 
@@ -519,16 +536,6 @@ export class GameWebSocketServer {
         this.gameManager.setWaypoint(
           client.gameId, snakeId, msg.waypoint ?? null, client.userId
         );
-        break;
-      }
-
-      case 'set-nickname': {
-        if (!client.gameId || !client.userId) break;
-        const nickname = typeof msg.nickname === 'string' ? msg.nickname : null;
-        const success = this.gameManager.setUserNickname(client.gameId, client.userId, nickname);
-        if (success) {
-          this.broadcastSelectionsUpdate(client.gameId);
-        }
         break;
       }
 

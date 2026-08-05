@@ -132,10 +132,25 @@ export interface ControlledSnake {
 
 export interface ConnectedUser {
   userId: string;
+  // The player's enrolled name — mandatory, unique per game, chosen on the
+  // login screen before entering an active game. Keys the stable colour.
+  name: string;
   color: string;
   selectedSnakeId: string | null;
-  nickname: string | null;
 }
+
+// A per-game name enrolment: who owns the name and its stable colour.
+// Enrolments live for the whole game (never released on disconnect) so the
+// name→colour mapping — and uniqueness — is stable for the game's lifetime.
+interface PlayerEnrolment {
+  userId: string;
+  name: string;
+  color: string;
+}
+
+export type EnrolResult =
+  | { user: ConnectedUser }
+  | { error: 'name-taken' | 'invalid-name' };
 
 export interface ActiveGame {
   gameId: string;
@@ -147,16 +162,10 @@ export interface ActiveGame {
   gameTimeout: number;
   startedAt: number;
   lastActivityAt: number;
-  colorPool: string[];
-  // Persistent userId→colour association. Outlives a disconnect so a user who
-  // reconnects (same sessionStorage userId) reclaims their previous colour
-  // instead of being handed a fresh one off the pool. Entries are removed only
-  // when the reconnect grace window expires or the game is cleaned up.
-  userColors: Map<string, string>;
-  // Pending colour-release timers keyed by userId. A disconnect schedules one;
-  // a reconnect within the grace window cancels it. When it fires, the colour
-  // is returned to the pool and the userColors entry dropped.
-  colorReleaseTimers: Map<string, NodeJS.Timeout>;
+  // Name enrolments keyed by the lowercased name. An enrolment is created the
+  // first time a name subscribes and lives for the whole game — uniqueness and
+  // the name-keyed colour are therefore stable across disconnect/reconnect.
+  playerNames: Map<string, PlayerEnrolment>;
   turnExpiryTime: number | null;
   currentTurn: number;
   // User-configurable safety-timer buffer (ms). The safety timer commits the
@@ -179,12 +188,6 @@ const DISTINCT_COLORS = [
   '#3cb44b', '#42d4f4', '#4363d8', '#911eb4',
   '#f032e6',
 ];
-
-// How long a disconnected user's colour is held in reserve before it's released
-// back to the pool. A transient drop (proxy blip, brief network loss) reconnects
-// well within this window — the client retries after ~2s — so the user keeps the
-// same colour with no churn. Only a real departure (no reconnect) frees it.
-const COLOR_RELEASE_GRACE_MS = 60 * 1000;
 
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
 export type BoardUpdateCallback = (gameId: string, gameState: GameState) => void;
@@ -408,9 +411,7 @@ export class ActiveGameManager {
         gameTimeout: gameState.game.timeout || 500,
         startedAt: now,
         lastActivityAt: now,
-        colorPool: [...DISTINCT_COLORS],
-        userColors: new Map(),
-        colorReleaseTimers: new Map(),
+        playerNames: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
         commitBufferMs: DEFAULT_COMMIT_BUFFER_MS,
@@ -504,7 +505,6 @@ export class ActiveGameManager {
 
     if (gameOver) {
       console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
-      this.clearColorReleaseTimers(game);
       this.games.delete(gameId);
       this.logIfFullyIdle();
     }
@@ -689,50 +689,91 @@ export class ActiveGameManager {
     user.selectedSnakeId = null;
   }
 
-  addConnectedUser(gameId: string, userId: string): ConnectedUser | null {
+  /**
+   * Enrol an operator into an active game under a mandatory, per-game-unique
+   * player name. This is the single, race-safe uniqueness check: the enrolment
+   * map is consulted and written synchronously here, so two tabs racing the
+   * same name can never both win — the second gets `name-taken`.
+   *
+   * Reconnects are recognised by userId: the same userId re-subscribing with
+   * its enrolled name reclaims the enrolment (and its stable colour) exactly.
+   * Enrolments are never released for the lifetime of the game.
+   */
+  addConnectedUser(gameId: string, userId: string, name: string): EnrolResult | null {
     const game = this.games.get(gameId);
     if (!game) return null;
 
-    if (game.connectedUsers.has(userId)) {
-      return game.connectedUsers.get(userId)!;
+    const trimmed = (name || '').trim().substring(0, 20);
+    // Defense in depth against markup injection: names are letters, digits,
+    // spaces and a few safe punctuation marks only (output encoding on the
+    // client remains mandatory regardless).
+    if (!trimmed || !/^[\p{L}\p{N} _.\-']+$/u.test(trimmed)) {
+      return { error: 'invalid-name' };
+    }
+    const key = trimmed.toLowerCase();
+
+    const existing = game.playerNames.get(key);
+    if (existing && existing.userId !== userId) {
+      return { error: 'name-taken' };
     }
 
-    // A reconnect within the grace window: cancel the pending colour release so
-    // the colour is never returned to the pool — the user reclaims it exactly.
-    const pendingRelease = game.colorReleaseTimers.get(userId);
-    if (pendingRelease) {
-      clearTimeout(pendingRelease);
-      game.colorReleaseTimers.delete(userId);
-    }
+    // If this userId was previously enrolled under a DIFFERENT name (e.g. it
+    // re-subscribed after picking a new name), keep the old enrolment parked —
+    // enrolments are game-lifetime — but the connected user reflects the name
+    // used now.
+    const enrolment: PlayerEnrolment = existing || {
+      userId,
+      name: trimmed,
+      color: this.colorForName(game, trimmed),
+    };
+    game.playerNames.set(key, enrolment);
 
-    // Reuse the user's previously assigned colour if we still remember it
-    // (reconnect, possibly after the timer was cancelled above); otherwise pull
-    // a fresh one from the pool.
-    let color = game.userColors.get(userId);
-    if (!color) {
-      color = game.colorPool.length > 0
-        ? game.colorPool.shift()!
-        : DISTINCT_COLORS[game.connectedUsers.size % DISTINCT_COLORS.length];
-      game.userColors.set(userId, color);
-    }
+    const prior = game.connectedUsers.get(userId);
+    if (prior && prior.name === enrolment.name) return { user: prior };
 
     const user: ConnectedUser = {
       userId,
-      color,
-      selectedSnakeId: null,
-      nickname: null,
+      name: enrolment.name,
+      color: enrolment.color,
+      selectedSnakeId: prior?.selectedSnakeId ?? null,
     };
     game.connectedUsers.set(userId, user);
-    return user;
+    return { user };
   }
 
-  setUserNickname(gameId: string, userId: string, nickname: string | null): boolean {
+  /**
+   * Names currently enrolled in a game (for the login screen's pre-check).
+   * Pass the asking user's id to exclude their OWN enrolments — the server
+   * allows the same userId to reclaim its name on reconnect, so the client
+   * must not treat its own cookie-prefilled name as taken.
+   */
+  getEnrolledNames(gameId: string, excludeUserId?: string): string[] {
     const game = this.games.get(gameId);
-    if (!game) return false;
-    const user = game.connectedUsers.get(userId);
-    if (!user) return false;
-    user.nickname = nickname && nickname.trim().length > 0 ? nickname.trim().substring(0, 20) : null;
-    return true;
+    if (!game) return [];
+    return Array.from(game.playerNames.values())
+      .filter((e) => !excludeUserId || e.userId !== excludeUserId)
+      .map((e) => e.name);
+  }
+
+  // Deterministic name-keyed colour: hash the lowercased name into the
+  // distinct-colour set, then linearly probe past colours already held by
+  // OTHER enrolled names so concurrent players stay visually distinct while
+  // the same name always re-derives the same starting point. Once assigned,
+  // the colour is stored on the enrolment and never changes for the game.
+  private colorForName(game: ActiveGame, name: string): string {
+    const key = name.toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+    }
+    const used = new Set(Array.from(game.playerNames.values()).map((e) => e.color));
+    const n = DISTINCT_COLORS.length;
+    for (let i = 0; i < n; i++) {
+      const candidate = DISTINCT_COLORS[(hash + i) % n];
+      if (!used.has(candidate)) return candidate;
+    }
+    // All colours taken — accept the hash slot (collision unavoidable).
+    return DISTINCT_COLORS[hash % n];
   }
 
   removeConnectedUser(gameId: string, userId: string): void {
@@ -750,37 +791,9 @@ export class ActiveGameManager {
     }
 
     game.connectedUsers.delete(userId);
-
-    // Don't recycle the colour immediately. Hold it in reserve (userColors keeps
-    // the association) so a quick reconnect reclaims the exact same colour with
-    // no churn. Only after the grace window expires with no reconnect do we
-    // return it to the pool. Replace any existing timer (defensive — shouldn't
-    // happen since a reconnect cancels it).
-    const existing = game.colorReleaseTimers.get(userId);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      const g = this.games.get(gameId);
-      if (!g) return;
-      g.colorReleaseTimers.delete(userId);
-      // If the user reconnected in the meantime, leave their colour alone.
-      if (g.connectedUsers.has(userId)) return;
-      const color = g.userColors.get(userId);
-      if (color) {
-        g.colorPool.push(color);
-        g.userColors.delete(userId);
-      }
-    }, COLOR_RELEASE_GRACE_MS);
-    if (typeof (timer as any).unref === 'function') (timer as any).unref();
-    game.colorReleaseTimers.set(userId, timer);
-  }
-
-  /** Cancel all pending colour-release timers for a game. Call before deleting a
-   *  game so a stale timer can't fire against a removed game. */
-  private clearColorReleaseTimers(game: ActiveGame): void {
-    for (const timer of game.colorReleaseTimers.values()) {
-      clearTimeout(timer);
-    }
-    game.colorReleaseTimers.clear();
+    // The name enrolment (and its colour) is deliberately NOT released — it is
+    // stable for the whole game, so a reconnect under the same name/userId
+    // reclaims the identical colour.
   }
 
   getGame(gameId: string): ActiveGame | undefined {
@@ -1925,7 +1938,6 @@ export class ActiveGameManager {
             }
             this.notifyGameListChange('removed', gameId, snakeId);
           }
-          this.clearColorReleaseTimers(game);
           this.games.delete(gameId);
           this.logIfFullyIdle();
         }

@@ -20,4 +20,17 @@ router.get('/api/play/game/:gameId', (req, res) => {
   res.json(gameState);
 });
 
+// Names already enrolled in an active game. The login screen polls this to
+// pre-validate the typed name (the authoritative, race-safe check still
+// happens at enrol time inside the game manager).
+router.get('/api/play/game/:gameId/players', (req, res) => {
+  const manager = ActiveGameManager.getInstance();
+  if (!manager.getGame(req.params.gameId)) {
+    res.status(404).json({ error: 'Game not found' });
+    return;
+  }
+  const excludeUserId = typeof req.query.userId === 'string' ? req.query.userId : undefined;
+  res.json({ names: manager.getEnrolledNames(req.params.gameId, excludeUserId) });
+});
+
 export default router;

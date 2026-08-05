@@ -207,6 +207,33 @@
       cursor: pointer;
       margin-left: 4px;
     }
+    .login-gate-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85); z-index: 3000;
+      justify-content: center; align-items: center;
+    }
+    .login-gate-overlay.active { display: flex; }
+    .login-gate {
+      background: #2a2a2a; border: 1px solid #666; border-radius: 8px;
+      padding: 28px; width: 90%; max-width: 380px; text-align: center;
+    }
+    .login-gate h3 { margin-bottom: 8px; }
+    .login-gate p { margin-bottom: 16px; color: #aaa; font-size: 14px; }
+    .login-gate input {
+      width: 100%; padding: 10px 12px; border-radius: 6px;
+      border: 1px solid #555; background: #1e1e1e; color: #eee;
+      font-size: 15px; margin-bottom: 8px;
+    }
+    .login-gate input:focus { outline: none; border-color: #4CAF50; }
+    .login-gate-error {
+      color: #ef9a9a; font-size: 13px; min-height: 18px; margin-bottom: 10px;
+    }
+    .login-gate button {
+      width: 100%; padding: 11px; border: none; border-radius: 6px;
+      background: #4CAF50; color: #fff; font-size: 15px; font-weight: 600;
+      cursor: pointer;
+    }
+    .login-gate button:disabled { opacity: 0.4; cursor: not-allowed; }
     .confirm-dialog-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.6); z-index: 2000;
@@ -501,6 +528,16 @@
     </div>
   </div>
 
+  <div class="login-gate-overlay" id="loginGate">
+    <div class="login-gate">
+      <h3>Join this game</h3>
+      <p>This game is live. Enter a player name to join as an operator. Names must be unique within the game.</p>
+      <input type="text" id="loginNameInput" maxlength="20" placeholder="Your player name" autocomplete="off">
+      <div class="login-gate-error" id="loginGateError"></div>
+      <button id="loginGateSubmit" disabled>Enter game</button>
+    </div>
+  </div>
+
   <div class="confirm-dialog-overlay" id="fatalMoveDialog">
     <div class="confirm-dialog">
       <h3>⚠ Certain Death</h3>
@@ -535,6 +572,22 @@
       getWS: () => ws,
       reconnect: () => connectWebSocket(),
     });
+
+    // ── Player-name login gate ───────────────────────────────────────────────
+    // Active games require a per-game-unique player name before entering as an
+    // operator. The last-used name is remembered in a long-lived cookie for
+    // pre-fill; the server is the authoritative (race-safe) uniqueness check.
+    const PLAYER_NAME_COOKIE = 'centaurPlayerName';
+    function readPlayerNameCookie() {
+      const m = document.cookie.match(/(?:^|;\s*)centaurPlayerName=([^;]*)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    function writePlayerNameCookie(name) {
+      document.cookie = `${PLAYER_NAME_COOKIE}=${encodeURIComponent(name)}; path=/; max-age=${365 * 24 * 3600}; samesite=lax`;
+    }
+    let myPlayerName = null;        // enrolled name once the server accepts it
+    let enrolledNames = [];         // names already taken in this game (pre-check)
+    let loginGateRefreshTimer = null;
 
     let ws = null;
     let moveState = null;
@@ -748,7 +801,7 @@
         clearTimeout(openTimeout);
         statusEl.className = 'connection-status connected';
         statusEl.textContent = 'Connected';
-        ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId }));
+        ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId, playerName: myPlayerName || '' }));
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         wsDebug.onOpen();
         idleWatcher.onConnected();
@@ -807,8 +860,25 @@
         case 'debug-hello':
           wsDebug.setServerConnId(msg.connId);
           break;
+        case 'enrol-error':
+          // Our name was rejected (taken in a race, or invalid). Re-open the
+          // login gate with the inline error; the socket stays up so the user
+          // can resubmit with a different name over the same connection.
+          enrolledNames = msg.enrolledNames || enrolledNames;
+          showLoginGate(msg.error === 'name-taken'
+            ? 'That name is already taken in this game — choose a unique one.'
+            : 'Please enter a valid name.');
+          break;
+
         case 'game-subscribed':
           myColor = msg.userColor || '#888888';
+          if (msg.playerName) {
+            // Enrolment accepted — persist the latest name used for pre-fill
+            // next time, and drop the gate if it's showing.
+            myPlayerName = msg.playerName;
+            writePlayerNameCookie(myPlayerName);
+            hideLoginGate();
+          }
           // No live board state means the game is not active on the server:
           // it either finished or never existed. Fall back to a read-only
           // replay driven entirely by the decision logs.
@@ -1373,28 +1443,23 @@
       const others = connectedUsers.filter(u => u.userId !== userId);
       const me = connectedUsers.find(u => u.userId === userId);
 
-      let html = others.map(u => {
-        const label = u.nickname || u.userId.substring(0, 6);
-        return `<div class="user-dot" style="background: ${u.color};" title="${label}"></div>`;
-      }).join('');
-
-      if (me) {
-        const myLabel = me.nickname ? `${me.nickname} (you)` : `${me.userId.substring(0, 6)} (you)`;
-        html += `<div class="user-dot you" id="myUserDot" style="background: ${me.color};" title="${myLabel}"></div>`;
+      // Build via DOM APIs (never innerHTML) — player names are untrusted
+      // input and must not be interpolated into markup.
+      container.textContent = '';
+      for (const u of others) {
+        const dot = document.createElement('div');
+        dot.className = 'user-dot';
+        dot.style.background = u.color;
+        dot.title = u.name || u.userId.substring(0, 6);
+        container.appendChild(dot);
       }
-
-      container.innerHTML = html;
-
-      const myDot = document.getElementById('myUserDot');
-      if (myDot) {
-        myDot.addEventListener('click', () => {
-          const me = connectedUsers.find(u => u.userId === userId);
-          const current = me?.nickname || '';
-          const nickname = prompt('Set your nickname (leave empty to clear):', current);
-          if (nickname !== null) {
-            ws.send(JSON.stringify({ type: 'set-nickname', nickname }));
-          }
-        });
+      if (me) {
+        const dot = document.createElement('div');
+        dot.className = 'user-dot you';
+        dot.id = 'myUserDot';
+        dot.style.background = me.color;
+        dot.title = `${me.name || me.userId.substring(0, 6)} (you)`;
+        container.appendChild(dot);
       }
     }
 
@@ -3357,7 +3422,116 @@
       }
     })();
 
-    connectWebSocket();
+    // ── Login gate wiring ────────────────────────────────────────────────────
+    function isNameTaken(name) {
+      const key = name.trim().toLowerCase();
+      return enrolledNames.some(n => n.toLowerCase() === key);
+    }
+
+    function updateLoginGateValidity() {
+      const input = document.getElementById('loginNameInput');
+      const submit = document.getElementById('loginGateSubmit');
+      const errEl = document.getElementById('loginGateError');
+      const name = input.value.trim();
+      if (!name) {
+        submit.disabled = true;
+        errEl.textContent = '';
+        return;
+      }
+      if (isNameTaken(name)) {
+        submit.disabled = true;
+        errEl.textContent = 'That name is already taken in this game — choose a unique one.';
+        return;
+      }
+      submit.disabled = false;
+      errEl.textContent = '';
+    }
+
+    async function refreshEnrolledNames() {
+      try {
+        // Exclude our own enrolments: the server lets the same userId reclaim
+        // its name on refresh/reconnect, so it must not read as "taken" here.
+        const resp = await fetch(`/api/play/game/${encodeURIComponent(gameId)}/players?userId=${encodeURIComponent(userId)}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          enrolledNames = data.names || [];
+          updateLoginGateValidity();
+        } else if (resp.status === 404 && !finishedMode && !currentGameState) {
+          // The game ended while the gate was open — no login needed anymore,
+          // drop straight into the read-only replay.
+          hideLoginGate();
+          enterFinishedMode();
+        }
+      } catch (e) { /* pre-check only; server enforces at enrol time */ }
+    }
+
+    function showLoginGate(error) {
+      const gate = document.getElementById('loginGate');
+      const input = document.getElementById('loginNameInput');
+      const errEl = document.getElementById('loginGateError');
+      if (!input.value) input.value = readPlayerNameCookie();
+      gate.classList.add('active');
+      updateLoginGateValidity();
+      if (error) errEl.textContent = error;
+      input.focus();
+      if (!loginGateRefreshTimer) {
+        loginGateRefreshTimer = setInterval(refreshEnrolledNames, 5000);
+      }
+      refreshEnrolledNames();
+    }
+
+    function hideLoginGate() {
+      document.getElementById('loginGate').classList.remove('active');
+      if (loginGateRefreshTimer) {
+        clearInterval(loginGateRefreshTimer);
+        loginGateRefreshTimer = null;
+      }
+    }
+
+    function submitLoginGate() {
+      const input = document.getElementById('loginNameInput');
+      const name = input.value.trim();
+      if (!name || isNameTaken(name)) return;
+      myPlayerName = name;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // Enrol-error retry path: re-subscribe over the existing socket.
+        ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId, playerName: myPlayerName }));
+      } else {
+        connectWebSocket();
+      }
+    }
+
+    document.getElementById('loginNameInput').addEventListener('input', updateLoginGateValidity);
+    document.getElementById('loginNameInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitLoginGate();
+    });
+    document.getElementById('loginGateSubmit').addEventListener('click', submitLoginGate);
+
+    // ── Page entry ───────────────────────────────────────────────────────────
+    // Active game → mandatory name gate before subscribing as an operator.
+    // Finished game (404) → straight into the read-only replay, no gate.
+    (async () => {
+      try {
+        const resp = await fetch(`/api/play/game/${encodeURIComponent(gameId)}`);
+        if (resp.status === 404) {
+          enterFinishedMode();
+          return;
+        }
+        if (resp.ok) {
+          const overlay = document.getElementById('waitingOverlay');
+          if (overlay) overlay.style.display = 'none';
+          showLoginGate();
+          return;
+        }
+      } catch (e) {
+        console.error('Initial live-state check failed:', e);
+      }
+      // Ambiguous (server error / unreachable): fall back to the old behavior —
+      // connect the WS and let resolveFinishedIfNotLive sort it out. Without a
+      // name the server will answer enrol-error for an active game, re-opening
+      // the gate.
+      connectWebSocket();
+    })();
   </script>
 </body>
 </html>
