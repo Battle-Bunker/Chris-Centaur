@@ -1023,8 +1023,6 @@ const BoardRenderer = (function () {
 
       if (turn > 0 && snake.body.length > 1) {
         const labelSize = Math.max(cellSize * 0.55, 10);
-        const holdsMap = options?.holds || {};
-        const holdCount = holdsMap[snake.id] || 0;
 
         const neck = snake.body[1];
         if (neck) {
@@ -1034,10 +1032,7 @@ const BoardRenderer = (function () {
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#000000";
-          const lengthLabel = holdCount > 0
-            ? `${snake.body.length} (H${holdCount})`
-            : String(snake.body.length);
-          ctx.fillText(lengthLabel, nx, ny);
+          ctx.fillText(String(snake.body.length), nx, ny);
         }
 
         const willGrow =
@@ -1204,6 +1199,11 @@ const BoardRenderer = (function () {
       }
     });
 
+    // Owner name tags: a compact translucent player-name tag near each owned
+    // snake's neck, in the owner's colour. Placement + hover hit-testing live
+    // in renderOwnerNameTags / getNameTagAt.
+    renderOwnerNameTags(ctx, canvas, board, cellSize, options);
+
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
     // historic scrubbing, and /history. We build one unified list of death
@@ -1327,6 +1327,153 @@ const BoardRenderer = (function () {
     return cellSize;
   }
 
+  // Per-canvas name-tag rects from the last render, for hover hit-testing.
+  // Rects are in BOARD-PIXEL space (the canvas's internal coordinate system).
+  const _nameTagRects = new WeakMap();
+
+  // Draw a compact translucent player-name tag for every OWNED snake, anchored
+  // at the neck:
+  //   - head pointing horizontally → the tag extends from the neck AWAY from
+  //     the head (so it trails behind the snake, not over its face);
+  //   - head pointing vertically  → the tag is centred on the neck.
+  // Positioning heuristics: candidate placements are scored by how many OTHER
+  // snake heads they cover, and the least-overlapping candidate wins.
+  // Styling derives reactively from the selections map (the single selection
+  // property): owned snakes get thin text + a thin border; the currently
+  // selected snake's tag gets thicker, brighter lines. Hovering a tag drops it
+  // to ~90% translucency so the board beneath stays readable.
+  function renderOwnerNameTags(ctx, canvas, board, cellSize, options) {
+    const owners = options?.owners || null;
+    const rects = [];
+    _nameTagRects.set(canvas, rects);
+    if (!owners) return;
+    const selections = options?.selections || {};
+    const hoveredId = options?.hoveredNameTagSnakeId || null;
+
+    // Other snakes' head cells (board-pixel rects) for overlap avoidance.
+    const headRects = {};
+    board.snakes.forEach((s) => {
+      const h = s.body && s.body[0];
+      if (h) {
+        headRects[s.id] = {
+          x: h.x * cellSize,
+          y: (board.height - 1 - h.y) * cellSize,
+          w: cellSize,
+          h: cellSize,
+        };
+      }
+    });
+    const intersects = (a, b) =>
+      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+    board.snakes.forEach((snake) => {
+      const owner = owners[snake.id];
+      if (!owner || !owner.name) return;
+      const head = snake.body && snake.body[0];
+      if (!head) return;
+      const neck = snake.body.length > 1 ? snake.body[1] : head;
+      const selected = !!selections[snake.id];
+      const hovered = hoveredId === snake.id;
+
+      const fontSize = Math.max(9, cellSize * 0.32);
+      const font = `${selected ? "600" : "300"} ${fontSize}px sans-serif`;
+      ctx.save();
+      ctx.font = font;
+      const padX = fontSize * 0.45;
+      const tagW = ctx.measureText(owner.name).width + padX * 2;
+      const tagH = fontSize * 1.5;
+
+      const neckCx = neck.x * cellSize + cellSize / 2;
+      const neckCy = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
+      const dx = head.x - neck.x;
+      const dy = head.y - neck.y;
+
+      // Primary placement per head direction, plus fallbacks shifted a cell
+      // up/down (horizontal) or left/right (vertical) for overlap avoidance.
+      const candidates = [];
+      if (dx !== 0) {
+        // Head horizontal → extend away from the head, vertically centred on
+        // the neck. dx>0 means head is right of neck, so extend leftwards.
+        const x = dx > 0 ? neckCx + cellSize / 2 - tagW : neckCx - cellSize / 2;
+        candidates.push({ x, y: neckCy - tagH / 2 });
+        candidates.push({ x, y: neckCy - tagH / 2 - cellSize });
+        candidates.push({ x, y: neckCy - tagH / 2 + cellSize });
+      } else {
+        // Head vertical (or single-segment) → centred on the neck.
+        candidates.push({ x: neckCx - tagW / 2, y: neckCy - tagH / 2 });
+        candidates.push({ x: neckCx - tagW / 2 - cellSize, y: neckCy - tagH / 2 });
+        candidates.push({ x: neckCx - tagW / 2 + cellSize, y: neckCy - tagH / 2 });
+      }
+
+      const boardW = board.width * cellSize;
+      const boardH = board.height * cellSize;
+      let best = null;
+      let bestScore = Infinity;
+      for (const c of candidates) {
+        const rect = {
+          x: Math.max(1, Math.min(c.x, boardW - tagW - 1)),
+          y: Math.max(1, Math.min(c.y, boardH - tagH - 1)),
+          w: tagW,
+          h: tagH,
+        };
+        let score = 0;
+        for (const [sid, hr] of Object.entries(headRects)) {
+          if (sid === snake.id) continue;
+          if (intersects(rect, hr)) score++;
+        }
+        if (score < bestScore) {
+          bestScore = score;
+          best = rect;
+        }
+        if (score === 0) break;
+      }
+      if (!best) {
+        ctx.restore();
+        return;
+      }
+
+      // ~90% translucent while hovered; otherwise a readable translucency,
+      // slightly brighter for the selected snake.
+      const alpha = hovered ? 0.1 : selected ? 0.85 : 0.6;
+      ctx.globalAlpha = alpha;
+      const r = tagH * 0.3;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(best.x, best.y, best.w, best.h, r);
+      else ctx.rect(best.x, best.y, best.w, best.h);
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fill();
+      ctx.lineWidth = selected ? Math.max(2, cellSize * 0.07) : 1;
+      ctx.strokeStyle = owner.color || "#888888";
+      ctx.stroke();
+      ctx.fillStyle = owner.color || "#dddddd";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(owner.name, best.x + best.w / 2, best.y + best.h / 2 + fontSize * 0.05);
+      ctx.restore();
+
+      rects.push({ snakeId: snake.id, ...best });
+    });
+  }
+
+  // Hit-test a mouse event against the name-tag rects from the last render.
+  // Returns the owned snake's id, or null. Uses the CSS-displayed size so it
+  // stays correct when the canvas is scaled (same principle as getClickedCell).
+  function getNameTagAt(canvas, event) {
+    const rects = _nameTagRects.get(canvas);
+    if (!rects || rects.length === 0) return null;
+    const bounds = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / bounds.width;
+    const scaleY = canvas.height / bounds.height;
+    const px = (event.clientX - bounds.left) * scaleX;
+    const py = (event.clientY - bounds.top) * scaleY;
+    for (const r of rects) {
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+        return r.snakeId;
+      }
+    }
+    return null;
+  }
+
   function createBoardOverlay(
     overlayEl,
     canvas,
@@ -1411,7 +1558,7 @@ const BoardRenderer = (function () {
   // Builds the HTML for one snake row. `opts` controls history-viewer extras:
   // selectable (clickable to switch perspective) and active (current
   // perspective). Without opts it renders the plain play-page row.
-  function renderSnakeInfoItem(snake, ourSnakeId, holdsMap, opts, currentTurn) {
+  function renderSnakeInfoItem(snake, ourSnakeId, opts, currentTurn) {
     const isOurSnake = snake.id === ourSnakeId;
     const isDead = !!(opts && opts.dead);
     const snakeColor = snake.customizations?.color || snake.color || "#888888";
@@ -1431,9 +1578,10 @@ const BoardRenderer = (function () {
       invulnDisplay = `<span>${icon} ${invulnLevel}${turnsSuffix}</span>`;
     }
     const emojiDisplay = snake.emoji || "\u{1F40D}";
-    const holdCount = holdsMap[snake.id] || 0;
-    const holdBadge = holdCount > 0
-      ? `<span style="background:#ff9800;color:#fff;padding:1px 6px;border-radius:8px;font-weight:700;">HOLD ${holdCount}</span>`
+    // Owner badge: shown for owned snakes in the owner's player colour.
+    const owner = opts && opts.owner;
+    const ownerBadge = owner
+      ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px 6px;border-radius:8px;font-weight:400;">${owner.name}</span>`
       : "";
     const selectable = opts && opts.selectable;
     const active = opts && opts.active;
@@ -1459,7 +1607,7 @@ const BoardRenderer = (function () {
             <div class="snake-stats">
               <span>\u{1F4CF} ${snake.body.length}</span>
               ${invulnDisplay}
-              ${holdBadge}
+              ${ownerBadge}
             </div>
           </div>
         </div>
@@ -1471,12 +1619,13 @@ const BoardRenderer = (function () {
   // snakes are made selectable via options.onSelectSnake so the history viewer
   // can switch perspective. Without options it falls back to the flat list used
   // by the live play page.
-  function renderSnakeInfo(container, gameState, ourSnakeId, holds, options) {
+  function renderSnakeInfo(container, gameState, ourSnakeId, options) {
     if (!gameState || !gameState.board) {
       container.innerHTML = "";
       return;
     }
-    const holdsMap = holds || {};
+    // Snake ownership map ({snakeId: {userId, name, color}}) for owner badges.
+    const ownersMap = (options && options.owners) || {};
     const snakes = gameState.board.snakes;
     const currentTurn = gameState.turn;
     // Dead snakes (options.deadSnakes) are appended to their team groups so the
@@ -1492,8 +1641,9 @@ const BoardRenderer = (function () {
       container.innerHTML = allSnakes
         .map((snake) =>
           renderSnakeInfoItem(
-            snake, ourSnakeId, holdsMap,
-            deadIds.has(snake.id) ? { dead: true } : null, currentTurn,
+            snake, ourSnakeId,
+            { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null },
+            currentTurn,
           ),
         )
         .join("");
@@ -1539,13 +1689,14 @@ const BoardRenderer = (function () {
           : "team-group-header enemy-team";
         const items = teamSnakes
           .map((snake) =>
-            renderSnakeInfoItem(snake, ourSnakeId, holdsMap, {
+            renderSnakeInfoItem(snake, ourSnakeId, {
               selectable:
                 canSelect &&
                 isOurTeam &&
                 (selectableIds ? selectableIds.has(snake.id) : !deadIds.has(snake.id)),
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
+              owner: ownersMap[snake.id] || null,
             }, currentTurn),
           )
           .join("");
@@ -2053,6 +2204,7 @@ const BoardRenderer = (function () {
     drawDeathMarker,
     drawUnknownDeathMarker,
     getClickedCell,
+    getNameTagAt,
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
     _moveClickHandler: null,

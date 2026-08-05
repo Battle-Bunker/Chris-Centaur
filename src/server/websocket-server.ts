@@ -39,8 +39,6 @@ interface WSClient {
 const USER_INTENT_TYPES = new Set([
   'select-snake',
   'deselect',
-  'hold-snake',
-  'release-all-holds',
   'suicide-all',
   'select-move',
   'confirm-fatal-move',
@@ -203,7 +201,7 @@ export class GameWebSocketServer {
         commitBufferMs: this.gameManager.getCommitBuffer(gameId),
         effectiveCommitBufferMs: this.gameManager.getEffectiveCommitBuffer(gameId),
         selections: this.getSelectionsForGame(gameId),
-        holds: this.gameManager.getHoldStates(gameId),
+        owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
         premoves: this.gameManager.getPremovesForGame(gameId),
         waypoints: this.gameManager.getWaypointsForGame(gameId),
@@ -424,28 +422,6 @@ export class GameWebSocketServer {
       case 'deselect': {
         if (!client.gameId || !client.userId) break;
         this.gameManager.deselectSnake(client.gameId, client.userId);
-        this.broadcastSelectionsUpdate(client.gameId);
-        break;
-      }
-
-      case 'hold-snake': {
-        if (!client.gameId || !client.userId) break;
-        const snakeId = msg.snakeId;
-        if (!snakeId) break;
-        const result = this.gameManager.holdSnake(client.gameId, snakeId, client.userId);
-        this.send(client.ws, {
-          type: 'hold-result',
-          snakeId,
-          success: result.success,
-          holdTurnsRemaining: result.holdTurnsRemaining,
-        });
-        this.broadcastSelectionsUpdate(client.gameId);
-        break;
-      }
-
-      case 'release-all-holds': {
-        if (!client.gameId || !client.userId) break;
-        this.gameManager.releaseAllHolds(client.gameId);
         this.broadcastSelectionsUpdate(client.gameId);
         break;
       }
@@ -795,7 +771,7 @@ export class GameWebSocketServer {
 
     const selections = this.getSelectionsForGame(gameId);
     const connectedUsers = Array.from(game.connectedUsers.values());
-    const holds = this.gameManager.getHoldStates(gameId);
+    const owners = this.gameManager.getOwnersForGame(gameId);
     const stagedMoves = this.getStagedMovesForGame(gameId);
     const premoves = this.gameManager.getPremovesForGame(gameId);
     const waypoints = this.gameManager.getWaypointsForGame(gameId);
@@ -806,7 +782,7 @@ export class GameWebSocketServer {
       type: 'selections-update',
       selections,
       connectedUsers,
-      holds,
+      owners,
       stagedMoves,
       premoves,
       waypoints,

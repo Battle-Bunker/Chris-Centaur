@@ -394,13 +394,12 @@
                 </span>
               </span>
               <span class="kbd-pill">
-                <span class="kbd-key">Tab</span> Hold
+                <span class="kbd-key">Tab</span> Cycle
                 <span class="kbd-tip">
-                  <strong>Tab — hold this snake</strong><br>
-                  Defers the auto-pilot for the current turn so you have time to
-                  think. Whatever is staged at the turn deadline (the bot's best
-                  move unless you stage your own) is committed automatically, so the
-                  snake never dies from inaction. <code>Space</code> stages, <code>Esc</code> deselects.
+                  <strong>Tab — cycle your snakes</strong><br>
+                  Cycles the selection through the snakes you own (every snake
+                  you have selected this game stays yours and shows your name
+                  tag on the board). <code>Space</code> stages, <code>Esc</code> deselects.
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
@@ -424,8 +423,7 @@
                 </span>
               </span>
             </div>
-            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — ALL SNAKES HELD</div>
-              <button id="releaseAllBtn" onclick="releaseAllHolds()" style="display: none; background: #f44336; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">Release all holds</button>
+            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — WAITING BEFORE COMMIT</div>
               <button id="submitAllBtn" onclick="submitAll()" style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
@@ -485,9 +483,6 @@
               <button class="submit-btn" id="submitBtn" onclick="stageSelectedMove()" disabled>
                 Stage Move <span class="shortcut">[Space]</span>
               </button>
-              <button class="submit-btn" id="holdBtn" onclick="holdSelectedSnake()" style="background: #ff9800; margin-top: 8px;">
-                Hold this snake (defer to end of turn) <span class="shortcut">[Tab]</span>
-              </button>
             </div>
           </div>
 
@@ -519,8 +514,8 @@
 
   <div class="confirm-dialog-overlay" id="confirmDialog">
     <div class="confirm-dialog">
-      <h3>Snake Already Selected</h3>
-      <p id="confirmDialogText">Another user is controlling this snake. Take over control?</p>
+      <h3>Snake Owned by Another Player</h3>
+      <p id="confirmDialogText">Another player owns this snake. Take over ownership and control?</p>
       <div class="confirm-dialog-buttons">
         <button class="confirm-btn" id="confirmTakeoverBtn">Take Over</button>
         <button class="cancel-btn" id="cancelTakeoverBtn">Cancel</button>
@@ -667,7 +662,11 @@
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
     let analyticsFrozen = false;
-    let holds = {};
+    // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
+    // the server; drives on-board name tags, roster owner badges, Tab cycling.
+    let owners = {};
+    // Name tag currently under the mouse (renders ~90% translucent).
+    let hoveredNameTagSnakeId = null;
     let stagedMoves = {};
     let premoveMode = false;
     let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
@@ -904,8 +903,8 @@
           if (msg.selections) {
             selections = msg.selections;
           }
-          if (msg.holds) {
-            holds = msg.holds;
+          if (msg.owners) {
+            owners = msg.owners;
           }
           if (msg.stagedMoves) {
             stagedMoves = msg.stagedMoves;
@@ -938,7 +937,6 @@
             showGameUI();
           }
           updatePremoveBanner();
-          updateReleaseAllButton();
           break;
 
         case 'commit-buffer-update':
@@ -975,8 +973,8 @@
           if (msg.selections) {
             selections = msg.selections;
           }
-          if (msg.holds) {
-            holds = msg.holds;
+          if (msg.owners) {
+            owners = msg.owners;
           }
           if (msg.premoves) {
             premoveQueues = msg.premoves;
@@ -991,7 +989,6 @@
             activeIntentModes = msg.activeIntentModes;
           }
           stagedMoves = msg.stagedMoves || {};
-          updateReleaseAllButton();
 
           for (const snakeId of controlledSnakeIds) {
             const csData = controlledSnakeTurnData[snakeId];
@@ -1102,8 +1099,8 @@
         case 'selections-update':
           selections = msg.selections || {};
           connectedUsers = msg.connectedUsers || [];
-          if (msg.holds) {
-            holds = msg.holds;
+          if (msg.owners) {
+            owners = msg.owners;
           }
           if (msg.stagedMoves) {
             stagedMoves = msg.stagedMoves;
@@ -1123,7 +1120,6 @@
           renderConnectedUsers();
           renderGameBoard();
           renderSnakeInfo();
-          updateReleaseAllButton();
 
           if (selectedSnakeId) {
             const sel = selections[selectedSnakeId];
@@ -1504,7 +1500,11 @@
         showChosenArrow: false,
         controlledSnakeIds: controlledSnakeIds,
         selectionGlows: selectionGlows,
-        holds: holds,
+        // Ownership name tags: styling derives reactively from the selections
+        // map (single selection property) inside the renderer.
+        owners: owners,
+        selections: selections,
+        hoveredNameTagSnakeId: hoveredNameTagSnakeId,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
@@ -1603,9 +1603,9 @@
       recordSnakesSeen(currentGameState);
       if (viewMode === 'historic') return;
       BoardRenderer.renderSnakeInfo(
-        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId, holds,
+        document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId,
         { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds,
-          deadSnakes: deadSnakesFor(currentGameState) }
+          owners: owners, deadSnakes: deadSnakesFor(currentGameState) }
       );
     }
 
@@ -2336,17 +2336,19 @@
       contestedSnakeId = null;
     });
 
-    function holdSelectedSnake() {
-      if (!selectedSnakeId || !ws || ws.readyState !== WebSocket.OPEN) return;
-      const heldSnakeId = selectedSnakeId;
-      ws.send(JSON.stringify({ type: 'hold-snake', snakeId: heldSnakeId }));
-      holds[heldSnakeId] = (holds[heldSnakeId] || 0) + 1;
-      userSelectedMove = null;
-      if (moveState) moveState.selectedMove = null;
-      renderGameBoard();
-      renderSnakeInfo();
-      updateMoveControls();
-      updateReleaseAllButton();
+    // Tab: cycle the selection through the snakes this player OWNS (every
+    // snake they've selected this game), in stable board order.
+    function cycleOwnedSnakes() {
+      if (!currentGameState || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const mine = (currentGameState.board?.snakes || [])
+        .filter(s => owners[s.id] && owners[s.id].userId === userId)
+        .map(s => s.id);
+      if (mine.length === 0) return;
+      const idx = mine.indexOf(selectedSnakeId);
+      const next = mine[(idx + 1) % mine.length];
+      if (next && next !== selectedSnakeId) {
+        selectSnakeForControl(next);
+      }
     }
 
     function submitAll() {
@@ -2359,22 +2361,6 @@
       const password = window.prompt("Enter password to confirm SUICIDE ALL:");
       if (password === null) return;
       ws.send(JSON.stringify({ type: 'suicide-all', password: password }));
-    }
-
-    function releaseAllHolds() {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'release-all-holds' }));
-      holds = {};
-      updateReleaseAllButton();
-      renderSnakeInfo();
-      renderGameBoard();
-    }
-
-    function updateReleaseAllButton() {
-      const btn = document.getElementById('releaseAllBtn');
-      if (!btn) return;
-      const anyHeld = Object.values(holds).some(n => n > 0);
-      btn.style.display = anyHeld ? 'inline-block' : 'none';
     }
 
     document.addEventListener('keydown', (e) => {
@@ -2439,10 +2425,8 @@
       }
 
       if (e.key === 'Tab') {
-        if (selectedSnakeId) {
-          e.preventDefault();
-          holdSelectedSnake();
-        }
+        e.preventDefault();
+        cycleOwnedSnakes();
         return;
       }
 
@@ -2736,7 +2720,7 @@
     // Strip every live-only affordance from the page. Used for finished games,
     // where there is nothing to control and no live turn to follow.
     function hideLiveOnlyChrome() {
-      ['submitAllBtn', 'suicideBtn', 'releaseAllBtn', 'timerDisplay', 'pingDisplay', 'commitBufferLabel', 'gameOverBanner']
+      ['submitAllBtn', 'suicideBtn', 'timerDisplay', 'pingDisplay', 'commitBufferLabel', 'gameOverBanner']
         .forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
@@ -3104,7 +3088,7 @@
       if (!lightweight || snakeInfoRenderedTurn !== renderedTurn) {
         snakeInfoRenderedTurn = renderedTurn;
         BoardRenderer.renderSnakeInfo(
-          document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(), null,
+          document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(),
           { groupByTeam: true, onSelectSnake: switchHistoricSnake,
             selectableSnakeIds: historicSelectableIds(),
             deadSnakes: deadSnakesFor(boardRow.game_state) }
@@ -3282,7 +3266,7 @@
     }
 
     // In history mode the selection panel becomes a read-only breakdown viewer:
-    // the snake-perspective name is shown, control buttons (Stage/Hold) and the
+    // the snake-perspective name is shown, control buttons (Stage) and the
     // intent badge are hidden, and the move buttons + stats reflect the logged
     // turn. restoreLiveSelectionPanel() undoes this on return to live.
     function showHistoricSelectionPanel(turn) {
@@ -3405,6 +3389,24 @@
     })();
 
     document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
+
+    // Hovering an owner name tag makes it ~90% translucent so the board under
+    // it stays readable; re-render only when the hovered tag actually changes.
+    document.getElementById('gameCanvas').addEventListener('mousemove', (event) => {
+      if (viewMode !== 'live') return;
+      const canvas = document.getElementById('gameCanvas');
+      const hit = BoardRenderer.getNameTagAt(canvas, event);
+      if (hit !== hoveredNameTagSnakeId) {
+        hoveredNameTagSnakeId = hit;
+        renderGameBoard();
+      }
+    });
+    document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
+      if (hoveredNameTagSnakeId) {
+        hoveredNameTagSnakeId = null;
+        renderGameBoard();
+      }
+    });
 
     setInterval(sendClockPing, 5000);
 

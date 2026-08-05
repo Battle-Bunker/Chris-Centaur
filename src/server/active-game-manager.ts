@@ -110,9 +110,15 @@ export interface ControlledSnake {
   latestTurnData: TurnData | null;
   botRecommendation: Direction | null;
   selectedBy: string | null;
+  // Persistent ownership: the last player to select this snake. Unlike
+  // `selectedBy` (the single active selection, cleared on deselect/switch),
+  // ownership persists after the player selects a different snake, drives the
+  // on-board player-name tag, Tab cycling, and the takeover confirmation.
+  // Survives disconnects (like name enrolments) so a reconnecting player keeps
+  // their snakes.
+  ownedBy: string | null;
   moveCommittedThisTurn: boolean;
   committedMove: Direction | null;
-  holdTurnsRemaining: number;
   suicideArmed: boolean;
   // The snake's intention — the single source of truth for queue cells, the
   // waypoint + its live goto route, the manual selection, and the active mode.
@@ -440,9 +446,9 @@ export class ActiveGameManager {
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
+        ownedBy: null,
         moveCommittedThisTurn: false,
         committedMove: null,
-        holdTurnsRemaining: 0,
         suicideArmed: false,
         intent: { kind: 'heuristic' },
         staged: null,
@@ -531,81 +537,30 @@ export class ActiveGameManager {
       this.deselectSnake(gameId, userId);
     }
 
-    if (controlled.selectedBy && controlled.selectedBy !== userId) {
+    // The contested check is on OWNERSHIP, not just the active selection: a
+    // snake owned by another player requires the takeover confirmation even
+    // when that player has since selected a different snake.
+    if (controlled.ownedBy && controlled.ownedBy !== userId) {
       if (!force) {
-        return { success: false, contestedBy: controlled.selectedBy };
+        return { success: false, contestedBy: controlled.ownedBy };
       }
-      const previousUserId = controlled.selectedBy;
+      const previousUserId = controlled.ownedBy;
       const previousUser = game.connectedUsers.get(previousUserId);
-      if (previousUser) {
+      const hadSelection = controlled.selectedBy === previousUserId;
+      if (previousUser && hadSelection) {
         previousUser.selectedSnakeId = null;
       }
       controlled.selectedBy = userId;
+      controlled.ownedBy = userId;
       user.selectedSnakeId = snakeId;
-      return { success: true, revokedUserId: previousUserId };
+      return { success: true, revokedUserId: hadSelection ? previousUserId : undefined };
     }
 
     controlled.selectedBy = userId;
+    // Selecting implicitly adds the snake to the player's owned set.
+    controlled.ownedBy = userId;
     user.selectedSnakeId = snakeId;
     return { success: true };
-  }
-
-  holdSnake(gameId: string, snakeId: string, userId: string): { success: boolean; holdTurnsRemaining: number } {
-    const game = this.games.get(gameId);
-    if (!game) return { success: false, holdTurnsRemaining: 0 };
-
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled) return { success: false, holdTurnsRemaining: 0 };
-
-    if (controlled.selectedBy && controlled.selectedBy !== userId) {
-      return { success: false, holdTurnsRemaining: controlled.holdTurnsRemaining };
-    }
-
-    controlled.holdTurnsRemaining += 1;
-    console.log(`[ActiveGameManager] Hold added for ${gameId}:${snakeId} by ${userId}: now holding ${controlled.holdTurnsRemaining} turn(s)`);
-
-    // Hold defers the commit to the deadline and drops any manual staging so the
-    // snake reverts to its bot move (queue/waypoint persist). Re-stage, or the
-    // deadline commit and broadcast arrow keep showing the cleared manual move.
-    if (controlled.intent.kind === 'manual') {
-      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
-    } else {
-      this.stageMove(gameId, snakeId);
-    }
-
-    if (!controlled.selectedBy) {
-      const user = game.connectedUsers.get(userId);
-      if (user) {
-        if (user.selectedSnakeId && user.selectedSnakeId !== snakeId) {
-          this.deselectSnake(gameId, userId);
-        }
-        controlled.selectedBy = userId;
-        user.selectedSnakeId = snakeId;
-      }
-    }
-
-    return { success: true, holdTurnsRemaining: controlled.holdTurnsRemaining };
-  }
-
-  releaseAllHolds(gameId: string): { released: string[] } {
-    const game = this.games.get(gameId);
-    if (!game) return { released: [] };
-
-    // Releasing a hold ONLY clears the hold flag. It must not commit anything:
-    // the per-snake deadline safety timer remains the sole commit path (the
-    // armed-suicide kill is the one exception). Each released snake's pending
-    // move still commits its staged move when its timer fires.
-    const released: string[] = [];
-    for (const [snakeId, controlled] of game.controlledSnakes) {
-      if (controlled.holdTurnsRemaining > 0) {
-        controlled.holdTurnsRemaining = 0;
-        released.push(snakeId);
-      }
-    }
-    if (released.length > 0) {
-      console.log(`[ActiveGameManager] Released holds for game ${gameId}: ${released.join(', ')}`);
-    }
-    return { released };
   }
 
   suicideAllSnakes(gameId: string): { affected: string[] } {
@@ -615,7 +570,6 @@ export class ActiveGameManager {
     const affected: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
       controlled.suicideArmed = true;
-      controlled.holdTurnsRemaining = 0;
       affected.push(snakeId);
 
       if (controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.turnData) {
@@ -659,12 +613,32 @@ export class ActiveGameManager {
     return { affected };
   }
 
-  getHoldStates(gameId: string): { [snakeId: string]: number } {
+  // Per-snake ownership snapshot broadcast to every client: the owning
+  // player's id, name and colour (or null). Name/colour come from the live
+  // connected user when present, else from the game-lifetime name enrolment
+  // (ownership survives disconnects the same way enrolments do).
+  getOwnersForGame(gameId: string): { [snakeId: string]: { userId: string; name: string; color: string } | null } {
     const game = this.games.get(gameId);
     if (!game) return {};
-    const out: { [snakeId: string]: number } = {};
+    const out: { [snakeId: string]: { userId: string; name: string; color: string } | null } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
-      out[snakeId] = cs.holdTurnsRemaining;
+      if (!cs.ownedBy) {
+        out[snakeId] = null;
+        continue;
+      }
+      const user = game.connectedUsers.get(cs.ownedBy);
+      let name = user?.name;
+      let color = user?.color;
+      if (!name) {
+        for (const enrolment of game.playerNames.values()) {
+          if (enrolment.userId === cs.ownedBy) {
+            name = enrolment.name;
+            color = enrolment.color;
+            break;
+          }
+        }
+      }
+      out[snakeId] = { userId: cs.ownedBy, name: name || 'Player', color: color || '#888888' };
     }
     return out;
   }
@@ -836,7 +810,7 @@ export class ActiveGameManager {
     }>;
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
-    holds: { [snakeId: string]: number };
+    owners: { [snakeId: string]: { userId: string; name: string; color: string } | null };
     premoves: { [snakeId: string]: Coord[] };
     waypoints: { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } };
     gameTimeout: number;
@@ -880,17 +854,12 @@ export class ActiveGameManager {
       }
     }
 
-    const holds: { [snakeId: string]: number } = {};
-    for (const [snakeId, cs] of game.controlledSnakes) {
-      holds[snakeId] = cs.holdTurnsRemaining;
-    }
-
     return {
       boardState: game.boardState,
       controlledSnakes,
       connectedUsers: Array.from(game.connectedUsers.values()),
       selections,
-      holds,
+      owners: this.getOwnersForGame(gameId),
       premoves: this.getPremovesForGame(gameId),
       waypoints: this.getWaypointsForGame(gameId),
       gameTimeout: game.gameTimeout,
@@ -1266,7 +1235,7 @@ export class ActiveGameManager {
     const previous = controlled.intent;
     if (previous.kind === 'manual' && intent.kind !== 'manual') {
       // A still-staged manual selection is being dropped before it committed
-      // (e.g. the user set a queue/waypoint, or a hold reverted to the bot).
+      // (e.g. the user set a queue/waypoint).
       // Log it so a manual move never silently disappears mid-turn.
       console.log(`[ActiveGameManager] Manual selection ${previous.move} for ${gameId}:${snakeId} cleared (intent → ${intent.kind})`);
     }
@@ -1595,8 +1564,7 @@ export class ActiveGameManager {
           // staged move (kept current by stageMove through every input change
           // this turn) validated against this pending's turn.
           const move = this.commitStagedMove(gameId, snakeId, pending.turn, 'safety-timer');
-          const heldNote = controlled.holdTurnsRemaining > 0 ? ` [held ${controlled.holdTurnsRemaining}]` : '';
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId}${heldNote} turn ${pending.turn}: using ${move} (intent: ${controlled.intent.kind}, selectedBy=${controlled.selectedBy})`);
+          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} turn ${pending.turn}: using ${move} (intent: ${controlled.intent.kind}, selectedBy=${controlled.selectedBy})`);
           this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
         } else {
           console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
@@ -1669,16 +1637,13 @@ export class ActiveGameManager {
 
       // Per-turn flag reset only. This loop runs on the board-advancing snake's
       // /move, so it must NOT mutate any other snake's staged move or intent
-      // mode (no stageMove side-effects). Resetting commit flags and
-      // decrementing the queue-hold counter is safe shared per-turn bookkeeping;
-      // stale-manual revert and staged-move re-derivation are handled per-snake
-      // (for THIS snake only) further below, after previous-turn cleanup.
+      // mode (no stageMove side-effects). Resetting commit flags is safe shared
+      // per-turn bookkeeping; stale-manual revert and staged-move re-derivation
+      // are handled per-snake (for THIS snake only) further below, after
+      // previous-turn cleanup.
       for (const [, cs] of game.controlledSnakes) {
         cs.moveCommittedThisTurn = false;
         cs.committedMove = null;
-        if (cs.holdTurnsRemaining > 0) {
-          cs.holdTurnsRemaining = Math.max(0, cs.holdTurnsRemaining - 1);
-        }
       }
 
       boardUpdated = true;
