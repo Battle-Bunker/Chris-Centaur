@@ -423,15 +423,9 @@
                 </span>
               </span>
             </div>
-            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — WAITING BEFORE COMMIT</div>
-              <button id="submitAllBtn" onclick="submitAll()" style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
+            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
-              <label id="commitBufferLabel" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #aaa; white-space: nowrap;" title="Safety buffer: the move auto-commits this many milliseconds before the game server's deadline. Applies to all viewers of this game.">
-                Buffer
-                <input type="number" id="commitBufferInput" min="100" max="5000" step="100" style="width: 62px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 2px 4px; font-size: 11px;">
-                ms
-              </label>
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the Battlesnake engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
             </div>
           </div>
@@ -640,17 +634,6 @@
       clockSync.offset = clockSync.offset === null ? target : clockSync.offset + (target - clockSync.offset) * alpha;
       clockSync.rtt = clockSync.rtt === null ? rtt : Math.round(clockSync.rtt * 0.7 + rtt * 0.3);
     }
-    // Safety-timer buffer (ms): the server commits the staged move at
-    // game-server deadline − commitBufferMs. Shared across all viewers;
-    // last-used value remembered locally and re-applied on connect.
-    let commitBufferMs = (() => {
-      const stored = parseInt(localStorage.getItem('commitBufferMs'), 10);
-      return Number.isFinite(stored) ? Math.min(5000, Math.max(100, stored)) : 500;
-    })();
-    // The buffer the server actually armed the current turn's safety timer
-    // with (differs on turn 0 warm-up and for mid-turn setting changes). The
-    // countdown uses this so 0.0s always matches the real commit moment.
-    let effectiveCommitBufferMs = commitBufferMs;
     let reconnectTimer = null;
     let gameEnded = false;
     let gameEndedSnakes = {};
@@ -739,23 +722,21 @@
     //     Space stages the currently selected cell as a manual override (which
     //     drops the queue/waypoint per the server contract). Queued moves and
     //     goto/waypoints also stage server-side. See `stageSelectedMove`.
-    //   - COMMIT happens ONLY at the turn deadline via the server's per-snake
-    //     safety timer, which reads the stored `stagedMove`. The client never
-    //     commits; it flips a snake into the committed (double-arrow) state
-    //     only when the server broadcasts `move-committed`.
+    //   - RESOLUTION happens ONLY on the game server (TacticToes), which
+    //     applies the LAST staged move written to Firebase before the turn
+    //     deadline. Neither the client nor the centaur server commits
+    //     anything; the centaur flips a snake into the resolved (double-arrow)
+    //     state only when the server broadcasts `move-committed` after the
+    //     turn resolved.
     //
     // Ownership:
-    //   - The server owns staged-move + queue state and broadcasts both. The
-    //     client renders the stagedMoves map directly; it never synthesises a
-    //     fallback arrow locally.
+    //   - The centaur server owns staged-move + queue state, write-through
+    //     publishes every staged move to Firebase (the single source of truth
+    //     for staged moves), and broadcasts the mirror. The client renders the
+    //     stagedMoves map directly; it never synthesises a fallback arrow
+    //     locally.
     //   - Q-mode (premoveMode flag): purely local input mode. Controls what
     //     canvas clicks DO (plan vs select), not whether the queue runs.
-    //
-    // Projected head: after a move is committed this turn, all "next turn"
-    // rendering (Q-mode legal-cell outlines, candidate-arrow cells, queue
-    // extension via clicks) anchors at getProjectedHead() — the cell the
-    // snake's head will occupy after the committed move resolves — rather
-    // than the now-stale current head.
     // ────────────────────────────────────────────────────────────────────────
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
@@ -925,27 +906,10 @@
           }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-          }
-          if (typeof msg.effectiveCommitBufferMs === 'number') {
-            effectiveCommitBufferMs = msg.effectiveCommitBufferMs;
-          }
-          // Re-apply the locally remembered buffer so it persists across
-          // reloads (server default wins only if we have nothing stored).
-          applyStoredCommitBuffer();
-          updateCommitBufferInput();
           if (currentGameState) {
             showGameUI();
           }
           updatePremoveBanner();
-          break;
-
-        case 'commit-buffer-update':
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-            updateCommitBufferInput();
-          }
           break;
 
         case 'board-update':
@@ -965,13 +929,6 @@
           currentGameState = msg.gameState;
           turnExpiryTime = msg.turnExpiryTime || null;
           measuredPing = msg.measuredPing || 0;
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-            updateCommitBufferInput();
-          }
-          if (typeof msg.effectiveCommitBufferMs === 'number') {
-            effectiveCommitBufferMs = msg.effectiveCommitBufferMs;
-          }
           if (msg.selections) {
             selections = msg.selections;
           }
@@ -1829,33 +1786,6 @@
       }
     }
 
-    function clampCommitBuffer(ms) {
-      return Math.min(5000, Math.max(100, Math.round(ms)));
-    }
-
-    function sendCommitBuffer(ms) {
-      const clamped = clampCommitBuffer(ms);
-      commitBufferMs = clamped;
-      localStorage.setItem('commitBufferMs', String(clamped));
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-commit-buffer', bufferMs: clamped }));
-      }
-    }
-
-    function applyStoredCommitBuffer() {
-      const stored = parseInt(localStorage.getItem('commitBufferMs'), 10);
-      if (Number.isFinite(stored) && clampCommitBuffer(stored) !== commitBufferMs && !finishedMode) {
-        sendCommitBuffer(stored);
-      }
-    }
-
-    function updateCommitBufferInput() {
-      const input = document.getElementById('commitBufferInput');
-      if (input && document.activeElement !== input) {
-        input.value = commitBufferMs;
-      }
-    }
-
     function startTurnTimer() {
       if (turnTimerInterval) clearInterval(turnTimerInterval);
       const timerEl = document.getElementById('timerDisplay');
@@ -1884,13 +1814,12 @@
           return;
         }
 
-        // Count down to the actual commit moment: the server auto-commits the
-        // staged move at (game-server deadline − buffer), so 0.0s coincides
-        // with submission instead of stopping early at the raw deadline.
-        // serverNow() is the clock-skew-corrected server time, so the
-        // countdown, urgency threshold, and "Time!" all reflect the server's
-        // clock regardless of local skew.
-        const remaining = Math.max(0, turnExpiryTime - effectiveCommitBufferMs - serverNow());
+        // Count down to the turn deadline itself: the game server resolves the
+        // turn with the last staged move at turnExpiryTime, so staging stays
+        // possible until 0.0s. serverNow() is the clock-skew-corrected server
+        // time, so the countdown, urgency threshold, and "Time!" all reflect
+        // the server's clock regardless of local skew.
+        const remaining = Math.max(0, turnExpiryTime - serverNow());
         const seconds = (remaining / 1000).toFixed(1);
         timerEl.textContent = `${seconds}s`;
 
@@ -2372,11 +2301,6 @@
       }
     }
 
-    function submitAll() {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'commit-all-staged' }));
-    }
-
     function suicideAll() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const password = window.prompt("Enter password to confirm SUICIDE ALL:");
@@ -2433,15 +2357,6 @@
           e.preventDefault();
           hideFatalMoveDialog();
         }
-        return;
-      }
-
-      if (e.key === 'Enter') {
-        // Commit every staged move now (benign "commit now"). The confirm/
-        // takeover dialog branch above intercepts Enter and returns first, so
-        // this never fires while a dialog is open.
-        e.preventDefault();
-        submitAll();
         return;
       }
 
@@ -2741,7 +2656,7 @@
     // Strip every live-only affordance from the page. Used for finished games,
     // where there is nothing to control and no live turn to follow.
     function hideLiveOnlyChrome() {
-      ['submitAllBtn', 'suicideBtn', 'timerDisplay', 'pingDisplay', 'commitBufferLabel', 'gameOverBanner']
+      ['suicideBtn', 'timerDisplay', 'pingDisplay', 'gameOverBanner']
         .forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
@@ -3436,20 +3351,6 @@
     });
 
     setInterval(sendClockPing, 5000);
-
-    (() => {
-      const bufferInput = document.getElementById('commitBufferInput');
-      if (bufferInput) {
-        bufferInput.value = commitBufferMs;
-        bufferInput.addEventListener('change', () => {
-          const val = parseInt(bufferInput.value, 10);
-          if (Number.isFinite(val)) {
-            sendCommitBuffer(val);
-          }
-          bufferInput.value = commitBufferMs;
-        });
-      }
-    })();
 
     // ── Login gate wiring ────────────────────────────────────────────────────
     function isNameTaken(name) {

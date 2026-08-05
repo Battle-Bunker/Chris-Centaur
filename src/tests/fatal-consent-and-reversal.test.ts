@@ -44,11 +44,6 @@ function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: str
   };
 }
 
-function makeRes(): any {
-  return { json: jest.fn(), headersSent: false, writableFinished: false, destroyed: false };
-}
-
-const FUTURE_EXPIRY = () => Date.now() + 1_000_000;
 
 function makeTurnData(gs: GameState, botMove: Direction): TurnData {
   return {
@@ -65,6 +60,7 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
   let mgr: ActiveGameManager;
   let warnSpy: jest.SpyInstance;
   let prompts: Array<{ gameId: string; snakeId: string; move: Direction; turn: number }>;
+  let published: Array<{ snakeId: string; turn: number; move: Direction; source: string }>;
 
   beforeAll(() => {
     mgr = ActiveGameManager.getInstance();
@@ -77,10 +73,15 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     prompts.length = 0;
+    published = [];
+    mgr.setMoveSubmitter(async (_gameId, snakeId, turn, move, source) => {
+      published.push({ snakeId, turn, move, source });
+    });
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    mgr.setMoveSubmitter(null);
     jest.clearAllTimers();
     jest.useRealTimers();
     warnSpy.mockRestore();
@@ -90,7 +91,8 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     return warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
   }
 
-  // Drives the server side of a /move for one snake.
+  // Drives the transport side of one snake's turn intake, the way the
+  // Firebase interface feeds the manager.
   function processMove(gameId: string, snakeId: string, snakes: Snake[], turn: number, botMove: Direction) {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
@@ -98,11 +100,8 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
       mgr.registerGame(gs);
     }
     mgr.updateGameState(gameId, snakeId, gs);
-    mgr.recordTurnArrival(gameId, Date.now(), 500, FUTURE_EXPIRY());
-    const res = makeRes();
-    mgr.setPendingMove(gameId, snakeId, res, 500, FUTURE_EXPIRY(), turn);
+    mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
-    return res;
   }
 
   test('gate: an unconsented manual certain-death move stages the bot move instead and prompts once', () => {
@@ -127,7 +126,7 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
   test('gate: confirmFatalMove re-validates, mints consent, and stages the fatal move as manual', () => {
     const gameId = 'g-confirm';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const res = processMove(gameId, 'A', snakes, 0, 'up');
+    processMove(gameId, 'A', snakes, 0, 'up');
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     cs.selectedBy = 'u1';
 
@@ -145,23 +144,9 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     // The consented reversal also trips the permanent tripwire log.
     expect(warnedText()).toMatch(/REVERSAL TRIPWIRE/);
 
-    // And it commits verbatim (pure passthrough).
-    mgr.commitAllStaged(gameId);
-    expect(res.json).toHaveBeenCalledTimes(1);
-    expect(res.json.mock.calls[0][0].move).toBe('down');
-  });
-
-  test('gate: confirmation after the turn resolved is dropped', () => {
-    const gameId = 'g-late';
-    const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    processMove(gameId, 'A', snakes, 0, 'up');
-    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
-    cs.selectedBy = 'u1';
-
-    mgr.setUserSelection(gameId, 'A', 'down');
-    mgr.commitAllStaged(gameId); // turn ends — bot fallback committed
-
-    expect(mgr.confirmFatalMove(gameId, 'A', 'down', 'u1')).toBe(false);
+    // And the consented move is what write-through published to Firebase
+    // verbatim (pure passthrough — never rewritten).
+    expect(published[published.length - 1]).toEqual({ snakeId: 'A', turn: 0, move: 'down', source: 'manual' });
   });
 
   test('exemption: a BOT-sourced fatal move stages without any prompt or fallback', () => {
@@ -177,21 +162,23 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     expect(warnedText()).not.toMatch(/FATAL-MOVE GATE/);
   });
 
-  test('kill-all: the suicide path stages with implicit consent and commits its deliberate death move', () => {
+  test('kill-all: the suicide path stages with implicit consent and publishes its deliberate death move', () => {
     const gameId = 'g-suicide';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const res = processMove(gameId, 'A', snakes, 0, 'up');
+    processMove(gameId, 'A', snakes, 0, 'up');
 
     const result = mgr.suicideAllSnakes(gameId);
     expect(result.affected).toContain('A');
-    expect(res.json).toHaveBeenCalledTimes(1);
-    const committed = res.json.mock.calls[0][0].move as Direction;
-    // The suicide move must be certain death — for this snake that is 'down'
-    // (onto the neck). Whatever computeSuicideMove picks, it must NOT have
-    // been swapped for the bot's 'up' by the gate.
-    expect(committed).not.toBe('up');
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     expect(cs.staged?.source).toBe('manual');
+    // The suicide move must be certain death — for this snake that is 'down'
+    // (onto the neck). Whatever computeSuicideMove picks, it must NOT have
+    // been swapped for the bot's 'up' by the gate, and it must be the move
+    // write-through published to Firebase.
+    expect(cs.staged?.move).not.toBe('up');
+    expect(published[published.length - 1]).toEqual({
+      snakeId: 'A', turn: 0, move: cs.staged?.move, source: 'manual',
+    });
     expect(prompts).toHaveLength(0);
   });
 
@@ -220,14 +207,15 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     cs.selectedBy = 'u1';
 
     // Queue head = the CURRENT head cell (5,5): directionFromTo(head, cells[0])
-    // is null, so the bot's 'up' commits. The old HOLD branch then retained
+    // is null, so the bot's 'up' stages. The old HOLD branch then retained
     // (5,5) because it is adjacent to the projected head (5,6) — and next turn
     // (head at (5,6), neck at (5,5)) it derived 'down': the exact reversal that
     // killed snake #mepf2x on turn 72 of game qBLZZS36mve52yHabN3G.
     expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 5 }], 'u1')).toBe(true);
     expect(cs.staged?.move).toBe('up'); // queue unresolvable → bot
 
-    mgr.commitAllStaged(gameId); // resolve → advancePremoveQueueAfterMove
+    // The server resolved the turn with 'up' → queue advancement bookkeeping.
+    mgr.applyResolvedMoves(gameId, 0, { A: 'up' });
 
     // The backwards-pointing plan must be CLEARED, not held.
     expect(cs.intent.kind).toBe('heuristic');

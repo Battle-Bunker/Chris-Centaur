@@ -50,6 +50,29 @@ export function directionToMoveIndex(
   }
 }
 
+/**
+ * The engine-facing Direction that takes a snake from one FULL-board index to
+ * an adjacent one, or null when the cells aren't orthogonally adjacent.
+ * Full-board y grows downward, so a full-board step of y-1 is api 'up'.
+ */
+export function moveIndexToDirection(
+  fromIndex: number,
+  toIndex: number,
+  boardWidth: number
+): Direction | null {
+  const fromX = fromIndex % boardWidth;
+  const fromY = Math.floor(fromIndex / boardWidth);
+  const toX = toIndex % boardWidth;
+  const toY = Math.floor(toIndex / boardWidth);
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  if (dx === 1 && dy === 0) return 'right';
+  if (dx === -1 && dy === 0) return 'left';
+  if (dx === 0 && dy === -1) return 'up';
+  if (dx === 0 && dy === 1) return 'down';
+  return null;
+}
+
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
   return (indices || []).map((i) => toApiCoord(i, w, h));
 }

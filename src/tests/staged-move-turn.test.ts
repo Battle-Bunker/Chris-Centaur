@@ -1,10 +1,10 @@
 /**
- * Regression tests for the StagedMove record: each snake's next move is bound as
- * one atomic value to its (snakeId, turn), dropped as a whole per-snake each turn,
- * and accepted at commit only when it aligns with the turn being answered. This
- * prevents the multi-snake desync where one snake's /move advances the shared
- * board and clobbers another snake's prior-turn staged move, causing a wrong-turn
- * commit — e.g. a 180° reversal into its own neck.
+ * Regression tests for the StagedMove record under the Firebase write-through
+ * model: each snake's next move is bound as one atomic value to its
+ * (snakeId, turn), re-derived per-snake each turn, and — the core contract —
+ * EVERY staging action is published through the MoveSubmitter so Firebase is
+ * the single source of truth for staged moves. There is no commit step: the
+ * game server resolves each turn with the last staged move it received.
  */
 
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
@@ -39,14 +39,6 @@ function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: str
   };
 }
 
-function makeRes(): any {
-  return { json: jest.fn(), headersSent: false, writableFinished: false, destroyed: false };
-}
-
-// Far-future expiry so the per-snake safety timer never fires during a test
-// (fake timers also prevent it, but this keeps the computed timeout sane).
-const FUTURE_EXPIRY = () => Date.now() + 1_000_000;
-
 function makeTurnData(gs: GameState, botMove: Direction): TurnData {
   return {
     gameState: gs,
@@ -58,217 +50,215 @@ function makeTurnData(gs: GameState, botMove: Direction): TurnData {
   };
 }
 
-describe('Staged move (snakeId, turn) tagging and per-snake wipe', () => {
+interface Published {
+  gameId: string;
+  snakeId: string;
+  turn: number;
+  move: Direction;
+  source: string;
+}
+
+describe('Staged move (snakeId, turn) tagging and Firebase write-through', () => {
   let mgr: ActiveGameManager;
   let warnSpy: jest.SpyInstance;
+  let published: Published[];
 
   beforeEach(() => {
     jest.useFakeTimers();
     mgr = ActiveGameManager.getInstance();
+    published = [];
+    mgr.setMoveSubmitter(async (gameId, snakeId, turn, move, source) => {
+      published.push({ gameId, snakeId, turn, move, source });
+    });
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    mgr.setMoveSubmitter(null);
     jest.clearAllTimers();
     jest.useRealTimers();
     warnSpy.mockRestore();
   });
 
-  // Drives the server side of a /move for one snake (register + pending + bot rec).
-  function processMove(gameId: string, snakeId: string, snakes: Snake[], turn: number, botMove: Direction) {
+  function publishedFor(snakeId: string): Published[] {
+    return published.filter((p) => p.snakeId === snakeId);
+  }
+
+  // Drives the transport side of one snake's turn intake (register + turn data
+  // + bot recommendation), the way the Firebase interface feeds the manager.
+  function processTurn(gameId: string, snakeId: string, snakes: Snake[], turn: number, botMove: Direction) {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(snakeId)) {
       mgr.registerGame(gs);
     }
     mgr.updateGameState(gameId, snakeId, gs);
-    mgr.recordTurnArrival(gameId, Date.now(), 500, FUTURE_EXPIRY());
-    const res = makeRes();
-    mgr.setPendingMove(gameId, snakeId, res, 500, FUTURE_EXPIRY(), turn);
+    mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
-    return res;
   }
 
-  test('negative: a correctly turn-matched staged move is used unchanged', () => {
-    const gameId = 'g-match';
-    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
+  test('write-through: staging the bot recommendation publishes (turn, move) to Firebase', () => {
+    const gameId = 'g-publish';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
 
-    // Turn 0 for both snakes. Leave A's pending unresolved.
-    const resA0 = processMove(gameId, 'A', snakes, 0, 'right');
-    processMove(gameId, 'B', snakes, 0, 'left');
+    processTurn(gameId, 'A', snakes, 0, 'right');
 
-    const game = mgr.getGame(gameId)!;
-    const csA = game.controlledSnakes.get('A')!;
-    expect(csA.staged?.move).toBe('right');
-    expect(csA.staged?.turn).toBe(0);
-
-    // Turn 1 for A: previous-turn-cleanup commits A's turn-0 pending. Its staged
-    // move is tagged turn 0, the pending it answers is turn 0 → match → used.
-    processMove(gameId, 'A', snakes, 1, 'left');
-
-    expect(resA0.json).toHaveBeenCalledTimes(1);
-    expect(resA0.json.mock.calls[0][0].move).toBe('right');
-    expect(warnSpy).not.toHaveBeenCalled();
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    expect(cs.staged?.move).toBe('right');
+    expect(cs.staged?.turn).toBe(0);
+    expect(publishedFor('A')).toEqual([
+      { gameId, snakeId: 'A', turn: 0, move: 'right', source: 'bot' },
+    ]);
   });
 
-  test('wipe: a snake\'s own new turn re-tags its staged move; another snake\'s /move never repopulates it', () => {
-    const gameId = 'g-wipe';
+  test('write-through: every staging action publishes — manual override, then revert to bot, each land in Firebase', () => {
+    const gameId = 'g-restage';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
+
+    // Manual override re-stages and re-publishes.
+    mgr.setUserSelection(gameId, 'A', 'left');
+    expect(cs.staged?.move).toBe('left');
+    expect(cs.staged?.source).toBe('manual');
+
+    // A "go to"-style plan (premove queue) supersedes the manual selection and
+    // publishes its first step.
+    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 6 }], 'u1')).toBe(true);
+    expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.source).toBe('queue');
+
+    // Cancelling human intervention (clearing the queue → heuristic) re-stages
+    // the bot's recommendation and publishes THAT too.
+    expect(mgr.setPremoveQueue(gameId, 'A', [], 'u1')).toBe(true);
+    expect(cs.intent.kind).toBe('heuristic');
+    expect(cs.staged?.move).toBe('right');
+    expect(cs.staged?.source).toBe('bot');
+
+    expect(publishedFor('A').map((p) => [p.turn, p.move])).toEqual([
+      [0, 'right'],
+      [0, 'left'],
+      [0, 'up'],
+      [0, 'right'],
+    ]);
+  });
+
+  test('write-through dedupe: re-staging the identical (turn, move) does not publish twice', () => {
+    const gameId = 'g-dedupe';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
+
+    mgr.setUserSelection(gameId, 'A', 'right'); // same move, different source
+    mgr.setUserSelection(gameId, 'A', 'right');
+
+    expect(publishedFor('A')).toHaveLength(1);
+    expect(cs.staged?.source).toBe('manual'); // local mirror still re-tagged
+  });
+
+  test('isolation: another snake\'s board-advancing turn never retags or republishes this snake\'s staged move', () => {
+    const gameId = 'g-iso';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
 
-    processMove(gameId, 'A', snakes, 0, 'right');
-    processMove(gameId, 'B', snakes, 0, 'left');
-
-    const game = mgr.getGame(gameId)!;
-    const csB = game.controlledSnakes.get('B')!;
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'left');
+    const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;
     expect(csB.staged?.turn).toBe(0);
+    const bPublishesBefore = publishedFor('B').length;
 
-    // A advances the shared board to turn 1. With the cross-snake refresh removed,
-    // B's staged move must remain tagged for turn 0 (not repopulated for turn 1).
-    processMove(gameId, 'A', snakes, 1, 'left');
+    // A advances the shared board to turn 1. B must be untouched: same staged
+    // record, no new publish.
+    processTurn(gameId, 'A', snakes, 1, 'left');
     expect(csB.staged?.turn).toBe(0);
+    expect(publishedFor('B')).toHaveLength(bPublishesBefore);
 
-    // B's own /move for turn 1 wipes then re-derives B's staged move for turn 1.
-    processMove(gameId, 'B', snakes, 1, 'up');
+    // B's own turn-1 intake re-derives and publishes for turn 1.
+    processTurn(gameId, 'B', snakes, 1, 'up');
     expect(csB.staged?.turn).toBe(1);
     expect(csB.staged?.move).toBe('up');
+    expect(publishedFor('B').slice(-1)[0]).toEqual(
+      { gameId, snakeId: 'B', turn: 1, move: 'up', source: 'bot' },
+    );
   });
 
-  test('desync (heuristic): B\'s previous-turn-cleanup commits its untouched turn-(N-1) staged move, never the new turn\'s move', () => {
-    const gameId = 'g-desync';
+  test('manual is single-turn: a stale manual reverts to heuristic on the snake\'s OWN next turn', () => {
+    const gameId = 'g-manual-stale';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
 
-    // Turn 0: both staged. Keep B's turn-0 pending unresolved.
-    processMove(gameId, 'A', snakes, 0, 'right');
-    const resB0 = processMove(gameId, 'B', snakes, 0, 'left');
-
-    const game = mgr.getGame(gameId)!;
-    const csB = game.controlledSnakes.get('B')!;
-    expect(csB.staged?.move).toBe('left');
-    expect(csB.staged?.turn).toBe(0);
-
-    // A's /move for turn 1 advances the shared board while B's turn-0 pending is
-    // still unresolved. B must be untouched.
-    processMove(gameId, 'A', snakes, 1, 'left');
-    expect(csB.staged?.turn).toBe(0);
-
-    // B's /move for turn 1: setPendingMove runs previous-turn-cleanup for B's
-    // turn-0 pending BEFORE B's staged move is wiped/re-derived. It must commit
-    // the turn-0 staged move ('left'), never a turn-1 move.
-    const resB1 = makeRes();
-    const gsB1 = makeGameState(gameId, 1, snakes, 'B');
-    mgr.updateGameState(gameId, 'B', gsB1);
-    mgr.setPendingMove(gameId, 'B', resB1, 500, FUTURE_EXPIRY(), 1);
-
-    expect(resB0.json).toHaveBeenCalledTimes(1);
-    expect(resB0.json.mock.calls[0][0].move).toBe('left');
-    expect(warnSpy).not.toHaveBeenCalled();
-  });
-
-  test('manual isolation: another snake\'s board-advancing /move never reverts or retags a manual snake; the snake reverts only on its OWN next /move', () => {
-    const gameId = 'g-manual-iso';
-    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
-
-    // Turn 0: A heuristic; B stages a MANUAL move ('left'). Leave B's pending open.
-    processMove(gameId, 'A', snakes, 0, 'right');
-    const resB0 = processMove(gameId, 'B', snakes, 0, 'right');
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'right');
     mgr.setUserSelection(gameId, 'B', 'left');
-
-    const game = mgr.getGame(gameId)!;
-    const csB = game.controlledSnakes.get('B')!;
-    expect(csB.staged?.move).toBe('left');
-    expect(csB.intent.kind).toBe('manual');
-    expect(csB.staged?.turn).toBe(0);
-
-    // A advances the shared board to turn 1. B must be completely untouched: still
-    // manual, same staged move, still tagged turn 0 (no cross-snake revert/retag).
-    processMove(gameId, 'A', snakes, 1, 'left');
+    const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;
     expect(csB.intent.kind).toBe('manual');
     expect(csB.staged?.move).toBe('left');
-    expect(csB.staged?.turn).toBe(0);
 
-    // B's turn-0 previous-turn-cleanup runs on B's own turn-1 /move. The staged
-    // move (turn 0) matches the committed pending (turn 0) → the user's manual
-    // 'left' is committed, not a fallback.
-    const resB1 = makeRes();
-    const gsB1 = makeGameState(gameId, 1, snakes, 'B');
-    mgr.updateGameState(gameId, 'B', gsB1);
-    mgr.setPendingMove(gameId, 'B', resB1, 500, FUTURE_EXPIRY(), 1);
-    expect(resB0.json).toHaveBeenCalledTimes(1);
-    expect(resB0.json.mock.calls[0][0].move).toBe('left');
-    expect(warnSpy).not.toHaveBeenCalled();
+    // A advances the board; B still manual (cross-snake isolation).
+    processTurn(gameId, 'A', snakes, 1, 'left');
+    expect(csB.intent.kind).toBe('manual');
 
-    // Completing B's own turn-1 /move reverts the stale single-turn manual to
-    // heuristic and re-derives B's staged move for turn 1.
-    mgr.setBotRecommendation(gameId, 'B', 'up', makeTurnData(gsB1, 'up'));
+    // B's own turn-1 intake: the turn-0 manual is stale → heuristic, and the
+    // new bot move for turn 1 is published.
+    processTurn(gameId, 'B', snakes, 1, 'up');
     expect(csB.intent.kind).toBe('heuristic');
     expect(csB.staged?.move).toBe('up');
     expect(csB.staged?.turn).toBe(1);
+    expect(publishedFor('B').slice(-1)[0]).toEqual(
+      { gameId, snakeId: 'B', turn: 1, move: 'up', source: 'bot' },
+    );
   });
 
-  test('same-turn manual staged during the bot compute window is re-tagged for the new turn and committed (no fallback)', () => {
+  test('same-turn manual staged during the bot compute window stays authoritative over the late bot recommendation', () => {
     const gameId = 'g-manual-race';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
 
-    // Register both snakes on turn 0, then advance the shared board to turn 1 via A.
-    processMove(gameId, 'A', snakes, 0, 'right');
-    processMove(gameId, 'B', snakes, 0, 'left');
-    processMove(gameId, 'A', snakes, 1, 'left');
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'left');
+    processTurn(gameId, 'A', snakes, 1, 'left'); // board now on turn 1
 
-    // B's turn-1 /move: create the pending FIRST, then simulate the user staging a
-    // manual move while the bot is still computing (setUserSelection runs before
-    // setBotRecommendation). At this point boardStateTurn is already 1.
+    // The user stages a manual move for B while B's bot decision is still
+    // computing (boardStateTurn is already 1).
     const gsB1 = makeGameState(gameId, 1, snakes, 'B');
     mgr.updateGameState(gameId, 'B', gsB1);
-    mgr.recordTurnArrival(gameId, Date.now(), 500, FUTURE_EXPIRY());
-    const resB1 = makeRes();
-    mgr.setPendingMove(gameId, 'B', resB1, 500, FUTURE_EXPIRY(), 1);
     mgr.setUserSelection(gameId, 'B', 'left');
 
-    const game = mgr.getGame(gameId)!;
-    const csB = game.controlledSnakes.get('B')!;
-    expect(csB.intent.kind).toBe('manual');
+    const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;
     expect(csB.staged?.move).toBe('left');
+    expect(csB.staged?.turn).toBe(1);
 
-    // Bot finishes and reports its recommendation. The same-turn manual move must
-    // stay authoritative (precedence) AND be re-tagged for turn 1.
+    // The late bot recommendation must NOT displace the same-turn manual, and
+    // the identical re-stage is deduped (no extra publish).
+    const publishesBefore = publishedFor('B').length;
     mgr.setBotRecommendation(gameId, 'B', 'up', makeTurnData(gsB1, 'up'));
     expect(csB.intent.kind).toBe('manual');
     expect(csB.staged?.move).toBe('left');
     expect(csB.staged?.turn).toBe(1);
-
-    // Committing this turn must use the manual move, not the bot fallback.
-    mgr.commitAllStaged(gameId);
-    expect(resB1.json).toHaveBeenCalledTimes(1);
-    expect(resB1.json.mock.calls[0][0].move).toBe('left');
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(publishedFor('B')).toHaveLength(publishesBefore);
   });
 
-  test('logging + fallback: a stale/absent staged record (turn mismatch) warns and falls back to the bot recommendation', () => {
-    const gameId = 'g-mismatch';
-    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
+  test('applyResolvedMoves: bookkeeping only — advances the premove queue with the server\'s actual move, publishes nothing new for the resolved turn', () => {
+    const gameId = 'g-resolve';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'up');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
 
-    // Turn 0: both staged (heuristic). Leave both pendings unresolved.
-    processMove(gameId, 'A', snakes, 0, 'right');
-    const resB0 = processMove(gameId, 'B', snakes, 0, 'left');
+    // Queue two cells ahead; first step matches the bot's 'up'.
+    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 6 }, { x: 5, y: 7 }], 'u1')).toBe(true);
+    expect(cs.staged?.move).toBe('up');
 
-    const game = mgr.getGame(gameId)!;
-    const csB = game.controlledSnakes.get('B')!;
-    expect(csB.staged?.move).toBe('left');
-    expect(csB.staged?.turn).toBe(0);
-    expect(csB.pendingMove!.turn).toBe(0);
-    expect(csB.pendingMove!.botMove).toBe('left');
+    const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
+    mgr.onMoveCommitted((_gameId, snakeId, move, source) => {
+      committed.push({ snakeId, move, source });
+    });
 
-    // Simulate a stale staged record for B by rebinding it to a different turn
-    // (the whole record is replaced, never a field in place), then force a commit.
-    // commitStagedMove must reject the turn-mismatched record (against the
-    // committed turn 0) and fall back to the bot move ('left').
-    csB.staged = { ...csB.staged!, turn: 99 };
-    mgr.commitAllStaged(gameId);
+    mgr.applyResolvedMoves(gameId, 0, { A: 'up' });
 
-    expect(resB0.json).toHaveBeenCalledTimes(1);
-    expect(resB0.json.mock.calls[0][0].move).toBe('left'); // bot-move fallback
-    expect(warnSpy).toHaveBeenCalled();
-    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(warned).toMatch(/Staged-move turn mismatch \(commit-all\)/);
+    // The queue advanced past the consumed cell and the UI was notified with
+    // the move the server actually applied.
+    expect(cs.intent.kind).toBe('queue');
+    expect((cs.intent as { kind: 'queue'; cells: Coord[] }).cells).toEqual([{ x: 5, y: 7 }]);
+    expect(committed).toEqual([{ snakeId: 'A', move: 'up', source: 'server-resolved' }]);
   });
 });

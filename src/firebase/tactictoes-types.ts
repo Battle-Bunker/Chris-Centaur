@@ -43,6 +43,9 @@ export interface TTTurn {
   food: number[];
   hazards: number[];
   playerPieces: Record<string, number[]>; // board indices, head first, full-board coords
+  // Submitted move indices that produced this turn (server-defaulted moves for
+  // players who never staged are absent — derive those from the head delta).
+  moves?: Record<string, number>;
   winners: Array<{ playerID: string; score: number }>;
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];
