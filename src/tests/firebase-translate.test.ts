@@ -1,6 +1,7 @@
 import { Direction } from '../types/battlesnake';
 import {
   buildGameState,
+  continuationDirection,
   controlledSnakeIDs,
   directionToMoveIndex,
   toApiCoord,
@@ -86,6 +87,23 @@ describe('directionToMoveIndex', () => {
       );
     }
   );
+});
+
+describe('continuationDirection', () => {
+  it('matches the engine default: step in the head−neck direction', () => {
+    // Head at (3,3), neck at (3,4) in full-board coords (y down): the snake
+    // last moved full-board-up, which is api 'up'.
+    expect(continuationDirection([idx(3, 3), idx(3, 4)], W)).toBe('up');
+    expect(continuationDirection([idx(3, 3), idx(2, 3)], W)).toBe('right');
+    expect(continuationDirection([idx(3, 3), idx(4, 3)], W)).toBe('left');
+    expect(continuationDirection([idx(3, 3), idx(3, 2)], W)).toBe('down');
+  });
+
+  it('returns null when the snake has no direction yet', () => {
+    expect(continuationDirection([idx(3, 3)], W)).toBeNull();
+    expect(continuationDirection([idx(3, 3), idx(3, 3)], W)).toBeNull(); // stacked spawn
+    expect(continuationDirection(undefined, W)).toBeNull();
+  });
 });
 
 describe('controlledSnakeIDs', () => {

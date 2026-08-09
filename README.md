@@ -25,10 +25,14 @@ staged moves.
   game server would play. The double (committed) arrow appears only when the
   snake's commit is actually **observed in Firebase**
   (`moveStatuses.movedPlayerIDs` via the server's subscription) — never
-  inferred from timers — so it is fully reliable; turns that resolve by
-  timeout without a commit simply advance without one. The game server
-  resolves each turn with the **last staged move received before the turn
-  deadline**; nothing is committed automatically.
+  inferred from timers — so it is fully reliable. A committed snake with a
+  confirmed staged move shows that move; a committed snake with provably
+  nothing staged shows the engine's deterministic **default** (continue the
+  previous move) — exact, because only this server can write the snake's
+  `privateMoves`. Turns that resolve by timeout without a commit simply
+  advance without a double arrow. The game server resolves each turn with
+  the **last staged move received before the turn deadline**; nothing is
+  committed automatically.
 - **Submit All (manual commit).** The UI's Submit All button (or Enter) marks
   every snake staged for the current turn as *done* in Firebase
   (`moveStatuses.movedPlayerIDs`), letting the game server resolve the turn

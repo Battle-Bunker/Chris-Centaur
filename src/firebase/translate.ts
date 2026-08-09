@@ -73,6 +73,24 @@ export function moveIndexToDirection(
   return null;
 }
 
+/**
+ * The TacticToes engine's default move for a snake that has nothing staged
+ * when its turn resolves: continue the previous move, i.e. step in the
+ * head−neck direction. Returns null when the snake has no direction yet
+ * (single cell or stacked spawn) — the engine then falls back to its
+ * adjacent-cell pick, which we don't reproduce.
+ */
+export function continuationDirection(
+  pieces: number[] | undefined,
+  boardWidth: number
+): Direction | null {
+  if (!pieces || pieces.length < 2) return null;
+  const head = pieces[0];
+  const neck = pieces[1];
+  if (head === neck) return null;
+  return moveIndexToDirection(neck, head, boardWidth);
+}
+
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
   return (indices || []).map((i) => toApiCoord(i, w, h));
 }

@@ -351,6 +351,24 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(publishedFor('A').map((p) => p.move)).toEqual(['right']);
   });
 
+  test('hasUnconfirmedRequest: true while a request awaits confirmation, false after it matches or when no request exists', () => {
+    const gameId = 'g-unconfirmed';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+
+    // Request published but not yet confirmed.
+    expect(mgr.hasUnconfirmedRequest(gameId, 'A', 0)).toBe(true);
+    // A stale confirmation (different move) does not settle it.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'up');
+    expect(mgr.hasUnconfirmedRequest(gameId, 'A', 0)).toBe(true);
+    // The matching confirmation settles it.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    expect(mgr.hasUnconfirmedRequest(gameId, 'A', 0)).toBe(false);
+    // No request exists for other turns / unknown snakes.
+    expect(mgr.hasUnconfirmedRequest(gameId, 'A', 5)).toBe(false);
+    expect(mgr.hasUnconfirmedRequest(gameId, 'nobody', 0)).toBe(false);
+  });
+
   test('finalizeTurnMove: fires the move-committed (double arrow) signal only for snakes whose Firebase commit was observed', () => {
     const gameId = 'g-finalize';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];

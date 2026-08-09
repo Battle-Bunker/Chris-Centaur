@@ -1388,6 +1388,21 @@ export class ActiveGameManager {
     controlled.stagingRetryTimer = timer;
   }
 
+  // Whether this snake has a requested move for `turn` that Firebase has not
+  // yet confirmed. Used by the interface's default-move inference: a commit
+  // observed while a request is still unconfirmed must WAIT (the in-flight
+  // write would beat the engine default), whereas a commit with no request
+  // at all resolves to the deterministic default immediately.
+  hasUnconfirmedRequest(gameId: string, snakeId: string, turn: number): boolean {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    const requested = controlled?.staged;
+    if (!controlled || !requested || requested.turn !== turn) return false;
+    return !(
+      controlled.confirmedStaged?.turn === turn &&
+      controlled.confirmedStaged.move === requested.move
+    );
+  }
+
   // Fed by the Firebase read-back listener: the latest server-acked staged
   // move for (snakeId, turn). Broadcast to clients as the solid arrow, and
   // used by the pipeline to decide whether the request needs republishing.

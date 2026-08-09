@@ -65,6 +65,7 @@ import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { TTGameInvite, TTGameStateDoc, TTTurn } from './tactictoes-types';
 import {
   buildGameState,
+  continuationDirection,
   controlledSnakeIDs,
   directionToMoveIndex,
   moveIndexToDirection,
@@ -116,8 +117,12 @@ interface TurnWatch {
   statusUnsub: Unsubscribe | null;
   // Latest server-acked staged move per owned snake (ts <= endTime).
   confirmed: Map<string, { ts: number; direction: Direction }>;
+  // Snakes whose privateMoves read-back has delivered at least one snapshot
+  // (even an empty one) — the precondition for trusting "nothing staged".
+  readBackReady: Set<string>;
   // Our snakes whose commit has been observed in movedPlayerIDs. A snake
-  // finalizes once it is BOTH committed here and confirmed above.
+  // finalizes once committed here AND its outcome is knowable: a confirmed
+  // staged move, or provably-nothing-staged with the engine default.
   committedSnakes: Set<string>;
 }
 
@@ -412,18 +417,35 @@ export class TacticToesFirebaseInterface {
       moveUnsubs: [],
       statusUnsub: null,
       confirmed: new Map(),
+      readBackReady: new Set(),
       committedSnakes: new Set(),
     };
     watched.turnWatch = tw;
 
-    // A snake finalizes once its commit is observed AND its confirmed staged
-    // move is known. Whichever listener completes the pair fires this; the
-    // manager dedupes repeat calls per (snake, turn).
+    // A snake finalizes once its commit is observed AND its outcome is
+    // knowable from Firebase state (never from timers):
+    //  - a confirmed staged move → that move;
+    //  - provably nothing staged → the engine's deterministic default
+    //    (continue the previous move). This inference is exact because ONLY
+    //    this server can write this snake's privateMoves (Firestore rules):
+    //    once the read-back has delivered its state and the manager holds no
+    //    unconfirmed request that a retry could still land, no staged write
+    //    can exist or appear.
+    // Whichever listener completes the picture fires this; the manager
+    // dedupes repeat calls per (snake, turn).
     const maybeFinalize = (snakeId: string) => {
       if (!tw.committedSnakes.has(snakeId)) return;
       const confirmed = tw.confirmed.get(snakeId);
-      if (!confirmed) return;
-      this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, confirmed.direction);
+      if (confirmed) {
+        this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, confirmed.direction);
+        return;
+      }
+      if (!tw.readBackReady.has(snakeId)) return;
+      if (this.gameManager.hasUnconfirmedRequest(watched.gameID, snakeId, tw.turn)) return;
+      const def = continuationDirection(turnData.playerPieces[snakeId], width);
+      if (!def) return; // no previous direction — the engine's fallback pick isn't reproduced
+      console.log(`[tt-firebase] ${snakeId} committed with nothing staged — engine default ${def} is final for turn ${tw.turn}`);
+      this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, def);
     };
 
     const movesCol = collection(
@@ -443,6 +465,9 @@ export class TacticToesFirebaseInterface {
       );
       tw.moveUnsubs.push(
         onSnapshot(q, (snapshot) => {
+          // The first delivery (even empty, even from cache-then-server)
+          // makes "nothing staged" a trustworthy observation.
+          tw.readBackReady.add(snakeId);
           // Latest SERVER-acked write wins (pending local writes have a null
           // serverTimestamp and don't count as confirmation). Writes stamped
           // after endTime are ignored — the game server ignores them too.
@@ -455,17 +480,18 @@ export class TacticToesFirebaseInterface {
             const direction = moveIndexToDirection(headIndex, d.move, width);
             if (direction) best = { ts, direction };
           });
-          if (!best) return;
-          const chosen: { ts: number; direction: Direction } = best;
-          tw.confirmed.set(snakeId, chosen);
-          this.gameManager.setConfirmedStagedMove(
-            watched.gameID,
-            snakeId,
-            turnNumber,
-            chosen.direction
-          );
-          // If this snake's commit was observed before its confirmation
-          // landed, the pair is now complete.
+          if (best) {
+            const chosen: { ts: number; direction: Direction } = best;
+            tw.confirmed.set(snakeId, chosen);
+            this.gameManager.setConfirmedStagedMove(
+              watched.gameID,
+              snakeId,
+              turnNumber,
+              chosen.direction
+            );
+          }
+          // A commit observed before this delivery may now be resolvable —
+          // via the confirmation above, or via the nothing-staged default.
           maybeFinalize(snakeId);
         }, (err) => {
           console.error(`[tt-firebase] privateMoves read-back failed for ${snakeId} turn ${turnNumber}:`, err);
@@ -500,8 +526,10 @@ export class TacticToesFirebaseInterface {
     );
   }
 
-  // The applied move for each snake on the prev → curr transition: the head
-  // delta when the snake survived, else the recorded submitted move index.
+  // The applied move for each snake on the prev → curr transition. The
+  // server records every player's actually-applied move (staged or engine
+  // default) in the new turn's `moves` map, so that is authoritative; the
+  // head delta remains as a fallback for games recorded before that change.
   private deriveLastMoves(
     data: TTGameStateDoc,
     prevTurn: TTTurn,
@@ -512,11 +540,12 @@ export class TacticToesFirebaseInterface {
     for (const snakeId of Object.keys(prevTurn.playerPieces)) {
       const prevHead = prevTurn.playerPieces[snakeId]?.[0];
       if (prevHead === undefined) continue;
-      const newHead = currTurn.playerPieces[snakeId]?.[0];
-      let dir = newHead !== undefined ? moveIndexToDirection(prevHead, newHead, width) : null;
+      let dir: Direction | null = null;
+      const recorded = currTurn.moves?.[snakeId];
+      if (recorded !== undefined) dir = moveIndexToDirection(prevHead, recorded, width);
       if (!dir) {
-        const recorded = currTurn.moves?.[snakeId];
-        if (recorded !== undefined) dir = moveIndexToDirection(prevHead, recorded, width);
+        const newHead = currTurn.playerPieces[snakeId]?.[0];
+        if (newHead !== undefined) dir = moveIndexToDirection(prevHead, newHead, width);
       }
       if (dir) result[snakeId] = dir;
     }
