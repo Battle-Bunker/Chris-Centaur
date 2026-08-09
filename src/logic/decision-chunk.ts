@@ -75,6 +75,10 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
       h2hRisk: job.h2hRisk,
       simulatedSnakeIds: simulatedSet,
       waypoint: job.waypoint ?? undefined,
+      // Chunk evaluations feed only the minimax score aggregation — per-state
+      // territory cell lists are never shipped back (see the strip below), so
+      // don't build them at all.
+      collectTerritory: false,
     });
     statesEvaluated++;
     if (evaluation.score < worstScore) {

@@ -455,7 +455,11 @@ export class DecisionEngine {
     // Chunk the combination space per candidate move, then interleave chunks
     // ROUND-ROBIN across moves so partial results cover every move instead of
     // fully scoring the first move while starving the rest.
-    const CHUNK_STATES = 8;
+    // Sized so per-chunk worker-message overhead (a gameState clone per job)
+    // stays small relative to evaluation: ~0.14ms/state after the typed-array
+    // core, so 32 states ≈ 4.5ms per chunk — still fine-grained against the
+    // 100ms update cadence and the turn deadline.
+    const CHUNK_STATES = 32;
     const chunksByMove = new Map<Direction, ChunkJob[]>();
     for (const move of ourMoves) {
       const chunks: ChunkJob[] = [];

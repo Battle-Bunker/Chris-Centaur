@@ -14,10 +14,15 @@
  *
  * BoardGraph has no concept of `you`: every perspective-dependent query takes a
  * subject snake id.
+ *
+ * INTERNALS are integer-indexed typed arrays (cell index = y * width + x): the
+ * evaluation pipeline runs thousands of flood fills per turn, and string-keyed
+ * Maps/Sets plus per-neighbor object allocation were measured at a ~28x tax
+ * over flat arrays. The string-based helpers (coordToKey, getNeighbors, …)
+ * remain as thin compatibility wrappers; hot paths use the *Idx variants.
  */
 
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
-import { TeamDetector } from './team-detector';
 
 export type CellKey = string;
 
@@ -31,42 +36,21 @@ export interface BoardGraphConfig {
   maxLookaheadTurns: number;
 }
 
-// Per-snake data needed for subjective passability, computed once at build time.
-interface SnakeMeta {
-  invuln: number;
-  // Last absolute game turn on which `invuln` still applies. Read straight from
-  // the server's invulnerabilityExpiryTurn; falls back to the current turn
-  // (i.e. the state applies to this turn only) when the server omits it.
-  expiryTurn: number;
-  teamId: string;
-  headKey: CellKey;
-  tailKey: CellKey;
-}
-
-// One non-head body cell.
-interface SegmentRecord {
-  snakeId: string;
-  isTail: boolean;
-  // Turn this cell vacates if the owner never eats (pure geometry).
-  optimisticDisappearTurn: number;
-  // PHYSICAL vacate turn: geometry + food the owner could eat first, with NO
-  // survival safety buffer. This is the true "cell is free" turn used by the
-  // subject-agnostic Voronoi physical layer (isPassableAtTurn).
-  physicalDisappearTurn: number;
-  // SURVIVAL-conservative vacate turn: physical timing plus a one-turn safety
-  // buffer. Used only by the pessimistic 'conservative' clearance mode.
-  conservativeDisappearTurn: number;
-  // Whether this cell blocks under static (non-turn-aware) rules. Interior
-  // segments are always blocked; tails depend on growth timing / just-ate.
-  staticBlocked: boolean;
-}
-
 // Subject-relative passability bundle returned by `passabilityFor`.
 export interface SnakePassability {
   headKey: CellKey;
   tailKey: CellKey;
   // Can the subject occupy `coord` arriving `arrivalTurn` turns from now?
   passable: (coord: Coord, arrivalTurn: number) => boolean;
+}
+
+// Integer-index variant for hot paths (no string keys, no Coord allocation).
+export interface SnakePassabilityIdx {
+  headIdx: number;   // -1 when the subject is unknown/dead
+  tailIdx: number;   // -1 when the subject is unknown/dead
+  // Can the subject occupy cell `idx` (already bounds-checked by the caller's
+  // neighbor arithmetic) arriving `arrivalTurn` turns from now?
+  passableIdx: (idx: number, arrivalTurn: number) => boolean;
 }
 
 // How much body-segment clearance to assume when deciding passability:
@@ -87,21 +71,45 @@ export interface PassabilityOptions {
   clearance?: ClearanceMode;
 }
 
+const NO_SNAKE = -1;
+
 export class BoardGraph {
-  private adjacencyList: Map<CellKey, Set<CellKey>>;
-  private blockedCells: Set<CellKey>;
-  private hazardCells: Set<CellKey>;
-  private segmentAt: Map<CellKey, SegmentRecord>;
-  private snakeMeta: Map<string, SnakeMeta>;
-  private snakeFoodReachByTurn: Map<string, number[]>;
   private width: number;
   private height: number;
+  private cells: number;              // width * height
   private config: BoardGraphConfig;
   private currentTurn: number;
+
+  // Per-cell layers (length = cells).
+  private hazard: Uint8Array;
+  private segOwner: Int16Array;       // snake index owning a body segment here, or NO_SNAKE
+  private segIsTail: Uint8Array;
+  private segStaticBlocked: Uint8Array;
+  private optimisticDisappear: Int16Array;
+  private physicalDisappear: Int16Array;
+  private conservativeDisappear: Int16Array;
+
+  // Per-snake metadata, indexed by snake index.
+  private snakeIds: string[] = [];
+  private snakeIndexById = new Map<string, number>();
+  private snakeInvuln: number[] = [];
+  private snakeExpiryTurn: number[] = [];
+  private snakeHeadIdx: number[] = [];
+  private snakeTailIdx: number[] = [];
+
+  // Scratch buffers for internal BFS (epoch-stamped visited avoids clearing).
+  private visitStamp: Int32Array;
+  private stamp = 0;
+  private queue: Int32Array;
+
+  // Lazily-built string-keyed compatibility structures.
+  private adjacencyList: Map<CellKey, Set<CellKey>> | null = null;
+  private blockedCellSet: Set<CellKey> | null = null;
 
   constructor(state: BoardSnapshot, config?: Partial<BoardGraphConfig>) {
     this.width = state.board.width;
     this.height = state.board.height;
+    this.cells = this.width * this.height;
     this.config = {
       tailGrowthTiming: 'grow-next-turn',
       maxLookaheadTurns: 5,
@@ -109,14 +117,39 @@ export class BoardGraph {
     };
     this.currentTurn = state.turn ?? 0;
 
-    this.adjacencyList = new Map();
-    this.blockedCells = new Set();
-    this.hazardCells = new Set();
-    this.segmentAt = new Map();
-    this.snakeMeta = new Map();
-    this.snakeFoodReachByTurn = new Map();
+    this.hazard = new Uint8Array(this.cells);
+    this.segOwner = new Int16Array(this.cells).fill(NO_SNAKE);
+    this.segIsTail = new Uint8Array(this.cells);
+    this.segStaticBlocked = new Uint8Array(this.cells);
+    this.optimisticDisappear = new Int16Array(this.cells);
+    this.physicalDisappear = new Int16Array(this.cells);
+    this.conservativeDisappear = new Int16Array(this.cells);
+    this.visitStamp = new Int32Array(this.cells);
+    this.queue = new Int32Array(this.cells);
 
     this.buildGraph(state);
+  }
+
+  // ── Integer cell indexing ────────────────────────────────────────────────
+
+  /** Cell index for (x, y). Caller guarantees bounds. */
+  cellIndex(x: number, y: number): number {
+    return y * this.width + x;
+  }
+
+  cellIndexOf(coord: Coord): number {
+    return coord.y * this.width + coord.x;
+  }
+
+  xOf(idx: number): number { return idx % this.width; }
+  yOf(idx: number): number { return Math.floor(idx / this.width); }
+  get cellCount(): number { return this.cells; }
+  get boardWidth(): number { return this.width; }
+  get boardHeight(): number { return this.height; }
+
+  /** Snake index for a snake id, or -1 if unknown/dead at build time. */
+  snakeIndexOf(id: string): number {
+    return this.snakeIndexById.get(id) ?? -1;
   }
 
   /**
@@ -124,59 +157,54 @@ export class BoardGraph {
    * (turn-aware) passability needs each segment's conservativeDisappearTurn,
    * which is produced by the food-reach BFS — but that BFS only needs STATIC
    * passability. So we build the static layer first, run food reach over it,
-   * then fold the results back in.
+   * then fill the results back in.
    */
   private buildGraph(state: BoardSnapshot): void {
     const { board } = state;
 
-    // Phase 0: per-snake metadata (teams, invulnerability, head/tail keys).
+    // Food mask, used for justAte checks and the food-reach BFS.
+    const foodMask = new Uint8Array(this.cells);
+    for (const f of board.food) foodMask[this.cellIndexOf(f)] = 1;
+
+    // Phase 0: per-snake metadata (invulnerability, head/tail indices).
     this.buildSnakeMeta(board.snakes);
 
-    // Phase 1: segments + hazards + static blocked set + adjacency. After this,
+    // Phase 1: segments + hazards + static blocked layer. After this,
     // passabilityFor({ clearance: 'static' }) is fully functional.
-    this.buildSegments(board.snakes, board.food, board.hazards);
-    this.buildAdjacency();
+    this.buildSegments(board.snakes, foodMask, board.hazards);
 
     // Phase 2: food reach via the static predicate, then fill in each segment's
     // optimistic + conservative disappear turns. After this, the turn-aware
     // clearance layers ('optimistic' and 'conservative') are correct.
-    this.calculateSnakeFoodReachability(board.snakes, board.food);
-    this.fillDisappearTurns(board.snakes);
+    const foodReach = this.calculateSnakeFoodReachability(board.snakes, foodMask);
+    this.fillDisappearTurns(board.snakes, foodReach);
   }
 
   private buildSnakeMeta(snakes: Snake[]): void {
-    this.snakeMeta.clear();
-
-    const living = snakes.filter(s => s.health > 0);
-    const teams = new TeamDetector().detectTeams(living);
-    const teamOf = new Map<string, string>();
-    for (const team of teams) {
-      for (const s of team.snakes) teamOf.set(s.id, team.color);
-    }
-
-    for (const snake of living) {
-      this.snakeMeta.set(snake.id, {
-        invuln: snake.invulnerabilityLevel ?? 0,
-        expiryTurn: snake.invulnerabilityExpiryTurn ?? this.currentTurn,
-        teamId: teamOf.get(snake.id) ?? snake.id,
-        headKey: this.coordToKey(snake.head),
-        tailKey: this.coordToKey(snake.body[snake.body.length - 1])
-      });
+    for (const snake of snakes) {
+      if (snake.health <= 0) continue;
+      const idx = this.snakeIds.length;
+      this.snakeIds.push(snake.id);
+      this.snakeIndexById.set(snake.id, idx);
+      this.snakeInvuln.push(snake.invulnerabilityLevel ?? 0);
+      // Last absolute game turn on which invuln still applies; falls back to
+      // the current turn (applies to this turn only) when the server omits it.
+      this.snakeExpiryTurn.push(snake.invulnerabilityExpiryTurn ?? this.currentTurn);
+      this.snakeHeadIdx.push(this.cellIndexOf(snake.head));
+      this.snakeTailIdx.push(this.cellIndexOf(snake.body[snake.body.length - 1]));
     }
   }
 
-  private buildSegments(snakes: Snake[], food: Coord[], hazards: Coord[]): void {
-    this.segmentAt.clear();
-    this.blockedCells.clear();
-    this.hazardCells.clear();
-
+  private buildSegments(snakes: Snake[], foodMask: Uint8Array, hazards: Coord[]): void {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
-      const justAte = this.snakeJustAte(snake, food);
+      const snakeIdx = this.snakeIndexById.get(snake.id)!;
+      const justAte = foodMask[this.cellIndexOf(snake.head)] === 1;
 
-      // Body segments, excluding the head at index 0.
+      // Body segments, excluding the head at index 0. Later snakes overwrite
+      // overlapping cells (same last-writer-wins as the old Map-based build).
       for (let i = 1; i < snake.body.length; i++) {
-        const key = this.coordToKey(snake.body[i]);
+        const idx = this.cellIndexOf(snake.body[i]);
         const isTail = i === snake.body.length - 1;
         const turnsFromTail = snake.body.length - i;
 
@@ -195,91 +223,75 @@ export class BoardGraph {
 
         // Both disappear turns start at the pure-geometry base (turnsFromTail)
         // and are pushed out by fillDisappearTurns once food reach is known.
-        this.segmentAt.set(key, {
-          snakeId: snake.id,
-          isTail,
-          optimisticDisappearTurn: turnsFromTail,
-          physicalDisappearTurn: turnsFromTail,
-          conservativeDisappearTurn: turnsFromTail,
-          staticBlocked
-        });
-
-        if (staticBlocked) this.blockedCells.add(key);
+        this.segOwner[idx] = snakeIdx;
+        this.segIsTail[idx] = isTail ? 1 : 0;
+        this.segStaticBlocked[idx] = staticBlocked ? 1 : 0;
+        this.optimisticDisappear[idx] = turnsFromTail;
+        this.physicalDisappear[idx] = turnsFromTail;
+        this.conservativeDisappear[idx] = turnsFromTail;
       }
     }
 
-    for (const hazard of hazards) {
-      const key = this.coordToKey(hazard);
-      this.hazardCells.add(key);
-      this.blockedCells.add(key);
-    }
-  }
-
-  private buildAdjacency(): void {
-    this.adjacencyList.clear();
-    for (let x = 0; x < this.width; x++) {
-      for (let y = 0; y < this.height; y++) {
-        const cellKey = this.coordToKey({ x, y });
-        if (this.blockedCells.has(cellKey)) {
-          this.adjacencyList.set(cellKey, new Set());
-          continue;
-        }
-        const passableNeighbors = new Set<CellKey>();
-        for (const neighbor of this.orthogonal({ x, y })) {
-          if (!this.isInBounds(neighbor)) continue;
-          const neighborKey = this.coordToKey(neighbor);
-          if (!this.blockedCells.has(neighborKey)) {
-            passableNeighbors.add(neighborKey);
-          }
-        }
-        this.adjacencyList.set(cellKey, passableNeighbors);
-      }
+    for (const h of hazards) {
+      this.hazard[this.cellIndexOf(h)] = 1;
     }
   }
 
   /**
    * Food reachability from each snake's head via its OWN subjective static
-   * passability. Stores the count of NEW food reached at each turn, used to push
-   * out conservative disappear turns (a snake that can eat keeps growing).
+   * passability. Returns, per snake index, the count of NEW food reached at each
+   * turn — used to push out disappear turns (a snake that can eat keeps growing).
    */
-  private calculateSnakeFoodReachability(snakes: Snake[], food: Coord[]): void {
-    this.snakeFoodReachByTurn.clear();
-    const foodSet = new Set<CellKey>(food.map(f => this.coordToKey(f)));
+  private calculateSnakeFoodReachability(snakes: Snake[], foodMask: Uint8Array): number[][] {
+    const reach: number[][] = [];
+    const W = this.width;
 
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
+      const snakeIdx = this.snakeIndexById.get(snake.id)!;
 
       // Static clearance so this does not read the disappear turns, which don't
       // exist yet — this is what breaks the build-order cycle.
-      const pass = this.passabilityFor(snake.id, { clearance: 'static' }).passable;
+      const pass = this.passabilityIdxFor(snake.id, { clearance: 'static' });
 
-      const foodByTurn: number[] = [];
-      const visited = new Set<CellKey>();
-      visited.add(this.coordToKey(snake.head));
-      foodByTurn.push(foodSet.has(this.coordToKey(snake.head)) ? 1 : 0);
+      const headIdx = this.snakeHeadIdx[snakeIdx];
+      const foodByTurn: number[] = [foodMask[headIdx] === 1 ? 1 : 0];
 
-      let currentLevel: Coord[] = [snake.head];
+      const stamp = ++this.stamp;
+      this.visitStamp[headIdx] = stamp;
+      let levelStart = 0;
+      let levelEnd = 1;
+      this.queue[0] = headIdx;
+
       for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
-        const nextLevel: Coord[] = [];
+        let nextEnd = levelEnd;
         let foodFoundThisTurn = 0;
-        for (const pos of currentLevel) {
-          for (const neighbor of this.orthogonal(pos)) {
-            if (!this.isInBounds(neighbor)) continue;
-            const key = this.coordToKey(neighbor);
-            if (visited.has(key)) continue;
-            if (!pass(neighbor, turn)) continue;
-            visited.add(key);
-            nextLevel.push(neighbor);
-            if (foodSet.has(key)) foodFoundThisTurn++;
+        for (let q = levelStart; q < levelEnd; q++) {
+          const cur = this.queue[q];
+          const x = cur % W;
+          // Orthogonal neighbors via index arithmetic; -1 marks out-of-bounds.
+          const n0 = cur + W < this.cells ? cur + W : -1;
+          const n1 = cur - W >= 0 ? cur - W : -1;
+          const n2 = x > 0 ? cur - 1 : -1;
+          const n3 = x < W - 1 ? cur + 1 : -1;
+          for (const n of [n0, n1, n2, n3]) {
+            if (n < 0 || this.visitStamp[n] === stamp) continue;
+            if (!pass.passableIdx(n, turn)) continue;
+            this.visitStamp[n] = stamp;
+            this.queue[nextEnd++] = n;
+            if (foodMask[n] === 1) foodFoundThisTurn++;
           }
         }
         foodByTurn.push(foodFoundThisTurn);
-        currentLevel = nextLevel;
-        if (currentLevel.length === 0) break;
+        levelStart = levelEnd;
+        levelEnd = nextEnd;
+        if (levelStart === levelEnd) break;
       }
 
-      this.snakeFoodReachByTurn.set(snake.id, foodByTurn);
+      reach[snakeIdx] = foodByTurn;
     }
+
+    return reach;
   }
 
   /**
@@ -303,21 +315,21 @@ export class BoardGraph {
    *  - conservative = physical + 1. The physical vacate turn plus a one-turn
    *    safety buffer; this is what pessimistic survival reasoning banks on.
    */
-  private fillDisappearTurns(snakes: Snake[]): void {
+  private fillDisappearTurns(snakes: Snake[], foodReach: number[][]): void {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
-      const foodByTurn = this.snakeFoodReachByTurn.get(snake.id) || [];
+      const snakeIdx = this.snakeIndexById.get(snake.id)!;
+      const foodByTurn = foodReach[snakeIdx] || [];
 
       // Does an eat at turn t delay a segment currently vacating at `vacate`?
-      const eatDelays = (vacate: number, t: number): boolean =>
-        this.config.tailGrowthTiming === 'grow-same-turn' ? vacate >= t : vacate > t;
+      const growSame = this.config.tailGrowthTiming === 'grow-same-turn';
 
       // Apply eats (count per turn) to a segment's base vacate turn.
       const applyEats = (base: number, eatsAtTurn: (t: number) => number, maxTurn: number): number => {
         let vacate = base;
         for (let t = 0; t <= maxTurn; t++) {
           const eats = eatsAtTurn(t);
-          if (eats > 0 && eatDelays(vacate, t)) vacate += eats;
+          if (eats > 0 && (growSame ? vacate >= t : vacate > t)) vacate += eats;
         }
         return vacate;
       };
@@ -331,50 +343,33 @@ export class BoardGraph {
       const potentialEats = (t: number): number => foodByTurn[t] ?? 0;
 
       for (let i = 1; i < snake.body.length; i++) {
-        const key = this.coordToKey(snake.body[i]);
-        const seg = this.segmentAt.get(key);
+        const idx = this.cellIndexOf(snake.body[i]);
         // Skip cells overwritten by another snake's overlapping segment.
-        if (!seg || seg.snakeId !== snake.id) continue;
+        if (this.segOwner[idx] !== snakeIdx) continue;
 
         const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
 
-        seg.optimisticDisappearTurn = applyEats(base, confirmedEats, 1);
+        this.optimisticDisappear[idx] = applyEats(base, confirmedEats, 1);
 
         if (base <= this.config.maxLookaheadTurns) {
-          seg.physicalDisappearTurn = applyEats(base, potentialEats, foodByTurn.length - 1);
+          this.physicalDisappear[idx] = applyEats(base, potentialEats, foodByTurn.length - 1);
         } else {
-          seg.physicalDisappearTurn = base;
+          this.physicalDisappear[idx] = base;
         }
-        seg.conservativeDisappearTurn = seg.physicalDisappearTurn + 1;
+        this.conservativeDisappear[idx] = this.physicalDisappear[idx] + 1;
       }
     }
   }
 
-  private snakeJustAte(snake: Snake, food: Coord[]): boolean {
-    return food.some(f => f.x === snake.head.x && f.y === snake.head.y);
-  }
-
-  /** Invulnerability level of a snake projected to an absolute game turn. */
-  private invulnAt(snakeId: string, absoluteTurn: number): number {
-    const meta = this.snakeMeta.get(snakeId);
-    if (!meta) return 0;
-    return absoluteTurn <= meta.expiryTurn ? meta.invuln : 0;
-  }
-
-  private orthogonal(coord: Coord): Coord[] {
-    return [
-      { x: coord.x, y: coord.y + 1 },
-      { x: coord.x, y: coord.y - 1 },
-      { x: coord.x - 1, y: coord.y },
-      { x: coord.x + 1, y: coord.y }
-    ];
+  /** Invulnerability level of a snake (by index) projected to an absolute game turn. */
+  private invulnAtIdx(snakeIdx: number, absoluteTurn: number): number {
+    if (snakeIdx < 0) return 0;
+    return absoluteTurn <= this.snakeExpiryTurn[snakeIdx] ? this.snakeInvuln[snakeIdx] : 0;
   }
 
   /**
-   * The single source of truth for "where can THIS snake walk". Returns a bound
-   * predicate plus the subject's head/tail keys.
-   *
-   * Rules, from the subject's perspective:
+   * The single source of truth for "where can THIS snake walk", integer-index
+   * variant. Rules, from the subject's perspective:
    *  - own head: not a destination (it's the BFS origin);
    *  - own interior body: never passable;
    *  - own tail: passable per the vacate rule (it can chase its tail);
@@ -387,48 +382,63 @@ export class BoardGraph {
    * Severability uses a STRICT inequality (owner < subject): equal invulnerability
    * never grants passage, so we never bank on winning on equal footing.
    */
-  passabilityFor(subjectId: string, opts?: PassabilityOptions): SnakePassability {
-    const subject = this.snakeMeta.get(subjectId);
-    const headKey = subject?.headKey ?? '';
-    const tailKey = subject?.tailKey ?? '';
+  passabilityIdxFor(subjectId: string, opts?: PassabilityOptions): SnakePassabilityIdx {
+    const subjectIdx = this.snakeIndexById.get(subjectId) ?? -1;
+    const headIdx = subjectIdx >= 0 ? this.snakeHeadIdx[subjectIdx] : -1;
+    const tailIdx = subjectIdx >= 0 ? this.snakeTailIdx[subjectIdx] : -1;
     const clearance: ClearanceMode = opts?.clearance ?? 'static';
 
-    // Has `seg` receded (become passable) by `arrivalTurn` under the clearance
-    // mode? Under 'static' only an immediately-vacating tail counts.
-    const recededByClearance = (seg: SegmentRecord, arrivalTurn: number): boolean => {
-      switch (clearance) {
-        case 'static': return !seg.staticBlocked;
-        case 'conservative': return seg.conservativeDisappearTurn <= arrivalTurn;
-        case 'optimistic': return seg.optimisticDisappearTurn <= arrivalTurn;
-      }
-    };
+    const clearanceArr =
+      clearance === 'conservative' ? this.conservativeDisappear :
+      clearance === 'optimistic' ? this.optimisticDisappear : null;
 
-    const passable = (coord: Coord, arrivalTurn: number): boolean => {
-      if (!this.isInBounds(coord)) return false;
-      const key = this.coordToKey(coord);
-      if (this.hazardCells.has(key)) return false;
-      if (key === headKey) return false; // origin, never a destination
+    const passableIdx = (idx: number, arrivalTurn: number): boolean => {
+      if (this.hazard[idx] === 1) return false;
+      if (idx === headIdx) return false; // origin, never a destination
 
-      const seg = this.segmentAt.get(key);
-      if (!seg) return true; // empty cell (including other snakes' heads)
+      const owner = this.segOwner[idx];
+      if (owner === NO_SNAKE) return true; // empty cell (including other snakes' heads)
 
-      if (seg.snakeId === subjectId) {
+      // Has this segment receded (become passable) by arrivalTurn under the
+      // clearance mode? Under 'static' only an immediately-vacating tail counts.
+      const receded = clearanceArr
+        ? clearanceArr[idx] <= arrivalTurn
+        : this.segStaticBlocked[idx] === 0;
+
+      if (owner === subjectIdx) {
         // Our own body: interior is always a wall (we cannot count on our own
         // body vacating ahead of our head); only our tail follows the vacate rule.
-        if (!seg.isTail) return false;
-        return recededByClearance(seg, arrivalTurn);
+        if (this.segIsTail[idx] === 0) return false;
+        return receded;
       }
 
       // Another snake's segment. Severable if we strictly out-invulnerate the
       // owner at the turn we would arrive.
       const absTurn = this.currentTurn + arrivalTurn;
-      if (this.invulnAt(seg.snakeId, absTurn) < this.invulnAt(subjectId, absTurn)) {
+      if (this.invulnAtIdx(owner, absTurn) < this.invulnAtIdx(subjectIdx, absTurn)) {
         return true;
       }
 
       // Otherwise the cell is passable only once the owner's body has receded
       // there under the chosen clearance timing (tail and interior alike).
-      return recededByClearance(seg, arrivalTurn);
+      return receded;
+    };
+
+    return { headIdx, tailIdx, passableIdx };
+  }
+
+  /**
+   * Coord-based subjective passability (compatibility wrapper over the integer
+   * core). Returns a bound predicate plus the subject's head/tail keys.
+   */
+  passabilityFor(subjectId: string, opts?: PassabilityOptions): SnakePassability {
+    const idx = this.passabilityIdxFor(subjectId, opts);
+    const headKey = idx.headIdx >= 0 ? this.keyOfIndex(idx.headIdx) : '';
+    const tailKey = idx.tailIdx >= 0 ? this.keyOfIndex(idx.tailIdx) : '';
+
+    const passable = (coord: Coord, arrivalTurn: number): boolean => {
+      if (!this.isInBounds(coord)) return false;
+      return idx.passableIdx(this.cellIndexOf(coord), arrivalTurn);
     };
 
     return { headKey, tailKey, passable };
@@ -439,14 +449,45 @@ export class BoardGraph {
     return this.passabilityFor(subjectId, opts).passable(coord, arrivalTurn);
   }
 
+  private isStaticBlockedIdx(idx: number): boolean {
+    return this.hazard[idx] === 1 || (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
+  }
+
   /**
    * Get passable neighbors for a cell (physical, subject-agnostic).
+   * Compatibility path — the adjacency table is built lazily on first use,
+   * since the optimistic evaluation pipeline never touches it.
    */
   getNeighbors(coord: Coord): Coord[] {
+    if (!this.adjacencyList) this.buildAdjacency();
     const key = this.coordToKey(coord);
-    const neighborKeys = this.adjacencyList.get(key);
+    const neighborKeys = this.adjacencyList!.get(key);
     if (!neighborKeys) return [];
     return Array.from(neighborKeys).map(k => this.keyToCoord(k));
+  }
+
+  private buildAdjacency(): void {
+    this.adjacencyList = new Map();
+    for (let x = 0; x < this.width; x++) {
+      for (let y = 0; y < this.height; y++) {
+        const idx = this.cellIndex(x, y);
+        const cellKey = this.coordToKey({ x, y });
+        if (this.isStaticBlockedIdx(idx)) {
+          this.adjacencyList.set(cellKey, new Set());
+          continue;
+        }
+        const passableNeighbors = new Set<CellKey>();
+        for (const neighbor of [
+          { x, y: y + 1 }, { x, y: y - 1 }, { x: x - 1, y }, { x: x + 1, y }
+        ]) {
+          if (!this.isInBounds(neighbor)) continue;
+          if (!this.isStaticBlockedIdx(this.cellIndexOf(neighbor))) {
+            passableNeighbors.add(this.coordToKey(neighbor));
+          }
+        }
+        this.adjacencyList.set(cellKey, passableNeighbors);
+      }
+    }
   }
 
   /**
@@ -457,29 +498,38 @@ export class BoardGraph {
    */
   getNeighborsOptimistic(coord: Coord, arrivalTurn: number): Coord[] {
     const passable: Coord[] = [];
-    for (const neighbor of this.orthogonal(coord)) {
+    for (const neighbor of [
+      { x: coord.x, y: coord.y + 1 },
+      { x: coord.x, y: coord.y - 1 },
+      { x: coord.x - 1, y: coord.y },
+      { x: coord.x + 1, y: coord.y }
+    ]) {
       if (!this.isInBounds(neighbor)) continue;
-      if (this.isPassableAtTurn(neighbor, arrivalTurn)) passable.push(neighbor);
+      if (this.isPassableAtTurnIdx(this.cellIndexOf(neighbor), arrivalTurn)) passable.push(neighbor);
     }
     return passable;
   }
 
   /**
-   * Physical turn-aware passability (no severability). For body segments, the
-   * cell is passable once its PHYSICAL disappear turn has passed (no survival
-   * safety buffer — that buffer belongs to the 'conservative' clearance mode).
+   * Physical turn-aware passability (no severability), integer-index variant.
+   * For body segments, the cell is passable once its PHYSICAL disappear turn has
+   * passed (no survival safety buffer — that buffer belongs to the
+   * 'conservative' clearance mode).
    */
+  isPassableAtTurnIdx(idx: number, arrivalTurn: number): boolean {
+    if (this.segOwner[idx] !== NO_SNAKE) {
+      if (arrivalTurn <= this.config.maxLookaheadTurns) {
+        return this.physicalDisappear[idx] <= arrivalTurn;
+      }
+      return !this.isStaticBlockedIdx(idx);
+    }
+    return !this.isStaticBlockedIdx(idx);
+  }
+
+  /** Coord-based wrapper over isPassableAtTurnIdx. */
   isPassableAtTurn(coord: Coord, arrivalTurn: number): boolean {
     if (!this.isInBounds(coord)) return false;
-    const key = this.coordToKey(coord);
-    const seg = this.segmentAt.get(key);
-    if (seg) {
-      if (arrivalTurn <= this.config.maxLookaheadTurns) {
-        return seg.physicalDisappearTurn <= arrivalTurn;
-      }
-      return !this.blockedCells.has(key);
-    }
-    return !this.blockedCells.has(key);
+    return this.isPassableAtTurnIdx(this.cellIndexOf(coord), arrivalTurn);
   }
 
   /**
@@ -496,14 +546,26 @@ export class BoardGraph {
    */
   isPassable(coord: Coord): boolean {
     if (!this.isInBounds(coord)) return false;
-    return !this.blockedCells.has(this.coordToKey(coord));
+    return !this.isStaticBlockedIdx(this.cellIndexOf(coord));
   }
 
   /**
    * Get the set of blocked cell keys (for direct iteration if needed).
+   * Built lazily — compatibility path only.
    */
   getBlockedCells(): Set<CellKey> {
-    return this.blockedCells;
+    if (!this.blockedCellSet) {
+      this.blockedCellSet = new Set();
+      for (let idx = 0; idx < this.cells; idx++) {
+        if (this.isStaticBlockedIdx(idx)) this.blockedCellSet.add(this.keyOfIndex(idx));
+      }
+    }
+    return this.blockedCellSet;
+  }
+
+  /** String key for a cell index. */
+  keyOfIndex(idx: number): CellKey {
+    return `${idx % this.width},${Math.floor(idx / this.width)}`;
   }
 
   /**
