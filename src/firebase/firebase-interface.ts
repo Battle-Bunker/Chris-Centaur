@@ -40,7 +40,7 @@ import {
   collection,
   connectFirestoreEmulator,
   doc,
-  getFirestore,
+  initializeFirestore,
   limit,
   onSnapshot,
   orderBy,
@@ -159,14 +159,21 @@ interface WatchedGame {
   registered: boolean;
   latestDoc: TTGameStateDoc | null;
   turnWatch: TurnWatch | null;
+  // Watchdog state: when the last game-doc snapshot arrived. A listener the
+  // SDK silently gave up on (emulator stream corruption, network partition)
+  // otherwise leaves the bot blind while the server plays default moves.
+  lastSnapshotMs: number;
 }
 
 export class TacticToesFirebaseInterface {
   private app: FirebaseApp | null = null;
   private auth: Auth | null = null;
   private db: Firestore | null = null;
+  private static appInstanceCounter = 0;
   private invitesUnsubscribe: Unsubscribe | null = null;
   private watchedGames = new Map<string, WatchedGame>();
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private rebuilding = false;
   private stopped = false;
 
   private readonly gameManager = ActiveGameManager.getInstance();
@@ -180,13 +187,49 @@ export class TacticToesFirebaseInterface {
   ) {}
 
   async start(): Promise<void> {
+    await this.initClient();
+
+    // Listener watchdog: if a watched game's doc listener goes quiet for
+    // longer than the staleness window, the stream died without the error
+    // callback firing (the SDK's gRPC Listen stream against the emulator can
+    // die on corrupted RESOURCE_EXHAUSTED frames and then go permanently
+    // silent). Resubscribing on the same client does NOT recover — a fresh
+    // listen on a corrupted gRPC session stays dead (verified empirically) —
+    // so go straight to a full client rebuild (new app, re-sign-in, re-watch
+    // with turn cursors preserved). A live game delivers a snapshot at least
+    // once per turn, so during active games this fires only when truly blind;
+    // a spurious rebuild on a genuinely-quiet game (long human turns) costs
+    // one sign-in and replays a state we already processed.
+    this.watchdogTimer = setInterval(() => {
+      const STALE_MS = 8_000;
+      const now = Date.now();
+      for (const watched of this.watchedGames.values()) {
+        if (now - watched.lastSnapshotMs > STALE_MS) {
+          void this.rebuildClient();
+          break;
+        }
+      }
+    }, 2_500);
+    this.watchdogTimer.unref?.();
+  }
+
+  /**
+   * Create the Firebase app/auth/firestore stack, sign in, wire the manager's
+   * write-through publishers, and start the invite feed. Extracted from
+   * start() so rebuildClient() can recreate everything from scratch.
+   */
+  private async initClient(): Promise<void> {
     const { config } = this;
     this.app = initializeApp(
       { projectId: config.projectId, apiKey: config.apiKey },
-      'tactictoes'
+      `tactictoes-${++TacticToesFirebaseInterface.appInstanceCounter}`
     );
     this.auth = getAuth(this.app);
-    this.db = getFirestore(this.app);
+    // NOTE: in Node the SDK always uses the gRPC transport (the long-polling
+    // options are browser-only), so emulator stream corruption cannot be
+    // avoided at the transport level — it is handled by the watchdog +
+    // rebuildClient() recovery path instead.
+    this.db = initializeFirestore(this.app, {});
     const functions = getFunctions(this.app, config.region);
 
     if (config.emulators?.authUrl) {
@@ -242,8 +285,60 @@ export class TacticToesFirebaseInterface {
     });
   }
 
+  /**
+   * Full recovery from a wedged Firestore client: tear down the app entirely,
+   * recreate it (fresh gRPC session), sign in again, and resubscribe every
+   * watched game in place. Turn cursors (lastProcessedTurn) and registration
+   * state survive, so the first snapshot after recovery is either a no-op or
+   * an immediate catch-up to the turns we went blind for.
+   */
+  private async rebuildClient(): Promise<void> {
+    if (this.rebuilding || this.stopped) return;
+    this.rebuilding = true;
+    console.warn('[tt-firebase] Listener starvation persisted after resubscribe — rebuilding Firebase client');
+    try {
+      this.invitesUnsubscribe?.();
+      this.invitesUnsubscribe = null;
+      for (const watched of this.watchedGames.values()) {
+        watched.unsubscribe();
+        watched.unsubscribe = () => {};
+        this.teardownTurnWatch(watched);
+      }
+      const oldApp = this.app;
+      this.app = null;
+      this.auth = null;
+      this.db = null;
+      if (oldApp) {
+        // Best-effort: deleting a wedged app can itself hang; don't let it
+        // block recovery.
+        void deleteApp(oldApp).catch(() => {});
+      }
+
+      await this.initClient();
+
+      for (const watched of this.watchedGames.values()) {
+        watched.lastSnapshotMs = Date.now();
+        this.subscribeGameDoc(watched);
+      }
+      console.warn('[tt-firebase] Firebase client rebuilt; listeners restored');
+    } catch (err) {
+      console.error('[tt-firebase] Client rebuild failed (will retry on next starvation):', err);
+      // Push the starvation clocks forward so the watchdog waits a full
+      // window before retrying the rebuild.
+      for (const watched of this.watchedGames.values()) {
+        watched.lastSnapshotMs = Date.now();
+      }
+    } finally {
+      this.rebuilding = false;
+    }
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     this.gameManager.setMoveSubmitter(null);
     this.gameManager.setMoveCommitter(null);
     this.invitesUnsubscribe?.();
@@ -260,7 +355,6 @@ export class TacticToesFirebaseInterface {
     if (this.stopped || !this.db || this.watchedGames.has(gameID)) return;
     console.log(`[tt-firebase] Watching game ${gameID} in session ${sessionID}`);
 
-    const gameRef = doc(this.db, `sessions/${sessionID}/games/${gameID}`);
     const watched: WatchedGame = {
       sessionID,
       gameID,
@@ -268,16 +362,46 @@ export class TacticToesFirebaseInterface {
       registered: false,
       latestDoc: null,
       turnWatch: null,
-      unsubscribe: onSnapshot(gameRef, (snapshot) => {
+      lastSnapshotMs: Date.now(),
+      unsubscribe: () => {},
+    };
+    this.subscribeGameDoc(watched);
+    this.watchedGames.set(gameID, watched);
+  }
+
+  /**
+   * (Re)subscribe the game-doc listener. Kept separate from watchGame so the
+   * watchdog can replace a dead listener in place: lastProcessedTurn survives,
+   * so a resubscription that replays the current doc state is a no-op unless
+   * we actually missed turns — in which case we catch up immediately.
+   */
+  private subscribeGameDoc(watched: WatchedGame): void {
+    if (this.stopped || !this.db) return;
+    const gameRef = doc(this.db, `sessions/${watched.sessionID}/games/${watched.gameID}`);
+    watched.lastSnapshotMs = Date.now();
+    watched.unsubscribe = onSnapshot(
+      gameRef,
+      (snapshot) => {
+        watched.lastSnapshotMs = Date.now();
         const data = snapshot.data() as TTGameStateDoc | undefined;
         if (!data || !Array.isArray(data.turns) || data.turns.length === 0) return;
         watched.latestDoc = data;
         this.onGameUpdate(watched, data).catch((err) => {
-          console.error(`[tt-firebase] Error handling update for game ${gameID}:`, err);
+          console.error(`[tt-firebase] Error handling update for game ${watched.gameID}:`, err);
         });
-      }),
-    };
-    this.watchedGames.set(gameID, watched);
+      },
+      (err) => {
+        // Terminal listener error: the SDK will NOT retry after calling this.
+        // Resubscribe after a short backoff.
+        console.error(`[tt-firebase] Game listener error for ${watched.gameID} — resubscribing:`, err.message);
+        watched.unsubscribe();
+        setTimeout(() => {
+          if (!this.stopped && this.watchedGames.has(watched.gameID)) {
+            this.subscribeGameDoc(watched);
+          }
+        }, 1000);
+      }
+    );
   }
 
   private unwatchGame(watched: WatchedGame): void {
