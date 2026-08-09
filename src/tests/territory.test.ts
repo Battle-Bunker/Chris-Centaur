@@ -5,7 +5,7 @@
 
 import { GameState } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { MultiSourceBFS } from '../logic/multi-source-bfs';
+import { MultiSourceBFS, OWNER_NEUTRAL } from '../logic/multi-source-bfs';
 import { BoardEvaluator } from '../logic/board-evaluator';
 
 describe('Territory Calculation Tests', () => {
@@ -86,10 +86,9 @@ describe('Territory Calculation Tests', () => {
     expect(territory).toBe(120);  // All cells except 1 blocked body segment
     
     // Verify no cells are marked as neutral in single-source case
-    // (ownerIndex: -1 = neutral tie, -2 = unreached, >=0 = owning source index)
     let neutralCount = 0;
     for (const owner of result.ownerIndex) {
-      if (owner === -1) neutralCount++;
+      if (owner === OWNER_NEUTRAL) neutralCount++;
     }
     console.log('Neutral cells in single-snake case:', neutralCount);
     expect(neutralCount).toBe(0);  // No cells should be neutral with only one snake
@@ -191,8 +190,8 @@ describe('Territory Calculation Tests', () => {
     // The middle column (x=3) should be neutralized
     expect(Math.abs(territory1 - territory2)).toBeLessThanOrEqual(2);  // Allow small asymmetry
     
-    // Check that middle cells are neutral (ownerIndex -1 = neutral tie)
-    expect(result.ownerIndex[graph.cellIndex(3, 3)]).toBe(-1);
+    // Check that middle cells are neutral
+    expect(result.ownerIndex[graph.cellIndex(3, 3)]).toBe(OWNER_NEUTRAL);
   });
 
   test('Snake surrounded by enemies should have minimal territory', () => {
@@ -551,7 +550,7 @@ describe('Territory Calculation Tests', () => {
     // Check for any neutral cells - cells equidistant from both snakes
     let neutralCount = 0;
     for (let idx = 0; idx < result.ownerIndex.length; idx++) {
-      if (result.ownerIndex[idx] === -1) {
+      if (result.ownerIndex[idx] === OWNER_NEUTRAL) {
         neutralCount++;
         console.log('Neutral cell found:', idx, 'at distance:', result.distanceIndex[idx]);
       }

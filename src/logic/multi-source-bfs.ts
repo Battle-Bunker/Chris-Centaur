@@ -23,6 +23,11 @@ export interface BFSSource {
   startDelay?: number;
 }
 
+// Ownership sentinels for BFSResult.ownerIndex. Every consumer comparing
+// against ownerIndex must use these names, never raw literals.
+export const OWNER_UNREACHED = -2;  // no source reaches this cell
+export const OWNER_NEUTRAL = -1;    // tied arrival — nobody owns or expands from it
+
 export interface BFSResult {
   // Territory counts per source
   territoryCounts: Map<string, number>;
@@ -45,7 +50,8 @@ export interface BFSResult {
   enemyTerritory: number;
 
   // Raw integer core:
-  // ownerIndex[cellIdx] = source index owning the cell, -1 neutral, -2 unreached.
+  // ownerIndex[cellIdx] = source index owning the cell, or OWNER_NEUTRAL /
+  // OWNER_UNREACHED.
   ownerIndex: Int16Array;
   // distanceIndex[cellIdx] = BFS distance for reached cells (unspecified otherwise).
   distanceIndex: Int16Array;
@@ -61,8 +67,6 @@ export interface BFSOptions {
   collectCells?: boolean;
 }
 
-const UNREACHED = -2;
-const NEUTRAL = -1;
 
 export class MultiSourceBFS {
   private graph: BoardGraph;
@@ -92,7 +96,7 @@ export class MultiSourceBFS {
     }
 
     // Integer core state.
-    const owner = new Int16Array(N).fill(UNREACHED);
+    const owner = new Int16Array(N).fill(OWNER_UNREACHED);
     const dist = new Int16Array(N);
     const reachedMask = new Uint32Array(N);   // per-level: bitmask of sources arriving
     const enqueuedMask = new Uint32Array(N);  // per-level: dedup of (cell, source) enqueues
@@ -169,7 +173,7 @@ export class MultiSourceBFS {
           if (foodMask[cell] === 1) { foodCount[srcIdx]++; nearestFood[srcIdx] = 0; }
           if (fertileMask[cell] === 1) fertileCount[srcIdx]++;
         } else {
-          if (owner[cell] !== UNREACHED) continue; // already claimed at a nearer level
+          if (owner[cell] !== OWNER_UNREACHED) continue; // already claimed at a nearer level
           if (reachedMask[cell] === 0) touched.push(cell);
           reachedMask[cell] |= (1 << srcIdx);
         }
@@ -193,7 +197,7 @@ export class MultiSourceBFS {
         } else {
           // Multiple sources tie — neutral cell; nobody expands from it, but
           // food here still counts toward every reaching source's nearest-food.
-          owner[cell] = NEUTRAL;
+          owner[cell] = OWNER_NEUTRAL;
           dist[cell] = currentDistance;
           if (foodMask[cell] === 1) {
             let m = mask;
@@ -223,7 +227,7 @@ export class MultiSourceBFS {
         for (let t = 0; t < 4; t++) {
           const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
           if (n < 0) continue;
-          if (owner[n] !== UNREACHED) continue;
+          if (owner[n] !== OWNER_UNREACHED) continue;
           const bit = 1 << srcIdx;
           if ((enqueuedMask[n] & bit) !== 0) continue;
           const passable = useOptimistic

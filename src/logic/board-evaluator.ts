@@ -396,7 +396,8 @@ export class BoardEvaluator {
     // we win the Voronoi arrival race for, from our post-move head, under
     // conservative body-clearance timing. This is what we bank our survival on —
     // it refuses to count room an enemy will reach first.
-    const ourSourceIdx = bfsResult.sourceIndexOf.get(ourSnakeId) ?? -1;
+    // Our snake is always a live BFS source here (the dead case returned above).
+    const ourSourceIdx = bfsResult.sourceIndexOf.get(ourSnakeId)!;
     const contestRegion = this.computeContestAwareRegion(graph, ourSnake, bfsResult.ownerIndex, ourSourceIdx);
     // Continuous survival room from the contest-aware conservative region: the raw
     // parity-bounded longest simple path we can keep out of contest, sqrt-scaled and

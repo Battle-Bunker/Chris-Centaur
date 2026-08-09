@@ -436,6 +436,48 @@ export class BoardGraph {
     return !this.isStaticBlockedIdx(idx);
   }
 
+  // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
+  // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
+  // i. A statically-blocked cell has an empty neighbor list (it is not a
+  // usable origin). Cached once per graph — a shared resource for heuristics
+  // that iterate neighborhoods repeatedly and don't need turn-aware timing;
+  // it costs nothing until first access.
+  private adjStart: Int32Array | null = null;
+  private adjNeighbors: Int32Array | null = null;
+
+  /**
+   * Statically-passable neighbor cell indices of `idx`, as a zero-copy view
+   * into the cached adjacency table. Built lazily on first call.
+   */
+  staticNeighborsOf(idx: number): Int32Array {
+    if (!this.adjStart) this.buildAdjacency();
+    return this.adjNeighbors!.subarray(this.adjStart![idx], this.adjStart![idx + 1]);
+  }
+
+  private buildAdjacency(): void {
+    const W = this.width;
+    const N = this.cells;
+    const start = new Int32Array(N + 1);
+    const neighbors = new Int32Array(N * 4);
+    let filled = 0;
+    for (let idx = 0; idx < N; idx++) {
+      start[idx] = filled;
+      if (this.isStaticBlockedIdx(idx)) continue;
+      const x = idx % W;
+      const n0 = idx + W < N ? idx + W : -1;
+      const n1 = idx - W >= 0 ? idx - W : -1;
+      const n2 = x > 0 ? idx - 1 : -1;
+      const n3 = x < W - 1 ? idx + 1 : -1;
+      for (let t = 0; t < 4; t++) {
+        const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+        if (n >= 0 && !this.isStaticBlockedIdx(n)) neighbors[filled++] = n;
+      }
+    }
+    start[N] = filled;
+    this.adjStart = start;
+    this.adjNeighbors = neighbors.subarray(0, filled);
+  }
+
   /**
    * Check if a coordinate is within board bounds.
    */
