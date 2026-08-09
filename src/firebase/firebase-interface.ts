@@ -54,8 +54,10 @@ import {
   getFunctions,
   httpsCallable,
 } from 'firebase/functions';
-import { Direction } from '../types/battlesnake';
+import { Direction, GameState } from '../types/battlesnake';
 import { VoronoiStrategy } from '../logic/voronoi-strategy-new';
+import { BoardGraph } from '../logic/board-graph';
+import { MoveAnalyzer } from '../logic/move-analyzer';
 import { TeamDetector } from '../logic/team-detector';
 import { DecisionLogger } from '../logic/decision-logger';
 import { GameRegistry } from '../logic/game-registry';
@@ -96,12 +98,35 @@ export function firebaseInterfaceConfigFromEnv(
   const apiKey = env.TACTICTOES_FIREBASE_API_KEY;
   if (!botId || !botApiKey || !projectId || !apiKey) return null;
 
+  // Emulator plumbing for local integration testing against the Firebase
+  // emulator suite: TACTICTOES_EMULATOR_FIRESTORE=host:port,
+  // TACTICTOES_EMULATOR_AUTH=http://host:port,
+  // TACTICTOES_EMULATOR_FUNCTIONS=host:port.
+  let emulators: FirebaseInterfaceConfig['emulators'];
+  if (env.TACTICTOES_EMULATOR_FIRESTORE || env.TACTICTOES_EMULATOR_AUTH || env.TACTICTOES_EMULATOR_FUNCTIONS) {
+    emulators = {};
+    if (env.TACTICTOES_EMULATOR_FIRESTORE) {
+      const [host, port] = env.TACTICTOES_EMULATOR_FIRESTORE.split(':');
+      emulators.firestoreHost = host;
+      emulators.firestorePort = parseInt(port, 10);
+    }
+    if (env.TACTICTOES_EMULATOR_AUTH) {
+      emulators.authUrl = env.TACTICTOES_EMULATOR_AUTH;
+    }
+    if (env.TACTICTOES_EMULATOR_FUNCTIONS) {
+      const [host, port] = env.TACTICTOES_EMULATOR_FUNCTIONS.split(':');
+      emulators.functionsHost = host;
+      emulators.functionsPort = parseInt(port, 10);
+    }
+  }
+
   return {
     projectId,
     apiKey,
     region: env.TACTICTOES_FUNCTIONS_REGION || 'us-central1',
     botId,
     botApiKey,
+    emulators,
   };
 }
 
@@ -147,6 +172,7 @@ export class TacticToesFirebaseInterface {
   private readonly gameManager = ActiveGameManager.getInstance();
   private readonly teamDetector = new TeamDetector();
   private readonly gameLogger = new GameLogger();
+  private readonly quickAnalyzer = new MoveAnalyzer('custom');
 
   constructor(
     private readonly strategy: VoronoiStrategy,
@@ -356,12 +382,39 @@ export class TacticToesFirebaseInterface {
     // selection (deadline or all-committed) before the next board arrives.
     this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
 
-    // One decision per controlled alive snake. setBotRecommendation stages the
-    // resolved intent (manual > queue > waypoint > bot), and the manager's
-    // write-through publishes the staged move to Firestore.
+    // FAST PASS: immediately stage a cheap safe move for every snake so a
+    // short turn deadline never catches a snake with nothing staged (the
+    // engine default is "continue straight", which is often a wall). The
+    // full strategy pass below re-stages a better move; re-staging simply
+    // supersedes this one in Firebase.
+    const views = new Map<string, GameState>();
     for (const snakeId of aliveOurs) {
       const view = buildGameState(watched.gameID, data.setup, turn, turnNumber, snakeId, endTimeMs);
+      views.set(snakeId, view);
       this.gameManager.updateGameState(watched.gameID, snakeId, view);
+      try {
+        const quick = this.quickSafeMove(view);
+        if (quick) {
+          this.gameManager.setBotRecommendation(watched.gameID, snakeId, quick, {
+            gameState: view,
+            moveEvaluations: [],
+            territoryCells: {},
+            safeMoves: [],
+            botRecommendation: quick,
+            timestamp: Date.now(),
+          });
+        }
+      } catch (err) {
+        console.error(`[tt-firebase] Quick staging failed for ${snakeId} turn ${turnNumber}:`, err);
+      }
+    }
+
+    // FULL PASS: one strategy decision per controlled alive snake.
+    // setBotRecommendation stages the resolved intent (manual > queue >
+    // waypoint > bot), and the manager's write-through publishes the staged
+    // move to Firestore.
+    for (const snakeId of aliveOurs) {
+      const view = views.get(snakeId)!;
 
       try {
         const teams = this.teamDetector.detectTeams(view.board.snakes);
@@ -390,6 +443,25 @@ export class TacticToesFirebaseInterface {
         });
       }
     }
+  }
+
+  // A cheap (~1ms) safe move for the fast staging pass: prefer continuing
+  // straight when that is safe, else the analyzer's first safe move, else a
+  // risky one. Returns null when the snake has no non-lethal move at all.
+  private quickSafeMove(view: GameState): Direction | null {
+    const graph = new BoardGraph(view);
+    const analysis = this.quickAnalyzer.analyzeMoves(view.you, view, graph);
+    const head = view.you.head;
+    const neck = view.you.body[1];
+    let straight: Direction | null = null;
+    if (neck && (neck.x !== head.x || neck.y !== head.y)) {
+      if (head.x > neck.x) straight = 'right';
+      else if (head.x < neck.x) straight = 'left';
+      else if (head.y > neck.y) straight = 'up';
+      else straight = 'down';
+    }
+    if (straight && analysis.safe.includes(straight)) return straight;
+    return analysis.safe[0] ?? analysis.risky[0] ?? null;
   }
 
   // Sets up the per-turn read-back listeners and the finalization trigger:

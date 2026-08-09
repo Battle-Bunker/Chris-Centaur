@@ -53,6 +53,8 @@ export interface GameConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;
+  maxSimulatedNearbySnakes: number;  // closest N nearby snakes get simulated; the rest are frozen (move sets are 3^N)
+  maxBoardStatesPerMove: number;     // hard cap on simulated move-combinations per candidate move
   
   // Optimistic passability lookahead (turns to predict body segment disappearance)
   maxLookaheadTurns: number;
@@ -125,6 +127,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   maxSimulationDepth: 1,
   timeoutMs: 400,
   nearbyDistance: 5,  // Focal distance: snakes within this distance have all moves enumerated; snakes beyond are frozen
+  maxSimulatedNearbySnakes: 3,
+  maxBoardStatesPerMove: 32,
   
   // Optimistic passability lookahead
   maxLookaheadTurns: 5,

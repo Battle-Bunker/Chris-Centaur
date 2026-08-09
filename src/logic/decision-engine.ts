@@ -29,6 +29,12 @@ export interface DecisionConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
+  // Hard caps keeping the board-state enumeration bounded regardless of
+  // board size / snake density (a 30x30 team game can put 9 snakes within
+  // focal distance — an uncapped cartesian product is 3^9 move sets per
+  // candidate move, which melts CPU and memory):
+  maxSimulatedNearbySnakes?: number;  // closest N nearby snakes get simulated; the rest are frozen
+  maxBoardStatesPerMove?: number;     // cap on simulated move-combinations per candidate move
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
@@ -70,6 +76,8 @@ export class DecisionEngine {
       maxSimulationDepth: 1,
       timeoutMs: 400,
       nearbyDistance: 5,
+      maxSimulatedNearbySnakes: 3,
+      maxBoardStatesPerMove: 32,
       tailSafetyRule: 'custom',
       tailGrowthTiming: 'grow-next-turn',
       ...config
@@ -191,66 +199,77 @@ export class DecisionEngine {
     
     // Enumerate possible board states
     const boardStates = this.enumerateBoardStates(gameState, ourMoves, teamSnakeIds, startTime, graph);
-    
-    // Evaluate each of our candidate moves
-    const evaluations: MoveEvaluationResult[] = [];
-    
+
+    // Evaluate simulated states ROUND-ROBIN across candidate moves under a
+    // hard time budget. Evaluation (a multi-source BFS per state) is the
+    // expensive phase; interleaving means a budget cut leaves every move
+    // with a comparable sample instead of fully scoring the first move and
+    // starving the rest. The i=0 pass always runs so every move with states
+    // gets at least one evaluation.
+    const h2hCtxByMove = new Map<Direction, { enemyH2HRisk: number; allyH2HRisk: number }>();
+    const statesByMove = new Map<Direction, typeof boardStates>();
+    const evaluatedByMove = new Map<Direction, BoardEvaluation[]>();
+    let maxStatesForAnyMove = 0;
     for (const move of ourMoves) {
-      const moveStates = boardStates.filter(state => state.ourMove === move);
-      
-      // Get h2h risk for this move
       const h2hRisk = moveAnalysis.h2hRiskByMove.get(move);
-      const h2hRiskCtx = {
+      h2hCtxByMove.set(move, {
         enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
         allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
-      };
-      
-      if (moveStates.length === 0) {
-        // This shouldn't happen but handle gracefully
+      });
+      const states = boardStates.filter(state => state.ourMove === move);
+      statesByMove.set(move, states);
+      evaluatedByMove.set(move, []);
+      maxStatesForAnyMove = Math.max(maxStatesForAnyMove, states.length);
+    }
+
+    const evalDeadline = startTime + this.config.timeoutMs * 2;
+    outer:
+    for (let i = 0; i < maxStatesForAnyMove; i++) {
+      for (const move of ourMoves) {
+        const states = statesByMove.get(move)!;
+        if (i >= states.length) continue;
+        if (i > 0 && Date.now() > evalDeadline) break outer;
+        const state = states[i];
+        const evaluation = this.boardEvaluator.evaluateBoard(
+          state.gameState,
+          gameState.you.id,
+          teamSnakeIds,
+          {
+            prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
+            h2hRisk: h2hCtxByMove.get(move)!,
+            simulatedSnakeIds: state.simulatedSnakeIds,  // Snakes that were simulated get startDelay: 1
+            waypoint
+          }
+        );
+        evaluatedByMove.get(move)!.push(evaluation);
+      }
+    }
+
+    const evaluations: MoveEvaluationResult[] = [];
+    for (const move of ourMoves) {
+      const allEvaluations = evaluatedByMove.get(move)!;
+      if (allEvaluations.length === 0) {
+        // No simulated states for this move — score the current board.
         evaluations.push({
           move,
           averageScore: -1000,
           numStates: 0,
           averageBreakdown: this.boardEvaluator.evaluateBoard(
-            gameState, 
-            gameState.you.id, 
+            gameState,
+            gameState.you.id,
             teamSnakeIds,
-            { prevFoodSet, h2hRisk: h2hRiskCtx, waypoint }
+            { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypoint }
           )
         });
         continue;
       }
-      
-      // Average the evaluations for this move
-      let totalScore = 0;
-      const allEvaluations: BoardEvaluation[] = [];
-      
-      for (const state of moveStates) {
-        const evaluation = this.boardEvaluator.evaluateBoard(
-          state.gameState, 
-          gameState.you.id, 
-          teamSnakeIds,
-          { 
-            prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
-            h2hRisk: h2hRiskCtx,  // Pass h2h risk to evaluator
-            simulatedSnakeIds: state.simulatedSnakeIds,  // Snakes that were simulated get startDelay: 1
-            waypoint
-          }
-        );
-        totalScore += evaluation.score;
-        allEvaluations.push(evaluation);
-      }
-      
-      const averageScore = totalScore / moveStates.length;
-      
-      // Calculate average breakdown
-      const averageBreakdown = this.averageEvaluations(allEvaluations);
-      
+
+      const totalScore = allEvaluations.reduce((s, e) => s + e.score, 0);
       evaluations.push({
         move,
-        averageScore,
-        numStates: moveStates.length,
-        averageBreakdown
+        averageScore: totalScore / allEvaluations.length,
+        numStates: allEvaluations.length,
+        averageBreakdown: this.averageEvaluations(allEvaluations)
       });
     }
     
@@ -390,16 +409,29 @@ export class DecisionEngine {
     
     // Identify nearby snakes within focal distance for full move enumeration
     // Distant snakes (outside nearbyDistance) are frozen and not simulated
-    const nearbySnakes: Snake[] = [];
-    
+    let nearbySnakes: Snake[] = [];
+
     for (const snake of board.snakes) {
       if (snake.id === gameState.you.id || snake.health <= 0) continue;
-      
+
       const distance = this.manhattanDistance(gameState.you.head, snake.head);
       if (distance <= this.config.nearbyDistance) {
         nearbySnakes.push(snake);
       }
       // Snakes beyond nearbyDistance are frozen (not included in simulation)
+    }
+
+    // Simulate only the CLOSEST few nearby snakes; the rest are frozen like
+    // distant ones. The move-set count is exponential in this number (3^N),
+    // so an uncapped dense board (e.g. 10 snakes spawning on a 30x30 team
+    // game) otherwise produces tens of thousands of simulated board states.
+    const maxSimulated = this.config.maxSimulatedNearbySnakes ?? 3;
+    if (nearbySnakes.length > maxSimulated) {
+      nearbySnakes = nearbySnakes
+        .map((snake) => ({ snake, d: this.manhattanDistance(gameState.you.head, snake.head) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, maxSimulated)
+        .map((e) => e.snake);
     }
     
     // Build the set of simulated snake IDs (our snake + nearby snakes)
@@ -415,9 +447,22 @@ export class DecisionEngine {
         break;
       }
       
-      // Generate move combinations for nearby snakes
-      const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
-      
+      // Generate move combinations for nearby snakes, hard-capped per
+      // candidate move so evaluation work and retained simulated states stay
+      // bounded on dense boards.
+      let nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
+      const maxStates = this.config.maxBoardStatesPerMove ?? 32;
+      if (nearbyMoveSets.length > maxStates) {
+        // Deterministic even sampling across the combination space (plain
+        // truncation would bias toward the first snake's first move).
+        const sampled: Map<string, Direction>[] = [];
+        const step = nearbyMoveSets.length / maxStates;
+        for (let i = 0; i < maxStates; i++) {
+          sampled.push(nearbyMoveSets[Math.floor(i * step)]);
+        }
+        nearbyMoveSets = sampled;
+      }
+
       // For each nearby move combination
       for (const nearbyMoveSet of nearbyMoveSets) {
         // Check time budget

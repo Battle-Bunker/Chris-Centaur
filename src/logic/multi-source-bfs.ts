@@ -233,31 +233,52 @@ export class MultiSourceBFS {
       }
       
       // Third pass: explore neighbors for next level
-      // Only explore from cells that are owned (not neutral)
+      // Only explore from cells that are owned (not neutral).
+      //
+      // DEDUPLICATION IS LOAD-BEARING: without it, every owned frontier cell
+      // enqueues each unvisited neighbor once per adjacent frontier item, and
+      // those duplicate queue items each re-explore and multiply again on the
+      // following level — the frontier grows exponentially with distance
+      // instead of being bounded by O(cells × sources). Small boards mask it;
+      // a 30x30 board with 10 sources turns one compute() into ~26 seconds
+      // and gigabytes of queue items. Dedupe both the (cell, source) items we
+      // explore from and the (neighbor, source) items we enqueue.
+      const explored = new Set<string>();
+      const enqueued = new Set<string>();
       for (const item of currentLevel) {
         const key = this.graph.coordToKey(item.position);
         const info = cellInfo.get(key);
-        
+
         // Skip if this cell is neutral or owned by different source
         if (!info || info.closestSourceId !== item.sourceId) {
           continue;
         }
-        
+        const exploreKey = `${key}|${item.sourceId}`;
+        if (explored.has(exploreKey)) {
+          continue;
+        }
+        explored.add(exploreKey);
+
         // Get passable neighbors - use optimistic if enabled
         // The arrival turn is currentDistance + 1 (next level)
         const arrivalTurn = currentDistance + 1;
-        const neighbors = useOptimistic 
+        const neighbors = useOptimistic
           ? this.graph.getNeighborsOptimistic(item.position, arrivalTurn)
           : this.graph.getNeighbors(item.position);
-        
+
         for (const neighbor of neighbors) {
           const neighborKey = this.graph.coordToKey(neighbor);
-          
+
           // Skip if already visited
           if (cellInfo.has(neighborKey)) {
             continue;
           }
-          
+          const enqueueKey = `${neighborKey}|${item.sourceId}`;
+          if (enqueued.has(enqueueKey)) {
+            continue;
+          }
+          enqueued.add(enqueueKey);
+
           // Add to next level
           nextLevel.push({
             position: neighbor,

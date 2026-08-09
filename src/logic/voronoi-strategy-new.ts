@@ -32,6 +32,8 @@ export class VoronoiStrategy {
       maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
       timeoutMs: DEFAULT_CONFIG.timeoutMs,
       nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
+      maxSimulatedNearbySnakes: DEFAULT_CONFIG.maxSimulatedNearbySnakes,
+      maxBoardStatesPerMove: DEFAULT_CONFIG.maxBoardStatesPerMove,
       weights: this.extractWeights(DEFAULT_CONFIG)
     });
     
@@ -91,6 +93,8 @@ export class VoronoiStrategy {
       maxSimulationDepth: config.maxSimulationDepth,
       timeoutMs: config.timeoutMs,
       nearbyDistance: config.nearbyDistance,
+      maxSimulatedNearbySnakes: config.maxSimulatedNearbySnakes,
+      maxBoardStatesPerMove: config.maxBoardStatesPerMove,
       weights: this.extractWeights(config)
     });
   }
