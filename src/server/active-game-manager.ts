@@ -1400,12 +1400,13 @@ export class ActiveGameManager {
     this.notifyStagedChange(gameId);
   }
 
-  // Fed by the Firebase interface when the turn finalizes (deadline passed or
-  // every alive player committed) — BEFORE the next board arrives. `move` is
-  // the confirmed staged move Firebase will play for this snake, or null when
-  // nothing was confirmed staged (the game server applies its own default,
-  // which we can't know here — no double arrow in that case).
-  finalizeTurnMove(gameId: string, snakeId: string, turn: number, move: Direction | null): void {
+  // Fed by the Firebase interface when — and ONLY when — this snake's commit
+  // is actually recorded in Firebase (the snake appears in
+  // moveStatuses.movedPlayerIDs) and its confirmed staged move is known from
+  // the read-back. Never inferred from timers or the turn expiry: the double
+  // arrow is a report of observed Firebase state, nothing else. Turns that
+  // resolve by timeout without a commit simply never show it.
+  finalizeTurnMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
     const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
     if (!controlled) return;
     if (controlled.finalMove?.turn === turn) return;
@@ -1413,7 +1414,6 @@ export class ActiveGameManager {
       clearTimeout(controlled.stagingRetryTimer);
       controlled.stagingRetryTimer = null;
     }
-    if (move === null) return;
     controlled.finalMove = { turn, move };
     this.notifyMoveCommitted(gameId, snakeId, move, 'firebase-final');
     this.notifyStagedChange(gameId);

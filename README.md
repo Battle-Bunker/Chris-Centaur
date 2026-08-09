@@ -22,11 +22,13 @@ staged moves.
   **republishes until the confirmed staged move matches the request**. The UI
   shows the confirmed move as the solid arrow and the requested move as a
   ghost arrow whenever they differ, so what you see solid is always what the
-  game server would play. When the turn finalizes — deadline passed or every
-  player committed — the double arrow shows Firebase's final selection,
-  before the next board even arrives. The game server resolves each turn with
-  the **last staged move received before the turn deadline**; nothing is
-  committed automatically.
+  game server would play. The double (committed) arrow appears only when the
+  snake's commit is actually **observed in Firebase**
+  (`moveStatuses.movedPlayerIDs` via the server's subscription) — never
+  inferred from timers — so it is fully reliable; turns that resolve by
+  timeout without a commit simply advance without one. The game server
+  resolves each turn with the **last staged move received before the turn
+  deadline**; nothing is committed automatically.
 - **Submit All (manual commit).** The UI's Submit All button (or Enter) marks
   every snake staged for the current turn as *done* in Firebase
   (`moveStatuses.movedPlayerIDs`), letting the game server resolve the turn

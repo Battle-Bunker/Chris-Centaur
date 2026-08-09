@@ -351,7 +351,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(publishedFor('A').map((p) => p.move)).toEqual(['right']);
   });
 
-  test('finalizeTurnMove: fires the move-committed (double arrow) signal with the Firebase-selected move; null means no signal', () => {
+  test('finalizeTurnMove: fires the move-committed (double arrow) signal only for snakes whose Firebase commit was observed', () => {
     const gameId = 'g-finalize';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
     processTurn(gameId, 'A', snakes, 0, 'right');
@@ -362,15 +362,18 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
       if (gId === gameId) committed.push({ snakeId, move, source });
     });
 
+    // A's commit was observed in moveStatuses with a confirmed staged move.
     mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
     mgr.finalizeTurnMove(gameId, 'A', 0, 'right');
-    // B had nothing confirmed — no double arrow for it.
-    mgr.finalizeTurnMove(gameId, 'B', 0, null);
     // Repeat finalization is a no-op.
     mgr.finalizeTurnMove(gameId, 'A', 0, 'right');
+    // B was never committed on Firebase — the interface never calls
+    // finalizeTurnMove for it, so it never gets a double arrow.
 
     expect(committed).toEqual([{ snakeId: 'A', move: 'right', source: 'firebase-final' }]);
     const csA = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     expect(csA.finalMove).toEqual({ turn: 0, move: 'right' });
+    const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;
+    expect(csB.finalMove).toBeNull();
   });
 });
