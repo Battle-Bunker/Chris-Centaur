@@ -102,6 +102,10 @@ export class DecisionWorkerPool {
     }
   }
 
+  get isInline(): boolean {
+    return this.inline;
+  }
+
   submit(job: ChunkJob): Promise<ChunkResult> {
     if (this.inline) {
       // Yield to the event loop between inline chunks so staging writes,

@@ -11,6 +11,7 @@ import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
 import { ChunkJob, ChunkResult } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
+import { recordDecisionTelemetry } from './decision-telemetry';
 
 export interface MoveDecision {
   move: Direction;
@@ -380,6 +381,7 @@ export class DecisionEngine {
     const { waypoint = null, deadlineMs, updateIntervalMs = 100, onUpdate } = options;
     const pool = options.pool ?? DecisionWorkerPool.getShared();
     const gameId = gameState.game.id;
+    const startTime = Date.now();
 
     const prevFoodSet = this.lastFoodSetByGameId.get(gameId);
     const currentFoodSet = new Set<string>();
@@ -403,6 +405,25 @@ export class DecisionEngine {
     if (ourMoves.length <= 1) {
       const decision = this.decide(gameState, teamSnakeIds, waypoint);
       onUpdate?.(decision);
+      recordDecisionTelemetry({
+        ts: Date.now(),
+        gameId,
+        snakeId: gameState.you.id,
+        boardTurn: gameState.turn,
+        mode: 'trivial',
+        candidateMoves: ourMoves.length,
+        nearbySnakes: 0,
+        moveSetsPerMove: 0,
+        plannedStates: decision.evaluations.reduce((n, e) => n + e.numStates, 0),
+        statesEvaluated: decision.evaluations.reduce((n, e) => n + e.numStates, 0),
+        chunksTotal: 0,
+        chunksCompleted: 0,
+        durationMs: Date.now() - startTime,
+        deadlineHit: false,
+        updatesEmitted: 0,
+        poolSize: pool.size,
+        poolInline: pool.isInline
+      });
       return decision;
     }
 
@@ -519,6 +540,7 @@ export class DecisionEngine {
     return new Promise<MoveDecision>((resolve) => {
       let done = false;
       let completedChunks = 0;
+      let updatesEmitted = 0;
       // Per-decision in-flight cap so several concurrent snake decisions
       // interleave on the shared pool instead of the first submitter's chunks
       // monopolizing the FIFO queue.
@@ -536,6 +558,25 @@ export class DecisionEngine {
         this.computeProjectedTerritories(gameState, graph, teamSnakeIds, decision.evaluations);
         this.setLastFoodSet(gameId, currentFoodSet);
         onUpdate?.(decision);
+        recordDecisionTelemetry({
+          ts: Date.now(),
+          gameId,
+          snakeId: gameState.you.id,
+          boardTurn: gameState.turn,
+          mode: 'iterative',
+          candidateMoves: ourMoves.length,
+          nearbySnakes: nearbySnakes.length,
+          moveSetsPerMove: nearbyMoveSets.length,
+          plannedStates: ourMoves.length * nearbyMoveSets.length,
+          statesEvaluated: ourMoves.reduce((n, m) => n + worstByMove.get(m)!.states, 0),
+          chunksTotal: totalChunks,
+          chunksCompleted: completedChunks,
+          durationMs: Date.now() - startTime,
+          deadlineHit: completedChunks < totalChunks,
+          updatesEmitted,
+          poolSize: pool.size,
+          poolInline: pool.isInline
+        });
         resolve(decision);
       };
 
@@ -579,6 +620,7 @@ export class DecisionEngine {
 
       updateTimer = setInterval(() => {
         if (done) return;
+        updatesEmitted++;
         onUpdate?.(buildDecision());
       }, updateIntervalMs);
       // Timers must not keep the process alive on their own.
