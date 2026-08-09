@@ -32,8 +32,6 @@ export class VoronoiStrategy {
       maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
       timeoutMs: DEFAULT_CONFIG.timeoutMs,
       nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
-      maxSimulatedNearbySnakes: DEFAULT_CONFIG.maxSimulatedNearbySnakes,
-      maxBoardStatesPerMove: DEFAULT_CONFIG.maxBoardStatesPerMove,
       weights: this.extractWeights(DEFAULT_CONFIG)
     });
     
@@ -93,8 +91,6 @@ export class VoronoiStrategy {
       maxSimulationDepth: config.maxSimulationDepth,
       timeoutMs: config.timeoutMs,
       nearbyDistance: config.nearbyDistance,
-      maxSimulatedNearbySnakes: config.maxSimulatedNearbySnakes,
-      maxBoardStatesPerMove: config.maxBoardStatesPerMove,
       weights: this.extractWeights(config)
     });
   }
@@ -178,10 +174,71 @@ export class VoronoiStrategy {
     
     // Use decision engine to get best move (with optional user-directed waypoint)
     const decision = this.decisionEngine.decide(gameState, teamSnakeIds, waypoint);
-    
+
     // Log turn info to console
     this.logTurnInfo(gameState, decision);
-    
+
+    return this.assembleDebugResult(gameState, teamSnakeIds, decision);
+  }
+
+  /**
+   * Anytime variant: runs the engine's parallel iterative decision on the
+   * shared worker pool, invoking onRecommendation with the current best move
+   * every ~100ms until deadlineMs or full 3^k completion, then returning the
+   * same debug payload as getBestMoveWithDebug (assembled from the final
+   * decision, logged once).
+   */
+  async getBestMoveIterative(
+    gameState: GameState,
+    _ourTeam: TeamInfo | undefined,
+    waypoint: WaypointContext | null | undefined,
+    options: {
+      deadlineMs: number;
+      updateIntervalMs?: number;
+      onRecommendation?: (move: Direction, decision: MoveDecision) => void;
+    }
+  ): Promise<{
+    move: Direction;
+    safeMoves: Direction[];
+    scores: Map<Direction, number>;
+    moveEvaluations: any[];
+    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+  }> {
+    const config = await this.getConfig();
+    this.updateDecisionEngine(config);
+
+    const teams = this.teamDetector.detectTeams(gameState.board.snakes);
+    const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
+    const teamSnakeIds = new Set<string>(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
+
+    const decision = await this.decisionEngine.decideIteratively(gameState, teamSnakeIds, {
+      waypoint,
+      deadlineMs: options.deadlineMs,
+      updateIntervalMs: options.updateIntervalMs,
+      onUpdate: (partial) => options.onRecommendation?.(partial.move, partial)
+    });
+
+    this.logTurnInfo(gameState, decision);
+
+    return this.assembleDebugResult(gameState, teamSnakeIds, decision);
+  }
+
+  /**
+   * Shared debug/logging assembly for a finished decision: maps evaluations
+   * for the UI/database, computes current-board territory, logs the decision
+   * (non-blocking), and returns the strategy result payload.
+   */
+  private assembleDebugResult(
+    gameState: GameState,
+    teamSnakeIds: Set<string>,
+    decision: MoveDecision
+  ): {
+    move: Direction;
+    safeMoves: Direction[];
+    scores: Map<Direction, number>;
+    moveEvaluations: any[];
+    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+  } {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
       move: evaluation.move,

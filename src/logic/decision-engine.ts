@@ -9,6 +9,8 @@ import { BoardEvaluator, BoardEvaluation, EvaluationContext, WaypointContext } f
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { ChunkJob, ChunkResult } from './decision-chunk';
+import { DecisionWorkerPool } from './decision-worker-pool';
 
 export interface MoveDecision {
   move: Direction;
@@ -29,15 +31,6 @@ export interface DecisionConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
-  // Runaway backstops on the board-state enumeration. Deliberately set high
-  // enough that they NEVER bite at realistic snake densities (board geometry
-  // caps how many heads fit within focal distance at ~5-6, and the
-  // simulation loop's time budget already bounds how many states get built);
-  // they exist purely to keep a pathological future scenario from generating
-  // an unbounded cartesian product. The real compute governors are the
-  // simulation time budget and the evaluation-phase deadline.
-  maxSimulatedNearbySnakes?: number;  // closest N nearby snakes get simulated; the rest are frozen
-  maxBoardStatesPerMove?: number;     // backstop on simulated move-combinations per candidate move
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
@@ -79,8 +72,6 @@ export class DecisionEngine {
       maxSimulationDepth: 1,
       timeoutMs: 400,
       nearbyDistance: 5,
-      maxSimulatedNearbySnakes: 8,
-      maxBoardStatesPerMove: 4096,
       tailSafetyRule: 'custom',
       tailGrowthTiming: 'grow-next-turn',
       ...config
@@ -248,6 +239,12 @@ export class DecisionEngine {
       }
     }
 
+    // MINIMAX aggregation: a candidate move is scored by the WORST evaluated
+    // state (overall weighted score) conditional on making it — the bot plays
+    // conservatively against the worst world its neighbours can force. The
+    // MoveEvaluationResult field names are kept for wire/UI compatibility:
+    // `averageScore` carries the worst-case score, `averageBreakdown` the
+    // worst state's full evaluation.
     const evaluations: MoveEvaluationResult[] = [];
     for (const move of ourMoves) {
       const allEvaluations = evaluatedByMove.get(move)!;
@@ -267,27 +264,46 @@ export class DecisionEngine {
         continue;
       }
 
-      const totalScore = allEvaluations.reduce((s, e) => s + e.score, 0);
+      let worst = allEvaluations[0];
+      for (const evaluation of allEvaluations) {
+        if (evaluation.score < worst.score) worst = evaluation;
+      }
       evaluations.push({
         move,
-        averageScore: totalScore / allEvaluations.length,
+        averageScore: worst.score,
         numStates: allEvaluations.length,
-        averageBreakdown: this.averageEvaluations(allEvaluations)
+        averageBreakdown: worst
       });
     }
-    
-    // Select the best move with a candidate-level fatal-pocket veto.
-    // A move whose averaged `trapped` signal is at/above the fatal threshold leads
-    // into a clearly-fatal dead-end pocket (no tail-chase, not enough room to
-    // outlast our length). We must never pick such a move when a non-fatal
-    // alternative exists — even if the pocket happens to score higher (e.g. a
-    // waypoint sitting inside it). This is the hard guarantee on top of the
-    // strongly-negative `trapped` weight. If EVERY candidate is fatal, we fall
-    // back to scoring among all of them (least-bad death).
+
+    const bestMove = DecisionEngine.selectBestMove(evaluations);
+    this.computeProjectedTerritories(gameState, graph, teamSnakeIds, evaluations);
+
+    // Update food set for next turn (with LRU cap to avoid unbounded growth)
+    this.setLastFoodSet(gameId, currentFoodSet);
+
+    return {
+      move: bestMove,
+      candidateMoves: ourMoves,
+      evaluations,
+      h2hRiskByMove: moveAnalysis.h2hRiskByMove
+    };
+  }
+
+  // Select the best move with a candidate-level fatal-pocket veto.
+  // A move whose worst-case `trapped` signal is at/above the fatal threshold
+  // leads into a clearly-fatal dead-end pocket (no tail-chase, not enough room
+  // to outlast our length) in SOME reachable branch. We must never pick such a
+  // move when a non-fatal alternative exists — even if it happens to score
+  // higher (e.g. a waypoint sitting inside the pocket). This is the hard
+  // guarantee on top of the strongly-negative `trapped` weight. If EVERY
+  // candidate is fatal, we fall back to scoring among all of them (least-bad
+  // death).
+  private static selectBestMove(evaluations: MoveEvaluationResult[]): Direction {
     const FATAL_TRAP_THRESHOLD = 0.5;
     const nonFatal = evaluations.filter(e => e.averageBreakdown.stats.trapped < FATAL_TRAP_THRESHOLD);
     const selectionPool = nonFatal.length > 0 ? nonFatal : evaluations;
-    
+
     let bestMove = selectionPool[0].move;
     let bestScore = -Infinity;
     for (const evalResult of selectionPool) {
@@ -296,16 +312,21 @@ export class DecisionEngine {
         bestMove = evalResult.move;
       }
     }
-    
-    // Compute projected territory per move (asymmetric BFS)
-    const teamSnakeIdsForBFS = new Set<string>();
-    const teams = gameState.board.snakes.filter((s: Snake) => s.health > 0 && teamSnakeIds.has(s.id));
-    for (const s of teams) teamSnakeIdsForBFS.add(s.id);
-    
+    return bestMove;
+  }
+
+  // Compute projected territory per candidate move (asymmetric BFS) for the
+  // UI overlays.
+  private computeProjectedTerritories(
+    gameState: GameState,
+    graph: BoardGraph,
+    teamSnakeIds: Set<string>,
+    evaluations: MoveEvaluationResult[]
+  ): void {
     for (const evalResult of evaluations) {
       const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
       if (!candidatePos) continue;
-      
+
       const projSources: BFSSource[] = [];
       projSources.push({
         id: gameState.you.id,
@@ -313,7 +334,7 @@ export class DecisionEngine {
         isTeam: true,
         startDelay: 1
       });
-      
+
       for (const snake of gameState.board.snakes) {
         if (snake.id === gameState.you.id || snake.health <= 0) continue;
         projSources.push({
@@ -323,28 +344,254 @@ export class DecisionEngine {
           startDelay: 0
         });
       }
-      
+
       const projBfs = new MultiSourceBFS(graph);
       const projResult = projBfs.compute(projSources, gameState.board.food, undefined, gameState.board.fertileTiles);
-      
+
       const projTerritoryCells: { [snakeId: string]: { x: number; y: number }[] } = {};
       for (const [snakeId, cells] of projResult.territoryCells) {
         projTerritoryCells[snakeId] = cells;
       }
       evalResult.projectedTerritoryCells = projTerritoryCells;
     }
-    
-    // Update food set for next turn (with LRU cap to avoid unbounded growth)
-    this.setLastFoodSet(gameId, currentFoodSet);
-    
-    return {
-      move: bestMove,
-      candidateMoves: ourMoves,
-      evaluations,
-      h2hRiskByMove: moveAnalysis.h2hRiskByMove
-    };
   }
   
+  /**
+   * Anytime, parallel variant of decide(). Enumerates the FULL 3^k cartesian
+   * product of nearby-snake move combinations for every candidate move, splits
+   * it into chunks, and evaluates them on the shared worker pool. Emits an
+   * updated best-guess MoveDecision via onUpdate every updateIntervalMs
+   * (default 100ms) and finalizes when either every chunk has completed or
+   * deadlineMs (absolute epoch ms) is reached — whichever comes first.
+   * Aggregation is minimax: each candidate move is scored by the worst
+   * evaluated state found so far conditional on making it.
+   */
+  public async decideIteratively(
+    gameState: GameState,
+    teamSnakeIds: Set<string>,
+    options: {
+      waypoint?: WaypointContext | null;
+      deadlineMs: number;
+      updateIntervalMs?: number;
+      pool?: DecisionWorkerPool;
+      onUpdate?: (decision: MoveDecision) => void;
+    }
+  ): Promise<MoveDecision> {
+    const { waypoint = null, deadlineMs, updateIntervalMs = 100, onUpdate } = options;
+    const pool = options.pool ?? DecisionWorkerPool.getShared();
+    const gameId = gameState.game.id;
+
+    const prevFoodSet = this.lastFoodSetByGameId.get(gameId);
+    const currentFoodSet = new Set<string>();
+    for (const food of gameState.board.food) {
+      currentFoodSet.add(`${food.x},${food.y}`);
+    }
+
+    const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+    const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
+
+    let ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
+    const nonAllyMoves = ourMoves.filter(
+      move => !(moveAnalysis.h2hRiskByMove.get(move)?.hasAllyRisk ?? false)
+    );
+    if (nonAllyMoves.length > 0) {
+      ourMoves = nonAllyMoves;
+    }
+
+    // 0 or 1 candidate moves: no simulation fan-out to parallelize — the
+    // synchronous path already handles these fully (including territory).
+    if (ourMoves.length <= 1) {
+      const decision = this.decide(gameState, teamSnakeIds, waypoint);
+      onUpdate?.(decision);
+      return decision;
+    }
+
+    // Nearby snakes within focal distance — NO count cap; board geometry
+    // bounds how many heads fit within nearbyDistance.
+    const nearbySnakes: Snake[] = [];
+    for (const snake of gameState.board.snakes) {
+      if (snake.id === gameState.you.id || snake.health <= 0) continue;
+      if (this.manhattanDistance(gameState.you.head, snake.head) <= this.config.nearbyDistance) {
+        nearbySnakes.push(snake);
+      }
+    }
+    const simulatedSnakeIds = [gameState.you.id, ...nearbySnakes.map(s => s.id)];
+
+    // Full 3^k move combinations for the nearby snakes (independent of our move),
+    // as plain arrays so they survive the structured-clone to worker threads.
+    const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph)
+      .map(moveSet => Array.from(moveSet.entries()) as [string, Direction][]);
+
+    const h2hCtxByMove = new Map<Direction, { enemyH2HRisk: number; allyH2HRisk: number }>();
+    for (const move of ourMoves) {
+      const h2hRisk = moveAnalysis.h2hRiskByMove.get(move);
+      h2hCtxByMove.set(move, {
+        enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
+        allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+      });
+    }
+
+    // Chunk the combination space per candidate move, then interleave chunks
+    // ROUND-ROBIN across moves so partial results cover every move instead of
+    // fully scoring the first move while starving the rest.
+    const CHUNK_STATES = 8;
+    const chunksByMove = new Map<Direction, ChunkJob[]>();
+    for (const move of ourMoves) {
+      const chunks: ChunkJob[] = [];
+      for (let i = 0; i < nearbyMoveSets.length; i += CHUNK_STATES) {
+        chunks.push({
+          gameState,
+          teamSnakeIds: Array.from(teamSnakeIds),
+          ourMove: move,
+          moveSets: nearbyMoveSets.slice(i, i + CHUNK_STATES),
+          simulatedSnakeIds,
+          weights: this.config.weights,
+          tailGrowthTiming: this.config.tailGrowthTiming,
+          h2hRisk: h2hCtxByMove.get(move)!,
+          waypoint
+        });
+      }
+      chunksByMove.set(move, chunks);
+    }
+    const jobQueue: ChunkJob[] = [];
+    const maxChunksPerMove = Math.max(...ourMoves.map(m => chunksByMove.get(m)!.length));
+    for (let i = 0; i < maxChunksPerMove; i++) {
+      for (const move of ourMoves) {
+        const chunks = chunksByMove.get(move)!;
+        if (i < chunks.length) jobQueue.push(chunks[i]);
+      }
+    }
+    const totalChunks = jobQueue.length;
+
+    // Minimax accumulators per move.
+    const worstByMove = new Map<Direction, { score: number; evaluation: BoardEvaluation | null; states: number }>();
+    for (const move of ourMoves) {
+      worstByMove.set(move, { score: Infinity, evaluation: null, states: 0 });
+    }
+
+    // Fallback current-board evaluations for moves with no completed chunks yet
+    // (also decide()'s convention for zero-state moves: score -1000).
+    const fallbackEvalByMove = new Map<Direction, BoardEvaluation>();
+    const getFallbackEval = (move: Direction): BoardEvaluation => {
+      let cached = fallbackEvalByMove.get(move);
+      if (!cached) {
+        cached = this.boardEvaluator.evaluateBoard(
+          gameState,
+          gameState.you.id,
+          teamSnakeIds,
+          { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypoint }
+        );
+        fallbackEvalByMove.set(move, cached);
+      }
+      return cached;
+    };
+
+    const buildEvaluations = (): MoveEvaluationResult[] => {
+      return ourMoves.map(move => {
+        const acc = worstByMove.get(move)!;
+        if (acc.states === 0 || !acc.evaluation) {
+          return {
+            move,
+            averageScore: -1000,
+            numStates: 0,
+            averageBreakdown: getFallbackEval(move)
+          };
+        }
+        return {
+          move,
+          averageScore: acc.score,
+          numStates: acc.states,
+          averageBreakdown: acc.evaluation
+        };
+      });
+    };
+
+    const buildDecision = (): MoveDecision => {
+      const evaluations = buildEvaluations();
+      return {
+        move: DecisionEngine.selectBestMove(evaluations),
+        candidateMoves: ourMoves,
+        evaluations,
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove
+      };
+    };
+
+    return new Promise<MoveDecision>((resolve) => {
+      let done = false;
+      let completedChunks = 0;
+      // Per-decision in-flight cap so several concurrent snake decisions
+      // interleave on the shared pool instead of the first submitter's chunks
+      // monopolizing the FIFO queue.
+      const IN_FLIGHT_CAP = 4;
+      let inFlight = 0;
+      let updateTimer: ReturnType<typeof setInterval> | null = null;
+      let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const finalize = () => {
+        if (done) return;
+        done = true;
+        if (updateTimer) clearInterval(updateTimer);
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+        const decision = buildDecision();
+        this.computeProjectedTerritories(gameState, graph, teamSnakeIds, decision.evaluations);
+        this.setLastFoodSet(gameId, currentFoodSet);
+        onUpdate?.(decision);
+        resolve(decision);
+      };
+
+      const pump = () => {
+        while (!done && inFlight < IN_FLIGHT_CAP && jobQueue.length > 0) {
+          const job = jobQueue.shift()!;
+          inFlight++;
+          pool.submit(job).then(
+            (result: ChunkResult) => {
+              inFlight--;
+              completedChunks++;
+              if (!done) {
+                const acc = worstByMove.get(result.ourMove);
+                if (acc && result.statesEvaluated > 0) {
+                  acc.states += result.statesEvaluated;
+                  if (result.worstScore < acc.score || !acc.evaluation) {
+                    acc.score = result.worstScore;
+                    acc.evaluation = result.worstEvaluation;
+                  }
+                }
+              }
+              if (completedChunks >= totalChunks) {
+                finalize();
+              } else {
+                pump();
+              }
+            },
+            (err: Error) => {
+              inFlight--;
+              completedChunks++;
+              console.error('[DecisionEngine] chunk evaluation failed:', err.message);
+              if (completedChunks >= totalChunks) {
+                finalize();
+              } else {
+                pump();
+              }
+            }
+          );
+        }
+      };
+
+      updateTimer = setInterval(() => {
+        if (done) return;
+        onUpdate?.(buildDecision());
+      }, updateIntervalMs);
+      // Timers must not keep the process alive on their own.
+      updateTimer.unref?.();
+
+      const remaining = Math.max(0, deadlineMs - Date.now());
+      deadlineTimer = setTimeout(finalize, remaining);
+      deadlineTimer.unref?.();
+
+      pump();
+    });
+  }
+
   /**
    * Called when a game ends. Releases per-game state so it doesn't leak.
    */
@@ -411,8 +658,11 @@ export class DecisionEngine {
     const { board } = gameState;
     
     // Identify nearby snakes within focal distance for full move enumeration
-    // Distant snakes (outside nearbyDistance) are frozen and not simulated
-    let nearbySnakes: Snake[] = [];
+    // Distant snakes (outside nearbyDistance) are frozen and not simulated.
+    // Board geometry keeps this small: heads can't pack densely within focal
+    // distance, so the 3^k cartesian product stays tractable and the time
+    // budgets below are the only compute governors.
+    const nearbySnakes: Snake[] = [];
 
     for (const snake of board.snakes) {
       if (snake.id === gameState.you.id || snake.health <= 0) continue;
@@ -424,46 +674,20 @@ export class DecisionEngine {
       // Snakes beyond nearbyDistance are frozen (not included in simulation)
     }
 
-    // Runaway backstop: simulate the CLOSEST N nearby snakes and freeze the
-    // rest. Board geometry means realistic games never reach N (heads can't
-    // pack that densely within focal distance), so at the default this is a
-    // no-op; it only guards a pathological 3^N cartesian product.
-    const maxSimulated = this.config.maxSimulatedNearbySnakes ?? 8;
-    if (nearbySnakes.length > maxSimulated) {
-      nearbySnakes = nearbySnakes
-        .map((snake) => ({ snake, d: this.manhattanDistance(gameState.you.head, snake.head) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, maxSimulated)
-        .map((e) => e.snake);
-    }
-    
     // Build the set of simulated snake IDs (our snake + nearby snakes)
     const simulatedSnakeIds = new Set<string>([gameState.you.id]);
     for (const snake of nearbySnakes) {
       simulatedSnakeIds.add(snake.id);
     }
-    
+
+    // Nearby-snake move combinations don't depend on our move — generate once.
+    const nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
+
     // For each of our moves
     for (const ourMove of ourMoves) {
       // Check time budget
       if (Date.now() - startTime > this.config.timeoutMs) {
         break;
-      }
-      
-      // Generate move combinations for nearby snakes. The per-move backstop
-      // below almost never engages (the simulation loop's time budget is the
-      // real governor); it bounds retained states in pathological cases.
-      let nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
-      const maxStates = this.config.maxBoardStatesPerMove ?? 4096;
-      if (nearbyMoveSets.length > maxStates) {
-        // Deterministic even sampling across the combination space (plain
-        // truncation would bias toward the first snake's first move).
-        const sampled: Map<string, Direction>[] = [];
-        const step = nearbyMoveSets.length / maxStates;
-        for (let i = 0; i < maxStates; i++) {
-          sampled.push(nearbyMoveSets[Math.floor(i * step)]);
-        }
-        nearbyMoveSets = sampled;
       }
 
       // For each nearby move combination
@@ -576,184 +800,5 @@ export class DecisionEngine {
       case 'left': return { x: head.x - 1, y: head.y };
       case 'right': return { x: head.x + 1, y: head.y };
     }
-  }
-  
-  /**
-   * Average multiple board evaluations.
-   */
-  private averageEvaluations(evaluations: BoardEvaluation[]): BoardEvaluation {
-    if (evaluations.length === 0) {
-      throw new Error('Cannot average empty evaluations');
-    }
-    
-    // Sum all stats
-    const sumStats = {
-      myLength: 0,
-      myTerritory: 0,
-      myControlledFood: 0,
-      myControlledFertile: 0,
-      teamLength: 0,
-      teamTerritory: 0,
-      teamControlledFood: 0,
-      foodDistance: 0,
-      foodProximity: 0,
-      foodEaten: 0,
-      enemyTerritory: 0,
-      enemyLength: 0,
-      edgePenalty: 0,
-      selfSpace: 0,
-      alliesEnoughSpace: 0,
-      opponentsEnoughSpace: 0,
-      kills: 0,
-      deaths: 0,
-      enemyH2HRisk: 0,
-      allyH2HRisk: 0,
-      waypointGoto: 0,
-      waypointNear: 0,
-      aggression: 0,
-      trapped: 0
-    };
-    
-    const sumWeighted = {
-      myLengthScore: 0,
-      myTerritoryScore: 0,
-      myControlledFoodScore: 0,
-      myControlledFertileScore: 0,
-      teamLengthScore: 0,
-      teamTerritoryScore: 0,
-      teamControlledFoodScore: 0,
-      foodProximityScore: 0,
-      foodEatenScore: 0,
-      enemyTerritoryScore: 0,
-      enemyLengthScore: 0,
-      edgePenaltyScore: 0,
-      selfSpaceScore: 0,
-      alliesEnoughSpaceScore: 0,
-      opponentsEnoughSpaceScore: 0,
-      killsScore: 0,
-      deathsScore: 0,
-      enemyH2HRiskScore: 0,
-      allyH2HRiskScore: 0,
-      waypointGotoScore: 0,
-      waypointNearScore: 0,
-      aggressionScore: 0,
-      trappedScore: 0
-    };
-    
-    let totalScore = 0;
-    
-    for (const evaluation of evaluations) {
-      // Sum stats
-      sumStats.myLength += evaluation.stats.myLength;
-      sumStats.myTerritory += evaluation.stats.myTerritory;
-      sumStats.myControlledFood += evaluation.stats.myControlledFood;
-      sumStats.myControlledFertile += evaluation.stats.myControlledFertile;
-      sumStats.teamLength += evaluation.stats.teamLength;
-      sumStats.teamTerritory += evaluation.stats.teamTerritory;
-      sumStats.teamControlledFood += evaluation.stats.teamControlledFood;
-      sumStats.foodDistance += evaluation.stats.foodDistance;
-      sumStats.foodProximity += evaluation.stats.foodProximity;
-      sumStats.foodEaten += evaluation.stats.foodEaten;
-      sumStats.enemyTerritory += evaluation.stats.enemyTerritory;
-      sumStats.enemyLength += evaluation.stats.enemyLength;
-      sumStats.edgePenalty += evaluation.stats.edgePenalty;
-      sumStats.selfSpace += evaluation.stats.selfSpace;
-      sumStats.alliesEnoughSpace += evaluation.stats.alliesEnoughSpace;
-      sumStats.opponentsEnoughSpace += evaluation.stats.opponentsEnoughSpace;
-      sumStats.kills += evaluation.stats.kills;
-      sumStats.deaths += evaluation.stats.deaths;
-      sumStats.enemyH2HRisk += evaluation.stats.enemyH2HRisk;
-      sumStats.allyH2HRisk += evaluation.stats.allyH2HRisk;
-      sumStats.waypointGoto += evaluation.stats.waypointGoto;
-      sumStats.waypointNear += evaluation.stats.waypointNear;
-      sumStats.aggression += evaluation.stats.aggression;
-      sumStats.trapped += evaluation.stats.trapped;
-      
-      // Sum weighted scores
-      sumWeighted.myLengthScore += evaluation.weighted.myLengthScore;
-      sumWeighted.myTerritoryScore += evaluation.weighted.myTerritoryScore;
-      sumWeighted.myControlledFoodScore += evaluation.weighted.myControlledFoodScore;
-      sumWeighted.myControlledFertileScore += evaluation.weighted.myControlledFertileScore;
-      sumWeighted.teamLengthScore += evaluation.weighted.teamLengthScore;
-      sumWeighted.teamTerritoryScore += evaluation.weighted.teamTerritoryScore;
-      sumWeighted.teamControlledFoodScore += evaluation.weighted.teamControlledFoodScore;
-      sumWeighted.foodProximityScore += evaluation.weighted.foodProximityScore;
-      sumWeighted.foodEatenScore += evaluation.weighted.foodEatenScore;
-      sumWeighted.enemyTerritoryScore += evaluation.weighted.enemyTerritoryScore;
-      sumWeighted.enemyLengthScore += evaluation.weighted.enemyLengthScore;
-      sumWeighted.edgePenaltyScore += evaluation.weighted.edgePenaltyScore;
-      sumWeighted.selfSpaceScore += evaluation.weighted.selfSpaceScore;
-      sumWeighted.alliesEnoughSpaceScore += evaluation.weighted.alliesEnoughSpaceScore;
-      sumWeighted.opponentsEnoughSpaceScore += evaluation.weighted.opponentsEnoughSpaceScore;
-      sumWeighted.killsScore += evaluation.weighted.killsScore;
-      sumWeighted.deathsScore += evaluation.weighted.deathsScore;
-      sumWeighted.enemyH2HRiskScore += evaluation.weighted.enemyH2HRiskScore;
-      sumWeighted.allyH2HRiskScore += evaluation.weighted.allyH2HRiskScore;
-      sumWeighted.waypointGotoScore += evaluation.weighted.waypointGotoScore;
-      sumWeighted.waypointNearScore += evaluation.weighted.waypointNearScore;
-      sumWeighted.aggressionScore += evaluation.weighted.aggressionScore;
-      sumWeighted.trappedScore += evaluation.weighted.trappedScore;
-      
-      totalScore += evaluation.score;
-    }
-    
-    const count = evaluations.length;
-    
-    // Return averaged evaluation
-    return {
-      score: totalScore / count,
-      stats: {
-        myLength: sumStats.myLength / count,
-        myTerritory: sumStats.myTerritory / count,
-        myControlledFood: sumStats.myControlledFood / count,
-        myControlledFertile: sumStats.myControlledFertile / count,
-        teamLength: sumStats.teamLength / count,
-        teamTerritory: sumStats.teamTerritory / count,
-        teamControlledFood: sumStats.teamControlledFood / count,
-        foodDistance: sumStats.foodDistance / count,
-        foodProximity: sumStats.foodProximity / count,
-        foodEaten: sumStats.foodEaten / count,
-        enemyTerritory: sumStats.enemyTerritory / count,
-        enemyLength: sumStats.enemyLength / count,
-        edgePenalty: sumStats.edgePenalty / count,
-        selfSpace: sumStats.selfSpace / count,
-        alliesEnoughSpace: sumStats.alliesEnoughSpace / count,
-        opponentsEnoughSpace: sumStats.opponentsEnoughSpace / count,
-        kills: sumStats.kills / count,
-        deaths: sumStats.deaths / count,
-        enemyH2HRisk: sumStats.enemyH2HRisk / count,
-        allyH2HRisk: sumStats.allyH2HRisk / count,
-        waypointGoto: sumStats.waypointGoto / count,
-        waypointNear: sumStats.waypointNear / count,
-        aggression: sumStats.aggression / count,
-        trapped: sumStats.trapped / count
-      },
-      weights: evaluations[0].weights, // All evaluations use same weights
-      weighted: {
-        myLengthScore: sumWeighted.myLengthScore / count,
-        myTerritoryScore: sumWeighted.myTerritoryScore / count,
-        myControlledFoodScore: sumWeighted.myControlledFoodScore / count,
-        myControlledFertileScore: sumWeighted.myControlledFertileScore / count,
-        teamLengthScore: sumWeighted.teamLengthScore / count,
-        teamTerritoryScore: sumWeighted.teamTerritoryScore / count,
-        teamControlledFoodScore: sumWeighted.teamControlledFoodScore / count,
-        foodProximityScore: sumWeighted.foodProximityScore / count,
-        foodEatenScore: sumWeighted.foodEatenScore / count,
-        enemyTerritoryScore: sumWeighted.enemyTerritoryScore / count,
-        enemyLengthScore: sumWeighted.enemyLengthScore / count,
-        edgePenaltyScore: sumWeighted.edgePenaltyScore / count,
-        selfSpaceScore: sumWeighted.selfSpaceScore / count,
-        alliesEnoughSpaceScore: sumWeighted.alliesEnoughSpaceScore / count,
-        opponentsEnoughSpaceScore: sumWeighted.opponentsEnoughSpaceScore / count,
-        killsScore: sumWeighted.killsScore / count,
-        deathsScore: sumWeighted.deathsScore / count,
-        enemyH2HRiskScore: sumWeighted.enemyH2HRiskScore / count,
-        allyH2HRiskScore: sumWeighted.allyH2HRiskScore / count,
-        waypointGotoScore: sumWeighted.waypointGotoScore / count,
-        waypointNearScore: sumWeighted.waypointNearScore / count,
-        aggressionScore: sumWeighted.aggressionScore / count,
-        trappedScore: sumWeighted.trappedScore / count
-      }
-    };
   }
 }

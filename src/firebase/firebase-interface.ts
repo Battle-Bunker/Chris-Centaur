@@ -409,40 +409,62 @@ export class TacticToesFirebaseInterface {
       }
     }
 
-    // FULL PASS: one strategy decision per controlled alive snake.
-    // setBotRecommendation stages the resolved intent (manual > queue >
-    // waypoint > bot), and the manager's write-through publishes the staged
-    // move to Firestore.
-    for (const snakeId of aliveOurs) {
-      const view = views.get(snakeId)!;
+    // FULL PASS: one ANYTIME strategy decision per controlled alive snake, all
+    // snakes launched CONCURRENTLY. Each decision fans its simulations out
+    // across the shared worker-thread pool and reports an updated best move
+    // every ~100ms; we forward a recommendation to the manager only when the
+    // move actually changed (the write-through republishes to Firestore, so
+    // unchanged updates would just flood the wire). The final recommendation
+    // carries the full debug payload. Decisions stop at the shared deadline —
+    // shortly before the turn's endTime, leaving room for the staging write.
+    const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
+    await Promise.all(
+      aliveOurs.map(async (snakeId) => {
+        const view = views.get(snakeId)!;
+        try {
+          const teams = this.teamDetector.detectTeams(view.board.snakes);
+          const ourTeam = teams.find((team) => team.snakes.some((s) => s.id === snakeId));
+          const waypoint = this.gameManager.getWaypoint(watched.gameID, snakeId);
 
-      try {
-        const teams = this.teamDetector.detectTeams(view.board.snakes);
-        const ourTeam = teams.find((team) => team.snakes.some((s) => s.id === snakeId));
-        const waypoint = this.gameManager.getWaypoint(watched.gameID, snakeId);
-        const result = await this.strategy.getBestMoveWithDebug(view, ourTeam, waypoint);
+          let lastForwarded: Direction | null = null;
+          const result = await this.strategy.getBestMoveIterative(view, ourTeam, waypoint, {
+            deadlineMs,
+            onRecommendation: (move, decision) => {
+              if (move === lastForwarded) return;
+              lastForwarded = move;
+              this.gameManager.setBotRecommendation(watched.gameID, snakeId, move, {
+                gameState: view,
+                moveEvaluations: [],
+                territoryCells: {},
+                safeMoves: decision.candidateMoves,
+                botRecommendation: move,
+                timestamp: Date.now(),
+              });
+            },
+          });
 
-        const turnData: TurnData = {
-          gameState: view,
-          moveEvaluations: result.moveEvaluations,
-          territoryCells: result.territoryCells,
-          safeMoves: result.safeMoves,
-          botRecommendation: result.move,
-          timestamp: Date.now(),
-        };
-        this.gameManager.setBotRecommendation(watched.gameID, snakeId, result.move, turnData);
-      } catch (err) {
-        console.error(`[tt-firebase] Decision failed for ${snakeId} turn ${turnNumber}:`, err);
-        this.gameManager.setBotRecommendation(watched.gameID, snakeId, 'up', {
-          gameState: view,
-          moveEvaluations: [],
-          territoryCells: {},
-          safeMoves: [],
-          botRecommendation: 'up',
-          timestamp: Date.now(),
-        });
-      }
-    }
+          const turnData: TurnData = {
+            gameState: view,
+            moveEvaluations: result.moveEvaluations,
+            territoryCells: result.territoryCells,
+            safeMoves: result.safeMoves,
+            botRecommendation: result.move,
+            timestamp: Date.now(),
+          };
+          this.gameManager.setBotRecommendation(watched.gameID, snakeId, result.move, turnData);
+        } catch (err) {
+          console.error(`[tt-firebase] Decision failed for ${snakeId} turn ${turnNumber}:`, err);
+          this.gameManager.setBotRecommendation(watched.gameID, snakeId, 'up', {
+            gameState: view,
+            moveEvaluations: [],
+            territoryCells: {},
+            safeMoves: [],
+            botRecommendation: 'up',
+            timestamp: Date.now(),
+          });
+        }
+      })
+    );
   }
 
   // A cheap (~1ms) safe move for the fast staging pass: prefer continuing
