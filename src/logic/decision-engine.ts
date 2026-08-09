@@ -4,8 +4,8 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { MoveAnalyzer, MoveAnalysis, H2HRiskInfo } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation, EvaluationContext, WaypointContext } from './board-evaluator';
+import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
+import { BoardEvaluator, BoardEvaluation, WaypointContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
@@ -22,14 +22,13 @@ export interface MoveDecision {
 
 export interface MoveEvaluationResult {
   move: Direction;
-  averageScore: number;
+  worstScore: number;
   numStates: number;
-  averageBreakdown: BoardEvaluation;
+  worstEvaluation: BoardEvaluation;
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
 }
 
 export interface DecisionConfig {
-  maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
@@ -70,7 +69,6 @@ export class DecisionEngine {
   
   constructor(config?: Partial<DecisionConfig>) {
     this.config = {
-      maxSimulationDepth: 1,
       timeoutMs: 400,
       nearbyDistance: 5,
       tailSafetyRule: 'custom',
@@ -183,9 +181,9 @@ export class DecisionEngine {
         candidateMoves: ourMoves,
         evaluations: [{
           move: ourMoves[0],
-          averageScore: evaluation.score,
+          worstScore: evaluation.score,
           numStates: 1,
-          averageBreakdown: evaluation,
+          worstEvaluation: evaluation,
           projectedTerritoryCells: singleProjTerritory
         }],
         h2hRiskByMove: moveAnalysis.h2hRiskByMove
@@ -242,10 +240,7 @@ export class DecisionEngine {
 
     // MINIMAX aggregation: a candidate move is scored by the WORST evaluated
     // state (overall weighted score) conditional on making it — the bot plays
-    // conservatively against the worst world its neighbours can force. The
-    // MoveEvaluationResult field names are kept for wire/UI compatibility:
-    // `averageScore` carries the worst-case score, `averageBreakdown` the
-    // worst state's full evaluation.
+    // conservatively against the worst world its neighbours can force.
     const evaluations: MoveEvaluationResult[] = [];
     for (const move of ourMoves) {
       const allEvaluations = evaluatedByMove.get(move)!;
@@ -253,9 +248,9 @@ export class DecisionEngine {
         // No simulated states for this move — score the current board.
         evaluations.push({
           move,
-          averageScore: -1000,
+          worstScore: -1000,
           numStates: 0,
-          averageBreakdown: this.boardEvaluator.evaluateBoard(
+          worstEvaluation: this.boardEvaluator.evaluateBoard(
             gameState,
             gameState.you.id,
             teamSnakeIds,
@@ -271,9 +266,9 @@ export class DecisionEngine {
       }
       evaluations.push({
         move,
-        averageScore: worst.score,
+        worstScore: worst.score,
         numStates: allEvaluations.length,
-        averageBreakdown: worst
+        worstEvaluation: worst
       });
     }
 
@@ -302,14 +297,14 @@ export class DecisionEngine {
   // death).
   private static selectBestMove(evaluations: MoveEvaluationResult[]): Direction {
     const FATAL_TRAP_THRESHOLD = 0.5;
-    const nonFatal = evaluations.filter(e => e.averageBreakdown.stats.trapped < FATAL_TRAP_THRESHOLD);
+    const nonFatal = evaluations.filter(e => e.worstEvaluation.stats.trapped < FATAL_TRAP_THRESHOLD);
     const selectionPool = nonFatal.length > 0 ? nonFatal : evaluations;
 
     let bestMove = selectionPool[0].move;
     let bestScore = -Infinity;
     for (const evalResult of selectionPool) {
-      if (evalResult.averageScore > bestScore) {
-        bestScore = evalResult.averageScore;
+      if (evalResult.worstScore > bestScore) {
+        bestScore = evalResult.worstScore;
         bestMove = evalResult.move;
       }
     }
@@ -517,16 +512,16 @@ export class DecisionEngine {
         if (acc.states === 0 || !acc.evaluation) {
           return {
             move,
-            averageScore: -1000,
+            worstScore: -1000,
             numStates: 0,
-            averageBreakdown: getFallbackEval(move)
+            worstEvaluation: getFallbackEval(move)
           };
         }
         return {
           move,
-          averageScore: acc.score,
+          worstScore: acc.score,
           numStates: acc.states,
-          averageBreakdown: acc.evaluation
+          worstEvaluation: acc.evaluation
         };
       });
     };
@@ -663,21 +658,6 @@ export class DecisionEngine {
     }
   }
 
-  /**
-   * Get candidate moves for our snake using the principled rule:
-   * Use safe moves if available, otherwise use all risky moves.
-   */
-  private getOurCandidateMoves(snake: Snake, gameState: GameState, graph: BoardGraph): Direction[] {
-    const analysis = this.moveAnalyzer.analyzeMoves(snake, gameState, graph);
-    
-    // Use safe moves if available, otherwise use risky moves
-    if (analysis.safe.length > 0) {
-      return analysis.safe;
-    } else {
-      return analysis.risky;
-    }
-  }
-  
   /**
    * Get candidate moves for other snakes.
    * All non-death moves (safe + risky) are considered.

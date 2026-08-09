@@ -34,7 +34,7 @@ export interface ChunkResult {
   ourMove: Direction;
   statesEvaluated: number;
   worstScore: number;
-  /** Full evaluation of the worst state (territoryCells stripped for transfer). */
+  /** Full evaluation of the worst state. */
   worstEvaluation: BoardEvaluation | null;
 }
 
@@ -85,13 +85,6 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
       worstScore = evaluation.score;
       worstEvaluation = evaluation;
     }
-  }
-
-  // Strip the per-state territory cell lists — they're only used for UI on
-  // the finally-chosen evaluation and are recomputed there; shipping them
-  // back for every chunk would dominate transfer cost.
-  if (worstEvaluation) {
-    worstEvaluation = { ...worstEvaluation, territoryCells: new Map() };
   }
 
   return {

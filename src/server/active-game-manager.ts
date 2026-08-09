@@ -1084,7 +1084,7 @@ export class ActiveGameManager {
   // Non-mutating safety probe. Reports whether `move` would put THIS snake's
   // head on an impassable cell next turn — off-board, wall/hazard, our own
   // body, or a non-severable enemy body — evaluated from the committing snake's
-  // OWN perspective via passabilityFor(snakeId), so an invulnerable snake
+  // OWN perspective via passabilityIdxFor(snakeId), so an invulnerable snake
   // attacking a weaker enemy is correctly NOT fatal. Uses optimistic turn-1
   // semantics, the same the goto-route and space BFS use, so a step onto a tail
   // that vacates this turn is not flagged.
@@ -1123,7 +1123,9 @@ export class ActiveGameManager {
       }
 
       const graph = new BoardGraph(game.boardState);
-      return !graph.passabilityFor(snakeId, { clearance: 'optimistic' }).passable(dest, 1);
+      if (!graph.isInBounds(dest)) return true;
+      return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic' })
+        .passableIdx(graph.cellIndexOf(dest), 1);
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);

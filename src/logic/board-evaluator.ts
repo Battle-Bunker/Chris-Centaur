@@ -260,7 +260,7 @@ export class BoardEvaluator {
     return {
       score,
       stats,
-      weights: { ...this.weights }, // Return copy of weights
+      weights: this.weights, // treated as immutable by all consumers
       weighted,
       territoryCells
     };
@@ -346,9 +346,9 @@ export class BoardEvaluator {
       }
     }
     
-    // Check if we just ate food (our head is where food was in previous state)
-    const headKey = graph.coordToKey(ourSnake.head);
-    const justAte = !!ctx?.prevFoodSet?.has(headKey);
+    // Check if we just ate food (our head is where food was in previous state).
+    // prevFoodSet crosses turn/graph boundaries, so it stays "x,y"-keyed.
+    const justAte = !!ctx?.prevFoodSet?.has(`${ourSnake.head.x},${ourSnake.head.y}`);
     
     // Check if we're currently on a food cell (about to eat it)
     const onFoodNow = board.food.some((f: Coord) => 
@@ -517,9 +517,9 @@ export class BoardEvaluator {
   }
   
   /**
-   * Small BFS from `start` checking whether `target` is reachable, treating
-   * our own body (except tail) as blocked and using optimistic passability for
-   * everyone else. Bounded so it can't blow up on big empty boards.
+   * BFS from `start` checking whether `target` is reachable, treating our own
+   * body (except tail) as blocked and using optimistic passability for
+   * everyone else.
    */
   private isCellReachableFrom(
     graph: BoardGraph,
@@ -527,39 +527,45 @@ export class BoardEvaluator {
     target: Coord,
     ourSnake: Snake
   ): boolean {
-    const targetKey = graph.coordToKey(target);
-
     // Single source of truth for our own passability (own body blocks, own tail
     // and other snakes' bodies recede under optimistic turn-aware passability).
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
+    const pass = graph.passabilityIdxFor(ourSnake.id, { clearance: 'optimistic' });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
+    this.ensureScratch(N);
+    const visit = this.visitStamp;
+    const queue = this.floodQueue;
+    const stamp = ++this.stamp;
 
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(start));
-    let level: Coord[] = [start];
+    const targetIdx = graph.cellIndexOf(target);
+    const startIdx = graph.cellIndexOf(start);
+    visit[startIdx] = stamp;
+    queue[0] = startIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
     let turn = 0;
-    const maxCells = 400;  // cap work — board is at most ~19x19 → 361 cells
-    
-    while (level.length > 0 && visited.size < maxCells) {
-      const next: Coord[] = [];
+
+    while (levelStart < levelEnd) {
+      let nextEnd = levelEnd;
       turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) return true;  // reached
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          next.push(n);
+      for (let q = levelStart; q < levelEnd; q++) {
+        const cur = queue[q];
+        const x = cur % W;
+        const n0 = cur + W < N ? cur + W : -1;
+        const n1 = cur - W >= 0 ? cur - W : -1;
+        const n2 = x > 0 ? cur - 1 : -1;
+        const n3 = x < W - 1 ? cur + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0 || visit[n] === stamp) continue;
+          if (n === targetIdx) return true;  // reached
+          if (!pass.passableIdx(n, turn)) continue;
+          visit[n] = stamp;
+          queue[nextEnd++] = n;
         }
       }
-      level = next;
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
     }
     return false;
   }
@@ -598,57 +604,58 @@ export class BoardEvaluator {
     if (head.x === waypoint.x && head.y === waypoint.y) return [];
 
     const graph = new BoardGraph(gameState);
-    const targetKey = graph.coordToKey(waypoint);
-
     // Same passability as reachability: our own body blocks, everyone else uses
     // optimistic turn-aware passability.
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
+    const pass = graph.passabilityIdxFor(ourSnake.id, { clearance: 'optimistic' });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
 
-    const startKey = graph.coordToKey(head);
-    const parent = new Map<string, Coord>();
-    const visited = new Set<string>([startKey]);
-    let level: Coord[] = [head];
+    const targetIdx = graph.cellIndexOf(waypoint);
+    const startIdx = graph.cellIndexOf(head);
+    const parent = new Int32Array(N).fill(-1);
+    const visited = new Uint8Array(N);
+    visited[startIdx] = 1;
+    const queue = new Int32Array(N);
+    queue[0] = startIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
     let turn = 0;
-    const maxCells = 400;  // board is at most ~19x19 → 361 cells
-
     let found = false;
-    while (level.length > 0 && visited.size < maxCells && !found) {
-      const next: Coord[] = [];
+
+    while (levelStart < levelEnd && !found) {
+      let nextEnd = levelEnd;
       turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) {
-            parent.set(k, cur);
+      for (let q = levelStart; q < levelEnd && !found; q++) {
+        const cur = queue[q];
+        const x = cur % W;
+        const n0 = cur + W < N ? cur + W : -1;
+        const n1 = cur - W >= 0 ? cur - W : -1;
+        const n2 = x > 0 ? cur - 1 : -1;
+        const n3 = x < W - 1 ? cur + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0 || visited[n] === 1) continue;
+          if (n === targetIdx) {
+            parent[n] = cur;
             found = true;
             break;
           }
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          parent.set(k, cur);
-          next.push(n);
+          if (!pass.passableIdx(n, turn)) continue;
+          visited[n] = 1;
+          parent[n] = cur;
+          queue[nextEnd++] = n;
         }
-        if (found) break;
       }
-      level = next;
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
     }
 
     if (!found) return [];
 
     // Reconstruct head → target, then drop the head (the overlay anchors at it).
     const route: Coord[] = [];
-    let cur: Coord | undefined = { x: waypoint.x, y: waypoint.y };
-    while (cur && !(cur.x === head.x && cur.y === head.y)) {
-      route.push(cur);
-      cur = parent.get(graph.coordToKey(cur));
+    for (let cur = targetIdx; cur !== startIdx && cur !== -1; cur = parent[cur]) {
+      route.push({ x: cur % W, y: Math.floor(cur / W) });
     }
     route.reverse();
     return route;

@@ -4,16 +4,17 @@
  * Processes cells level-by-level to properly detect ties.
  * Supports optimistic passability for body segments.
  *
- * INTERNALS are integer-indexed typed arrays (see BoardGraph): ownership and
- * distance live in flat Int16Arrays, per-level tie detection uses 32-bit
- * source masks, and the string-keyed cellInfo / territoryCells structures are
- * materialized in one O(cells) pass at the end — and only when the caller
- * actually wants them (collectCells). Chunked minimax evaluation runs
- * thousands of these per turn and reads only the aggregate counts.
+ * The BFS is integer-indexed typed arrays throughout (see BoardGraph):
+ * ownership and distance live in flat Int16Arrays and per-level tie detection
+ * uses 32-bit source masks. The per-snake territory coordinate lists (UI /
+ * projections) are materialized in one O(cells) pass at the end — and only
+ * when the caller actually wants them (collectCells). Chunked minimax
+ * evaluation runs thousands of these per turn and reads only the aggregates
+ * plus the raw owner array.
  */
 
 import { Coord } from '../types/battlesnake';
-import { BoardGraph, CellKey } from './board-graph';
+import { BoardGraph } from './board-graph';
 
 export interface BFSSource {
   id: string;
@@ -22,15 +23,7 @@ export interface BFSSource {
   startDelay?: number;
 }
 
-export interface CellInfo {
-  closestSourceId: string | null;  // null for neutral/tied cells
-  distance: number;
-}
-
 export interface BFSResult {
-  // Map from cell key to info about that cell (empty when collectCells: false)
-  cellInfo: Map<CellKey, CellInfo>;
-
   // Territory counts per source
   territoryCounts: Map<string, number>;
 
@@ -49,12 +42,9 @@ export interface BFSResult {
   // Team aggregates
   teamTerritory: number;
   teamControlledFood: number;
-  teamControlledFertile: number;
   enemyTerritory: number;
-  enemyControlledFood: number;
-  enemyControlledFertile: number;
 
-  // Raw integer core, for hot-path consumers (avoids string keys entirely):
+  // Raw integer core:
   // ownerIndex[cellIdx] = source index owning the cell, -1 neutral, -2 unreached.
   ownerIndex: Int16Array;
   // distanceIndex[cellIdx] = BFS distance for reached cells (unspecified otherwise).
@@ -65,9 +55,9 @@ export interface BFSResult {
 
 export interface BFSOptions {
   optimistic: boolean;
-  // Materialize cellInfo + territoryCells (string-keyed / coord-array
-  // structures used by UI and projections). Defaults to true; the chunked
-  // evaluation path passes false and reads only counts + ownerIndex.
+  // Materialize the per-source territory coordinate lists (used by the UI and
+  // projections). Defaults to true; the chunked evaluation path passes false
+  // and reads only the aggregates + ownerIndex.
   collectCells?: boolean;
 }
 
@@ -238,7 +228,7 @@ export class MultiSourceBFS {
           if ((enqueuedMask[n] & bit) !== 0) continue;
           const passable = useOptimistic
             ? graph.isPassableAtTurnIdx(n, arrivalTurn)
-            : graph.isPassable({ x: n % W, y: Math.floor(n / W) });
+            : graph.isPassableStaticIdx(n);
           if (!passable) continue;
           if (enqueuedMask[n] === 0) enqueueTouched.push(n);
           enqueuedMask[n] |= bit;
@@ -259,19 +249,13 @@ export class MultiSourceBFS {
       currentDistance++;
     }
 
-    // Materialize string-keyed structures in one pass (only when wanted).
-    const cellInfo = new Map<CellKey, CellInfo>();
+    // Materialize per-source territory coordinate lists (only when wanted).
     const territoryCells = new Map<string, Coord[]>();
     for (const source of sources) territoryCells.set(source.id, []);
     if (collectCells) {
       for (let idx = 0; idx < N; idx++) {
         const o = owner[idx];
-        if (o === UNREACHED) continue;
-        const key = graph.keyOfIndex(idx);
-        if (o === NEUTRAL) {
-          cellInfo.set(key, { closestSourceId: null, distance: dist[idx] });
-        } else {
-          cellInfo.set(key, { closestSourceId: sources[o].id, distance: dist[idx] });
+        if (o >= 0) {
           territoryCells.get(sources[o].id)!.push({ x: idx % W, y: Math.floor(idx / W) });
         }
       }
@@ -282,8 +266,7 @@ export class MultiSourceBFS {
     const controlledFood = new Map<string, number>();
     const controlledFertile = new Map<string, number>();
     const nearestFoodDistance = new Map<string, number>();
-    let teamTerritory = 0, teamControlledFood = 0, teamControlledFertile = 0;
-    let enemyTerritory = 0, enemyControlledFood = 0, enemyControlledFertile = 0;
+    let teamTerritory = 0, teamControlledFood = 0, enemyTerritory = 0;
 
     for (let i = 0; i < nSources; i++) {
       const source = sources[i];
@@ -294,16 +277,12 @@ export class MultiSourceBFS {
       if (source.isTeam) {
         teamTerritory += territoryCount[i];
         teamControlledFood += foodCount[i];
-        teamControlledFertile += fertileCount[i];
       } else {
         enemyTerritory += territoryCount[i];
-        enemyControlledFood += foodCount[i];
-        enemyControlledFertile += fertileCount[i];
       }
     }
 
     return {
-      cellInfo,
       territoryCounts,
       territoryCells,
       controlledFood,
@@ -311,28 +290,10 @@ export class MultiSourceBFS {
       nearestFoodDistance,
       teamTerritory,
       teamControlledFood,
-      teamControlledFertile,
       enemyTerritory,
-      enemyControlledFood,
-      enemyControlledFertile,
       ownerIndex: owner,
       distanceIndex: dist,
       sourceIndexOf
     };
-  }
-
-  /**
-   * Get distance from a specific source to a specific position.
-   * Returns 1000 if unreachable.
-   */
-  getDistance(result: BFSResult, sourceId: string, position: Coord): number {
-    const idx = this.graph.cellIndexOf(position);
-    const srcIdx = result.sourceIndexOf.get(sourceId);
-    if (srcIdx === undefined) return 1000;
-    if (result.ownerIndex[idx] !== srcIdx) {
-      // This cell is not reachable by this source or is closer to another source
-      return 1000;
-    }
-    return result.distanceIndex[idx];
   }
 }

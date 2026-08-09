@@ -40,7 +40,7 @@ import {
   collection,
   connectFirestoreEmulator,
   doc,
-  initializeFirestore,
+  getFirestore,
   limit,
   onSnapshot,
   orderBy,
@@ -225,11 +225,10 @@ export class TacticToesFirebaseInterface {
       `tactictoes-${++TacticToesFirebaseInterface.appInstanceCounter}`
     );
     this.auth = getAuth(this.app);
-    // NOTE: in Node the SDK always uses the gRPC transport (the long-polling
-    // options are browser-only), so emulator stream corruption cannot be
-    // avoided at the transport level — it is handled by the watchdog +
-    // rebuildClient() recovery path instead.
-    this.db = initializeFirestore(this.app, {});
+    // NOTE: in Node the SDK always uses the gRPC transport, so a corrupted
+    // stream cannot be avoided at the transport level — silent listener death
+    // is handled by the watchdog + rebuildClient() recovery path instead.
+    this.db = getFirestore(this.app);
     const functions = getFunctions(this.app, config.region);
 
     if (config.emulators?.authUrl) {

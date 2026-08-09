@@ -86,11 +86,10 @@ describe('Territory Calculation Tests', () => {
     expect(territory).toBe(120);  // All cells except 1 blocked body segment
     
     // Verify no cells are marked as neutral in single-source case
+    // (ownerIndex: -1 = neutral tie, -2 = unreached, >=0 = owning source index)
     let neutralCount = 0;
-    for (const [_, info] of result.cellInfo) {
-      if (info.closestSourceId === null) {
-        neutralCount++;
-      }
+    for (const owner of result.ownerIndex) {
+      if (owner === -1) neutralCount++;
     }
     console.log('Neutral cells in single-snake case:', neutralCount);
     expect(neutralCount).toBe(0);  // No cells should be neutral with only one snake
@@ -192,10 +191,8 @@ describe('Territory Calculation Tests', () => {
     // The middle column (x=3) should be neutralized
     expect(Math.abs(territory1 - territory2)).toBeLessThanOrEqual(2);  // Allow small asymmetry
     
-    // Check that middle cells are neutral
-    const middleCell = graph.coordToKey({ x: 3, y: 3 });
-    const cellInfo = result.cellInfo.get(middleCell);
-    expect(cellInfo?.closestSourceId).toBeNull();  // Should be neutral
+    // Check that middle cells are neutral (ownerIndex -1 = neutral tie)
+    expect(result.ownerIndex[graph.cellIndex(3, 3)]).toBe(-1);
   });
 
   test('Snake surrounded by enemies should have minimal territory', () => {
@@ -539,14 +536,10 @@ describe('Territory Calculation Tests', () => {
     // Actually, with bodies blocking, some cells might be equidistant
     // Let's check cells that can't reach either snake directly
     
-    const cell32 = graph.coordToKey({ x: 3, y: 2 });
-    const cell42 = graph.coordToKey({ x: 4, y: 2 });
-    
-    const cellInfo32 = result.cellInfo.get(cell32);
-    const cellInfo42 = result.cellInfo.get(cell42);
-    
-    console.log('Cell (3,2) owner:', cellInfo32?.closestSourceId, 'distance:', cellInfo32?.distance);
-    console.log('Cell (4,2) owner:', cellInfo42?.closestSourceId, 'distance:', cellInfo42?.distance);
+    const idx32 = graph.cellIndex(3, 2);
+    const idx42 = graph.cellIndex(4, 2);
+    console.log('Cell (3,2) owner:', result.ownerIndex[idx32], 'distance:', result.distanceIndex[idx32]);
+    console.log('Cell (4,2) owner:', result.ownerIndex[idx42], 'distance:', result.distanceIndex[idx42]);
     
     // Territory should be roughly equal for both snakes
     const territory1 = result.territoryCounts.get('snake1') || 0;
@@ -557,10 +550,10 @@ describe('Territory Calculation Tests', () => {
     
     // Check for any neutral cells - cells equidistant from both snakes
     let neutralCount = 0;
-    for (const [key, info] of result.cellInfo) {
-      if (info.closestSourceId === null) {
+    for (let idx = 0; idx < result.ownerIndex.length; idx++) {
+      if (result.ownerIndex[idx] === -1) {
         neutralCount++;
-        console.log('Neutral cell found:', key, 'at distance:', info.distance);
+        console.log('Neutral cell found:', idx, 'at distance:', result.distanceIndex[idx]);
       }
     }
     console.log('Total neutral cells:', neutralCount);

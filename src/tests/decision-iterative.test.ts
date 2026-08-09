@@ -144,9 +144,9 @@ describe('decideIteratively', () => {
     // Minimax parity with the synchronous engine (same states, same worst-case
     // aggregation) — same chosen move and same per-move worst scores.
     expect(decision.move).toBe(syncDecision.move);
-    const syncScores = new Map(syncDecision.evaluations.map(e => [e.move, e.averageScore]));
+    const syncScores = new Map(syncDecision.evaluations.map(e => [e.move, e.worstScore]));
     for (const evaluation of decision.evaluations) {
-      expect(evaluation.averageScore).toBeCloseTo(syncScores.get(evaluation.move)!, 6);
+      expect(evaluation.worstScore).toBeCloseTo(syncScores.get(evaluation.move)!, 6);
     }
   });
 

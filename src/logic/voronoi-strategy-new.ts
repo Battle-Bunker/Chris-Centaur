@@ -29,7 +29,6 @@ export class VoronoiStrategy {
     
     // Initialize with defaults
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
       timeoutMs: DEFAULT_CONFIG.timeoutMs,
       nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
       weights: this.extractWeights(DEFAULT_CONFIG)
@@ -88,7 +87,6 @@ export class VoronoiStrategy {
   
   private updateDecisionEngine(config: GameConfig): void {
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: config.maxSimulationDepth,
       timeoutMs: config.timeoutMs,
       nearbyDistance: config.nearbyDistance,
       weights: this.extractWeights(config)
@@ -130,7 +128,6 @@ export class VoronoiStrategy {
     
     // Update decision engine config
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: 1,
       timeoutMs: config.maxEvaluationTimeMs || 400,
       nearbyDistance: config.maxDistance || 3,
       weights
@@ -242,41 +239,41 @@ export class VoronoiStrategy {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
       move: evaluation.move,
-      score: evaluation.averageScore,
+      score: evaluation.worstScore,
       numStates: evaluation.numStates,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
       breakdown: {
-        myLength: evaluation.averageBreakdown.stats.myLength,
-        myTerritory: evaluation.averageBreakdown.stats.myTerritory,
-        myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
-        myControlledFertile: evaluation.averageBreakdown.stats.myControlledFertile,
-        teamLength: evaluation.averageBreakdown.stats.teamLength,
-        teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
-        teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
-        foodDistance: evaluation.averageBreakdown.stats.foodDistance,
-        foodProximity: evaluation.averageBreakdown.stats.foodProximity,
-        foodEaten: evaluation.averageBreakdown.stats.foodEaten,
-        enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
-        enemyLength: evaluation.averageBreakdown.stats.enemyLength,
-        edgePenalty: evaluation.averageBreakdown.stats.edgePenalty,
-        selfSpace: evaluation.averageBreakdown.stats.selfSpace,
-        alliesEnoughSpace: evaluation.averageBreakdown.stats.alliesEnoughSpace,
-        opponentsEnoughSpace: evaluation.averageBreakdown.stats.opponentsEnoughSpace,
-        kills: evaluation.averageBreakdown.stats.kills,
-        deaths: evaluation.averageBreakdown.stats.deaths,
-        enemyH2HRisk: evaluation.averageBreakdown.stats.enemyH2HRisk,
-        allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
-        waypointGoto: evaluation.averageBreakdown.stats.waypointGoto,
-        waypointNear: evaluation.averageBreakdown.stats.waypointNear,
-        aggression: evaluation.averageBreakdown.stats.aggression,
-        trapped: evaluation.averageBreakdown.stats.trapped,
-        weights: evaluation.averageBreakdown.weights,
-        weighted: evaluation.averageBreakdown.weighted,
-        fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,
-        foodDistanceInverse: evaluation.averageBreakdown.stats.foodProximity,
-        myFoodCount: evaluation.averageBreakdown.stats.myControlledFood,
-        teamFoodCount: evaluation.averageBreakdown.stats.teamControlledFood,
-        teamFertileScore: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10
+        myLength: evaluation.worstEvaluation.stats.myLength,
+        myTerritory: evaluation.worstEvaluation.stats.myTerritory,
+        myControlledFood: evaluation.worstEvaluation.stats.myControlledFood,
+        myControlledFertile: evaluation.worstEvaluation.stats.myControlledFertile,
+        teamLength: evaluation.worstEvaluation.stats.teamLength,
+        teamTerritory: evaluation.worstEvaluation.stats.teamTerritory,
+        teamControlledFood: evaluation.worstEvaluation.stats.teamControlledFood,
+        foodDistance: evaluation.worstEvaluation.stats.foodDistance,
+        foodProximity: evaluation.worstEvaluation.stats.foodProximity,
+        foodEaten: evaluation.worstEvaluation.stats.foodEaten,
+        enemyTerritory: evaluation.worstEvaluation.stats.enemyTerritory,
+        enemyLength: evaluation.worstEvaluation.stats.enemyLength,
+        edgePenalty: evaluation.worstEvaluation.stats.edgePenalty,
+        selfSpace: evaluation.worstEvaluation.stats.selfSpace,
+        alliesEnoughSpace: evaluation.worstEvaluation.stats.alliesEnoughSpace,
+        opponentsEnoughSpace: evaluation.worstEvaluation.stats.opponentsEnoughSpace,
+        kills: evaluation.worstEvaluation.stats.kills,
+        deaths: evaluation.worstEvaluation.stats.deaths,
+        enemyH2HRisk: evaluation.worstEvaluation.stats.enemyH2HRisk,
+        allyH2HRisk: evaluation.worstEvaluation.stats.allyH2HRisk,
+        waypointGoto: evaluation.worstEvaluation.stats.waypointGoto,
+        waypointNear: evaluation.worstEvaluation.stats.waypointNear,
+        aggression: evaluation.worstEvaluation.stats.aggression,
+        trapped: evaluation.worstEvaluation.stats.trapped,
+        weights: evaluation.worstEvaluation.weights,
+        weighted: evaluation.worstEvaluation.weighted,
+        fertileTerritory: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10,
+        foodDistanceInverse: evaluation.worstEvaluation.stats.foodProximity,
+        myFoodCount: evaluation.worstEvaluation.stats.myControlledFood,
+        teamFoodCount: evaluation.worstEvaluation.stats.teamControlledFood,
+        teamFertileScore: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10
       }
     }));
     
@@ -317,7 +314,7 @@ export class VoronoiStrategy {
     // Return for backwards compatibility
     const scores = new Map<Direction, number>();
     for (const evaluation of decision.evaluations) {
-      scores.set(evaluation.move, evaluation.averageScore);
+      scores.set(evaluation.move, evaluation.worstScore);
     }
     
     // NOTE: the live green "goto" route is owned by the server
@@ -351,12 +348,12 @@ export class VoronoiStrategy {
     
     // Log detailed breakdown for each evaluated move
     for (const evaluation of decision.evaluations) {
-      if (evaluation.averageScore === -Infinity) {
+      if (evaluation.worstScore === -Infinity) {
         console.log(`\nMove ${evaluation.move}: DEATH (no valid scenarios)`);
         continue;
       }
       
-      const breakdown = evaluation.averageBreakdown;
+      const breakdown = evaluation.worstEvaluation;
       console.log(`\nMove ${evaluation.move}: Total Score = ${breakdown.score.toFixed(2)} (${evaluation.numStates} states evaluated)`);
       console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
       console.log('│ Component           │  Average │ × Weight │  = Score │');

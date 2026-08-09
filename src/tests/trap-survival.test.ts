@@ -16,6 +16,15 @@ import { DecisionEngine } from '../logic/decision-engine';
 import { BoardGraph } from '../logic/board-graph';
 import { GameState, Snake, Coord } from '../types/battlesnake';
 
+// Coord-based conveniences over the integer-indexed BoardGraph API.
+const passAt = (graph: BoardGraph, coord: Coord, turn: number): boolean =>
+  graph.isPassableAtTurnIdx(graph.cellIndexOf(coord), turn);
+const passFor = (graph: BoardGraph, id: string, clearance: 'static' | 'conservative' | 'optimistic') => {
+  const p = graph.passabilityIdxFor(id, { clearance });
+  return (coord: Coord, turn: number): boolean => p.passableIdx(graph.cellIndexOf(coord), turn);
+};
+
+
 function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
   return {
     id,
@@ -236,7 +245,7 @@ describe('Trap survival', () => {
 
       const downEval = decision.evaluations.find(e => e.move === 'down');
       expect(downEval).toBeDefined();
-      expect(downEval!.averageBreakdown.stats.trapped).toBe(1);
+      expect(downEval!.worstEvaluation.stats.trapped).toBe(1);
     });
 
     it('vetoes a fatal pocket even when a waypoint points straight into it', () => {
@@ -273,7 +282,7 @@ describe('Trap survival', () => {
       for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
         const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
         // The tail cell is vacated next turn, so it is passable on arrival.
-        expect(graph.isPassableAtTurn(tail, 1)).toBe(true);
+        expect(passAt(graph, tail, 1)).toBe(true);
       }
     });
 
@@ -294,8 +303,8 @@ describe('Trap survival', () => {
       for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
         const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
         // The tail will not vacate next turn because the snake is still growing.
-        expect(graph.isPassableAtTurn(tail, 1)).toBe(false);
-        expect(graph.isPassable(tail)).toBe(false);
+        expect(passAt(graph, tail, 1)).toBe(false);
+        expect(graph.isPassableStaticIdx(graph.cellIndexOf(tail))).toBe(false);
       }
     });
   });
@@ -323,10 +332,10 @@ describe('Trap survival', () => {
       const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
 
       // Physical layer: tail free on arrival.
-      expect(graph.isPassableAtTurn(tail, 1)).toBe(true);
+      expect(passAt(graph, tail, 1)).toBe(true);
       // Optimistic subject-relative layer (drives the fatal-move marker).
-      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
-      expect(optimistic.passable(tail, 1)).toBe(true);
+      const optimistic = passFor(graph, 'our-snake', 'optimistic');
+      expect(optimistic(tail, 1)).toBe(true);
     });
 
     it('delays the tail by a possible turn-1 eat under grow-same-turn', () => {
@@ -337,9 +346,9 @@ describe('Trap survival', () => {
       const gameState = makeGameState([snake], snake, food);
       const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-same-turn' });
 
-      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
-      expect(optimistic.passable(tail, 1)).toBe(false);
-      expect(optimistic.passable(tail, 2)).toBe(true);
+      const optimistic = passFor(graph, 'our-snake', 'optimistic');
+      expect(optimistic(tail, 1)).toBe(false);
+      expect(optimistic(tail, 2)).toBe(true);
     });
 
     it('delays the second-to-last segment by a possible turn-1 eat (grow-next-turn)', () => {
@@ -351,8 +360,8 @@ describe('Trap survival', () => {
       // Geometric vacate turn 2 > eat turn 1, so the eat pushes it to turn 3.
       // (Physical layer only: a snake's OWN interior is never passable to
       // itself in passabilityFor, by design.)
-      expect(graph.isPassableAtTurn(secondToLast, 2)).toBe(false);
-      expect(graph.isPassableAtTurn(secondToLast, 3)).toBe(true);
+      expect(passAt(graph, secondToLast, 2)).toBe(false);
+      expect(passAt(graph, secondToLast, 3)).toBe(true);
     });
 
     it('does not delay anything when no food is reachable', () => {
@@ -360,9 +369,9 @@ describe('Trap survival', () => {
       const gameState = makeGameState([snake], snake);
       for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
         const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
-        expect(optimistic.passable(tail, 1)).toBe(true);
-        expect(graph.isPassableAtTurn(secondToLast, 2)).toBe(true);
+        const optimistic = passFor(graph, 'our-snake', 'optimistic');
+        expect(optimistic(tail, 1)).toBe(true);
+        expect(passAt(graph, secondToLast, 2)).toBe(true);
       }
     });
 
@@ -372,9 +381,9 @@ describe('Trap survival', () => {
       const gameState = makeGameState([snake], snake, food);
       for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
         const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        expect(graph.isPassableAtTurn(tail, 1)).toBe(false);
-        const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
-        expect(optimistic.passable(tail, 1)).toBe(false);
+        expect(passAt(graph, tail, 1)).toBe(false);
+        const optimistic = passFor(graph, 'our-snake', 'optimistic');
+        expect(optimistic(tail, 1)).toBe(false);
       }
     });
 
@@ -384,10 +393,10 @@ describe('Trap survival', () => {
       const gameState = makeGameState([snake], snake, food);
       const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
 
-      const conservative = graph.passabilityFor('our-snake', { clearance: 'conservative' });
+      const conservative = passFor(graph, 'our-snake', 'conservative');
       // Tail: physical vacate turn 1 (not delayed by the turn-1 eat) + 1 buffer.
-      expect(conservative.passable(tail, 1)).toBe(false);
-      expect(conservative.passable(tail, 2)).toBe(true);
+      expect(conservative(tail, 1)).toBe(false);
+      expect(conservative(tail, 2)).toBe(true);
     });
   });
 
@@ -412,30 +421,30 @@ describe('Trap survival', () => {
       const gameState = makeGameState([our, enemy], our);
       const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
 
-      const staticPass = graph.passabilityFor('our-snake', { clearance: 'static' });
-      const conservative = graph.passabilityFor('our-snake', { clearance: 'conservative' });
-      const optimistic = graph.passabilityFor('our-snake', { clearance: 'optimistic' });
+      const staticPass = passFor(graph, 'our-snake', 'static');
+      const conservative = passFor(graph, 'our-snake', 'conservative');
+      const optimistic = passFor(graph, 'our-snake', 'optimistic');
 
       // Our own interior segment is never passable, in ANY clearance mode: we can
       // never bank on our own body vacating ahead of our head.
       for (const pass of [staticPass, conservative, optimistic]) {
-        expect(pass.passable({ x: 5, y: 4 }, 1)).toBe(false);
+        expect(pass({ x: 5, y: 4 }, 1)).toBe(false);
       }
 
       // Our own tail vacates next turn (grow-next-turn, not just-ate). Static and
       // optimistic clearance treat it as passable on arrival (turn 1).
-      expect(staticPass.passable({ x: 5, y: 3 }, 1)).toBe(true);
-      expect(optimistic.passable({ x: 5, y: 3 }, 1)).toBe(true);
+      expect(staticPass({ x: 5, y: 3 }, 1)).toBe(true);
+      expect(optimistic({ x: 5, y: 3 }, 1)).toBe(true);
       // Conservative clearance adds a one-turn survival safety buffer, so the same
       // tail cell is not banked on until turn 2 (physical vacate turn + 1).
-      expect(conservative.passable({ x: 5, y: 3 }, 1)).toBe(false);
-      expect(conservative.passable({ x: 5, y: 3 }, 2)).toBe(true);
+      expect(conservative({ x: 5, y: 3 }, 1)).toBe(false);
+      expect(conservative({ x: 5, y: 3 }, 2)).toBe(true);
 
       // Enemy INTERIOR segment (8,7) vacates on turn 2 under optimistic timing but
       // is a hard wall under static clearance. This is the tier that replaced the
       // old opponentTailsAlwaysImpassable flag: static never banks on bodies moving.
-      expect(staticPass.passable({ x: 8, y: 7 }, 2)).toBe(false);
-      expect(optimistic.passable({ x: 8, y: 7 }, 2)).toBe(true);
+      expect(staticPass({ x: 8, y: 7 }, 2)).toBe(false);
+      expect(optimistic({ x: 8, y: 7 }, 2)).toBe(true);
     });
   });
 });

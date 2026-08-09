@@ -2,29 +2,26 @@
  * Board graph representation for unified pathfinding.
  *
  * Two layers, deliberately separated:
- *  - PHYSICAL passability (`isPassable` / `isPassableAtTurn` / adjacency):
+ *  - PHYSICAL passability (`isPassableStaticIdx` / `isPassableAtTurnIdx`):
  *    walls, hazards and body segments with tail-vacate timing. This is
  *    subject-agnostic — it knows nothing about "us" — and is what the shared
  *    Voronoi territory BFS walks.
- *  - SUBJECTIVE passability (`passabilityFor` / `isPassableForSnake`): the
- *    single source of truth for "where can THIS snake walk", layering
- *    own-body/own-tail handling and invulnerability severability on top of the
- *    physical layer. Severability is inherently relative to who is moving, so it
- *    lives ONLY here and never in the shared physical graph.
+ *  - SUBJECTIVE passability (`passabilityIdxFor`): the single source of truth
+ *    for "where can THIS snake walk", layering own-body/own-tail handling and
+ *    invulnerability severability on top of the physical layer. Severability
+ *    is inherently relative to who is moving, so it lives ONLY here and never
+ *    in the shared physical graph.
  *
  * BoardGraph has no concept of `you`: every perspective-dependent query takes a
  * subject snake id.
  *
- * INTERNALS are integer-indexed typed arrays (cell index = y * width + x): the
+ * The graph is integer-indexed throughout (cell index = y * width + x): the
  * evaluation pipeline runs thousands of flood fills per turn, and string-keyed
  * Maps/Sets plus per-neighbor object allocation were measured at a ~28x tax
- * over flat arrays. The string-based helpers (coordToKey, getNeighbors, …)
- * remain as thin compatibility wrappers; hot paths use the *Idx variants.
+ * over flat typed arrays.
  */
 
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
-
-export type CellKey = string;
 
 export interface BoardGraphConfig {
   // Tail growth variant:
@@ -36,15 +33,7 @@ export interface BoardGraphConfig {
   maxLookaheadTurns: number;
 }
 
-// Subject-relative passability bundle returned by `passabilityFor`.
-export interface SnakePassability {
-  headKey: CellKey;
-  tailKey: CellKey;
-  // Can the subject occupy `coord` arriving `arrivalTurn` turns from now?
-  passable: (coord: Coord, arrivalTurn: number) => boolean;
-}
-
-// Integer-index variant for hot paths (no string keys, no Coord allocation).
+// Subject-relative passability bundle returned by `passabilityIdxFor`.
 export interface SnakePassabilityIdx {
   headIdx: number;   // -1 when the subject is unknown/dead
   tailIdx: number;   // -1 when the subject is unknown/dead
@@ -101,10 +90,6 @@ export class BoardGraph {
   private visitStamp: Int32Array;
   private stamp = 0;
   private queue: Int32Array;
-
-  // Lazily-built string-keyed compatibility structures.
-  private adjacencyList: Map<CellKey, Set<CellKey>> | null = null;
-  private blockedCellSet: Set<CellKey> | null = null;
 
   constructor(state: BoardSnapshot, config?: Partial<BoardGraphConfig>) {
     this.width = state.board.width;
@@ -170,7 +155,7 @@ export class BoardGraph {
     this.buildSnakeMeta(board.snakes);
 
     // Phase 1: segments + hazards + static blocked layer. After this,
-    // passabilityFor({ clearance: 'static' }) is fully functional.
+    // passabilityIdxFor({ clearance: 'static' }) is fully functional.
     this.buildSegments(board.snakes, foodMask, board.hazards);
 
     // Phase 2: food reach via the static predicate, then fill in each segment's
@@ -427,109 +412,28 @@ export class BoardGraph {
     return { headIdx, tailIdx, passableIdx };
   }
 
-  /**
-   * Coord-based subjective passability (compatibility wrapper over the integer
-   * core). Returns a bound predicate plus the subject's head/tail keys.
-   */
-  passabilityFor(subjectId: string, opts?: PassabilityOptions): SnakePassability {
-    const idx = this.passabilityIdxFor(subjectId, opts);
-    const headKey = idx.headIdx >= 0 ? this.keyOfIndex(idx.headIdx) : '';
-    const tailKey = idx.tailIdx >= 0 ? this.keyOfIndex(idx.tailIdx) : '';
-
-    const passable = (coord: Coord, arrivalTurn: number): boolean => {
-      if (!this.isInBounds(coord)) return false;
-      return idx.passableIdx(this.cellIndexOf(coord), arrivalTurn);
-    };
-
-    return { headKey, tailKey, passable };
-  }
-
-  /** Thin convenience wrapper over `passabilityFor` for one-off queries. */
-  isPassableForSnake(coord: Coord, arrivalTurn: number, subjectId: string, opts?: PassabilityOptions): boolean {
-    return this.passabilityFor(subjectId, opts).passable(coord, arrivalTurn);
-  }
-
   private isStaticBlockedIdx(idx: number): boolean {
     return this.hazard[idx] === 1 || (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
   }
 
   /**
-   * Get passable neighbors for a cell (physical, subject-agnostic).
-   * Compatibility path — the adjacency table is built lazily on first use,
-   * since the optimistic evaluation pipeline never touches it.
-   */
-  getNeighbors(coord: Coord): Coord[] {
-    if (!this.adjacencyList) this.buildAdjacency();
-    const key = this.coordToKey(coord);
-    const neighborKeys = this.adjacencyList!.get(key);
-    if (!neighborKeys) return [];
-    return Array.from(neighborKeys).map(k => this.keyToCoord(k));
-  }
-
-  private buildAdjacency(): void {
-    this.adjacencyList = new Map();
-    for (let x = 0; x < this.width; x++) {
-      for (let y = 0; y < this.height; y++) {
-        const idx = this.cellIndex(x, y);
-        const cellKey = this.coordToKey({ x, y });
-        if (this.isStaticBlockedIdx(idx)) {
-          this.adjacencyList.set(cellKey, new Set());
-          continue;
-        }
-        const passableNeighbors = new Set<CellKey>();
-        for (const neighbor of [
-          { x, y: y + 1 }, { x, y: y - 1 }, { x: x - 1, y }, { x: x + 1, y }
-        ]) {
-          if (!this.isInBounds(neighbor)) continue;
-          if (!this.isStaticBlockedIdx(this.cellIndexOf(neighbor))) {
-            passableNeighbors.add(this.coordToKey(neighbor));
-          }
-        }
-        this.adjacencyList.set(cellKey, passableNeighbors);
-      }
-    }
-  }
-
-  /**
-   * Get passable neighbors for a cell with optimistic (turn-aware) physical
-   * passability: body segments are passable once they will have receded by
-   * arrivalTurn. Subject-agnostic (no severability) — used by the shared
-   * Voronoi territory BFS.
-   */
-  getNeighborsOptimistic(coord: Coord, arrivalTurn: number): Coord[] {
-    const passable: Coord[] = [];
-    for (const neighbor of [
-      { x: coord.x, y: coord.y + 1 },
-      { x: coord.x, y: coord.y - 1 },
-      { x: coord.x - 1, y: coord.y },
-      { x: coord.x + 1, y: coord.y }
-    ]) {
-      if (!this.isInBounds(neighbor)) continue;
-      if (this.isPassableAtTurnIdx(this.cellIndexOf(neighbor), arrivalTurn)) passable.push(neighbor);
-    }
-    return passable;
-  }
-
-  /**
-   * Physical turn-aware passability (no severability), integer-index variant.
-   * For body segments, the cell is passable once its PHYSICAL disappear turn has
-   * passed (no survival safety buffer — that buffer belongs to the
-   * 'conservative' clearance mode).
+   * Physical turn-aware passability (no severability). For body segments, the
+   * cell is passable once its PHYSICAL disappear turn has passed (no survival
+   * safety buffer — that buffer belongs to the 'conservative' clearance mode).
    */
   isPassableAtTurnIdx(idx: number, arrivalTurn: number): boolean {
-    if (this.segOwner[idx] !== NO_SNAKE) {
-      if (arrivalTurn <= this.config.maxLookaheadTurns) {
-        return this.physicalDisappear[idx] <= arrivalTurn;
-      }
-      return !this.isStaticBlockedIdx(idx);
+    if (this.segOwner[idx] !== NO_SNAKE && arrivalTurn <= this.config.maxLookaheadTurns) {
+      return this.physicalDisappear[idx] <= arrivalTurn;
     }
     return !this.isStaticBlockedIdx(idx);
   }
 
-  /** Coord-based wrapper over isPassableAtTurnIdx. */
-  isPassableAtTurn(coord: Coord, arrivalTurn: number): boolean {
-    if (!this.isInBounds(coord)) return false;
-    return this.isPassableAtTurnIdx(this.cellIndexOf(coord), arrivalTurn);
+  /**
+   * Physical static passability (not a static wall). No severability — that
+   * lives in passabilityIdxFor.
+   */
+  isPassableStaticIdx(idx: number): boolean {
+    return !this.isStaticBlockedIdx(idx);
   }
 
   /**
@@ -538,68 +442,5 @@ export class BoardGraph {
   isInBounds(coord: Coord): boolean {
     return coord.x >= 0 && coord.x < this.width &&
            coord.y >= 0 && coord.y < this.height;
-  }
-
-  /**
-   * Physical static passability (in bounds and not a static wall). No
-   * severability — that lives in passabilityFor.
-   */
-  isPassable(coord: Coord): boolean {
-    if (!this.isInBounds(coord)) return false;
-    return !this.isStaticBlockedIdx(this.cellIndexOf(coord));
-  }
-
-  /**
-   * Get the set of blocked cell keys (for direct iteration if needed).
-   * Built lazily — compatibility path only.
-   */
-  getBlockedCells(): Set<CellKey> {
-    if (!this.blockedCellSet) {
-      this.blockedCellSet = new Set();
-      for (let idx = 0; idx < this.cells; idx++) {
-        if (this.isStaticBlockedIdx(idx)) this.blockedCellSet.add(this.keyOfIndex(idx));
-      }
-    }
-    return this.blockedCellSet;
-  }
-
-  /** String key for a cell index. */
-  keyOfIndex(idx: number): CellKey {
-    return `${idx % this.width},${Math.floor(idx / this.width)}`;
-  }
-
-  /**
-   * Convert coordinate to string key.
-   */
-  coordToKey(coord: Coord): CellKey {
-    return `${coord.x},${coord.y}`;
-  }
-
-  /**
-   * Convert string key to coordinate.
-   */
-  keyToCoord(key: CellKey): Coord {
-    const [x, y] = key.split(',').map(Number);
-    return { x, y };
-  }
-
-  /**
-   * Get all cells in the board.
-   */
-  getAllCells(): Coord[] {
-    const cells: Coord[] = [];
-    for (let x = 0; x < this.width; x++) {
-      for (let y = 0; y < this.height; y++) {
-        cells.push({ x, y });
-      }
-    }
-    return cells;
-  }
-
-  /**
-   * Get board dimensions.
-   */
-  getDimensions(): { width: number; height: number } {
-    return { width: this.width, height: this.height };
   }
 }
