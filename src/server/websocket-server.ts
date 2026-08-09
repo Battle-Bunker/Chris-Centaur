@@ -709,37 +709,54 @@ export class GameWebSocketServer {
     return selections;
   }
 
-  // Staged moves drive the staged-arrow render on every client. They are pure
-  // reads of the server-maintained `staged` mirror of what was write-through
-  // published to Firebase — the authoritative staged-move store the game server
-  // resolves each turn from. Color/source are derived from the staged record's
-  // source: heuristic = grey/'bot' (bot-seeded), any human method
-  // (manual/queue/waypoint) = the controlling user's color.
+  // Staged moves drive the arrow render on every client. Three layers per
+  // snake, all pure reads of the manager's mirrors of Firebase state:
+  //  - `requestedMove`: the last move the user/bot requested (ghost arrow
+  //    whenever it differs from the confirmed move — optimistic state).
+  //  - `move`: the CONFIRMED staged move from the Firebase read-back (solid
+  //    arrow — what the game server will play if the turn ends now). Null
+  //    until the first confirmation for the turn lands.
+  //  - `committed`: true once Firebase finalized the turn's move (deadline
+  //    passed or all players committed) — the double arrow; `move` then
+  //    carries the final selection.
+  // Color/source are derived from the requested record's source: heuristic =
+  // grey/'bot' (bot-seeded), any human method (manual/queue/waypoint) = the
+  // controlling user's color.
   //
   // Every controlled snake gets an entry, gated only on having a `staged`
-  // record. The client only draws an arrow for snakes present on the board, so
+  // record. The client only draws arrows for snakes present on the board, so
   // eliminated snakes are naturally skipped there.
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } {
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
 
     const BOT_COLOR = '#888888';
-    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
+    const staged: { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
+      if (!cs.staged) continue;
+      const requested = cs.staged;
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
-      // Colour/source reflect the TRUE origin of the staged move, NOT the nominal
-      // activeIntentMode. A waypoint/queue that fell back to the bot's move this
-      // turn has source 'bot'/'fallback' and renders grey — so a user-coloured
-      // arrow always guarantees the user's own staged move is what's in Firebase.
-      const isBot = cs.staged?.source === 'bot' || cs.staged?.source === 'fallback';
+      // Colour/source reflect the TRUE origin of the requested move, NOT the
+      // nominal activeIntentMode. A waypoint/queue that fell back to the bot's
+      // move this turn has source 'bot'/'fallback' and renders grey — so a
+      // user-coloured arrow always guarantees the user's own requested move.
+      const isBot = requested.source === 'bot' || requested.source === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
-      // `fatal` flags a certain-death move so the client can warn the human; it
-      // NEVER changes what is staged (the staged move is sacrosanct).
+      // `fatal` flags a certain-death requested move so the client can warn
+      // the human; it NEVER changes what is staged.
       const fatal = this.gameManager.isStagedMoveFatal(gameId, snakeId);
-      if (!cs.staged) continue;
-      staged[snakeId] = { move: cs.staged.move, committed: false, color, source: cs.staged.source, fatal };
+      const confirmed = cs.confirmedStaged?.turn === requested.turn ? cs.confirmedStaged.move : null;
+      const final = cs.finalMove?.turn === requested.turn ? cs.finalMove.move : null;
+      staged[snakeId] = {
+        move: final ?? confirmed,
+        requestedMove: requested.move,
+        committed: final !== null,
+        color,
+        source: requested.source,
+        fatal,
+      };
     }
     return staged;
   }

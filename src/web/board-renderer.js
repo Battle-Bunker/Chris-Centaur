@@ -1070,6 +1070,11 @@ const BoardRenderer = (function () {
       // recommendation when it differs from the submitted move.
       let arrowDashed = false;
       let secondaryMove = null;
+      // Ghost arrow: the REQUESTED move whenever it differs from the
+      // Firebase-confirmed staged move (`move`). Rendered dashed and
+      // translucent in the same colour — the optimistic layer of the
+      // requested → confirmed → final pipeline.
+      let ghostMove = null;
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
         arrowMove = chosenMove;
         if (options?.chosenMoveStyle === "recommendation-only") {
@@ -1078,11 +1083,18 @@ const BoardRenderer = (function () {
         }
         secondaryMove = options?.secondaryMove || null;
       } else if (interactive && stagedForThisSnake) {
-        arrowMove = stagedForThisSnake.move;
+        // `move` is the confirmed staged move (null until Firebase's first
+        // confirmation for the turn lands); `requestedMove` is what was asked
+        // for most recently.
+        arrowMove = stagedForThisSnake.move || null;
         arrowColor = stagedForThisSnake.color || "#4CAF50";
         arrowCommitted = !!stagedForThisSnake.committed;
+        const requested = stagedForThisSnake.requestedMove;
+        if (requested && requested !== arrowMove) {
+          ghostMove = requested;
+        }
       }
-      if (arrowMove) {
+      if (arrowMove || ghostMove) {
         const shead = snake.body[0];
         if (shead) {
           const x = shead.x * cellSize;
@@ -1149,18 +1161,28 @@ const BoardRenderer = (function () {
             drawArrow(secondaryMove, "#9E9E9E", Math.max(cellSize * 0.08, 3), true, 0.6, 1);
           }
 
-          // Staged and committed arrows share the same color (grey for the
+          // Ghost arrow for the requested move: dashed + translucent, drawn
+          // before the confirmed arrow so the solid state stays on top.
+          if (ghostMove) {
+            ctx.globalAlpha = 0.5;
+            drawArrow(ghostMove, arrowColor, Math.max(cellSize * 0.12, 4), true, 0.8, 1);
+            ctx.globalAlpha = 1;
+          }
+
+          // Confirmed and finalized arrows share the same color (grey for the
           // bot, the controller's color for a human). The ONLY visual
-          // difference is the arrowhead count: a staged move draws a single
-          // chevron, a committed move a double chevron.
-          const { ex: endX, ey: endY } = drawArrow(
-            arrowMove,
-            arrowColor,
-            Math.max(cellSize * 0.18, 6),
-            arrowDashed,
-            1,
-            arrowCommitted ? 2 : 1,
-          );
+          // difference is the arrowhead count: a confirmed staged move draws
+          // a single chevron, the turn's finalized move a double chevron.
+          if (arrowMove) {
+            drawArrow(
+              arrowMove,
+              arrowColor,
+              Math.max(cellSize * 0.18, 6),
+              arrowDashed,
+              1,
+              arrowCommitted ? 2 : 1,
+            );
+          }
 
           // Fatal-move warning: the staged/committed move walks the head into
           // certain death (wall, own body, or a non-severable enemy). The move
@@ -1172,8 +1194,11 @@ const BoardRenderer = (function () {
           // through the fatal-move confirmation dialog — flag it with the same
           // red no-entry marker so a deliberate death is visible in review.
           if ((stagedForThisSnake && stagedForThisSnake.fatal) || options?.fatalConsented) {
+            // The fatal flag describes the REQUESTED move — anchor the marker
+            // on the ghost arrow's destination when it differs.
+            const fatalMove = ghostMove || arrowMove;
             let dcx = 0, dcy = 0;
-            switch (arrowMove) {
+            switch (fatalMove) {
               case "up": dcy = 1; break;
               case "down": dcy = -1; break;
               case "left": dcx = -1; break;

@@ -717,18 +717,24 @@
     //     updates the breakdown table + projected-territory overlay ONLY. It
     //     sends nothing to the server, stages nothing, and never clears the
     //     queue. See `selectMove`.
-    //   - STAGING (the arrow) is the snake's intended next move, held by the
-    //     server as a single `stagedMove` per snake and broadcast via the
-    //     stagedMoves map (grey = bot-seeded, user color = human). Pressing
-    //     Space stages the currently selected cell as a manual override (which
-    //     drops the queue/waypoint per the server contract). Queued moves and
-    //     goto/waypoints also stage server-side. See `stageSelectedMove`.
+    //   - STAGING is a three-stage pipeline, all broadcast via the
+    //     stagedMoves map (grey = bot-seeded, user color = human):
+    //       requestedMove — the last move the user/bot asked for. Painted
+    //         optimistically as a GHOST arrow (dashed, translucent) whenever
+    //         it differs from the confirmed move. Pressing Space requests the
+    //         selected cell as a manual override (which drops the
+    //         queue/waypoint per the server contract). See `stageSelectedMove`.
+    //       move — the staged move Firebase has CONFIRMED (solid arrow): what
+    //         the game server will play if the turn ends now. The centaur
+    //         server republishes the request until this matches it.
+    //       committed — Firebase finalized the turn's move (deadline passed
+    //         or every player committed): the DOUBLE arrow, known before the
+    //         next board arrives.
     //   - RESOLUTION happens ONLY on the game server (TacticToes), which
     //     applies the LAST staged move written to Firebase before the turn
-    //     deadline. Neither the client nor the centaur server commits
-    //     anything; the centaur flips a snake into the resolved (double-arrow)
-    //     state only when the server broadcasts `move-committed` after the
-    //     turn resolved.
+    //     deadline. The centaur flips a snake into the finalized
+    //     (double-arrow) state when the server broadcasts `move-committed`
+    //     after Firebase finalizes the turn.
     //
     // Ownership:
     //   - The centaur server owns staged-move + queue state, write-through
@@ -1345,7 +1351,9 @@
           // selection matches what the snake is actually about to do. Fall back
           // to the best bot move if no staged move exists.
           const staged = stagedMoves[snakeId];
-          const stagedMove = staged && staged.move ? staged.move : null;
+          // Prefer the requested move (what the snake is trying to do), then
+          // the confirmed staged move.
+          const stagedMove = staged ? (staged.requestedMove || staged.move || null) : null;
           const defaultMove = (stagedMove && moveState.moves[stagedMove])
             ? stagedMove
             : getBestBotMove();
@@ -1686,20 +1694,25 @@
       return null;
     }
 
-    // STAGING = commit the current selection as this snake's manual override
+    // STAGING = request the current selection as this snake's manual override
     // for the turn. No-op if nothing is selected. Optimistically paints the
-    // staged arrow in the user's color and tells the server (select-move),
-    // which activates Manual mode and drops any queue/waypoint. The actual
-    // commit happens only at the turn deadline (server safety timer).
+    // REQUESTED move as a ghost arrow in the user's color and tells the
+    // server (select-move), which activates Manual mode, drops any
+    // queue/waypoint, and publishes the request to Firebase until confirmed.
+    // The solid arrow stays on the last Firebase-confirmed staged move until
+    // the confirmation for this request lands.
     function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
       const move = userSelectedMove;
       if (!move) return;
 
+      const existing = stagedMoves[selectedSnakeId] || { move: null, committed: false };
       stagedMoves[selectedSnakeId] = {
-        move,
+        ...existing,
+        requestedMove: move,
         committed: false,
         color: myColor || '#4CAF50',
+        source: 'manual',
       };
 
       // Mirror the server's "manual override drops the plan" contract locally

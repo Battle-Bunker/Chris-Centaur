@@ -13,14 +13,20 @@ staged moves.
 - **One identity, many snakes.** A single bot identity can own several snakes
   in a Team Snek game (the original + clones). The interface computes and
   stages a move for every owned snake each turn.
-- **Staged moves, no automatic commit.** Every staging action — the engine's
+- **Requested → confirmed → final.** Every staging action — the engine's
   recommendation, a human picking an exact move in the centaur UI, a "go to"
   waypoint or premove-queue step, or cancelling human intervention and
-  reverting to the recommended move — is immediately written to Firebase as
-  that snake's staged move. Re-staging just writes again: the game server
-  resolves each turn with the **last staged move received before the turn
-  deadline**. Nothing is committed automatically; by default the staging
-  window stays open until the server's own turn timer fires.
+  reverting to the recommended move — becomes the snake's **requested move**
+  and is immediately published to Firebase. The server then reads back what
+  Firebase actually holds (a `privateMoves` listener per snake) and
+  **republishes until the confirmed staged move matches the request**. The UI
+  shows the confirmed move as the solid arrow and the requested move as a
+  ghost arrow whenever they differ, so what you see solid is always what the
+  game server would play. When the turn finalizes — deadline passed or every
+  player committed — the double arrow shows Firebase's final selection,
+  before the next board even arrives. The game server resolves each turn with
+  the **last staged move received before the turn deadline**; nothing is
+  committed automatically.
 - **Submit All (manual commit).** The UI's Submit All button (or Enter) marks
   every snake staged for the current turn as *done* in Firebase
   (`moveStatuses.movedPlayerIDs`), letting the game server resolve the turn

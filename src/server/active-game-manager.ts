@@ -133,16 +133,30 @@ export interface ControlledSnake {
   // Set only through `setIntent`. The client-facing projections (premoves,
   // waypoints, routes, activeIntentModes) are derived from this.
   intent: SnakeIntent;
-  // The snake's current staged move, bound to its (snakeId, turn). Written only
-  // by `stageMove`, which also write-through publishes it to Firebase — the
-  // authoritative staged-move store. This field is the local mirror the UI
-  // broadcasts read. `null` until staged for the turn.
+  // The snake's REQUESTED move — the last move the active intent resolved to,
+  // bound to its (snakeId, turn). Written only by `stageMove`, which starts
+  // the publish-until-confirmed pipeline (`ensureStagedPublished`) so the
+  // request lands in Firebase, the authoritative staged-move store. Shown to
+  // clients as the ghost arrow whenever it differs from `confirmedStaged`.
   staged: StagedMove | null;
-  // Dedupe for the write-through submitter: the (turn, move) last published to
-  // Firebase, so repeated re-stages that resolve to the same move don't spam
-  // identical privateMoves writes.
+  // The staged move Firebase has CONFIRMED for this snake (from the
+  // interface's privateMoves read-back listener): the latest server-acked
+  // write for the turn. This is what the game server will actually play if
+  // the turn ends now — clients render it as the solid arrow. The pipeline
+  // re-publishes until this matches the requested move.
+  confirmedStaged: { turn: number; move: Direction } | null;
+  // The FINAL move Firebase selected for the turn, known at turn finalization
+  // (deadline passed, or every alive player committed) — before the next
+  // board arrives. Drives the client's double (committed) arrow.
+  finalMove: { turn: number; move: Direction } | null;
+  // In-flight marker for the publish pipeline: the (turn, move) last handed
+  // to the submitter, so an unconfirmed request isn't re-published on every
+  // event, only when the backstop retry decides it was lost.
   lastSubmittedTurn: number | null;
   lastSubmittedMove: Direction | null;
+  // Backstop retry for the publish pipeline (single-shot, re-armed while the
+  // confirmed staged move differs from the requested one).
+  stagingRetryTimer: NodeJS.Timeout | null;
   // Dedupe for the manual Submit All commit: the turn this snake was last
   // marked done for, so repeated clicks don't spam moveStatuses writes.
   lastCommittedTurn: number | null;
@@ -466,8 +480,11 @@ export class ActiveGameManager {
         suicideArmed: false,
         intent: { kind: 'heuristic' },
         staged: null,
+        confirmedStaged: null,
+        finalMove: null,
         lastSubmittedTurn: null,
         lastSubmittedMove: null,
+        stagingRetryTimer: null,
         lastCommittedTurn: null,
         fatalPromptTurn: null,
         fatalPromptMove: null,
@@ -1274,29 +1291,131 @@ export class ActiveGameManager {
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
 
-    // Write-through: publish the staged move to Firebase, the single source of
-    // truth for staged moves. Every staging action is represented; only exact
-    // repeats of the already-published (turn, move) are skipped.
-    if (controlled.lastSubmittedTurn !== turn || controlled.lastSubmittedMove !== direction) {
-      controlled.lastSubmittedTurn = turn;
-      controlled.lastSubmittedMove = direction;
+    // Publish-until-confirmed: hand the requested move to the pipeline, which
+    // writes it to Firebase and re-publishes until the read-back confirmation
+    // matches. Firebase is the single source of truth for staged moves.
+    this.ensureStagedPublished(gameId, snakeId);
+
+    // Reactive sync: every stage (the single point all intent changes funnel
+    // through) marks the game dirty so the staged arrow + intent projections
+    // are pushed to clients, coalesced to once per event-loop tick.
+    this.notifyStagedChange(gameId);
+  }
+
+  private static readonly STAGING_RETRY_MS = 1000;
+
+  // The publish-until-confirmed pipeline. Invoked on every stage (the request
+  // changed), on every Firebase confirmation update (to detect mismatches),
+  // and from its own backstop timer. Terminates when the confirmed staged
+  // move matches the requested one, or when the board has moved past the
+  // requested turn (the snake's next stage re-enters the pipeline).
+  private ensureStagedPublished(gameId: string, snakeId: string): void {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game || !controlled) return;
+    const requested = controlled.staged;
+    if (!requested) return;
+
+    const clearRetry = () => {
+      if (controlled.stagingRetryTimer) {
+        clearTimeout(controlled.stagingRetryTimer);
+        controlled.stagingRetryTimer = null;
+      }
+    };
+
+    // The board moved past this request — stop; it can never be confirmed
+    // (the read-back listener for its turn is gone) and no longer matters.
+    if (game.boardStateTurn > requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // The turn already finalized — Firebase picked its move; late publishes
+    // can't change anything.
+    if (controlled.finalMove?.turn === requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // Firebase confirms the requested move — the pipeline is done.
+    if (
+      controlled.confirmedStaged?.turn === requested.turn &&
+      controlled.confirmedStaged.move === requested.move
+    ) {
+      clearRetry();
+      return;
+    }
+
+    const alreadySubmitted =
+      controlled.lastSubmittedTurn === requested.turn &&
+      controlled.lastSubmittedMove === requested.move;
+    if (!alreadySubmitted) {
+      controlled.lastSubmittedTurn = requested.turn;
+      controlled.lastSubmittedMove = requested.move;
       if (this.moveSubmitter) {
-        this.moveSubmitter(gameId, snakeId, turn, direction, source).catch((err) => {
-          console.error(`[ActiveGameManager] Failed to publish staged move for ${gameId}:${snakeId} turn ${turn}:`, err);
-          // Allow a retry on the next staging action for this turn.
-          if (controlled.lastSubmittedTurn === turn && controlled.lastSubmittedMove === direction) {
+        this.moveSubmitter(gameId, snakeId, requested.turn, requested.move, requested.source).catch((err) => {
+          console.error(`[ActiveGameManager] Failed to publish staged move for ${gameId}:${snakeId} turn ${requested.turn}:`, err);
+          // Clear the in-flight marker so the backstop republishes.
+          if (
+            controlled.lastSubmittedTurn === requested.turn &&
+            controlled.lastSubmittedMove === requested.move
+          ) {
             controlled.lastSubmittedTurn = null;
             controlled.lastSubmittedMove = null;
           }
         });
       } else {
-        console.error(`[ActiveGameManager] No move submitter wired — staged move for ${gameId}:${snakeId} turn ${turn} NOT published`);
+        console.error(`[ActiveGameManager] No move submitter wired — staged move for ${gameId}:${snakeId} turn ${requested.turn} NOT published`);
       }
     }
 
-    // Reactive sync: every stage (the single point all intent changes funnel
-    // through) marks the game dirty so the staged arrow + intent projections
-    // are pushed to clients, coalesced to once per event-loop tick.
+    // Backstop: if Firebase hasn't confirmed the requested move by the next
+    // tick, treat the write as lost and republish.
+    clearRetry();
+    const timer = setTimeout(() => {
+      const cs = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+      if (!cs || cs.stagingRetryTimer !== timer) return;
+      cs.stagingRetryTimer = null;
+      const req = cs.staged;
+      if (!req) return;
+      if (cs.confirmedStaged?.turn === req.turn && cs.confirmedStaged.move === req.move) return;
+      console.warn(`[ActiveGameManager] Staged move for ${gameId}:${snakeId} turn ${req.turn} (${req.move}) still unconfirmed — republishing`);
+      cs.lastSubmittedTurn = null;
+      cs.lastSubmittedMove = null;
+      this.ensureStagedPublished(gameId, snakeId);
+    }, ActiveGameManager.STAGING_RETRY_MS);
+    timer.unref?.();
+    controlled.stagingRetryTimer = timer;
+  }
+
+  // Fed by the Firebase read-back listener: the latest server-acked staged
+  // move for (snakeId, turn). Broadcast to clients as the solid arrow, and
+  // used by the pipeline to decide whether the request needs republishing.
+  setConfirmedStagedMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    if (!controlled) return;
+    if (controlled.confirmedStaged?.turn === turn && controlled.confirmedStaged.move === move) return;
+    controlled.confirmedStaged = { turn, move };
+    this.ensureStagedPublished(gameId, snakeId);
+    this.notifyStagedChange(gameId);
+  }
+
+  // Fed by the Firebase interface when the turn finalizes (deadline passed or
+  // every alive player committed) — BEFORE the next board arrives. `move` is
+  // the confirmed staged move Firebase will play for this snake, or null when
+  // nothing was confirmed staged (the game server applies its own default,
+  // which we can't know here — no double arrow in that case).
+  finalizeTurnMove(gameId: string, snakeId: string, turn: number, move: Direction | null): void {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    if (!controlled) return;
+    if (controlled.finalMove?.turn === turn) return;
+    if (controlled.stagingRetryTimer) {
+      clearTimeout(controlled.stagingRetryTimer);
+      controlled.stagingRetryTimer = null;
+    }
+    if (move === null) return;
+    controlled.finalMove = { turn, move };
+    this.notifyMoveCommitted(gameId, snakeId, move, 'firebase-final');
     this.notifyStagedChange(gameId);
   }
 
@@ -1725,7 +1844,9 @@ export class ActiveGameManager {
       // clears based on what actually happened.
       this.advancePremoveQueueAfterMove(gameId, snakeId, move);
 
-      this.notifyMoveCommitted(gameId, snakeId, move, 'server-resolved');
+      // No move-committed notification here: the UI's double arrow is driven
+      // by finalizeTurnMove, which fires when Firebase finalizes the turn —
+      // earlier than this board-delta bookkeeping.
     }
   }
 

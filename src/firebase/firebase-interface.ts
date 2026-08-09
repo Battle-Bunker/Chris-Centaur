@@ -47,6 +47,7 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import {
   connectFunctionsEmulator,
@@ -103,6 +104,22 @@ export function firebaseInterfaceConfigFromEnv(
   };
 }
 
+// Read-back + finalization state for ONE turn of a watched game. Torn down
+// and rebuilt whenever the turn advances.
+interface TurnWatch {
+  turn: number;
+  endTimeMs: number;
+  // Per owned alive snake: listener on its privateMoves for this turn.
+  moveUnsubs: Unsubscribe[];
+  // Listener on moveStatuses/{turn} to catch all-players-committed.
+  statusUnsub: Unsubscribe | null;
+  // Fires shortly after the turn deadline to finalize by timeout.
+  finalizeTimer: NodeJS.Timeout | null;
+  // Latest server-acked staged move per owned snake (ts <= endTime).
+  confirmed: Map<string, { ts: number; direction: Direction }>;
+  finalized: boolean;
+}
+
 interface WatchedGame {
   sessionID: string;
   gameID: string;
@@ -110,6 +127,7 @@ interface WatchedGame {
   lastProcessedTurn: number;
   registered: boolean;
   latestDoc: TTGameStateDoc | null;
+  turnWatch: TurnWatch | null;
 }
 
 export class TacticToesFirebaseInterface {
@@ -199,6 +217,7 @@ export class TacticToesFirebaseInterface {
     this.invitesUnsubscribe?.();
     for (const game of this.watchedGames.values()) {
       game.unsubscribe();
+      this.teardownTurnWatch(game);
     }
     this.watchedGames.clear();
     if (this.app) await deleteApp(this.app);
@@ -216,6 +235,7 @@ export class TacticToesFirebaseInterface {
       lastProcessedTurn: -1,
       registered: false,
       latestDoc: null,
+      turnWatch: null,
       unsubscribe: onSnapshot(gameRef, (snapshot) => {
         const data = snapshot.data() as TTGameStateDoc | undefined;
         if (!data || !Array.isArray(data.turns) || data.turns.length === 0) return;
@@ -230,9 +250,19 @@ export class TacticToesFirebaseInterface {
 
   private unwatchGame(watched: WatchedGame): void {
     watched.unsubscribe();
+    this.teardownTurnWatch(watched);
     this.watchedGames.delete(watched.gameID);
     this.strategy.onGameEnd(watched.gameID);
     console.log(`[tt-firebase] Stopped watching game ${watched.gameID}`);
+  }
+
+  private teardownTurnWatch(watched: WatchedGame): void {
+    const tw = watched.turnWatch;
+    if (!tw) return;
+    tw.moveUnsubs.forEach((unsub) => unsub());
+    tw.statusUnsub?.();
+    if (tw.finalizeTimer) clearTimeout(tw.finalizeTimer);
+    watched.turnWatch = null;
   }
 
   private async onGameUpdate(watched: WatchedGame, data: TTGameStateDoc): Promise<void> {
@@ -305,6 +335,7 @@ export class TacticToesFirebaseInterface {
     if (aliveOurs.length === 0) {
       // All our snakes are dead but the game continues; nothing left to stage.
       // Keep watching so the UI still receives the final state at game end.
+      this.teardownTurnWatch(watched);
       return;
     }
 
@@ -314,6 +345,11 @@ export class TacticToesFirebaseInterface {
       data.setup.maxTurnTime * 1000,
       endTimeMs
     );
+
+    // Read-back + finalization for this turn: confirm what Firebase actually
+    // holds as each snake's staged move, and detect the turn's final
+    // selection (deadline or all-committed) before the next board arrives.
+    this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
 
     // One decision per controlled alive snake. setBotRecommendation stages the
     // resolved intent (manual > queue > waypoint > bot), and the manager's
@@ -348,6 +384,131 @@ export class TacticToesFirebaseInterface {
           timestamp: Date.now(),
         });
       }
+    }
+  }
+
+  // Sets up the per-turn read-back listeners and finalization triggers:
+  //  - one privateMoves listener per owned alive snake (playerID +
+  //    moveNumber equality query — the rules require the playerID filter),
+  //    reporting the latest server-acked write as the CONFIRMED staged move;
+  //  - a moveStatuses listener that finalizes when every alive player has
+  //    committed (early turn resolution);
+  //  - a deadline timer that finalizes shortly after endTime.
+  // Finalization reports each snake's confirmed staged move (ts <= endTime)
+  // as the turn's final selection — known before the next board arrives.
+  private beginTurnWatch(
+    watched: WatchedGame,
+    data: TTGameStateDoc,
+    turnNumber: number,
+    endTimeMs: number,
+    aliveOurs: string[]
+  ): void {
+    if (!this.db) return;
+    this.teardownTurnWatch(watched);
+
+    const tw: TurnWatch = {
+      turn: turnNumber,
+      endTimeMs,
+      moveUnsubs: [],
+      statusUnsub: null,
+      finalizeTimer: null,
+      confirmed: new Map(),
+      finalized: false,
+    };
+    watched.turnWatch = tw;
+
+    const movesCol = collection(
+      this.db,
+      `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`
+    );
+    const width = data.setup.boardWidth;
+    const turnData = data.turns[turnNumber];
+
+    for (const snakeId of aliveOurs) {
+      const headIndex = turnData.playerPieces[snakeId]?.[0];
+      if (headIndex === undefined) continue;
+      const q = query(
+        movesCol,
+        where('moveNumber', '==', turnNumber),
+        where('playerID', '==', snakeId)
+      );
+      tw.moveUnsubs.push(
+        onSnapshot(q, (snapshot) => {
+          // Latest SERVER-acked write wins (pending local writes have a null
+          // serverTimestamp and don't count as confirmation). Writes stamped
+          // after endTime are ignored — the game server ignores them too.
+          let best: { ts: number; direction: Direction } | null = null;
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data() as { move: number; timestamp: Timestamp | null };
+            const ts = d.timestamp instanceof Timestamp ? d.timestamp.toMillis() : null;
+            if (ts === null || ts > tw.endTimeMs) return;
+            if (best && ts <= best.ts) return;
+            const direction = moveIndexToDirection(headIndex, d.move, width);
+            if (direction) best = { ts, direction };
+          });
+          if (!best) return;
+          const chosen: { ts: number; direction: Direction } = best;
+          tw.confirmed.set(snakeId, chosen);
+          this.gameManager.setConfirmedStagedMove(
+            watched.gameID,
+            snakeId,
+            turnNumber,
+            chosen.direction
+          );
+        }, (err) => {
+          console.error(`[tt-firebase] privateMoves read-back failed for ${snakeId} turn ${turnNumber}:`, err);
+        })
+      );
+    }
+
+    // Early resolution: once every alive player has committed, the server
+    // processes the turn immediately — the staged moves at this instant are
+    // final.
+    tw.statusUnsub = onSnapshot(
+      doc(
+        this.db,
+        `sessions/${watched.sessionID}/games/${watched.gameID}/moveStatuses/${turnNumber}`
+      ),
+      (snapshot) => {
+        const status = snapshot.data() as { alivePlayerIDs?: string[]; movedPlayerIDs?: string[] } | undefined;
+        if (!status?.alivePlayerIDs || !status.movedPlayerIDs) return;
+        const moved = new Set(status.movedPlayerIDs);
+        if (status.alivePlayerIDs.every((id) => moved.has(id))) {
+          this.finalizeTurn(watched, tw, aliveOurs, 'all-committed');
+        }
+      },
+      (err) => {
+        console.error(`[tt-firebase] moveStatuses listener failed for turn ${turnNumber}:`, err);
+      }
+    );
+
+    // Deadline: after endTime (+ a small buffer for write stragglers) no new
+    // staged move can count, so the confirmed state is the final selection.
+    const FINALIZE_BUFFER_MS = 300;
+    const delay = Math.max(0, endTimeMs - Date.now() + FINALIZE_BUFFER_MS);
+    tw.finalizeTimer = setTimeout(() => {
+      this.finalizeTurn(watched, tw, aliveOurs, 'deadline');
+    }, delay);
+    tw.finalizeTimer.unref?.();
+  }
+
+  private finalizeTurn(
+    watched: WatchedGame,
+    tw: TurnWatch,
+    aliveOurs: string[],
+    reason: string
+  ): void {
+    if (tw.finalized || watched.turnWatch !== tw) return;
+    tw.finalized = true;
+    console.log(`[tt-firebase] Turn ${tw.turn} of ${watched.gameID} finalized (${reason})`);
+    for (const snakeId of aliveOurs) {
+      const confirmed = tw.confirmed.get(snakeId);
+      this.gameManager.finalizeTurnMove(
+        watched.gameID,
+        snakeId,
+        tw.turn,
+        confirmed?.direction ?? null
+      );
     }
   }
 

@@ -282,15 +282,95 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
 
     const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
     mgr.onMoveCommitted((_gameId, snakeId, move, source) => {
-      committed.push({ snakeId, move, source });
+      if (_gameId === gameId) committed.push({ snakeId, move, source });
     });
 
     mgr.applyResolvedMoves(gameId, 0, { A: 'up' });
 
-    // The queue advanced past the consumed cell and the UI was notified with
-    // the move the server actually applied.
+    // The queue advanced past the consumed cell. No move-committed
+    // notification fires here — the double arrow is driven by
+    // finalizeTurnMove, which happens earlier.
     expect(cs.intent.kind).toBe('queue');
     expect((cs.intent as { kind: 'queue'; cells: Coord[] }).cells).toEqual([{ x: 5, y: 7 }]);
-    expect(committed).toEqual([{ snakeId: 'A', move: 'up', source: 'server-resolved' }]);
+    expect(committed).toEqual([]);
+  });
+
+  test('pipeline: a matching Firebase confirmation ends the publish loop; no republish after the retry interval', () => {
+    const gameId = 'g-confirm-match';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    expect(publishedFor('A')).toHaveLength(1);
+
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    expect(cs.confirmedStaged).toEqual({ turn: 0, move: 'right' });
+
+    jest.advanceTimersByTime(3000);
+    expect(publishedFor('A')).toHaveLength(1); // no retry needed
+  });
+
+  test('pipeline: a mismatched confirmation (stale write won) triggers a republish via the backstop retry', () => {
+    const gameId = 'g-confirm-mismatch';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
+    mgr.setUserSelection(gameId, 'A', 'left');
+    expect(publishedFor('A').map((p) => p.move)).toEqual(['right', 'left']);
+
+    // Firebase confirms the OLD write — the requested 'left' is not what is
+    // staged. The backstop must clear the in-flight marker and republish.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    jest.advanceTimersByTime(1100);
+    expect(publishedFor('A').map((p) => p.move)).toEqual(['right', 'left', 'left']);
+
+    // Once the confirmation catches up, the loop stops.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'left');
+    jest.advanceTimersByTime(3000);
+    expect(publishedFor('A')).toHaveLength(3);
+  });
+
+  test('pipeline: a failed publish is retried by the backstop until confirmed', async () => {
+    const gameId = 'g-publish-fail';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+
+    let failures = 0;
+    mgr.setMoveSubmitter(async (gId, snakeId, turn, move, source) => {
+      if (failures < 1) {
+        failures++;
+        throw new Error('simulated network failure');
+      }
+      published.push({ gameId: gId, snakeId, turn, move, source });
+    });
+
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    await Promise.resolve(); // let the rejection handler run
+    expect(publishedFor('A')).toHaveLength(0);
+
+    jest.advanceTimersByTime(1100);
+    expect(publishedFor('A').map((p) => p.move)).toEqual(['right']);
+  });
+
+  test('finalizeTurnMove: fires the move-committed (double arrow) signal with the Firebase-selected move; null means no signal', () => {
+    const gameId = 'g-finalize';
+    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'left');
+
+    const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
+    mgr.onMoveCommitted((gId, snakeId, move, source) => {
+      if (gId === gameId) committed.push({ snakeId, move, source });
+    });
+
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    mgr.finalizeTurnMove(gameId, 'A', 0, 'right');
+    // B had nothing confirmed — no double arrow for it.
+    mgr.finalizeTurnMove(gameId, 'B', 0, null);
+    // Repeat finalization is a no-op.
+    mgr.finalizeTurnMove(gameId, 'A', 0, 'right');
+
+    expect(committed).toEqual([{ snakeId: 'A', move: 'right', source: 'firebase-final' }]);
+    const csA = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    expect(csA.finalMove).toEqual({ turn: 0, move: 'right' });
   });
 });
