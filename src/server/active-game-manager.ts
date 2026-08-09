@@ -26,13 +26,25 @@ export interface TurnData {
 // heuristic, suicide) funnels through stageMove, which invokes this submitter
 // so the staged move is immediately represented in Firebase. The game server
 // resolves each turn with the last staged move it received before the turn
-// deadline — there is no commit step on this side.
+// deadline — nothing on this side commits automatically.
 export type MoveSubmitter = (
   gameId: string,
   snakeId: string,
   turn: number,
   move: Direction,
   source: IntendedMoveSource
+) => Promise<void>;
+
+// The optional HUMAN-triggered "done" signal (Submit All): marks one snake as
+// finished for the turn in Firebase (moveStatuses.movedPlayerIDs), letting the
+// game server resolve the turn early once EVERY alive player has committed.
+// Never invoked automatically — only from an explicit user action. The staged
+// move itself is unaffected: whatever is staged at resolution time is what
+// plays, and a commit is irreversible for the turn.
+export type MoveCommitter = (
+  gameId: string,
+  snakeId: string,
+  turn: number
 ) => Promise<void>;
 
 export type IntendedMoveSource = 'manual' | 'queue' | 'waypoint' | 'bot' | 'fallback';
@@ -131,6 +143,9 @@ export interface ControlledSnake {
   // identical privateMoves writes.
   lastSubmittedTurn: number | null;
   lastSubmittedMove: Direction | null;
+  // Dedupe for the manual Submit All commit: the turn this snake was last
+  // marked done for, so repeated clicks don't spam moveStatuses writes.
+  lastCommittedTurn: number | null;
   // Dedupe for the fatal-move confirmation prompt: the (turn, move) we last
   // asked the user to confirm, so repeated re-stages within the same turn
   // don't spam the dialog.
@@ -222,11 +237,18 @@ export class ActiveGameManager {
   // the single source of truth for staged moves; until a submitter is wired,
   // staging actions log an error instead of silently staying local.
   private moveSubmitter: MoveSubmitter | null = null;
+  // Publisher for the human-triggered Submit All "done" signal. Optional and
+  // never invoked automatically.
+  private moveCommitter: MoveCommitter | null = null;
 
   private constructor() {}
 
   setMoveSubmitter(submitter: MoveSubmitter | null): void {
     this.moveSubmitter = submitter;
+  }
+
+  setMoveCommitter(committer: MoveCommitter | null): void {
+    this.moveCommitter = committer;
   }
 
   static getInstance(): ActiveGameManager {
@@ -446,6 +468,7 @@ export class ActiveGameManager {
         staged: null,
         lastSubmittedTurn: null,
         lastSubmittedMove: null,
+        lastCommittedTurn: null,
         fatalPromptTurn: null,
         fatalPromptMove: null,
       });
@@ -577,6 +600,47 @@ export class ActiveGameManager {
     }
     if (affected.length > 0) {
       console.log(`[ActiveGameManager] SUICIDE staged/armed for game ${gameId}: ${affected.join(', ')}`);
+    }
+    return { affected };
+  }
+
+  // Submit All: the human-triggered "we're done this turn" signal. For every
+  // controlled snake whose staged move is bound to the CURRENT turn, publish a
+  // moveStatuses commit to Firebase, letting the game server resolve the turn
+  // early once every alive player has committed. This does NOT touch the
+  // staged moves themselves — the last staged move still plays — and it is
+  // never called automatically: staging always writes through on its own, and
+  // an uncommitted snake simply rides the server's turn timer.
+  commitAllStaged(gameId: string): { affected: string[] } {
+    const game = this.games.get(gameId);
+    if (!game) return { affected: [] };
+
+    const affected: string[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      const staged = controlled.staged;
+      // Only commit snakes staged for the current turn — a stale record means
+      // this snake's decision for the new turn hasn't landed yet, and
+      // committing it would mark "done" on a move that no longer applies.
+      if (!staged || staged.turn !== game.boardStateTurn) continue;
+      if (controlled.lastCommittedTurn === staged.turn) continue;
+      controlled.lastCommittedTurn = staged.turn;
+      affected.push(snakeId);
+
+      if (this.moveCommitter) {
+        const committedTurn = staged.turn;
+        this.moveCommitter(gameId, snakeId, committedTurn).catch((err) => {
+          console.error(`[ActiveGameManager] Failed to publish commit for ${gameId}:${snakeId} turn ${committedTurn}:`, err);
+          // Allow a retry on the next Submit All for this turn.
+          if (controlled.lastCommittedTurn === committedTurn) {
+            controlled.lastCommittedTurn = null;
+          }
+        });
+      } else {
+        console.error(`[ActiveGameManager] No move committer wired — commit for ${gameId}:${snakeId} NOT published`);
+      }
+    }
+    if (affected.length > 0) {
+      console.log(`[ActiveGameManager] COMMIT-ALL for game ${gameId} turn ${game.boardStateTurn}: ${affected.join(', ')}`);
     }
     return { affected };
   }

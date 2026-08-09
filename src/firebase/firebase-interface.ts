@@ -36,6 +36,7 @@ import {
   Timestamp,
   Unsubscribe,
   addDoc,
+  arrayUnion,
   collection,
   connectFirestoreEmulator,
   doc,
@@ -45,6 +46,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import {
   connectFunctionsEmulator,
@@ -169,6 +171,10 @@ export class TacticToesFirebaseInterface {
       (gameId, snakeId, turn, move, source) =>
         this.publishStagedMove(gameId, snakeId, turn, move, source)
     );
+    // Wire the human-triggered Submit All commit (never called automatically).
+    this.gameManager.setMoveCommitter(
+      (gameId, snakeId, turn) => this.publishCommit(gameId, snakeId, turn)
+    );
 
     // Recent-first invite feed. Finished games are filtered out on first
     // snapshot of their game doc, so replaying a few stale invites is cheap.
@@ -189,6 +195,7 @@ export class TacticToesFirebaseInterface {
   async stop(): Promise<void> {
     this.stopped = true;
     this.gameManager.setMoveSubmitter(null);
+    this.gameManager.setMoveCommitter(null);
     this.invitesUnsubscribe?.();
     for (const game of this.watchedGames.values()) {
       game.unsubscribe();
@@ -410,5 +417,28 @@ export class TacticToesFirebaseInterface {
     console.log(
       `[tt-firebase] Staged ${move} (index ${moveIndex}, source ${source}) for ${snakeId} turn ${turn}`
     );
+  }
+
+  /**
+   * The MoveCommitter implementation for the human-triggered Submit All: adds
+   * the snake to moveStatuses.movedPlayerIDs so the game server can resolve
+   * the turn early once every alive player has committed. Firestore rules
+   * accept one owned snake per write, so multi-snake commits arrive as one
+   * write each. The staged move is untouched — whatever privateMoves holds at
+   * resolution time is what plays.
+   */
+  private async publishCommit(gameId: string, snakeId: string, turn: number): Promise<void> {
+    if (!this.db) throw new Error('Firebase interface not started');
+    const watched = this.watchedGames.get(gameId);
+    if (!watched) throw new Error(`Unknown game ${gameId}`);
+
+    await updateDoc(
+      doc(
+        this.db,
+        `sessions/${watched.sessionID}/games/${watched.gameID}/moveStatuses/${turn}`
+      ),
+      { movedPlayerIDs: arrayUnion(snakeId) }
+    );
+    console.log(`[tt-firebase] Committed ${snakeId} as done for turn ${turn}`);
   }
 }

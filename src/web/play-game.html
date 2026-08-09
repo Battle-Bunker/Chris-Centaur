@@ -424,6 +424,7 @@
               </span>
             </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
+              <button id="submitAllBtn" onclick="submitAll()" title="Mark all our snakes as done for this turn (writes the commit to Firebase). The turn can then end early once every player has committed. Staged moves are unaffected — whatever is staged when the turn resolves is what plays. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the Battlesnake engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
@@ -2301,6 +2302,14 @@
       }
     }
 
+    // Submit All: publish the "done this turn" commit for every snake to
+    // Firebase via the server. Staged moves are untouched; the turn may then
+    // resolve early once every player has committed.
+    function submitAll() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'commit-all-staged' }));
+    }
+
     function suicideAll() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const password = window.prompt("Enter password to confirm SUICIDE ALL:");
@@ -2357,6 +2366,15 @@
           e.preventDefault();
           hideFatalMoveDialog();
         }
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        // Submit All (mark our snakes done this turn). The confirm/takeover
+        // dialog branches above intercept Enter and return first, so this
+        // never fires while a dialog is open.
+        e.preventDefault();
+        submitAll();
         return;
       }
 
@@ -2656,7 +2674,7 @@
     // Strip every live-only affordance from the page. Used for finished games,
     // where there is nothing to control and no live turn to follow.
     function hideLiveOnlyChrome() {
-      ['suicideBtn', 'timerDisplay', 'pingDisplay', 'gameOverBanner']
+      ['submitAllBtn', 'suicideBtn', 'timerDisplay', 'pingDisplay', 'gameOverBanner']
         .forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';

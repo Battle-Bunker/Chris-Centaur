@@ -407,6 +407,17 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'commit-all-staged': {
+        // Submit All — the human-triggered "done this turn" signal. Publishes
+        // a moveStatuses commit to Firebase for every snake staged for the
+        // current turn, so the game server can resolve the turn early once
+        // every player has committed. Staged moves are untouched.
+        if (!client.gameId || !client.userId) break;
+        this.gameManager.commitAllStaged(client.gameId);
+        this.broadcastSelectionsUpdate(client.gameId);
+        break;
+      }
+
       case 'suicide-all': {
         if (!client.gameId || !client.userId) break;
         // The shared secret is stored as a SHA-512 hash so the plaintext

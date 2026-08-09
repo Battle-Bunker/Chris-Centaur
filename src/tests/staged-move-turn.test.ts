@@ -237,6 +237,38 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(publishedFor('B')).toHaveLength(publishesBefore);
   });
 
+  test('Submit All: commitAllStaged publishes a done-signal per current-turn snake, deduped per turn, skipping stale records', () => {
+    const gameId = 'g-commit-all';
+    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
+    const commits: Array<{ snakeId: string; turn: number }> = [];
+    mgr.setMoveCommitter(async (_gameId, snakeId, turn) => {
+      commits.push({ snakeId, turn });
+    });
+
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'left');
+
+    // Both snakes staged for turn 0 → both committed, one write each.
+    expect(mgr.commitAllStaged(gameId).affected.sort()).toEqual(['A', 'B']);
+    expect(commits).toEqual([{ snakeId: 'A', turn: 0 }, { snakeId: 'B', turn: 0 }]);
+
+    // Repeat click: deduped, no further writes.
+    expect(mgr.commitAllStaged(gameId).affected).toEqual([]);
+    expect(commits).toHaveLength(2);
+
+    // A advances to turn 1; B's staged record is still bound to turn 0 and
+    // must be SKIPPED (committing it would mark "done" on a stale decision).
+    processTurn(gameId, 'A', snakes, 1, 'up');
+    expect(mgr.commitAllStaged(gameId).affected).toEqual(['A']);
+    expect(commits[2]).toEqual({ snakeId: 'A', turn: 1 });
+
+    // Committing never touches the staged moves themselves.
+    const csA = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    expect(csA.staged?.move).toBe('up');
+
+    mgr.setMoveCommitter(null);
+  });
+
   test('applyResolvedMoves: bookkeeping only — advances the premove queue with the server\'s actual move, publishes nothing new for the resolved turn', () => {
     const gameId = 'g-resolve';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
