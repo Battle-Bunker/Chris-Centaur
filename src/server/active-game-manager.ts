@@ -159,7 +159,14 @@ export interface ControlledSnake {
   stagingRetryTimer: NodeJS.Timeout | null;
   // Dedupe for the manual Submit All commit: the turn this snake was last
   // marked done for, so repeated clicks don't spam moveStatuses writes.
+  // Commitment is BINDING (Firestore rules freeze a committed snake's staged
+  // move), so this also gates staging: no re-stage for a committed turn.
   lastCommittedTurn: number | null;
+  // Submit All arrived while the requested move was still unconfirmed: the
+  // commit is deferred and fires automatically the moment Firebase confirms
+  // the requested move, so the frozen move is always the one the user asked
+  // for. Cancelled if the user re-stages a different move first.
+  pendingCommitTurn: number | null;
   // Dedupe for the fatal-move confirmation prompt: the (turn, move) we last
   // asked the user to confirm, so repeated re-stages within the same turn
   // don't spam the dialog.
@@ -486,6 +493,7 @@ export class ActiveGameManager {
         lastSubmittedMove: null,
         stagingRetryTimer: null,
         lastCommittedTurn: null,
+        pendingCommitTurn: null,
         fatalPromptTurn: null,
         fatalPromptMove: null,
       });
@@ -621,13 +629,14 @@ export class ActiveGameManager {
     return { affected };
   }
 
-  // Submit All: the human-triggered "we're done this turn" signal. For every
-  // controlled snake whose staged move is bound to the CURRENT turn, publish a
-  // moveStatuses commit to Firebase, letting the game server resolve the turn
-  // early once every alive player has committed. This does NOT touch the
-  // staged moves themselves — the last staged move still plays — and it is
-  // never called automatically: staging always writes through on its own, and
-  // an uncommitted snake simply rides the server's turn timer.
+  // Submit All: the human-triggered "we're done this turn" signal. Commitment
+  // is BINDING — Firestore rules freeze a committed snake's staged move for
+  // the turn — so a snake is only committed once the move Firebase has
+  // CONFIRMED is the requested one; committing earlier could freeze a stale
+  // move mid-flight. Snakes whose request is still unconfirmed get a pending
+  // commit that fires automatically the moment their confirmation lands
+  // (setConfirmedStagedMove), keeping Submit All one click without ever
+  // freezing the wrong move. Never called automatically.
   commitAllStaged(gameId: string): { affected: string[] } {
     const game = this.games.get(gameId);
     if (!game) return { affected: [] };
@@ -640,26 +649,45 @@ export class ActiveGameManager {
       // committing it would mark "done" on a move that no longer applies.
       if (!staged || staged.turn !== game.boardStateTurn) continue;
       if (controlled.lastCommittedTurn === staged.turn) continue;
-      controlled.lastCommittedTurn = staged.turn;
       affected.push(snakeId);
 
-      if (this.moveCommitter) {
-        const committedTurn = staged.turn;
-        this.moveCommitter(gameId, snakeId, committedTurn).catch((err) => {
-          console.error(`[ActiveGameManager] Failed to publish commit for ${gameId}:${snakeId} turn ${committedTurn}:`, err);
-          // Allow a retry on the next Submit All for this turn.
-          if (controlled.lastCommittedTurn === committedTurn) {
-            controlled.lastCommittedTurn = null;
-          }
-        });
-      } else {
-        console.error(`[ActiveGameManager] No move committer wired — commit for ${gameId}:${snakeId} NOT published`);
+      const confirmed =
+        controlled.confirmedStaged?.turn === staged.turn &&
+        controlled.confirmedStaged.move === staged.move;
+      if (confirmed) {
+        this.commitSnakeNow(gameId, snakeId, controlled, staged.turn);
+      } else if (controlled.pendingCommitTurn !== staged.turn) {
+        controlled.pendingCommitTurn = staged.turn;
+        console.log(`[ActiveGameManager] COMMIT deferred for ${gameId}:${snakeId} turn ${staged.turn} — waiting for Firebase to confirm ${staged.move}`);
       }
     }
     if (affected.length > 0) {
       console.log(`[ActiveGameManager] COMMIT-ALL for game ${gameId} turn ${game.boardStateTurn}: ${affected.join(', ')}`);
     }
     return { affected };
+  }
+
+  private commitSnakeNow(
+    gameId: string,
+    snakeId: string,
+    controlled: ControlledSnake,
+    turn: number
+  ): void {
+    if (controlled.lastCommittedTurn === turn) return;
+    controlled.lastCommittedTurn = turn;
+    controlled.pendingCommitTurn = null;
+
+    if (this.moveCommitter) {
+      this.moveCommitter(gameId, snakeId, turn).catch((err) => {
+        console.error(`[ActiveGameManager] Failed to publish commit for ${gameId}:${snakeId} turn ${turn}:`, err);
+        // Allow a retry on the next Submit All for this turn.
+        if (controlled.lastCommittedTurn === turn) {
+          controlled.lastCommittedTurn = null;
+        }
+      });
+    } else {
+      console.error(`[ActiveGameManager] No move committer wired — commit for ${gameId}:${snakeId} NOT published`);
+    }
   }
 
   // Per-snake ownership snapshot broadcast to every client: the owning
@@ -1253,6 +1281,14 @@ export class ActiveGameManager {
     const intended = this.computeIntendedMove(gameId, snakeId);
     const turn = game!.boardStateTurn;
 
+    // Commitment is binding: Firestore rules reject staged writes for a
+    // committed snake, so once this turn is committed the staged record is
+    // frozen — intent changes still land but only apply from the next turn.
+    if (controlled.lastCommittedTurn === turn) {
+      console.log(`[ActiveGameManager] Staging frozen for ${gameId}:${snakeId} turn ${turn} (committed) — ${intended.source} ${intended.direction} not staged`);
+      return;
+    }
+
     // ── Fatal-move consent gate ─────────────────────────────────────────
     // A HUMAN-sourced certain-death move (manual click, queue step, waypoint
     // step) may only be staged when it carries a minted FatalMoveConsent.
@@ -1277,6 +1313,13 @@ export class ActiveGameManager {
         direction = 'up';
         source = 'fallback';
       }
+    }
+
+    // A new request supersedes a not-yet-fired deferred commit: the user is
+    // no longer "done" with the move they submitted.
+    if (controlled.pendingCommitTurn === turn && previous?.move !== direction) {
+      console.log(`[ActiveGameManager] Deferred commit for ${gameId}:${snakeId} turn ${turn} cancelled — new staging ${direction} supersedes it`);
+      controlled.pendingCommitTurn = null;
     }
 
     controlled.staged = {
@@ -1333,6 +1376,13 @@ export class ActiveGameManager {
     // The turn already finalized — Firebase picked its move; late publishes
     // can't change anything.
     if (controlled.finalMove?.turn === requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // Committed this turn — the rules now reject staged writes for this
+    // snake, so publishing (or retrying) is pointless.
+    if (controlled.lastCommittedTurn === requested.turn) {
       clearRetry();
       return;
     }
@@ -1412,6 +1462,18 @@ export class ActiveGameManager {
     if (controlled.confirmedStaged?.turn === turn && controlled.confirmedStaged.move === move) return;
     controlled.confirmedStaged = { turn, move };
     this.ensureStagedPublished(gameId, snakeId);
+
+    // A deferred Submit All fires the moment the requested move is the
+    // confirmed one — the freeze then provably locks the user's move.
+    if (
+      controlled.pendingCommitTurn === turn &&
+      controlled.staged?.turn === turn &&
+      controlled.staged.move === move
+    ) {
+      console.log(`[ActiveGameManager] Deferred commit firing for ${gameId}:${snakeId} turn ${turn} (${move} confirmed)`);
+      this.commitSnakeNow(gameId, snakeId, controlled, turn);
+    }
+
     this.notifyStagedChange(gameId);
   }
 

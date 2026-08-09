@@ -33,11 +33,17 @@ staged moves.
   advance without a double arrow. The game server resolves each turn with
   the **last staged move received before the turn deadline**; nothing is
   committed automatically.
-- **Submit All (manual commit).** The UI's Submit All button (or Enter) marks
-  every snake staged for the current turn as *done* in Firebase
+- **Submit All (manual commit, binding).** The UI's Submit All button (or
+  Enter) marks every snake staged for the current turn as *done* in Firebase
   (`moveStatuses.movedPlayerIDs`), letting the game server resolve the turn
-  early once every alive player has committed. It never fires on its own,
-  it doesn't change what is staged, and it can't be undone for the turn.
+  early once every alive player has committed. Commitment is **binding**:
+  the Firestore rules reject any further staging for a committed snake, so
+  its confirmed move at commit time is guaranteed to play. To never freeze
+  the wrong move, a snake commits immediately only when its requested move
+  is already Firebase-confirmed; otherwise the commit defers and fires
+  automatically the instant the confirmation lands (and is cancelled if you
+  stage a different move first). It never fires on its own and can't be
+  undone for the turn.
 - **Centaur play.** The web UI (served on `PORT`, default 5000, at `/play`)
   lets humans select snakes, stage exact moves, draw premove paths and
   waypoints, or leave snakes on bot auto-pilot. Whatever the human does is the

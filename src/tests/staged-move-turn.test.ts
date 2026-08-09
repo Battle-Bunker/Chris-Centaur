@@ -237,7 +237,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(publishedFor('B')).toHaveLength(publishesBefore);
   });
 
-  test('Submit All: commitAllStaged publishes a done-signal per current-turn snake, deduped per turn, skipping stale records', () => {
+  test('Submit All: commits only Firebase-confirmed requests immediately; unconfirmed ones defer until their confirmation lands', () => {
     const gameId = 'g-commit-all';
     const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
     const commits: Array<{ snakeId: string; turn: number }> = [];
@@ -247,9 +247,17 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
 
     processTurn(gameId, 'A', snakes, 0, 'right');
     processTurn(gameId, 'B', snakes, 0, 'left');
+    // Only A's request is confirmed at click time.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
 
-    // Both snakes staged for turn 0 → both committed, one write each.
+    // Both are "affected" (the user's intent covers both), but only A's
+    // commit publishes now — committing B before confirmation could freeze a
+    // stale move, since commitment is binding under the Firestore rules.
     expect(mgr.commitAllStaged(gameId).affected.sort()).toEqual(['A', 'B']);
+    expect(commits).toEqual([{ snakeId: 'A', turn: 0 }]);
+
+    // B's confirmation lands → its deferred commit fires automatically.
+    mgr.setConfirmedStagedMove(gameId, 'B', 0, 'left');
     expect(commits).toEqual([{ snakeId: 'A', turn: 0 }, { snakeId: 'B', turn: 0 }]);
 
     // Repeat click: deduped, no further writes.
@@ -259,12 +267,70 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     // A advances to turn 1; B's staged record is still bound to turn 0 and
     // must be SKIPPED (committing it would mark "done" on a stale decision).
     processTurn(gameId, 'A', snakes, 1, 'up');
+    mgr.setConfirmedStagedMove(gameId, 'A', 1, 'up');
     expect(mgr.commitAllStaged(gameId).affected).toEqual(['A']);
     expect(commits[2]).toEqual({ snakeId: 'A', turn: 1 });
 
     // Committing never touches the staged moves themselves.
     const csA = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     expect(csA.staged?.move).toBe('up');
+
+    mgr.setMoveCommitter(null);
+  });
+
+  test('Submit All: a deferred commit is cancelled when the user stages a different move first', () => {
+    const gameId = 'g-commit-cancel';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const commits: Array<{ snakeId: string; turn: number }> = [];
+    mgr.setMoveCommitter(async (_gameId, snakeId, turn) => {
+      commits.push({ snakeId, turn });
+    });
+
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
+
+    // Submit All while 'right' is unconfirmed → deferred.
+    mgr.commitAllStaged(gameId);
+    expect(cs.pendingCommitTurn).toBe(0);
+
+    // The user changes their mind before confirmation — no longer "done".
+    mgr.setUserSelection(gameId, 'A', 'left');
+    expect(cs.pendingCommitTurn).toBeNull();
+
+    // The old move's confirmation arriving must NOT fire the cancelled commit.
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    expect(commits).toEqual([]);
+
+    mgr.setMoveCommitter(null);
+  });
+
+  test('binding commitment: staging is frozen for a committed turn (no restage, no publish) and thaws on the next turn', () => {
+    const gameId = 'g-commit-freeze';
+    const snakes = [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 8, y: 8 })];
+    mgr.setMoveCommitter(async () => undefined);
+
+    processTurn(gameId, 'A', snakes, 0, 'right');
+    processTurn(gameId, 'B', snakes, 0, 'left');
+    mgr.setConfirmedStagedMove(gameId, 'A', 0, 'right');
+    mgr.commitAllStaged(gameId);
+
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    cs.selectedBy = 'u1';
+    expect(cs.lastCommittedTurn).toBe(0);
+    const publishesBefore = publishedFor('A').length;
+
+    // Post-commit manual staging: the Firestore rules would reject the write,
+    // so the manager freezes the staged record and publishes nothing.
+    mgr.setUserSelection(gameId, 'A', 'up');
+    expect(cs.staged?.move).toBe('right');
+    expect(publishedFor('A')).toHaveLength(publishesBefore);
+
+    // The next turn thaws staging (B advances the board, then A's own intake).
+    processTurn(gameId, 'B', snakes, 1, 'down');
+    processTurn(gameId, 'A', snakes, 1, 'down');
+    expect(cs.staged?.turn).toBe(1);
+    expect(cs.staged?.move).toBe('down');
 
     mgr.setMoveCommitter(null);
   });
