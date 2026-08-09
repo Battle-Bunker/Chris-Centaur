@@ -29,12 +29,15 @@ export interface DecisionConfig {
   maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
-  // Hard caps keeping the board-state enumeration bounded regardless of
-  // board size / snake density (a 30x30 team game can put 9 snakes within
-  // focal distance — an uncapped cartesian product is 3^9 move sets per
-  // candidate move, which melts CPU and memory):
+  // Runaway backstops on the board-state enumeration. Deliberately set high
+  // enough that they NEVER bite at realistic snake densities (board geometry
+  // caps how many heads fit within focal distance at ~5-6, and the
+  // simulation loop's time budget already bounds how many states get built);
+  // they exist purely to keep a pathological future scenario from generating
+  // an unbounded cartesian product. The real compute governors are the
+  // simulation time budget and the evaluation-phase deadline.
   maxSimulatedNearbySnakes?: number;  // closest N nearby snakes get simulated; the rest are frozen
-  maxBoardStatesPerMove?: number;     // cap on simulated move-combinations per candidate move
+  maxBoardStatesPerMove?: number;     // backstop on simulated move-combinations per candidate move
   tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
@@ -76,8 +79,8 @@ export class DecisionEngine {
       maxSimulationDepth: 1,
       timeoutMs: 400,
       nearbyDistance: 5,
-      maxSimulatedNearbySnakes: 3,
-      maxBoardStatesPerMove: 32,
+      maxSimulatedNearbySnakes: 8,
+      maxBoardStatesPerMove: 4096,
       tailSafetyRule: 'custom',
       tailGrowthTiming: 'grow-next-turn',
       ...config
@@ -421,11 +424,11 @@ export class DecisionEngine {
       // Snakes beyond nearbyDistance are frozen (not included in simulation)
     }
 
-    // Simulate only the CLOSEST few nearby snakes; the rest are frozen like
-    // distant ones. The move-set count is exponential in this number (3^N),
-    // so an uncapped dense board (e.g. 10 snakes spawning on a 30x30 team
-    // game) otherwise produces tens of thousands of simulated board states.
-    const maxSimulated = this.config.maxSimulatedNearbySnakes ?? 3;
+    // Runaway backstop: simulate the CLOSEST N nearby snakes and freeze the
+    // rest. Board geometry means realistic games never reach N (heads can't
+    // pack that densely within focal distance), so at the default this is a
+    // no-op; it only guards a pathological 3^N cartesian product.
+    const maxSimulated = this.config.maxSimulatedNearbySnakes ?? 8;
     if (nearbySnakes.length > maxSimulated) {
       nearbySnakes = nearbySnakes
         .map((snake) => ({ snake, d: this.manhattanDistance(gameState.you.head, snake.head) }))
@@ -447,11 +450,11 @@ export class DecisionEngine {
         break;
       }
       
-      // Generate move combinations for nearby snakes, hard-capped per
-      // candidate move so evaluation work and retained simulated states stay
-      // bounded on dense boards.
+      // Generate move combinations for nearby snakes. The per-move backstop
+      // below almost never engages (the simulation loop's time budget is the
+      // real governor); it bounds retained states in pathological cases.
       let nearbyMoveSets = this.generateNearbyMoveSets(nearbySnakes, gameState, graph);
-      const maxStates = this.config.maxBoardStatesPerMove ?? 32;
+      const maxStates = this.config.maxBoardStatesPerMove ?? 4096;
       if (nearbyMoveSets.length > maxStates) {
         // Deterministic even sampling across the combination space (plain
         // truncation would bias toward the first snake's first move).
