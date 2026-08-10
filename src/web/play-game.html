@@ -543,6 +543,7 @@
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
+  <script src="/firebase-status-banner.js"></script>
   <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
   <script>
@@ -1342,6 +1343,10 @@
 
         case 'pong':
           handlePongSample(msg);
+          break;
+
+        case 'firebase-status':
+          window.FirebaseStatusBanner?.set(msg.status);
           break;
 
         case 'snake-ended': {

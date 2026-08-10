@@ -100,6 +100,9 @@ const ttFirebase = ttFirebaseConfig
   ? new TacticToesFirebaseInterface(voronoiStrategy, ttFirebaseConfig)
   : null;
 if (ttFirebase) {
+  // Attach the status listener BEFORE start() so a failure during the initial
+  // (async) connect is captured and pushed to the UI, not lost.
+  ttFirebase.onStatusChange((status) => wsServer.broadcastFirebaseStatus(status));
   ttFirebase.start().catch((err) => {
     console.error('[tt-firebase] Failed to start Firebase interface:', err);
   });
@@ -110,6 +113,43 @@ if (ttFirebase) {
     '(see README.md). Serving the web UI only.'
   );
 }
+
+// Firebase connection status surface: the bot is nonfunctional without its
+// Firebase connection, so the web UI shows a red banner (with a Retry button)
+// whenever it is down. Status changes are pushed over the WebSocket; these
+// endpoints cover initial page load and the retry action.
+const NOT_CONFIGURED_STATUS = {
+  state: 'not_configured',
+  error:
+    'TACTICTOES_* environment variables are missing — the bot cannot connect to Firebase.',
+  since: Date.now(),
+};
+if (!ttFirebase) {
+  wsServer.broadcastFirebaseStatus(NOT_CONFIGURED_STATUS);
+}
+
+app.get('/api/firebase-status', (_req, res) => {
+  res.json(ttFirebase ? ttFirebase.getStatus() : NOT_CONFIGURED_STATUS);
+});
+
+// Cooldown: retryConnect() already joins any in-flight attempt, but a public
+// unauthenticated endpoint should not let outsiders force back-to-back
+// Firebase sign-ins. One attempt per 10s is plenty for a human operator.
+let lastRetryAt = 0;
+app.post('/api/firebase-retry', async (_req, res) => {
+  if (!ttFirebase) {
+    res.status(409).json(NOT_CONFIGURED_STATUS);
+    return;
+  }
+  const now = Date.now();
+  if (now - lastRetryAt < 10_000) {
+    res.status(429).json(ttFirebase.getStatus());
+    return;
+  }
+  lastRetryAt = now;
+  const status = await ttFirebase.retryConnect();
+  res.json(status);
+});
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);

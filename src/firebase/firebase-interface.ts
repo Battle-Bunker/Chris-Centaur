@@ -165,6 +165,14 @@ interface WatchedGame {
   lastSnapshotMs: number;
 }
 
+export type FirebaseConnState = 'connecting' | 'connected' | 'error';
+
+export interface FirebaseStatus {
+  state: FirebaseConnState;
+  error: string | null;
+  since: number;
+}
+
 export class TacticToesFirebaseInterface {
   private app: FirebaseApp | null = null;
   private auth: Auth | null = null;
@@ -181,13 +189,83 @@ export class TacticToesFirebaseInterface {
   private readonly gameLogger = new GameLogger();
   private readonly quickAnalyzer = new MoveAnalyzer('custom');
 
+  // Connection status surfaced to the web UI (banner + /api/firebase-status).
+  // The bot is nonfunctional without Firebase, so operators must be able to
+  // see (and retry) a failed connection without shelling into the server.
+  private connState: FirebaseConnState = 'connecting';
+  private connError: string | null = null;
+  private connSince: number = Date.now();
+  private statusListener: ((status: FirebaseStatus) => void) | null = null;
+  // Single in-flight connect/rebuild operation; retryConnect() joins it
+  // rather than racing a second sign-in.
+  private connectOp: Promise<void> | null = null;
+
   constructor(
     private readonly strategy: VoronoiStrategy,
     private readonly config: FirebaseInterfaceConfig
   ) {}
 
+  getStatus(): FirebaseStatus {
+    return { state: this.connState, error: this.connError, since: this.connSince };
+  }
+
+  onStatusChange(listener: (status: FirebaseStatus) => void): void {
+    this.statusListener = listener;
+  }
+
+  private setStatus(state: FirebaseConnState, error: string | null = null): void {
+    if (state === this.connState && error === this.connError) return;
+    this.connState = state;
+    this.connError = error;
+    this.connSince = Date.now();
+    this.statusListener?.(this.getStatus());
+  }
+
+  /**
+   * Operator-triggered reconnect (banner Retry button). If the initial
+   * start() never succeeded there is no watchdog/listener state to preserve,
+   * so run start() again; otherwise reuse the rebuildClient() recovery path.
+   * Never throws — the resulting status carries the failure.
+   */
+  async retryConnect(): Promise<FirebaseStatus> {
+    if (this.stopped || this.connState === 'connected') {
+      return this.getStatus();
+    }
+    // If a rebuild or start is already in flight (watchdog or a concurrent
+    // retry), join it instead of racing a second one.
+    if (this.connectOp) {
+      await this.connectOp.catch(() => undefined);
+      return this.getStatus();
+    }
+    try {
+      if (this.watchdogTimer) {
+        await this.rebuildClient();
+      } else {
+        await this.start();
+      }
+    } catch {
+      // status already set to 'error' by start()/rebuildClient()
+    }
+    return this.getStatus();
+  }
+
   async start(): Promise<void> {
-    await this.initClient();
+    const op = (async () => {
+      this.setStatus('connecting');
+      await this.initClient();
+    })();
+    this.connectOp = op.finally(() => {
+      this.connectOp = null;
+    });
+    try {
+      await op;
+    } catch (err) {
+      this.setStatus('error', String((err as Error)?.message || err));
+      // Tear down the partially initialized app so a retry starts from a
+      // clean slate instead of leaking one Firebase app per attempt.
+      this.teardownClient();
+      throw err;
+    }
 
     // Listener watchdog: if a watched game's doc listener goes quiet for
     // longer than the staleness window, the stream died without the error
@@ -256,6 +334,7 @@ export class TacticToesFirebaseInterface {
     const { data } = await exchange({ botId: config.botId, apiKey: config.botApiKey });
     await signInWithCustomToken(this.auth, data.customToken);
     console.log(`[tt-firebase] Signed in as bot:${config.botId}`);
+    this.setStatus('connected');
 
     // Wire the write-through publisher: every staging action in the manager
     // lands in Firestore as a privateMoves write.
@@ -275,13 +354,42 @@ export class TacticToesFirebaseInterface {
       orderBy('createdAt', 'desc'),
       limit(20)
     );
-    this.invitesUnsubscribe = onSnapshot(invitesQuery, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type !== 'added') return;
-        const invite = change.doc.data() as TTGameInvite;
-        this.watchGame(invite.sessionID, invite.gameID);
-      });
-    });
+    this.invitesUnsubscribe = onSnapshot(
+      invitesQuery,
+      (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type !== 'added') return;
+          const invite = change.doc.data() as TTGameInvite;
+          this.watchGame(invite.sessionID, invite.gameID);
+        });
+      },
+      (err) => {
+        // Terminal invite-stream failure. The game-doc watchdog only covers
+        // watched games — with zero live games a dead invite feed would
+        // otherwise leave the bot blind forever while reporting 'connected'.
+        console.error('[tt-firebase] Invite listener failed:', err);
+        this.setStatus('error', `Invite listener failed: ${String((err as Error)?.message || err)}`);
+        if (!this.stopped) {
+          setTimeout(() => {
+            if (!this.stopped && this.connState === 'error') void this.rebuildClient();
+          }, 5_000).unref?.();
+        }
+      }
+    );
+  }
+
+  /** Best-effort teardown of the current Firebase app stack. */
+  private teardownClient(): void {
+    this.invitesUnsubscribe?.();
+    this.invitesUnsubscribe = null;
+    const oldApp = this.app;
+    this.app = null;
+    this.auth = null;
+    this.db = null;
+    if (oldApp) {
+      // Deleting a wedged app can itself hang; don't let it block anything.
+      void deleteApp(oldApp).catch(() => {});
+    }
   }
 
   /**
@@ -292,26 +400,24 @@ export class TacticToesFirebaseInterface {
    * an immediate catch-up to the turns we went blind for.
    */
   private async rebuildClient(): Promise<void> {
-    if (this.rebuilding || this.stopped) return;
+    if (this.rebuilding || this.stopped) {
+      // Join an in-flight rebuild instead of silently returning, so
+      // retryConnect() reports the real outcome.
+      if (this.connectOp) await this.connectOp.catch(() => undefined);
+      return;
+    }
     this.rebuilding = true;
     console.warn('[tt-firebase] Listener starvation persisted after resubscribe — rebuilding Firebase client');
+    let resolveOp: () => void = () => {};
+    this.connectOp = new Promise<void>((r) => { resolveOp = r; });
     try {
-      this.invitesUnsubscribe?.();
-      this.invitesUnsubscribe = null;
+      this.setStatus('connecting');
       for (const watched of this.watchedGames.values()) {
         watched.unsubscribe();
         watched.unsubscribe = () => {};
         this.teardownTurnWatch(watched);
       }
-      const oldApp = this.app;
-      this.app = null;
-      this.auth = null;
-      this.db = null;
-      if (oldApp) {
-        // Best-effort: deleting a wedged app can itself hang; don't let it
-        // block recovery.
-        void deleteApp(oldApp).catch(() => {});
-      }
+      this.teardownClient();
 
       await this.initClient();
 
@@ -322,6 +428,7 @@ export class TacticToesFirebaseInterface {
       console.warn('[tt-firebase] Firebase client rebuilt; listeners restored');
     } catch (err) {
       console.error('[tt-firebase] Client rebuild failed (will retry on next starvation):', err);
+      this.setStatus('error', String((err as Error)?.message || err));
       // Push the starvation clocks forward so the watchdog waits a full
       // window before retrying the rebuild.
       for (const watched of this.watchedGames.values()) {
@@ -329,6 +436,8 @@ export class TacticToesFirebaseInterface {
       }
     } finally {
       this.rebuilding = false;
+      this.connectOp = null;
+      resolveOp();
     }
   }
 

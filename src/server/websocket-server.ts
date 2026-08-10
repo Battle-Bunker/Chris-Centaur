@@ -69,6 +69,16 @@ export class GameWebSocketServer {
   // of every sweep tick, so changing `idleTimeoutMinutes` on the /config page
   // takes effect within one sweep interval (~1 minute) without a redeploy.
   private idleTimeoutMs: number = DEFAULT_CONFIG.idleTimeoutMinutes * 60 * 1000;
+  // Last known Firebase connection status; replayed to every new connection
+  // and re-broadcast on change (drives the red error banner in the web UI).
+  private latestFirebaseStatus: unknown = null;
+
+  broadcastFirebaseStatus(status: unknown): void {
+    this.latestFirebaseStatus = status;
+    for (const client of this.clients) {
+      this.send(client.ws, { type: 'firebase-status', status });
+    }
+  }
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
@@ -114,6 +124,12 @@ export class GameWebSocketServer {
       // Hand the server-assigned conn id to the client so it can be echoed back
       // on debug POSTs. Lets us correlate server/client timelines deterministically.
       this.send(ws, { type: 'debug-hello', connId });
+
+      // Push the current Firebase connection status so a page that loaded
+      // while the bot was down shows the banner immediately (no polling).
+      if (this.latestFirebaseStatus) {
+        this.send(ws, { type: 'firebase-status', status: this.latestFirebaseStatus });
+      }
 
       ws.on('message', (data: Buffer) => {
         try {
