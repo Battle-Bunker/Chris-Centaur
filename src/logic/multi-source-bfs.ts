@@ -85,6 +85,33 @@ export interface BFSOptions {
 }
 
 
+/** Territory cell lists as a plain JSON-serializable object (UI/log shape). */
+export function territoryCellsToObject(result: BFSResult): { [snakeId: string]: Coord[] } {
+  const obj: { [snakeId: string]: Coord[] } = {};
+  for (const [snakeId, cells] of result.territoryCells) {
+    obj[snakeId] = cells;
+  }
+  return obj;
+}
+
+/**
+ * Build the serializable CellOwnership snapshot from a BFS result. The single
+ * construction path for every ownership payload (current-board and projected),
+ * so the wire shape and vacate-turn sourcing can never drift between them.
+ */
+export function toCellOwnership(result: BFSResult, sources: BFSSource[], graph: BoardGraph): CellOwnership {
+  const vacatesAt = new Array<number>(graph.cellCount);
+  for (let idx = 0; idx < graph.cellCount; idx++) vacatesAt[idx] = graph.physicalVacateTurn(idx);
+  return {
+    width: graph.boardWidth,
+    height: graph.boardHeight,
+    sources: sources.map(s => s.id),
+    owner: Array.from(result.ownerIndex),
+    distance: Array.from(result.distanceIndex),
+    vacatesAt,
+  };
+}
+
 export class MultiSourceBFS {
   private graph: BoardGraph;
 

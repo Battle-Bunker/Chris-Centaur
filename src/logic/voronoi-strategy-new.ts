@@ -11,7 +11,7 @@ import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { BoardGraph } from './board-graph';
-import { MultiSourceBFS, BFSSource, CellOwnership } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
 
 // The debug/UI payload every strategy decision resolves to.
 export interface StrategyResult {
@@ -180,7 +180,7 @@ export class VoronoiStrategy {
     // Log turn info to console
     this.logTurnInfo(gameState, decision);
 
-    return this.assembleDebugResult(gameState, teamSnakeIds, decision);
+    return this.assembleDebugResult(gameState, decision);
   }
 
   /**
@@ -216,7 +216,7 @@ export class VoronoiStrategy {
 
     this.logTurnInfo(gameState, decision);
 
-    return this.assembleDebugResult(gameState, teamSnakeIds, decision);
+    return this.assembleDebugResult(gameState, decision);
   }
 
   /**
@@ -224,11 +224,47 @@ export class VoronoiStrategy {
    * for the UI/database, computes current-board territory, logs the decision
    * (non-blocking), and returns the strategy result payload.
    */
-  private assembleDebugResult(
-    gameState: GameState,
-    teamSnakeIds: Set<string>,
-    decision: MoveDecision
-  ): StrategyResult {
+  // Cache of the current-board Voronoi keyed by `${gameId}:${turn}`: the five
+  // controlled snakes' decisions for a turn all describe the same board, so
+  // the first one computes and the rest reuse. Small LRU (games can overlap).
+  private boardVoronoiCache = new Map<string, { territoryCells: { [snakeId: string]: { x: number; y: number }[] }; cellOwnership: CellOwnership }>();
+  private static readonly MAX_VORONOI_CACHE_ENTRIES = 8;
+
+  private currentBoardVoronoi(gameState: GameState, graph: BoardGraph) {
+    const key = `${gameState.game.id}:${gameState.turn}`;
+    const cached = this.boardVoronoiCache.get(key);
+    if (cached) return cached;
+
+    const sources: BFSSource[] = gameState.board.snakes
+      .filter(s => s.health > 0)
+      .map(s => ({
+        id: s.id,
+        position: s.head,
+        // Team flags only feed aggregate sums this consumer never reads;
+        // owner/distance/territory are team-independent, which is what makes
+        // the result shareable across snakes on different teams.
+        isTeam: false
+      }));
+    // Turn-aware clearance (same physical vacate timing the evaluation BFS
+    // uses): body cells count as territory for whoever arrives first AFTER
+    // they clear, instead of being modeled as permanent walls.
+    const bfs = new MultiSourceBFS(graph);
+    const bfsResult = bfs.compute(sources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
+
+    const entry = {
+      territoryCells: territoryCellsToObject(bfsResult),
+      cellOwnership: toCellOwnership(bfsResult, sources, graph),
+    };
+    this.boardVoronoiCache.set(key, entry);
+    while (this.boardVoronoiCache.size > VoronoiStrategy.MAX_VORONOI_CACHE_ENTRIES) {
+      const oldest = this.boardVoronoiCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.boardVoronoiCache.delete(oldest);
+    }
+    return entry;
+  }
+
+  private assembleDebugResult(gameState: GameState, decision: MoveDecision): StrategyResult {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
       move: evaluation.move,
@@ -271,39 +307,13 @@ export class VoronoiStrategy {
       }
     }));
     
-    // Compute territory cells for current board state visualization
-    const graph = new BoardGraph(gameState);
-    const bfs = new MultiSourceBFS(graph);
-    const sources: BFSSource[] = gameState.board.snakes
-      .filter(s => s.health > 0)
-      .map(s => ({
-        id: s.id,
-        position: s.head,
-        isTeam: teamSnakeIds.has(s.id)
-      }));
-    // Turn-aware clearance (same physical vacate timing the evaluation BFS
-    // uses): body cells count as territory for whoever arrives first AFTER
-    // they clear, instead of being modeled as permanent walls.
-    const bfsResult = bfs.compute(sources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
-    
-    // Convert Map to plain object for JSON serialization
-    const territoryCellsObj: { [snakeId: string]: { x: number; y: number }[] } = {};
-    for (const [snakeId, cells] of bfsResult.territoryCells) {
-      territoryCellsObj[snakeId] = cells;
-    }
+    // Current-board territory + ownership for visualization. Owner/distance
+    // are snake-independent, so ONE computation per (game, turn) serves every
+    // controlled snake's decision; the engine's already-built graph is reused
+    // (one graph per decision, one clearance config).
+    const { territoryCells: territoryCellsObj, cellOwnership } =
+      this.currentBoardVoronoi(gameState, decision.graph);
 
-    // Serializable per-cell owner/distance snapshot for the UI cell inspector.
-    const vacatesAt = new Array(graph.cellCount);
-    for (let idx = 0; idx < graph.cellCount; idx++) vacatesAt[idx] = graph.physicalVacateTurn(idx);
-    const cellOwnership: CellOwnership = {
-      width: gameState.board.width,
-      height: gameState.board.height,
-      sources: sources.map(s => s.id),
-      owner: Array.from(bfsResult.ownerIndex),
-      distance: Array.from(bfsResult.distanceIndex),
-      vacatesAt,
-    };
-    
     // Log the decision to database (non-blocking)
     // IMPORTANT: Only log the actual candidate moves, not all possible moves
     this.decisionLogger.logDecision({
@@ -348,6 +358,9 @@ export class VoronoiStrategy {
    */
   public onGameEnd(gameId: string): void {
     this.decisionEngine.onGameEnd(gameId);
+    for (const key of this.boardVoronoiCache.keys()) {
+      if (key.startsWith(`${gameId}:`)) this.boardVoronoiCache.delete(key);
+    }
   }
 
   private logTurnInfo(gameState: GameState, decision: MoveDecision): void {

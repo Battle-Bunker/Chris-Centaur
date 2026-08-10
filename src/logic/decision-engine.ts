@@ -8,7 +8,7 @@ import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, WaypointContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
-import { MultiSourceBFS, BFSSource, CellOwnership } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
 import { ChunkJob, ChunkResult } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
@@ -18,6 +18,10 @@ export interface MoveDecision {
   candidateMoves: Direction[];  // The actual moves we evaluated (all non-lethal moves)
   evaluations: MoveEvaluationResult[];
   h2hRiskByMove: Map<Direction, H2HRiskInfo>;  // H2H risk info for each move
+  // The turn's board graph (subject-agnostic, built once per decision).
+  // Consumers needing board-level queries (e.g. the strategy's UI Voronoi)
+  // reuse this instead of rebuilding — one graph per decision, one config.
+  graph: BoardGraph;
 }
 
 export interface MoveEvaluationResult {
@@ -133,7 +137,8 @@ export class DecisionEngine {
         move: 'up',
         candidateMoves: [],
         evaluations: [],
-        h2hRiskByMove: new Map()
+        h2hRiskByMove: new Map(),
+        graph
       };
     }
     
@@ -154,52 +159,24 @@ export class DecisionEngine {
         }
       );
       
-      // Compute projected territory for the single move
-      const singleMovePos = this.getMovePosition(gameState.you.head, ourMoves[0]);
-      const singleProjSources: BFSSource[] = [{
-        id: gameState.you.id,
-        position: singleMovePos,
-        isTeam: true,
-        startDelay: 1
+      // Projected territory/ownership via the shared per-candidate path.
+      const evaluations: MoveEvaluationResult[] = [{
+        move: ourMoves[0],
+        worstScore: evaluation.score,
+        numStates: 1,
+        worstEvaluation: evaluation
       }];
-      for (const snake of gameState.board.snakes) {
-        if (snake.id === gameState.you.id || snake.health <= 0) continue;
-        singleProjSources.push({
-          id: snake.id,
-          position: snake.head,
-          isTeam: teamSnakeIds.has(snake.id),
-          startDelay: 0
-        });
-      }
-      const singleProjBfs = new MultiSourceBFS(graph);
-      const singleProjResult = singleProjBfs.compute(singleProjSources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
-      const singleProjTerritory: { [snakeId: string]: { x: number; y: number }[] } = {};
-      for (const [snakeId, cells] of singleProjResult.territoryCells) {
-        singleProjTerritory[snakeId] = cells;
-      }
-      
+      this.computeProjectedTerritories(gameState, graph, teamSnakeIds, evaluations);
+
       // Update food set for next turn
       this.setLastFoodSet(gameId, currentFoodSet);
-      
+
       return {
         move: ourMoves[0],
         candidateMoves: ourMoves,
-        evaluations: [{
-          move: ourMoves[0],
-          worstScore: evaluation.score,
-          numStates: 1,
-          worstEvaluation: evaluation,
-          projectedTerritoryCells: singleProjTerritory,
-          projectedCellOwnership: {
-            width: gameState.board.width,
-            height: gameState.board.height,
-            sources: singleProjSources.map(s => s.id),
-            owner: Array.from(singleProjResult.ownerIndex),
-            distance: Array.from(singleProjResult.distanceIndex),
-            vacatesAt: DecisionEngine.vacateTurns(graph),
-          }
-        }],
-        h2hRiskByMove: moveAnalysis.h2hRiskByMove
+        evaluations,
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+        graph
       };
     }
     
@@ -295,7 +272,8 @@ export class DecisionEngine {
       move: bestMove,
       candidateMoves: ourMoves,
       evaluations,
-      h2hRiskByMove: moveAnalysis.h2hRiskByMove
+      h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+      graph
     };
   }
 
@@ -359,19 +337,8 @@ export class DecisionEngine {
       // territory includes body cells that clear before the winner arrives.
       const projResult = projBfs.compute(projSources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
 
-      const projTerritoryCells: { [snakeId: string]: { x: number; y: number }[] } = {};
-      for (const [snakeId, cells] of projResult.territoryCells) {
-        projTerritoryCells[snakeId] = cells;
-      }
-      evalResult.projectedTerritoryCells = projTerritoryCells;
-      evalResult.projectedCellOwnership = {
-        width: gameState.board.width,
-        height: gameState.board.height,
-        sources: projSources.map(s => s.id),
-        owner: Array.from(projResult.ownerIndex),
-        distance: Array.from(projResult.distanceIndex),
-        vacatesAt: DecisionEngine.vacateTurns(graph),
-      };
+      evalResult.projectedTerritoryCells = territoryCellsToObject(projResult);
+      evalResult.projectedCellOwnership = toCellOwnership(projResult, projSources, graph);
     }
   }
   
@@ -555,7 +522,8 @@ export class DecisionEngine {
         move: DecisionEngine.selectBestMove(evaluations),
         candidateMoves: ourMoves,
         evaluations,
-        h2hRiskByMove: moveAnalysis.h2hRiskByMove
+        h2hRiskByMove: moveAnalysis.h2hRiskByMove,
+        graph
       };
     };
 
@@ -842,13 +810,6 @@ export class DecisionEngine {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
   }
   
-  /** Per-cell physical vacate turns for ownership payloads (0 = free now). */
-  private static vacateTurns(graph: BoardGraph): number[] {
-    const out = new Array(graph.cellCount);
-    for (let idx = 0; idx < graph.cellCount; idx++) out[idx] = graph.physicalVacateTurn(idx);
-    return out;
-  }
-
   private getMovePosition(head: Coord, direction: Direction): Coord {
     switch (direction) {
       case 'up': return { x: head.x, y: head.y + 1 };
