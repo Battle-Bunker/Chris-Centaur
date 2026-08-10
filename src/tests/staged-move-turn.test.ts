@@ -7,7 +7,7 @@
  * game server resolves each turn with the last staged move it received.
  */
 
-import { ActiveGameManager, TurnData } from '../server/active-game-manager';
+import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
 
 function makeSnake(id: string, head: Coord, length = 3): Snake {
@@ -37,6 +37,23 @@ function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: str
     board: { width: 11, height: 11, food: [], hazards: [], snakes },
     you,
   };
+}
+
+// Per-move evaluations where `best` outscores every other candidate. The goto/
+// near re-bias re-scores THESE, so a waypoint intent can only resolve to a move
+// when the turn carries evaluations (it is a vote in the matrix, not an
+// override).
+function makeEvaluations(best: Direction): MoveEvaluation[] {
+  return (['up', 'down', 'left', 'right'] as Direction[]).map((move) => ({
+    move,
+    score: move === best ? 500 : 10,
+    numStates: 1,
+    breakdown: {
+      trapped: 0,
+      weights: { gotoProgress: 300, nearProgress: 250 },
+      weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
+    },
+  }));
 }
 
 function makeTurnData(gs: GameState, botMove: Direction): TurnData {
@@ -123,15 +140,19 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(cs.staged?.move).toBe('left');
     expect(cs.staged?.source).toBe('manual');
 
-    // A "go to"-style plan (premove queue) supersedes the manual selection and
-    // publishes its first step.
-    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 6 }], 'u1')).toBe(true);
+    // A goto target supersedes the manual selection and publishes the move the
+    // re-biased matrix picks.
+    mgr.setBotRecommendation(gameId, 'A', 'right', {
+      ...makeTurnData(makeGameState(gameId, 0, snakes, 'A'), 'right'),
+      moveEvaluations: makeEvaluations('up'),
+    });
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 9 }, 'u1')).toBe(true);
     expect(cs.staged?.move).toBe('up');
-    expect(cs.staged?.source).toBe('queue');
+    expect(cs.staged?.source).toBe('waypoint');
 
-    // Cancelling human intervention (clearing the queue → heuristic) re-stages
+    // Cancelling human intervention (clearing the target → heuristic) re-stages
     // the bot's recommendation and publishes THAT too.
-    expect(mgr.setPremoveQueue(gameId, 'A', [], 'u1')).toBe(true);
+    expect(mgr.setWaypoint(gameId, 'A', null, 'u1')).toBe(true);
     expect(cs.intent.kind).toBe('heuristic');
     expect(cs.staged?.move).toBe('right');
     expect(cs.staged?.source).toBe('bot');
@@ -139,6 +160,9 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(publishedFor('A').map((p) => [p.turn, p.move])).toEqual([
       [0, 'right'],
       [0, 'left'],
+      // The interim setBotRecommendation re-stages the still-active manual
+      // 'left' — an unchanged move, so the pipeline dedupes it rather than
+      // republishing.
       [0, 'up'],
       [0, 'right'],
     ]);
@@ -335,16 +359,17 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     mgr.setMoveCommitter(null);
   });
 
-  test('applyResolvedMoves: bookkeeping only — advances the premove queue with the server\'s actual move, publishes nothing new for the resolved turn', () => {
+  test('applyResolvedMoves: bookkeeping only — leaves the goto queue alone and publishes nothing new for the resolved turn', () => {
     const gameId = 'g-resolve';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
     processTurn(gameId, 'A', snakes, 0, 'up');
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     cs.selectedBy = 'u1';
 
-    // Queue two cells ahead; first step matches the bot's 'up'.
-    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 6 }, { x: 5, y: 7 }], 'u1')).toBe(true);
-    expect(cs.staged?.move).toBe('up');
+    // Two queued goto targets, neither of them reached by this move.
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 9 }, 'u1')).toBe(true);
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 10 }, 'u1', true)).toBe(true);
+    const publishedBefore = publishedFor('A').length;
 
     const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
     mgr.onMoveCommitted((_gameId, snakeId, move, source) => {
@@ -353,12 +378,17 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
 
     mgr.applyResolvedMoves(gameId, 0, { A: 'up' });
 
-    // The queue advanced past the consumed cell. No move-committed
-    // notification fires here — the double arrow is driven by
-    // finalizeTurnMove, which happens earlier.
-    expect(cs.intent.kind).toBe('queue');
-    expect((cs.intent as { kind: 'queue'; cells: Coord[] }).cells).toEqual([{ x: 5, y: 7 }]);
+    // The goto queue is NOT advanced here — arrival is detected from the board
+    // in updateGameState, which is authoritative about where the snake actually
+    // ended up. No move-committed notification fires here either; the double
+    // arrow is driven by finalizeTurnMove, which happens earlier.
+    expect(cs.intent.kind).toBe('goto');
+    expect((cs.intent as { kind: 'goto'; targets: Coord[] }).targets).toEqual([
+      { x: 5, y: 9 },
+      { x: 5, y: 10 },
+    ]);
     expect(committed).toEqual([]);
+    expect(publishedFor('A')).toHaveLength(publishedBefore);
   });
 
   test('pipeline: a matching Firebase confirmation ends the publish loop; no republish after the retry interval', () => {

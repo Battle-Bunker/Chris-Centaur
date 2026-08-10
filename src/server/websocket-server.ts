@@ -43,7 +43,7 @@ const USER_INTENT_TYPES = new Set([
   'suicide-all',
   'select-move',
   'confirm-fatal-move',
-  'set-premove',
+  'set-waypoint',
   'activity',
 ]);
 
@@ -227,7 +227,6 @@ export class GameWebSocketServer {
         selections: this.getSelectionsForGame(gameId),
         owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
-        premoves: this.gameManager.getPremovesForGame(gameId),
         waypoints: this.gameManager.getWaypointsForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
@@ -289,7 +288,7 @@ export class GameWebSocketServer {
 
     // Reactive staged-arrow sync: the game manager coalesces every staged-move
     // / intent change into one notification per game per tick, so we just push
-    // the current selections snapshot (which carries staged moves, premoves,
+    // the current selections snapshot (which carries staged moves, waypoints,
     // waypoints, routes and intent modes) to subscribers.
     this.gameManager.onStagedChange((gameId) => {
       this.broadcastSelectionsUpdate(gameId);
@@ -505,27 +504,17 @@ export class GameWebSocketServer {
         break;
       }
 
-      case 'set-premove': {
-        if (!client.gameId || !client.userId) break;
-        const snakeId = msg.snakeId;
-        if (!snakeId) break;
-        // On success setPremoveQueue re-stages the move, firing the coalesced
-        // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
-        this.gameManager.setPremoveQueue(
-          client.gameId, snakeId, msg.queue, client.userId
-        );
-        break;
-      }
-
       case 'set-waypoint': {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
         if (!snakeId) break;
-        // msg.waypoint may be null (clear) or {type, x, y}. On success
-        // setWaypoint re-stages the move, firing the coalesced onStagedChange →
-        // broadcastSelectionsUpdate; no explicit broadcast.
+        // msg.waypoint may be null (clear) or {type, x, y}. msg.append (set by
+        // shift+alt-click) TOGGLES the cell's membership in the goto queue
+        // instead of replacing it. On success setWaypoint re-stages the move,
+        // firing the coalesced onStagedChange → broadcastSelectionsUpdate; no
+        // explicit broadcast.
         this.gameManager.setWaypoint(
-          client.gameId, snakeId, msg.waypoint ?? null, client.userId
+          client.gameId, snakeId, msg.waypoint ?? null, client.userId, msg.append === true
         );
         break;
       }
@@ -802,7 +791,6 @@ export class GameWebSocketServer {
     const connectedUsers = Array.from(game.connectedUsers.values());
     const owners = this.gameManager.getOwnersForGame(gameId);
     const stagedMoves = this.getStagedMovesForGame(gameId);
-    const premoves = this.gameManager.getPremovesForGame(gameId);
     const waypoints = this.gameManager.getWaypointsForGame(gameId);
     const routes = this.gameManager.getRoutesForGame(gameId);
     const activeIntentModes = this.gameManager.getActiveIntentModesForGame(gameId);
@@ -813,7 +801,6 @@ export class GameWebSocketServer {
       connectedUsers,
       owners,
       stagedMoves,
-      premoves,
       waypoints,
       routes,
       activeIntentModes,

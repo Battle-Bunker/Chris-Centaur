@@ -1,6 +1,14 @@
 import { GameState, BoardSnapshot, Direction, Coord } from '../types/battlesnake';
-import { BoardEvaluator } from '../logic/board-evaluator';
 import { BoardGraph } from '../logic/board-graph';
+import { pickBestMove } from '../logic/decision-engine';
+import { DEFAULT_CONFIG } from '../config/game-config';
+import {
+  WaypointContext,
+  waypointPath,
+  waypointDistance,
+  gotoProgressStat,
+  nearProgressStat,
+} from '../logic/waypoint-pathing';
 import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
 
@@ -51,7 +59,7 @@ export type MoveCommitter = (
   turn: number
 ) => Promise<void>;
 
-export type IntendedMoveSource = 'manual' | 'queue' | 'waypoint' | 'bot' | 'fallback';
+export type IntendedMoveSource = 'manual' | 'waypoint' | 'bot' | 'fallback';
 
 // ── Fatal-move consent brand ────────────────────────────────────────────────
 // A branded value proving a HUMAN explicitly consented to staging a
@@ -98,14 +106,24 @@ export interface StagedMove {
 // clearing logic). Set only through `setIntent`, which re-stages the move.
 //  - heuristic: no user direction — the bot's recommendation drives the move
 //  - manual:    the user picked a specific next move (single-turn; reset each turn)
-//  - queue:     a multi-step premove path executing one cell per turn (persists)
-//  - waypoint:  a click-target biasing the bot toward a cell (persists); green
-//               'goto' carries a live `route`, blue 'near' leaves it empty
+//  - goto:      a QUEUE of click-targets (green). targets[0] is active and is the
+//               only one handed to the decision engine, where it biases the
+//               heuristic matrix through a bounded progress stat — it never
+//               overrides the move. Arriving shifts the queue; an emptied queue
+//               reverts to heuristic. (This replaced the cell-by-cell premove
+//               queue: a chain of goto targets expresses the same multi-step
+//               plan, but every step is still arbitrated by the full matrix
+//               instead of walked blindly.)
+//  - near:      a single click-target (blue) biasing the matrix toward staying
+//               close WITHOUT ever arriving. Never auto-clears.
+//
+// The TARGETS are the only durable state. Routes and stats are always
+// recomputed from the live board — see ControlledSnake.gotoRoute.
 export type SnakeIntent =
   | { kind: 'heuristic' }
   | { kind: 'manual'; move: Direction; fatalConsent?: FatalMoveConsent }
-  | { kind: 'queue'; cells: Coord[] }
-  | { kind: 'waypoint'; style: 'green' | 'blue'; target: Coord; route: Coord[] };
+  | { kind: 'goto'; targets: Coord[] }
+  | { kind: 'near'; target: Coord };
 
 // The active next-move source, exposed to clients as `activeIntentModes`. Mirrors
 // the union's discriminant so the client contract is unchanged.
@@ -132,11 +150,18 @@ export interface ControlledSnake {
   // their snakes.
   ownedBy: string | null;
   suicideArmed: boolean;
-  // The snake's intention — the single source of truth for queue cells, the
-  // waypoint + its live goto route, the manual selection, and the active mode.
-  // Set only through `setIntent`. The client-facing projections (premoves,
-  // waypoints, routes, activeIntentModes) are derived from this.
+  // The snake's intention — the single source of truth for the goto/near
+  // targets, the manual selection, and the active mode. Set only through
+  // `setIntent`. The client-facing projections (waypoints, routes,
+  // activeIntentModes) are derived from this.
   intent: SnakeIntent;
+  // DERIVED display cache for the green goto path — deliberately NOT part of
+  // the intent, because it is never durable state. Recomputed by
+  // `refreshGotoRoute` on every stage: while a move is staged it is
+  // [stagedDestination, ...shortestPath(stagedDestination → targets[0])]; once
+  // the staged move is consumed it re-anchors as the plain shortest path from
+  // the projected head. Empty whenever goto isn't active.
+  gotoRoute: Coord[];
   // The snake's REQUESTED move — the last move the active intent resolved to,
   // bound to its (snakeId, turn). Written only by `stageMove`, which starts
   // the publish-until-confirmed pipeline (`ensureStagedPublished`) so the
@@ -263,9 +288,6 @@ export class ActiveGameManager {
   private gameServerPing: number = 50;
   private pingInterval: NodeJS.Timer | null = null;
   private staleGameCleanupInterval: NodeJS.Timer | null = null;
-  // Used to compute a green waypoint's goto route the moment it's set, so the
-  // path shows immediately instead of waiting for the next turn.
-  private routeEvaluator: BoardEvaluator = new BoardEvaluator();
   // Write-through publisher for staged moves (see MoveSubmitter). Firestore is
   // the single source of truth for staged moves; until a submitter is wired,
   // staging actions log an error instead of silently staying local.
@@ -501,6 +523,7 @@ export class ActiveGameManager {
         ownedBy: null,
         suicideArmed: false,
         intent: { kind: 'heuristic' },
+        gotoRoute: [],
         staged: null,
         confirmedStaged: null,
         finalMove: null,
@@ -911,8 +934,7 @@ export class ActiveGameManager {
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
     owners: { [snakeId: string]: { userId: string; name: string; color: string } | null };
-    premoves: { [snakeId: string]: Coord[] };
-    waypoints: { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } };
+    waypoints: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } };
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
@@ -954,7 +976,6 @@ export class ActiveGameManager {
       connectedUsers: Array.from(game.connectedUsers.values()),
       selections,
       owners: this.getOwnersForGame(gameId),
-      premoves: this.getPremovesForGame(gameId),
       waypoints: this.getWaypointsForGame(gameId),
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
@@ -962,33 +983,49 @@ export class ActiveGameManager {
     };
   }
 
-  getWaypoint(gameId: string, snakeId: string): { type: 'green' | 'blue'; x: number; y: number } | null {
+  // The active waypoint target handed to the decision engine on each decision:
+  // the head of the goto queue, or the near target. Null when none is set.
+  getActiveWaypointTarget(gameId: string, snakeId: string): WaypointContext | null {
     const game = this.games.get(gameId);
     if (!game) return null;
     const controlled = game.controlledSnakes.get(snakeId);
-    if (controlled?.intent.kind !== 'waypoint') return null;
-    return { type: controlled.intent.style, x: controlled.intent.target.x, y: controlled.intent.target.y };
+    if (!controlled) return null;
+    if (controlled.intent.kind === 'goto' && controlled.intent.targets.length > 0) {
+      return { kind: 'goto', target: controlled.intent.targets[0] };
+    }
+    if (controlled.intent.kind === 'near') {
+      return { kind: 'near', target: controlled.intent.target };
+    }
+    return null;
   }
 
-  getWaypointsForGame(gameId: string): { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } } {
+  // Client projection: every waypoint cell per snake. Green carries the whole
+  // goto queue in order (cells[0] is the active target); blue has one cell.
+  getWaypointsForGame(gameId: string): { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } } {
     const game = this.games.get(gameId);
     if (!game) return {};
-    const result: { [snakeId: string]: { type: 'green' | 'blue'; x: number; y: number } } = {};
+    const result: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
-      if (cs.intent.kind === 'waypoint') {
-        result[snakeId] = { type: cs.intent.style, x: cs.intent.target.x, y: cs.intent.target.y };
+      if (cs.intent.kind === 'goto' && cs.intent.targets.length > 0) {
+        result[snakeId] = { type: 'green', cells: cs.intent.targets };
+      } else if (cs.intent.kind === 'near') {
+        result[snakeId] = { type: 'blue', cells: [cs.intent.target] };
       }
     }
     return result;
   }
 
-  // Set or clear a snake's waypoint. Only the user currently selecting the
-  // snake may change it. Pass `waypoint=null` to clear. Returns true on success.
+  // Set, append or clear a snake's waypoint. Only the user currently selecting
+  // the snake may change it. Pass `waypoint=null` to clear. `append=true` with
+  // a green waypoint while a goto queue is active TOGGLES the cell's queue
+  // membership (append if absent, remove if already queued); otherwise the
+  // waypoint replaces whatever intent was active. Returns true on success.
   setWaypoint(
     gameId: string,
     snakeId: string,
     waypoint: { type: 'green' | 'blue'; x: number; y: number } | null,
-    userId: string
+    userId: string,
+    append: boolean = false
   ): boolean {
     const game = this.games.get(gameId);
     if (!game) return false;
@@ -997,9 +1034,9 @@ export class ActiveGameManager {
     if (controlled.selectedBy !== userId) return false;
 
     if (waypoint === null) {
-      // Clearing only applies while in waypoint mode; otherwise leave the
-      // current intent (queue/manual/heuristic) untouched and just re-stage.
-      if (controlled.intent.kind === 'waypoint') {
+      // Clearing only applies while in a waypoint mode; otherwise leave the
+      // current intent (manual/heuristic) untouched and just re-stage.
+      if (controlled.intent.kind === 'goto' || controlled.intent.kind === 'near') {
         this.setIntent(gameId, snakeId, { kind: 'heuristic' });
       } else {
         this.stageMove(gameId, snakeId);
@@ -1017,75 +1054,160 @@ export class ActiveGameManager {
     if (h > 0 && (y < 0 || y >= h)) return false;
     if (waypoint.type !== 'green' && waypoint.type !== 'blue') return false;
 
-    // Compute the green goto route now so the path renders immediately rather
-    // than only after the next /move. Build a GameState whose `you` is THIS
-    // snake so BoardGraph applies the right invulnerability/severability rules
-    // (boardState.you is whichever snake last sent /move, which may differ).
-    const route = this.computeGotoRouteNow(
-      game.boardState,
-      snakeId,
-      { type: waypoint.type, x, y },
-      this.getProjectedHead(gameId, snakeId) ?? undefined
-    );
-    // Setting a waypoint activates Waypoint mode (replacing queue/manual).
-    this.setIntent(gameId, snakeId, { kind: 'waypoint', style: waypoint.type, target: { x, y }, route });
+    if (waypoint.type === 'blue') {
+      this.setIntent(gameId, snakeId, { kind: 'near', target: { x, y } });
+      return true;
+    }
+
+    if (append && controlled.intent.kind === 'goto') {
+      // Toggle queue membership: appending an already-queued cell removes it.
+      const targets = controlled.intent.targets;
+      const existing = targets.findIndex(t => t.x === x && t.y === y);
+      if (existing >= 0) {
+        targets.splice(existing, 1);
+        if (targets.length === 0) {
+          this.setIntent(gameId, snakeId, { kind: 'heuristic' });
+        } else {
+          this.stageMove(gameId, snakeId);
+        }
+      } else {
+        targets.push({ x, y });
+        this.stageMove(gameId, snakeId);
+      }
+      return true;
+    }
+
+    // Replace (or start) the goto queue with this single target. setIntent →
+    // stageMove refreshes the derived route immediately, so the green path
+    // renders the instant the user clicks, not only after the next decision.
+    this.setIntent(gameId, snakeId, { kind: 'goto', targets: [{ x, y }] });
     return true;
   }
 
-  // The shared `game.boardState` is a BoardSnapshot with NO `you` — a single
-  // shared board cannot have a meaningful "our snake" while many snakes are
-  // controlled at once. Any perspective-dependent logic (BoardGraph
-  // invulnerability/severability, route finding) MUST obtain a per-snake
-  // GameState through this helper, which re-points `you` to the requested snake
-  // by ID. Returns null when the snake isn't on the board. This is the only
-  // sanctioned way to turn the shared snapshot into a GameState; reading `.you`
-  // off the snapshot directly is a compile error by design.
   private viewFor(snapshot: BoardSnapshot, snakeId: string): GameState | null {
     const you = snapshot.board.snakes.find(s => s.id === snakeId);
     if (!you) return null;
     return { ...snapshot, you };
   }
 
-  // Synchronously compute the green goto route from the latest shared board
-  // state. Returns [] for blue/null waypoints or when there's no board state.
-  private computeGotoRouteNow(
-    boardState: BoardSnapshot | null,
-    snakeId: string,
-    waypoint: { type: 'green' | 'blue'; x: number; y: number } | null,
-    startHead?: Coord
-  ): Coord[] {
-    if (!boardState || !waypoint || waypoint.type !== 'green') return [];
-    const gsForRoute = this.viewFor(boardState, snakeId);
-    if (!gsForRoute) return [];
-    return this.routeEvaluator.computeWaypointRoute(gsForRoute, snakeId, waypoint, startHead);
-  }
-
-  // Recompute and store the green goto route anchored at the snake's projected
-  // head (the cell it will occupy after any move already committed this turn).
-  // No-op unless the snake is actively in waypoint mode with a green waypoint.
-  private recomputeGotoRoute(gameId: string, snakeId: string): void {
+  // Recompute the DERIVED green goto display route for a snake. This encodes
+  // the two-path duality the goto feature needs:
+  //  - While a move is STAGED for this turn, the route is
+  //    [stagedDestination, ...shortestPath(stagedDestination → targets[0])] —
+  //    the path the snake will actually walk, conditioned on the move the
+  //    heuristic matrix chose (which may differ from the pure shortest-path
+  //    first step when survival heuristics outvoted it).
+  //  - With nothing staged for this turn it is the plain shortest path from the
+  //    projected head — the "immediately optimal" path for the next decision.
+  //
+  // Uses the SAME `waypointPath` the evaluator's stat and the staging re-bias
+  // use, so the number scored, the path drawn, and the move committed cannot
+  // disagree. Exception-safe and side-effect-free beyond writing `gotoRoute`.
+  private refreshGotoRoute(gameId: string, snakeId: string): void {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     if (!game || !controlled) return;
-    if (controlled.intent.kind !== 'waypoint') return;
-    controlled.intent.route = this.computeGotoRouteNow(
-      game.boardState,
-      snakeId,
-      { type: controlled.intent.style, x: controlled.intent.target.x, y: controlled.intent.target.y },
-      this.getProjectedHead(gameId, snakeId) ?? undefined
-    );
+    if (controlled.intent.kind !== 'goto' || controlled.intent.targets.length === 0) {
+      controlled.gotoRoute = [];
+      return;
+    }
+    try {
+      const target = controlled.intent.targets[0];
+      const boardState = game.boardState;
+      const gs = boardState ? this.viewFor(boardState, snakeId) : null;
+      const anchor = this.getProjectedHead(gameId, snakeId);
+      if (!gs || !anchor) {
+        controlled.gotoRoute = [];
+        return;
+      }
+      const board = gs.board;
+      const staged = controlled.staged;
+      const stagedPending = !!staged && staged.turn === game.boardStateTurn;
+      if (stagedPending) {
+        const stagedDest = ActiveGameManager.destinationOf(anchor, staged!.move);
+        const inBounds = stagedDest.x >= 0 && stagedDest.x < board.width && stagedDest.y >= 0 && stagedDest.y < board.height;
+        if (!inBounds) {
+          controlled.gotoRoute = [];
+          return;
+        }
+        // Path continues from the staged cell; its BFS clock starts one move in
+        // the future. Unreachable → show just the staged step so the user still
+        // sees which way the snake will go while the target is cut off.
+        const rest = waypointPath(gs, snakeId, stagedDest, target, { startTurn: 1 });
+        controlled.gotoRoute = rest === null ? [stagedDest] : [stagedDest, ...rest];
+      } else {
+        const path = waypointPath(gs, snakeId, anchor, target);
+        controlled.gotoRoute = path ?? [];
+      }
+    } catch (e) {
+      // A display cache must never break staging/commit paths.
+      console.error(`[ActiveGameManager] refreshGotoRoute failed for ${gameId}:${snakeId}:`, e);
+      controlled.gotoRoute = [];
+    }
   }
 
-  getPremovesForGame(gameId: string): { [snakeId: string]: Coord[] } {
+  // Resolve the goto/near intent to a move by re-running the SAME selection the
+  // decision engine uses, over this turn's per-move evaluations with the
+  // waypoint progress contribution re-derived from the CURRENT target:
+  //   adjusted(move) = engineScore(move)
+  //                  - recordedWaypointContribution(move)   // bias applied at decision time
+  //                  + weight × progressStat(move)          // bias for the target as it is NOW
+  // then pickBestMove (the shared trapped-veto + argmax exported from the
+  // decision engine). This makes a target set or moved MID-TURN take effect
+  // immediately, and guarantees the staged move is always "the best output of
+  // the heuristic matrix with the waypoint weight integrated" — never a hard
+  // path override.
+  //
+  // Returns null when this turn's evaluations aren't available (turn 0, the
+  // fast staging pass, error paths), letting computeIntendedMove fall through
+  // to the bot recommendation labelled truthfully as 'bot'.
+  private getWaypointBiasedMove(gameId: string, snakeId: string): Direction | null {
     const game = this.games.get(gameId);
-    if (!game) return {};
-    const result: { [snakeId: string]: Coord[] } = {};
-    for (const [snakeId, cs] of game.controlledSnakes) {
-      if (cs.intent.kind === 'queue' && cs.intent.cells.length > 0) {
-        result[snakeId] = cs.intent.cells;
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game || !controlled) return null;
+    const wp = this.getActiveWaypointTarget(gameId, snakeId);
+    if (!wp) return null;
+
+    const turnData = controlled.latestTurnData;
+    if (!turnData || turnData.gameState.turn !== game.boardStateTurn) return null;
+    const evaluations = turnData.moveEvaluations;
+    if (!evaluations || evaluations.length === 0) return null;
+
+    try {
+      // Evaluations were computed from this turn's board; measure progress from
+      // the same anchor (that state's head) so the re-bias is apples-to-apples
+      // with the engine's own computation.
+      const gs = turnData.gameState;
+      const head = gs.you.head;
+      const graph = new BoardGraph(gs);
+      const baseDist = waypointDistance(gs, snakeId, head, wp.target, { graph });
+
+      const candidates: Array<{ move: Direction; score: number; trapped: number }> = [];
+      for (const evaluation of evaluations) {
+        const breakdown: any = evaluation.breakdown || {};
+        const weighted = breakdown.weighted || {};
+        const weights = breakdown.weights || {};
+        const dest = ActiveGameManager.destinationOf(head, evaluation.move);
+        const candDist = waypointDistance(gs, snakeId, dest, wp.target, { graph, startTurn: 1 });
+        const stat = wp.kind === 'goto'
+          ? gotoProgressStat(baseDist, candDist)
+          : nearProgressStat(baseDist, candDist);
+        const weight = wp.kind === 'goto'
+          ? (weights.gotoProgress ?? DEFAULT_CONFIG.gotoProgress)
+          : (weights.nearProgress ?? DEFAULT_CONFIG.nearProgress);
+        const recorded = (weighted.gotoProgressScore ?? 0) + (weighted.nearProgressScore ?? 0);
+        candidates.push({
+          move: evaluation.move,
+          score: evaluation.score - recorded + weight * stat,
+          trapped: breakdown.trapped ?? 0,
+        });
       }
+      return pickBestMove(candidates);
+    } catch (e) {
+      // Never let waypoint math break staging; fall back to the bot move.
+      console.error(`[ActiveGameManager] getWaypointBiasedMove failed for ${gameId}:${snakeId}:`, e);
+      return null;
     }
-    return result;
   }
 
   // The anchor cell for all "next turn" rendering: Q-mode adjacency,
@@ -1180,12 +1302,17 @@ export class ActiveGameManager {
   // safety-timer commit and the staged-arrow broadcast read.
   //
   // Priority follows the snake's intention (a single discriminated union, so
-  // only one of manual/queue/waypoint can be populated at once):
+  // only one of manual/goto/near can be populated at once):
   //   1. manual user selection (this turn)
-  //   2. queue head (adjacent to current head)
-  //   3. goto route head (first step of the rendered green waypoint route)
-  //   4. bot recommendation
-  //   5. hard fallback ('up')
+  //   2. the waypoint-biased move — the heuristic matrix re-scored with the
+  //      CURRENT target's progress contribution (getWaypointBiasedMove)
+  //   3. bot recommendation
+  //   4. hard fallback ('up')
+  //
+  // Note what step 2 is NOT: a click-target never dictates the move. It is a
+  // weighted vote in the same matrix every other heuristic feeds, so survival
+  // terms retain the power to outvote it. The rendered green path follows this
+  // choice (refreshGotoRoute), so the visual and the committed move agree.
   // ────────────────────────────────────────────────────────────────────────
   computeIntendedMove(gameId: string, snakeId: string): IntendedMove {
     const game = this.games.get(gameId);
@@ -1196,88 +1323,24 @@ export class ActiveGameManager {
       return { direction: intent.move, source: 'manual', consent: intent.fatalConsent };
     }
 
-    if (intent?.kind === 'queue') {
-      const premoveDir = this.getPremoveDirection(gameId, snakeId);
-      if (premoveDir) {
-        return { direction: premoveDir, source: 'queue' };
-      }
-    }
-
-    // Waypoint mode HARD-OVERRIDES the move with the first step of the exact
-    // route drawn on the board (computed by the same pathfinder). This makes
-    // the affordance, the green visual, and the committed move one mechanism:
-    // the snake always walks the path it shows.
-    if (intent?.kind === 'waypoint') {
-      const gotoDir = this.getGotoRouteDirection(gameId, snakeId);
-      if (gotoDir) {
-        return { direction: gotoDir, source: 'waypoint' };
+    if (intent?.kind === 'goto' || intent?.kind === 'near') {
+      const biasedDir = this.getWaypointBiasedMove(gameId, snakeId);
+      if (biasedDir) {
+        return { direction: biasedDir, source: 'waypoint' };
       }
     }
 
     if (controlled?.botRecommendation) {
-      // Anything that reaches here is the bot's recommendation — manual, queue,
-      // and the goto-route head were all unavailable this turn. Report it
-      // truthfully as 'bot' even when a waypoint/queue is nominally set, so the
-      // staged arrow renders grey and the user can never mistake a bot decision
-      // for their own staged move (the disguised-'waypoint' label was Bug A).
-      // The route/queue/manual fallback is logged at the stageMove choke
-      // point where the active intent mode is known.
+      // Anything that reaches here is the bot's recommendation — manual and the
+      // waypoint re-bias were both unavailable this turn. Report it truthfully
+      // as 'bot' even when a waypoint is nominally set, so the staged arrow
+      // renders grey and the user can never mistake a bot decision for their
+      // own staged move. The fallback is logged at the stageMove choke point
+      // where the active intent mode is known.
       return { direction: controlled.botRecommendation, source: 'bot' };
     }
 
     return { direction: 'up', source: 'fallback' };
-  }
-
-  // Returns the move direction for the first step of the snake's live goto
-  // route (the rendered green path), or null when waypoint mode isn't active,
-  // the route is empty, or its head isn't adjacent to the anchor (stale route /
-  // divergence — caller falls back to the biased bot recommendation).
-  //
-  // The route is anchored at the PROJECTED head (recomputeGotoRoute /
-  // computeGotoRouteNow both pass getProjectedHead as startHead), so the first
-  // step MUST be measured from that same projected head — not the live head.
-  // Pre-commit projected head == live head, so this is identical in the common
-  // case; it only differs after a move is already committed this turn, which is
-  // exactly when measuring from the live head returned null and silently
-  // abandoned the green route the snake was displaying.
-  private getGotoRouteDirection(gameId: string, snakeId: string): Direction | null {
-    const game = this.games.get(gameId);
-    if (!game?.boardState) return null;
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled || controlled.intent.kind !== 'waypoint') return null;
-    if (controlled.intent.route.length === 0) return null;
-    const anchor = this.getProjectedHead(gameId, snakeId);
-    if (!anchor) return null;
-    const target = controlled.intent.route[0];
-    if (this.isStepBehindAnchor(gameId, snakeId, target)) {
-      console.warn(`[ActiveGameManager] Stale goto route for ${gameId}:${snakeId}: first cell (${target.x},${target.y}) is the just-vacated neck — refusing 180° reversal, falling back to bot`);
-      return null;
-    }
-    return ActiveGameManager.directionFromTo(anchor, target);
-  }
-
-  // The cell the snake occupied immediately BEFORE the anchor cell that queue
-  // and goto-route steps are measured from — the snake's neck. Stepping onto
-  // this cell is by definition a 180° reversal into the snake's own
-  // just-vacated cell (certain death by the game rules), so it can never be a
-  // valid queue/route step — adjacency alone is NOT sufficient validity.
-  private cellBehindAnchor(gameId: string, snakeId: string): Coord | null {
-    const game = this.games.get(gameId);
-    const controlled = game?.controlledSnakes.get(snakeId);
-    if (!game?.boardState?.board?.snakes || !controlled) return null;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const head = snake?.head || snake?.body?.[0];
-    if (!head) return null;
-    const neck = snake?.body?.[1];
-    if (neck && (neck.x !== head.x || neck.y !== head.y)) {
-      return neck;
-    }
-    return null;
-  }
-
-  private isStepBehindAnchor(gameId: string, snakeId: string, target: Coord): boolean {
-    const behind = this.cellBehindAnchor(gameId, snakeId);
-    return !!behind && behind.x === target.x && behind.y === target.y;
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1321,14 +1384,21 @@ export class ActiveGameManager {
     }
 
     // ── Fatal-move consent gate ─────────────────────────────────────────
-    // A HUMAN-sourced certain-death move (manual click, queue step, waypoint
-    // step) may only be staged when it carries a minted FatalMoveConsent.
-    // Without consent we stage the bot's move instead and ask the client to
-    // show a confirmation dialog. Bot-sourced moves are exempt: when the bot
-    // itself picks a fatal move there is no better alternative to offer.
+    // A HUMAN-AUTHORED certain-death move may only be staged when it carries a
+    // minted FatalMoveConsent. Without consent we stage the bot's move instead
+    // and ask the client to show a confirmation dialog. Bot-sourced moves are
+    // exempt: when the bot itself picks a fatal move there is no better
+    // alternative to offer.
+    //
+    // 'waypoint' is deliberately EXCLUDED from the gate. Since the goto/near
+    // redesign the direction is BOT-chosen — the heuristic matrix with the
+    // waypoint weight integrated — so the bot's own death-aversion already
+    // arbitrates it. Prompting would ask the human to confirm a move the bot
+    // picked, and the fallback would swap one bot-chosen move for another. The
+    // source-agnostic red marker (isStagedMoveFatal) still flags it in the UI.
     let direction = intended.direction;
     let source = intended.source;
-    const humanSourced = source === 'manual' || source === 'queue' || source === 'waypoint';
+    const humanSourced = source === 'manual';
     if (humanSourced && !intended.consent && this.isMoveFatal(gameId, snakeId, direction)) {
       const fallback = controlled.botRecommendation;
       console.warn(`[ActiveGameManager] FATAL-MOVE GATE for ${gameId}:${snakeId} turn ${turn}: unconsented ${source} move ${direction} is certain death — staging ${fallback ? `bot move ${fallback}` : `fallback 'up'`} instead, awaiting confirmation`);
@@ -1364,6 +1434,12 @@ export class ActiveGameManager {
     };
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
+
+    // Refresh the derived green path AFTER `controlled.staged` is final: the
+    // fatal-move gate above can replace the staged direction, and the drawn
+    // path must follow the move that will actually commit, not the one the
+    // target wanted.
+    this.refreshGotoRoute(gameId, snakeId);
 
     // Publish-until-confirmed: hand the requested move to the pipeline, which
     // writes it to Firebase and re-publishes until the read-back confirmation
@@ -1581,150 +1657,11 @@ export class ActiveGameManager {
     if (!game) return {};
     const result: { [snakeId: string]: Coord[] } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
-      if (cs.intent.kind === 'waypoint' && cs.intent.route.length > 0) {
-        result[snakeId] = cs.intent.route;
+      if (cs.intent.kind === 'goto' && cs.gotoRoute.length > 0) {
+        result[snakeId] = cs.gotoRoute;
       }
     }
     return result;
-  }
-
-  private static directionFromTo(from: Coord, to: Coord): Direction | null {
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    if (dx === 1 && dy === 0) return 'right';
-    if (dx === -1 && dy === 0) return 'left';
-    if (dx === 0 && dy === 1) return 'up';
-    if (dx === 0 && dy === -1) return 'down';
-    return null;
-  }
-
-  // Returns the move direction the snake should take next according to its
-  // premove queue, or null if the queue is empty / disconnected from the
-  // anchor. Only the immediate next cell is consulted; subsequent cells
-  // are advanced one per turn by `advancePremoveQueueAfterMove`.
-  //
-  // The queue is anchored at the PROJECTED head — the cell the snake will
-  // occupy after any move already committed this turn — matching where the
-  // path is rendered (drawPremoveOverlay) and where the client authors the
-  // queue (addPremoveCellAt). Pre-commit the projected head equals the live
-  // head, so this is identical to measuring from the live head in the common
-  // case; it only differs when a move is already committed this turn.
-  private getPremoveDirection(gameId: string, snakeId: string): Direction | null {
-    const game = this.games.get(gameId);
-    if (!game?.boardState) return null;
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled || controlled.intent.kind !== 'queue' || controlled.intent.cells.length === 0) return null;
-    const anchor = this.getProjectedHead(gameId, snakeId);
-    if (!anchor) return null;
-    const target = controlled.intent.cells[0];
-    // Adjacency alone is not validity: a retained queue cell can be the cell
-    // the snake just vacated (its neck), and deriving a direction onto it is a
-    // guaranteed 180° self-collision. Refuse it; the caller falls back to bot.
-    if (this.isStepBehindAnchor(gameId, snakeId, target)) {
-      console.warn(`[ActiveGameManager] Stale premove queue for ${gameId}:${snakeId}: first cell (${target.x},${target.y}) is the just-vacated neck — refusing 180° reversal, falling back to bot`);
-      return null;
-    }
-    return ActiveGameManager.directionFromTo(anchor, target);
-  }
-
-  // Called after every resolved move to keep the queue in lock-step with the
-  // actual snake position. If the move matches the planned next cell, pop it.
-  // If it diverged (manual override, fallback move, etc.), abandon the plan —
-  // the snake is now somewhere the queue can't reach, so the rest is stale.
-  //
-  // Anchoring + tolerance contract (matches the renderer and the client):
-  // this runs AFTER resolvePendingMove set moveCommittedThisTurn/committedMove,
-  // so getProjectedHead() returns the cell the snake will occupy this turn —
-  // its real resulting position. Three outcomes, measured against that cell:
-  //   1. DRAIN   — projected head == queue[0]: we stepped onto the planned
-  //                cell, so pop it. If the queue is now empty, fall back to
-  //                the heuristic (the plan is genuinely exhausted).
-  //   2. HOLD    — projected head != queue[0] but is still adjacent to it
-  //                (the bot/safety-timer covered a turn the queue couldn't
-  //                resolve — a transient race or momentary non-adjacency).
-  //                Keep the queue and the 'queue' mode untouched; next turn the
-  //                live head equals this projected head, so the queue resolves
-  //                again. This is the single-ambiguous-turn tolerance.
-  //   3. CLEAR   — projected head is neither queue[0] nor adjacent to it: the
-  //                snake's real position is provably off the planned path (true
-  //                divergence). Abandon the plan and revert to the heuristic.
-  private advancePremoveQueueAfterMove(gameId: string, snakeId: string, move: Direction): void {
-    const game = this.games.get(gameId);
-    if (!game?.boardState) return;
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled || controlled.intent.kind !== 'queue' || controlled.intent.cells.length === 0) return;
-    const cells = controlled.intent.cells;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const liveHead = snake?.head || snake?.body?.[0];
-    // Called when a turn resolves, BEFORE the new board is applied: the cell
-    // the snake lands on is the live head plus the move the server resolved.
-    const projected = liveHead ? ActiveGameManager.destinationOf(liveHead, move) : null;
-    if (!projected) return;
-    const next = cells[0];
-    const headInfo = `liveHead=(${liveHead?.x},${liveHead?.y}) projectedHead=(${projected.x},${projected.y}) queueHead=(${next.x},${next.y}) move=${move}`;
-
-    if (projected.x === next.x && projected.y === next.y) {
-      cells.shift();
-      // Queue drained → no source left, fall back to the heuristic.
-      if (cells.length === 0) {
-        console.log(`[ActiveGameManager] Premove queue drained for ${gameId}:${snakeId}: ${headInfo}`);
-        this.setIntent(gameId, snakeId, { kind: 'heuristic' });
-      } else {
-        console.log(`[ActiveGameManager] Premove queue advanced for ${gameId}:${snakeId}: ${headInfo}, ${cells.length} remaining`);
-        this.stageMove(gameId, snakeId);
-      }
-    } else if (liveHead && next.x === liveHead.x && next.y === liveHead.y) {
-      // The queue's next cell is the cell we are LEAVING this turn. Holding it
-      // would make next turn's derived direction a 180° reversal into our own
-      // just-vacated neck (this was the root cause of real reversal deaths).
-      // The plan points backwards → it is stale, not "one ambiguous turn".
-      console.log(`[ActiveGameManager] Premove queue points backwards for ${gameId}:${snakeId}: ${headInfo}, clearing`);
-      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
-    } else if (ActiveGameManager.directionFromTo(projected, next) !== null) {
-      // Still adjacent to the plan head — a single ambiguous turn the bot
-      // covered. Hold the queue; it resumes next turn from the projected head.
-      console.log(`[ActiveGameManager] Premove queue held (bot covered one turn) for ${gameId}:${snakeId}: ${headInfo}, ${cells.length} retained`);
-    } else {
-      console.log(`[ActiveGameManager] Premove queue diverged for ${gameId}:${snakeId}: ${headInfo}, clearing`);
-      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
-    }
-  }
-
-  setPremoveQueue(gameId: string, snakeId: string, queue: unknown, userId: string): boolean {
-    const game = this.games.get(gameId);
-    if (!game) return false;
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled) return false;
-    if (controlled.selectedBy !== userId) return false;
-
-    const sanitized: Coord[] = [];
-    if (Array.isArray(queue)) {
-      const board = game.boardState?.board;
-      const w = board?.width ?? 0;
-      const h = board?.height ?? 0;
-      for (let i = 0; i < Math.min(queue.length, 200); i++) {
-        const c = queue[i] as { x?: unknown; y?: unknown } | null;
-        if (!c) continue;
-        const x = Number(c.x);
-        const y = Number(c.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-        const ix = Math.floor(x);
-        const iy = Math.floor(y);
-        if (w > 0 && (ix < 0 || ix >= w)) continue;
-        if (h > 0 && (iy < 0 || iy >= h)) continue;
-        sanitized.push({ x: ix, y: iy });
-      }
-    }
-    // Starting/replacing a queue activates Queue mode (replacing waypoint and
-    // any manual selection). Emptying it falls back to the heuristic.
-    if (sanitized.length > 0) {
-      this.setIntent(gameId, snakeId, { kind: 'queue', cells: sanitized });
-    } else if (controlled.intent.kind === 'queue') {
-      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
-    } else {
-      this.stageMove(gameId, snakeId);
-    }
-    return true;
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1733,24 +1670,25 @@ export class ActiveGameManager {
   // and stageMove binds that into `staged`:
   //   1. Manual user selection         — setUserSelection (sets a single-turn
   //                                      {kind:'manual'} intent, structurally
-  //                                      superseding any queue/waypoint; this is
-  //                                      the "manual override drops the plan"
+  //                                      superseding any goto/near target; this
+  //                                      is the "manual override drops the plan"
   //                                      contract)
-  //   2. Queued premove (queue head)   — getPremoveDirection, applied
-  //                                      identically to selected AND
+  //   2. Waypoint-biased move          — getWaypointBiasedMove: the heuristic
+  //                                      matrix re-scored with the CURRENT
+  //                                      goto/near target's progress weight,
+  //                                      applied identically to selected AND
   //                                      unselected snakes.
-  //   3. Goto route head (waypoint)    — first step of the rendered green path
-  //   4. Bot recommendation            — the heuristic default
-  //   5. Hard fallback                 — literal 'up' if nothing else available
+  //   3. Bot recommendation            — the heuristic default
+  //   4. Hard fallback                 — literal 'up' if nothing else available
   //
   // Every staging action write-through publishes to Firebase (see stageMove);
   // the game server resolves each turn with the last staged move it received
   // before the turn deadline. There is no commit step on this side.
   //
-  // Ownership of the premove queue: server-only mutations are done in
-  // `setPremoveQueue` (in response to client `set-premove`), `setUserSelection`
-  // (clear on 'manual' override), and `advancePremoveQueueAfterMove` (pop /
-  // clear on divergence). Clients never advance the queue themselves; they
+  // Ownership of the goto queue: server-only mutations are done in
+  // `setWaypoint` (in response to client `set-waypoint`), `setUserSelection`
+  // (clear on 'manual' override), and the arrival check in `updateGameState`
+  // (shift on arrival). Clients never advance the queue themselves; they
   // render the broadcast snapshot.
   // ────────────────────────────────────────────────────────────────────────
   setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
@@ -1791,17 +1729,11 @@ export class ActiveGameManager {
 
     controlled.latestTurnData = turnData;
     controlled.botRecommendation = move;
-    // Re-anchor the green goto route at the PROJECTED head from the freshly
-    // stored board state — do NOT adopt the strategy's route, which is anchored
-    // at the LIVE head. Everywhere else on the server (getGotoRouteDirection,
-    // recomputeGotoRoute, the rendered path) anchors at the projected head; if
-    // we stored a live-head route here, after a move is committed this turn its
-    // first cell is no longer adjacent to the projected head, getGotoRouteDirection
-    // returns null, and the snake silently reverts to the bot's straight move
-    // while still displaying the green path (Bug B). recomputeGotoRoute uses the
-    // same BFS, so it self-clears the route to [] when the target is gone/
-    // unreachable, and is a no-op when not in waypoint mode.
-    this.recomputeGotoRoute(gameId, snakeId);
+    // The green goto route is NOT refreshed here: it is derived from the move
+    // that will actually commit, so it is recomputed inside stageMove once
+    // `staged` is final (the re-stage below). Recomputing it now — before
+    // `staged` is cleared and re-derived — would anchor the drawn path on the
+    // previous turn's staged move.
 
     // Re-stage ONLY this snake on its OWN turn-data update, never the others
     // when the board advances: each controlled snake gets its own
@@ -1897,12 +1829,14 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Consistency check: our snake ${youId} not found in board snakes array`);
     }
 
-    // Auto-clear green ("goto") waypoint when the snake's head has been
-    // at the target cell at any point — check both the current head and
-    // the most recent body segments so a snake that already advanced past
-    // the target by the time /move fires still clears the waypoint.
-    if (controlled?.intent.kind === 'waypoint' && controlled.intent.style === 'green') {
-      const wp = controlled.intent.target;
+    // Arrival SHIFTS the goto queue: reaching targets[0] promotes the next
+    // target, and only an emptied queue reverts to the heuristic. Check both
+    // the current head and body[1] so a snake that already advanced past the
+    // target by the time this fires still registers the arrival.
+    // (Near is single-target and deliberately never auto-clears — "stay close"
+    // has no arrival condition.)
+    if (controlled?.intent.kind === 'goto' && controlled.intent.targets.length > 0) {
+      const wp = controlled.intent.targets[0];
       const you = gameState.you;
       const head = you?.head;
       const body = you?.body || [];
@@ -1912,8 +1846,13 @@ export class ActiveGameManager {
       // body[1] catches that case.
       const justSteppedThrough = body.length > 1 && body[1].x === wp.x && body[1].y === wp.y;
       if (headHit || justSteppedThrough) {
-        console.log(`[ActiveGameManager] Auto-clearing green waypoint for ${gameId}:${snakeId} (head=${head?.x},${head?.y} wp=${wp.x},${wp.y} reason=${headHit ? 'head' : 'body[1]'})`);
-        this.setIntent(gameId, snakeId, { kind: 'heuristic' });
+        const remaining = controlled.intent.targets.slice(1);
+        console.log(`[ActiveGameManager] Goto target reached for ${gameId}:${snakeId} (head=${head?.x},${head?.y} target=${wp.x},${wp.y} reason=${headHit ? 'head' : 'body[1]'}) — ${remaining.length} target(s) remaining`);
+        this.setIntent(
+          gameId,
+          snakeId,
+          remaining.length > 0 ? { kind: 'goto', targets: remaining } : { kind: 'heuristic' }
+        );
       }
     }
   }
@@ -1921,12 +1860,14 @@ export class ActiveGameManager {
   // Called by the transport when a turn has RESOLVED server-side (the next
   // turn's board arrived), with the moves the game server actually applied for
   // our controlled snakes on `resolvedTurn`. Must run BEFORE the new turn's
-  // board state is fed in, so queue advancement measures from the old head.
+  // board state is fed in, so the bookkeeping measures from the old head.
   //
   // This replaces the old HTTP commit step for bookkeeping only — nothing is
   // submitted here. The server already resolved the turn from the last staged
-  // move it received; we record what happened (decision log), advance premove
-  // queues in lock-step with the actual move, and notify the UI.
+  // move it received; we record what happened (decision log) and notify the UI.
+  // The goto queue is NOT advanced here: arrival is detected from the board
+  // itself in `updateGameState`, which is authoritative about where the snake
+  // actually ended up.
   applyResolvedMoves(gameId: string, resolvedTurn: number, moves: { [snakeId: string]: Direction }): void {
     const game = this.games.get(gameId);
     if (!game) return;
@@ -1945,12 +1886,6 @@ export class ActiveGameManager {
       const fatalConsented = !!staged && staged.snakeId === snakeId &&
         staged.turn === resolvedTurn && staged.move === move && staged.fatalConsented;
       DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, resolvedTurn + 1, move, fatalConsented);
-
-      // Keep the server-side premove queue in lock-step with the actual move.
-      // This works for both selected (client-driven) and unselected
-      // (auto-pilot) snakes — whoever drove the move, the queue advances or
-      // clears based on what actually happened.
-      this.advancePremoveQueueAfterMove(gameId, snakeId, move);
 
       // No move-committed notification here: the UI's double arrow is driven
       // by finalizeTurnMove, which fires when Firebase finalizes the turn —

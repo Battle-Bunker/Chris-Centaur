@@ -24,7 +24,7 @@
 //      writes moveStatuses through the MoveCommitter).
 //   5. Resolution bookkeeping: when the next turn arrives, the moves the
 //      server actually applied are derived from the board delta and fed back
-//      (decision log, premove queue advancement, UI move-committed events).
+//      (decision log, UI move-committed events).
 
 import { FirebaseApp, deleteApp, initializeApp } from 'firebase/app';
 import {
@@ -912,7 +912,7 @@ export class TacticToesFirebaseInterface {
     // Derive the moves the server actually applied on the PREVIOUS turn from
     // the board delta (falling back to the recorded move index for snakes that
     // died this turn). Bookkeeping must run BEFORE the new board is fed in so
-    // premove-queue advancement measures from the old head.
+    // it measures against the old head.
     if (turnNumber > 0) {
       const prevTurn = data.turns[turnNumber - 1];
       const lastMoves = this.deriveLastMoves(data, prevTurn, turn);
@@ -1005,7 +1005,7 @@ export class TacticToesFirebaseInterface {
         try {
           const teams = this.teamDetector.detectTeams(view.board.snakes);
           const ourTeam = teams.find((team) => team.snakes.some((s) => s.id === snakeId));
-          const waypoint = this.gameManager.getWaypoint(watched.gameID, snakeId);
+          const waypoint = this.gameManager.getActiveWaypointTarget(watched.gameID, snakeId);
 
           let lastForwarded: Direction | null = null;
           const result = await this.strategy.getBestMoveIterative(view, ourTeam, waypoint, {

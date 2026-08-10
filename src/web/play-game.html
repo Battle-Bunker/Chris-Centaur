@@ -119,8 +119,8 @@
     }
     .intent-mode-badge.mode-heuristic { background: #777; }
     .intent-mode-badge.mode-manual { background: #9c27b0; }
-    .intent-mode-badge.mode-queue { background: #2196F3; }
-    .intent-mode-badge.mode-waypoint { background: #4CAF50; }
+    .intent-mode-badge.mode-goto { background: #4CAF50; }
+    .intent-mode-badge.mode-near { background: #1565c0; }
     .no-selection-msg {
       text-align: center; padding: 20px; color: #666; font-size: 14px;
     }
@@ -253,20 +253,6 @@
     }
     .confirm-btn { background: #4CAF50; color: white; }
     .cancel-btn { background: #444; color: #ccc; }
-    #premoveBanner {
-      display: none; align-items: center; gap: 10px;
-      padding: 6px 10px; margin-bottom: 8px; border-radius: 4px;
-      background: rgba(33, 150, 243, 0.15); border-left: 4px solid #2196F3;
-      color: #bbdefb; font-size: 12px; font-weight: 600;
-    }
-    #premoveBanner.active { display: flex; }
-    #premoveBanner .pm-hint { font-weight: 400; opacity: 0.85; }
-    #premoveBanner .pm-clear {
-      margin-left: auto; background: #444; color: #eee; border: none;
-      padding: 3px 10px; border-radius: 3px; cursor: pointer;
-      font-size: 11px; font-weight: 600;
-    }
-    #premoveBanner .pm-clear:hover { background: #555; }
     .kbd-legend {
       display: inline-flex; align-items: center; gap: 6px;
       margin-right: 4px;
@@ -304,23 +290,6 @@
       font-size: 10px; color: #fff;
     }
     .kbd-pill:hover .kbd-tip { opacity: 1; }
-    #premoveBanner .pm-notice {
-      font-weight: 600; color: #ffd180; margin-left: 6px;
-    }
-    .canvas-wrapper.premove-mode #gameCanvas {
-      border-color: #2196F3;
-      box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.35), 0 0 18px rgba(33, 150, 243, 0.45);
-    }
-    @keyframes premove-reject-flash {
-      0%   { background: rgba(244, 67, 54, 0.55); border-color: #f44336; }
-      60%  { background: rgba(244, 67, 54, 0.25); border-color: #f44336; }
-      100% { background: rgba(244, 67, 54, 0); border-color: rgba(244, 67, 54, 0); }
-    }
-    .premove-reject-flash {
-      position: absolute; pointer-events: none; z-index: 16;
-      border: 3px solid #f44336; box-sizing: border-box; border-radius: 4px;
-      animation: premove-reject-flash 600ms ease-out forwards;
-    }
     .turn-controls {
       background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 15px;
     }
@@ -382,18 +351,6 @@
             <div style="display: flex; align-items: center; gap: 8px;">
               <div class="kbd-legend">
               <span class="kbd-pill">
-                <span class="kbd-key">Q</span> Premove
-                <span class="kbd-tip">
-                  <strong>Q — toggle premove mode</strong><br>
-                  While on, clicking adjacent squares plans a multi-step path.
-                  Each turn the queue's next direction stages automatically and
-                  commits at the turn deadline. Click the head to clear, click an
-                  existing waypoint to truncate. The plan persists across deselect /
-                  takeover and is broadcast to every viewer. If you manually stage a
-                  different direction, the rest of the queue is discarded.
-                </span>
-              </span>
-              <span class="kbd-pill">
                 <span class="kbd-key">Tab</span> Cycle
                 <span class="kbd-tip">
                   <strong>Tab — cycle your snakes</strong><br>
@@ -405,21 +362,29 @@
               <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
                 <span class="kbd-key" style="background:#2e7d32; color:#fff;">Alt + Click</span> Goto
                 <span class="kbd-tip">
-                  <strong>Alt-click — green "goto" waypoint</strong><br>
-                  Sets a target cell that strongly pulls the selected snake
-                  toward it. Auto-clears when the snake's head arrives. The
-                  bot still avoids death, so it won't suicide into a wall to
-                  reach the target. Click the green cell again to cancel.
+                  <strong>Alt-click — green "goto" target</strong><br>
+                  Sets a target the bot is REWARDED for approaching. It is a
+                  weighted vote in the same scoring matrix every other heuristic
+                  feeds — never a path override — so survival heuristics can
+                  still outvote it and the snake will never die for a target.
+                  The optimal step scores the full bonus, fading to nothing at
+                  twice the best path length.<br>
+                  <strong>Shift+Alt-click</strong> appends another target to the
+                  queue (click a queued cell to remove it). Reaching the active
+                  target promotes the next; emptying the queue reverts to the
+                  heuristic. Click the lone green cell again to cancel.
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(33,150,243,0.18); border-color:#2196f3;">
                 <span class="kbd-key" style="background:#1565c0; color:#fff;">Shift + Click</span> Near
                 <span class="kbd-tip">
-                  <strong>Shift-click — blue "near" waypoint</strong><br>
-                  Sets a target the snake should stay near while keeping a
-                  reachable path to it (so it won't trap itself away from the
-                  spot). Stays until you clear it — click the blue cell again
-                  to remove. Setting any new waypoint replaces the old one.
+                  <strong>Shift-click — blue "near" target</strong><br>
+                  Rewards staying close to a cell WITHOUT ever arriving on it —
+                  the bonus peaks one square away and is zero for landing on the
+                  target or cutting off the path to it. Weighted into the bot's
+                  scoring exactly like Goto, so survival still wins. Single
+                  target, never auto-clears — click the blue cell again to
+                  remove.
                 </span>
               </span>
             </div>
@@ -443,12 +408,6 @@
               <button id="navEndBtn" class="turn-nav-btn" title="Go to live" onclick="navGoToEnd()">&#x25B6;|</button>
             </div>
             <div class="turn-controls-info" id="turnControlsInfo"></div>
-          </div>
-          <div id="premoveBanner">
-            <span id="premoveBannerLabel">Premove ON</span>
-            <span class="pm-hint">click adjacent squares to plan a path · [Q] toggle · click head to clear</span>
-            <span class="pm-notice" id="premoveBannerNotice"></span>
-            <button class="pm-clear" id="premoveClearBtn" onclick="clearPremoveQueue()">Clear path</button>
           </div>
           <div class="canvas-wrapper">
             <canvas id="gameCanvas" width="550" height="550"></canvas>
@@ -813,12 +772,10 @@
     let lastCanvasMousePos = null; // last {clientX, clientY} over the canvas
     let nameTagHoverRerenderQueued = false;
     let stagedMoves = {};
-    let premoveMode = false;
-    let premoveQueues = {};  // { [snakeId]: [{x,y}, ...] } — mirror of server state, broadcast to all clients
+
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
     let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
     let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
-    let premoveBannerNoticeTimer = null;
 
     // ── Turn scrubbing (live vs historic view) ──────────────────────────────
     // The play page can scrub back through earlier turns of the CURRENT game,
@@ -901,8 +858,6 @@
     //     for staged moves), and broadcasts the mirror. The client renders the
     //     stagedMoves map directly; it never synthesises a fallback arrow
     //     locally.
-    //   - Q-mode (premoveMode flag): purely local input mode. Controls what
-    //     canvas clicks DO (plan vs select), not whether the queue runs.
     // ────────────────────────────────────────────────────────────────────────
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
@@ -1058,9 +1013,6 @@
           if (msg.stagedMoves) {
             stagedMoves = msg.stagedMoves;
           }
-          if (msg.premoves) {
-            premoveQueues = msg.premoves;
-          }
           if (msg.waypoints) {
             waypoints = msg.waypoints;
           }
@@ -1075,7 +1027,6 @@
           if (currentGameState) {
             showGameUI();
           }
-          updatePremoveBanner();
           break;
 
         case 'board-update':
@@ -1100,9 +1051,6 @@
           }
           if (msg.owners) {
             owners = msg.owners;
-          }
-          if (msg.premoves) {
-            premoveQueues = msg.premoves;
           }
           if (msg.waypoints) {
             waypoints = msg.waypoints;
@@ -1190,15 +1138,9 @@
         case 'snake-selected': {
           if (msg.snakeId) {
             if (selectedSnakeId && selectedSnakeId !== msg.snakeId) {
-              // Switching snakes: don't touch the previous snake's premove queue
-              // (it lives on the server and persists across (de)selection).
-              // Just turn off our local premove input mode so clicks behave
-              // normally for the newly selected snake.
-              if (premoveMode) {
-                showBannerNotice('Planning off: switched snake');
-              }
-              premoveMode = false;
-              updatePremoveBanner();
+              // Switching snakes: don't touch the previous snake's goto/near
+              // targets — they live on the server and persist across
+              // (de)selection.
             }
             selectedSnakeId = msg.snakeId;
             if (msg.turnData) {
@@ -1235,9 +1177,6 @@
           if (msg.stagedMoves) {
             stagedMoves = msg.stagedMoves;
           }
-          if (msg.premoves) {
-            premoveQueues = msg.premoves;
-          }
           if (msg.waypoints) {
             waypoints = msg.waypoints;
           }
@@ -1255,23 +1194,17 @@
             const sel = selections[selectedSnakeId];
             if (!sel || (sel.userId !== userId)) {
               // We've been deselected (or someone else took over). Drop our
-              // local input state but leave the snake's premove queue alone —
-              // it belongs to the snake, not the user, and will keep executing
-              // for whoever now controls it.
-              if (premoveMode) {
-                showBannerNotice('Planning off: another user took control');
-              }
+              // local input state but leave the snake's goto/near targets
+              // alone — they belong to the snake, not the user, and keep
+              // biasing its moves for whoever now controls it.
               selectedSnakeId = null;
               moveState = null;
               moveSubmitted = false;
               userSelectedMove = null;
               analyticsFrozen = false;
-              premoveMode = false;
-              updatePremoveBanner();
               hideSelectionUI();
             }
           }
-          updatePremoveBanner();
           break;
 
         case 'selection-contested':
@@ -1281,18 +1214,13 @@
 
         case 'selection-revoked':
           if (selectedSnakeId === msg.snakeId) {
-            // Lost selection. Premove queue stays on the server for the snake
-            // (the new controller will inherit it). Just clear our local state.
-            if (premoveMode) {
-              showBannerNotice('Planning off: selection revoked');
-            }
+            // Lost selection. The snake's goto/near targets stay on the
+            // server (the new controller inherits them). Clear local state only.
             selectedSnakeId = null;
             moveState = null;
             moveSubmitted = false;
             userSelectedMove = null;
             analyticsFrozen = false;
-            premoveMode = false;
-            updatePremoveBanner();
             hideSelectionUI();
           }
           break;
@@ -1384,13 +1312,8 @@
             survived: !!msg.survived,
             won: !!msg.won,
           };
-          if (premoveQueues[msg.snakeId]) {
-            delete premoveQueues[msg.snakeId];
-          }
-          if (msg.snakeId === selectedSnakeId) {
-            premoveMode = false;
-          }
-          updatePremoveBanner();
+          delete waypoints[msg.snakeId];
+          delete gotoRoutes[msg.snakeId];
           if (msg.gameOver) {
             gameEnded = true;
             turnExpiryTime = null;
@@ -1546,9 +1469,9 @@
       updateMoveControls();
     }
 
-    // Reflect the snake's active next-move source (Heuristic | Manual | Queue |
-    // Waypoint) as a colored badge next to its name. Colors match the board
-    // overlays: blue = queue, green = waypoint route.
+    // Reflect the snake's active next-move source (Heuristic | Manual | Goto |
+    // Near) as a colored badge next to its name. Colors match the board
+    // overlays: green = goto target/route, blue = near target.
     function updateIntentModeBadge() {
       const badge = document.getElementById('intentModeBadge');
       if (!badge) return;
@@ -1556,8 +1479,8 @@
       const labels = {
         heuristic: 'Heuristic',
         manual: 'Manual',
-        queue: 'Queue',
-        waypoint: 'Waypoint',
+        goto: 'Goto',
+        near: 'Near',
       };
       badge.textContent = labels[mode] || 'Heuristic';
       badge.className = `intent-mode-badge mode-${mode}`;
@@ -1648,49 +1571,23 @@
         submittedMoves: lastCommittedMoves,
       });
 
-      // Q-mode visual cue: outline the four orthogonally-adjacent cells to
-      // the selected snake's head so the user can see exactly where clicks
-      // will land. Drawn even when the queue is empty (the "Q trail doesn't
-      // activate" bug).
-      if (premoveMode && selectedSnakeId) {
-        const selSnake = currentGameState.board.snakes.find(s => s.id === selectedSnakeId);
-        if (selSnake) {
-          drawPremoveLegalCells(canvas, selSnake, currentGameState.board, cellSize);
-        }
-      }
-
-      // Render every snake's premove path so all connected clients can see
-      // what each controller has planned. Color comes from whoever is
-      // currently selecting the snake (so observers see it as the controller's
-      // color), falling back to the snake's own color.
-      for (const snake of currentGameState.board.snakes) {
-        const pq = premoveQueues[snake.id];
-        if (!pq || pq.length === 0) continue;
-        const sel = selections[snake.id];
-        const color = (sel && sel.color) || snake.color || '#2196F3';
-        drawPremoveOverlay(canvas, snake, pq, currentGameState.board, cellSize, color);
-      }
-
-      // Render every snake's live green "goto" route (head → green waypoint),
-      // reusing the same numbered dashed overlay as the queue but in green so
-      // it reads as a distinct intent. The pathfinder refreshes it each turn.
+      // Render every snake's live green "goto" route so all connected clients
+      // can see what each controller has planned. route[0] is the STAGED next
+      // move and the rest is the shortest path onward from it, so the drawn
+      // path always matches the move that will actually commit.
       for (const snake of currentGameState.board.snakes) {
         const route = gotoRoutes[snake.id];
         if (!route || route.length === 0) continue;
-        drawPremoveOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
+        drawRouteOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
       }
 
-      // Render every snake's waypoint (green or blue) so observers can see
-      // what target the controller has set.
+      // Render every snake's waypoint cells (green goto queue in order, or the
+      // single blue near target) so observers can see the controller's plan.
       for (const snakeId in waypoints) {
         drawWaypointOverlay(canvas, waypoints[snakeId], currentGameState.board, cellSize);
       }
 
-      // The move-arrow overlay puts clickable divs over the four cells adjacent
-      // to the head — those would swallow exactly the clicks the user is trying
-      // to plan into. Skip the overlay entirely while in premove input mode so
-      // clicks fall through to the canvas's premove handler.
-      if (selectedSnakeId && moveState && !moveSubmitted && !premoveMode) {
+      if (selectedSnakeId && moveState && !moveSubmitted) {
         BoardRenderer.createBoardOverlay(
           document.getElementById('boardOverlay'), canvas,
           currentGameState.board, moveState,
@@ -1886,10 +1783,10 @@
       };
 
       // Mirror the server's "manual override drops the plan" contract locally
-      // for immediate feedback; the server enforces the same via setUserSelection.
-      if ((premoveQueues[selectedSnakeId] || []).length > 0) {
-        setPremoveQueueForSnake(selectedSnakeId, []);
-      }
+      // for immediate feedback; the server enforces the same via setUserSelection
+      // (a manual intent structurally supersedes any goto/near target).
+      delete waypoints[selectedSnakeId];
+      delete gotoRoutes[selectedSnakeId];
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move }));
@@ -2020,18 +1917,30 @@
       }, 50);
     }
 
-    // Authoritative state lives on the server (same pattern as premove queues).
-    // The controlling user clicks → we send `set-waypoint` → server stores it
-    // on the snake → broadcasts to every subscriber. Clearing sends `null`.
-    function setWaypointForSnake(snakeId, waypoint) {
+    // Authoritative state lives on the server.
+    // The controlling user clicks -> we send `set-waypoint` -> the server stores
+    // it and broadcasts. The local mirror below is optimistic echo only, so the
+    // overlay updates on the same frame as the click; the broadcast is
+    // authoritative and overwrites it.
+    // `append=true` (green only) toggles the cell in the goto target queue.
+    function setWaypointForSnake(snakeId, waypoint, append = false) {
       if (!snakeId) return;
       if (waypoint === null) {
         delete waypoints[snakeId];
+      } else if (append && waypoints[snakeId]?.type === 'green' && waypoint.type === 'green') {
+        const cells = waypoints[snakeId].cells;
+        const idx = cells.findIndex(c => c.x === waypoint.x && c.y === waypoint.y);
+        if (idx >= 0) {
+          cells.splice(idx, 1);
+          if (cells.length === 0) delete waypoints[snakeId];
+        } else {
+          cells.push({ x: waypoint.x, y: waypoint.y });
+        }
       } else {
-        waypoints[snakeId] = waypoint;
+        waypoints[snakeId] = { type: waypoint.type, cells: [{ x: waypoint.x, y: waypoint.y }] };
       }
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint }));
+        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint, append }));
       }
       renderGameBoard();
     }
@@ -2053,26 +1962,40 @@
       const boardY = cell.y;
 
       // Waypoint handling for the currently selected snake:
-      // - Alt-click sets a green "goto" waypoint (auto-clears on arrival).
-      // - Shift-click sets a blue "near" waypoint (manual clear only).
-      // - Plain click on the existing waypoint cell clears it (per spec).
+      // - Alt-click sets a green "goto" target, REPLACING the queue.
+      // - Shift+Alt-click APPENDS a green target to the goto queue (clicking an
+      //   already-queued cell removes it).
+      // - Shift-click sets the blue "near" target (manual clear only).
+      // - Plain click on a waypoint cell clears the whole plan.
       if (selectedSnakeId &&
           boardX >= 0 && boardX < board.width &&
           boardY >= 0 && boardY < board.height) {
         const current = waypoints[selectedSnakeId];
-        const onWaypointCell = current && current.x === boardX && current.y === boardY;
+        const cells = current?.cells || [];
+        const onWaypointCell = cells.some(c => c.x === boardX && c.y === boardY);
 
-        if (event.altKey || event.shiftKey) {
-          if (onWaypointCell) {
+        if (event.altKey) {
+          const appendGoto = event.shiftKey && current?.type === 'green';
+          // A plain alt-click on the ONLY target clears the plan; with a queue
+          // it replaces it, and shift+alt toggles queue membership instead.
+          if (!appendGoto && onWaypointCell && cells.length === 1) {
             setWaypointForSnake(selectedSnakeId, null);
             return;
           }
-          const type = event.altKey ? 'green' : 'blue';
-          setWaypointForSnake(selectedSnakeId, { type, x: boardX, y: boardY });
+          setWaypointForSnake(selectedSnakeId, { type: 'green', x: boardX, y: boardY }, appendGoto);
           return;
         }
 
-        // Plain-click on the waypoint cell clears it. Only triggers when no
+        if (event.shiftKey) {
+          if (onWaypointCell && current?.type === 'blue') {
+            setWaypointForSnake(selectedSnakeId, null);
+            return;
+          }
+          setWaypointForSnake(selectedSnakeId, { type: 'blue', x: boardX, y: boardY });
+          return;
+        }
+
+        // Plain-click on a waypoint cell clears the plan. Only triggers when no
         // controlled snake body occupies that cell, so it doesn't steal
         // snake-selection clicks.
         if (onWaypointCell) {
@@ -2089,26 +2012,6 @@
             return;
           }
         }
-      }
-
-      if (premoveMode && selectedSnakeId) {
-        // In premove mode, a click on a *different* controlled snake
-        // should still switch selection — otherwise the user is trapped
-        // in the current snake until they toggle Q off.
-        for (const snake of board.snakes) {
-          if (!controlledSnakeIds.has(snake.id)) continue;
-          if (snake.id === selectedSnakeId) continue;
-          for (const segment of snake.body) {
-            if (segment.x === boardX && segment.y === boardY) {
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'select-snake', snakeId: snake.id }));
-              }
-              return;
-            }
-          }
-        }
-        addPremoveCellAt(boardX, boardY);
-        return;
       }
 
       for (const snake of board.snakes) {
@@ -2133,8 +2036,8 @@
     // Mirror of active-game-manager.getProjectedHead. The cell the snake's
     // head will occupy after the move already committed this turn — or the
     // current head if nothing's committed yet. Anchors every "next turn"
-    // affordance (Q-mode legal cells, addPremoveCellAt adjacency check,
-    // post-commit candidate cells) so they don't draw at the stale head.
+    // affordance (post-commit candidate cells) so they don't draw at the
+    // stale head.
     function getProjectedHead(snakeId) {
       if (!snakeId || !currentGameState) return null;
       const snake = currentGameState.board.snakes.find(s => s.id === snakeId);
@@ -2188,226 +2091,84 @@
       return { head: proj, moves, selectedMove: null, postCommit: true };
     }
 
-    // Authoritative state lives on the server: the controlling user's client
-    // sends `set-premove` whenever the queue mutates, the server stores it on
-    // the snake, and broadcasts the new state to every subscriber. This
-    // helper updates the local mirror AND sends to the server in one shot.
-    function setPremoveQueueForSnake(snakeId, queue) {
-      if (!snakeId) return;
-      if (queue.length === 0) {
-        delete premoveQueues[snakeId];
-      } else {
-        premoveQueues[snakeId] = queue;
-      }
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-premove', snakeId, queue }));
-      }
-      updatePremoveBanner();
-      renderGameBoard();
-      // The server stages the queue head as soon as it receives the
-      // set-premove message (setPremoveQueue -> queue intent mode ->
-      // refreshStagedMove) and broadcasts it back via stagedMoves, so the
-      // client no longer needs to pre-stage anything locally.
-    }
-
-    function addPremoveCellAt(x, y) {
-      if (!selectedSnakeId) return;
-      const snake = getSelectedSnake();
-      if (!snake) return;
-      const board = currentGameState.board;
-      if (x < 0 || y < 0 || x >= board.width || y >= board.height) {
-        flashRejectedCell(x, y, 'Off the board');
-        return;
-      }
-
-      // After a move is committed this turn the queue's "starting point" is
-      // the projected head (head + committed-move offset), not the now-stale
-      // current head. Without this, adjacency checks below reject clicks
-      // that ARE adjacent to where the snake will actually be next turn.
-      const head = getProjectedHead(selectedSnakeId) || snake.head || snake.body[0];
-      const current = (premoveQueues[selectedSnakeId] || []).slice();
-
-      // Click on the (projected) head clears the path.
-      if (x === head.x && y === head.y) {
-        if (current.length === 0) {
-          showBannerNotice('Path already empty');
-          return;
-        }
-        setPremoveQueueForSnake(selectedSnakeId, []);
-        showBannerNotice('Path cleared');
-        return;
-      }
-
-      // Click on an existing waypoint truncates back to it.
-      const existingIdx = current.findIndex(c => c.x === x && c.y === y);
-      if (existingIdx !== -1) {
-        setPremoveQueueForSnake(selectedSnakeId, current.slice(0, existingIdx + 1));
-        showBannerNotice(`Truncated to ${existingIdx + 1} step${existingIdx === 0 ? '' : 's'}`);
-        return;
-      }
-
-      // Otherwise the new cell must be orthogonally adjacent to the queue tail
-      // (or the head if the queue is empty). Non-adjacent clicks flash red
-      // instead of silently being ignored — the user otherwise has no way of
-      // knowing planning is even on.
-      const last = current.length > 0 ? current[current.length - 1] : head;
-      const dx = x - last.x;
-      const dy = y - last.y;
-      const isAdjacent = (Math.abs(dx) === 1 && dy === 0) || (Math.abs(dy) === 1 && dx === 0);
-      if (!isAdjacent) {
-        flashRejectedCell(x, y, 'Not adjacent to path');
-        return;
-      }
-
-      current.push({ x, y });
-      setPremoveQueueForSnake(selectedSnakeId, current);
-      // NOTE: no auto-submit here. The queue is a plan for future turns; it
-      // executes one cell per turn from the snake-turn-update handler. Trying
-      // to submit on every click made it impossible to build multi-cell paths.
-    }
-
-    function flashRejectedCell(x, y, reason) {
-      if (reason) showBannerNotice(reason);
-      const canvas = document.getElementById('gameCanvas');
-      const board = currentGameState?.board;
-      if (!canvas || !board) return;
-      const displayWidth = canvas.clientWidth || canvas.width;
-      const displayHeight = canvas.clientHeight || canvas.height;
-      const cellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
-      // Clamp off-board clicks to the nearest in-bounds cell so the flash
-      // still has somewhere to land.
-      const clampedX = Math.max(0, Math.min(board.width - 1, x));
-      const clampedY = Math.max(0, Math.min(board.height - 1, y));
-      const px = clampedX * cellSize;
-      const py = (board.height - 1 - clampedY) * cellSize;
-      const flash = document.createElement('div');
-      flash.className = 'premove-reject-flash';
-      flash.style.left = (canvas.offsetLeft + px) + 'px';
-      flash.style.top = (canvas.offsetTop + py) + 'px';
-      flash.style.width = cellSize + 'px';
-      flash.style.height = cellSize + 'px';
-      const wrapper = document.querySelector('.canvas-wrapper');
-      wrapper.appendChild(flash);
-      setTimeout(() => flash.remove(), 650);
-    }
-
+    // Small transient toast (bottom of the viewport) for one-line user
+    // feedback, e.g. history-scrub notices. Replaces the old premove banner's
+    // notice slot, which went away with the premove queue.
+    let bannerNoticeTimer = null;
     function showBannerNotice(text) {
-      const el = document.getElementById('premoveBannerNotice');
-      if (!el) return;
-      // Force the banner visible so the notice is actually seen even when
-      // Q-mode is off and queue is empty.
-      const banner = document.getElementById('premoveBanner');
-      if (banner) banner.classList.add('active');
+      let el = document.getElementById('transientNotice');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'transientNotice';
+        el.style.cssText =
+          'position:fixed; bottom:18px; left:50%; transform:translateX(-50%);' +
+          'background:#1a1a1a; border:1px solid #555; border-radius:4px;' +
+          'padding:6px 14px; color:#ffd180; font-size:12px; font-weight:600;' +
+          'z-index:1002; box-shadow:0 4px 12px rgba(0,0,0,0.4);' +
+          'pointer-events:none;';
+        document.body.appendChild(el);
+      }
       el.textContent = text;
-      if (premoveBannerNoticeTimer) clearTimeout(premoveBannerNoticeTimer);
-      premoveBannerNoticeTimer = setTimeout(() => {
-        el.textContent = '';
-        premoveBannerNoticeTimer = null;
-        updatePremoveBanner();
+      el.style.display = 'block';
+      if (bannerNoticeTimer) clearTimeout(bannerNoticeTimer);
+      bannerNoticeTimer = setTimeout(() => {
+        el.style.display = 'none';
+        bannerNoticeTimer = null;
       }, 1800);
     }
 
-    function clearPremoveQueue() {
-      if (!selectedSnakeId) return;
-      const q = premoveQueues[selectedSnakeId];
-      if (!q || q.length === 0) return;
-      setPremoveQueueForSnake(selectedSnakeId, []);
-    }
-
-    function togglePremoveMode() {
-      if (!selectedSnakeId) return;
-      premoveMode = !premoveMode;
-      // Unambiguous cue (step 5): banner text changes AND the canvas border
-      // glows blue AND legal adjacent cells are outlined. All three light up
-      // together regardless of whether the queue is empty.
-      showBannerNotice(premoveMode ? 'Planning ON' : 'Planning off');
-      updatePremoveBanner();
-      renderGameBoard();
-    }
-
-    function updatePremoveBanner() {
-      const banner = document.getElementById('premoveBanner');
-      const label = document.getElementById('premoveBannerLabel');
-      const clearBtn = document.getElementById('premoveClearBtn');
-      const wrapper = document.querySelector('.canvas-wrapper');
-      if (!banner || !label || !clearBtn) return;
-      const queue = (selectedSnakeId && premoveQueues[selectedSnakeId]) || [];
-      const noticeEl = document.getElementById('premoveBannerNotice');
-      const hasNotice = !!(noticeEl && noticeEl.textContent);
-      const visible = !!selectedSnakeId && (premoveMode || queue.length > 0 || hasNotice);
-      banner.classList.toggle('active', visible);
-      // Q controls the click-to-plan input mode only. The queue itself always
-      // auto-executes when non-empty, regardless of Q.
-      const status = premoveMode ? 'Planning (click to extend)' : 'Premove';
-      label.textContent = `${status} · ${queue.length} queued`;
-      clearBtn.style.display = queue.length > 0 ? 'inline-block' : 'none';
-      // Canvas border highlight — the second visual signal for Q-mode, on
-      // independently of queue contents.
-      if (wrapper) wrapper.classList.toggle('premove-mode', !!selectedSnakeId && premoveMode);
-    }
-
-
-    function drawPremoveLegalCells(canvas, snake, board, cellSize) {
-      // Anchor at the projected head so post-commit Q-mode highlights the
-      // cells the snake will actually be able to choose from next turn.
-      const head = getProjectedHead(snake.id) || snake.head || snake.body?.[0];
-      if (!head) return;
-      const ctx = canvas.getContext('2d');
-      const offsets = [
-        { dx:  1, dy:  0 },
-        { dx: -1, dy:  0 },
-        { dx:  0, dy:  1 },
-        { dx:  0, dy: -1 },
-      ];
-      ctx.save();
-      ctx.strokeStyle = 'rgba(33, 150, 243, 0.9)';
-      ctx.fillStyle   = 'rgba(33, 150, 243, 0.12)';
-      ctx.lineWidth = Math.max(1.5, cellSize * 0.06);
-      ctx.setLineDash([Math.max(3, cellSize * 0.16), Math.max(3, cellSize * 0.12)]);
-      for (const { dx, dy } of offsets) {
-        const cx = head.x + dx;
-        const cy = head.y + dy;
-        if (cx < 0 || cy < 0 || cx >= board.width || cy >= board.height) continue;
-        const px = cx * cellSize;
-        const py = (board.height - 1 - cy) * cellSize;
-        const pad = Math.max(1, cellSize * 0.06);
-        ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-        ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-      }
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
-
-    // Draw a translucent filled square + thick border on the waypoint cell,
-    // green for "goto" / blue for "near". Uses the same canvas-coordinate
-    // convention as drawPremoveOverlay (y is flipped).
+    // Draw a translucent filled square + thick border on every waypoint cell,
+    // green for the "goto" queue / blue for the single "near" target. A green
+    // queue of more than one cell is numbered in order, so the active target
+    // (cells[0], the only one handed to the decision engine) is legible.
+    // Uses the same canvas-coordinate convention as drawRouteOverlay (y flipped).
     function drawWaypointOverlay(canvas, waypoint, board, cellSize) {
-      if (!waypoint) return;
+      if (!waypoint || !waypoint.cells || waypoint.cells.length === 0) return;
       const ctx = canvas.getContext('2d');
       const isGreen = waypoint.type === 'green';
       const fill = isGreen ? 'rgba(76, 175, 80, 0.35)' : 'rgba(33, 150, 243, 0.30)';
       const stroke = isGreen ? '#2e7d32' : '#1565c0';
-      const px = waypoint.x * cellSize;
-      const py = (board.height - 1 - waypoint.y) * cellSize;
+      const showOrder = isGreen && waypoint.cells.length > 1;
       const pad = Math.max(2, cellSize * 0.08);
       ctx.save();
-      ctx.fillStyle = fill;
-      ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = Math.max(2, cellSize * 0.07);
-      ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-      // Diagonal cross marker so target reads clearly even when overlapping a snake
-      ctx.beginPath();
-      ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
-      ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
-      ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
-      ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
-      ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
-      ctx.stroke();
+      for (let i = 0; i < waypoint.cells.length; i++) {
+        const cell = waypoint.cells[i];
+        const px = cell.x * cellSize;
+        const py = (board.height - 1 - cell.y) * cellSize;
+        // Queued-but-not-active targets read fainter than the active one.
+        ctx.globalAlpha = i === 0 ? 1 : 0.6;
+        ctx.fillStyle = fill;
+        ctx.fillRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = Math.max(2, cellSize * 0.07);
+        ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
+        // Diagonal cross marker so the target reads clearly even when
+        // overlapping a snake.
+        ctx.beginPath();
+        ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
+        ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
+        ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
+        ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
+        ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
+        ctx.stroke();
+        if (showOrder) {
+          ctx.globalAlpha = 1;
+          ctx.font = `bold ${Math.max(10, Math.floor(cellSize * 0.34))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#000';
+          ctx.strokeText(String(i + 1), px + cellSize / 2, py + cellSize / 2 + 1);
+          ctx.fillStyle = '#fff';
+          ctx.fillText(String(i + 1), px + cellSize / 2, py + cellSize / 2 + 1);
+        }
+      }
       ctx.restore();
     }
 
-    function drawPremoveOverlay(canvas, snake, queue, board, cellSize, color) {
+    // Numbered dashed path from the snake's head along a sequence of cells —
+    // the green goto route.
+    function drawRouteOverlay(canvas, snake, queue, board, cellSize, color) {
       if (!snake || !queue || queue.length === 0) return;
       const ctx = canvas.getContext('2d');
       // Anchor the dashed path at the projected head so the line connects
@@ -2570,23 +2331,7 @@
         return;
       }
 
-      if (e.key === 'q' || e.key === 'Q') {
-        if (selectedSnakeId) {
-          e.preventDefault();
-          togglePremoveMode();
-        }
-        return;
-      }
-
       if (e.key === 'Escape') {
-        // First Esc just turns off input mode (queue stays, persists on server).
-        if (premoveMode) {
-          premoveMode = false;
-          showBannerNotice('Planning off: Esc');
-          updatePremoveBanner();
-          renderGameBoard();
-          return;
-        }
         if (selectedSnakeId && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'deselect' }));
           selectedSnakeId = null;
@@ -2594,8 +2339,6 @@
           moveSubmitted = false;
           userSelectedMove = null;
           analyticsFrozen = false;
-          premoveMode = false;
-          updatePremoveBanner();
           hideSelectionUI();
           renderGameBoard();
         }
@@ -3035,9 +2778,6 @@
         returnToLive();
         return;
       }
-      // Turn off live-only input affordances while inspecting history.
-      premoveMode = false;
-      updatePremoveBanner();
       if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
       const timerEl = document.getElementById('timerDisplay');
       if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }

@@ -381,21 +381,21 @@
                         </div>
                         
                         <div class="config-item">
-                            <label for="waypointGoto">Waypoint Goto Weight (green)</label>
+                            <label for="gotoProgress">Goto Progress Weight (green)</label>
                             <div class="input-group">
-                                <input type="range" id="waypointGoto_slider" min="0" max="5000" step="50">
-                                <input type="number" id="waypointGoto" min="0" max="5000" step="50">
+                                <input type="range" id="gotoProgress_slider" min="0" max="1000" step="10">
+                                <input type="number" id="gotoProgress" min="0" max="1000" step="10">
                             </div>
-                            <div class="description">Alt-click target — pulls snake to the tile. Big numbers needed because per-step gradient is ~1/boardSize. Default 2500 makes waypoint the top priority after avoiding death.</div>
+                            <div class="description">Alt-click target. The stat is a bounded [0,1] ramp that equals 1 for the optimal next step, so this weight IS the bonus that step gets — not a multiplier on a gradient. Keep it below the death (-500) and trapped (-600) penalties or the snake will start dying for targets. Default 300.</div>
                         </div>
                         
                         <div class="config-item">
-                            <label for="waypointNear">Waypoint Near Weight (blue)</label>
+                            <label for="nearProgress">Near Progress Weight (blue)</label>
                             <div class="input-group">
-                                <input type="range" id="waypointNear_slider" min="0" max="5000" step="50">
-                                <input type="number" id="waypointNear" min="0" max="5000" step="50">
+                                <input type="range" id="nearProgress_slider" min="0" max="1000" step="10">
+                                <input type="number" id="nearProgress" min="0" max="1000" step="10">
                             </div>
-                            <div class="description">Shift-click target — stay near tile AND keep path open. Default 2000 makes it dominant but slightly weaker than goto.</div>
+                            <div class="description">Shift-click target — approach without ever arriving (the bonus peaks one square away and is zero on the target). Same bounded ramp as Goto; default 250, slightly weaker.</div>
                         </div>
                     </div>
                     
@@ -572,7 +572,7 @@
             'selfSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
             'kills', 'deaths',
             'enemyH2HRisk', 'allyH2HRisk',
-            'waypointGoto', 'waypointNear',
+            'gotoProgress', 'nearProgress',
             'aggression', 'trapped',
             'maxSimulationDepth', 'timeoutMs', 'nearbyDistance',
             'idleTimeoutMinutes'
@@ -651,10 +651,10 @@
                             slider.max = 200;
                         } else if (key === 'kills' || key === 'foodEaten') {
                             slider.max = 500;
-                        } else if (key === 'waypointGoto' || key === 'waypointNear') {
+                        } else if (key === 'gotoProgress' || key === 'nearProgress') {
                             slider.min = 0;
-                            slider.max = 5000;
-                            slider.step = 50;
+                            slider.max = 1000;
+                            slider.step = 10;
                         } else if (key === 'foodProximity' || key === 'edgePenalty') {
                             slider.max = 200;
                         } else if (key === 'timeoutMs') {
