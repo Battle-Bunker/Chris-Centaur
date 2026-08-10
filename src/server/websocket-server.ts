@@ -220,6 +220,7 @@ export class GameWebSocketServer {
         turn: turnData.gameState.turn,
         moveEvaluations: turnData.moveEvaluations,
         territoryCells: turnData.territoryCells,
+        cellOwnership: turnData.cellOwnership || null,
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
         timeout: turnData.gameState.game.timeout || 500,

@@ -573,6 +573,7 @@ export class TacticToesFirebaseInterface {
             safeMoves: result.safeMoves,
             botRecommendation: result.move,
             timestamp: Date.now(),
+            cellOwnership: result.cellOwnership,
           };
           this.gameManager.setBotRecommendation(watched.gameID, snakeId, result.move, turnData);
         } catch (err) {

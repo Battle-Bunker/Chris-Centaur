@@ -1,6 +1,7 @@
 import { GameState, BoardSnapshot, Direction, Coord } from '../types/battlesnake';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { BoardGraph } from '../logic/board-graph';
+import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
 
 export interface MoveEvaluation {
@@ -18,6 +19,9 @@ export interface TurnData {
   safeMoves: Direction[];
   botRecommendation: Direction | null;
   timestamp: number;
+  // Per-cell Voronoi owner/distance for the current board (cell inspector).
+  // Absent on the quick pass and interim recommendations.
+  cellOwnership?: CellOwnership;
 }
 
 // The write-through publisher for staged moves. Firestore is the single

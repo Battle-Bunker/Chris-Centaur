@@ -11,7 +11,18 @@ import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { BoardGraph } from './board-graph';
-import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, CellOwnership } from './multi-source-bfs';
+
+// The debug/UI payload every strategy decision resolves to.
+export interface StrategyResult {
+  move: Direction;
+  safeMoves: Direction[];
+  scores: Map<Direction, number>;
+  moveEvaluations: any[];
+  territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+  // Per-cell Voronoi owner + distance for the current board (cell inspector).
+  cellOwnership: CellOwnership;
+}
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
@@ -153,13 +164,7 @@ export class VoronoiStrategy {
     return decision.move;
   }
   
-  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<{ 
-    move: Direction; 
-    safeMoves: Direction[]; 
-    scores: Map<Direction, number>;
-    moveEvaluations: any[];
-    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  }> {
+  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<StrategyResult> {
     // Reload config if needed (cached for 1 second)
     const config = await this.getConfig();
     this.updateDecisionEngine(config);
@@ -194,13 +199,7 @@ export class VoronoiStrategy {
       updateIntervalMs?: number;
       onRecommendation?: (move: Direction, decision: MoveDecision) => void;
     }
-  ): Promise<{
-    move: Direction;
-    safeMoves: Direction[];
-    scores: Map<Direction, number>;
-    moveEvaluations: any[];
-    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  }> {
+  ): Promise<StrategyResult> {
     const config = await this.getConfig();
     this.updateDecisionEngine(config);
 
@@ -229,13 +228,7 @@ export class VoronoiStrategy {
     gameState: GameState,
     teamSnakeIds: Set<string>,
     decision: MoveDecision
-  ): {
-    move: Direction;
-    safeMoves: Direction[];
-    scores: Map<Direction, number>;
-    moveEvaluations: any[];
-    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  } {
+  ): StrategyResult {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
       move: evaluation.move,
@@ -294,6 +287,15 @@ export class VoronoiStrategy {
     for (const [snakeId, cells] of bfsResult.territoryCells) {
       territoryCellsObj[snakeId] = cells;
     }
+
+    // Serializable per-cell owner/distance snapshot for the UI cell inspector.
+    const cellOwnership: CellOwnership = {
+      width: gameState.board.width,
+      height: gameState.board.height,
+      sources: sources.map(s => s.id),
+      owner: Array.from(bfsResult.ownerIndex),
+      distance: Array.from(bfsResult.distanceIndex),
+    };
     
     // Log the decision to database (non-blocking)
     // IMPORTANT: Only log the actual candidate moves, not all possible moves
@@ -308,7 +310,8 @@ export class VoronoiStrategy {
       botRecommendation: decision.move,
       moveEvaluations,
       gameState,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      cellOwnership
     });
     
     // Return for backwards compatibility
@@ -322,12 +325,13 @@ export class VoronoiStrategy {
     // head. The strategy must NOT return a competing route anchored at the live
     // head — that mismatch is what made a Goto snake silently revert to the
     // bot's straight move after committing a move this turn.
-    return { 
-      move: decision.move, 
+    return {
+      move: decision.move,
       safeMoves: decision.candidateMoves,
       scores,
       moveEvaluations,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      cellOwnership
     };
   }
   

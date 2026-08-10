@@ -28,6 +28,18 @@ export interface BFSSource {
 export const OWNER_UNREACHED = -2;  // no source reaches this cell
 export const OWNER_NEUTRAL = -1;    // tied arrival — nobody owns or expands from it
 
+// A JSON-serializable snapshot of a Voronoi result for UI / log consumers:
+// per-cell owner (index into `sources`, or OWNER_NEUTRAL / OWNER_UNREACHED)
+// and BFS distance from the owner's head. Cell index = y * width + x. The
+// client-side cell inspector mirrors the sentinel values.
+export interface CellOwnership {
+  width: number;
+  height: number;
+  sources: string[];
+  owner: number[];
+  distance: number[];
+}
+
 export interface BFSResult {
   // Territory counts per source
   territoryCounts: Map<string, number>;
