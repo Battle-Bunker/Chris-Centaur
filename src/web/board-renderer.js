@@ -785,6 +785,7 @@ const BoardRenderer = (function () {
         numStates: evalData?.numStates ?? null,
         displayScore: evalData?.score ?? (isSafe ? 0 : null),
         projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
+        projectedCellOwnership: evalData?.projectedCellOwnership ?? null,
         quality: null,
         color: null,
       };

@@ -235,6 +235,7 @@ export class VoronoiStrategy {
       score: evaluation.worstScore,
       numStates: evaluation.numStates,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
+      projectedCellOwnership: evaluation.projectedCellOwnership || null,
       breakdown: {
         myLength: evaluation.worstEvaluation.stats.myLength,
         myTerritory: evaluation.worstEvaluation.stats.myTerritory,

@@ -453,7 +453,6 @@
           <div class="canvas-wrapper">
             <canvas id="gameCanvas" width="550" height="550"></canvas>
             <div id="boardOverlay"></div>
-            <div id="cellInspectHighlight" style="display:none; position:absolute; pointer-events:none; z-index:24; border:2px solid #FFD54F; border-radius:3px; box-shadow: 0 0 6px rgba(255,213,79,0.8);"></div>
             <div id="cellInspectPopup" style="display:none; position:absolute; pointer-events:none; z-index:25; background:rgba(20,24,28,0.94); color:#eee; border:1px solid #555; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.5; white-space:nowrap; box-shadow: 0 2px 10px rgba(0,0,0,0.6);"></div>
           </div>
         </div>
@@ -643,8 +642,11 @@
     let selectedSnakeId = null;
 
     // ── Cell inspection (Voronoi ownership popup) ───────────────────────────
-    // Clicking any board cell not occupied by a snake selects it and shows
-    // which snake's Voronoi territory owns it and at what BFS distance.
+    // RIGHT-clicking any board cell selects it and shows which snake's Voronoi
+    // territory owns it and at what BFS distance. While a candidate move is
+    // selected (and the board shows that move's projected territory), the
+    // popup reports the same HYPOTHETICAL board. Left clicks keep their
+    // existing meanings and, like Escape, clear the inspection.
     // Sentinels mirror OWNER_NEUTRAL / OWNER_UNREACHED in multi-source-bfs.ts.
     const CELL_OWNER_NEUTRAL = -1;
     const CELL_OWNER_UNREACHED = -2;
@@ -652,45 +654,75 @@
     let liveCellOwnership = null;     // { turn, data: CellOwnership } from snake-turn-update
     let historicCellOwnership = null; // CellOwnership | null for the rendered historic turn
 
+    function repaintBoard() {
+      if (viewMode === 'historic') renderHistoricBoard();
+      else renderGameBoard();
+    }
+
     function selectCell(cell) {
       selectedCell = cell;
-      renderCellInspect();
+      repaintBoard();
     }
 
     function clearCellSelection() {
       if (!selectedCell) return;
       selectedCell = null;
-      renderCellInspect();
+      repaintBoard();
     }
 
-    // The board + ownership snapshot for whichever view is on screen.
+    // The board + ownership snapshot the inspector should describe. When a
+    // candidate move is selected, the board overlay shows that move's
+    // PROJECTED territory, so the inspector switches to the matching
+    // projected ownership grid (hypothetical: our head on the candidate cell).
     function cellInspectContext() {
       if (viewMode === 'historic') {
         const board = historicRenderCtx?.boardRow?.game_state?.board || null;
-        return { board, ownership: historicCellOwnership };
+        const sel = historicMoveState?.selectedMove;
+        const projected = sel ? historicMoveState.moves[sel]?.projectedCellOwnership : null;
+        return projected
+          ? { board, ownership: projected, hypotheticalMove: sel }
+          : { board, ownership: historicCellOwnership, hypotheticalMove: null };
       }
       const board = currentGameState?.board || null;
+      const sel = moveState?.selectedMove;
+      const projected = (selectedSnakeId && sel) ? moveState.moves[sel]?.projectedCellOwnership : null;
+      if (projected) return { board, ownership: projected, hypotheticalMove: sel };
       // Ownership must describe the board being shown; a stale grid from the
       // previous turn would misattribute cells.
       const ownership = (board && liveCellOwnership && liveCellOwnership.turn === currentGameState.turn)
         ? liveCellOwnership.data : null;
-      return { board, ownership };
+      return { board, ownership, hypotheticalMove: null };
     }
 
-    // Position the highlight + popup over the selected cell and fill in the
-    // ownership details. Called from both board renderers so it tracks turn
-    // changes, resizes and perspective switches.
+    // Draw the yellow inspection border on the canvas — the same rect the
+    // purple selected-candidate border uses, so it fills the cell exactly.
+    // Called by the board renderers after the board is painted.
+    function drawCellInspectHighlight() {
+      const { board } = cellInspectContext();
+      if (!selectedCell || !board) return;
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      const x = selectedCell.x * cellSize;
+      const y = (board.height - 1 - selectedCell.y) * cellSize;
+      ctx.strokeStyle = '#FFD54F';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+    }
+
+    // Position the popup over the selected cell and fill in the ownership
+    // details. Called from both board renderers so it tracks turn changes,
+    // resizes, candidate selection and perspective switches.
     function renderCellInspect() {
-      const highlight = document.getElementById('cellInspectHighlight');
       const popup = document.getElementById('cellInspectPopup');
-      const { board, ownership } = cellInspectContext();
+      const { board, ownership, hypotheticalMove } = cellInspectContext();
       if (!selectedCell || !board ||
           selectedCell.x < 0 || selectedCell.x >= board.width ||
           selectedCell.y < 0 || selectedCell.y >= board.height) {
-        highlight.style.display = 'none';
         popup.style.display = 'none';
         return;
       }
+      drawCellInspectHighlight();
 
       const canvas = document.getElementById('gameCanvas');
       const displayWidth = canvas.clientWidth || canvas.width;
@@ -699,13 +731,16 @@
       const px = canvas.offsetLeft + selectedCell.x * cellSize;
       const py = canvas.offsetTop + (board.height - 1 - selectedCell.y) * cellSize;
 
-      highlight.style.display = 'block';
-      highlight.style.left = (px - 1) + 'px';
-      highlight.style.top = (py - 1) + 'px';
-      highlight.style.width = (cellSize - 2) + 'px';
-      highlight.style.height = (cellSize - 2) + 'px';
-
+      const arrows = { up: '↑', down: '↓', left: '←', right: '→' };
       let body = `<div style="color:#aaa">Cell (${selectedCell.x}, ${selectedCell.y})</div>`;
+      if (hypotheticalMove) {
+        body += `<div style="color:#CE93D8">Hypothetical: after ${arrows[hypotheticalMove] || ''} ${hypotheticalMove}</div>`;
+      }
+      const occupant = BoardRenderer.findSnakeAtCell(board, selectedCell);
+      if (occupant) {
+        const isHead = occupant.head && occupant.head.x === selectedCell.x && occupant.head.y === selectedCell.y;
+        body += `<div style="color:#aaa">Occupied by ${occupant.name || occupant.id} (${isHead ? 'head' : 'body'})</div>`;
+      }
       if (!ownership) {
         body += `<div>No territory data for this turn yet</div>`;
       } else {
@@ -727,17 +762,30 @@
       popup.innerHTML = body;
       popup.style.display = 'block';
       // Prefer above the cell; clamp inside the wrapper and flip below if needed.
-      popup.style.left = Math.max(0, Math.min(px - 30, displayWidth - 170)) + 'px';
+      popup.style.left = Math.max(0, Math.min(px - 30, displayWidth - 190)) + 'px';
       const popupHeight = popup.offsetHeight || 48;
       popup.style.top = (py - popupHeight - 6 >= 0 ? py - popupHeight - 6 : py + cellSize + 6) + 'px';
     }
 
-    // Clicking anywhere that isn't the board canvas clears the cell selection
-    // (candidate-cell overlay buttons included — those select moves, not cells).
-    document.addEventListener('click', (e) => {
-      if (!selectedCell) return;
-      if (e.target !== document.getElementById('gameCanvas')) clearCellSelection();
+    // Right-click anywhere over the board (canvas or the candidate overlay —
+    // the event bubbles up from the overlay buttons) inspects that cell. Works
+    // on ANY cell, snake bodies included.
+    document.querySelector('.canvas-wrapper').addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const { board } = cellInspectContext();
+      if (!board) return;
+      const canvas = document.getElementById('gameCanvas');
+      const cell = BoardRenderer.getClickedCell(canvas, board, e);
+      if (!cell || cell.x < 0 || cell.x >= board.width || cell.y < 0 || cell.y >= board.height) {
+        clearCellSelection();
+        return;
+      }
+      selectCell(cell);
     });
+
+    // Left-clicking anywhere (board, overlay buttons, page chrome) clears the
+    // inspection — left clicks keep their normal selection meanings.
+    document.addEventListener('click', () => clearCellSelection());
     let myColor = '#888888';
     let controlledSnakeIds = new Set();
     let selections = {};
@@ -1097,9 +1145,9 @@
             committedMove: msg.committedMove,
           };
           // Any snake's full-pass ownership grid describes the whole board.
+          // (renderGameBoard below refreshes the inspection popup with it.)
           if (msg.cellOwnership) {
             liveCellOwnership = { turn: msg.turn, data: msg.cellOwnership };
-            renderCellInspect();
           }
 
           // This is the only per-snake update that always fires when a snake's
@@ -1982,10 +2030,6 @@
       if (viewMode === 'historic') { handleHistoricCanvasClick(event); return; }
       if (!currentGameState) return;
 
-      // Every canvas click starts from a clean cell selection; the fall-through
-      // at the bottom re-selects when the click lands on an inspectable cell.
-      clearCellSelection();
-
       const canvas = document.getElementById('gameCanvas');
       const board = currentGameState.board;
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
@@ -2064,15 +2108,6 @@
           }
         }
       }
-
-      // Cell inspection: a plain click on an on-board cell occupied by NO
-      // snake selects the cell and shows its Voronoi ownership. Snake bodies
-      // are never selectable as cells — controlled bodies selected the snake
-      // above, and any other body click just falls out with the selection
-      // already cleared.
-      if (boardX < 0 || boardX >= board.width || boardY < 0 || boardY >= board.height) return;
-      if (BoardRenderer.findSnakeAtCell(board, { x: boardX, y: boardY })) return;
-      selectCell({ x: boardX, y: boardY });
     }
 
     function getSelectedSnake() {
@@ -3327,7 +3362,6 @@
     function handleHistoricCanvasClick(event) {
       const ctx = historicRenderCtx;
       if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
-      clearCellSelection();
       const canvas = document.getElementById('gameCanvas');
       const board = ctx.boardRow.game_state.board;
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
@@ -3345,20 +3379,11 @@
         return;
       }
 
-      // Any other snake body is neither a perspective switch nor a cell —
-      // snake body cells are never selectable as cell selections.
-      if (BoardRenderer.findSnakeAtCell(board, cell)) return;
-
-      // Cell inspection popup for any open on-board cell.
-      if (cell.x >= 0 && cell.x < board.width && cell.y >= 0 && cell.y < board.height) {
-        selectCell(cell);
-      }
-
       // Territory highlighting needs the inspected snake's evaluation data,
       // which doesn't exist for turns after its death.
       if (!historicMoveState) return;
 
-      // Also toggle the Voronoi territory highlight for the clicked cell.
+      // Toggle the Voronoi territory highlight for the clicked cell.
       const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(historicMoveState.territoryCells, cell);
       if (clickedSnake) {
         historicMoveState.selectedSnake =

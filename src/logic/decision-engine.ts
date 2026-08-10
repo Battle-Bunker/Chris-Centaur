@@ -8,7 +8,7 @@ import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, WaypointContext } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
-import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, CellOwnership } from './multi-source-bfs';
 import { ChunkJob, ChunkResult } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
@@ -26,6 +26,11 @@ export interface MoveEvaluationResult {
   numStates: number;
   worstEvaluation: BoardEvaluation;
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
+  // Per-cell owner/distance for the HYPOTHETICAL board where our head has
+  // moved onto this candidate cell — the same projection BFS that produces
+  // projectedTerritoryCells. Drives the UI cell inspector while a candidate
+  // move is selected.
+  projectedCellOwnership?: CellOwnership;
 }
 
 export interface DecisionConfig {
@@ -184,7 +189,14 @@ export class DecisionEngine {
           worstScore: evaluation.score,
           numStates: 1,
           worstEvaluation: evaluation,
-          projectedTerritoryCells: singleProjTerritory
+          projectedTerritoryCells: singleProjTerritory,
+          projectedCellOwnership: {
+            width: gameState.board.width,
+            height: gameState.board.height,
+            sources: singleProjSources.map(s => s.id),
+            owner: Array.from(singleProjResult.ownerIndex),
+            distance: Array.from(singleProjResult.distanceIndex),
+          }
         }],
         h2hRiskByMove: moveAnalysis.h2hRiskByMove
       };
@@ -349,6 +361,13 @@ export class DecisionEngine {
         projTerritoryCells[snakeId] = cells;
       }
       evalResult.projectedTerritoryCells = projTerritoryCells;
+      evalResult.projectedCellOwnership = {
+        width: gameState.board.width,
+        height: gameState.board.height,
+        sources: projSources.map(s => s.id),
+        owner: Array.from(projResult.ownerIndex),
+        distance: Array.from(projResult.distanceIndex),
+      };
     }
   }
   
