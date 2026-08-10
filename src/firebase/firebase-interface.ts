@@ -169,6 +169,30 @@ interface WatchedGame {
   lastSnapshotMs: number;
 }
 
+/**
+ * Whether a watched game's silence is evidence of a dead listener.
+ *
+ * Silence alone is not: a turn is quiet BY DESIGN until it resolves, because
+ * the next write to the game doc is the next turn being appended. That happens
+ * at the current turn's `turnEndTimeMs` (sooner only if every player commits
+ * early), so only silence PAST that deadline is suspicious. Turn 0 runs for
+ * `firstTurnTime` — 60s by default — so a plain quiet window would condemn a
+ * perfectly healthy game every few seconds.
+ *
+ * `turnEndTimeMs` of 0 means "no deadline known", falling back to plain
+ * silence.
+ */
+export function listenerLooksDead(params: {
+  now: number;
+  lastSnapshotMs: number;
+  turnEndTimeMs: number;
+  graceMs: number;
+}): boolean {
+  const { now, lastSnapshotMs, turnEndTimeMs, graceMs } = params;
+  if (now - lastSnapshotMs <= graceMs) return false;
+  return now > turnEndTimeMs + graceMs;
+}
+
 export type FirebaseConnState = 'connecting' | 'connected' | 'error' | 'suspended';
 
 export interface FirebaseStatus {
@@ -328,25 +352,35 @@ export class TacticToesFirebaseInterface {
       throw err;
     }
 
-    // Listener watchdog: if a watched game's doc listener goes quiet for
-    // longer than the staleness window, the stream died without the error
-    // callback firing (the SDK's gRPC Listen stream against the emulator can
-    // die on corrupted RESOURCE_EXHAUSTED frames and then go permanently
-    // silent). Resubscribing on the same client does NOT recover — a fresh
-    // listen on a corrupted gRPC session stays dead (verified empirically) —
-    // so go straight to a full client rebuild (new app, re-sign-in, re-watch
-    // with turn cursors preserved). A live game delivers a snapshot at least
-    // once per turn, so during active games this fires only when truly blind;
-    // a spurious rebuild on a genuinely-quiet game (long human turns) costs
-    // one sign-in and replays a state we already processed.
+    // Listener watchdog: if a watched game's doc listener goes quiet when a
+    // snapshot was actually DUE, the stream died without the error callback
+    // firing (the SDK's gRPC Listen stream can die on corrupted
+    // RESOURCE_EXHAUSTED frames and then go permanently silent). Resubscribing
+    // on the same client does NOT recover — a fresh listen on a corrupted gRPC
+    // session stays dead (verified empirically) — so go straight to a full
+    // client rebuild.
+    //
+    // "Due" is the important word. A turn is quiet BY DESIGN until it
+    // resolves: the next write to the game doc is the next turn being
+    // appended, which happens at the current turn's endTime (sooner only if
+    // every player commits early). So silence is only evidence of a dead
+    // stream once that deadline has passed. A fixed quiet window is not —
+    // turn 0 runs for `firstTurnTime`, 60s by default, and even ordinary
+    // turns outlast a few seconds of silence, so a fixed window declares
+    // healthy games blind over and over.
     this.watchdogTimer = setInterval(() => {
-      const STALE_MS = 8_000;
+      const GRACE_MS = 8_000;
       const now = Date.now();
       for (const watched of this.watchedGames.values()) {
-        if (now - watched.lastSnapshotMs > STALE_MS) {
-          void this.rebuildClient();
-          break;
-        }
+        const dead = listenerLooksDead({
+          now,
+          lastSnapshotMs: watched.lastSnapshotMs,
+          turnEndTimeMs: this.nextTurnDueBy(watched),
+          graceMs: GRACE_MS,
+        });
+        if (!dead) continue;
+        void this.rebuildClient();
+        break;
       }
     }, 2_500);
     this.watchdogTimer.unref?.();
@@ -439,6 +473,18 @@ export class TacticToesFirebaseInterface {
     );
   }
 
+  /**
+   * When the next game-doc write is expected: the current turn's endTime, at
+   * which the server resolves the turn and appends the next one. Returns 0
+   * when no deadline is known, which makes the caller fall back to plain
+   * silence.
+   */
+  private nextTurnDueBy(watched: WatchedGame): number {
+    const turns = watched.latestDoc?.turns;
+    const turn = turns?.[turns.length - 1];
+    return turn?.endTime instanceof Timestamp ? turn.endTime.toMillis() : 0;
+  }
+
   /** Best-effort teardown of the current Firebase app stack. */
   private teardownClient(): void {
     this.invitesUnsubscribe?.();
@@ -459,6 +505,11 @@ export class TacticToesFirebaseInterface {
    * watched game in place. Turn cursors (lastProcessedTurn) and registration
    * state survive, so the first snapshot after recovery is either a no-op or
    * an immediate catch-up to the turns we went blind for.
+   *
+   * The per-turn read-back listeners must be re-opened explicitly
+   * (restoreTurnWatch): they belong to the client being destroyed, and the
+   * replayed game-doc snapshot will NOT rebuild them, because the turn number
+   * hasn't advanced.
    */
   private async rebuildClient(): Promise<void> {
     if (this.rebuilding || this.stopped) {
@@ -468,7 +519,7 @@ export class TacticToesFirebaseInterface {
       return;
     }
     this.rebuilding = true;
-    console.warn('[tt-firebase] Listener starvation persisted after resubscribe — rebuilding Firebase client');
+    console.warn('[tt-firebase] Game-doc snapshot overdue past the turn deadline — rebuilding Firebase client');
     let resolveOp: () => void = () => {};
     this.connectOp = new Promise<void>((r) => { resolveOp = r; });
     try {
@@ -485,6 +536,7 @@ export class TacticToesFirebaseInterface {
       for (const watched of this.watchedGames.values()) {
         watched.lastSnapshotMs = Date.now();
         this.subscribeGameDoc(watched);
+        this.restoreTurnWatch(watched);
       }
       console.warn('[tt-firebase] Firebase client rebuilt; listeners restored');
     } catch (err) {
@@ -579,6 +631,37 @@ export class TacticToesFirebaseInterface {
     this.watchedGames.delete(watched.gameID);
     this.strategy.onGameEnd(watched.gameID);
     console.log(`[tt-firebase] Stopped watching game ${watched.gameID}`);
+  }
+
+  /**
+   * Re-open the current turn's read-back listeners on a freshly rebuilt
+   * client. Without this the bot spends the REST of the turn blind to its own
+   * staged moves: writes still land and still play, but nothing ever confirms
+   * (the solid arrow never catches up to the ghost) and no commit is ever
+   * observed (no finalization). A long first turn made that the normal case.
+   */
+  private restoreTurnWatch(watched: WatchedGame): void {
+    const data = watched.latestDoc;
+    if (!data || data.turns.length === 0) return;
+    const turnNumber = data.turns.length - 1;
+    // A turn we haven't processed yet is the replayed snapshot's job — it will
+    // run the full pipeline, turn watch included.
+    if (turnNumber !== watched.lastProcessedTurn) return;
+
+    const turn = data.turns[turnNumber];
+    if (turn.winners.length > 0) return; // game over — nothing left to stage
+
+    const aliveOurs = controlledSnakeIDs(data.setup, this.config.botId).filter((id) =>
+      turn.alivePlayers.includes(id)
+    );
+    if (aliveOurs.length === 0) return;
+
+    const endTimeMs =
+      turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : Date.now() + 10_000;
+    console.log(
+      `[tt-firebase] Re-opening turn ${turnNumber} read-back for ${watched.gameID} after client rebuild`
+    );
+    this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
   }
 
   private teardownTurnWatch(watched: WatchedGame): void {
