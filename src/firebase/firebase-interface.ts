@@ -140,7 +140,8 @@ interface TurnWatch {
   // Listener on moveStatuses/{turn}: the ONLY finalization trigger — a snake
   // finalizes exactly when its commit is observed in movedPlayerIDs.
   statusUnsub: Unsubscribe | null;
-  // Latest server-acked staged move per owned snake (ts <= endTime).
+  // Latest server-acked staged move per owned snake. A server timestamp is
+  // the acknowledgement; deadline enforcement belongs to the game server.
   confirmed: Map<string, { ts: number; direction: Direction }>;
   // Snakes whose privateMoves read-back has delivered at least one snapshot
   // (even an empty one) — the precondition for trusting "nothing staged".
@@ -893,13 +894,18 @@ export class TacticToesFirebaseInterface {
           // makes "nothing staged" a trustworthy observation.
           tw.readBackReady.add(snakeId);
           // Latest SERVER-acked write wins (pending local writes have a null
-          // serverTimestamp and don't count as confirmation). Writes stamped
-          // after endTime are ignored — the game server ignores them too.
+          // serverTimestamp and don't count as confirmation). Do NOT apply a
+          // local timestamp-vs-endTime filter here: TacticToes may extend a
+          // turn after its original deadline, and accepted privateMoves can
+          // therefore have server timestamps later than the stale endTime
+          // carried by this snapshot. Firebase's accepted document is the
+          // authoritative staged state; the game engine alone decides which
+          // accepted write will resolve the turn.
           let best: { ts: number; direction: Direction } | null = null;
           snapshot.forEach((docSnap) => {
             const d = docSnap.data() as { move: number; timestamp: Timestamp | null };
             const ts = d.timestamp instanceof Timestamp ? d.timestamp.toMillis() : null;
-            if (ts === null || ts > tw.endTimeMs) return;
+            if (ts === null) return;
             if (best && ts <= best.ts) return;
             const direction = moveIndexToDirection(headIndex, d.move, width);
             if (direction) best = { ts, direction };
