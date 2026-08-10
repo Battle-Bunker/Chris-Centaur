@@ -172,7 +172,7 @@ export class DecisionEngine {
         });
       }
       const singleProjBfs = new MultiSourceBFS(graph);
-      const singleProjResult = singleProjBfs.compute(singleProjSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+      const singleProjResult = singleProjBfs.compute(singleProjSources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
       const singleProjTerritory: { [snakeId: string]: { x: number; y: number }[] } = {};
       for (const [snakeId, cells] of singleProjResult.territoryCells) {
         singleProjTerritory[snakeId] = cells;
@@ -196,6 +196,7 @@ export class DecisionEngine {
             sources: singleProjSources.map(s => s.id),
             owner: Array.from(singleProjResult.ownerIndex),
             distance: Array.from(singleProjResult.distanceIndex),
+            vacatesAt: DecisionEngine.vacateTurns(graph),
           }
         }],
         h2hRiskByMove: moveAnalysis.h2hRiskByMove
@@ -354,7 +355,9 @@ export class DecisionEngine {
       }
 
       const projBfs = new MultiSourceBFS(graph);
-      const projResult = projBfs.compute(projSources, gameState.board.food, undefined, gameState.board.fertileTiles);
+      // Turn-aware clearance, matching the evaluation BFS: projected
+      // territory includes body cells that clear before the winner arrives.
+      const projResult = projBfs.compute(projSources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
 
       const projTerritoryCells: { [snakeId: string]: { x: number; y: number }[] } = {};
       for (const [snakeId, cells] of projResult.territoryCells) {
@@ -367,6 +370,7 @@ export class DecisionEngine {
         sources: projSources.map(s => s.id),
         owner: Array.from(projResult.ownerIndex),
         distance: Array.from(projResult.distanceIndex),
+        vacatesAt: DecisionEngine.vacateTurns(graph),
       };
     }
   }
@@ -838,6 +842,13 @@ export class DecisionEngine {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
   }
   
+  /** Per-cell physical vacate turns for ownership payloads (0 = free now). */
+  private static vacateTurns(graph: BoardGraph): number[] {
+    const out = new Array(graph.cellCount);
+    for (let idx = 0; idx < graph.cellCount; idx++) out[idx] = graph.physicalVacateTurn(idx);
+    return out;
+  }
+
   private getMovePosition(head: Coord, direction: Direction): Coord {
     switch (direction) {
       case 'up': return { x: head.x, y: head.y + 1 };

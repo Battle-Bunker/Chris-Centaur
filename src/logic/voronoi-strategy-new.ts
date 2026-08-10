@@ -281,7 +281,10 @@ export class VoronoiStrategy {
         position: s.head,
         isTeam: teamSnakeIds.has(s.id)
       }));
-    const bfsResult = bfs.compute(sources, gameState.board.food, undefined, gameState.board.fertileTiles);
+    // Turn-aware clearance (same physical vacate timing the evaluation BFS
+    // uses): body cells count as territory for whoever arrives first AFTER
+    // they clear, instead of being modeled as permanent walls.
+    const bfsResult = bfs.compute(sources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
     
     // Convert Map to plain object for JSON serialization
     const territoryCellsObj: { [snakeId: string]: { x: number; y: number }[] } = {};
@@ -290,12 +293,15 @@ export class VoronoiStrategy {
     }
 
     // Serializable per-cell owner/distance snapshot for the UI cell inspector.
+    const vacatesAt = new Array(graph.cellCount);
+    for (let idx = 0; idx < graph.cellCount; idx++) vacatesAt[idx] = graph.physicalVacateTurn(idx);
     const cellOwnership: CellOwnership = {
       width: gameState.board.width,
       height: gameState.board.height,
       sources: sources.map(s => s.id),
       owner: Array.from(bfsResult.ownerIndex),
       distance: Array.from(bfsResult.distanceIndex),
+      vacatesAt,
     };
     
     // Log the decision to database (non-blocking)

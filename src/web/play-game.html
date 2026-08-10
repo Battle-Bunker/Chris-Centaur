@@ -736,15 +736,19 @@
       if (hypotheticalMove) {
         body += `<div style="color:#CE93D8">Hypothetical: after ${arrows[hypotheticalMove] || ''} ${hypotheticalMove}</div>`;
       }
+      const idx = ownership ? selectedCell.y * ownership.width + selectedCell.x : -1;
+      // Physical vacate prediction for the body segment on this cell (0/absent
+      // = the cell is already free). Same clearance the territory BFS walks.
+      const vacates = (ownership && ownership.vacatesAt) ? ownership.vacatesAt[idx] : 0;
       const occupant = BoardRenderer.findSnakeAtCell(board, selectedCell);
       if (occupant) {
         const isHead = occupant.head && occupant.head.x === selectedCell.x && occupant.head.y === selectedCell.y;
-        body += `<div style="color:#aaa">Occupied by ${occupant.name || occupant.id} (${isHead ? 'head' : 'body'})</div>`;
+        const clears = vacates > 0 ? ` — clears by +${vacates} turn${vacates === 1 ? '' : 's'}` : '';
+        body += `<div style="color:#aaa">Occupied by ${occupant.name || occupant.id} (${isHead ? 'head' : 'body'})${clears}</div>`;
       }
       if (!ownership) {
         body += `<div>No territory data for this turn yet</div>`;
       } else {
-        const idx = selectedCell.y * ownership.width + selectedCell.x;
         const owner = ownership.owner[idx];
         if (owner === CELL_OWNER_UNREACHED) {
           body += `<div>Unreached — no snake can get here</div>`;
@@ -755,8 +759,15 @@
           const snake = board.snakes.find(s => s.id === ownerId);
           const name = snake ? `${snake.emoji || ''} ${snake.name || ownerId}`.trim() : ownerId;
           const color = (snake && (snake.color || snake.customizations?.color)) || '#999';
+          const d = ownership.distance[idx];
           body += `<div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};margin-right:5px;vertical-align:baseline"></span>Owned by <b>${name}</b></div>`;
-          body += `<div>${ownership.distance[idx]} ${ownership.distance[idx] === 1 ? 'cell' : 'cells'} from its head</div>`;
+          if (occupant) {
+            // Owned despite being occupied: future territory — the body will
+            // have vacated by the time the owner arrives.
+            body += `<div>Future territory: arrives in ${d} turn${d === 1 ? '' : 's'}, after the body clears</div>`;
+          } else {
+            body += `<div>${d} ${d === 1 ? 'cell' : 'cells'} from its head</div>`;
+          }
         }
       }
       popup.innerHTML = body;

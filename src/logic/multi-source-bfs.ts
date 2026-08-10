@@ -38,6 +38,11 @@ export interface CellOwnership {
   sources: string[];
   owner: number[];
   distance: number[];
+  // Physical vacate turn per cell (0 = already free): when the body segment
+  // currently on the cell will have cleared under the shared turn-aware
+  // clearance prediction. Lets the UI explain body cells owned as FUTURE
+  // territory (owner arrives at distance >= vacate turn).
+  vacatesAt: number[];
 }
 
 export interface BFSResult {

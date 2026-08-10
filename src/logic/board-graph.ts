@@ -436,6 +436,17 @@ export class BoardGraph {
     return !this.isStaticBlockedIdx(idx);
   }
 
+  /**
+   * The PHYSICAL vacate turn of the body segment at `idx` — geometry plus
+   * every food its owner could reach in time to still be growing — or 0 for
+   * cells with no segment (already free). This is the same timing
+   * isPassableAtTurnIdx gates on; exposed so UI payloads can explain WHY a
+   * body cell counts as future territory.
+   */
+  physicalVacateTurn(idx: number): number {
+    return this.segOwner[idx] === NO_SNAKE ? 0 : this.physicalDisappear[idx];
+  }
+
   // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
   // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
   // i. A statically-blocked cell has an empty neighbor list (it is not a
