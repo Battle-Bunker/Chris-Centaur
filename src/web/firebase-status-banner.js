@@ -62,6 +62,8 @@
 
   function set(status) {
     if (!status || typeof status !== 'object') return;
+    // Keep the bottom-left Firebase bubble (live pages) in sync.
+    if (window.FirebaseStatusBadge) window.FirebaseStatusBadge.set(status);
     ensureBanner();
     const bad = status.state === 'error' || status.state === 'not_configured';
     banner.classList.toggle('visible', bad);

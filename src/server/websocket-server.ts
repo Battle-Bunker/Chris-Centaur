@@ -73,6 +73,15 @@ export class GameWebSocketServer {
   // and re-broadcast on change (drives the red error banner in the web UI).
   private latestFirebaseStatus: unknown = null;
 
+  // Notified with the active client count on every connect/disconnect; used
+  // to suspend/resume the Firebase transport as web operators come and go.
+  private presenceListener: ((count: number) => void) | null = null;
+
+  onPresenceChange(listener: (count: number) => void): void {
+    this.presenceListener = listener;
+    listener(this.clients.size);
+  }
+
   broadcastFirebaseStatus(status: unknown): void {
     this.latestFirebaseStatus = status;
     for (const client of this.clients) {
@@ -698,6 +707,7 @@ export class GameWebSocketServer {
     // transitions emit went-idle / woke server events (includes idle-sweep
     // closes — they arrive here via the socket's close handler).
     ServerEventLogger.getInstance().setConnectionCount(this.clients.size);
+    this.presenceListener?.(this.clients.size);
   }
 
   private handleDisconnect(client: WSClient): void {

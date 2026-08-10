@@ -165,7 +165,7 @@ interface WatchedGame {
   lastSnapshotMs: number;
 }
 
-export type FirebaseConnState = 'connecting' | 'connected' | 'error';
+export type FirebaseConnState = 'connecting' | 'connected' | 'error' | 'suspended';
 
 export interface FirebaseStatus {
   state: FirebaseConnState;
@@ -199,6 +199,10 @@ export class TacticToesFirebaseInterface {
   // Single in-flight connect/rebuild operation; retryConnect() joins it
   // rather than racing a second sign-in.
   private connectOp: Promise<void> | null = null;
+  // Desired presence state: true while at least one web client should keep
+  // the transport alive. suspend()/resume() re-check this after every await
+  // so a client that connects mid-suspend always wins (and vice versa).
+  private desiredActive = true;
 
   constructor(
     private readonly strategy: VoronoiStrategy,
@@ -227,8 +231,61 @@ export class TacticToesFirebaseInterface {
    * so run start() again; otherwise reuse the rebuildClient() recovery path.
    * Never throws — the resulting status carries the failure.
    */
+  /**
+   * Autoscale hygiene: while no human is connected to the web UI there is no
+   * reason to hold Firestore gRPC streams open (and a centaur bot with no
+   * operator can't meaningfully play anyway). suspend() tears the client down
+   * exactly like stop() but stays resumable; resume() re-runs the start path.
+   * The recent-first invite replay on resume re-discovers any still-live
+   * games, so cleared watch state is rebuilt for free.
+   */
+  async suspend(): Promise<void> {
+    this.desiredActive = false;
+    if (this.stopped || this.connState === 'suspended') return;
+    // Let any in-flight connect settle so we don't tear down under it.
+    if (this.connectOp) await this.connectOp.catch(() => undefined);
+    // A client may have (re)connected while we awaited — presence wins.
+    if (this.desiredActive || this.stopped) return;
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+    for (const watched of this.watchedGames.values()) {
+      watched.unsubscribe();
+      this.teardownTurnWatch(watched);
+    }
+    this.watchedGames.clear();
+    this.teardownClient();
+    console.log('[tt-firebase] Suspended (no web clients — allowing scale to zero)');
+    this.setStatus('suspended');
+    // Presence can also return during the (synchronous) teardown above via a
+    // resume() that saw connState !== 'suspended' and bailed. Converge here.
+    if (this.desiredActive && !this.stopped) {
+      await this.resume().catch(() => undefined);
+    }
+  }
+
+  async resume(): Promise<void> {
+    this.desiredActive = true;
+    if (this.stopped) return;
+    // If a connect/rebuild/suspend is in flight, let it settle; the settled
+    // path re-checks desiredActive and converges (see suspend()).
+    if (this.connectOp) {
+      await this.connectOp.catch(() => undefined);
+    }
+    if (!this.desiredActive || this.stopped || this.connState !== 'suspended') return;
+    console.log('[tt-firebase] Resuming after suspension (web client returned)');
+    await this.start();
+  }
+
   async retryConnect(): Promise<FirebaseStatus> {
     if (this.stopped || this.connState === 'connected') {
+      return this.getStatus();
+    }
+    if (this.connState === 'suspended') {
+      try {
+        await this.resume();
+      } catch { /* status already set to error */ }
       return this.getStatus();
     }
     // If a rebuild or start is already in flight (watchdog or a concurrent
@@ -891,7 +948,9 @@ export class TacticToesFirebaseInterface {
     move: Direction,
     source: string
   ): Promise<void> {
-    if (!this.db) throw new Error('Firebase interface not started');
+    if (!this.db || this.connState !== 'connected') {
+      throw new Error('Firebase interface not connected');
+    }
     const watched = this.watchedGames.get(gameId);
     const data = watched?.latestDoc;
     if (!watched || !data) throw new Error(`Unknown game ${gameId}`);
@@ -933,7 +992,9 @@ export class TacticToesFirebaseInterface {
    * resolution time is what plays.
    */
   private async publishCommit(gameId: string, snakeId: string, turn: number): Promise<void> {
-    if (!this.db) throw new Error('Firebase interface not started');
+    if (!this.db || this.connState !== 'connected') {
+      throw new Error('Firebase interface not connected');
+    }
     const watched = this.watchedGames.get(gameId);
     if (!watched) throw new Error(`Unknown game ${gameId}`);
 

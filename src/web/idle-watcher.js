@@ -255,7 +255,11 @@
     _showIdleOverlay() {
       this.overlay.classList.add('active');
       document.body.classList.add('idle-disconnected');
-      this._setBadge('idle', 'Server idle');
+      // Deliberate suspension: both bottom-left bubbles go orange. The
+      // server also suspends its Firebase connection when the last client
+      // leaves; on reconnect the pushed firebase-status overwrites this.
+      this._setBadge('idle', 'Paused (inactive)');
+      if (window.FirebaseStatusBadge) window.FirebaseStatusBadge.setLocalSuspended();
     }
 
     _userInitiatedReconnect() {

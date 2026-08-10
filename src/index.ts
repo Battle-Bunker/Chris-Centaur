@@ -106,6 +106,34 @@ if (ttFirebase) {
   ttFirebase.start().catch((err) => {
     console.error('[tt-firebase] Failed to start Firebase interface:', err);
   });
+
+  // Autoscale hygiene: mirror the web-client idle lifecycle onto the Firebase
+  // transport. When the last web client disconnects (idle sweep, tab close),
+  // suspend the Firestore streams after a short grace period so the process
+  // holds no outbound connections and autoscale can drain to zero. The grace
+  // period absorbs transient zero-client windows during page navigations.
+  // Any client (re)connecting cancels the pending suspend / resumes at once.
+  const FIREBASE_SUSPEND_GRACE_MS = 60_000;
+  let suspendTimer: NodeJS.Timeout | null = null;
+  wsServer.onPresenceChange((count) => {
+    if (count === 0) {
+      if (!suspendTimer) {
+        suspendTimer = setTimeout(() => {
+          suspendTimer = null;
+          void ttFirebase.suspend();
+        }, FIREBASE_SUSPEND_GRACE_MS);
+        suspendTimer.unref?.();
+      }
+    } else {
+      if (suspendTimer) {
+        clearTimeout(suspendTimer);
+        suspendTimer = null;
+      }
+      void ttFirebase.resume().catch(() => {
+        /* status already set to 'error' and pushed to the UI */
+      });
+    }
+  });
 } else {
   console.error(
     '[tt-firebase] NOT CONFIGURED — the bot cannot play. Set TACTICTOES_BOT_ID, ' +
