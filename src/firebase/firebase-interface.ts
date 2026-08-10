@@ -598,6 +598,18 @@ export class TacticToesFirebaseInterface {
       return;
     }
 
+    // Stale invite replay: if the game is ALREADY finished on its very first
+    // snapshot, never surface it. Registering first and ending a moment later
+    // flashes a phantom 1-turn game onto /play on every boot/reconnect (the
+    // invite feed replays the 20 most recent invites, finished ones included).
+    if (!watched.registered && turn.winners.length > 0) {
+      console.log(
+        `[tt-firebase] Ignoring already-finished game ${watched.gameID} from invite replay`
+      );
+      this.unwatchGame(watched);
+      return;
+    }
+
     ServerEventLogger.getInstance().recordGameActivity(watched.gameID);
 
     const endTimeMs =
