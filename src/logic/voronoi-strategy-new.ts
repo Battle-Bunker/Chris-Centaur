@@ -11,7 +11,18 @@ import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { BoardGraph } from './board-graph';
-import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
+
+// The debug/UI payload every strategy decision resolves to.
+export interface StrategyResult {
+  move: Direction;
+  safeMoves: Direction[];
+  scores: Map<Direction, number>;
+  moveEvaluations: any[];
+  territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+  // Per-cell Voronoi owner + distance for the current board (cell inspector).
+  cellOwnership: CellOwnership;
+}
 
 export class VoronoiStrategy {
   private decisionEngine: DecisionEngine;
@@ -29,7 +40,6 @@ export class VoronoiStrategy {
     
     // Initialize with defaults
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: DEFAULT_CONFIG.maxSimulationDepth,
       timeoutMs: DEFAULT_CONFIG.timeoutMs,
       nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
       weights: this.extractWeights(DEFAULT_CONFIG)
@@ -88,7 +98,6 @@ export class VoronoiStrategy {
   
   private updateDecisionEngine(config: GameConfig): void {
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: config.maxSimulationDepth,
       timeoutMs: config.timeoutMs,
       nearbyDistance: config.nearbyDistance,
       weights: this.extractWeights(config)
@@ -130,7 +139,6 @@ export class VoronoiStrategy {
     
     // Update decision engine config
     this.decisionEngine = new DecisionEngine({
-      maxSimulationDepth: 1,
       timeoutMs: config.maxEvaluationTimeMs || 400,
       nearbyDistance: config.maxDistance || 3,
       weights
@@ -156,13 +164,7 @@ export class VoronoiStrategy {
     return decision.move;
   }
   
-  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<{ 
-    move: Direction; 
-    safeMoves: Direction[]; 
-    scores: Map<Direction, number>;
-    moveEvaluations: any[];
-    territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  }> {
+  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<StrategyResult> {
     // Reload config if needed (cached for 1 second)
     const config = await this.getConfig();
     this.updateDecisionEngine(config);
@@ -174,69 +176,144 @@ export class VoronoiStrategy {
     
     // Use decision engine to get best move (with optional user-directed waypoint)
     const decision = this.decisionEngine.decide(gameState, teamSnakeIds, waypoint);
-    
+
     // Log turn info to console
     this.logTurnInfo(gameState, decision);
-    
-    // Prepare decision data for database logging
-    const moveEvaluations = decision.evaluations.map(evaluation => ({
-      move: evaluation.move,
-      score: evaluation.averageScore,
-      numStates: evaluation.numStates,
-      projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
-      breakdown: {
-        myLength: evaluation.averageBreakdown.stats.myLength,
-        myTerritory: evaluation.averageBreakdown.stats.myTerritory,
-        myControlledFood: evaluation.averageBreakdown.stats.myControlledFood,
-        myControlledFertile: evaluation.averageBreakdown.stats.myControlledFertile,
-        teamLength: evaluation.averageBreakdown.stats.teamLength,
-        teamTerritory: evaluation.averageBreakdown.stats.teamTerritory,
-        teamControlledFood: evaluation.averageBreakdown.stats.teamControlledFood,
-        foodDistance: evaluation.averageBreakdown.stats.foodDistance,
-        foodProximity: evaluation.averageBreakdown.stats.foodProximity,
-        foodEaten: evaluation.averageBreakdown.stats.foodEaten,
-        enemyTerritory: evaluation.averageBreakdown.stats.enemyTerritory,
-        enemyLength: evaluation.averageBreakdown.stats.enemyLength,
-        edgePenalty: evaluation.averageBreakdown.stats.edgePenalty,
-        selfSpace: evaluation.averageBreakdown.stats.selfSpace,
-        alliesEnoughSpace: evaluation.averageBreakdown.stats.alliesEnoughSpace,
-        opponentsEnoughSpace: evaluation.averageBreakdown.stats.opponentsEnoughSpace,
-        kills: evaluation.averageBreakdown.stats.kills,
-        deaths: evaluation.averageBreakdown.stats.deaths,
-        enemyH2HRisk: evaluation.averageBreakdown.stats.enemyH2HRisk,
-        allyH2HRisk: evaluation.averageBreakdown.stats.allyH2HRisk,
-        waypointGoto: evaluation.averageBreakdown.stats.waypointGoto,
-        waypointNear: evaluation.averageBreakdown.stats.waypointNear,
-        aggression: evaluation.averageBreakdown.stats.aggression,
-        trapped: evaluation.averageBreakdown.stats.trapped,
-        weights: evaluation.averageBreakdown.weights,
-        weighted: evaluation.averageBreakdown.weighted,
-        fertileTerritory: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10,
-        foodDistanceInverse: evaluation.averageBreakdown.stats.foodProximity,
-        myFoodCount: evaluation.averageBreakdown.stats.myControlledFood,
-        teamFoodCount: evaluation.averageBreakdown.stats.teamControlledFood,
-        teamFertileScore: evaluation.averageBreakdown.stats.teamTerritory + evaluation.averageBreakdown.stats.teamControlledFood * 10
-      }
-    }));
-    
-    // Compute territory cells for current board state visualization
-    const graph = new BoardGraph(gameState);
-    const bfs = new MultiSourceBFS(graph);
+
+    return this.assembleDebugResult(gameState, decision);
+  }
+
+  /**
+   * Anytime variant: runs the engine's parallel iterative decision on the
+   * shared worker pool, invoking onRecommendation with the current best move
+   * every ~100ms until deadlineMs or full 3^k completion, then returning the
+   * same debug payload as getBestMoveWithDebug (assembled from the final
+   * decision, logged once).
+   */
+  async getBestMoveIterative(
+    gameState: GameState,
+    _ourTeam: TeamInfo | undefined,
+    waypoint: WaypointContext | null | undefined,
+    options: {
+      deadlineMs: number;
+      updateIntervalMs?: number;
+      onRecommendation?: (move: Direction, decision: MoveDecision) => void;
+    }
+  ): Promise<StrategyResult> {
+    const config = await this.getConfig();
+    this.updateDecisionEngine(config);
+
+    const teams = this.teamDetector.detectTeams(gameState.board.snakes);
+    const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
+    const teamSnakeIds = new Set<string>(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
+
+    const decision = await this.decisionEngine.decideIteratively(gameState, teamSnakeIds, {
+      waypoint,
+      deadlineMs: options.deadlineMs,
+      updateIntervalMs: options.updateIntervalMs,
+      onUpdate: (partial) => options.onRecommendation?.(partial.move, partial)
+    });
+
+    this.logTurnInfo(gameState, decision);
+
+    return this.assembleDebugResult(gameState, decision);
+  }
+
+  /**
+   * Shared debug/logging assembly for a finished decision: maps evaluations
+   * for the UI/database, computes current-board territory, logs the decision
+   * (non-blocking), and returns the strategy result payload.
+   */
+  // Cache of the current-board Voronoi keyed by `${gameId}:${turn}`: the five
+  // controlled snakes' decisions for a turn all describe the same board, so
+  // the first one computes and the rest reuse. Small LRU (games can overlap).
+  private boardVoronoiCache = new Map<string, { territoryCells: { [snakeId: string]: { x: number; y: number }[] }; cellOwnership: CellOwnership }>();
+  private static readonly MAX_VORONOI_CACHE_ENTRIES = 8;
+
+  private currentBoardVoronoi(gameState: GameState, graph: BoardGraph) {
+    const key = `${gameState.game.id}:${gameState.turn}`;
+    const cached = this.boardVoronoiCache.get(key);
+    if (cached) return cached;
+
     const sources: BFSSource[] = gameState.board.snakes
       .filter(s => s.health > 0)
       .map(s => ({
         id: s.id,
         position: s.head,
-        isTeam: teamSnakeIds.has(s.id)
+        // Team flags only feed aggregate sums this consumer never reads;
+        // owner/distance/territory are team-independent, which is what makes
+        // the result shareable across snakes on different teams.
+        isTeam: false
       }));
-    const bfsResult = bfs.compute(sources, gameState.board.food, undefined, gameState.board.fertileTiles);
-    
-    // Convert Map to plain object for JSON serialization
-    const territoryCellsObj: { [snakeId: string]: { x: number; y: number }[] } = {};
-    for (const [snakeId, cells] of bfsResult.territoryCells) {
-      territoryCellsObj[snakeId] = cells;
+    // Turn-aware clearance (same physical vacate timing the evaluation BFS
+    // uses): body cells count as territory for whoever arrives first AFTER
+    // they clear, instead of being modeled as permanent walls.
+    const bfs = new MultiSourceBFS(graph);
+    const bfsResult = bfs.compute(sources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
+
+    const entry = {
+      territoryCells: territoryCellsToObject(bfsResult),
+      cellOwnership: toCellOwnership(bfsResult, sources, graph),
+    };
+    this.boardVoronoiCache.set(key, entry);
+    while (this.boardVoronoiCache.size > VoronoiStrategy.MAX_VORONOI_CACHE_ENTRIES) {
+      const oldest = this.boardVoronoiCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.boardVoronoiCache.delete(oldest);
     }
+    return entry;
+  }
+
+  private assembleDebugResult(gameState: GameState, decision: MoveDecision): StrategyResult {
+    // Prepare decision data for database logging
+    const moveEvaluations = decision.evaluations.map(evaluation => ({
+      move: evaluation.move,
+      score: evaluation.worstScore,
+      numStates: evaluation.numStates,
+      projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
+      projectedCellOwnership: evaluation.projectedCellOwnership || null,
+      breakdown: {
+        myLength: evaluation.worstEvaluation.stats.myLength,
+        myTerritory: evaluation.worstEvaluation.stats.myTerritory,
+        myControlledFood: evaluation.worstEvaluation.stats.myControlledFood,
+        myControlledFertile: evaluation.worstEvaluation.stats.myControlledFertile,
+        teamLength: evaluation.worstEvaluation.stats.teamLength,
+        teamTerritory: evaluation.worstEvaluation.stats.teamTerritory,
+        teamControlledFood: evaluation.worstEvaluation.stats.teamControlledFood,
+        foodDistance: evaluation.worstEvaluation.stats.foodDistance,
+        foodProximity: evaluation.worstEvaluation.stats.foodProximity,
+        foodEaten: evaluation.worstEvaluation.stats.foodEaten,
+        enemyTerritory: evaluation.worstEvaluation.stats.enemyTerritory,
+        enemyLength: evaluation.worstEvaluation.stats.enemyLength,
+        edgePenalty: evaluation.worstEvaluation.stats.edgePenalty,
+        selfSpace: evaluation.worstEvaluation.stats.selfSpace,
+        alliesEnoughSpace: evaluation.worstEvaluation.stats.alliesEnoughSpace,
+        opponentsEnoughSpace: evaluation.worstEvaluation.stats.opponentsEnoughSpace,
+        kills: evaluation.worstEvaluation.stats.kills,
+        deaths: evaluation.worstEvaluation.stats.deaths,
+        enemyH2HRisk: evaluation.worstEvaluation.stats.enemyH2HRisk,
+        allyH2HRisk: evaluation.worstEvaluation.stats.allyH2HRisk,
+        waypointGoto: evaluation.worstEvaluation.stats.waypointGoto,
+        waypointNear: evaluation.worstEvaluation.stats.waypointNear,
+        aggression: evaluation.worstEvaluation.stats.aggression,
+        trapped: evaluation.worstEvaluation.stats.trapped,
+        weights: evaluation.worstEvaluation.weights,
+        weighted: evaluation.worstEvaluation.weighted,
+        fertileTerritory: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10,
+        foodDistanceInverse: evaluation.worstEvaluation.stats.foodProximity,
+        myFoodCount: evaluation.worstEvaluation.stats.myControlledFood,
+        teamFoodCount: evaluation.worstEvaluation.stats.teamControlledFood,
+        teamFertileScore: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10
+      }
+    }));
     
+    // Current-board territory + ownership for visualization. Owner/distance
+    // are snake-independent, so ONE computation per (game, turn) serves every
+    // controlled snake's decision; the engine's already-built graph is reused
+    // (one graph per decision, one clearance config).
+    const { territoryCells: territoryCellsObj, cellOwnership } =
+      this.currentBoardVoronoi(gameState, decision.graph);
+
     // Log the decision to database (non-blocking)
     // IMPORTANT: Only log the actual candidate moves, not all possible moves
     this.decisionLogger.logDecision({
@@ -250,13 +327,14 @@ export class VoronoiStrategy {
       botRecommendation: decision.move,
       moveEvaluations,
       gameState,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      cellOwnership
     });
     
     // Return for backwards compatibility
     const scores = new Map<Direction, number>();
     for (const evaluation of decision.evaluations) {
-      scores.set(evaluation.move, evaluation.averageScore);
+      scores.set(evaluation.move, evaluation.worstScore);
     }
     
     // NOTE: the live green "goto" route is owned by the server
@@ -264,12 +342,13 @@ export class VoronoiStrategy {
     // head. The strategy must NOT return a competing route anchored at the live
     // head — that mismatch is what made a Goto snake silently revert to the
     // bot's straight move after committing a move this turn.
-    return { 
-      move: decision.move, 
+    return {
+      move: decision.move,
       safeMoves: decision.candidateMoves,
       scores,
       moveEvaluations,
-      territoryCells: territoryCellsObj
+      territoryCells: territoryCellsObj,
+      cellOwnership
     };
   }
   
@@ -279,6 +358,9 @@ export class VoronoiStrategy {
    */
   public onGameEnd(gameId: string): void {
     this.decisionEngine.onGameEnd(gameId);
+    for (const key of this.boardVoronoiCache.keys()) {
+      if (key.startsWith(`${gameId}:`)) this.boardVoronoiCache.delete(key);
+    }
   }
 
   private logTurnInfo(gameState: GameState, decision: MoveDecision): void {
@@ -290,12 +372,12 @@ export class VoronoiStrategy {
     
     // Log detailed breakdown for each evaluated move
     for (const evaluation of decision.evaluations) {
-      if (evaluation.averageScore === -Infinity) {
+      if (evaluation.worstScore === -Infinity) {
         console.log(`\nMove ${evaluation.move}: DEATH (no valid scenarios)`);
         continue;
       }
       
-      const breakdown = evaluation.averageBreakdown;
+      const breakdown = evaluation.worstEvaluation;
       console.log(`\nMove ${evaluation.move}: Total Score = ${breakdown.score.toFixed(2)} (${evaluation.numStates} states evaluated)`);
       console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
       console.log('│ Component           │  Average │ × Weight │  = Score │');

@@ -50,7 +50,6 @@ export interface GameConfig {
   trapped: number;               // Strongly-negative penalty for entering a clearly-fatal dead-end pocket (no tail-chase, not enough room to outlast our length)
   
   // Simulation parameters
-  maxSimulationDepth: number;
   timeoutMs: number;
   nearbyDistance: number;
   
@@ -122,7 +121,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   trapped: -600,
   
   // Simulation parameters
-  maxSimulationDepth: 1,
   timeoutMs: 400,
   nearbyDistance: 5,  // Focal distance: snakes within this distance have all moves enumerated; snakes beyond are frozen
   

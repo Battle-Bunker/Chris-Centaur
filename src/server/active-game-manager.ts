@@ -1,7 +1,7 @@
 import { GameState, BoardSnapshot, Direction, Coord } from '../types/battlesnake';
-import { Response } from 'express';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { BoardGraph } from '../logic/board-graph';
+import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
 
 export interface MoveEvaluation {
@@ -19,22 +19,37 @@ export interface TurnData {
   safeMoves: Direction[];
   botRecommendation: Direction | null;
   timestamp: number;
+  // Per-cell Voronoi owner/distance for the current board (cell inspector).
+  // Absent on the quick pass and interim recommendations.
+  cellOwnership?: CellOwnership;
 }
 
-// Per-turn request transport. Holds the open HTTP response, its safety timer,
-// the turn's bot data, and the turn it answers — but NOT the snake's intention,
-// which lives durably on `ControlledSnake.intent` (see SnakeIntent).
-interface PendingMove {
-  res: Response;
-  timer: NodeJS.Timeout;
-  turnData: TurnData | null;
-  botMove: Direction | null;
-  resolved: boolean;
-  // The turn this pending move is answering. Each commit site uses it to validate
-  // the staged record is bound to the same turn (see StagedMove). For
-  // previous-turn-cleanup the relevant turn is the PRIOR pending's turn.
-  turn: number;
-}
+// The write-through publisher for staged moves. Firestore is the single
+// source of truth for what is staged: EVERY staging action (bot
+// recommendation, manual selection, queue step, waypoint step, revert to
+// heuristic, suicide) funnels through stageMove, which invokes this submitter
+// so the staged move is immediately represented in Firebase. The game server
+// resolves each turn with the last staged move it received before the turn
+// deadline — nothing on this side commits automatically.
+export type MoveSubmitter = (
+  gameId: string,
+  snakeId: string,
+  turn: number,
+  move: Direction,
+  source: IntendedMoveSource
+) => Promise<void>;
+
+// The optional HUMAN-triggered "done" signal (Submit All): marks one snake as
+// finished for the turn in Firebase (moveStatuses.movedPlayerIDs), letting the
+// game server resolve the turn early once EVERY alive player has committed.
+// Never invoked automatically — only from an explicit user action. The staged
+// move itself is unaffected: whatever is staged at resolution time is what
+// plays, and a commit is irreversible for the turn.
+export type MoveCommitter = (
+  gameId: string,
+  snakeId: string,
+  turn: number
+) => Promise<void>;
 
 export type IntendedMoveSource = 'manual' | 'queue' | 'waypoint' | 'bot' | 'fallback';
 
@@ -106,7 +121,6 @@ export interface ControlledSnake {
   id: string;
   name: string;
   emoji: string;
-  pendingMove: PendingMove | null;
   latestTurnData: TurnData | null;
   botRecommendation: Direction | null;
   selectedBy: string | null;
@@ -117,18 +131,46 @@ export interface ControlledSnake {
   // Survives disconnects (like name enrolments) so a reconnecting player keeps
   // their snakes.
   ownedBy: string | null;
-  moveCommittedThisTurn: boolean;
-  committedMove: Direction | null;
   suicideArmed: boolean;
   // The snake's intention — the single source of truth for queue cells, the
   // waypoint + its live goto route, the manual selection, and the active mode.
   // Set only through `setIntent`. The client-facing projections (premoves,
   // waypoints, routes, activeIntentModes) are derived from this.
   intent: SnakeIntent;
-  // The next move that will commit at the turn deadline, bound to its
-  // (snakeId, turn). Written only by `stageMove`; the safety-timer commit and the
-  // staged-arrow broadcast are pure reads. `null` until staged for the turn.
+  // The snake's REQUESTED move — the last move the active intent resolved to,
+  // bound to its (snakeId, turn). Written only by `stageMove`, which starts
+  // the publish-until-confirmed pipeline (`ensureStagedPublished`) so the
+  // request lands in Firebase, the authoritative staged-move store. Shown to
+  // clients as the ghost arrow whenever it differs from `confirmedStaged`.
   staged: StagedMove | null;
+  // The staged move Firebase has CONFIRMED for this snake (from the
+  // interface's privateMoves read-back listener): the latest server-acked
+  // write for the turn. This is what the game server will actually play if
+  // the turn ends now — clients render it as the solid arrow. The pipeline
+  // re-publishes until this matches the requested move.
+  confirmedStaged: { turn: number; move: Direction } | null;
+  // The FINAL move Firebase selected for the turn, known at turn finalization
+  // (deadline passed, or every alive player committed) — before the next
+  // board arrives. Drives the client's double (committed) arrow.
+  finalMove: { turn: number; move: Direction } | null;
+  // In-flight marker for the publish pipeline: the (turn, move) last handed
+  // to the submitter, so an unconfirmed request isn't re-published on every
+  // event, only when the backstop retry decides it was lost.
+  lastSubmittedTurn: number | null;
+  lastSubmittedMove: Direction | null;
+  // Backstop retry for the publish pipeline (single-shot, re-armed while the
+  // confirmed staged move differs from the requested one).
+  stagingRetryTimer: NodeJS.Timeout | null;
+  // Dedupe for the manual Submit All commit: the turn this snake was last
+  // marked done for, so repeated clicks don't spam moveStatuses writes.
+  // Commitment is BINDING (Firestore rules freeze a committed snake's staged
+  // move), so this also gates staging: no re-stage for a committed turn.
+  lastCommittedTurn: number | null;
+  // Submit All arrived while the requested move was still unconfirmed: the
+  // commit is deferred and fires automatically the moment Firebase confirms
+  // the requested move, so the frozen move is always the one the user asked
+  // for. Cancelled if the user re-stages a different move first.
+  pendingCommitTurn: number | null;
   // Dedupe for the fatal-move confirmation prompt: the (turn, move) we last
   // asked the user to confirm, so repeated re-stages within the same turn
   // don't spam the dialog.
@@ -174,24 +216,11 @@ export interface ActiveGame {
   playerNames: Map<string, PlayerEnrolment>;
   turnExpiryTime: number | null;
   currentTurn: number;
-  // User-configurable safety-timer buffer (ms). The safety timer commits the
-  // staged move at gameServerDeadline − commitBufferMs. Adjustable live from
-  // the play page; shared by all viewers of the game.
-  commitBufferMs: number;
-  // The buffer actually used to arm the current turn's safety timer. Differs
-  // from commitBufferMs on turn 0 (warm-up) and when the setting changes
-  // mid-turn (the armed timer keeps the old value). Clients count down with
-  // this so 0.0s always coincides with the real commit moment.
-  effectiveCommitBufferMs: number;
 }
 
-export const DEFAULT_COMMIT_BUFFER_MS = 500;
-export const MIN_COMMIT_BUFFER_MS = 100;
-export const MAX_COMMIT_BUFFER_MS = 5000;
-
 const DISTINCT_COLORS = [
-  '#e6194B', '#f58231', '#ffe119', '#bfef45',
-  '#3cb44b', '#42d4f4', '#4363d8', '#911eb4',
+  '#008080', '#f58231', '#ffe119', '#bfef45',
+  '#3cb44b', '#42d4f4', '#9a6324', '#911eb4',
   '#f032e6',
 ];
 
@@ -227,10 +256,25 @@ export class ActiveGameManager {
   private pingInterval: NodeJS.Timer | null = null;
   private staleGameCleanupInterval: NodeJS.Timer | null = null;
   // Used to compute a green waypoint's goto route the moment it's set, so the
-  // path shows immediately instead of waiting for the next /move.
+  // path shows immediately instead of waiting for the next turn.
   private routeEvaluator: BoardEvaluator = new BoardEvaluator();
+  // Write-through publisher for staged moves (see MoveSubmitter). Firestore is
+  // the single source of truth for staged moves; until a submitter is wired,
+  // staging actions log an error instead of silently staying local.
+  private moveSubmitter: MoveSubmitter | null = null;
+  // Publisher for the human-triggered Submit All "done" signal. Optional and
+  // never invoked automatically.
+  private moveCommitter: MoveCommitter | null = null;
 
   private constructor() {}
+
+  setMoveSubmitter(submitter: MoveSubmitter | null): void {
+    this.moveSubmitter = submitter;
+  }
+
+  setMoveCommitter(committer: MoveCommitter | null): void {
+    this.moveCommitter = committer;
+  }
 
   static getInstance(): ActiveGameManager {
     if (!ActiveGameManager.instance) {
@@ -420,8 +464,6 @@ export class ActiveGameManager {
         playerNames: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
-        commitBufferMs: DEFAULT_COMMIT_BUFFER_MS,
-        effectiveCommitBufferMs: DEFAULT_COMMIT_BUFFER_MS,
       };
       this.games.set(gameId, game);
     }
@@ -442,16 +484,20 @@ export class ActiveGameManager {
         id: snakeId,
         name: gameState.you.name,
         emoji: gameState.you.emoji || '',
-        pendingMove: null,
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
         ownedBy: null,
-        moveCommittedThisTurn: false,
-        committedMove: null,
         suicideArmed: false,
         intent: { kind: 'heuristic' },
         staged: null,
+        confirmedStaged: null,
+        finalMove: null,
+        lastSubmittedTurn: null,
+        lastSubmittedMove: null,
+        stagingRetryTimer: null,
+        lastCommittedTurn: null,
+        pendingCommitTurn: null,
         fatalPromptTurn: null,
         fatalPromptMove: null,
       });
@@ -468,21 +514,17 @@ export class ActiveGameManager {
 
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) {
-      // Duplicate /end for a snake we've already cleaned up. Don't re-fire
-      // events that would bounce the UI; just no-op.
+      // Duplicate end signal for a snake we've already cleaned up. Don't
+      // re-fire events that would bounce the UI; just no-op.
       console.log(`[ActiveGameManager] endGame for already-removed snake ${gameId}:${snakeId}, ignoring`);
       return;
     }
-    if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove || 'up', 'game-end');
-    }
 
-    // The /end payload from the engine carries the actual final game state,
-    // which is typically several turns ahead of our last /move (because other
-    // snakes kept playing after ours died, and the death-state turn itself
-    // never came in via /move). Push it through the normal board-update
-    // pipeline so the centaur paints the real final position instead of
-    // freezing on whatever turn our snake last responded to.
+    // The end signal carries the actual final game state, which can be ahead
+    // of the last turn we processed for this snake (other snakes kept playing
+    // after ours died). Push it through the normal board-update pipeline so
+    // the centaur paints the real final position instead of freezing on
+    // whatever turn our snake last acted in.
     let acceptedFinalState = false;
     const incomingTurn = finalGameState?.turn ?? -1;
     if (finalGameState && incomingTurn >= game.boardStateTurn) {
@@ -569,48 +611,87 @@ export class ActiveGameManager {
 
     const affected: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
-      controlled.suicideArmed = true;
       affected.push(snakeId);
 
-      if (controlled.pendingMove && !controlled.pendingMove.resolved && controlled.pendingMove.turnData) {
-        const move = computeSuicideMove(controlled.pendingMove.turnData.gameState);
-        console.log(`[ActiveGameManager] SUICIDE: immediately submitting ${move} for ${gameId}:${snakeId}`);
-        controlled.suicideArmed = false;
+      const gameState = controlled.latestTurnData?.gameState;
+      if (gameState) {
+        const move = computeSuicideMove(gameState);
+        console.log(`[ActiveGameManager] SUICIDE: staging ${move} for ${gameId}:${snakeId}`);
         // Kill-all is the second fatal-consent mint point: stage the suicide
         // move WITH consent so it flows through the single staged-move writer
-        // (and its gate) instead of bypassing it, then commit it immediately.
+        // (and its gate). The write-through submitter publishes it to Firebase
+        // where it becomes the snake's staged move for the turn.
         this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: mintFatalMoveConsent() });
-        this.resolvePendingMove(gameId, snakeId, controlled.staged?.move ?? move, 'suicide');
+      } else {
+        // No turn data yet — arm, and the next turn's staging pass fires it.
+        controlled.suicideArmed = true;
       }
     }
     if (affected.length > 0) {
-      console.log(`[ActiveGameManager] SUICIDE armed for game ${gameId}: ${affected.join(', ')}`);
+      console.log(`[ActiveGameManager] SUICIDE staged/armed for game ${gameId}: ${affected.join(', ')}`);
     }
     return { affected };
   }
 
-  // Immediately commit the currently staged move for every controlled snake
-  // with an unresolved pending move, ending the wait for the per-snake safety
-  // timer. Mirrors the deadline commit path (reads the already-current
-  // stagedMove — no recomputation). Snakes that already committed this turn or
-  // have no pending move are left untouched.
+  // Submit All: the human-triggered "we're done this turn" signal. Commitment
+  // is BINDING — Firestore rules freeze a committed snake's staged move for
+  // the turn — so a snake is only committed once the move Firebase has
+  // CONFIRMED is the requested one; committing earlier could freeze a stale
+  // move mid-flight. Snakes whose request is still unconfirmed get a pending
+  // commit that fires automatically the moment their confirmation lands
+  // (setConfirmedStagedMove), keeping Submit All one click without ever
+  // freezing the wrong move. Never called automatically.
   commitAllStaged(gameId: string): { affected: string[] } {
     const game = this.games.get(gameId);
     if (!game) return { affected: [] };
 
     const affected: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
-      if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-        const move = this.commitStagedMove(gameId, snakeId, controlled.pendingMove.turn, 'commit-all');
-        console.log(`[ActiveGameManager] COMMIT-ALL: submitting ${move} for ${gameId}:${snakeId} turn ${controlled.pendingMove.turn}`);
-        this.resolvePendingMove(gameId, snakeId, move, 'commit-all');
-        affected.push(snakeId);
+      const staged = controlled.staged;
+      // Only commit snakes staged for the current turn — a stale record means
+      // this snake's decision for the new turn hasn't landed yet, and
+      // committing it would mark "done" on a move that no longer applies.
+      if (!staged || staged.turn !== game.boardStateTurn) continue;
+      if (controlled.lastCommittedTurn === staged.turn) continue;
+      affected.push(snakeId);
+
+      const confirmed =
+        controlled.confirmedStaged?.turn === staged.turn &&
+        controlled.confirmedStaged.move === staged.move;
+      if (confirmed) {
+        this.commitSnakeNow(gameId, snakeId, controlled, staged.turn);
+      } else if (controlled.pendingCommitTurn !== staged.turn) {
+        controlled.pendingCommitTurn = staged.turn;
+        console.log(`[ActiveGameManager] COMMIT deferred for ${gameId}:${snakeId} turn ${staged.turn} — waiting for Firebase to confirm ${staged.move}`);
       }
     }
     if (affected.length > 0) {
-      console.log(`[ActiveGameManager] COMMIT-ALL for game ${gameId}: ${affected.join(', ')}`);
+      console.log(`[ActiveGameManager] COMMIT-ALL for game ${gameId} turn ${game.boardStateTurn}: ${affected.join(', ')}`);
     }
     return { affected };
+  }
+
+  private commitSnakeNow(
+    gameId: string,
+    snakeId: string,
+    controlled: ControlledSnake,
+    turn: number
+  ): void {
+    if (controlled.lastCommittedTurn === turn) return;
+    controlled.lastCommittedTurn = turn;
+    controlled.pendingCommitTurn = null;
+
+    if (this.moveCommitter) {
+      this.moveCommitter(gameId, snakeId, turn).catch((err) => {
+        console.error(`[ActiveGameManager] Failed to publish commit for ${gameId}:${snakeId} turn ${turn}:`, err);
+        // Allow a retry on the next Submit All for this turn.
+        if (controlled.lastCommittedTurn === turn) {
+          controlled.lastCommittedTurn = null;
+        }
+      });
+    } else {
+      console.error(`[ActiveGameManager] No move committer wired — commit for ${gameId}:${snakeId} NOT published`);
+    }
   }
 
   // Per-snake ownership snapshot broadcast to every client: the owning
@@ -654,11 +735,7 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (controlled && controlled.selectedBy === userId) {
       controlled.selectedBy = null;
-
-      if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-        const staged = controlled.intent.kind === 'manual' ? controlled.intent.move : null;
-        console.log(`[ActiveGameManager] Snake deselected ${gameId}:${snakeId} (turn ${game.currentTurn}), staged move=${staged || 'none'} — waiting for safety timer or reselection`);
-      }
+      console.log(`[ActiveGameManager] Snake deselected ${gameId}:${snakeId} (turn ${game.currentTurn}), staged move=${controlled.staged?.move || 'none'} (${controlled.staged?.source || '-'}) — Firebase keeps the last staged move`);
     }
     user.selectedSnakeId = null;
   }
@@ -803,8 +880,6 @@ export class ActiveGameManager {
     controlledSnakes: Array<{
       id: string; name: string; emoji: string;
       selectedBy: string | null;
-      moveCommittedThisTurn: boolean;
-      committedMove: Direction | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
     }>;
@@ -816,8 +891,6 @@ export class ActiveGameManager {
     gameTimeout: number;
     turnExpiryTime: number | null;
     measuredPing: number;
-    commitBufferMs: number;
-    effectiveCommitBufferMs: number;
   } | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -825,8 +898,6 @@ export class ActiveGameManager {
     const controlledSnakes: Array<{
       id: string; name: string; emoji: string;
       selectedBy: string | null;
-      moveCommittedThisTurn: boolean;
-      committedMove: Direction | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
     }> = [];
@@ -838,8 +909,6 @@ export class ActiveGameManager {
         name: cs.name,
         emoji: cs.emoji,
         selectedBy: cs.selectedBy,
-        moveCommittedThisTurn: cs.moveCommittedThisTurn,
-        committedMove: cs.committedMove,
         turnData: cs.latestTurnData,
         botRecommendation: cs.botRecommendation,
       });
@@ -865,28 +934,7 @@ export class ActiveGameManager {
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
       measuredPing: this.gameServerPing,
-      commitBufferMs: game.commitBufferMs,
-      effectiveCommitBufferMs: game.effectiveCommitBufferMs,
     };
-  }
-
-  getCommitBuffer(gameId: string): number {
-    return this.games.get(gameId)?.commitBufferMs ?? DEFAULT_COMMIT_BUFFER_MS;
-  }
-
-  getEffectiveCommitBuffer(gameId: string): number {
-    return this.games.get(gameId)?.effectiveCommitBufferMs ?? DEFAULT_COMMIT_BUFFER_MS;
-  }
-
-  setCommitBuffer(gameId: string, bufferMs: number): number | null {
-    const game = this.games.get(gameId);
-    if (!game) return null;
-    const clamped = Math.round(
-      Math.min(MAX_COMMIT_BUFFER_MS, Math.max(MIN_COMMIT_BUFFER_MS, Number(bufferMs) || DEFAULT_COMMIT_BUFFER_MS))
-    );
-    game.commitBufferMs = clamped;
-    console.log(`[ActiveGameManager] Commit buffer for ${gameId} set to ${clamped}ms`);
-    return clamped;
   }
 
   getWaypoint(gameId: string, snakeId: string): { type: 'green' | 'blue'; x: number; y: number } | null {
@@ -1015,27 +1063,17 @@ export class ActiveGameManager {
     return result;
   }
 
-  // The cell the snake's head will occupy after the move it has already
-  // committed this turn. If no move is committed yet, this is just the
-  // current head. Anchors all "next turn" rendering: Q-mode adjacency,
-  // candidate-arrow cells, queue-extension click targets.
+  // The anchor cell for all "next turn" rendering: Q-mode adjacency,
+  // candidate-arrow cells, queue-extension click targets. Nothing commits
+  // mid-turn anymore (the game server resolves the turn from the last staged
+  // move at its deadline), so the anchor is simply the snake's live head.
   getProjectedHead(gameId: string, snakeId: string): Coord | null {
     const game = this.games.get(gameId);
     if (!game?.boardState) return null;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return null;
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
-    const head = snake?.head || snake?.body?.[0];
-    if (!head) return null;
-    if (controlled.moveCommittedThisTurn && controlled.committedMove) {
-      switch (controlled.committedMove) {
-        case 'up':    return { x: head.x,     y: head.y + 1 };
-        case 'down':  return { x: head.x,     y: head.y - 1 };
-        case 'left':  return { x: head.x - 1, y: head.y     };
-        case 'right': return { x: head.x + 1, y: head.y     };
-      }
-    }
-    return head;
+    return snake?.head || snake?.body?.[0] || null;
   }
 
   private static destinationOf(head: Coord, move: Direction): Coord {
@@ -1050,7 +1088,7 @@ export class ActiveGameManager {
   // Non-mutating safety probe. Reports whether `move` would put THIS snake's
   // head on an impassable cell next turn — off-board, wall/hazard, our own
   // body, or a non-severable enemy body — evaluated from the committing snake's
-  // OWN perspective via passabilityFor(snakeId), so an invulnerable snake
+  // OWN perspective via passabilityIdxFor(snakeId), so an invulnerable snake
   // attacking a weaker enemy is correctly NOT fatal. Uses optimistic turn-1
   // semantics, the same the goto-route and space BFS use, so a step onto a tail
   // that vacates this turn is not flagged.
@@ -1089,7 +1127,9 @@ export class ActiveGameManager {
       }
 
       const graph = new BoardGraph(game.boardState);
-      return !graph.passabilityFor(snakeId, { clearance: 'optimistic' }).passable(dest, 1);
+      if (!graph.isInBounds(dest)) return true;
+      return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic' })
+        .passableIdx(graph.cellIndexOf(dest), 1);
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);
@@ -1097,17 +1137,13 @@ export class ActiveGameManager {
     }
   }
 
-  // Public: is the move this snake will actually commit this turn (the committed
-  // move if one is already locked in, else the current staged move) certain
-  // death? Drives the red "fatal staged move" marker in the centaur UI. Pure
-  // read — no mutation, no effect on what commits.
+  // Public: is this snake's currently staged move certain death? Drives the
+  // red "fatal staged move" marker in the centaur UI. Pure read — no mutation,
+  // no effect on what is staged.
   isStagedMoveFatal(gameId: string, snakeId: string): boolean {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
-    if (!controlled) return false;
-    const move = (controlled.moveCommittedThisTurn && controlled.committedMove)
-      ? controlled.committedMove
-      : controlled.staged?.move;
+    const move = controlled?.staged?.move;
     if (!move) return false;
     return this.isMoveFatal(gameId, snakeId, move);
   }
@@ -1196,12 +1232,10 @@ export class ActiveGameManager {
   }
 
   // The cell the snake occupied immediately BEFORE the anchor cell that queue
-  // and goto-route steps are measured from. Stepping onto this cell is by
-  // definition a 180° reversal into the snake's own just-vacated neck (certain
-  // death by the game rules), so it can never be a valid queue/route step —
-  // adjacency alone is NOT sufficient validity.
-  //  - No move committed this turn → anchor is the live head; behind = body[1].
-  //  - Move already committed      → anchor is the projected head; behind = live head.
+  // and goto-route steps are measured from — the snake's neck. Stepping onto
+  // this cell is by definition a 180° reversal into the snake's own
+  // just-vacated cell (certain death by the game rules), so it can never be a
+  // valid queue/route step — adjacency alone is NOT sufficient validity.
   private cellBehindAnchor(gameId: string, snakeId: string): Coord | null {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
@@ -1209,9 +1243,6 @@ export class ActiveGameManager {
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
     const head = snake?.head || snake?.body?.[0];
     if (!head) return null;
-    if (controlled.moveCommittedThisTurn && controlled.committedMove) {
-      return head;
-    }
     const neck = snake?.body?.[1];
     if (neck && (neck.x !== head.x || neck.y !== head.y)) {
       return neck;
@@ -1256,6 +1287,14 @@ export class ActiveGameManager {
     const intended = this.computeIntendedMove(gameId, snakeId);
     const turn = game!.boardStateTurn;
 
+    // Commitment is binding: Firestore rules reject staged writes for a
+    // committed snake, so once this turn is committed the staged record is
+    // frozen — intent changes still land but only apply from the next turn.
+    if (controlled.lastCommittedTurn === turn) {
+      console.log(`[ActiveGameManager] Staging frozen for ${gameId}:${snakeId} turn ${turn} (committed) — ${intended.source} ${intended.direction} not staged`);
+      return;
+    }
+
     // ── Fatal-move consent gate ─────────────────────────────────────────
     // A HUMAN-sourced certain-death move (manual click, queue step, waypoint
     // step) may only be staged when it carries a minted FatalMoveConsent.
@@ -1282,6 +1321,13 @@ export class ActiveGameManager {
       }
     }
 
+    // A new request supersedes a not-yet-fired deferred commit: the user is
+    // no longer "done" with the move they submitted.
+    if (controlled.pendingCommitTurn === turn && previous?.move !== direction) {
+      console.log(`[ActiveGameManager] Deferred commit for ${gameId}:${snakeId} turn ${turn} cancelled — new staging ${direction} supersedes it`);
+      controlled.pendingCommitTurn = null;
+    }
+
     controlled.staged = {
       snakeId,
       turn,
@@ -1293,9 +1339,166 @@ export class ActiveGameManager {
     };
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
+
+    // Publish-until-confirmed: hand the requested move to the pipeline, which
+    // writes it to Firebase and re-publishes until the read-back confirmation
+    // matches. Firebase is the single source of truth for staged moves.
+    this.ensureStagedPublished(gameId, snakeId);
+
     // Reactive sync: every stage (the single point all intent changes funnel
     // through) marks the game dirty so the staged arrow + intent projections
     // are pushed to clients, coalesced to once per event-loop tick.
+    this.notifyStagedChange(gameId);
+  }
+
+  private static readonly STAGING_RETRY_MS = 1000;
+
+  // The publish-until-confirmed pipeline. Invoked on every stage (the request
+  // changed), on every Firebase confirmation update (to detect mismatches),
+  // and from its own backstop timer. Terminates when the confirmed staged
+  // move matches the requested one, or when the board has moved past the
+  // requested turn (the snake's next stage re-enters the pipeline).
+  private ensureStagedPublished(gameId: string, snakeId: string): void {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game || !controlled) return;
+    const requested = controlled.staged;
+    if (!requested) return;
+
+    const clearRetry = () => {
+      if (controlled.stagingRetryTimer) {
+        clearTimeout(controlled.stagingRetryTimer);
+        controlled.stagingRetryTimer = null;
+      }
+    };
+
+    // The board moved past this request — stop; it can never be confirmed
+    // (the read-back listener for its turn is gone) and no longer matters.
+    if (game.boardStateTurn > requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // The turn already finalized — Firebase picked its move; late publishes
+    // can't change anything.
+    if (controlled.finalMove?.turn === requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // Committed this turn — the rules now reject staged writes for this
+    // snake, so publishing (or retrying) is pointless.
+    if (controlled.lastCommittedTurn === requested.turn) {
+      clearRetry();
+      return;
+    }
+
+    // Firebase confirms the requested move — the pipeline is done.
+    if (
+      controlled.confirmedStaged?.turn === requested.turn &&
+      controlled.confirmedStaged.move === requested.move
+    ) {
+      clearRetry();
+      return;
+    }
+
+    const alreadySubmitted =
+      controlled.lastSubmittedTurn === requested.turn &&
+      controlled.lastSubmittedMove === requested.move;
+    if (!alreadySubmitted) {
+      controlled.lastSubmittedTurn = requested.turn;
+      controlled.lastSubmittedMove = requested.move;
+      if (this.moveSubmitter) {
+        this.moveSubmitter(gameId, snakeId, requested.turn, requested.move, requested.source).catch((err) => {
+          console.error(`[ActiveGameManager] Failed to publish staged move for ${gameId}:${snakeId} turn ${requested.turn}:`, err);
+          // Clear the in-flight marker so the backstop republishes.
+          if (
+            controlled.lastSubmittedTurn === requested.turn &&
+            controlled.lastSubmittedMove === requested.move
+          ) {
+            controlled.lastSubmittedTurn = null;
+            controlled.lastSubmittedMove = null;
+          }
+        });
+      } else {
+        console.error(`[ActiveGameManager] No move submitter wired — staged move for ${gameId}:${snakeId} turn ${requested.turn} NOT published`);
+      }
+    }
+
+    // Backstop: if Firebase hasn't confirmed the requested move by the next
+    // tick, treat the write as lost and republish.
+    clearRetry();
+    const timer = setTimeout(() => {
+      const cs = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+      if (!cs || cs.stagingRetryTimer !== timer) return;
+      cs.stagingRetryTimer = null;
+      const req = cs.staged;
+      if (!req) return;
+      if (cs.confirmedStaged?.turn === req.turn && cs.confirmedStaged.move === req.move) return;
+      console.warn(`[ActiveGameManager] Staged move for ${gameId}:${snakeId} turn ${req.turn} (${req.move}) still unconfirmed — republishing`);
+      cs.lastSubmittedTurn = null;
+      cs.lastSubmittedMove = null;
+      this.ensureStagedPublished(gameId, snakeId);
+    }, ActiveGameManager.STAGING_RETRY_MS);
+    timer.unref?.();
+    controlled.stagingRetryTimer = timer;
+  }
+
+  // Whether this snake has a requested move for `turn` that Firebase has not
+  // yet confirmed. Used by the interface's default-move inference: a commit
+  // observed while a request is still unconfirmed must WAIT (the in-flight
+  // write would beat the engine default), whereas a commit with no request
+  // at all resolves to the deterministic default immediately.
+  hasUnconfirmedRequest(gameId: string, snakeId: string, turn: number): boolean {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    const requested = controlled?.staged;
+    if (!controlled || !requested || requested.turn !== turn) return false;
+    return !(
+      controlled.confirmedStaged?.turn === turn &&
+      controlled.confirmedStaged.move === requested.move
+    );
+  }
+
+  // Fed by the Firebase read-back listener: the latest server-acked staged
+  // move for (snakeId, turn). Broadcast to clients as the solid arrow, and
+  // used by the pipeline to decide whether the request needs republishing.
+  setConfirmedStagedMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    if (!controlled) return;
+    if (controlled.confirmedStaged?.turn === turn && controlled.confirmedStaged.move === move) return;
+    controlled.confirmedStaged = { turn, move };
+    this.ensureStagedPublished(gameId, snakeId);
+
+    // A deferred Submit All fires the moment the requested move is the
+    // confirmed one — the freeze then provably locks the user's move.
+    if (
+      controlled.pendingCommitTurn === turn &&
+      controlled.staged?.turn === turn &&
+      controlled.staged.move === move
+    ) {
+      console.log(`[ActiveGameManager] Deferred commit firing for ${gameId}:${snakeId} turn ${turn} (${move} confirmed)`);
+      this.commitSnakeNow(gameId, snakeId, controlled, turn);
+    }
+
+    this.notifyStagedChange(gameId);
+  }
+
+  // Fed by the Firebase interface when — and ONLY when — this snake's commit
+  // is actually recorded in Firebase (the snake appears in
+  // moveStatuses.movedPlayerIDs) and its confirmed staged move is known from
+  // the read-back. Never inferred from timers or the turn expiry: the double
+  // arrow is a report of observed Firebase state, nothing else. Turns that
+  // resolve by timeout without a commit simply never show it.
+  finalizeTurnMove(gameId: string, snakeId: string, turn: number, move: Direction): void {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    if (!controlled) return;
+    if (controlled.finalMove?.turn === turn) return;
+    if (controlled.stagingRetryTimer) {
+      clearTimeout(controlled.stagingRetryTimer);
+      controlled.stagingRetryTimer = null;
+    }
+    controlled.finalMove = { turn, move };
+    this.notifyMoveCommitted(gameId, snakeId, move, 'firebase-final');
     this.notifyStagedChange(gameId);
   }
 
@@ -1319,8 +1522,6 @@ export class ActiveGameManager {
       head,
       neck,
       projectedHead: this.getProjectedHead(gameId, controlled.id),
-      moveCommittedThisTurn: controlled.moveCommittedThisTurn,
-      committedMove: controlled.committedMove,
       intent: controlled.intent,
       staged: controlled.staged,
       suicideArmed: controlled.suicideArmed,
@@ -1338,30 +1539,6 @@ export class ActiveGameManager {
     if (previous?.source === 'manual' && (intended.source !== 'manual' || intended.direction !== previous.move)) {
       console.log(`[ActiveGameManager] Staged move changed for ${gameId}:${controlled.id} within turn ${previous.turn}: was manual ${previous.move} → now ${intended.source} ${intended.direction}`);
     }
-  }
-
-  // The one validated read of a staged move: returns its Direction only when the
-  // record is bound to this exact snake and turn, else null. This is the
-  // multi-snake desync guard — a staged record left over from a different turn
-  // (because another snake's /move advanced the shared board) is rejected rather
-  // than committed as the wrong turn's move (e.g. a 180° reversal into our neck).
-  private stagedMoveForTurn(controlled: ControlledSnake, snakeId: string, turn: number): Direction | null {
-    const staged = controlled.staged;
-    return staged && staged.snakeId === snakeId && staged.turn === turn ? staged.move : null;
-  }
-
-  // Resolves the move to commit for `committedTurn`: the staged move when it is
-  // aligned, otherwise the turn's bot recommendation (which lives on the pending
-  // move, immune to cross-snake staged pollution), then the hard 'up' floor.
-  private commitStagedMove(gameId: string, snakeId: string, committedTurn: number, context: string): Direction {
-    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
-    if (!controlled) return 'up';
-    const aligned = this.stagedMoveForTurn(controlled, snakeId, committedTurn);
-    if (aligned) return aligned;
-    const fallback = controlled.pendingMove?.botMove || 'up';
-    const staged = controlled.staged;
-    console.warn(`[ActiveGameManager] Staged-move turn mismatch (${context}) for ${gameId}:${snakeId}: committing turn ${committedTurn}, staged ${staged ? `turn ${staged.turn} (${staged.source})` : 'none'}; falling back to bot move ${fallback}`);
-    return fallback;
   }
 
   getActiveIntentModesForGame(gameId: string): { [snakeId: string]: IntentMode } {
@@ -1454,7 +1631,9 @@ export class ActiveGameManager {
     const cells = controlled.intent.cells;
     const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
     const liveHead = snake?.head || snake?.body?.[0];
-    const projected = this.getProjectedHead(gameId, snakeId);
+    // Called when a turn resolves, BEFORE the new board is applied: the cell
+    // the snake lands on is the live head plus the move the server resolved.
+    const projected = liveHead ? ActiveGameManager.destinationOf(liveHead, move) : null;
     if (!projected) return;
     const next = cells[0];
     const headInfo = `liveHead=(${liveHead?.x},${liveHead?.y}) projectedHead=(${projected.x},${projected.y}) queueHead=(${next.x},${next.y}) move=${move}`;
@@ -1523,65 +1702,6 @@ export class ActiveGameManager {
     return true;
   }
 
-  setPendingMove(gameId: string, snakeId: string, res: Response, gameTimeout: number, serverExpiryTime: number | null = null, turn: number = 0): PendingMove {
-    const game = this.games.get(gameId);
-    if (!game) throw new Error(`Game ${gameId} not registered`);
-
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled) throw new Error(`Snake ${snakeId} not controlled in game ${gameId}`);
-
-    if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      // The prior turn's staged move is still in place (this turn's board hasn't
-      // been processed yet); commit it for the PRIOR pending's turn so an absent
-      // or wrong-turn record falls back instead of submitting a wrong-turn move.
-      const move = this.commitStagedMove(gameId, snakeId, controlled.pendingMove.turn, 'previous-turn-cleanup');
-      console.log(`[ActiveGameManager] Previous-turn-cleanup for ${gameId}:${snakeId} turn ${controlled.pendingMove.turn}: using ${move}`);
-      this.resolvePendingMove(gameId, snakeId, move, 'previous-turn-cleanup');
-    }
-
-    // The committed move still has to travel back to the game server before its
-    // deadline (serverExpiryTime). The buffer is user-configurable per game
-    // (adjustable live from the play page, shared by all viewers) so the
-    // player can trade decision time against network safety margin explicitly.
-    // The measured ping remains a displayed diagnostic only. Turn 0 keeps the
-    // large first-move warm-up buffer.
-    const bufferMs = turn === 0 ? Math.max(5000, game.commitBufferMs) : game.commitBufferMs;
-    game.effectiveCommitBufferMs = bufferMs;
-    let timeoutMs: number;
-    if (serverExpiryTime) {
-      const now = Date.now();
-      timeoutMs = Math.max(serverExpiryTime - now - bufferMs, 50);
-    } else {
-      timeoutMs = Math.max(gameTimeout - bufferMs, 50);
-    }
-    console.log(`[ActiveGameManager] Safety timer set for ${gameId}:${snakeId} turn ${game.currentTurn}: serverExpiryTime=${serverExpiryTime}, gameTimeout=${gameTimeout}ms, firing in ${timeoutMs}ms`);
-
-    const pending: PendingMove = {
-      res,
-      timer: setTimeout(() => {
-        if (!pending.resolved) {
-          // The deadline is the sole commit path for every snake. It reads the
-          // staged move (kept current by stageMove through every input change
-          // this turn) validated against this pending's turn.
-          const move = this.commitStagedMove(gameId, snakeId, pending.turn, 'safety-timer');
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} turn ${pending.turn}: using ${move} (intent: ${controlled.intent.kind}, selectedBy=${controlled.selectedBy})`);
-          this.resolvePendingMove(gameId, snakeId, move, 'safety-timer');
-        } else {
-          console.log(`[ActiveGameManager] Safety timer fired for ${gameId}:${snakeId} but already resolved`);
-        }
-      }, timeoutMs),
-      turnData: null,
-      botMove: null,
-      resolved: false,
-      turn
-    };
-
-    controlled.pendingMove = pending;
-    controlled.moveCommittedThisTurn = false;
-    controlled.committedMove = null;
-    return pending;
-  }
-
   // ────────────────────────────────────────────────────────────────────────
   // Move-source priority for a controlled snake. The intent union holds exactly
   // one source at a time; computeIntendedMove resolves it to a single direction
@@ -1598,9 +1718,9 @@ export class ActiveGameManager {
   //   4. Bot recommendation            — the heuristic default
   //   5. Hard fallback                 — literal 'up' if nothing else available
   //
-  // Every controlled snake (selected or not) stays staged until its per-snake
-  // safety timer fires at the turn deadline — the sole commit path. The only
-  // exception is the armed-suicide explicit kill.
+  // Every staging action write-through publishes to Firebase (see stageMove);
+  // the game server resolves each turn with the last staged move it received
+  // before the turn deadline. There is no commit step on this side.
   //
   // Ownership of the premove queue: server-only mutations are done in
   // `setPremoveQueue` (in response to client `set-premove`), `setUserSelection`
@@ -1635,17 +1755,6 @@ export class ActiveGameManager {
         }
       }
 
-      // Per-turn flag reset only. This loop runs on the board-advancing snake's
-      // /move, so it must NOT mutate any other snake's staged move or intent
-      // mode (no stageMove side-effects). Resetting commit flags is safe shared
-      // per-turn bookkeeping; stale-manual revert and staged-move re-derivation
-      // are handled per-snake (for THIS snake only) further below, after
-      // previous-turn cleanup.
-      for (const [, cs] of game.controlledSnakes) {
-        cs.moveCommittedThisTurn = false;
-        cs.committedMove = null;
-      }
-
       boardUpdated = true;
     } else if (incomingTurn === game.boardStateTurn) {
       const existingSnakeCount = game.boardState?.board.snakes.length || 0;
@@ -1669,19 +1778,12 @@ export class ActiveGameManager {
     // unreachable, and is a no-op when not in waypoint mode.
     this.recomputeGotoRoute(gameId, snakeId);
 
-    if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-      controlled.pendingMove.botMove = move;
-      controlled.pendingMove.turnData = turnData;
-    }
-
-    // Re-stage ONLY this snake on its OWN /move, never the others when the board
-    // advances: a cross-snake refresh would rebind another snake's still-pending
-    // prior-turn move to the new turn, and previous-turn-cleanup would then submit
-    // the wrong turn's move (a 180° reversal into its own neck). The prior record
-    // was already committed by previous-turn-cleanup, so we drop it as a whole and
-    // re-stage for the new turn. computeIntendedMove keeps manual > queue >
-    // waypoint > bot precedence, so a same-turn manual selection stays
-    // authoritative.
+    // Re-stage ONLY this snake on its OWN turn-data update, never the others
+    // when the board advances: each controlled snake gets its own
+    // setBotRecommendation call per turn, and re-staging it there keeps every
+    // snake's staged record bound to its own decision. computeIntendedMove
+    // keeps manual > queue > waypoint > bot precedence, so a same-turn manual
+    // selection stays authoritative.
     //
     // Manual is single-turn: the staged record carries the turn the manual
     // selection was made for. If that turn is behind the current board turn the
@@ -1696,19 +1798,15 @@ export class ActiveGameManager {
       this.stageMove(gameId, snakeId);
     }
 
-    // The armed-suicide path is a deliberate explicit-kill exception to the
-    // deadline-only commit model: it resolves the move immediately. Every
-    // other snake (selected or not) now stays staged until its safety timer.
-    if (controlled.suicideArmed && controlled.pendingMove && !controlled.pendingMove.resolved) {
+    // Armed suicide: the kill was requested before this snake had turn data.
+    // Stage the suicide move now (with consent, the second fatal-consent mint
+    // point); the write-through publishes it to Firebase where it becomes the
+    // staged move the server resolves at the deadline.
+    if (controlled.suicideArmed) {
       const suicideMove = computeSuicideMove(turnData.gameState);
-      console.log(`[ActiveGameManager] SUICIDE: submitting ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
+      console.log(`[ActiveGameManager] SUICIDE: staging ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
       controlled.suicideArmed = false;
-      // Second fatal-consent mint point (kill-all): stage with consent so the
-      // deliberate death passes the staged-move writer's gate, then commit.
       this.setIntent(gameId, snakeId, { kind: 'manual', move: suicideMove, fatalConsent: mintFatalMoveConsent() });
-      // setIntent re-staged synchronously; the cast defeats TS's stale
-      // narrowing from the `controlled.staged = null` above.
-      this.resolvePendingMove(gameId, snakeId, (controlled.staged as StagedMove | null)?.move ?? suicideMove, 'suicide');
     }
 
     if (boardUpdated) {
@@ -1720,25 +1818,27 @@ export class ActiveGameManager {
   // Stage a user's manual selection as the snake's next move. This is the
   // "manual override drops the plan" contract: it replaces the intent with a
   // single-turn manual intent (structurally superseding any queue/waypoint) and
-  // re-stages the move via setIntent. Staging never commits — the move is
-  // finalized only when the per-snake safety timer fires at the turn deadline.
+  // re-stages the move via setIntent, which write-through publishes it to
+  // Firebase. The game server finalizes the turn from the last staged move at
+  // its deadline.
   setUserSelection(gameId: string, snakeId: string, move: Direction): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled?.pendingMove || controlled.pendingMove.resolved) return;
+    if (!controlled) return;
 
     this.setIntent(gameId, snakeId, { kind: 'manual', move });
-    console.log(`[ActiveGameManager] User staged move for ${gameId}:${snakeId}: ${move} (intent: ${controlled.intent.kind}, turn ${game.currentTurn}, not yet committed)`);
+    console.log(`[ActiveGameManager] User staged move for ${gameId}:${snakeId}: ${move} (intent: ${controlled.intent.kind}, turn ${game.currentTurn})`);
   }
 
   // The dialog-accept entry point — the FIRST fatal-consent mint point. Called
   // by the WS layer when the controlling user confirmed the fatal-move dialog.
   // The client message carries only the claim; fatality is RE-validated here,
   // server-side, before consent is minted, and the consented manual intent is
-  // set through the normal single-writer path (setIntent → stageMove). If the
-  // turn already ended (pending resolved/gone), the confirmation is too late
-  // and is dropped — the bot fallback already committed. Returns whether the
+  // set through the normal single-writer path (setIntent → stageMove), whose
+  // write-through publishes the consented move to Firebase. A confirmation
+  // arriving after the turn resolved server-side simply stages for the current
+  // turn (the stale one is ignored by the game server). Returns whether the
   // move was staged.
   confirmFatalMove(gameId: string, snakeId: string, move: Direction, userId: string): boolean {
     const game = this.games.get(gameId);
@@ -1746,10 +1846,6 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return false;
     if (controlled.selectedBy !== userId) return false;
-    if (!controlled.pendingMove || controlled.pendingMove.resolved) {
-      console.log(`[ActiveGameManager] Fatal-move confirmation for ${gameId}:${snakeId} (${move}) arrived after the turn ended — ignored (bot fallback already committed)`);
-      return false;
-    }
     const stillFatal = this.isMoveFatal(gameId, snakeId, move);
     const consent = stillFatal ? mintFatalMoveConsent() : undefined;
     console.log(`[ActiveGameManager] User CONFIRMED ${stillFatal ? 'fatal' : 'no-longer-fatal'} move ${move} for ${gameId}:${snakeId} — staging with${consent ? '' : 'out'} consent`);
@@ -1797,71 +1893,44 @@ export class ActiveGameManager {
     }
   }
 
-  private resolvePendingMove(gameId: string, snakeId: string, move: Direction, source: string = 'unknown'): void {
+  // Called by the transport when a turn has RESOLVED server-side (the next
+  // turn's board arrived), with the moves the game server actually applied for
+  // our controlled snakes on `resolvedTurn`. Must run BEFORE the new turn's
+  // board state is fed in, so queue advancement measures from the old head.
+  //
+  // This replaces the old HTTP commit step for bookkeeping only — nothing is
+  // submitted here. The server already resolved the turn from the last staged
+  // move it received; we record what happened (decision log), advance premove
+  // queues in lock-step with the actual move, and notify the UI.
+  applyResolvedMoves(gameId: string, resolvedTurn: number, moves: { [snakeId: string]: Direction }): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled?.pendingMove || controlled.pendingMove.resolved) return;
+    for (const [snakeId, move] of Object.entries(moves)) {
+      const controlled = game.controlledSnakes.get(snakeId);
+      if (!controlled) continue;
 
-    const pending = controlled.pendingMove;
-    pending.resolved = true;
-    clearTimeout(pending.timer);
+      // Persist the move the server applied onto this turn's decision row.
+      // The move resolved board turn `resolvedTurn`, whose decision was logged
+      // with decision_logs.turn = resolvedTurn + 1 (the logger records the turn
+      // the move executes INTO), so that +1 is the update key. The consent flag
+      // counts only when the staged record is bound to this exact turn and the
+      // applied move matches it (otherwise it's a bot/fallback move).
+      const staged = controlled.staged;
+      const fatalConsented = !!staged && staged.snakeId === snakeId &&
+        staged.turn === resolvedTurn && staged.move === move && staged.fatalConsented;
+      DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, resolvedTurn + 1, move, fatalConsented);
 
-    // Commit is a PURE PASSTHROUGH: the staged move is sacrosanct and is sent
-    // to the game server verbatim — there is deliberately no intelligence here.
-    // All safety reasoning happens upstream at staging time (computeIntendedMove
-    // and the bot's own safe-move selection), and a staged move that is certain
-    // death is surfaced to the human via the red fatal-move marker
-    // (isStagedMoveFatal), never silently rewritten at the last instant. The
-    // previous commit-time guard could flip a deliberate (e.g. invulnerable
-    // attack) move to 'up'; that is exactly the behaviour we forbid here.
-    // (Suicide already deliberately steers into death and needs no guard.)
+      // Keep the server-side premove queue in lock-step with the actual move.
+      // This works for both selected (client-driven) and unselected
+      // (auto-pilot) snakes — whoever drove the move, the queue advances or
+      // clears based on what actually happened.
+      this.advancePremoveQueueAfterMove(gameId, snakeId, move);
 
-    controlled.moveCommittedThisTurn = true;
-    controlled.committedMove = move;
-
-    // Persist the move we actually submitted onto this turn's decision row. The
-    // move was committed for board turn `pending.turn`, whose decision was logged
-    // with decision_logs.turn = pending.turn + 1 (the logger records the turn the
-    // move executes INTO), so that +1 is the update key.
-    // The consent flag counts only when the staged record is bound to this exact
-    // turn and the committed move matches it (otherwise it's a bot/fallback move).
-    const staged = controlled.staged;
-    const fatalConsented = !!staged && staged.snakeId === snakeId &&
-      staged.turn === pending.turn && staged.move === move && staged.fatalConsented;
-    DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, pending.turn + 1, move, fatalConsented);
-
-    // Re-anchor the green goto route at the cell we'll occupy after this
-    // committed move, so the rendered path — and next turn's first step —
-    // start from there instead of the now-stale head.
-    this.recomputeGotoRoute(gameId, snakeId);
-
-    // Keep the server-side premove queue in lock-step with the actual move.
-    // This works for both selected (client submitted) and unselected
-    // (auto-pilot) snakes — whoever drove the move, the queue advances or
-    // clears based on what actually happened.
-    this.advancePremoveQueueAfterMove(gameId, snakeId, move);
-
-    try {
-      const headersSent = pending.res.headersSent;
-      const finished = pending.res.writableFinished;
-      const destroyed = pending.res.destroyed;
-      if (headersSent || finished || destroyed) {
-        console.error(`[ActiveGameManager] Response already consumed for ${gameId}:${snakeId}: headersSent=${headersSent}, finished=${finished}, destroyed=${destroyed}`);
-      }
-      pending.res.json({
-        move: move,
-        shout: `Centaur mode! Turn ${game.currentTurn}`
-      });
-      console.log(`[ActiveGameManager] Move response sent for ${gameId}:${snakeId}: ${move} (source: ${source}, headersSent=${pending.res.headersSent})`);
-    } catch (e) {
-      console.error(`[ActiveGameManager] Error sending move response for ${gameId}:${snakeId}:`, e);
+      // No move-committed notification here: the UI's double arrow is driven
+      // by finalizeTurnMove, which fires when Firebase finalizes the turn —
+      // earlier than this board-delta bookkeeping.
     }
-
-    controlled.pendingMove = null;
-
-    this.notifyMoveCommitted(gameId, snakeId, move, source);
   }
 
   // Emit a single, greppable "fully idle" line once the manager holds zero
@@ -1897,10 +1966,7 @@ export class ActiveGameManager {
         const idleTime = now - game.lastActivityAt;
         if (idleTime > maxIdleMs) {
           console.log(`[ActiveGameManager] Cleaning up stale game: ${gameId} (idle: ${Math.round(idleTime / 1000)}s)`);
-          for (const [snakeId, controlled] of game.controlledSnakes) {
-            if (controlled.pendingMove && !controlled.pendingMove.resolved) {
-              this.resolvePendingMove(gameId, snakeId, controlled.pendingMove.botMove || 'up', 'stale-cleanup');
-            }
+          for (const [snakeId] of game.controlledSnakes) {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);

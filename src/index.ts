@@ -1,15 +1,10 @@
 import express from 'express';
 import path from 'path';
 import { createServer } from 'http';
-import { GameState, SnakeInfoResponse, Direction, Coord } from './types/battlesnake';
 import { VoronoiStrategy } from './logic/voronoi-strategy-new';
-import { TeamDetector } from './logic/team-detector';
-import { GameLogger } from './utils/logger';
 import { DecisionLogger } from './logic/decision-logger';
-import { ActiveGameManager, TurnData } from './server/active-game-manager';
+import { ActiveGameManager } from './server/active-game-manager';
 import { GameWebSocketServer } from './server/websocket-server';
-import { MoveAnalyzer } from './logic/move-analyzer';
-import { BoardGraph } from './logic/board-graph';
 import logsRouter from './routes/logs';
 import configRouter from './routes/config';
 import playRouter from './routes/play';
@@ -18,6 +13,10 @@ import activityRouter from './routes/activity';
 import { ConnectionLogger } from './utils/connection-logger';
 import { ServerEventLogger } from './logic/server-event-logger';
 import { GameRegistry } from './logic/game-registry';
+import {
+  TacticToesFirebaseInterface,
+  firebaseInterfaceConfigFromEnv,
+} from './firebase/firebase-interface';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -26,203 +25,21 @@ app.use(express.json());
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  if (req.body && Object.keys(req.body).length > 0) {
-    if (req.body.you?.head) {
-      console.log(`  Snake position: (${req.body.you.head.x}, ${req.body.you.head.y})`);
-      console.log(`  Board size: ${req.body.board?.width}x${req.body.board?.height}`);
-      console.log(`  Turn: ${req.body.turn}`);
-    }
-  }
   next();
 });
 
 app.use(express.static(path.join(__dirname, '../src/web')));
 
 const voronoiStrategy = new VoronoiStrategy();
-const teamDetector = new TeamDetector();
-const logger = new GameLogger();
-const decisionLogger = DecisionLogger.getInstance();
 const gameManager = ActiveGameManager.getInstance();
 const serverEventLogger = ServerEventLogger.getInstance();
 const gameRegistry = GameRegistry.getInstance();
-const firstMoveMoveAnalyzer = new MoveAnalyzer();
 
-function getMoveDestination(head: Coord, move: Direction): Coord {
-  switch (move) {
-    case 'up': return { x: head.x, y: head.y + 1 };
-    case 'down': return { x: head.x, y: head.y - 1 };
-    case 'left': return { x: head.x - 1, y: head.y };
-    case 'right': return { x: head.x + 1, y: head.y };
-  }
-}
-
-app.get('/', (req, res) => {
-  const info: SnakeInfoResponse = {
-    apiversion: "1",
-    author: "TeamSnekBot",
-    color: "#FFD700",
-    head: "default",
-    tail: "default",
-    version: "1.0.0"
-  };
-  res.json(info);
-});
-
-app.post('/start', (req, res) => {
-  const gameState: GameState = req.body;
-  serverEventLogger.recordGameActivity(gameState?.game?.id || null);
-  gameRegistry.recordGameStart(gameState);
-  logger.startGame(gameState);
-  gameManager.registerGame(gameState);
-  res.status(200).send('ok');
-});
-
-app.post('/move', async (req, res) => {
-  const arrivalTime = Date.now();
-  const gameState: GameState = req.body;
-  const gameId = gameState.game.id;
-  const snakeId = gameState.you.id;
-  serverEventLogger.recordGameActivity(gameId);
-  // Fallback for a missed /start: ensures every game gets a games row.
-  gameRegistry.recordGameStart(gameState);
-
-  const game = gameManager.getGame(gameId);
-  if (!game || !game.controlledSnakes.has(snakeId)) {
-    gameManager.registerGame(gameState);
-  }
-  gameManager.updateGameState(gameId, snakeId, gameState);
-
-  // Back-fill the server-decided move for every snake from this state's lastMoves
-  // (the moves that produced THIS turn). Runs on every /move — plain or centaur —
-  // so a still-alive peer's move fills in a snake that has since died. The update
-  // key is this arriving turn (= the decision-row turn for the prior board turn).
-  decisionLogger.recordServerMoves(gameId, gameState.turn, gameState.lastMoves);
-
-  const gameTimeout = gameState.game.timeout || 500;
-  const turnExpiryTime = (gameState.game as any).turnExpiryTime || null;
-  gameManager.recordTurnArrival(gameId, arrivalTime, gameTimeout, turnExpiryTime);
-  const pending = gameManager.setPendingMove(gameId, snakeId, res, gameTimeout, turnExpiryTime, gameState.turn);
-
-  if (gameState.turn === 0) {
-    try {
-      const graph = new BoardGraph(gameState);
-      const analysis = firstMoveMoveAnalyzer.analyzeMoves(gameState.you, gameState, graph);
-      const safeMoves: Direction[] = analysis.safe.length > 0 ? analysis.safe : [...analysis.safe, ...analysis.risky];
-      const allCandidates = safeMoves.length > 0 ? safeMoves : (['up', 'down', 'left', 'right'] as Direction[]);
-
-      let bestMove: Direction = allCandidates[0];
-      let bestDist = Infinity;
-      for (const move of allCandidates) {
-        const dest = getMoveDestination(gameState.you.head, move);
-        for (const food of gameState.board.food) {
-          const dist = Math.abs(dest.x - food.x) + Math.abs(dest.y - food.y);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestMove = move;
-          }
-        }
-      }
-
-      if (gameState.board.food.length === 0) {
-        bestMove = allCandidates[0];
-      }
-
-      console.log(`[FirstMove] Turn 0 for ${gameId}:${snakeId}: safe=${allCandidates.join(',')}, closest-food=${bestMove}`);
-
-      const turnData: TurnData = {
-        gameState,
-        moveEvaluations: [],
-        territoryCells: {},
-        safeMoves: allCandidates,
-        botRecommendation: bestMove,
-        timestamp: Date.now()
-      };
-
-      gameManager.setBotRecommendation(gameId, snakeId, bestMove, turnData);
-    } catch (error) {
-      logger.logError('Error in first-move calculation', error);
-      if (!pending.resolved) {
-        gameManager.setBotRecommendation(gameId, snakeId, 'up', {
-          gameState,
-          moveEvaluations: [],
-          territoryCells: {},
-          safeMoves: [],
-          botRecommendation: 'up',
-          timestamp: Date.now()
-        });
-      }
-    }
-  } else {
-    try {
-      const teams = teamDetector.detectTeams(gameState.board.snakes);
-      const ourTeam = teams.find(team => team.snakes.some(snake => snake.id === snakeId));
-      // Pull the user-directed waypoint (if any) so the bot can heuristically
-      // honor click-targets set in centaur play mode.
-      const waypoint = gameManager.getWaypoint(gameId, snakeId);
-      const result = await voronoiStrategy.getBestMoveWithDebug(gameState, ourTeam, waypoint);
-
-      const turnData: TurnData = {
-        gameState,
-        moveEvaluations: result.moveEvaluations,
-        territoryCells: result.territoryCells,
-        safeMoves: result.safeMoves,
-        botRecommendation: result.move,
-        timestamp: Date.now()
-      };
-
-      gameManager.setBotRecommendation(gameId, snakeId, result.move, turnData);
-    } catch (error) {
-      logger.logError('Error in move calculation', error);
-      if (!pending.resolved) {
-        gameManager.setBotRecommendation(gameId, snakeId, 'up', {
-          gameState,
-          moveEvaluations: [],
-          territoryCells: {},
-          safeMoves: [],
-          botRecommendation: 'up',
-          timestamp: Date.now()
-        });
-      }
-    }
-  }
-});
-
-app.post('/end', (req, res) => {
-  const gameState: GameState = req.body;
-
-  // Prominent, greppable diagnostics so we can confirm the (custom) game engine
-  // actually calls /end and inspect the exact shape it sends. /end is infrequent
-  // (at most once per snake per game), so logging the full payload is cheap.
-  try {
-    const snakes = gameState?.board?.snakes || [];
-    console.log('========== [/end] RECEIVED ==========');
-    console.log(
-      `[/end] game.id=${gameState?.game?.id} turn=${gameState?.turn} ruleset=${(gameState?.game as any)?.ruleset?.name}`,
-    );
-    console.log(
-      `[/end] you.id=${gameState?.you?.id} you.name=${gameState?.you?.name} you.health=${gameState?.you?.health} you.len=${gameState?.you?.body?.length}`,
-    );
-    console.log(
-      `[/end] board snakes still present=${snakes.length}: ${JSON.stringify(
-        snakes.map((s) => ({ id: s.id, name: s.name, health: s.health, len: s.body?.length })),
-      )}`,
-    );
-    console.log(`[/end] top-level keys=${JSON.stringify(Object.keys(gameState || {}))}`);
-    console.log(`[/end] raw payload=${JSON.stringify(gameState)}`);
-  } catch (e) {
-    console.error('[/end] failed to log payload shape:', e);
-  }
-
-  logger.endGame(gameState);
-  // Finalize the authoritative games row (end time, final turn, winner, reason).
-  gameRegistry.recordGameEnd(gameState);
-
-  // No final-head derivation here: a snake's authoritative final move comes from
-  // the NEXT turn's lastMoves (back-filled into server_move on every /move), not
-  // from the /end payload.
-  gameManager.endGame(gameState.game.id, gameState.you.id, gameState);
-  voronoiStrategy.onGameEnd(gameState.game.id);
-  res.status(200).send('ok');
+// The Battlesnake HTTP interface is gone: games are driven exclusively through
+// the TacticToes Firebase interface (see src/firebase/firebase-interface.ts).
+// The HTTP server that remains serves only the centaur web UI and its APIs.
+app.get('/', (_req, res) => {
+  res.redirect('/play');
 });
 
 app.use(logsRouter);
@@ -273,6 +90,95 @@ const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);
 gameManager.startServerPing();
 
+// The TacticToes Firebase interface is the SOLE game transport: it signs in
+// as the bot, discovers games via invite docs, feeds turns to the game
+// manager, and publishes every staged move to Firestore (the single source of
+// truth for staged moves). Without the TACTICTOES_* env vars the process only
+// serves the web UI — see README.md for configuration.
+const ttFirebaseConfig = firebaseInterfaceConfigFromEnv(process.env);
+const ttFirebase = ttFirebaseConfig
+  ? new TacticToesFirebaseInterface(voronoiStrategy, ttFirebaseConfig)
+  : null;
+if (ttFirebase) {
+  // Attach the status listener BEFORE start() so a failure during the initial
+  // (async) connect is captured and pushed to the UI, not lost.
+  ttFirebase.onStatusChange((status) => wsServer.broadcastFirebaseStatus(status));
+  ttFirebase.start().catch((err) => {
+    console.error('[tt-firebase] Failed to start Firebase interface:', err);
+  });
+
+  // Autoscale hygiene: mirror the web-client idle lifecycle onto the Firebase
+  // transport. When the last web client disconnects (idle sweep, tab close),
+  // suspend the Firestore streams after a short grace period so the process
+  // holds no outbound connections and autoscale can drain to zero. The grace
+  // period absorbs transient zero-client windows during page navigations.
+  // Any client (re)connecting cancels the pending suspend / resumes at once.
+  const FIREBASE_SUSPEND_GRACE_MS = 60_000;
+  let suspendTimer: NodeJS.Timeout | null = null;
+  wsServer.onPresenceChange((count) => {
+    if (count === 0) {
+      if (!suspendTimer) {
+        suspendTimer = setTimeout(() => {
+          suspendTimer = null;
+          void ttFirebase.suspend();
+        }, FIREBASE_SUSPEND_GRACE_MS);
+        suspendTimer.unref?.();
+      }
+    } else {
+      if (suspendTimer) {
+        clearTimeout(suspendTimer);
+        suspendTimer = null;
+      }
+      void ttFirebase.resume().catch(() => {
+        /* status already set to 'error' and pushed to the UI */
+      });
+    }
+  });
+} else {
+  console.error(
+    '[tt-firebase] NOT CONFIGURED — the bot cannot play. Set TACTICTOES_BOT_ID, ' +
+    'TACTICTOES_BOT_API_KEY, TACTICTOES_FIREBASE_PROJECT_ID and TACTICTOES_FIREBASE_API_KEY ' +
+    '(see README.md). Serving the web UI only.'
+  );
+}
+
+// Firebase connection status surface: the bot is nonfunctional without its
+// Firebase connection, so the web UI shows a red banner (with a Retry button)
+// whenever it is down. Status changes are pushed over the WebSocket; these
+// endpoints cover initial page load and the retry action.
+const NOT_CONFIGURED_STATUS = {
+  state: 'not_configured',
+  error:
+    'TACTICTOES_* environment variables are missing — the bot cannot connect to Firebase.',
+  since: Date.now(),
+};
+if (!ttFirebase) {
+  wsServer.broadcastFirebaseStatus(NOT_CONFIGURED_STATUS);
+}
+
+app.get('/api/firebase-status', (_req, res) => {
+  res.json(ttFirebase ? ttFirebase.getStatus() : NOT_CONFIGURED_STATUS);
+});
+
+// Cooldown: retryConnect() already joins any in-flight attempt, but a public
+// unauthenticated endpoint should not let outsiders force back-to-back
+// Firebase sign-ins. One attempt per 10s is plenty for a human operator.
+let lastRetryAt = 0;
+app.post('/api/firebase-retry', async (_req, res) => {
+  if (!ttFirebase) {
+    res.status(409).json(NOT_CONFIGURED_STATUS);
+    return;
+  }
+  const now = Date.now();
+  if (now - lastRetryAt < 10_000) {
+    res.status(429).json(ttFirebase.getStatus());
+    return;
+  }
+  lastRetryAt = now;
+  const status = await ttFirebase.retryConnect();
+  res.json(status);
+});
+
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
   console.log(`Visit http://localhost:${port} for snake info`);
@@ -291,6 +197,7 @@ async function gracefulShutdown(signal: string) {
   // Write the shutdown event first, bounded by a short timeout so an
   // unreachable database can never block process exit.
   await serverEventLogger.recordShutdownAndFlush(signal);
+  if (ttFirebase) await ttFirebase.stop().catch(() => undefined);
   gameManager.shutdown();
   wsServer.shutdown();
   const decisionLogger = DecisionLogger.getInstance();

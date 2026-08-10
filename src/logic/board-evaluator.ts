@@ -6,7 +6,7 @@
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
-import { MultiSourceBFS, BFSSource } from './multi-source-bfs';
+import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 
 export interface HeuristicStats {
   // My snake stats
@@ -81,6 +81,10 @@ export interface EvaluationContext {
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
   waypoint?: WaypointContext | null;  // User-directed waypoint for our snake (centaur play mode)
+  // Materialize per-snake territory cell lists (UI/visualization). Defaults to
+  // true; the chunked minimax evaluation passes false — it reads only scores
+  // and stats, and building coord arrays per state was measurable GC churn.
+  collectTerritory?: boolean;
 }
 
 export interface HeuristicWeights {
@@ -256,7 +260,7 @@ export class BoardEvaluator {
     return {
       score,
       stats,
-      weights: { ...this.weights }, // Return copy of weights
+      weights: this.weights, // treated as immutable by all consumers
       weighted,
       territoryCells
     };
@@ -322,7 +326,12 @@ export class BoardEvaluator {
     
     // Run the single-pass BFS with optimistic passability
     // Territory calculations always use optimistic mode (body segments disappear over time)
-    const bfsResult = bfs.compute(sources, board.food, { optimistic: true }, board.fertileTiles);
+    const bfsResult = bfs.compute(
+      sources,
+      board.food,
+      { optimistic: true, collectCells: ctx?.collectTerritory ?? true },
+      board.fertileTiles
+    );
     
     // Calculate team and enemy lengths
     let teamLength = 0;
@@ -337,9 +346,9 @@ export class BoardEvaluator {
       }
     }
     
-    // Check if we just ate food (our head is where food was in previous state)
-    const headKey = graph.coordToKey(ourSnake.head);
-    const justAte = !!ctx?.prevFoodSet?.has(headKey);
+    // Check if we just ate food (our head is where food was in previous state).
+    // prevFoodSet crosses turn/graph boundaries, so it stays "x,y"-keyed.
+    const justAte = !!ctx?.prevFoodSet?.has(`${ourSnake.head.x},${ourSnake.head.y}`);
     
     // Check if we're currently on a food cell (about to eat it)
     const onFoodNow = board.food.some((f: Coord) => 
@@ -373,18 +382,23 @@ export class BoardEvaluator {
     
     // Calculate edge penalty: -1 if on edge, 0 otherwise
     const edgePenalty = this.calculateEdgePenalty(ourSnake.head, board.width, board.height);
-    
-    // Ally / opponent space detection uses static clearance (bodies as walls).
-    const spaceScores = this.calculateAllSnakeSpaces(graph, board.snakes, ourSnakeId, teamSnakeIds, 'static');
+
+    // Ally / opponent "has enough space" derived from the Voronoi result we
+    // already computed, instead of a whole-board flood fill per snake (which
+    // was 54% of every evaluation for a ±1 signal). Won territory is a LOWER
+    // bound on a snake's reachable space — the cells it gets to before anyone
+    // else — so `territory >= max(3, length/2)` is a conservative "has room"
+    // proxy mirroring the old tail-chase threshold. Our own survival tier
+    // below keeps the full flood-fill treatment.
+    const spaceScores = this.spaceScoresFromTerritory(bfsResult, board.snakes, ourSnakeId, teamSnakeIds);
 
     // SURVIVAL TIER (contest-aware, conservative clearance): flood only the cells
     // we win the Voronoi arrival race for, from our post-move head, under
     // conservative body-clearance timing. This is what we bank our survival on —
     // it refuses to count room an enemy will reach first.
-    const wonCells = new Set<string>(
-      (bfsResult.territoryCells.get(ourSnakeId) || []).map(c => graph.coordToKey(c))
-    );
-    const contestRegion = this.computeContestAwareRegion(graph, ourSnake, wonCells);
+    // Our snake is always a live BFS source here (the dead case returned above).
+    const ourSourceIdx = bfsResult.sourceIndexOf.get(ourSnakeId)!;
+    const contestRegion = this.computeContestAwareRegion(graph, ourSnake, bfsResult.ownerIndex, ourSourceIdx);
     // Continuous survival room from the contest-aware conservative region: the raw
     // parity-bounded longest simple path we can keep out of contest, sqrt-scaled and
     // length-normalised (see selfSpaceScore) so that room exactly equal to our body
@@ -504,9 +518,9 @@ export class BoardEvaluator {
   }
   
   /**
-   * Small BFS from `start` checking whether `target` is reachable, treating
-   * our own body (except tail) as blocked and using optimistic passability for
-   * everyone else. Bounded so it can't blow up on big empty boards.
+   * BFS from `start` checking whether `target` is reachable, treating our own
+   * body (except tail) as blocked and using optimistic passability for
+   * everyone else.
    */
   private isCellReachableFrom(
     graph: BoardGraph,
@@ -514,39 +528,45 @@ export class BoardEvaluator {
     target: Coord,
     ourSnake: Snake
   ): boolean {
-    const targetKey = graph.coordToKey(target);
-
     // Single source of truth for our own passability (own body blocks, own tail
     // and other snakes' bodies recede under optimistic turn-aware passability).
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
+    const pass = graph.passabilityIdxFor(ourSnake.id, { clearance: 'optimistic' });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
+    this.ensureScratch(N);
+    const visit = this.visitStamp;
+    const queue = this.floodQueue;
+    const stamp = ++this.stamp;
 
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(start));
-    let level: Coord[] = [start];
+    const targetIdx = graph.cellIndexOf(target);
+    const startIdx = graph.cellIndexOf(start);
+    visit[startIdx] = stamp;
+    queue[0] = startIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
     let turn = 0;
-    const maxCells = 400;  // cap work — board is at most ~19x19 → 361 cells
-    
-    while (level.length > 0 && visited.size < maxCells) {
-      const next: Coord[] = [];
+
+    while (levelStart < levelEnd) {
+      let nextEnd = levelEnd;
       turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) return true;  // reached
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          next.push(n);
+      for (let q = levelStart; q < levelEnd; q++) {
+        const cur = queue[q];
+        const x = cur % W;
+        const n0 = cur + W < N ? cur + W : -1;
+        const n1 = cur - W >= 0 ? cur - W : -1;
+        const n2 = x > 0 ? cur - 1 : -1;
+        const n3 = x < W - 1 ? cur + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0 || visit[n] === stamp) continue;
+          if (n === targetIdx) return true;  // reached
+          if (!pass.passableIdx(n, turn)) continue;
+          visit[n] = stamp;
+          queue[nextEnd++] = n;
         }
       }
-      level = next;
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
     }
     return false;
   }
@@ -585,57 +605,58 @@ export class BoardEvaluator {
     if (head.x === waypoint.x && head.y === waypoint.y) return [];
 
     const graph = new BoardGraph(gameState);
-    const targetKey = graph.coordToKey(waypoint);
-
     // Same passability as reachability: our own body blocks, everyone else uses
     // optimistic turn-aware passability.
-    const pass = graph.passabilityFor(ourSnake.id, { clearance: 'optimistic' });
+    const pass = graph.passabilityIdxFor(ourSnake.id, { clearance: 'optimistic' });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
 
-    const startKey = graph.coordToKey(head);
-    const parent = new Map<string, Coord>();
-    const visited = new Set<string>([startKey]);
-    let level: Coord[] = [head];
+    const targetIdx = graph.cellIndexOf(waypoint);
+    const startIdx = graph.cellIndexOf(head);
+    const parent = new Int32Array(N).fill(-1);
+    const visited = new Uint8Array(N);
+    visited[startIdx] = 1;
+    const queue = new Int32Array(N);
+    queue[0] = startIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
     let turn = 0;
-    const maxCells = 400;  // board is at most ~19x19 → 361 cells
-
     let found = false;
-    while (level.length > 0 && visited.size < maxCells && !found) {
-      const next: Coord[] = [];
+
+    while (levelStart < levelEnd && !found) {
+      let nextEnd = levelEnd;
       turn++;
-      for (const cur of level) {
-        const neighbors: Coord[] = [
-          { x: cur.x, y: cur.y + 1 },
-          { x: cur.x, y: cur.y - 1 },
-          { x: cur.x - 1, y: cur.y },
-          { x: cur.x + 1, y: cur.y },
-        ];
-        for (const n of neighbors) {
-          if (!graph.isInBounds(n)) continue;
-          const k = graph.coordToKey(n);
-          if (visited.has(k)) continue;
-          if (k === targetKey) {
-            parent.set(k, cur);
+      for (let q = levelStart; q < levelEnd && !found; q++) {
+        const cur = queue[q];
+        const x = cur % W;
+        const n0 = cur + W < N ? cur + W : -1;
+        const n1 = cur - W >= 0 ? cur - W : -1;
+        const n2 = x > 0 ? cur - 1 : -1;
+        const n3 = x < W - 1 ? cur + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0 || visited[n] === 1) continue;
+          if (n === targetIdx) {
+            parent[n] = cur;
             found = true;
             break;
           }
-          if (!pass.passable(n, turn)) continue;
-          visited.add(k);
-          parent.set(k, cur);
-          next.push(n);
+          if (!pass.passableIdx(n, turn)) continue;
+          visited[n] = 1;
+          parent[n] = cur;
+          queue[nextEnd++] = n;
         }
-        if (found) break;
       }
-      level = next;
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
     }
 
     if (!found) return [];
 
     // Reconstruct head → target, then drop the head (the overlay anchors at it).
     const route: Coord[] = [];
-    let cur: Coord | undefined = { x: waypoint.x, y: waypoint.y };
-    while (cur && !(cur.x === head.x && cur.y === head.y)) {
-      route.push(cur);
-      cur = parent.get(graph.coordToKey(cur));
+    for (let cur = targetIdx; cur !== startIdx && cur !== -1; cur = parent[cur]) {
+      route.push({ x: cur % W, y: Math.floor(cur / W) });
     }
     route.reverse();
     return route;
@@ -699,48 +720,49 @@ export class BoardEvaluator {
   }
   
   /**
-   * Calculate enhanced space detection for all snakes
-   * Returns scores for self, allies, and opponents
-   * @param clearance - Body-segment clearance model to use for the flood-fill.
+   * Ally / opponent "has enough space" from the shared Voronoi result — no
+   * per-snake flood fills. A snake's won territory is a LOWER bound on its
+   * reachable space (cells it reaches strictly before every other snake), so
+   * territory >= max(3, floor(length / 2)) is a conservative proxy for the old
+   * flood-fill rule (which accepted tail-chase room of half the body length).
+   * ±1 per snake, matching the old flat tier. Our own snake's score is NOT
+   * taken from here — the contest-aware survival tier handles it properly.
    */
-  private calculateAllSnakeSpaces(graph: BoardGraph, allSnakes: Snake[], ourSnakeId: string, teamSnakeIds: Set<string>, clearance: ClearanceMode = 'static'): 
-    { self: number; allies: number; opponents: number } {
-    
-    let selfScore = 0;
+  private spaceScoresFromTerritory(
+    bfsResult: BFSResult,
+    allSnakes: Snake[],
+    ourSnakeId: string,
+    teamSnakeIds: Set<string>
+  ): { allies: number; opponents: number } {
     let alliesScore = 0;
     let opponentsScore = 0;
-    
+
     for (const snake of allSnakes) {
-      if (snake.health <= 0) continue; // Skip dead snakes
-      
-      // Calculate space score for this snake
-      const spaceScore = this.calculateSnakeSpace(graph, snake, clearance);
-      
-      // Categorize and accumulate scores
-      if (snake.id === ourSnakeId) {
-        selfScore = spaceScore;
-      } else if (teamSnakeIds.has(snake.id)) {
-        alliesScore += spaceScore;
-      } else {
-        opponentsScore += spaceScore;
-      }
+      if (snake.health <= 0 || snake.id === ourSnakeId) continue;
+      const territory = bfsResult.territoryCounts.get(snake.id) ?? 0;
+      const hasEnough = territory >= Math.max(3, Math.floor(snake.length / 2));
+      const score = hasEnough ? 1 : -1;
+      if (teamSnakeIds.has(snake.id)) alliesScore += score;
+      else opponentsScore += score;
     }
-    
-    return { self: selfScore, allies: alliesScore, opponents: opponentsScore };
+
+    return { allies: alliesScore, opponents: opponentsScore };
   }
-  
-  /**
-   * Calculate space score for a single snake using floodfill.
-   * Returns:
-   * - 3 if enough space (can reach cells >= length OR can reach own tail)
-   * - -3 if not enough space  
-   * 
-   * @param clearance - Body-segment clearance model used to decide when a cell
-   *                     has vacated by the BFS arrival turn.
-   */
-  private calculateSnakeSpace(graph: BoardGraph, snake: Snake, clearance: ClearanceMode = 'static'): number {
-    const region = this.computeReachableRegion(graph, snake, clearance);
-    return this.spaceScoreFromRegion(region, snake.length);
+
+  // Lazily-sized scratch buffers for the integer flood fills below. The
+  // epoch-stamp trick makes "visited" reset O(1) per flood instead of O(cells).
+  private scratchCells = 0;
+  private visitStamp: Int32Array = new Int32Array(0);
+  private floodQueue: Int32Array = new Int32Array(0);
+  private stamp = 0;
+
+  private ensureScratch(cells: number): void {
+    if (this.scratchCells < cells) {
+      this.scratchCells = cells;
+      this.visitStamp = new Int32Array(cells);
+      this.floodQueue = new Int32Array(cells);
+      this.stamp = 0;
+    }
   }
 
   /**
@@ -755,54 +777,69 @@ export class BoardEvaluator {
    *    optimistic flood-fill from over-counting a 1-wide dead-end corridor as
    *    survivable space.
    *
+   * Integer-indexed core; optionally restricted to a won-cell mask (the
+   * contest-aware region) via `restrictOwner`/`restrictIdx`.
+   *
    * @param clearance - body-segment clearance model: cells are passable once
    *                     they have receded by the BFS arrival turn under this mode.
    */
   private computeReachableRegion(
     graph: BoardGraph,
     snake: Snake,
-    clearance: ClearanceMode
+    clearance: ClearanceMode,
+    restrictOwner?: Int16Array,
+    restrictIdx?: number
   ): { reachableCount: number; tailReachable: boolean; parityBound: number } {
-    const pass = graph.passabilityFor(snake.id, { clearance });
-    const startPos = snake.head;
+    const pass = graph.passabilityIdxFor(snake.id, { clearance });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
+    this.ensureScratch(N);
+    const visit = this.visitStamp;
+    const queue = this.floodQueue;
+    const stamp = ++this.stamp;
 
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(startPos));
+    const startIdx = graph.cellIndexOf(snake.head);
+    visit[startIdx] = stamp;
+    queue[0] = startIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
 
     let reachableCount = 1; // head occupies a cell
     let tailReachable = false;
-    let white = (startPos.x + startPos.y) % 2 === 0 ? 1 : 0;
+    let white = (snake.head.x + snake.head.y) % 2 === 0 ? 1 : 0;
     let black = 1 - white;
+    let arrivalTurn = 1;
 
-    let currentLevel: { pos: Coord; turn: number }[] = [{ pos: startPos, turn: 0 }];
+    while (levelStart < levelEnd) {
+      let nextEnd = levelEnd;
+      for (let q = levelStart; q < levelEnd; q++) {
+        const cur = queue[q];
+        const x = cur % W;
+        const n0 = cur + W < N ? cur + W : -1;
+        const n1 = cur - W >= 0 ? cur - W : -1;
+        const n2 = x > 0 ? cur - 1 : -1;
+        const n3 = x < W - 1 ? cur + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0 || visit[n] === stamp) continue;
+          // Contest-aware restriction: expansion limited to cells we win the
+          // Voronoi arrival race for; the tail cell is always allowed
+          // (tail-chase survival).
+          if (restrictOwner && restrictOwner[n] !== restrictIdx && n !== pass.tailIdx) continue;
+          if (!pass.passableIdx(n, arrivalTurn)) continue;
 
-    while (currentLevel.length > 0) {
-      const nextLevel: { pos: Coord; turn: number }[] = [];
-
-      for (const { pos, turn } of currentLevel) {
-        const arrivalTurn = turn + 1;
-        const neighbors: Coord[] = [
-          { x: pos.x, y: pos.y + 1 },
-          { x: pos.x, y: pos.y - 1 },
-          { x: pos.x - 1, y: pos.y },
-          { x: pos.x + 1, y: pos.y }
-        ];
-
-        for (const neighbor of neighbors) {
-          const key = graph.coordToKey(neighbor);
-          if (visited.has(key)) continue;
-          if (!pass.passable(neighbor, arrivalTurn)) continue;
-
-          visited.add(key);
+          visit[n] = stamp;
           reachableCount++;
-          if ((neighbor.x + neighbor.y) % 2 === 0) white++; else black++;
-          if (key === pass.tailKey) tailReachable = true;
-
-          nextLevel.push({ pos: neighbor, turn: arrivalTurn });
+          const nx = n % W;
+          const ny = (n - nx) / W;
+          if ((nx + ny) % 2 === 0) white++; else black++;
+          if (n === pass.tailIdx) tailReachable = true;
+          queue[nextEnd++] = n;
         }
       }
-
-      currentLevel = nextLevel;
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
+      arrivalTurn++;
     }
 
     const parityBound = 2 * Math.min(white, black) + 1;
@@ -834,55 +871,67 @@ export class BoardEvaluator {
     clearance: ClearanceMode,
     cap: number
   ): { walkLength: number; tailReached: boolean } {
-    const pass = graph.passabilityFor(snake.id, { clearance });
-    const neighborsOf = (c: Coord): Coord[] => [
-      { x: c.x, y: c.y + 1 },
-      { x: c.x, y: c.y - 1 },
-      { x: c.x - 1, y: c.y },
-      { x: c.x + 1, y: c.y }
-    ];
+    const pass = graph.passabilityIdxFor(snake.id, { clearance });
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
+    this.ensureScratch(N);
+    const visit = this.visitStamp;
+    const stamp = ++this.stamp;
 
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(snake.head));
-    let current = snake.head;
+    const neighborsOf = (c: number, out: number[]): number => {
+      const x = c % W;
+      let count = 0;
+      if (c + W < N) out[count++] = c + W;
+      if (c - W >= 0) out[count++] = c - W;
+      if (x > 0) out[count++] = c - 1;
+      if (x < W - 1) out[count++] = c + 1;
+      return count;
+    };
+    const candBuf = [0, 0, 0, 0];
+    const degBuf = [0, 0, 0, 0];
+
+    let current = graph.cellIndexOf(snake.head);
+    visit[current] = stamp;
     let steps = 0;
     let tailReached = false;
 
     while (steps < cap) {
       const arrivalTurn = steps + 1;
-      const candidates = neighborsOf(current).filter(n => {
-        const k = graph.coordToKey(n);
-        if (visited.has(k)) return false;
-        return pass.passable(n, arrivalTurn);
-      });
-      if (candidates.length === 0) break;
+      const nCount = neighborsOf(current, candBuf);
+      let candidates = 0;
+      for (let i = 0; i < nCount; i++) {
+        const n = candBuf[i];
+        if (visit[n] === stamp) continue;
+        if (!pass.passableIdx(n, arrivalTurn)) continue;
+        candBuf[candidates++] = n;
+      }
+      if (candidates === 0) break;
 
       // Warnsdorff: step to the most-constrained neighbour (fewest onward free
-      // cells), breaking ties deterministically by cell key for reproducibility.
-      let best: Coord | null = null;
+      // cells). Tie-break: LOWEST cell index. The old string-key tie-break
+      // ordered lexicographically ("10,2" < "9,2"), which was itself arbitrary;
+      // numeric order keeps determinism with a simpler rule.
+      let best = -1;
       let bestDegree = Infinity;
-      let bestKey = '';
-      for (const cand of candidates) {
-        const candKey = graph.coordToKey(cand);
-        const nextArrival = arrivalTurn + 1;
+      const nextArrival = arrivalTurn + 1;
+      for (let i = 0; i < candidates; i++) {
+        const cand = candBuf[i];
+        const dCount = neighborsOf(cand, degBuf);
         let degree = 0;
-        for (const nn of neighborsOf(cand)) {
-          const nk = graph.coordToKey(nn);
-          if (nk === candKey || visited.has(nk)) continue;
-          if (nn.x === current.x && nn.y === current.y) continue;
-          if (pass.passable(nn, nextArrival)) degree++;
+        for (let j = 0; j < dCount; j++) {
+          const nn = degBuf[j];
+          if (nn === cand || nn === current || visit[nn] === stamp) continue;
+          if (pass.passableIdx(nn, nextArrival)) degree++;
         }
-        if (degree < bestDegree || (degree === bestDegree && candKey < bestKey)) {
+        if (degree < bestDegree || (degree === bestDegree && (best === -1 || cand < best))) {
           bestDegree = degree;
           best = cand;
-          bestKey = candKey;
         }
       }
-      if (!best) break;
+      if (best === -1) break;
 
-      const bestK = graph.coordToKey(best);
-      visited.add(bestK);
-      if (bestK === pass.tailKey) tailReached = true;
+      visit[best] = stamp;
+      if (best === pass.tailIdx) tailReached = true;
       current = best;
       steps++;
     }
@@ -893,90 +942,21 @@ export class BoardEvaluator {
   /**
    * Contest-aware survival region. Flood-fills from our snake's (post-move) head
    * under CONSERVATIVE body-segment clearance, but restricted to the set of cells
-   * we actually win the Voronoi arrival race for (`wonCells`, from the multi-source
-   * BFS territory). This is the survival room we can bank on: it refuses to count
+   * we actually win the Voronoi arrival race for (the multi-source BFS owner
+   * array). This is the survival room we can bank on: it refuses to count
    * space an opponent would reach first, and it refuses to bank on bodies vacating
    * on optimistic timing.
    *
-   * The head cell is always included as the flood origin even though it isn't part
-   * of the won-territory set (territory excludes snake-occupied cells).
-   *
-   * Returns the same shape as computeReachableRegion so callers can reuse
-   * spaceScoreFromRegion and the parity/tail survival reasoning.
+   * The head cell is always included as the flood origin, and the tail cell is
+   * allowed even when not won (tail-chase survival).
    */
   private computeContestAwareRegion(
     graph: BoardGraph,
     snake: Snake,
-    wonCells: Set<string>
+    ownerIndex: Int16Array,
+    ourSourceIdx: number
   ): { reachableCount: number; tailReachable: boolean; parityBound: number } {
-    const pass = graph.passabilityFor(snake.id, { clearance: 'conservative' });
-    const startPos = snake.head;
-
-    const visited = new Set<string>();
-    visited.add(graph.coordToKey(startPos));
-
-    let reachableCount = 1; // head occupies a cell
-    let tailReachable = false;
-    let white = (startPos.x + startPos.y) % 2 === 0 ? 1 : 0;
-    let black = 1 - white;
-
-    let currentLevel: { pos: Coord; turn: number }[] = [{ pos: startPos, turn: 0 }];
-
-    while (currentLevel.length > 0) {
-      const nextLevel: { pos: Coord; turn: number }[] = [];
-
-      for (const { pos, turn } of currentLevel) {
-        const arrivalTurn = turn + 1;
-        const neighbors: Coord[] = [
-          { x: pos.x, y: pos.y + 1 },
-          { x: pos.x, y: pos.y - 1 },
-          { x: pos.x - 1, y: pos.y },
-          { x: pos.x + 1, y: pos.y }
-        ];
-
-        for (const neighbor of neighbors) {
-          const key = graph.coordToKey(neighbor);
-          if (visited.has(key)) continue;
-          // Restrict expansion to cells we win the Voronoi contest for. The tail
-          // cell is allowed even if it's not in wonCells (tail-chase survival).
-          if (!wonCells.has(key) && key !== pass.tailKey) continue;
-          if (!pass.passable(neighbor, arrivalTurn)) continue;
-
-          visited.add(key);
-          reachableCount++;
-          if ((neighbor.x + neighbor.y) % 2 === 0) white++; else black++;
-          if (key === pass.tailKey) tailReachable = true;
-
-          nextLevel.push({ pos: neighbor, turn: arrivalTurn });
-        }
-      }
-
-      currentLevel = nextLevel;
-    }
-
-    const parityBound = 2 * Math.min(white, black) + 1;
-    return { reachableCount, tailReachable, parityBound };
-  }
-
-  /**
-   * Map a reachable region to the coarse ±3 space score.
-   * Having enough space means EITHER:
-   *  1. we can chase our own tail (tail reachable) AND have reasonable room
-   *     (parity-bounded longest path >= half our length), OR
-   *  2. the parity-bounded longest path through the region is at least our length
-   *     (enough genuine room to outlast our body without trapping ourselves).
-   * Using the parity bound instead of the raw reachable count prevents a 1-wide
-   * dead-end from being scored as enough space.
-   */
-  private spaceScoreFromRegion(
-    region: { reachableCount: number; tailReachable: boolean; parityBound: number },
-    snakeLength: number
-  ): number {
-    const longestPathBound = Math.min(region.reachableCount, region.parityBound);
-    const hasEnoughSpace = region.tailReachable
-      ? longestPathBound >= Math.max(3, Math.floor(snakeLength / 2))
-      : longestPathBound >= snakeLength;
-    return hasEnoughSpace ? 1 : -1;
+    return this.computeReachableRegion(graph, snake, 'conservative', ownerIndex, ourSourceIdx);
   }
 
   /**

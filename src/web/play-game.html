@@ -423,15 +423,10 @@
                 </span>
               </span>
             </div>
-            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — WAITING BEFORE COMMIT</div>
-              <button id="submitAllBtn" onclick="submitAll()" style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
+            <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
+              <button id="submitAllBtn" onclick="submitAll()" title="Commit all our snakes for this turn. Commitment is binding: each snake's confirmed staged move is frozen (Firebase rejects further staging) and the turn can end early once every player has committed. Snakes whose requested move is still confirming commit automatically the moment it confirms. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
-              <label id="commitBufferLabel" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #aaa; white-space: nowrap;" title="Safety buffer: the move auto-commits this many milliseconds before the game server's deadline. Applies to all viewers of this game.">
-                Buffer
-                <input type="number" id="commitBufferInput" min="100" max="5000" step="100" style="width: 62px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 2px 4px; font-size: 11px;">
-                ms
-              </label>
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the Battlesnake engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
             </div>
           </div>
@@ -458,6 +453,7 @@
           <div class="canvas-wrapper">
             <canvas id="gameCanvas" width="550" height="550"></canvas>
             <div id="boardOverlay"></div>
+            <div id="cellInspectPopup" style="display:none; position:absolute; pointer-events:none; z-index:25; background:rgba(20,24,28,0.94); color:#eee; border:1px solid #555; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.5; white-space:nowrap; box-shadow: 0 2px 10px rgba(0,0,0,0.6);"></div>
           </div>
         </div>
       </div>
@@ -547,6 +543,7 @@
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
+  <script src="/firebase-status-banner.js"></script>
   <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
   <script>
@@ -640,21 +637,167 @@
       clockSync.offset = clockSync.offset === null ? target : clockSync.offset + (target - clockSync.offset) * alpha;
       clockSync.rtt = clockSync.rtt === null ? rtt : Math.round(clockSync.rtt * 0.7 + rtt * 0.3);
     }
-    // Safety-timer buffer (ms): the server commits the staged move at
-    // game-server deadline − commitBufferMs. Shared across all viewers;
-    // last-used value remembered locally and re-applied on connect.
-    let commitBufferMs = (() => {
-      const stored = parseInt(localStorage.getItem('commitBufferMs'), 10);
-      return Number.isFinite(stored) ? Math.min(5000, Math.max(100, stored)) : 500;
-    })();
-    // The buffer the server actually armed the current turn's safety timer
-    // with (differs on turn 0 warm-up and for mid-turn setting changes). The
-    // countdown uses this so 0.0s always matches the real commit moment.
-    let effectiveCommitBufferMs = commitBufferMs;
     let reconnectTimer = null;
     let gameEnded = false;
     let gameEndedSnakes = {};
     let selectedSnakeId = null;
+
+    // ── Cell inspection (Voronoi ownership popup) ───────────────────────────
+    // RIGHT-clicking any board cell selects it and shows which snake's Voronoi
+    // territory owns it and at what BFS distance. While a candidate move is
+    // selected (and the board shows that move's projected territory), the
+    // popup reports the same HYPOTHETICAL board. Left clicks keep their
+    // existing meanings and, like Escape, clear the inspection.
+    // Sentinels mirror OWNER_NEUTRAL / OWNER_UNREACHED in multi-source-bfs.ts.
+    const CELL_OWNER_NEUTRAL = -1;
+    const CELL_OWNER_UNREACHED = -2;
+    let selectedCell = null;          // {x, y} | null
+    let liveCellOwnership = null;     // { turn, data: CellOwnership } from snake-turn-update
+    let historicCellOwnership = null; // CellOwnership | null for the rendered historic turn
+
+    function repaintBoard() {
+      if (viewMode === 'historic') renderHistoricBoard();
+      else renderGameBoard();
+    }
+
+    function selectCell(cell) {
+      selectedCell = cell;
+      repaintBoard();
+    }
+
+    function clearCellSelection() {
+      if (!selectedCell) return;
+      selectedCell = null;
+      repaintBoard();
+    }
+
+    // The board + ownership snapshot the inspector should describe. When a
+    // candidate move is selected, the board overlay shows that move's
+    // PROJECTED territory, so the inspector switches to the matching
+    // projected ownership grid (hypothetical: our head on the candidate cell).
+    function cellInspectContext() {
+      if (viewMode === 'historic') {
+        const board = historicRenderCtx?.boardRow?.game_state?.board || null;
+        const sel = historicMoveState?.selectedMove;
+        const projected = sel ? historicMoveState.moves[sel]?.projectedCellOwnership : null;
+        return projected
+          ? { board, ownership: projected, hypotheticalMove: sel }
+          : { board, ownership: historicCellOwnership, hypotheticalMove: null };
+      }
+      const board = currentGameState?.board || null;
+      const sel = moveState?.selectedMove;
+      const projected = (selectedSnakeId && sel) ? moveState.moves[sel]?.projectedCellOwnership : null;
+      if (projected) return { board, ownership: projected, hypotheticalMove: sel };
+      // Ownership must describe the board being shown; a stale grid from the
+      // previous turn would misattribute cells.
+      const ownership = (board && liveCellOwnership && liveCellOwnership.turn === currentGameState.turn)
+        ? liveCellOwnership.data : null;
+      return { board, ownership, hypotheticalMove: null };
+    }
+
+    // Draw the yellow inspection border on the canvas — the same rect the
+    // purple selected-candidate border uses, so it fills the cell exactly.
+    // Called by the board renderers after the board is painted.
+    function drawCellInspectHighlight() {
+      const { board } = cellInspectContext();
+      if (!selectedCell || !board) return;
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      const x = selectedCell.x * cellSize;
+      const y = (board.height - 1 - selectedCell.y) * cellSize;
+      ctx.strokeStyle = '#FFD54F';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+    }
+
+    // Position the popup over the selected cell and fill in the ownership
+    // details. Called from both board renderers so it tracks turn changes,
+    // resizes, candidate selection and perspective switches.
+    function renderCellInspect() {
+      const popup = document.getElementById('cellInspectPopup');
+      const { board, ownership, hypotheticalMove } = cellInspectContext();
+      if (!selectedCell || !board ||
+          selectedCell.x < 0 || selectedCell.x >= board.width ||
+          selectedCell.y < 0 || selectedCell.y >= board.height) {
+        popup.style.display = 'none';
+        return;
+      }
+      drawCellInspectHighlight();
+
+      const canvas = document.getElementById('gameCanvas');
+      const displayWidth = canvas.clientWidth || canvas.width;
+      const displayHeight = canvas.clientHeight || canvas.height;
+      const cellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
+      const px = canvas.offsetLeft + selectedCell.x * cellSize;
+      const py = canvas.offsetTop + (board.height - 1 - selectedCell.y) * cellSize;
+
+      const arrows = { up: '↑', down: '↓', left: '←', right: '→' };
+      let body = `<div style="color:#aaa">Cell (${selectedCell.x}, ${selectedCell.y})</div>`;
+      if (hypotheticalMove) {
+        body += `<div style="color:#CE93D8">Hypothetical: after ${arrows[hypotheticalMove] || ''} ${hypotheticalMove}</div>`;
+      }
+      const idx = ownership ? selectedCell.y * ownership.width + selectedCell.x : -1;
+      // Physical vacate prediction for the body segment on this cell (0/absent
+      // = the cell is already free). Same clearance the territory BFS walks.
+      const vacates = (ownership && ownership.vacatesAt) ? ownership.vacatesAt[idx] : 0;
+      const occupant = BoardRenderer.findSnakeAtCell(board, selectedCell);
+      if (occupant) {
+        const isHead = occupant.head && occupant.head.x === selectedCell.x && occupant.head.y === selectedCell.y;
+        const clears = vacates > 0 ? ` — clears by +${vacates} turn${vacates === 1 ? '' : 's'}` : '';
+        body += `<div style="color:#aaa">Occupied by ${occupant.name || occupant.id} (${isHead ? 'head' : 'body'})${clears}</div>`;
+      }
+      if (!ownership) {
+        body += `<div>No territory data for this turn yet</div>`;
+      } else {
+        const owner = ownership.owner[idx];
+        if (owner === CELL_OWNER_UNREACHED) {
+          body += `<div>Unreached — no snake can get here</div>`;
+        } else if (owner === CELL_OWNER_NEUTRAL) {
+          body += `<div>Neutral — tied arrival at distance ${ownership.distance[idx]}</div>`;
+        } else {
+          const ownerId = ownership.sources[owner];
+          const snake = board.snakes.find(s => s.id === ownerId);
+          const name = snake ? `${snake.emoji || ''} ${snake.name || ownerId}`.trim() : ownerId;
+          const color = (snake && (snake.color || snake.customizations?.color)) || '#999';
+          const d = ownership.distance[idx];
+          body += `<div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};margin-right:5px;vertical-align:baseline"></span>Owned by <b>${name}</b></div>`;
+          if (occupant) {
+            // Owned despite being occupied: future territory — the body will
+            // have vacated by the time the owner arrives.
+            body += `<div>Future territory: arrives in ${d} turn${d === 1 ? '' : 's'}, after the body clears</div>`;
+          } else {
+            body += `<div>${d} ${d === 1 ? 'cell' : 'cells'} from its head</div>`;
+          }
+        }
+      }
+      popup.innerHTML = body;
+      popup.style.display = 'block';
+      // Prefer above the cell; clamp inside the wrapper and flip below if needed.
+      popup.style.left = Math.max(0, Math.min(px - 30, displayWidth - 190)) + 'px';
+      const popupHeight = popup.offsetHeight || 48;
+      popup.style.top = (py - popupHeight - 6 >= 0 ? py - popupHeight - 6 : py + cellSize + 6) + 'px';
+    }
+
+    // Right-click anywhere over the board (canvas or the candidate overlay —
+    // the event bubbles up from the overlay buttons) inspects that cell. Works
+    // on ANY cell, snake bodies included.
+    document.querySelector('.canvas-wrapper').addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const { board } = cellInspectContext();
+      if (!board) return;
+      const canvas = document.getElementById('gameCanvas');
+      const cell = BoardRenderer.getClickedCell(canvas, board, e);
+      if (!cell || cell.x < 0 || cell.x >= board.width || cell.y < 0 || cell.y >= board.height) {
+        clearCellSelection();
+        return;
+      }
+      selectCell(cell);
+    });
+
+    // Left-clicking anywhere (board, overlay buttons, page chrome) clears the
+    // inspection — left clicks keep their normal selection meanings.
+    document.addEventListener('click', () => clearCellSelection());
     let myColor = '#888888';
     let controlledSnakeIds = new Set();
     let selections = {};
@@ -733,29 +876,33 @@
     //     updates the breakdown table + projected-territory overlay ONLY. It
     //     sends nothing to the server, stages nothing, and never clears the
     //     queue. See `selectMove`.
-    //   - STAGING (the arrow) is the snake's intended next move, held by the
-    //     server as a single `stagedMove` per snake and broadcast via the
-    //     stagedMoves map (grey = bot-seeded, user color = human). Pressing
-    //     Space stages the currently selected cell as a manual override (which
-    //     drops the queue/waypoint per the server contract). Queued moves and
-    //     goto/waypoints also stage server-side. See `stageSelectedMove`.
-    //   - COMMIT happens ONLY at the turn deadline via the server's per-snake
-    //     safety timer, which reads the stored `stagedMove`. The client never
-    //     commits; it flips a snake into the committed (double-arrow) state
-    //     only when the server broadcasts `move-committed`.
+    //   - STAGING is a three-stage pipeline, all broadcast via the
+    //     stagedMoves map (grey = bot-seeded, user color = human):
+    //       requestedMove — the last move the user/bot asked for. Painted
+    //         optimistically as a GHOST arrow (dashed, translucent) whenever
+    //         it differs from the confirmed move. Pressing Space requests the
+    //         selected cell as a manual override (which drops the
+    //         queue/waypoint per the server contract). See `stageSelectedMove`.
+    //       move — the staged move Firebase has CONFIRMED (solid arrow): what
+    //         the game server will play if the turn ends now. The centaur
+    //         server republishes the request until this matches it.
+    //       committed — Firebase finalized the turn's move (deadline passed
+    //         or every player committed): the DOUBLE arrow, known before the
+    //         next board arrives.
+    //   - RESOLUTION happens ONLY on the game server (TacticToes), which
+    //     applies the LAST staged move written to Firebase before the turn
+    //     deadline. The centaur flips a snake into the finalized
+    //     (double-arrow) state when the server broadcasts `move-committed`
+    //     after Firebase finalizes the turn.
     //
     // Ownership:
-    //   - The server owns staged-move + queue state and broadcasts both. The
-    //     client renders the stagedMoves map directly; it never synthesises a
-    //     fallback arrow locally.
+    //   - The centaur server owns staged-move + queue state, write-through
+    //     publishes every staged move to Firebase (the single source of truth
+    //     for staged moves), and broadcasts the mirror. The client renders the
+    //     stagedMoves map directly; it never synthesises a fallback arrow
+    //     locally.
     //   - Q-mode (premoveMode flag): purely local input mode. Controls what
     //     canvas clicks DO (plan vs select), not whether the queue runs.
-    //
-    // Projected head: after a move is committed this turn, all "next turn"
-    // rendering (Q-mode legal-cell outlines, candidate-arrow cells, queue
-    // extension via clicks) anchors at getProjectedHead() — the cell the
-    // snake's head will occupy after the committed move resolves — rather
-    // than the now-stale current head.
     // ────────────────────────────────────────────────────────────────────────
 
     document.getElementById('pageTitle').textContent = `Game ${gameId}`;
@@ -925,27 +1072,10 @@
           }
           measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-          }
-          if (typeof msg.effectiveCommitBufferMs === 'number') {
-            effectiveCommitBufferMs = msg.effectiveCommitBufferMs;
-          }
-          // Re-apply the locally remembered buffer so it persists across
-          // reloads (server default wins only if we have nothing stored).
-          applyStoredCommitBuffer();
-          updateCommitBufferInput();
           if (currentGameState) {
             showGameUI();
           }
           updatePremoveBanner();
-          break;
-
-        case 'commit-buffer-update':
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-            updateCommitBufferInput();
-          }
           break;
 
         case 'board-update':
@@ -965,13 +1095,6 @@
           currentGameState = msg.gameState;
           turnExpiryTime = msg.turnExpiryTime || null;
           measuredPing = msg.measuredPing || 0;
-          if (typeof msg.commitBufferMs === 'number') {
-            commitBufferMs = msg.commitBufferMs;
-            updateCommitBufferInput();
-          }
-          if (typeof msg.effectiveCommitBufferMs === 'number') {
-            effectiveCommitBufferMs = msg.effectiveCommitBufferMs;
-          }
           if (msg.selections) {
             selections = msg.selections;
           }
@@ -1033,6 +1156,11 @@
             moveCommitted: msg.moveCommitted,
             committedMove: msg.committedMove,
           };
+          // Any snake's full-pass ownership grid describes the whole board.
+          // (renderGameBoard below refreshes the inspection popup with it.)
+          if (msg.cellOwnership) {
+            liveCellOwnership = { turn: msg.turn, data: msg.cellOwnership };
+          }
 
           // This is the only per-snake update that always fires when a snake's
           // path is recomputed, so refresh the live goto route + active mode
@@ -1217,6 +1345,10 @@
           handlePongSample(msg);
           break;
 
+        case 'firebase-status':
+          window.FirebaseStatusBanner?.set(msg.status);
+          break;
+
         case 'snake-ended': {
           // The /end payload from the engine carries the actual final state,
           // which can be a few turns ahead of our last /move (other snakes
@@ -1387,7 +1519,9 @@
           // selection matches what the snake is actually about to do. Fall back
           // to the best bot move if no staged move exists.
           const staged = stagedMoves[snakeId];
-          const stagedMove = staged && staged.move ? staged.move : null;
+          // Prefer the requested move (what the snake is trying to do), then
+          // the confirmed staged move.
+          const stagedMove = staged ? (staged.requestedMove || staged.move || null) : null;
           const defaultMove = (stagedMove && moveState.moves[stagedMove])
             ? stagedMove
             : getBestBotMove();
@@ -1594,6 +1728,9 @@
           });
         }
       }
+    
+      // Keep the cell-inspection highlight/popup in sync with the repaint.
+      renderCellInspect();
     }
 
     // Record every snake present in a game state so the roster remembers dead
@@ -1728,20 +1865,25 @@
       return null;
     }
 
-    // STAGING = commit the current selection as this snake's manual override
+    // STAGING = request the current selection as this snake's manual override
     // for the turn. No-op if nothing is selected. Optimistically paints the
-    // staged arrow in the user's color and tells the server (select-move),
-    // which activates Manual mode and drops any queue/waypoint. The actual
-    // commit happens only at the turn deadline (server safety timer).
+    // REQUESTED move as a ghost arrow in the user's color and tells the
+    // server (select-move), which activates Manual mode, drops any
+    // queue/waypoint, and publishes the request to Firebase until confirmed.
+    // The solid arrow stays on the last Firebase-confirmed staged move until
+    // the confirmation for this request lands.
     function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
       const move = userSelectedMove;
       if (!move) return;
 
+      const existing = stagedMoves[selectedSnakeId] || { move: null, committed: false };
       stagedMoves[selectedSnakeId] = {
-        move,
+        ...existing,
+        requestedMove: move,
         committed: false,
         color: myColor || '#4CAF50',
+        source: 'manual',
       };
 
       // Mirror the server's "manual override drops the plan" contract locally
@@ -1829,33 +1971,6 @@
       }
     }
 
-    function clampCommitBuffer(ms) {
-      return Math.min(5000, Math.max(100, Math.round(ms)));
-    }
-
-    function sendCommitBuffer(ms) {
-      const clamped = clampCommitBuffer(ms);
-      commitBufferMs = clamped;
-      localStorage.setItem('commitBufferMs', String(clamped));
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-commit-buffer', bufferMs: clamped }));
-      }
-    }
-
-    function applyStoredCommitBuffer() {
-      const stored = parseInt(localStorage.getItem('commitBufferMs'), 10);
-      if (Number.isFinite(stored) && clampCommitBuffer(stored) !== commitBufferMs && !finishedMode) {
-        sendCommitBuffer(stored);
-      }
-    }
-
-    function updateCommitBufferInput() {
-      const input = document.getElementById('commitBufferInput');
-      if (input && document.activeElement !== input) {
-        input.value = commitBufferMs;
-      }
-    }
-
     function startTurnTimer() {
       if (turnTimerInterval) clearInterval(turnTimerInterval);
       const timerEl = document.getElementById('timerDisplay');
@@ -1884,13 +1999,12 @@
           return;
         }
 
-        // Count down to the actual commit moment: the server auto-commits the
-        // staged move at (game-server deadline − buffer), so 0.0s coincides
-        // with submission instead of stopping early at the raw deadline.
-        // serverNow() is the clock-skew-corrected server time, so the
-        // countdown, urgency threshold, and "Time!" all reflect the server's
-        // clock regardless of local skew.
-        const remaining = Math.max(0, turnExpiryTime - effectiveCommitBufferMs - serverNow());
+        // Count down to the turn deadline itself: the game server resolves the
+        // turn with the last staged move at turnExpiryTime, so staging stays
+        // possible until 0.0s. serverNow() is the clock-skew-corrected server
+        // time, so the countdown, urgency threshold, and "Time!" all reflect
+        // the server's clock regardless of local skew.
+        const remaining = Math.max(0, turnExpiryTime - serverNow());
         const seconds = (remaining / 1000).toFixed(1);
         timerEl.textContent = `${seconds}s`;
 
@@ -2372,6 +2486,9 @@
       }
     }
 
+    // Submit All: publish the "done this turn" commit for every snake to
+    // Firebase via the server. Staged moves are untouched; the turn may then
+    // resolve early once every player has committed.
     function submitAll() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'commit-all-staged' }));
@@ -2391,6 +2508,9 @@
         if (e.key === 'Escape' || e.key === 'Enter') active.blur();
         return;
       }
+      // Escape always clears the cell-inspection selection (then falls through
+      // to whatever other Escape behavior the current mode has).
+      if (e.key === 'Escape') clearCellSelection();
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
       }
@@ -2437,9 +2557,9 @@
       }
 
       if (e.key === 'Enter') {
-        // Commit every staged move now (benign "commit now"). The confirm/
-        // takeover dialog branch above intercepts Enter and returns first, so
-        // this never fires while a dialog is open.
+        // Submit All (mark our snakes done this turn). The confirm/takeover
+        // dialog branches above intercept Enter and return first, so this
+        // never fires while a dialog is open.
         e.preventDefault();
         submitAll();
         return;
@@ -2741,7 +2861,7 @@
     // Strip every live-only affordance from the page. Used for finished games,
     // where there is nothing to control and no live turn to follow.
     function hideLiveOnlyChrome() {
-      ['submitAllBtn', 'suicideBtn', 'timerDisplay', 'pingDisplay', 'commitBufferLabel', 'gameOverBanner']
+      ['submitAllBtn', 'suicideBtn', 'timerDisplay', 'pingDisplay', 'gameOverBanner']
         .forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
@@ -3092,8 +3212,10 @@
         );
         historicMoveState.selectedMove = null;
         historicMoveState.selectedSnake = null;
+        historicCellOwnership = evalRow.move_evaluations?.cellOwnership || null;
       } else {
         historicMoveState = null;
+        historicCellOwnership = null;
       }
       historicRenderCtx = { boardRow, prevRow, ownRow: evalRow };
 
@@ -3230,6 +3352,9 @@
       } else {
         overlayEl.innerHTML = '';
       }
+    
+      // Keep the cell-inspection highlight/popup in sync with the repaint.
+      renderCellInspect();
     }
 
     // Read-only candidate selection: clicking a candidate cell / move button
@@ -3274,7 +3399,7 @@
       // which doesn't exist for turns after its death.
       if (!historicMoveState) return;
 
-      // Otherwise, toggle a Voronoi territory highlight for the clicked cell.
+      // Toggle the Voronoi territory highlight for the clicked cell.
       const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(historicMoveState.territoryCells, cell);
       if (clickedSnake) {
         historicMoveState.selectedSnake =
@@ -3436,20 +3561,6 @@
     });
 
     setInterval(sendClockPing, 5000);
-
-    (() => {
-      const bufferInput = document.getElementById('commitBufferInput');
-      if (bufferInput) {
-        bufferInput.value = commitBufferMs;
-        bufferInput.addEventListener('change', () => {
-          const val = parseInt(bufferInput.value, 10);
-          if (Number.isFinite(val)) {
-            sendCommitBuffer(val);
-          }
-          bufferInput.value = commitBufferMs;
-        });
-      }
-    })();
 
     // ── Login gate wiring ────────────────────────────────────────────────────
     function isNameTaken(name) {

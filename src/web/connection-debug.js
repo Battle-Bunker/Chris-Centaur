@@ -299,11 +299,19 @@
         }
         .wsdbg-actions button:hover, .wsdbg-actions a:hover { background: #444; }
         .wsdbg-collapsed .wsdbg-body { display: none; }
+        .wsdbg-hidden { display: none; }
       `;
       document.head.appendChild(style);
 
+      // Hidden by default: the bottom-left server-status bubble
+      // (server-status-badge.js) toggles it via window.WSDebuggerPanel.
       const panel = document.createElement('div');
-      panel.className = 'wsdbg-panel';
+      panel.className = 'wsdbg-panel wsdbg-hidden';
+      window.WSDebuggerPanel = {
+        toggle: () => panel.classList.toggle('wsdbg-hidden'),
+        show: () => panel.classList.remove('wsdbg-hidden'),
+        hide: () => panel.classList.add('wsdbg-hidden'),
+      };
       panel.innerHTML = `
         <div class="wsdbg-header">
           <strong>WS Debugger</strong>

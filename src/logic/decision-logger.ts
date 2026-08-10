@@ -61,6 +61,9 @@ export interface DecisionLogEntry {
   }[];
   gameState: any;
   territoryCells?: { [snakeId: string]: { x: number; y: number }[] };
+  // Per-cell Voronoi owner/distance snapshot (see CellOwnership) — stored
+  // inside the move_evaluations blob so the replay cell inspector works.
+  cellOwnership?: any;
 }
 
 // Compact pre-serialized row. Holds only primitives + already-stringified
@@ -194,6 +197,7 @@ export class DecisionLogger {
       const moveEvalWithTerritory = {
         evaluations: entry.moveEvaluations,
         territoryCells: entry.territoryCells || {},
+        cellOwnership: entry.cellOwnership || null,
       };
       moveEvaluationsJson = JSON.stringify(moveEvalWithTerritory);
       gameStateJson = JSON.stringify(entry.gameState);

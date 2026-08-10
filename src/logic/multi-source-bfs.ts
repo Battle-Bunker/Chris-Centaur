@@ -3,10 +3,18 @@
  * Computes voronoi territories, distances, and food control in a single pass.
  * Processes cells level-by-level to properly detect ties.
  * Supports optimistic passability for body segments.
+ *
+ * The BFS is integer-indexed typed arrays throughout (see BoardGraph):
+ * ownership and distance live in flat Int16Arrays and per-level tie detection
+ * uses 32-bit source masks. The per-snake territory coordinate lists (UI /
+ * projections) are materialized in one O(cells) pass at the end — and only
+ * when the caller actually wants them (collectCells). Chunked minimax
+ * evaluation runs thousands of these per turn and reads only the aggregates
+ * plus the raw owner array.
  */
 
 import { Coord } from '../types/battlesnake';
-import { BoardGraph, CellKey } from './board-graph';
+import { BoardGraph } from './board-graph';
 
 export interface BFSSource {
   id: string;
@@ -15,296 +23,314 @@ export interface BFSSource {
   startDelay?: number;
 }
 
-export interface CellInfo {
-  closestSourceId: string | null;  // null for neutral/tied cells
-  distance: number;
+// Ownership sentinels for BFSResult.ownerIndex. Every consumer comparing
+// against ownerIndex must use these names, never raw literals.
+export const OWNER_UNREACHED = -2;  // no source reaches this cell
+export const OWNER_NEUTRAL = -1;    // tied arrival — nobody owns or expands from it
+
+// A JSON-serializable snapshot of a Voronoi result for UI / log consumers:
+// per-cell owner (index into `sources`, or OWNER_NEUTRAL / OWNER_UNREACHED)
+// and BFS distance from the owner's head. Cell index = y * width + x. The
+// client-side cell inspector mirrors the sentinel values.
+export interface CellOwnership {
+  width: number;
+  height: number;
+  sources: string[];
+  owner: number[];
+  distance: number[];
+  // Physical vacate turn per cell (0 = already free): when the body segment
+  // currently on the cell will have cleared under the shared turn-aware
+  // clearance prediction. Lets the UI explain body cells owned as FUTURE
+  // territory (owner arrives at distance >= vacate turn).
+  vacatesAt: number[];
 }
 
 export interface BFSResult {
-  // Map from cell key to info about that cell
-  cellInfo: Map<CellKey, CellInfo>;
-  
   // Territory counts per source
   territoryCounts: Map<string, number>;
-  
-  // Territory cells per source (actual coordinates)
+
+  // Territory cells per source (actual coordinates; empty when collectCells: false)
   territoryCells: Map<string, Coord[]>;
-  
+
   // Controlled food counts per source
   controlledFood: Map<string, number>;
-  
+
   // Controlled fertile tile counts per source
   controlledFertile: Map<string, number>;
-  
+
   // Nearest food distance per source
   nearestFoodDistance: Map<string, number>;
-  
+
   // Team aggregates
   teamTerritory: number;
   teamControlledFood: number;
-  teamControlledFertile: number;
   enemyTerritory: number;
-  enemyControlledFood: number;
-  enemyControlledFertile: number;
+
+  // Raw integer core:
+  // ownerIndex[cellIdx] = source index owning the cell, or OWNER_NEUTRAL /
+  // OWNER_UNREACHED.
+  ownerIndex: Int16Array;
+  // distanceIndex[cellIdx] = BFS distance for reached cells (unspecified otherwise).
+  distanceIndex: Int16Array;
+  // Source id -> source index into ownerIndex values.
+  sourceIndexOf: Map<string, number>;
 }
 
 export interface BFSOptions {
   optimistic: boolean;
+  // Materialize the per-source territory coordinate lists (used by the UI and
+  // projections). Defaults to true; the chunked evaluation path passes false
+  // and reads only the aggregates + ownerIndex.
+  collectCells?: boolean;
+}
+
+
+/** Territory cell lists as a plain JSON-serializable object (UI/log shape). */
+export function territoryCellsToObject(result: BFSResult): { [snakeId: string]: Coord[] } {
+  const obj: { [snakeId: string]: Coord[] } = {};
+  for (const [snakeId, cells] of result.territoryCells) {
+    obj[snakeId] = cells;
+  }
+  return obj;
+}
+
+/**
+ * Build the serializable CellOwnership snapshot from a BFS result. The single
+ * construction path for every ownership payload (current-board and projected),
+ * so the wire shape and vacate-turn sourcing can never drift between them.
+ */
+export function toCellOwnership(result: BFSResult, sources: BFSSource[], graph: BoardGraph): CellOwnership {
+  const vacatesAt = new Array<number>(graph.cellCount);
+  for (let idx = 0; idx < graph.cellCount; idx++) vacatesAt[idx] = graph.physicalVacateTurn(idx);
+  return {
+    width: graph.boardWidth,
+    height: graph.boardHeight,
+    sources: sources.map(s => s.id),
+    owner: Array.from(result.ownerIndex),
+    distance: Array.from(result.distanceIndex),
+    vacatesAt,
+  };
 }
 
 export class MultiSourceBFS {
   private graph: BoardGraph;
-  
+
   constructor(graph: BoardGraph) {
     this.graph = graph;
   }
-  
+
   /**
    * Run multi-source BFS from all snake heads in a single pass.
    * O(W×H) complexity - each cell visited at most once.
    * Processes level-by-level to properly handle ties.
-   * 
+   *
    * @param sources - BFS starting points (snake heads)
    * @param foodPositions - Food locations on the board
    * @param options - BFS options including optimistic passability
    */
   compute(sources: BFSSource[], foodPositions: Coord[], options?: BFSOptions, fertilePositions?: Coord[]): BFSResult {
     const useOptimistic = options?.optimistic ?? false;
-    
-    // Initialize result structure
-    const cellInfo = new Map<CellKey, CellInfo>();
-    const territoryCounts = new Map<string, number>();
-    const territoryCells = new Map<string, Coord[]>();
-    const controlledFood = new Map<string, number>();
-    const controlledFertile = new Map<string, number>();
-    const nearestFoodDistance = new Map<string, number>();
-    
-    // Initialize counters
-    for (const source of sources) {
-      territoryCounts.set(source.id, 0);
-      territoryCells.set(source.id, []);
-      controlledFood.set(source.id, 0);
-      controlledFertile.set(source.id, 0);
-      nearestFoodDistance.set(source.id, Infinity);
+    const collectCells = options?.collectCells ?? true;
+    const graph = this.graph;
+    const W = graph.boardWidth;
+    const N = graph.cellCount;
+
+    if (sources.length > 32) {
+      throw new Error(`MultiSourceBFS supports at most 32 sources (got ${sources.length})`);
     }
-    
-    // Create food position set for quick lookup
-    const foodSet = new Set<CellKey>(
-      foodPositions.map(f => this.graph.coordToKey(f))
-    );
-    
-    // Create fertile position set for quick lookup
-    const fertileSet = new Set<CellKey>(
-      (fertilePositions || []).map(f => this.graph.coordToKey(f))
-    );
-    
-    // Process BFS level by level for proper tie detection
-    interface QueueItem {
-      position: Coord;
-      sourceId: string;
-    }
-    
-    // Current level being processed
-    let currentLevel: QueueItem[] = [];
-    let nextLevel: QueueItem[] = [];
-    let currentDistance = 0;
-    
-    // Separate sources by startDelay
-    const delayedSources: Map<number, BFSSource[]> = new Map();
-    for (const source of sources) {
-      const delay = source.startDelay ?? 0;
+
+    // Integer core state.
+    const owner = new Int16Array(N).fill(OWNER_UNREACHED);
+    const dist = new Int16Array(N);
+    const reachedMask = new Uint32Array(N);   // per-level: bitmask of sources arriving
+    const enqueuedMask = new Uint32Array(N);  // per-level: dedup of (cell, source) enqueues
+    const foodMask = new Uint8Array(N);
+    const fertileMask = new Uint8Array(N);
+    for (const f of foodPositions) foodMask[graph.cellIndexOf(f)] = 1;
+    for (const f of fertilePositions || []) fertileMask[graph.cellIndexOf(f)] = 1;
+
+    // Per-source aggregates (indexed by source position in `sources`).
+    const nSources = sources.length;
+    const territoryCount = new Int32Array(nSources);
+    const foodCount = new Int32Array(nSources);
+    const fertileCount = new Int32Array(nSources);
+    const nearestFood = new Int32Array(nSources).fill(-1); // -1 = none found
+
+    const sourceIndexOf = new Map<string, number>();
+    for (let i = 0; i < nSources; i++) sourceIndexOf.set(sources[i].id, i);
+
+    // Frontier as parallel arrays of (cellIdx, sourceIdx).
+    let curCell: number[] = [];
+    let curSrc: number[] = [];
+    let nextCell: number[] = [];
+    let nextSrc: number[] = [];
+
+    // Separate sources by startDelay.
+    const delayed = new Map<number, number[]>(); // delay -> source indices
+    let pendingDelayed = 0;
+    for (let i = 0; i < nSources; i++) {
+      const delay = sources[i].startDelay ?? 0;
       if (delay === 0) {
-        currentLevel.push({
-          position: source.position,
-          sourceId: source.id
-        });
+        curCell.push(graph.cellIndexOf(sources[i].position));
+        curSrc.push(i);
       } else {
-        if (!delayedSources.has(delay)) {
-          delayedSources.set(delay, []);
-        }
-        delayedSources.get(delay)!.push(source);
+        if (!delayed.has(delay)) delayed.set(delay, []);
+        delayed.get(delay)!.push(i);
+        pendingDelayed++;
       }
     }
-    
-    // Process all levels
-    while (currentLevel.length > 0 || delayedSources.size > 0) {
-      // Inject delayed sources that should start at this distance level
-      const sourcesAtThisDelay = delayedSources.get(currentDistance);
-      if (sourcesAtThisDelay) {
-        for (const source of sourcesAtThisDelay) {
-          currentLevel.push({
-            position: source.position,
-            sourceId: source.id
-          });
+
+    const updateNearestFood = (srcIdx: number, d: number): void => {
+      if (nearestFood[srcIdx] === -1 || d < nearestFood[srcIdx]) nearestFood[srcIdx] = d;
+    };
+
+    let currentDistance = 0;
+    const touched: number[] = []; // cells whose per-level masks need resetting
+
+    while (curCell.length > 0 || pendingDelayed > 0) {
+      // Inject delayed sources that start at this distance level.
+      const inject = delayed.get(currentDistance);
+      if (inject) {
+        for (const srcIdx of inject) {
+          curCell.push(graph.cellIndexOf(sources[srcIdx].position));
+          curSrc.push(srcIdx);
         }
-        delayedSources.delete(currentDistance);
+        pendingDelayed -= inject.length;
+        delayed.delete(currentDistance);
       }
-      
-      if (currentLevel.length === 0) {
+
+      if (curCell.length === 0) {
         currentDistance++;
         continue;
       }
-      // Track cells reached at this distance by each source (using Set to deduplicate)
-      const cellsReachedThisLevel = new Map<CellKey, Set<string>>();
-      
-      // First pass: identify all cells reached at this distance
-      for (const item of currentLevel) {
-        const key = this.graph.coordToKey(item.position);
-        
+
+      // First pass: collect which sources reach each cell at this distance.
+      // Distance 0 items are source heads — unique per source, assigned directly.
+      touched.length = 0;
+      for (let q = 0; q < curCell.length; q++) {
+        const cell = curCell[q];
+        const srcIdx = curSrc[q];
         if (currentDistance === 0) {
-          cellInfo.set(key, {
-            closestSourceId: item.sourceId,
-            distance: 0
-          });
-          territoryCounts.set(item.sourceId, 1);
-          territoryCells.get(item.sourceId)!.push({ x: item.position.x, y: item.position.y });
-          
-          if (foodSet.has(key)) {
-            controlledFood.set(item.sourceId, controlledFood.get(item.sourceId)! + 1);
-            nearestFoodDistance.set(item.sourceId, 0);
-          }
-          
-          if (fertileSet.has(key)) {
-            controlledFertile.set(item.sourceId, controlledFertile.get(item.sourceId)! + 1);
-          }
+          owner[cell] = srcIdx;
+          dist[cell] = 0;
+          territoryCount[srcIdx] = 1;
+          if (foodMask[cell] === 1) { foodCount[srcIdx]++; nearestFood[srcIdx] = 0; }
+          if (fertileMask[cell] === 1) fertileCount[srcIdx]++;
         } else {
-          if (!cellsReachedThisLevel.has(key)) {
-            cellsReachedThisLevel.set(key, new Set<string>());
-          }
-          cellsReachedThisLevel.get(key)!.add(item.sourceId);
+          if (owner[cell] !== OWNER_UNREACHED) continue; // already claimed at a nearer level
+          if (reachedMask[cell] === 0) touched.push(cell);
+          reachedMask[cell] |= (1 << srcIdx);
         }
       }
-      
-      // Second pass: assign ownership or mark as neutral for cells at this distance
-      for (const [cellKey, sourceIdSet] of cellsReachedThisLevel) {
-        // Skip if already visited (shouldn't happen but be safe)
-        if (cellInfo.has(cellKey)) {
-          continue;
-        }
-        
-        // Convert Set to array for easier handling
-        const sourceIds = Array.from(sourceIdSet);
-        
-        if (sourceIds.length === 1) {
-          // Single source reaches this cell - it owns it
-          const sourceId = sourceIds[0];
-          cellInfo.set(cellKey, {
-            closestSourceId: sourceId,
-            distance: currentDistance
-          });
-          
-          // Update territory count and cells
-          territoryCounts.set(sourceId, territoryCounts.get(sourceId)! + 1);
-          const cellCoord = this.graph.keyToCoord(cellKey);
-          territoryCells.get(sourceId)!.push(cellCoord);
-          
-          // Check if this cell has food
-          if (foodSet.has(cellKey)) {
-            controlledFood.set(sourceId, controlledFood.get(sourceId)! + 1);
-            
-            // Update nearest food distance
-            const currentNearestFood = nearestFoodDistance.get(sourceId)!;
-            if (currentDistance < currentNearestFood) {
-              nearestFoodDistance.set(sourceId, currentDistance);
-            }
+
+      // Second pass: assign ownership or mark neutral for cells at this distance.
+      for (const cell of touched) {
+        const mask = reachedMask[cell];
+        if (mask === 0) continue;
+        if ((mask & (mask - 1)) === 0) {
+          // Exactly one source reaches this cell — it owns it.
+          const srcIdx = 31 - Math.clz32(mask);
+          owner[cell] = srcIdx;
+          dist[cell] = currentDistance;
+          territoryCount[srcIdx]++;
+          if (foodMask[cell] === 1) {
+            foodCount[srcIdx]++;
+            updateNearestFood(srcIdx, currentDistance);
           }
-          
-          // Check if this cell is fertile
-          if (fertileSet.has(cellKey)) {
-            controlledFertile.set(sourceId, controlledFertile.get(sourceId)! + 1);
-          }
+          if (fertileMask[cell] === 1) fertileCount[srcIdx]++;
         } else {
-          // Multiple sources reach this cell at same distance - it's neutral
-          cellInfo.set(cellKey, {
-            closestSourceId: null,
-            distance: currentDistance
-          });
-          
-          // Still update nearest food distance for all sources that can reach it
-          if (foodSet.has(cellKey)) {
-            for (const sourceId of sourceIds) {
-              const currentNearestFood = nearestFoodDistance.get(sourceId)!;
-              if (currentDistance < currentNearestFood) {
-                nearestFoodDistance.set(sourceId, currentDistance);
-              }
+          // Multiple sources tie — neutral cell; nobody expands from it, but
+          // food here still counts toward every reaching source's nearest-food.
+          owner[cell] = OWNER_NEUTRAL;
+          dist[cell] = currentDistance;
+          if (foodMask[cell] === 1) {
+            let m = mask;
+            while (m !== 0) {
+              const srcIdx = 31 - Math.clz32(m);
+              updateNearestFood(srcIdx, currentDistance);
+              m &= ~(1 << srcIdx);
             }
           }
         }
       }
-      
-      // Third pass: explore neighbors for next level
-      // Only explore from cells that are owned (not neutral)
-      for (const item of currentLevel) {
-        const key = this.graph.coordToKey(item.position);
-        const info = cellInfo.get(key);
-        
-        // Skip if this cell is neutral or owned by different source
-        if (!info || info.closestSourceId !== item.sourceId) {
-          continue;
-        }
-        
-        // Get passable neighbors - use optimistic if enabled
-        // The arrival turn is currentDistance + 1 (next level)
-        const arrivalTurn = currentDistance + 1;
-        const neighbors = useOptimistic 
-          ? this.graph.getNeighborsOptimistic(item.position, arrivalTurn)
-          : this.graph.getNeighbors(item.position);
-        
-        for (const neighbor of neighbors) {
-          const neighborKey = this.graph.coordToKey(neighbor);
-          
-          // Skip if already visited
-          if (cellInfo.has(neighborKey)) {
-            continue;
-          }
-          
-          // Add to next level
-          nextLevel.push({
-            position: neighbor,
-            sourceId: item.sourceId
-          });
+
+      // Third pass: expand next level from cells owned by the arriving source.
+      // Dedup (neighbor, source) enqueues with per-level masks.
+      const arrivalTurn = currentDistance + 1;
+      const enqueueTouched: number[] = [];
+      for (let q = 0; q < curCell.length; q++) {
+        const cell = curCell[q];
+        const srcIdx = curSrc[q];
+        if (owner[cell] !== srcIdx) continue; // neutral or claimed by another source
+
+        const x = cell % W;
+        const n0 = cell + W < N ? cell + W : -1;
+        const n1 = cell - W >= 0 ? cell - W : -1;
+        const n2 = x > 0 ? cell - 1 : -1;
+        const n3 = x < W - 1 ? cell + 1 : -1;
+        for (let t = 0; t < 4; t++) {
+          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
+          if (n < 0) continue;
+          if (owner[n] !== OWNER_UNREACHED) continue;
+          const bit = 1 << srcIdx;
+          if ((enqueuedMask[n] & bit) !== 0) continue;
+          const passable = useOptimistic
+            ? graph.isPassableAtTurnIdx(n, arrivalTurn)
+            : graph.isPassableStaticIdx(n);
+          if (!passable) continue;
+          if (enqueuedMask[n] === 0) enqueueTouched.push(n);
+          enqueuedMask[n] |= bit;
+          nextCell.push(n);
+          nextSrc.push(srcIdx);
         }
       }
-      
-      // Move to next level
-      currentLevel = nextLevel;
-      nextLevel = [];
+
+      // Reset per-level masks (only the touched cells).
+      for (const cell of touched) reachedMask[cell] = 0;
+      for (const cell of enqueueTouched) enqueuedMask[cell] = 0;
+
+      // Advance to the next level.
+      const tmpCell = curCell, tmpSrc = curSrc;
+      curCell = nextCell; curSrc = nextSrc;
+      nextCell = tmpCell; nextSrc = tmpSrc;
+      nextCell.length = 0; nextSrc.length = 0;
       currentDistance++;
     }
-    
-    // Calculate team aggregates
-    let teamTerritory = 0;
-    let teamControlledFood = 0;
-    let teamControlledFertile = 0;
-    let enemyTerritory = 0;
-    let enemyControlledFood = 0;
-    let enemyControlledFertile = 0;
-    
-    for (const source of sources) {
-      const territory = territoryCounts.get(source.id)!;
-      const food = controlledFood.get(source.id)!;
-      const fertile = controlledFertile.get(source.id)!;
-      
+
+    // Materialize per-source territory coordinate lists (only when wanted).
+    const territoryCells = new Map<string, Coord[]>();
+    for (const source of sources) territoryCells.set(source.id, []);
+    if (collectCells) {
+      for (let idx = 0; idx < N; idx++) {
+        const o = owner[idx];
+        if (o >= 0) {
+          territoryCells.get(sources[o].id)!.push({ x: idx % W, y: Math.floor(idx / W) });
+        }
+      }
+    }
+
+    // Per-source result maps + team aggregates.
+    const territoryCounts = new Map<string, number>();
+    const controlledFood = new Map<string, number>();
+    const controlledFertile = new Map<string, number>();
+    const nearestFoodDistance = new Map<string, number>();
+    let teamTerritory = 0, teamControlledFood = 0, enemyTerritory = 0;
+
+    for (let i = 0; i < nSources; i++) {
+      const source = sources[i];
+      territoryCounts.set(source.id, territoryCount[i]);
+      controlledFood.set(source.id, foodCount[i]);
+      controlledFertile.set(source.id, fertileCount[i]);
+      nearestFoodDistance.set(source.id, nearestFood[i] === -1 ? 1000 : nearestFood[i]);
       if (source.isTeam) {
-        teamTerritory += territory;
-        teamControlledFood += food;
-        teamControlledFertile += fertile;
+        teamTerritory += territoryCount[i];
+        teamControlledFood += foodCount[i];
       } else {
-        enemyTerritory += territory;
-        enemyControlledFood += food;
-        enemyControlledFertile += fertile;
+        enemyTerritory += territoryCount[i];
       }
     }
-    
-    // Convert Infinity to 1000 for consistency with old code
-    for (const [id, distance] of nearestFoodDistance) {
-      if (distance === Infinity) {
-        nearestFoodDistance.set(id, 1000);
-      }
-    }
-    
+
     return {
-      cellInfo,
       territoryCounts,
       territoryCells,
       controlledFood,
@@ -312,26 +338,10 @@ export class MultiSourceBFS {
       nearestFoodDistance,
       teamTerritory,
       teamControlledFood,
-      teamControlledFertile,
       enemyTerritory,
-      enemyControlledFood,
-      enemyControlledFertile
+      ownerIndex: owner,
+      distanceIndex: dist,
+      sourceIndexOf
     };
-  }
-  
-  /**
-   * Get distance from a specific source to a specific position.
-   * Returns 1000 if unreachable.
-   */
-  getDistance(result: BFSResult, sourceId: string, position: Coord): number {
-    const key = this.graph.coordToKey(position);
-    const info = result.cellInfo.get(key);
-    
-    if (!info || info.closestSourceId !== sourceId) {
-      // This cell is not reachable by this source or is closer to another source
-      return 1000;
-    }
-    
-    return info.distance;
   }
 }

@@ -69,6 +69,25 @@ export class GameWebSocketServer {
   // of every sweep tick, so changing `idleTimeoutMinutes` on the /config page
   // takes effect within one sweep interval (~1 minute) without a redeploy.
   private idleTimeoutMs: number = DEFAULT_CONFIG.idleTimeoutMinutes * 60 * 1000;
+  // Last known Firebase connection status; replayed to every new connection
+  // and re-broadcast on change (drives the red error banner in the web UI).
+  private latestFirebaseStatus: unknown = null;
+
+  // Notified with the active client count on every connect/disconnect; used
+  // to suspend/resume the Firebase transport as web operators come and go.
+  private presenceListener: ((count: number) => void) | null = null;
+
+  onPresenceChange(listener: (count: number) => void): void {
+    this.presenceListener = listener;
+    listener(this.clients.size);
+  }
+
+  broadcastFirebaseStatus(status: unknown): void {
+    this.latestFirebaseStatus = status;
+    for (const client of this.clients) {
+      this.send(client.ws, { type: 'firebase-status', status });
+    }
+  }
 
   constructor(server: HTTPServer) {
     this.gameManager = ActiveGameManager.getInstance();
@@ -114,6 +133,12 @@ export class GameWebSocketServer {
       // Hand the server-assigned conn id to the client so it can be echoed back
       // on debug POSTs. Lets us correlate server/client timelines deterministically.
       this.send(ws, { type: 'debug-hello', connId });
+
+      // Push the current Firebase connection status so a page that loaded
+      // while the bot was down shows the banner immediately (no polling).
+      if (this.latestFirebaseStatus) {
+        this.send(ws, { type: 'firebase-status', status: this.latestFirebaseStatus });
+      }
 
       ws.on('message', (data: Buffer) => {
         try {
@@ -198,8 +223,6 @@ export class GameWebSocketServer {
         gameState: gameState,
         turnExpiryTime: game?.turnExpiryTime || null,
         measuredPing: this.gameManager.getMeasuredPing(),
-        commitBufferMs: this.gameManager.getCommitBuffer(gameId),
-        effectiveCommitBufferMs: this.gameManager.getEffectiveCommitBuffer(gameId),
         selections: this.getSelectionsForGame(gameId),
         owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
@@ -222,16 +245,16 @@ export class GameWebSocketServer {
         turn: turnData.gameState.turn,
         moveEvaluations: turnData.moveEvaluations,
         territoryCells: turnData.territoryCells,
+        cellOwnership: turnData.cellOwnership || null,
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
         timeout: turnData.gameState.game.timeout || 500,
         timestamp: turnData.timestamp,
-        moveCommitted: game?.controlledSnakes.get(snakeId)?.moveCommittedThisTurn || false,
-        committedMove: game?.controlledSnakes.get(snakeId)?.committedMove || null,
+        turnExpiryTime: game?.turnExpiryTime || null,
         // Carry the full staged-move map so each snake's grey (bot) arrow
-        // appears/refreshes as soon as its own /move arrives — board-update only
-        // fires for the snake that advanced the turn, leaving the others'
-        // arrows missing until this per-snake update fills them in.
+        // appears/refreshes as soon as its own turn data lands — board-update
+        // only fires once per turn, so this per-snake update fills the others'
+        // arrows in as their decisions complete.
         stagedMoves: this.getStagedMovesForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
@@ -365,20 +388,6 @@ export class GameWebSocketServer {
         break;
       }
 
-      case 'set-commit-buffer': {
-        if (!client.gameId) break;
-        const applied = this.gameManager.setCommitBuffer(client.gameId, msg.bufferMs);
-        if (applied !== null) {
-          // Broadcast so every viewer's countdown uses the same buffer.
-          this.broadcastToGame(client.gameId, {
-            type: 'commit-buffer-update',
-            gameId: client.gameId,
-            commitBufferMs: applied,
-          });
-        }
-        break;
-      }
-
       case 'select-snake': {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
@@ -403,8 +412,6 @@ export class GameWebSocketServer {
               type: 'snake-selected',
               snakeId,
               turnData: controlled.latestTurnData,
-              moveCommitted: controlled.moveCommittedThisTurn,
-              committedMove: controlled.committedMove,
               botRecommendation: controlled.botRecommendation,
               stagedMove: controlled.intent.kind === 'manual' ? controlled.intent.move : null,
             });
@@ -427,9 +434,10 @@ export class GameWebSocketServer {
       }
 
       case 'commit-all-staged': {
-        // Benign "commit now" action — no password. Immediately commits the
-        // staged move for every controlled snake with an unresolved pending
-        // move, ending the wait for the per-snake safety timer.
+        // Submit All — the human-triggered "done this turn" signal. Publishes
+        // a moveStatuses commit to Firebase for every snake staged for the
+        // current turn, so the game server can resolve the turn early once
+        // every player has committed. Staged moves are untouched.
         if (!client.gameId || !client.userId) break;
         this.gameManager.commitAllStaged(client.gameId);
         this.broadcastSelectionsUpdate(client.gameId);
@@ -456,8 +464,9 @@ export class GameWebSocketServer {
 
       case 'select-move': {
         // Space (or the Stage button) on the client stages the inspected cell
-        // as the snake's manual next move. This only STAGES — the move commits
-        // at the turn deadline via the per-snake safety timer. Manual staging
+        // as the snake's manual next move. Staging write-through publishes the
+        // move to Firebase, where the game server resolves the turn from the
+        // last staged move at the deadline. Manual staging
         // drops the queue/waypoint per the "manual override drops the plan"
         // contract (handled inside setUserSelection).
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
@@ -698,6 +707,7 @@ export class GameWebSocketServer {
     // transitions emit went-idle / woke server events (includes idle-sweep
     // closes — they arrive here via the socket's close handler).
     ServerEventLogger.getInstance().setConnectionCount(this.clients.size);
+    this.presenceListener?.(this.clients.size);
   }
 
   private handleDisconnect(client: WSClient): void {
@@ -726,41 +736,54 @@ export class GameWebSocketServer {
     return selections;
   }
 
-  // Staged moves are the single source of truth for the staged-arrow render on
-  // every client. Both the staged arrow and the committed move are pure reads of
-  // the server-maintained `staged` / `committedMove` fields — they can never
-  // diverge from what the deadline commit will use. Color/source are derived from
-  // the staged record's source: heuristic = grey/'bot' (bot-seeded), any human
-  // method (manual/queue/waypoint) = the controlling user's color.
+  // Staged moves drive the arrow render on every client. Three layers per
+  // snake, all pure reads of the manager's mirrors of Firebase state:
+  //  - `requestedMove`: the last move the user/bot requested (ghost arrow
+  //    whenever it differs from the confirmed move — optimistic state).
+  //  - `move`: the CONFIRMED staged move from the Firebase read-back (solid
+  //    arrow — what the game server will play if the turn ends now). Null
+  //    until the first confirmation for the turn lands.
+  //  - `committed`: true once Firebase finalized the turn's move (deadline
+  //    passed or all players committed) — the double arrow; `move` then
+  //    carries the final selection.
+  // Color/source are derived from the requested record's source: heuristic =
+  // grey/'bot' (bot-seeded), any human method (manual/queue/waypoint) = the
+  // controlling user's color.
   //
-  // Every controlled snake gets an entry, gated ONLY on having a `staged` record
-  // — NOT on an in-flight pendingMove. The client only draws an arrow for snakes
-  // present on the board, so eliminated snakes are naturally skipped there.
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } {
+  // Every controlled snake gets an entry, gated only on having a `staged`
+  // record. The client only draws arrows for snakes present on the board, so
+  // eliminated snakes are naturally skipped there.
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } {
     const game = this.gameManager.getGame(gameId);
     if (!game) return {};
 
     const BOT_COLOR = '#888888';
-    const staged: { [snakeId: string]: { move: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
+    const staged: { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
+      if (!cs.staged) continue;
+      const requested = cs.staged;
       const userColor = cs.selectedBy
         ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
         : '#4CAF50';
-      // Colour/source reflect the TRUE origin of the staged move, NOT the nominal
-      // activeIntentMode. A waypoint/queue that fell back to the bot's move this
-      // turn has source 'bot'/'fallback' and renders grey — so a user-coloured
-      // arrow always guarantees the user's own move will commit (Bug A).
-      const isBot = cs.staged?.source === 'bot' || cs.staged?.source === 'fallback';
+      // Colour/source reflect the TRUE origin of the requested move, NOT the
+      // nominal activeIntentMode. A waypoint/queue that fell back to the bot's
+      // move this turn has source 'bot'/'fallback' and renders grey — so a
+      // user-coloured arrow always guarantees the user's own requested move.
+      const isBot = requested.source === 'bot' || requested.source === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
-      // `fatal` flags a certain-death move so the client can warn the human; it
-      // NEVER changes what commits (the staged move is sacrosanct).
+      // `fatal` flags a certain-death requested move so the client can warn
+      // the human; it NEVER changes what is staged.
       const fatal = this.gameManager.isStagedMoveFatal(gameId, snakeId);
-      if (cs.moveCommittedThisTurn && cs.committedMove) {
-        staged[snakeId] = { move: cs.committedMove, committed: true, color, source: 'committed', fatal };
-        continue;
-      }
-      if (!cs.staged) continue;
-      staged[snakeId] = { move: cs.staged.move, committed: false, color, source: cs.staged.source, fatal };
+      const confirmed = cs.confirmedStaged?.turn === requested.turn ? cs.confirmedStaged.move : null;
+      const final = cs.finalMove?.turn === requested.turn ? cs.finalMove.move : null;
+      staged[snakeId] = {
+        move: final ?? confirmed,
+        requestedMove: requested.move,
+        committed: final !== null,
+        color,
+        source: requested.source,
+        fatal,
+      };
     }
     return staged;
   }
