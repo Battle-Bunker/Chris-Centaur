@@ -590,29 +590,25 @@ export class TacticToesFirebaseInterface {
     const turnNumber = data.turns.length - 1;
     if (turnNumber <= watched.lastProcessedTurn) {
       // Same-turn doc rewrite. This matters on the FIRST turn: the game
-      // server creates turn 0 without a real endTime (players are still
-      // joining) and sets/extends it when play actually starts. The turn
-      // watch cached the stale window, so staged-move confirmations stamped
-      // after it were wrongly rejected as post-deadline — the solid arrow
-      // never appeared on turn 0. Refresh the window (and the UI turn timer)
-      // and resubscribe the read-back so already-rejected writes replay
-      // against the corrected deadline.
+      // server creates turn 0 with a provisional endTime (players are still
+      // joining) and rewrites it — possibly every second during the lobby
+      // countdown. Refresh the cached deadline and the UI turn timer IN
+      // PLACE. Never tear down / resubscribe the read-back listeners here:
+      // the countdown rewrites would churn them continuously, and a listener
+      // that is destroyed every second may never deliver a confirmation —
+      // exactly the "solid arrow never appears on turn 0" failure. The
+      // read-back itself no longer filters by endTime, so the existing
+      // listeners stay correct across any deadline change.
       const tw = watched.turnWatch;
       if (turnNumber === watched.lastProcessedTurn && tw && tw.turn === turnNumber) {
         const currTurn = data.turns[turnNumber];
         const et = currTurn?.endTime instanceof Timestamp ? currTurn.endTime.toMillis() : null;
         if (et !== null && et !== tw.endTimeMs) {
-          console.log(
-            `[tt-firebase] Turn ${turnNumber} endTime updated ` +
-              `(${new Date(tw.endTimeMs).toISOString()} → ${new Date(et).toISOString()}) — refreshing turn watch`
-          );
+          tw.endTimeMs = et;
           watched.latestDoc = data;
           this.gameManager.recordTurnArrival(
             watched.gameID, Date.now(), data.setup.maxTurnTime * 1000, et
           );
-          const ourSnakes = controlledSnakeIDs(data.setup, this.config.botId);
-          const aliveOurs = ourSnakes.filter((id) => currTurn.alivePlayers.includes(id));
-          this.beginTurnWatch(watched, data, turnNumber, et, aliveOurs);
         }
       }
       return;
@@ -892,6 +888,11 @@ export class TacticToesFirebaseInterface {
         onSnapshot(q, (snapshot) => {
           // The first delivery (even empty, even from cache-then-server)
           // makes "nothing staged" a trustworthy observation.
+          if (!tw.readBackReady.has(snakeId)) {
+            console.log(
+              `[tt-firebase] Read-back first delivery for ${snakeId} turn ${tw.turn}: ${snapshot.size} doc(s)`
+            );
+          }
           tw.readBackReady.add(snakeId);
           // Latest SERVER-acked write wins (pending local writes have a null
           // serverTimestamp and don't count as confirmation). Do NOT apply a
@@ -908,7 +909,16 @@ export class TacticToesFirebaseInterface {
             if (ts === null) return;
             if (best && ts <= best.ts) return;
             const direction = moveIndexToDirection(headIndex, d.move, width);
-            if (direction) best = { ts, direction };
+            if (!direction) {
+              // A server-acked write we cannot map to a direction would
+              // silently break confirmation — make it loud.
+              console.warn(
+                `[tt-firebase] Read-back doc for ${snakeId} turn ${tw.turn} not adjacent to head ` +
+                  `(head=${headIndex}, move=${d.move}, width=${width}) — skipped`
+              );
+              return;
+            }
+            best = { ts, direction };
           });
           if (best) {
             const chosen: { ts: number; direction: Direction } = best;
