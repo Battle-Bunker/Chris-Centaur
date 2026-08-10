@@ -50,6 +50,21 @@ export interface TTTurn {
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];
   playerInvulnerabilityLevel?: Record<string, number>;
+  // Per-player invulnerability effects with their scheduled expiry turns. The
+  // aggregate level above is the SUM of these; each expires independently, so
+  // this is what tells us how long the current level will hold.
+  activeEffects?: TTActiveEffect[];
+}
+
+export interface TTActiveEffect {
+  playerID: string;
+  type: 'invulnerability_buff' | 'invulnerability_debuff';
+  level: number;
+  // Absolute game turn at which the server removes this effect. The server
+  // expires effects at the END of turn processing — AFTER collisions — so the
+  // effect still governs a collision resolved during turn `expiryTurn` itself.
+  expiryTurn: number;
+  sourcePlayerID: string;
 }
 
 export interface TTGameStateDoc {

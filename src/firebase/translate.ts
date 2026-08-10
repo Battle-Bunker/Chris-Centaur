@@ -110,6 +110,34 @@ function snakeColor(setup: TTGameSetup, playerID: string): string {
   return '';
 }
 
+/**
+ * The last absolute game turn on which a player's CURRENT aggregate
+ * invulnerability level still governs a collision — i.e. how long the level
+ * we can see is safe to bank on when looking ahead.
+ *
+ * The level is the sum of independently-expiring effects, so the aggregate
+ * holds only until the EARLIEST of them expires. The server expires effects at
+ * the end of turn processing, after collisions are resolved, so an effect with
+ * `expiryTurn = E` still decides a collision resolved during turn E itself —
+ * which is exactly the `currentTurn + arrivalTurn` figure BoardGraph tests
+ * against, so the minimum expiry maps across directly with no offset.
+ *
+ * Returns null when the turn carries no effects schedule at all (pre-
+ * activeEffects game documents), leaving BoardGraph on its conservative
+ * "applies to this turn only" default rather than inventing a horizon.
+ */
+function invulnerabilityExpiryTurn(turn: TTTurn, playerID: string): number | null {
+  if (!turn.activeEffects) return null;
+  let earliest: number | null = null;
+  for (const effect of turn.activeEffects) {
+    if (effect.playerID !== playerID) continue;
+    if (earliest === null || effect.expiryTurn < earliest) earliest = effect.expiryTurn;
+  }
+  // No effects on this player: their level is 0 and stays 0, so nothing can
+  // expire — the (zero) level applies indefinitely.
+  return earliest ?? Number.MAX_SAFE_INTEGER;
+}
+
 function buildSnake(
   setup: TTGameSetup,
   turn: TTTurn,
@@ -137,6 +165,8 @@ function buildSnake(
     },
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
   };
+  const expiry = invulnerabilityExpiryTurn(turn, playerID);
+  if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
   return snake;
 }
