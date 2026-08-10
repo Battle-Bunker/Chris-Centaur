@@ -9,17 +9,20 @@
 //      `exchangeBotApiKey` callable, then signInWithCustomToken.
 //   2. Discovery: listen to bots/{botId}/games for the invite docs the server
 //      writes at game start; open one game-doc listener per live game.
-//   3. Turn intake: every appended turn is translated into per-snake
-//      Battlesnake-shaped GameStates (one bot identity can own several snakes
-//      in Team Snek — originals and clones) and fed to the ActiveGameManager,
-//      which computes and stages each snake's move.
+//   3. Turn intake: turns are append-only and immutable, so every turn is
+//      handled exactly once — turn 0 included, with no special case anywhere
+//      in this file. Each is translated into per-snake Battlesnake-shaped
+//      GameStates (one bot identity can own several snakes in Team Snek —
+//      originals and clones) and fed to the ActiveGameManager, which computes
+//      and stages each snake's move.
 //   4. Staged-move publishing: the manager write-through publishes EVERY
 //      staging action (bot recommendation, manual selection, queue step,
 //      waypoint step, revert-to-bot, suicide) through the MoveSubmitter this
 //      module wires up, as a privateMoves write. Re-staging simply writes
-//      again; the server takes the last write before the deadline. There is
-//      deliberately NO commit step (no moveStatuses writes): the staging
-//      window stays open until the game server's own turn timer fires.
+//      again; the server takes the last write before the deadline. Nothing
+//      commits automatically: the staging window stays open until the game
+//      server's own turn timer fires, unless a human hits Submit All (which
+//      writes moveStatuses through the MoveCommitter).
 //   5. Resolution bookkeeping: when the next turn arrives, the moves the
 //      server actually applied are derived from the board delta and fed back
 //      (decision log, premove queue advancement, UI move-committed events).
@@ -140,8 +143,8 @@ interface TurnWatch {
   // Listener on moveStatuses/{turn}: the ONLY finalization trigger — a snake
   // finalizes exactly when its commit is observed in movedPlayerIDs.
   statusUnsub: Unsubscribe | null;
-  // Latest server-acked staged move per owned snake. A server timestamp is
-  // the acknowledgement; deadline enforcement belongs to the game server.
+  // Latest server-acked staged move per owned snake (ts <= endTime), i.e.
+  // the move the server's own resolution rule would pick right now.
   confirmed: Map<string, { ts: number; direction: Direction }>;
   // Snakes whose privateMoves read-back has delivered at least one snapshot
   // (even an empty one) — the precondition for trusting "nothing staged".
@@ -588,31 +591,12 @@ export class TacticToesFirebaseInterface {
 
   private async onGameUpdate(watched: WatchedGame, data: TTGameStateDoc): Promise<void> {
     const turnNumber = data.turns.length - 1;
-    if (turnNumber <= watched.lastProcessedTurn) {
-      // Same-turn doc rewrite. This matters on the FIRST turn: the game
-      // server creates turn 0 with a provisional endTime (players are still
-      // joining) and rewrites it — possibly every second during the lobby
-      // countdown. Refresh the cached deadline and the UI turn timer IN
-      // PLACE. Never tear down / resubscribe the read-back listeners here:
-      // the countdown rewrites would churn them continuously, and a listener
-      // that is destroyed every second may never deliver a confirmation —
-      // exactly the "solid arrow never appears on turn 0" failure. The
-      // read-back itself no longer filters by endTime, so the existing
-      // listeners stay correct across any deadline change.
-      const tw = watched.turnWatch;
-      if (turnNumber === watched.lastProcessedTurn && tw && tw.turn === turnNumber) {
-        const currTurn = data.turns[turnNumber];
-        const et = currTurn?.endTime instanceof Timestamp ? currTurn.endTime.toMillis() : null;
-        if (et !== null && et !== tw.endTimeMs) {
-          tw.endTimeMs = et;
-          watched.latestDoc = data;
-          this.gameManager.recordTurnArrival(
-            watched.gameID, Date.now(), data.setup.maxTurnTime * 1000, et
-          );
-        }
-      }
-      return;
-    }
+    // Turns are append-only and immutable: the server writes each one exactly
+    // once, deadline included (TacticToes `startGame` for turn 0, `processTurn`
+    // for the rest). So a snapshot that doesn't advance the turn number has
+    // nothing new in it — the game doc simply changed elsewhere, or the SDK
+    // re-delivered from cache then server.
+    if (turnNumber <= watched.lastProcessedTurn) return;
     const prevProcessed = watched.lastProcessedTurn;
     watched.lastProcessedTurn = turnNumber;
 
@@ -888,33 +872,28 @@ export class TacticToesFirebaseInterface {
         onSnapshot(q, (snapshot) => {
           // The first delivery (even empty, even from cache-then-server)
           // makes "nothing staged" a trustworthy observation.
-          if (!tw.readBackReady.has(snakeId)) {
-            console.log(
-              `[tt-firebase] Read-back first delivery for ${snakeId} turn ${tw.turn}: ${snapshot.size} doc(s)`
-            );
-          }
           tw.readBackReady.add(snakeId);
-          // Latest SERVER-acked write wins (pending local writes have a null
-          // serverTimestamp and don't count as confirmation). Do NOT apply a
-          // local timestamp-vs-endTime filter here: TacticToes may extend a
-          // turn after its original deadline, and accepted privateMoves can
-          // therefore have server timestamps later than the stale endTime
-          // carried by this snapshot. Firebase's accepted document is the
-          // authoritative staged state; the game engine alone decides which
-          // accepted write will resolve the turn.
+          // The confirmed move must be the one the server will actually
+          // resolve with, so this mirrors processTurn's rule exactly: latest
+          // SERVER-acked write (pending local writes have a null
+          // serverTimestamp and don't count) whose timestamp is at or before
+          // the turn's endTime. Both times are server-issued, so there is no
+          // client clock in the comparison, and the turn's endTime never
+          // moves once written.
           let best: { ts: number; direction: Direction } | null = null;
           snapshot.forEach((docSnap) => {
             const d = docSnap.data() as { move: number; timestamp: Timestamp | null };
             const ts = d.timestamp instanceof Timestamp ? d.timestamp.toMillis() : null;
-            if (ts === null) return;
+            if (ts === null || ts > tw.endTimeMs) return;
             if (best && ts <= best.ts) return;
             const direction = moveIndexToDirection(headIndex, d.move, width);
             if (!direction) {
-              // A server-acked write we cannot map to a direction would
-              // silently break confirmation — make it loud.
+              // Only reachable if the board moved under a staged write, which
+              // append-only turns make impossible — so say so rather than
+              // silently dropping the confirmation.
               console.warn(
-                `[tt-firebase] Read-back doc for ${snakeId} turn ${tw.turn} not adjacent to head ` +
-                  `(head=${headIndex}, move=${d.move}, width=${width}) — skipped`
+                `[tt-firebase] Staged move for ${snakeId} turn ${tw.turn} is not adjacent to its head ` +
+                  `(head=${headIndex}, move=${d.move}) — ignoring`
               );
               return;
             }

@@ -150,6 +150,10 @@ function buildSnake(
 
   const snake: Snake = {
     id: playerID,
+    // The server stamps displayName onto every player in the game document's
+    // setup — bot originals, Team Snek clones and humans alike — so this is
+    // the same name the HTTP interface would send. Games started before that
+    // change only carry it for clones, hence the raw-ID last resort.
     name: gamePlayer?.displayName ?? playerID,
     latency: '0',
     health: turn.playerHealth[playerID] ?? 0,
