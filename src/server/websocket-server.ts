@@ -829,12 +829,20 @@ export class GameWebSocketServer {
     }
   }
 
+  // The engine server's host, exposed to the lobby page so game cards can
+  // link to the game on the engine server. Optional: when unset the cards
+  // simply render no link.
+  private engineHost(): string | null {
+    return process.env.GAME_ENGINE_HOST || null;
+  }
+
   private sendLobbyState(ws: WebSocket): void {
     const games = this.gameManager.getActiveGames();
     this.send(ws, {
       type: 'lobby-update',
       games,
       pendingGames: PendingGameRegistry.getInstance().list(),
+      engineHost: this.engineHost(),
     });
   }
 
@@ -844,6 +852,7 @@ export class GameWebSocketServer {
       type: 'lobby-update',
       games,
       pendingGames: PendingGameRegistry.getInstance().list(),
+      engineHost: this.engineHost(),
     };
     const data = JSON.stringify(msg);
     for (const client of this.clients) {

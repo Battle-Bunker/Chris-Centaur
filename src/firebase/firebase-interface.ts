@@ -839,6 +839,9 @@ export class TacticToesFirebaseInterface {
         }
         this.gameManager.registerGame(view);
       }
+      // Let the manager know which engine-server session this game belongs
+      // to, so the lobby can link to the game on the engine server.
+      this.gameManager.setGameSession(watched.gameID, watched.sessionID);
     }
 
     // Derive the moves the server actually applied on the PREVIOUS turn from

@@ -202,6 +202,10 @@ export type EnrolResult =
 
 export interface ActiveGame {
   gameId: string;
+  // The engine-server session this game belongs to (set by the Firebase
+  // interface after registration). Used to build links to the game on the
+  // engine server; null until known.
+  sessionId: string | null;
   boardState: BoardSnapshot | null;
   boardStateTurn: number;
   snakes: Map<string, SnakeInfo>;
@@ -453,6 +457,7 @@ export class ActiveGameManager {
       const now = Date.now();
       game = {
         gameId,
+        sessionId: null,
         boardState: gameState,
         boardStateTurn: gameState.turn || 0,
         snakes: new Map(),
@@ -851,8 +856,19 @@ export class ActiveGameManager {
     return this.games.get(gameId);
   }
 
+  // Record which engine-server session a game belongs to (called by the
+  // Firebase interface, which is the only component that knows it).
+  setGameSession(gameId: string, sessionId: string): void {
+    const game = this.games.get(gameId);
+    if (game && game.sessionId !== sessionId) {
+      game.sessionId = sessionId;
+      this.notifyGameListChange('updated', gameId, '');
+    }
+  }
+
   getActiveGames(): Array<{
     gameId: string;
+    sessionId: string | null;
     controlledSnakes: Array<{ id: string; name: string; letter: string }>;
     turn: number;
     gameState: GameState | null;
@@ -866,6 +882,7 @@ export class ActiveGameManager {
       }
       result.push({
         gameId: game.gameId,
+        sessionId: game.sessionId,
         controlledSnakes: snakes,
         turn: game.currentTurn,
         gameState: game.boardState,

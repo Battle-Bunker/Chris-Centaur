@@ -92,6 +92,11 @@
       width: 100%; aspect-ratio: 1; border: 1px solid #444;
       border-radius: 4px; background: #ffffff;
     }
+    .engine-link {
+      font-size: 11px; color: #4CAF50; text-decoration: none;
+      white-space: nowrap;
+    }
+    .engine-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -128,6 +133,7 @@
     let reconnectTimer = null;
     let currentGames = [];
     let currentPendingGames = [];
+    let engineHost = null; // GAME_ENGINE_HOST from the server; null = no links
     const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes without a turn change = stale
     const gameActivity = new Map(); // gameId -> { turn, lastChanged }
     const staleGames = new Set();   // gameIds currently hidden as stale
@@ -169,6 +175,7 @@
           } else if (msg.type === 'lobby-update') {
             currentGames = msg.games;
             currentPendingGames = msg.pendingGames || [];
+            engineHost = msg.engineHost || null;
             recordActivity(msg.games);
             renderGames(getLiveGames());
           } else if (msg.type === 'firebase-status') {
@@ -281,6 +288,15 @@
       }).format(new Date(ts));
     }
 
+    // Link to the game on the team snek engine server. Empty string when the
+    // host isn't configured or the session/game IDs aren't known. stopPropagation
+    // keeps the click from also triggering the card's own click handler.
+    function engineLink(sessionID, gameID) {
+      if (!engineHost || !sessionID || !gameID) return '';
+      const url = `https://${engineHost}/session/${encodeURIComponent(sessionID)}/${encodeURIComponent(gameID)}`;
+      return `<a class="engine-link" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on engine ↗</a>`;
+    }
+
     // Pending lobby bubble: the centaur has been invited but the game hasn't
     // started. Identified by sessionID+gameID; deliberately NOT clickable.
     function renderPendingCard(pg) {
@@ -296,7 +312,7 @@
               <span class="pending-badge">PENDING</span>
               <span class="game-card-turn">${teams.length} team${teams.length === 1 ? '' : 's'}</span>
             </div>
-            <div class="game-card-id">${pg.sessionID} / ${pg.gameID}</div>
+            <div class="game-card-id">${pg.sessionID} / ${pg.gameID} ${engineLink(pg.sessionID, pg.gameID)}</div>
             <div class="game-card-settings">
               Board ${board} · ${pg.snakesPerTeam ?? '?'} snakes/team · ${pg.maxTurnTime ?? '?'}s turns
             </div>
@@ -345,7 +361,7 @@
               <span class="game-card-turn">Turn ${game.turn}</span>
               ${startLabel ? `<span class="game-card-time">${startLabel}</span>` : ''}
             </div>
-            <div class="game-card-id">${game.gameId}</div>
+            <div class="game-card-id">${game.gameId} ${engineLink(game.sessionId, game.gameId)}</div>
             <div class="game-card-snakes">${snakeTags}</div>
           </div>
           <div class="game-card-minimap">
