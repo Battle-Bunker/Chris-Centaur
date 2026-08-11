@@ -43,13 +43,3 @@ build = ["npm", "run", "build"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000
-
-[userenv]
-
-[userenv.shared]
-GAME_ENGINE_HOST = "88e77f59-672b-4d70-ba90-0ea74a66e64c-00-1ri7u2qgrf4n2.worf.replit.dev"
-
-[userenv.production]
-
-[userenv.development]
-TACTICTOES_FUNCTIONS_REGION = "us-central1"
