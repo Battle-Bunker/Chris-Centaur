@@ -91,7 +91,7 @@ gameManager.startStaleGameCleanup(300000, 600000);
 gameManager.startServerPing();
 
 // The TacticToes Firebase interface is the SOLE game transport: it signs in
-// as the bot, discovers games via invite docs, feeds turns to the game
+// as the centaur, discovers games via invite docs, feeds turns to the game
 // manager, and publishes every staged move to Firestore (the single source of
 // truth for staged moves). Without the TACTICTOES_* env vars the process only
 // serves the web UI — see README.md for configuration.
@@ -136,20 +136,20 @@ if (ttFirebase) {
   });
 } else {
   console.error(
-    '[tt-firebase] NOT CONFIGURED — the bot cannot play. Set TACTICTOES_BOT_ID, ' +
-    'TACTICTOES_BOT_API_KEY, TACTICTOES_FIREBASE_PROJECT_ID and TACTICTOES_FIREBASE_API_KEY ' +
+    '[tt-firebase] NOT CONFIGURED — the centaur cannot play. Set TACTICTOES_CENTAUR_ID, ' +
+    'TACTICTOES_CENTAUR_API_KEY, TACTICTOES_FIREBASE_PROJECT_ID and TACTICTOES_FIREBASE_API_KEY ' +
     '(see README.md). Serving the web UI only.'
   );
 }
 
-// Firebase connection status surface: the bot is nonfunctional without its
+// Firebase connection status surface: the centaur is nonfunctional without its
 // Firebase connection, so the web UI shows a red banner (with a Retry button)
 // whenever it is down. Status changes are pushed over the WebSocket; these
 // endpoints cover initial page load and the retry action.
 const NOT_CONFIGURED_STATUS = {
   state: 'not_configured',
   error:
-    'TACTICTOES_* environment variables are missing — the bot cannot connect to Firebase.',
+    'TACTICTOES_* environment variables are missing — the centaur cannot connect to Firebase.',
   since: Date.now(),
 };
 if (!ttFirebase) {
@@ -180,7 +180,7 @@ app.post('/api/firebase-retry', async (_req, res) => {
 });
 
 httpServer.listen(port, '0.0.0.0', () => {
-  console.log(`🐍 Battlesnake Team Snek Bot running on port ${port}!`);
+  console.log(`🐍 Chris-Centaur running on port ${port}!`);
   console.log(`Visit http://localhost:${port} for snake info`);
   console.log(`Visit http://localhost:${port}/config for configuration`);
   console.log(`Visit http://localhost:${port}/play for centaur play`);

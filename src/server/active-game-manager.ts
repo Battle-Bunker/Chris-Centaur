@@ -114,13 +114,13 @@ export type IntentMode = SnakeIntent['kind'];
 export interface SnakeInfo {
   id: string;
   name: string;
-  emoji: string;
+  letter: string;
 }
 
 export interface ControlledSnake {
   id: string;
   name: string;
-  emoji: string;
+  letter: string;
   latestTurnData: TurnData | null;
   botRecommendation: Direction | null;
   selectedBy: string | null;
@@ -473,7 +473,7 @@ export class ActiveGameManager {
         game.snakes.set(snake.id, {
           id: snake.id,
           name: snake.name,
-          emoji: snake.emoji || '',
+          letter: snake.letter || '',
         });
       }
     }
@@ -483,7 +483,7 @@ export class ActiveGameManager {
       game.controlledSnakes.set(snakeId, {
         id: snakeId,
         name: gameState.you.name,
-        emoji: gameState.you.emoji || '',
+        letter: gameState.you.letter || '',
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
@@ -853,16 +853,16 @@ export class ActiveGameManager {
 
   getActiveGames(): Array<{
     gameId: string;
-    controlledSnakes: Array<{ id: string; name: string; emoji: string }>;
+    controlledSnakes: Array<{ id: string; name: string; letter: string }>;
     turn: number;
     gameState: GameState | null;
     startedAt: number;
   }> {
     const result: Array<any> = [];
     for (const game of this.games.values()) {
-      const snakes: Array<{ id: string; name: string; emoji: string }> = [];
+      const snakes: Array<{ id: string; name: string; letter: string }> = [];
       for (const cs of game.controlledSnakes.values()) {
-        snakes.push({ id: cs.id, name: cs.name, emoji: cs.emoji });
+        snakes.push({ id: cs.id, name: cs.name, letter: cs.letter });
       }
       result.push({
         gameId: game.gameId,
@@ -878,7 +878,7 @@ export class ActiveGameManager {
   getGameState(gameId: string): {
     boardState: BoardSnapshot | null;
     controlledSnakes: Array<{
-      id: string; name: string; emoji: string;
+      id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
@@ -896,7 +896,7 @@ export class ActiveGameManager {
     if (!game) return null;
 
     const controlledSnakes: Array<{
-      id: string; name: string; emoji: string;
+      id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
@@ -907,7 +907,7 @@ export class ActiveGameManager {
       controlledSnakes.push({
         id: cs.id,
         name: cs.name,
-        emoji: cs.emoji,
+        letter: cs.letter,
         selectedBy: cs.selectedBy,
         turnData: cs.latestTurnData,
         botRecommendation: cs.botRecommendation,
@@ -1750,7 +1750,7 @@ export class ActiveGameManager {
           game.snakes.set(snake.id, {
             id: snake.id,
             name: snake.name,
-            emoji: snake.emoji || '',
+            letter: snake.letter || '',
           });
         }
       }
@@ -1863,7 +1863,7 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (controlled) {
       controlled.name = gameState.you.name || controlled.name;
-      controlled.emoji = gameState.you.emoji || controlled.emoji;
+      controlled.letter = gameState.you.letter || controlled.letter;
     }
 
     const boardSnakeIds = new Set(gameState.board.snakes.map(s => s.id));

@@ -1,20 +1,19 @@
-// The TacticToes game transport: this bot connects to the TacticToes Firebase
-// project directly and drives every game through Firestore. There is no HTTP
-// Battlesnake interface — Firebase is the single source of truth for what is
-// staged, and the game server resolves each turn with the LAST staged move
-// written before the turn deadline.
+// The TacticToes game transport: this centaur connects to the TacticToes
+// Firebase project directly and drives every game through Firestore. There is
+// no HTTP Battlesnake interface — Firebase is the single source of truth for
+// what is staged, and the game server resolves each turn with the LAST staged
+// move written before the turn deadline.
 //
 // Responsibilities:
-//   1. Auth: exchange the bot API key for a Firebase custom token via the
-//      `exchangeBotApiKey` callable, then signInWithCustomToken.
-//   2. Discovery: listen to bots/{botId}/games for the invite docs the server
-//      writes at game start; open one game-doc listener per live game.
+//   1. Auth: exchange the centaur API key for a Firebase custom token via the
+//      `exchangeCentaurApiKey` callable, then signInWithCustomToken.
+//   2. Discovery: listen to centaurs/{centaurId}/games for the invite docs the
+//      server writes at game start; open one game-doc listener per live game.
 //   3. Turn intake: turns are append-only and immutable, so every turn is
 //      handled exactly once — turn 0 included, with no special case anywhere
 //      in this file. Each is translated into per-snake Battlesnake-shaped
-//      GameStates (one bot identity can own several snakes in Team Snek —
-//      originals and clones) and fed to the ActiveGameManager, which computes
-//      and stages each snake's move.
+//      GameStates (a centaur controls its whole team of snakes) and fed to
+//      the ActiveGameManager, which computes and stages each snake's move.
 //   4. Staged-move publishing: the manager write-through publishes EVERY
 //      staging action (bot recommendation, manual selection, queue step,
 //      waypoint step, revert-to-bot, suicide) through the MoveSubmitter this
@@ -80,8 +79,8 @@ export interface FirebaseInterfaceConfig {
   projectId: string;
   apiKey: string;
   region: string;
-  botId: string;
-  botApiKey: string;
+  centaurId: string;
+  centaurApiKey: string;
   emulators?: {
     firestoreHost?: string;
     firestorePort?: number;
@@ -95,11 +94,11 @@ export interface FirebaseInterfaceConfig {
 export function firebaseInterfaceConfigFromEnv(
   env: NodeJS.ProcessEnv
 ): FirebaseInterfaceConfig | null {
-  const botId = env.TACTICTOES_BOT_ID;
-  const botApiKey = env.TACTICTOES_BOT_API_KEY;
+  const centaurId = env.TACTICTOES_CENTAUR_ID;
+  const centaurApiKey = env.TACTICTOES_CENTAUR_API_KEY;
   const projectId = env.TACTICTOES_FIREBASE_PROJECT_ID;
   const apiKey = env.TACTICTOES_FIREBASE_API_KEY;
-  if (!botId || !botApiKey || !projectId || !apiKey) return null;
+  if (!centaurId || !centaurApiKey || !projectId || !apiKey) return null;
 
   // Emulator plumbing for local integration testing against the Firebase
   // emulator suite: TACTICTOES_EMULATOR_FIRESTORE=host:port,
@@ -127,8 +126,8 @@ export function firebaseInterfaceConfigFromEnv(
     projectId,
     apiKey,
     region: env.TACTICTOES_FUNCTIONS_REGION || 'us-central1',
-    botId,
-    botApiKey,
+    centaurId,
+    centaurApiKey,
     emulators,
   };
 }
@@ -165,7 +164,7 @@ interface WatchedGame {
   turnWatch: TurnWatch | null;
   // Watchdog state: when the last game-doc snapshot arrived. A listener the
   // SDK silently gave up on (emulator stream corruption, network partition)
-  // otherwise leaves the bot blind while the server plays default moves.
+  // otherwise leaves the centaur blind while the server plays default moves.
   lastSnapshotMs: number;
 }
 
@@ -218,7 +217,7 @@ export class TacticToesFirebaseInterface {
   private readonly quickAnalyzer = new MoveAnalyzer('custom');
 
   // Connection status surfaced to the web UI (banner + /api/firebase-status).
-  // The bot is nonfunctional without Firebase, so operators must be able to
+  // The centaur is nonfunctional without Firebase, so operators must be able to
   // see (and retry) a failed connection without shelling into the server.
   private connState: FirebaseConnState = 'connecting';
   private connError: string | null = null;
@@ -261,7 +260,7 @@ export class TacticToesFirebaseInterface {
    */
   /**
    * Autoscale hygiene: while no human is connected to the web UI there is no
-   * reason to hold Firestore gRPC streams open (and a centaur bot with no
+   * reason to hold Firestore gRPC streams open (and a centaur with no
    * operator can't meaningfully play anyway). suspend() tears the client down
    * exactly like stop() but stays resumable; resume() re-runs the start path.
    * The recent-first invite replay on resume re-discovers any still-live
@@ -422,13 +421,13 @@ export class TacticToesFirebaseInterface {
       );
     }
 
-    const exchange = httpsCallable<{ botId: string; apiKey: string }, { customToken: string }>(
+    const exchange = httpsCallable<{ centaurId: string; apiKey: string }, { customToken: string }>(
       functions,
-      'exchangeBotApiKey'
+      'exchangeCentaurApiKey'
     );
-    const { data } = await exchange({ botId: config.botId, apiKey: config.botApiKey });
+    const { data } = await exchange({ centaurId: config.centaurId, apiKey: config.centaurApiKey });
     await signInWithCustomToken(this.auth, data.customToken);
-    console.log(`[tt-firebase] Signed in as bot:${config.botId}`);
+    console.log(`[tt-firebase] Signed in as centaur:${config.centaurId}`);
     this.setStatus('connected');
 
     // Wire the write-through publisher: every staging action in the manager
@@ -445,7 +444,7 @@ export class TacticToesFirebaseInterface {
     // Recent-first invite feed. Finished games are filtered out on first
     // snapshot of their game doc, so replaying a few stale invites is cheap.
     const invitesQuery = query(
-      collection(this.db, `bots/${config.botId}/games`),
+      collection(this.db, `centaurs/${config.centaurId}/games`),
       orderBy('createdAt', 'desc'),
       limit(20)
     );
@@ -461,7 +460,7 @@ export class TacticToesFirebaseInterface {
       (err) => {
         // Terminal invite-stream failure. The game-doc watchdog only covers
         // watched games — with zero live games a dead invite feed would
-        // otherwise leave the bot blind forever while reporting 'connected'.
+        // otherwise leave the centaur blind forever while reporting 'connected'.
         console.error('[tt-firebase] Invite listener failed:', err);
         this.setStatus('error', `Invite listener failed: ${String((err as Error)?.message || err)}`);
         if (!this.stopped) {
@@ -635,7 +634,7 @@ export class TacticToesFirebaseInterface {
 
   /**
    * Re-open the current turn's read-back listeners on a freshly rebuilt
-   * client. Without this the bot spends the REST of the turn blind to its own
+   * client. Without this the centaur spends the REST of the turn blind to its own
    * staged moves: writes still land and still play, but nothing ever confirms
    * (the solid arrow never catches up to the ghost) and no commit is ever
    * observed (no finalization). A long first turn made that the normal case.
@@ -651,7 +650,7 @@ export class TacticToesFirebaseInterface {
     const turn = data.turns[turnNumber];
     if (turn.winners.length > 0) return; // game over — nothing left to stage
 
-    const aliveOurs = controlledSnakeIDs(data.setup, this.config.botId).filter((id) =>
+    const aliveOurs = controlledSnakeIDs(data.setup, this.config.centaurId).filter((id) =>
       turn.alivePlayers.includes(id)
     );
     if (aliveOurs.length === 0) return;
@@ -684,7 +683,7 @@ export class TacticToesFirebaseInterface {
     watched.lastProcessedTurn = turnNumber;
 
     const turn = data.turns[turnNumber];
-    const ourSnakes = controlledSnakeIDs(data.setup, this.config.botId);
+    const ourSnakes = controlledSnakeIDs(data.setup, this.config.centaurId);
     if (ourSnakes.length === 0) {
       this.unwatchGame(watched);
       return;

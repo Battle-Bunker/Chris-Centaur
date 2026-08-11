@@ -758,7 +758,7 @@
         } else {
           const ownerId = ownership.sources[owner];
           const snake = board.snakes.find(s => s.id === ownerId);
-          const name = snake ? `${snake.emoji || ''} ${snake.name || ownerId}`.trim() : ownerId;
+          const name = snake ? `${!snake.letter && snake.emoji ? snake.emoji + ' ' : ''}${snake.name || ownerId}`.trim() : ownerId;
           const color = (snake && (snake.color || snake.customizations?.color)) || '#999';
           const d = ownership.distance[idx];
           body += `<div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};margin-right:5px;vertical-align:baseline"></span>Owned by <b>${name}</b></div>`;
@@ -1540,8 +1540,7 @@
       const snake = currentGameState?.board.snakes.find(s => s.id === selectedSnakeId);
       const csInfo = controlledSnakeTurnData[selectedSnakeId];
       const name = snake?.name || csInfo?.name || selectedSnakeId;
-      const emoji = snake?.emoji || csInfo?.emoji || '\u{1F40D}';
-      document.getElementById('selectedSnakeName').textContent = `${emoji} ${name}`;
+      document.getElementById('selectedSnakeName').textContent = name;
       updateIntentModeBadge();
 
       updateMoveControls();
@@ -3308,7 +3307,6 @@
         intendedHead,
         actualHead,
         color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
-        emoji: ourSnake?.emoji || '\u{1F40D}',
       }];
     }
 
@@ -3422,9 +3420,10 @@
 
       const snake = turn.game_state.board.snakes.find(s => s.id === turn.snake_id);
       const name = snake?.name || turn.snake_name || turn.snake_id;
-      const emoji = snake?.emoji || '\u{1F40D}';
+      // Historical logs predating letters stored an emoji head glyph.
+      const glyph = !snake?.letter && snake?.emoji ? `${snake.emoji} ` : '';
       const nameEl = document.getElementById('selectedSnakeName');
-      nameEl.textContent = `${emoji} ${name} (history)`;
+      nameEl.textContent = `${glyph}${name} (history)`;
       // Confirmed-fatal note: this turn's submitted move went through the
       // fatal-move confirmation dialog (deliberate death, not a bot mistake).
       let fatalNote = document.getElementById('fatalConsentNote');
@@ -3464,8 +3463,8 @@
 
       const rec = snakeLastSeen.get(getHistoricSnakeId());
       const name = rec?.snake?.name || getHistoricSnakeId() || 'Snake';
-      const emoji = rec?.snake?.emoji || '\u{1F40D}';
-      document.getElementById('selectedSnakeName').textContent = `${emoji} ${name} (history)`;
+      const glyph = !rec?.snake?.letter && rec?.snake?.emoji ? `${rec.snake.emoji} ` : '';
+      document.getElementById('selectedSnakeName').textContent = `${glyph}${name} (history)`;
 
       const fatalNote = document.getElementById('fatalConsentNote');
       if (fatalNote) fatalNote.style.display = 'none';

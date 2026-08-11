@@ -16,38 +16,38 @@ const idx = (x: number, y: number) => y * W + x; // full-board coords, y down
 
 function makeSetup(overrides: Partial<TTGameSetup> = {}): TTGameSetup {
   return {
-    gameType: 'teamsnek',
+    teams: [
+      { id: 'centA', name: 'Reds', color: '#ff0000' },
+      { id: 'centB', name: 'Blues', color: '#0000ff' },
+    ],
+    snakesPerTeam: 2,
     gamePlayers: [
-      { id: 'botA', type: 'bot', teamID: 't1' },
-      { id: 'botA#x2', type: 'bot', botRef: 'botA', teamID: 't1', displayName: 'Bot A 2' },
-      { id: 'botB', type: 'bot', teamID: 't2' },
-      { id: 'human1', type: 'human', teamID: 't2' },
+      { id: 'centA', teamID: 'centA', letter: 'A' },
+      { id: 'centA#2', teamID: 'centA', letter: 'B' },
+      { id: 'centB', teamID: 'centB', letter: 'A' },
+      { id: 'centB#2', teamID: 'centB', letter: 'B' },
     ],
     boardWidth: W,
     boardHeight: H,
     maxTurnTime: 10,
-    teams: [
-      { id: 't1', name: 'Reds', color: '#ff0000' },
-      { id: 't2', name: 'Blues', color: '#0000ff' },
-    ],
     ...overrides,
   };
 }
 
 function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
   return {
-    playerHealth: { botA: 90, 'botA#x2': 80, botB: 70, human1: 60 },
+    playerHealth: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
     startTime: null as any,
     endTime: null as any,
     scores: {},
-    alivePlayers: ['botA', 'botA#x2', 'botB', 'human1'],
+    alivePlayers: ['centA', 'centA#2', 'centB', 'centB#2'],
     food: [idx(2, 2)],
     hazards: [idx(3, 3)],
     playerPieces: {
-      botA: [idx(1, 1), idx(1, 2)],
-      'botA#x2': [idx(5, 4), idx(5, 3)],
-      botB: [idx(3, 1)],
-      human1: [idx(2, 4)],
+      centA: [idx(1, 1), idx(1, 2)],
+      'centA#2': [idx(5, 4), idx(5, 3)],
+      centB: [idx(3, 1)],
+      'centB#2': [idx(2, 4)],
     },
     winners: [],
     ...overrides,
@@ -107,15 +107,16 @@ describe('continuationDirection', () => {
 });
 
 describe('controlledSnakeIDs', () => {
-  it('includes the original and clones, excludes other bots and humans', () => {
-    expect(controlledSnakeIDs(makeSetup(), 'botA')).toEqual(['botA', 'botA#x2']);
-    expect(controlledSnakeIDs(makeSetup(), 'botB')).toEqual(['botB']);
+  it('returns the whole team of the given centaur — every gamePlayer with teamID == centaurId', () => {
+    expect(controlledSnakeIDs(makeSetup(), 'centA')).toEqual(['centA', 'centA#2']);
+    expect(controlledSnakeIDs(makeSetup(), 'centB')).toEqual(['centB', 'centB#2']);
+    expect(controlledSnakeIDs(makeSetup(), 'someoneElse')).toEqual([]);
   });
 });
 
 describe('buildGameState', () => {
   it('produces a Battlesnake view matching the HTTP payload shape', () => {
-    const state = buildGameState('g1', makeSetup(), makeTurn(), 4, 'botA#x2', 123456);
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 4, 'centA#2', 123456);
 
     expect(state.turn).toBe(4);
     expect(state.board.width).toBe(W - 2);
@@ -123,32 +124,35 @@ describe('buildGameState', () => {
     expect(state.game.timeout).toBe(10_000);
     expect((state.game as any).turnExpiryTime).toBe(123456);
 
-    // you: the clone, with its display name, team colour and flipped body.
-    expect(state.you.id).toBe('botA#x2');
-    expect(state.you.name).toBe('Bot A 2');
+    // you: the team's second snake, named from team name + letter, with the
+    // team colour and flipped body.
+    expect(state.you.id).toBe('centA#2');
+    expect(state.you.name).toBe('Reds B');
+    expect(state.you.letter).toBe('B');
     expect(state.you.health).toBe(80);
     expect(state.you.head).toEqual({ x: 4, y: 0 });
     expect(state.you.body).toEqual([{ x: 4, y: 0 }, { x: 4, y: 1 }]);
     expect(state.you.customizations.color).toBe('#ff0000');
-    expect(state.you.teamID).toBe('t1');
-    expect(state.you.squad).toBe('t1');
+    expect(state.you.teamID).toBe('centA');
+    expect(state.you.squad).toBe('centA');
 
     // Teammates share a colour, opponents differ — that is what the engine's
     // TeamDetector groups by.
     const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
-    expect(byId.get('botA')!.customizations.color).toBe('#ff0000');
-    expect(byId.get('botB')!.customizations.color).toBe('#0000ff');
-    expect(byId.get('human1')!.customizations.color).toBe('#0000ff');
+    expect(byId.get('centA')!.customizations.color).toBe('#ff0000');
+    expect(byId.get('centA')!.letter).toBe('A');
+    expect(byId.get('centA')!.name).toBe('Reds A');
+    expect(byId.get('centB')!.customizations.color).toBe('#0000ff');
+    expect(byId.get('centB#2')!.customizations.color).toBe('#0000ff');
+    expect(byId.get('centB#2')!.name).toBe('Blues B');
     expect(state.board.snakes).toHaveLength(4);
 
     expect(state.board.food).toEqual([{ x: 1, y: 2 }]);
     expect(state.board.hazards).toEqual([{ x: 2, y: 1 }]);
   });
 
-  it('falls back to per-snake identity colours outside team mode', () => {
-    const setup = makeSetup({ gameType: 'snek', teams: undefined });
-    const state = buildGameState('g1', setup, makeTurn(), 0, 'botA', null);
-    expect(state.you.customizations.color).toBe('');
+  it('omits turnExpiryTime when no deadline is supplied', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
     expect((state.game as any).turnExpiryTime).toBeUndefined();
   });
 });

@@ -61,10 +61,47 @@ const BoardRenderer = (function () {
         head: prevBody[0],
         body: prevBody.slice(),
         color: s.customizations?.color || s.color || "#888888",
-        emoji: s.emoji || "\u{1F40D}",
       });
     });
     return dead;
+  }
+
+  // Head glyph: the snake's team letter, bold white with a dark outline so it
+  // reads against any team colour. Historical replays predating letters stored
+  // an emoji head — render that; a snake with neither gets "?".
+  function drawHeadGlyph(ctx, snake, hx, hy, cellSize) {
+    const cx = hx + cellSize / 2;
+    const cy = hy + cellSize / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(hx, hy, cellSize, cellSize);
+    ctx.clip();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (snake.letter) {
+      const size = Math.max(cellSize * 0.55, 8);
+      ctx.font = `bold ${size}px sans-serif`;
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+      ctx.strokeText(snake.letter, cx, cy);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(snake.letter, cx, cy);
+    } else if (snake.emoji) {
+      const size = Math.max(cellSize * 0.55, 8);
+      ctx.font = `${size}px serif`;
+      ctx.fillText(snake.emoji, cx, cy);
+    } else {
+      const size = Math.max(cellSize * 0.5, 8);
+      ctx.font = `bold ${size}px sans-serif`;
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+      ctx.strokeText("?", cx, cy);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText("?", cx, cy);
+    }
+    ctx.restore();
   }
 
   // Move a board cell one step in a Battlesnake direction. Returns null for
@@ -1009,20 +1046,7 @@ const BoardRenderer = (function () {
       if (head) {
         const hx = head.x * cellSize;
         const hy = (board.height - 1 - head.y) * cellSize;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(hx, hy, cellSize, cellSize);
-        ctx.clip();
-        const headEmojiSize = Math.max(cellSize * 0.55, 8);
-        ctx.font = `${headEmojiSize}px serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(
-          snake.emoji || "\u{1F40D}",
-          hx + cellSize / 2,
-          hy + cellSize / 2,
-        );
-        ctx.restore();
+        drawHeadGlyph(ctx, snake, hx, hy, cellSize);
       }
 
       if (turn > 0 && snake.body.length > 1) {
@@ -1628,7 +1652,10 @@ const BoardRenderer = (function () {
       }
       invulnDisplay = `<span>${icon} ${invulnLevel}${turnsSuffix}</span>`;
     }
-    const emojiDisplay = snake.emoji || "\u{1F40D}";
+    // Historical replays predating letters stored an emoji head glyph; the
+    // letter is already the suffix of a current snake's name, so only the
+    // emoji era needs a prefix.
+    const glyphPrefix = !snake.letter && snake.emoji ? `${snake.emoji} ` : "";
     // Owner badge: shown for owned snakes in the owner's player colour.
     const owner = opts && opts.owner;
     const ownerBadge = owner
@@ -1653,7 +1680,7 @@ const BoardRenderer = (function () {
         <div class="${itemClass}"${clickAttr}>
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
           <div class="snake-details">
-            <div class="snake-name">${emojiDisplay} ${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
+            <div class="snake-name">${glyphPrefix}${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
             <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
               <span>\u{1F4CF} ${snake.body.length}</span>

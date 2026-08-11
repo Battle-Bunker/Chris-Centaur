@@ -95,20 +95,6 @@ function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[
   return (indices || []).map((i) => toApiCoord(i, w, h));
 }
 
-function snakeColor(setup: TTGameSetup, playerID: string): string {
-  const gamePlayer = setup.gamePlayers.find((gp) => gp.id === playerID);
-  if (
-    (setup.gameType === 'teamsnek' || setup.gameType === 'kingsnek') &&
-    setup.teams &&
-    gamePlayer?.teamID
-  ) {
-    const team = setup.teams.find((t) => t.id === gamePlayer.teamID);
-    if (team) return team.color;
-  }
-  // Individual mode: leave color empty so team detection falls through to
-  // per-snake ids (TeamDetector groups by squad || color || id).
-  return '';
-}
 
 /**
  * The last absolute game turn on which a player's CURRENT aggregate
@@ -147,14 +133,11 @@ function buildSnake(
   const h = setup.boardHeight;
   const body = (turn.playerPieces[playerID] || []).map((i) => toApiCoord(i, w, h));
   const gamePlayer = setup.gamePlayers.find((gp) => gp.id === playerID);
+  const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
 
   const snake: Snake = {
     id: playerID,
-    // The server stamps displayName onto every player in the game document's
-    // setup — bot originals, Team Snek clones and humans alike — so this is
-    // the same name the HTTP interface would send. Games started before that
-    // change only carry it for clones, hence the raw-ID last resort.
-    name: gamePlayer?.displayName ?? playerID,
+    name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : playerID,
     latency: '0',
     health: turn.playerHealth[playerID] ?? 0,
     body,
@@ -163,12 +146,13 @@ function buildSnake(
     shout: '',
     squad: gamePlayer?.teamID ?? '',
     customizations: {
-      color: snakeColor(setup, playerID),
+      color: team?.color ?? '',
       head: 'default',
       tail: 'default',
     },
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
   };
+  if (gamePlayer) snake.letter = gamePlayer.letter;
   const expiry = invulnerabilityExpiryTurn(turn, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
@@ -194,7 +178,7 @@ export function buildGameState(
   const game: GameState['game'] = {
     id: gameID,
     ruleset: {
-      name: setup.gameType,
+      name: 'teamsnek',
       version: 'v1',
       settings: {
         foodSpawnChance: (foodSpawnRate / 5) * 100,
@@ -232,9 +216,9 @@ export function buildGameState(
   };
 }
 
-/** The in-game snake ids (originals and clones) a bot identity controls. */
-export function controlledSnakeIDs(setup: TTGameSetup, botId: string): string[] {
+/** The in-game snake ids a centaur identity controls: its whole team. */
+export function controlledSnakeIDs(setup: TTGameSetup, centaurId: string): string[] {
   return setup.gamePlayers
-    .filter((gp) => gp.type === 'bot' && (gp.botRef ?? gp.id) === botId)
+    .filter((gp) => gp.teamID === centaurId)
     .map((gp) => gp.id);
 }

@@ -18,6 +18,10 @@ export interface Snake {
     head: string;
     tail: string;
   };
+  // Head glyph: the snake's letter within its team ("A".."Z").
+  letter?: string;
+  // Read-side fallback only: historical decision_logs game_state rows stored an
+  // emoji head glyph. Nothing writes this anymore.
   emoji?: string;
   invulnerabilityLevel?: number;
   // Last absolute game turn on which invulnerabilityLevel still applies. Supplied

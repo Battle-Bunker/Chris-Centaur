@@ -289,7 +289,7 @@
       for (const game of sorted) {
         const startLabel = formatStartTime(game.startedAt);
         const snakeTags = (game.controlledSnakes || []).map(s =>
-          `<span class="controlled-snake-tag">${s.emoji || '\u{1F40D}'} ${s.name || 'Snake'}</span>`
+          `<span class="controlled-snake-tag">${s.name || 'Snake'}</span>`
         ).join('');
 
         html += `
