@@ -137,7 +137,8 @@ if (ttFirebase) {
 } else {
   console.error(
     '[tt-firebase] NOT CONFIGURED — the centaur cannot play. Set TACTICTOES_CENTAUR_ID, ' +
-    'TACTICTOES_CENTAUR_API_KEY, TACTICTOES_FIREBASE_PROJECT_ID and TACTICTOES_FIREBASE_API_KEY ' +
+    'TACTICTOES_CENTAUR_API_KEY, TACTICTOES_FIREBASE_PROJECT_ID, TACTICTOES_FIREBASE_API_KEY ' +
+    'and TACTICTOES_FUNCTIONS_REGION (e.g. us-central1, australia-southeast1) ' +
     '(see README.md). Serving the web UI only.'
   );
 }

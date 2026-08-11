@@ -65,7 +65,7 @@ Optional:
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `TACTICTOES_FUNCTIONS_REGION` | `us-central1` | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable) |
+| `TACTICTOES_FUNCTIONS_REGION` | *(required)* | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable), e.g. `us-central1` (dev) or `australia-southeast1` (prod) |
 
 Set them in the deployment environment (Replit secrets, `.env` via your own
 tooling — note there is no dotenv loader; the process reads `process.env`

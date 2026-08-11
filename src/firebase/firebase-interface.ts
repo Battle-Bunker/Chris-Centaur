@@ -100,7 +100,12 @@ export function firebaseInterfaceConfigFromEnv(
   const centaurApiKey = env.TACTICTOES_CENTAUR_API_KEY;
   const projectId = env.TACTICTOES_FIREBASE_PROJECT_ID;
   const apiKey = env.TACTICTOES_FIREBASE_API_KEY;
-  if (!centaurId || !centaurApiKey || !projectId || !apiKey) return null;
+  // The functions region is deliberately NOT defaulted: dev and prod point at
+  // Firebase projects in different regions, and a silent us-central1 fallback
+  // produced a confusing functions/not-found in production. Fail configuration
+  // instead so the missing value is called out at startup.
+  const region = env.TACTICTOES_FUNCTIONS_REGION;
+  if (!centaurId || !centaurApiKey || !projectId || !apiKey || !region) return null;
 
   // Emulator plumbing for local integration testing against the Firebase
   // emulator suite: TACTICTOES_EMULATOR_FIRESTORE=host:port,
@@ -127,7 +132,7 @@ export function firebaseInterfaceConfigFromEnv(
   return {
     projectId,
     apiKey,
-    region: env.TACTICTOES_FUNCTIONS_REGION || 'us-central1',
+    region,
     centaurId,
     centaurApiKey,
     emulators,
