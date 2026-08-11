@@ -288,6 +288,22 @@ export class TacticToesFirebaseInterface {
     this.statusListener = listener;
   }
 
+  /**
+   * One-line failure description with enough context to act on: Firebase
+   * error code + message, plus which callable/region/project we were talking
+   * to. The project id is masked because it is stored as a secret.
+   */
+  private connectFailureDetail(err: unknown): string {
+    const e = err as { code?: string; message?: string };
+    const proj = this.config.projectId;
+    const masked = proj.length > 6 ? `${proj.slice(0, 4)}…` : proj;
+    const code = e?.code ? `${e.code}: ` : '';
+    return (
+      `${code}${e?.message || String(err)} ` +
+      `(exchangeCentaurApiKey @ region ${this.config.region}, project ${masked}, centaur ${this.config.centaurId})`
+    );
+  }
+
   private setStatus(state: FirebaseConnState, error: string | null = null): void {
     if (state === this.connState && error === this.connError) return;
     this.connState = state;
@@ -393,7 +409,13 @@ export class TacticToesFirebaseInterface {
     try {
       await op;
     } catch (err) {
-      this.setStatus('error', String((err as Error)?.message || err));
+      // Log here — start() is reached by initial boot, resume() and the
+      // banner Retry button, and several of those callers intentionally
+      // swallow the rejection (status is their signal). Without this line a
+      // failed retry/resume leaves no trace in the server log.
+      const detail = this.connectFailureDetail(err);
+      console.error(`[tt-firebase] Connect failed — ${detail}`, err);
+      this.setStatus('error', detail);
       // Tear down the partially initialized app so a retry starts from a
       // clean slate instead of leaking one Firebase app per attempt.
       this.teardownClient();
@@ -607,8 +629,9 @@ export class TacticToesFirebaseInterface {
       }
       console.warn('[tt-firebase] Firebase client rebuilt; listeners restored');
     } catch (err) {
-      console.error('[tt-firebase] Client rebuild failed (will retry on next starvation):', err);
-      this.setStatus('error', String((err as Error)?.message || err));
+      const detail = this.connectFailureDetail(err);
+      console.error(`[tt-firebase] Client rebuild failed (will retry on next starvation) — ${detail}`, err);
+      this.setStatus('error', detail);
       // Push the starvation clocks forward so the watchdog waits a full
       // window before retrying the rebuild.
       for (const watched of this.watchedGames.values()) {

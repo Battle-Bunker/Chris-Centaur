@@ -129,8 +129,10 @@ if (ttFirebase) {
         clearTimeout(suspendTimer);
         suspendTimer = null;
       }
-      void ttFirebase.resume().catch(() => {
-        /* status already set to 'error' and pushed to the UI */
+      void ttFirebase.resume().catch((err) => {
+        // Status is already set to 'error' and pushed to the UI; log it too
+        // so the failure is visible in the server log with full detail.
+        console.error('[tt-firebase] Resume after suspension failed:', err);
       });
     }
   });
@@ -176,7 +178,13 @@ app.post('/api/firebase-retry', async (_req, res) => {
     return;
   }
   lastRetryAt = now;
+  console.log('[tt-firebase] Operator retry-connect requested');
   const status = await ttFirebase.retryConnect();
+  if (status.state === 'error') {
+    console.error(`[tt-firebase] Retry-connect failed: ${status.error}`);
+  } else {
+    console.log(`[tt-firebase] Retry-connect result: ${status.state}`);
+  }
   res.json(status);
 });
 
