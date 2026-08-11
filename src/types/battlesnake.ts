@@ -73,37 +73,12 @@ export interface GameState {
 // off it — callers must obtain a real GameState for a specific snake by ID.
 export type BoardSnapshot = Omit<GameState, 'you'>;
 
-export interface MoveResponse {
-  move: string;
-  shout?: string;
-}
-
-export interface SnakeInfoResponse {
-  apiversion: string;
-  author?: string;
-  color?: string;
-  head?: string;
-  tail?: string;
-  version?: string;
-}
-
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export interface TeamInfo {
   color: string;
   snakes: Snake[];
   totalLength: number;
-}
-
-export interface VoronoiResult {
-  territories: Map<string, number>;
-  teamTerritories: Map<string, number>;
-  fertileScores?: Map<string, number>;
-  teamFertileScores?: Map<string, number>;
-  foodControlled?: Map<string, number>;
-  teamFoodControlled?: Map<string, number>;
-  foodDistances?: Map<string, number>;
-  teamFoodDistances?: Map<string, number>;
 }
 
 export interface SimulationConfig {

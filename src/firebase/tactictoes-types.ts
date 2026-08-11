@@ -69,12 +69,6 @@ export interface TTGameStateDoc {
   turns: TTTurn[];
 }
 
-export interface TTMoveStatus {
-  moveNumber: number;
-  alivePlayerIDs: string[];
-  movedPlayerIDs: string[];
-}
-
 /** centaurs/{centaurId}/games/{gameId} invite doc written by the server at game start. */
 export interface TTGameInvite {
   sessionID: string;
