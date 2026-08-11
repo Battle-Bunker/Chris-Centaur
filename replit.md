@@ -30,6 +30,12 @@ Chris-Centaur is a TypeScript centaur for TacticToes **Team Snek**: an AI engine
   - Being near food (proximity) - important for positioning
   - Actually eating food - directly increases score and should be highly rewarded
 
+## Configuration Policy — Replit Secrets only, no env vars
+
+- **All runtime configuration lives in Replit Secrets** (per-environment: Workspace secrets for dev, Publishing UI deployment secrets for prod). This includes non-sensitive values like `TACTICTOES_FUNCTIONS_REGION` and `GAME_ENGINE_HOST`.
+- **Never use Replit environment variables** (`setEnvVars` / the env-vars pane): they are written into `.replit`, which is committed source code — config values must not live in source. They also silently shadow same-key deployment secrets.
+- **No config values or fallback defaults in source code.** Missing config must fail loudly ("not configured"), never fall back to a hardcoded default.
+
 ## User Preferences
 
 - Preferred communication style: Simple, everyday language.
