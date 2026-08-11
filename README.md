@@ -61,15 +61,17 @@ cannot play.
 | `TACTICTOES_FIREBASE_PROJECT_ID` | The TacticToes Firebase project id | e.g. `tactic-toes` (or your own staging project) |
 | `TACTICTOES_FIREBASE_API_KEY` | The Firebase **Web API key** of that project | Firebase console → Project settings → General. This is a public client identifier, not a secret |
 
-Optional:
+Also required:
 
-| Env var | Default | Purpose |
-| --- | --- | --- |
-| `TACTICTOES_FUNCTIONS_REGION` | *(required)* | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable), e.g. `us-central1` (dev) or `australia-southeast1` (prod) |
+| Env var | Purpose |
+| --- | --- |
+| `TACTICTOES_FUNCTIONS_REGION` | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable), e.g. `us-central1` (dev) or `australia-southeast1` (prod) |
 
-Set them in the deployment environment (Replit secrets, `.env` via your own
-tooling — note there is no dotenv loader; the process reads `process.env`
-directly).
+Set all of these as **Replit Secrets** (Workspace secrets for development,
+deployment secrets in the Publishing UI for production). Project policy: no
+Replit environment variables — they are written into the committed `.replit`
+file, and config values must not live in source code. There is no dotenv
+loader; the process reads `process.env` directly.
 
 ### What happens at startup
 
