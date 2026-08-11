@@ -220,6 +220,10 @@ export interface ActiveGame {
   playerNames: Map<string, PlayerEnrolment>;
   turnExpiryTime: number | null;
   currentTurn: number;
+  // The centaur identity we play as in this game (setup team whose id ==
+  // configured centaur id). Set by the Firebase interface at registration;
+  // null when unknown (e.g. legacy games).
+  ourTeam: { id: string; name: string; color: string } | null;
 }
 
 const DISTINCT_COLORS = [
@@ -448,7 +452,7 @@ export class ActiveGameManager {
     console.log('[ActiveGameManager] Server ping interval started (30s, unref\'d)');
   }
 
-  registerGame(gameState: GameState): void {
+  registerGame(gameState: GameState, ourTeam?: { id: string; name: string; color: string } | null): void {
     const gameId = gameState.game.id;
     const snakeId = gameState.you.id;
 
@@ -469,9 +473,11 @@ export class ActiveGameManager {
         playerNames: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
+        ourTeam: ourTeam ?? null,
       };
       this.games.set(gameId, game);
     }
+    if (ourTeam && !game.ourTeam) game.ourTeam = ourTeam;
 
     for (const snake of gameState.board.snakes) {
       if (!game.snakes.has(snake.id)) {
@@ -873,6 +879,7 @@ export class ActiveGameManager {
     turn: number;
     gameState: GameState | null;
     startedAt: number;
+    ourTeam: { id: string; name: string; color: string } | null;
   }> {
     const result: Array<any> = [];
     for (const game of this.games.values()) {
@@ -887,6 +894,7 @@ export class ActiveGameManager {
         turn: game.currentTurn,
         gameState: game.boardState,
         startedAt: game.startedAt,
+        ourTeam: game.ourTeam,
       });
     }
     return result;

@@ -381,6 +381,10 @@ export class TacticToesFirebaseInterface {
     this.connectOp = op.finally(() => {
       this.connectOp = null;
     });
+    // Every awaiter of connectOp uses `.catch(() => undefined)`; without a
+    // handler on the stored chain itself, a failed connect becomes an
+    // unhandledRejection that kills the whole process (blank preview).
+    this.connectOp.catch(() => undefined);
     try {
       await op;
     } catch (err) {
@@ -720,7 +724,12 @@ export class TacticToesFirebaseInterface {
           boardHeight: setup.boardHeight ?? null,
           snakesPerTeam: setup.snakesPerTeam ?? null,
           maxTurnTime: setup.maxTurnTime ?? null,
-          teams: (setup.teams ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color })),
+          teams: (setup.teams ?? []).map((t) => ({
+            id: t.id,
+            name: t.name,
+            color: t.color,
+            ours: t.id === this.config.centaurId,
+          })),
         });
       },
       (err) => {
@@ -831,13 +840,17 @@ export class TacticToesFirebaseInterface {
     // centaur UI lists them and the manager tracks their intents.
     if (!watched.registered) {
       watched.registered = true;
+      const ourTeamEntry = data.setup.teams.find((t) => t.id === this.config.centaurId);
+      const ourTeam = ourTeamEntry
+        ? { id: ourTeamEntry.id, name: ourTeamEntry.name, color: ourTeamEntry.color }
+        : null;
       for (const snakeId of ourSnakes) {
         const view = buildGameState(watched.gameID, data.setup, turn, turnNumber, snakeId, endTimeMs);
         if (snakeId === ourSnakes[0]) {
           this.gameLogger.startGame(view);
           GameRegistry.getInstance().recordGameStart(view);
         }
-        this.gameManager.registerGame(view);
+        this.gameManager.registerGame(view, ourTeam);
       }
       // Let the manager know which engine-server session this game belongs
       // to, so the lobby can link to the game on the engine server.

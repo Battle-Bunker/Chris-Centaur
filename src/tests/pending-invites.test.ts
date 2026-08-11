@@ -64,7 +64,7 @@ describe('PendingGameRegistry', () => {
     boardHeight: 13,
     snakesPerTeam: 3,
     maxTurnTime: 10,
-    teams: [{ id: 'c1', name: 'Centaur One', color: '#ff0000' }],
+    teams: [{ id: 'c1', name: 'Centaur One', color: '#ff0000', ours: true }],
   });
 
   afterEach(() => {

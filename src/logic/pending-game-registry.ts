@@ -14,7 +14,9 @@ export interface PendingGameInfo {
   boardHeight: number | null;
   snakesPerTeam: number | null;
   maxTurnTime: number | null;
-  teams: Array<{ id: string; name: string; color: string }>;
+  // `ours` marks the team controlled by THIS centaur (setup team id ==
+  // configured centaur id) so the UI can say which centaur we are.
+  teams: Array<{ id: string; name: string; color: string; ours: boolean }>;
 }
 
 export class PendingGameRegistry {
