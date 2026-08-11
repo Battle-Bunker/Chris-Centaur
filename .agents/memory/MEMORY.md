@@ -21,5 +21,5 @@
 - [Fatal-move consent + neck guards](fatal-consent-and-neck-guards.md) — human certain-death moves need a branded consent minted only at dialog-confirm/kill-all; adjacency ≠ valid move — reject the just-vacated neck.
 - [Player-name enrolment](player-name-enrolment.md) — active games gate on a per-game-unique name; enrolments + name-keyed colours are game-lifetime, never released; server enrol is the only race-safe check.
 - [Firebase-only transport + status banner](firebase-transport-status.md) — no HTTP webhooks anymore; Firebase conn status must be loud (red banner, no polling), connect paths serialized, invite listener needs own error→rebuild.
-- [Prod env vars: UI only](prod-env-vars-ui-only.md) — agent-set production env vars may not reach the deployment; user sets them in Publishing UI; viewEnvVars shows existence, never values.
+- [Prod env vars shadow UI secrets](prod-env-vars-ui-only.md) — agent-set prod env vars DO reach the deployment and override same-key Publishing-UI secrets; check viewEnvVars values and deleteEnvVars stale keys.
 - [Dev auto-reload quirks](dev-auto-reload.md) — dev workflow uses `node --watch` (not nodemon: the minimatch v10 override breaks nodemon); merges/edits reload automatically, no manual restart.
