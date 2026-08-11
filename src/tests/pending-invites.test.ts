@@ -1,4 +1,4 @@
-import { inviteChangeAction, inviteStatus } from '../firebase/firebase-interface';
+import { inviteChangeAction, inviteStatus, needsReack } from '../firebase/firebase-interface';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 
 // The invite feed now carries lobby invites too: status 'pending' means the
@@ -18,6 +18,24 @@ describe('inviteStatus', () => {
 
   it('treats a missing status as started (pre-protocol invites)', () => {
     expect(inviteStatus({})).toBe('started');
+  });
+});
+
+describe('needsReack', () => {
+  it('acks when the status doc does not exist yet', () => {
+    expect(needsReack(undefined)).toBe(true);
+  });
+
+  it('re-acks when the lobby requested a health recheck (ready flipped false)', () => {
+    expect(needsReack({ ready: false })).toBe(true);
+  });
+
+  it('stays quiet while the ack is standing', () => {
+    expect(needsReack({ ready: true })).toBe(false);
+  });
+
+  it('re-acks on a malformed ready value', () => {
+    expect(needsReack({ ready: 'yes' })).toBe(true);
   });
 });
 

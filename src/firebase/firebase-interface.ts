@@ -204,6 +204,14 @@ export function inviteStatus(invite: Pick<TTGameInvite, 'status'>): 'pending' | 
   return invite.status === 'pending' ? 'pending' : 'started';
 }
 
+/**
+ * Whether our centaurStatus ack needs (re)writing: the doc is missing (first
+ * ack) or the lobby flipped ready back to false to request a health recheck.
+ */
+export function needsReack(statusDoc: { ready?: unknown } | undefined): boolean {
+  return statusDoc?.ready !== true;
+}
+
 export type InviteChangeAction =
   | 'trackPending' // start tracking a pending lobby (ack + setup subscription)
   | 'watch' // normal started-game flow
@@ -250,7 +258,10 @@ export class TacticToesFirebaseInterface {
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
   // listener or turn pipeline is involved until the invite flips to started.
-  private pendingGames = new Map<string, { sessionID: string; unsubscribe: Unsubscribe }>();
+  private pendingGames = new Map<
+    string,
+    { sessionID: string; unsubscribe: Unsubscribe; statusUnsubscribe: Unsubscribe }
+  >();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private rebuilding = false;
   private stopped = false;
@@ -727,18 +738,30 @@ export class TacticToesFirebaseInterface {
     if (this.pendingGames.has(gameID) || this.watchedGames.has(gameID)) return;
     console.log(`[tt-firebase] Tracking pending game ${gameID} in session ${sessionID}`);
 
-    // Readiness ack. The deterministic doc id (our centaurId) makes the write
-    // idempotent across restarts and invite replays.
-    void setDoc(
-      doc(
-        this.db,
-        `sessions/${sessionID}/setups/${gameID}/centaurStatus/${this.config.centaurId}`
-      ),
-      { centaurId: this.config.centaurId, ready: true, respondedAt: serverTimestamp() },
-      { merge: true }
-    ).catch((err) => {
-      console.error(`[tt-firebase] Failed to ack pending game ${gameID}:`, err);
-    });
+    // Readiness ack, kept live: the lobby can request a health recheck by
+    // flipping our ack back to ready == false (or the doc may not exist yet),
+    // and we answer by (re)writing ready == true. Our own write settles the
+    // doc at ready == true, so the listener cannot loop.
+    const statusRef = doc(
+      this.db,
+      `sessions/${sessionID}/setups/${gameID}/centaurStatus/${this.config.centaurId}`
+    );
+    const statusUnsubscribe = onSnapshot(
+      statusRef,
+      (snapshot) => {
+        if (!needsReack(snapshot.exists() ? snapshot.data() : undefined)) return;
+        void setDoc(
+          statusRef,
+          { centaurId: this.config.centaurId, ready: true, respondedAt: serverTimestamp() },
+          { merge: true }
+        ).catch((err) => {
+          console.error(`[tt-firebase] Failed to ack pending game ${gameID}:`, err);
+        });
+      },
+      (err) => {
+        console.error(`[tt-firebase] centaurStatus listener failed for ${gameID}:`, err);
+      }
+    );
 
     const unsubscribe = onSnapshot(
       doc(this.db, `sessions/${sessionID}/setups/${gameID}`),
@@ -764,13 +787,14 @@ export class TacticToesFirebaseInterface {
         console.error(`[tt-firebase] Pending setup listener failed for ${gameID}:`, err);
       }
     );
-    this.pendingGames.set(gameID, { sessionID, unsubscribe });
+    this.pendingGames.set(gameID, { sessionID, unsubscribe, statusUnsubscribe });
   }
 
   private dropPendingGame(gameID: string): void {
     const pending = this.pendingGames.get(gameID);
     if (!pending) return;
     pending.unsubscribe();
+    pending.statusUnsubscribe();
     this.pendingGames.delete(gameID);
     PendingGameRegistry.getInstance().remove(gameID);
     console.log(`[tt-firebase] Stopped tracking pending game ${gameID}`);
