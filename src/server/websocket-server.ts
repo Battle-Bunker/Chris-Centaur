@@ -7,6 +7,7 @@ import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
+import { PendingGameRegistry } from '../logic/pending-game-registry';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -278,6 +279,11 @@ export class GameWebSocketServer {
 
     this.gameManager.onGameListChange((event, gameId, snakeId) => {
       console.log(`[WebSocket] Game list changed: ${event} ${gameId}:${snakeId}`);
+      this.broadcastLobbyUpdate();
+    });
+
+    // Pending (unstarted) lobbies come and go independently of active games.
+    PendingGameRegistry.getInstance().onChange(() => {
       this.broadcastLobbyUpdate();
     });
 
@@ -828,12 +834,17 @@ export class GameWebSocketServer {
     this.send(ws, {
       type: 'lobby-update',
       games,
+      pendingGames: PendingGameRegistry.getInstance().list(),
     });
   }
 
   private broadcastLobbyUpdate(): void {
     const games = this.gameManager.getActiveGames();
-    const msg = { type: 'lobby-update', games };
+    const msg = {
+      type: 'lobby-update',
+      games,
+      pendingGames: PendingGameRegistry.getInstance().list(),
+    };
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
       if (client.isLobby && client.ws.readyState === WebSocket.OPEN) {

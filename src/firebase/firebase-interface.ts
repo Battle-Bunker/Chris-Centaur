@@ -48,6 +48,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -66,7 +67,8 @@ import { GameRegistry } from '../logic/game-registry';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { GameLogger } from '../utils/logger';
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
-import { TTGameInvite, TTGameStateDoc, TTTurn } from './tactictoes-types';
+import { PendingGameRegistry } from '../logic/pending-game-registry';
+import { TTGameInvite, TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
 import {
   buildGameState,
   continuationDirection,
@@ -192,6 +194,39 @@ export function listenerLooksDead(params: {
   return now > turnEndTimeMs + graceMs;
 }
 
+/** A missing status field means the invite predates the pending protocol — started. */
+export function inviteStatus(invite: Pick<TTGameInvite, 'status'>): 'pending' | 'started' {
+  return invite.status === 'pending' ? 'pending' : 'started';
+}
+
+export type InviteChangeAction =
+  | 'trackPending' // start tracking a pending lobby (ack + setup subscription)
+  | 'watch' // normal started-game flow
+  | 'promote' // pending lobby just started: drop the tracking, then watch
+  | 'dropPending' // invite deleted (team removed from the lobby)
+  | 'none';
+
+/**
+ * What an invite-feed docChange means for this centaur, given whether the
+ * game is currently tracked as pending. Pure so the pending → started
+ * transition (and invite deletion) handling is testable.
+ */
+export function inviteChangeAction(
+  changeType: 'added' | 'modified' | 'removed',
+  status: 'pending' | 'started',
+  currentlyPending: boolean
+): InviteChangeAction {
+  if (changeType === 'removed') {
+    return currentlyPending ? 'dropPending' : 'none';
+  }
+  if (status === 'pending') {
+    // 'modified' while already pending is just the invite doc churning; the
+    // setup subscription tracks the lobby's settings on its own.
+    return currentlyPending ? 'none' : 'trackPending';
+  }
+  return currentlyPending ? 'promote' : 'watch';
+}
+
 export type FirebaseConnState = 'connecting' | 'connected' | 'error' | 'suspended';
 
 export interface FirebaseStatus {
@@ -207,6 +242,10 @@ export class TacticToesFirebaseInterface {
   private static appInstanceCounter = 0;
   private invitesUnsubscribe: Unsubscribe | null = null;
   private watchedGames = new Map<string, WatchedGame>();
+  // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
+  // subscription. Display data lives in the PendingGameRegistry; no game-doc
+  // listener or turn pipeline is involved until the invite flips to started.
+  private pendingGames = new Map<string, { sessionID: string; unsubscribe: Unsubscribe }>();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private rebuilding = false;
   private stopped = false;
@@ -282,6 +321,7 @@ export class TacticToesFirebaseInterface {
       this.teardownTurnWatch(watched);
     }
     this.watchedGames.clear();
+    this.dropAllPendingGames();
     this.teardownClient();
     console.log('[tt-firebase] Suspended (no web clients — allowing scale to zero)');
     this.setStatus('suspended');
@@ -452,9 +492,27 @@ export class TacticToesFirebaseInterface {
       invitesQuery,
       (snapshot) => {
         snapshot.docChanges().forEach((change) => {
-          if (change.type !== 'added') return;
           const invite = change.doc.data() as TTGameInvite;
-          this.watchGame(invite.sessionID, invite.gameID);
+          const action = inviteChangeAction(
+            change.type,
+            inviteStatus(invite),
+            this.pendingGames.has(invite.gameID)
+          );
+          switch (action) {
+            case 'trackPending':
+              this.trackPendingGame(invite.sessionID, invite.gameID);
+              break;
+            case 'promote':
+              this.dropPendingGame(invite.gameID);
+              this.watchGame(invite.sessionID, invite.gameID);
+              break;
+            case 'watch':
+              this.watchGame(invite.sessionID, invite.gameID);
+              break;
+            case 'dropPending':
+              this.dropPendingGame(invite.gameID);
+              break;
+          }
         });
       },
       (err) => {
@@ -528,6 +586,7 @@ export class TacticToesFirebaseInterface {
         watched.unsubscribe = () => {};
         this.teardownTurnWatch(watched);
       }
+      this.dropAllPendingGames();
       this.teardownClient();
 
       await this.initClient();
@@ -567,6 +626,7 @@ export class TacticToesFirebaseInterface {
       this.teardownTurnWatch(game);
     }
     this.watchedGames.clear();
+    this.dropAllPendingGames();
     if (this.app) await deleteApp(this.app);
     this.app = null;
   }
@@ -622,6 +682,67 @@ export class TacticToesFirebaseInterface {
         }, 1000);
       }
     );
+  }
+
+  /**
+   * A pending invite: the lobby exists but the game hasn't started. Ack it
+   * (the lobby's presence indicator feeds off the centaurStatus doc) and
+   * mirror the lobby's live settings into the PendingGameRegistry so /play
+   * can show the pending bubble. No game-doc listener, no turn pipeline.
+   */
+  private trackPendingGame(sessionID: string, gameID: string): void {
+    if (this.stopped || !this.db) return;
+    if (this.pendingGames.has(gameID) || this.watchedGames.has(gameID)) return;
+    console.log(`[tt-firebase] Tracking pending game ${gameID} in session ${sessionID}`);
+
+    // Readiness ack. The deterministic doc id (our centaurId) makes the write
+    // idempotent across restarts and invite replays.
+    void setDoc(
+      doc(
+        this.db,
+        `sessions/${sessionID}/setups/${gameID}/centaurStatus/${this.config.centaurId}`
+      ),
+      { centaurId: this.config.centaurId, ready: true, respondedAt: serverTimestamp() },
+      { merge: true }
+    ).catch((err) => {
+      console.error(`[tt-firebase] Failed to ack pending game ${gameID}:`, err);
+    });
+
+    const unsubscribe = onSnapshot(
+      doc(this.db, `sessions/${sessionID}/setups/${gameID}`),
+      (snapshot) => {
+        const setup = snapshot.data() as Partial<TTGameSetup> | undefined;
+        if (!setup) return;
+        PendingGameRegistry.getInstance().upsert({
+          sessionID,
+          gameID,
+          boardWidth: setup.boardWidth ?? null,
+          boardHeight: setup.boardHeight ?? null,
+          snakesPerTeam: setup.snakesPerTeam ?? null,
+          maxTurnTime: setup.maxTurnTime ?? null,
+          teams: (setup.teams ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color })),
+        });
+      },
+      (err) => {
+        console.error(`[tt-firebase] Pending setup listener failed for ${gameID}:`, err);
+      }
+    );
+    this.pendingGames.set(gameID, { sessionID, unsubscribe });
+  }
+
+  private dropPendingGame(gameID: string): void {
+    const pending = this.pendingGames.get(gameID);
+    if (!pending) return;
+    pending.unsubscribe();
+    this.pendingGames.delete(gameID);
+    PendingGameRegistry.getInstance().remove(gameID);
+    console.log(`[tt-firebase] Stopped tracking pending game ${gameID}`);
+  }
+
+  // Pending setup listeners belong to the client being torn down; the invite
+  // replay on the next connect re-tracks (and re-acks) everything still pending.
+  private dropAllPendingGames(): void {
+    for (const gameID of [...this.pendingGames.keys()]) this.dropPendingGame(gameID);
   }
 
   private unwatchGame(watched: WatchedGame): void {

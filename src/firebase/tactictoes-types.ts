@@ -69,10 +69,16 @@ export interface TTGameStateDoc {
   turns: TTTurn[];
 }
 
-/** centaurs/{centaurId}/games/{gameId} invite doc written by the server at game start. */
+/**
+ * centaurs/{centaurId}/games/{gameId} invite doc. The server creates it with
+ * status 'pending' while the lobby is being configured (and deletes it if the
+ * team is removed), then overwrites the same doc with status 'started' (plus
+ * snakeIDs) at game start. A missing status is treated as 'started'.
+ */
 export interface TTGameInvite {
   sessionID: string;
   gameID: string;
-  snakeIDs: string[];
+  status?: 'pending' | 'started';
+  snakeIDs?: string[]; // absent on pending invites
   createdAt: Timestamp;
 }

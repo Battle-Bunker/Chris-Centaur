@@ -79,12 +79,21 @@ directly).
 2. `signInWithCustomToken` establishes the session; the Firebase SDK
    refreshes it automatically. If the process restarts it simply re-exchanges.
 3. It listens to `centaurs/{centaurId}/games` — TacticToes writes an invite
-   doc there at every game start — and opens a listener on each live game
-   document.
-4. Each new turn is translated into per-snake board views, the decision
-   engine runs, and each snake's move is staged via a `privateMoves` write.
-   Firestore security rules only accept writes for snakes the game's
-   `centaurMap` assigns to this centaur identity.
+   doc there as soon as the centaur is added to a lobby (`status: 'pending'`)
+   and overwrites it at game start (`status: 'started'`; a missing status
+   means started).
+4. A **pending** invite gets no game-doc listener (no game exists yet):
+   the centaur acks it by writing
+   `sessions/{s}/setups/{g}/centaurStatus/{centaurId}` =
+   `{ centaurId, ready: true, respondedAt }` (this drives the lobby's
+   presence chip) and follows the setup doc so `/play` can show the lobby as
+   an orange, non-clickable "pending" bubble with its live settings. When
+   the invite flips to started the normal flow takes over; if it is deleted
+   (team removed) the pending bubble is dropped.
+5. For started games, each new turn is translated into per-snake board
+   views, the decision engine runs, and each snake's move is staged via a
+   `privateMoves` write. Firestore security rules only accept writes for
+   snakes the game's `centaurMap` assigns to this centaur identity.
 
 Rotating the API key (calling `createCentaurApiKey` again) invalidates the
 old key for future sign-ins — update `TACTICTOES_CENTAUR_API_KEY` and

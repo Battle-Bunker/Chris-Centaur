@@ -51,6 +51,19 @@
       margin-bottom: 15px; display: flex; gap: 15px; align-items: stretch;
     }
     .game-card:hover { border-color: #4CAF50; transform: translateY(-2px); }
+    /* Pending lobby: invited but not started. Not clickable — there is no
+       game page until the game starts. */
+    .game-card.pending { border: 2px solid #FF9800; cursor: default; }
+    .game-card.pending:hover { border-color: #FF9800; transform: none; }
+    .pending-badge {
+      font-size: 11px; font-weight: 700; color: #FF9800;
+      border: 1px solid #FF9800; border-radius: 10px; padding: 2px 8px;
+    }
+    .game-card-settings { font-size: 12px; color: #888; margin-bottom: 8px; }
+    .team-dot {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      border: 1px solid #555;
+    }
     .game-card-info { flex: 1; min-width: 0; }
     .game-card-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -114,6 +127,7 @@
     let ws = null;
     let reconnectTimer = null;
     let currentGames = [];
+    let currentPendingGames = [];
     const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes without a turn change = stale
     const gameActivity = new Map(); // gameId -> { turn, lastChanged }
     const staleGames = new Set();   // gameIds currently hidden as stale
@@ -154,6 +168,7 @@
             wsDebug.setServerConnId(msg.connId);
           } else if (msg.type === 'lobby-update') {
             currentGames = msg.games;
+            currentPendingGames = msg.pendingGames || [];
             recordActivity(msg.games);
             renderGames(getLiveGames());
           } else if (msg.type === 'firebase-status') {
@@ -266,11 +281,36 @@
       }).format(new Date(ts));
     }
 
+    // Pending lobby bubble: the centaur has been invited but the game hasn't
+    // started. Identified by sessionID+gameID; deliberately NOT clickable.
+    function renderPendingCard(pg) {
+      const board = pg.boardWidth && pg.boardHeight ? `${pg.boardWidth}×${pg.boardHeight}` : '?';
+      const teams = pg.teams || [];
+      const teamTags = teams.map(t =>
+        `<span class="controlled-snake-tag"><span class="team-dot" style="background:${t.color}"></span>${t.name}</span>`
+      ).join('');
+      return `
+        <div class="game-card pending">
+          <div class="game-card-info">
+            <div class="game-card-header">
+              <span class="pending-badge">PENDING</span>
+              <span class="game-card-turn">${teams.length} team${teams.length === 1 ? '' : 's'}</span>
+            </div>
+            <div class="game-card-id">${pg.sessionID} / ${pg.gameID}</div>
+            <div class="game-card-settings">
+              Board ${board} · ${pg.snakesPerTeam ?? '?'} snakes/team · ${pg.maxTurnTime ?? '?'}s turns
+            </div>
+            <div class="game-card-snakes">${teamTags}</div>
+          </div>
+        </div>`;
+    }
+
     function renderGames(games) {
       const container = document.getElementById('gameContainer');
       const statusText = document.getElementById('statusText');
+      const pending = currentPendingGames;
 
-      if (games.length === 0) {
+      if (games.length === 0 && pending.length === 0) {
         container.innerHTML = `
           <div class="no-games">
             <h2>No Active Games</h2>
@@ -281,11 +321,17 @@
         return;
       }
 
-      statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
+      const parts = [];
+      if (games.length > 0) parts.push(`${games.length} active game${games.length > 1 ? 's' : ''}`);
+      if (pending.length > 0) parts.push(`${pending.length} pending`);
+      statusText.textContent = parts.join(' · ') || 'No active games';
 
       const sorted = [...games].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
 
       let html = '';
+      for (const pg of pending) {
+        html += renderPendingCard(pg);
+      }
       for (const game of sorted) {
         const startLabel = formatStartTime(game.startedAt);
         const snakeTags = (game.controlledSnakes || []).map(s =>
