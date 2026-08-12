@@ -273,10 +273,10 @@ describe('ActiveGameManager goto/near intents', () => {
     const gs = makeGameState(gameId, turn, snakes, 'A');
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has('A')) {
-      mgr.registerGame(gs);
+      mgr.registerGame(gs, 'A');
     }
-    mgr.updateGameState(gameId, 'A', gs);
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+    mgr.updateBoard(gameId, gs);
     mgr.setBotRecommendation(gameId, 'A', botMove, makeTurnData(gs, botMove, evaluations));
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     cs.selectedBy = userId;
@@ -484,13 +484,13 @@ describe('ActiveGameManager goto/near intents', () => {
 
     // Head arrives on the first target → the queue shifts, intent stays goto.
     snakes = [makeSnake('A', { x: 6, y: 5 })];
-    mgr.updateGameState(gameId, 'A', makeGameState(gameId, 2, snakes, 'A'));
+    mgr.updateBoard(gameId, makeGameState(gameId, 2, snakes, 'A'));
     expect(cs.intent.kind).toBe('goto');
     expect(mgr.getActiveWaypointTarget(gameId, 'A')).toEqual({ kind: 'goto', target: { x: 7, y: 5 } });
 
     // Head arrives on the last target → the plan is done, back to heuristic.
     snakes = [makeSnake('A', { x: 7, y: 5 })];
-    mgr.updateGameState(gameId, 'A', makeGameState(gameId, 3, snakes, 'A'));
+    mgr.updateBoard(gameId, makeGameState(gameId, 3, snakes, 'A'));
     expect(cs.intent.kind).toBe('heuristic');
     expect(mgr.getActiveWaypointTarget(gameId, 'A')).toBeNull();
     expect(cs.gotoRoute).toEqual([]);
@@ -513,7 +513,7 @@ describe('ActiveGameManager goto/near intents', () => {
 
     // Landing on a near target does NOT clear it — "stay close" has no arrival.
     snakes = [makeSnake('A', { x: 8, y: 5 })];
-    mgr.updateGameState(gameId, 'A', makeGameState(gameId, 2, snakes, 'A'));
+    mgr.updateBoard(gameId, makeGameState(gameId, 2, snakes, 'A'));
     expect(cs.intent.kind).toBe('near');
   });
 

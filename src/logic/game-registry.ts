@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from '../database/db';
 import { games } from '../database/schema';
-import { GameState } from '../types/battlesnake';
+import { BoardSnapshot } from '../types/battlesnake';
 
 /**
  * GameRegistry owns the authoritative `games` metadata table.
@@ -35,7 +35,7 @@ export class GameRegistry {
     return GameRegistry.instance;
   }
 
-  private extractMeta(gameState: GameState) {
+  private extractMeta(gameState: BoardSnapshot) {
     const game: any = gameState?.game ?? {};
     return {
       boardWidth: gameState?.board?.width ?? null,
@@ -49,7 +49,7 @@ export class GameRegistry {
 
   // Insert the game's row if it doesn't exist yet. First writer wins; a later
   // /move for an already-registered game is a no-op.
-  public recordGameStart(gameState: GameState): void {
+  public recordGameStart(gameState: BoardSnapshot): void {
     const gameId = gameState?.game?.id;
     if (!gameId || this.started.has(gameId)) return;
     this.started.add(gameId);
@@ -71,7 +71,7 @@ export class GameRegistry {
 
   // Finalize the game's row from the /end payload. Upserts so a game whose
   // /start and /move rows were all missed still ends up with a usable record.
-  public recordGameEnd(gameState: GameState): void {
+  public recordGameEnd(gameState: BoardSnapshot): void {
     const gameId = gameState?.game?.id;
     if (!gameId || this.ended.has(gameId)) return;
     this.ended.add(gameId);

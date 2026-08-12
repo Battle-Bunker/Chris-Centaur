@@ -263,10 +263,13 @@ const DISTINCT_COLORS = [
 ];
 
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
-export type BoardUpdateCallback = (gameId: string, gameState: GameState) => void;
+// Board/end payloads are the canonical you-less state: no client reads `.you`
+// off a broadcast board (verified across src/web), and server consumers derive
+// per-snake data by id from board.snakes.
+export type BoardUpdateCallback = (gameId: string, gameState: BoardSnapshot) => void;
 export type MoveCommittedCallback = (gameId: string, snakeId: string, move: Direction, source: string) => void;
 export type GameListChangeCallback = (event: 'added' | 'removed' | 'updated', gameId: string, snakeId: string) => void;
-export type GameEndCallback = (gameId: string, snakeId: string, finalGameState: GameState, gameOver: boolean) => void;
+export type GameEndCallback = (gameId: string, snakeId: string, finalGameState: BoardSnapshot, gameOver: boolean) => void;
 // Fired (coalesced once per event-loop tick) whenever any controlled snake's
 // staged move / intent changed, so the WS layer can push the staged-arrow +
 // intent projections without each mutation site broadcasting explicitly.
@@ -380,7 +383,7 @@ export class ActiveGameManager {
     }).unref();
   }
 
-  private notifyGameEnd(gameId: string, snakeId: string, finalGameState: GameState, gameOver: boolean): void {
+  private notifyGameEnd(gameId: string, snakeId: string, finalGameState: BoardSnapshot, gameOver: boolean): void {
     for (const cb of this.gameEndCallbacks) {
       try {
         cb(gameId, snakeId, finalGameState, gameOver);
@@ -410,7 +413,7 @@ export class ActiveGameManager {
     }
   }
 
-  private notifyBoardUpdate(gameId: string, gameState: GameState): void {
+  private notifyBoardUpdate(gameId: string, gameState: BoardSnapshot): void {
     for (const cb of this.boardUpdateCallbacks) {
       try {
         cb(gameId, gameState);
@@ -479,9 +482,12 @@ export class ActiveGameManager {
     console.log('[ActiveGameManager] Server ping interval started (30s, unref\'d)');
   }
 
-  registerGame(gameState: GameState, ourTeam?: { id: string; name: string; color: string } | null): void {
-    const gameId = gameState.game.id;
-    const snakeId = gameState.you.id;
+  // Register a controlled snake against the CANONICAL board state. One game
+  // holds one shared board; the snake's own identity (name/letter) is looked
+  // up on it by id — there is no per-snake board copy anywhere anymore.
+  registerGame(canonical: BoardSnapshot, controlledSnakeId: string, ourTeam?: { id: string; name: string; color: string } | null): void {
+    const gameId = canonical.game.id;
+    const snakeId = controlledSnakeId;
 
     let game = this.games.get(gameId);
     if (!game) {
@@ -489,24 +495,24 @@ export class ActiveGameManager {
       game = {
         gameId,
         sessionId: null,
-        boardState: gameState,
-        boardStateTurn: gameState.turn || 0,
+        boardState: canonical,
+        boardStateTurn: canonical.turn || 0,
         snakes: new Map(),
         controlledSnakes: new Map(),
         connectedUsers: new Map(),
-        gameTimeout: gameState.game.timeout || 500,
+        gameTimeout: canonical.game.timeout || 500,
         startedAt: now,
         lastActivityAt: now,
         playerNames: new Map(),
         turnExpiryTime: null,
-        currentTurn: gameState.turn || 0,
+        currentTurn: canonical.turn || 0,
         ourTeam: ourTeam ?? null,
       };
       this.games.set(gameId, game);
     }
     if (ourTeam && !game.ourTeam) game.ourTeam = ourTeam;
 
-    for (const snake of gameState.board.snakes) {
+    for (const snake of canonical.board.snakes) {
       if (!game.snakes.has(snake.id)) {
         game.snakes.set(snake.id, {
           id: snake.id,
@@ -516,12 +522,13 @@ export class ActiveGameManager {
       }
     }
 
+    const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
     if (!game.controlledSnakes.has(snakeId)) {
-      console.log(`[ActiveGameManager] Registering controlled snake: ${gameId}:${snakeId} (${gameState.you.name})`);
+      console.log(`[ActiveGameManager] Registering controlled snake: ${gameId}:${snakeId} (${ourSnake?.name || snakeId})`);
       game.controlledSnakes.set(snakeId, {
         id: snakeId,
-        name: gameState.you.name,
-        letter: gameState.you.letter || '',
+        name: ourSnake?.name || snakeId,
+        letter: ourSnake?.letter || '',
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
@@ -545,57 +552,64 @@ export class ActiveGameManager {
     }
   }
 
-  endGame(gameId: string, snakeId: string, finalGameState?: GameState): void {
+  // End the whole game in ONE call against the canonical final state. The
+  // per-snake fan-out (a `snake-ended` event per controlled snake, `gameOver`
+  // true only on the last) happens internally, preserving the client contract
+  // the old per-snake endGame produced — but the final state is accepted, and
+  // the board-update broadcast fired, exactly once instead of once per snake.
+  // `finalState` is optional for the doc-deleted cleanup path, which has no
+  // final state: snakes are then removed without emitting snake-ended, as
+  // before.
+  endGame(gameId: string, finalState?: BoardSnapshot | null): void {
     const game = this.games.get(gameId);
     if (!game) {
-      console.log(`[ActiveGameManager] endGame called for unknown game: ${gameId}:${snakeId}`);
+      console.log(`[ActiveGameManager] endGame called for unknown game: ${gameId}`);
       return;
     }
-
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (!controlled) {
-      // Duplicate end signal for a snake we've already cleaned up. Don't
-      // re-fire events that would bounce the UI; just no-op.
-      console.log(`[ActiveGameManager] endGame for already-removed snake ${gameId}:${snakeId}, ignoring`);
+    if (game.controlledSnakes.size === 0) {
+      // Duplicate end signal for a game we've already drained. Don't re-fire
+      // events that would bounce the UI; just drop the empty shell.
+      console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
+      this.games.delete(gameId);
+      this.logIfFullyIdle();
       return;
     }
 
     // The end signal carries the actual final game state, which can be ahead
-    // of the last turn we processed for this snake (other snakes kept playing
-    // after ours died). Push it through the normal board-update pipeline so
-    // the centaur paints the real final position instead of freezing on
-    // whatever turn our snake last acted in.
+    // of the last turn we processed (other snakes kept playing after ours
+    // died). Push it through the normal board-update pipeline so the centaur
+    // paints the real final position instead of freezing on whatever turn our
+    // snakes last acted in. A stale /end must not rewind the rendered turn.
     let acceptedFinalState = false;
-    const incomingTurn = finalGameState?.turn ?? -1;
-    if (finalGameState && incomingTurn >= game.boardStateTurn) {
-      game.boardState = finalGameState;
+    const incomingTurn = finalState?.turn ?? -1;
+    if (finalState && incomingTurn >= game.boardStateTurn) {
+      game.boardState = finalState;
       game.boardStateTurn = incomingTurn;
       game.currentTurn = Math.max(game.currentTurn, incomingTurn);
       game.lastActivityAt = Date.now();
-      this.notifyBoardUpdate(gameId, finalGameState);
+      this.notifyBoardUpdate(gameId, finalState);
       acceptedFinalState = true;
-    } else if (finalGameState) {
-      console.log(`[ActiveGameManager] endGame final-state for ${gameId}:${snakeId} rejected as stale (incomingTurn=${incomingTurn} < boardStateTurn=${game.boardStateTurn})`);
+    } else if (finalState) {
+      console.log(`[ActiveGameManager] endGame final-state for ${gameId} rejected as stale (incomingTurn=${incomingTurn} < boardStateTurn=${game.boardStateTurn})`);
     }
 
-    game.controlledSnakes.delete(snakeId);
-    this.notifyGameListChange('removed', gameId, snakeId);
-
-    const gameOver = game.controlledSnakes.size === 0;
+    const snakeIds = [...game.controlledSnakes.keys()];
+    for (const snakeId of snakeIds) {
+      game.controlledSnakes.delete(snakeId);
+      this.notifyGameListChange('removed', gameId, snakeId);
+      const gameOver = game.controlledSnakes.size === 0;
+      // Only emit snake-ended when the final state is fresh enough to apply.
+      if (finalState && acceptedFinalState) {
+        this.notifyGameEnd(gameId, snakeId, finalState, gameOver);
+      }
+    }
     console.log(
-      `[ActiveGameManager] endGame ${gameId}:${snakeId} processed — acceptedFinalState=${acceptedFinalState}, controlledSnakesRemaining=${game.controlledSnakes.size}, gameOver=${gameOver}`,
+      `[ActiveGameManager] endGame ${gameId} processed — acceptedFinalState=${acceptedFinalState}, snakesEnded=${snakeIds.length}`,
     );
-    // Only emit snake-ended when the final state is fresh enough to apply.
-    // A stale /end shouldn't rewind the UI's rendered turn.
-    if (finalGameState && acceptedFinalState) {
-      this.notifyGameEnd(gameId, snakeId, finalGameState, gameOver);
-    }
 
-    if (gameOver) {
-      console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
-      this.games.delete(gameId);
-      this.logIfFullyIdle();
-    }
+    console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
+    this.games.delete(gameId);
+    this.logIfFullyIdle();
   }
 
   isSnakeSelected(gameId: string, snakeId: string): boolean {
@@ -1782,7 +1796,7 @@ export class ActiveGameManager {
   //
   // Ownership of the goto queue: server-only mutations are done in
   // `setWaypoint` (in response to client `set-waypoint`), `setUserSelection`
-  // (clear on 'manual' override), and the arrival check in `updateGameState`
+  // (clear on 'manual' override), and the arrival check in `updateBoard`
   // (shift on arrival). Clients never advance the queue themselves; they
   // render the broadcast snapshot.
   // ────────────────────────────────────────────────────────────────────────
@@ -1800,6 +1814,14 @@ export class ActiveGameManager {
 
     let boardUpdated = false;
     if (incomingTurn > game.boardStateTurn) {
+      // Defensive only: the canonical pipeline advances the board via
+      // updateBoard BEFORE any per-snake turn data lands, so this path firing
+      // means a transport fed decisions without feeding the board first. Keep
+      // the old advance behavior so the game stays live, but flag it.
+      console.warn(
+        `[ActiveGameManager] setBotRecommendation advanced the board for ${gameId} ` +
+        `(turn ${game.boardStateTurn} -> ${incomingTurn}) — updateBoard should have run first`,
+      );
       game.boardState = turnData.gameState;
       game.boardStateTurn = incomingTurn;
 
@@ -1905,36 +1927,68 @@ export class ActiveGameManager {
     return true;
   }
 
-  updateGameState(gameId: string, snakeId: string, gameState: GameState): void {
+  // Feed the CANONICAL board state for a turn — called exactly once per turn
+  // (idempotent for re-delivery of the same turn). Replaces the HTTP-era
+  // per-snake updateGameState fan-out: per-snake bookkeeping (name refresh,
+  // consistency check, goto arrival) iterates the controlled snakes against
+  // the one shared board.
+  //
+  // Ordering contract (preserved from the per-snake era): the goto-arrival
+  // checks run BEFORE boardState/boardStateTurn advance, so an arrival-driven
+  // re-stage still binds to the OLD turn (the fast/full decision passes then
+  // re-stage for the new turn). The board-update broadcast fires once, after
+  // the advance.
+  updateBoard(gameId: string, canonical: BoardSnapshot): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    game.gameTimeout = gameState.game.timeout || game.gameTimeout;
+    game.gameTimeout = canonical.game.timeout || game.gameTimeout;
     game.lastActivityAt = Date.now();
 
-    const controlled = game.controlledSnakes.get(snakeId);
-    if (controlled) {
-      controlled.name = gameState.you.name || controlled.name;
-      controlled.letter = gameState.you.letter || controlled.letter;
+    for (const snake of canonical.board.snakes) {
+      if (!game.snakes.has(snake.id)) {
+        game.snakes.set(snake.id, {
+          id: snake.id,
+          name: snake.name,
+          letter: snake.letter || '',
+        });
+      }
     }
 
-    const boardSnakeIds = new Set(gameState.board.snakes.map(s => s.id));
-    const youId = gameState.you.id;
-    if (!boardSnakeIds.has(youId)) {
-      console.log(`[ActiveGameManager] Consistency check: our snake ${youId} not found in board snakes array`);
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
+      if (ourSnake) {
+        controlled.name = ourSnake.name || controlled.name;
+        controlled.letter = ourSnake.letter || controlled.letter;
+      }
+      this.checkGotoArrival(gameId, snakeId, controlled, ourSnake);
     }
 
-    // Arrival SHIFTS the goto queue: reaching targets[0] promotes the next
-    // target, and only an emptied queue reverts to the heuristic. Check both
-    // the current head and body[1] so a snake that already advanced past the
-    // target by the time this fires still registers the arrival.
-    // (Near is single-target and deliberately never auto-clears — "stay close"
-    // has no arrival condition.)
-    if (controlled?.intent.kind === 'goto' && controlled.intent.targets.length > 0) {
+    const incomingTurn = canonical.turn ?? 0;
+    if (incomingTurn > game.boardStateTurn) {
+      game.boardState = canonical;
+      game.boardStateTurn = incomingTurn;
+      game.currentTurn = Math.max(game.currentTurn, incomingTurn);
+      this.notifyBoardUpdate(gameId, canonical);
+    }
+  }
+
+  // Arrival SHIFTS the goto queue: reaching targets[0] promotes the next
+  // target, and only an emptied queue reverts to the heuristic. Check both
+  // the current head and body[1] so a snake that already advanced past the
+  // target by the time this fires still registers the arrival.
+  // (Near is single-target and deliberately never auto-clears — "stay close"
+  // has no arrival condition.)
+  private checkGotoArrival(
+    gameId: string,
+    snakeId: string,
+    controlled: ControlledSnake,
+    ourSnake: { head?: Coord; body?: Coord[] } | undefined,
+  ): void {
+    if (controlled.intent.kind === 'goto' && controlled.intent.targets.length > 0) {
       const wp = controlled.intent.targets[0];
-      const you = gameState.you;
-      const head = you?.head;
-      const body = you?.body || [];
+      const head = ourSnake?.head;
+      const body = ourSnake?.body || [];
       const headHit = !!head && head.x === wp.x && head.y === wp.y;
       // body[0] === head; body[1] is where the head was last turn. If the
       // snake stepped onto the target last turn and is now stepping off,
@@ -1961,7 +2015,7 @@ export class ActiveGameManager {
   // submitted here. The server already resolved the turn from the last staged
   // move it received; we record what happened (decision log) and notify the UI.
   // The goto queue is NOT advanced here: arrival is detected from the board
-  // itself in `updateGameState`, which is authoritative about where the snake
+  // itself in `updateBoard`, which is authoritative about where the snake
   // actually ended up.
   applyResolvedMoves(gameId: string, resolvedTurn: number, moves: { [snakeId: string]: Direction }): void {
     const game = this.games.get(gameId);

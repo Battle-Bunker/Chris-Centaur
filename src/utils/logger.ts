@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { GameState, Direction, Coord } from '../types/battlesnake';
+import { BoardSnapshot, GameState, Direction, Coord } from '../types/battlesnake';
 
 export class GameLogger {
   private logDir = 'game-logs';
@@ -14,16 +14,19 @@ export class GameLogger {
     }
   }
 
-  startGame(gameState: GameState): void {
+  // Takes the canonical (you-less) board state: one game has one log, not one
+  // per controlled snake.
+  startGame(gameState: BoardSnapshot, controlledSnakeIds: string[] = []): void {
     this.gameId = gameState.game.id;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     this.currentLogFile = path.join(this.logDir, `game_${this.gameId}_${timestamp}.log`);
-    
+
     this.log('=== GAME START ===');
     this.log(`Game ID: ${gameState.game.id}`);
     this.log(`Board: ${gameState.board.width}x${gameState.board.height}`);
-    this.log(`Snake ID: ${gameState.you.id}`);
-    this.log(`Starting position: (${gameState.you.head.x}, ${gameState.you.head.y})`);
+    if (controlledSnakeIds.length > 0) {
+      this.log(`Controlled snakes: ${controlledSnakeIds.join(', ')}`);
+    }
     this.log(`Total snakes: ${gameState.board.snakes.length}`);
   }
 
@@ -71,7 +74,7 @@ export class GameLogger {
     }
   }
 
-  endGame(gameState: GameState): void {
+  endGame(gameState: BoardSnapshot): void {
     this.log('\n=== GAME END ===');
     this.log(`Final turn: ${gameState.turn}`);
     this.log(`Surviving snakes: ${gameState.board?.snakes?.length ?? 'unknown'}`);

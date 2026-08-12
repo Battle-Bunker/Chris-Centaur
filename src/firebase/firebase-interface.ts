@@ -58,7 +58,7 @@ import {
   getFunctions,
   httpsCallable,
 } from 'firebase/functions';
-import { Direction, GameState } from '../types/battlesnake';
+import { BoardSnapshot, Direction, GameState } from '../types/battlesnake';
 import { VoronoiStrategy } from '../logic/voronoi-strategy-new';
 import { BoardGraph } from '../logic/board-graph';
 import { MoveAnalyzer } from '../logic/move-analyzer';
@@ -71,11 +71,12 @@ import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { TTGameInvite, TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
 import {
-  buildGameState,
+  buildBoardState,
   continuationDirection,
   controlledSnakeIDs,
   directionToMoveIndex,
   moveIndexToDirection,
+  withYou,
 } from './translate';
 
 export interface FirebaseInterfaceConfig {
@@ -929,22 +930,15 @@ export class TacticToesFirebaseInterface {
    * controlled snake through the manager's normal exit path (no final state —
    * there is none) so /play drops the game immediately, then stop watching so
    * the listener watchdog doesn't condemn the dead doc's silence and rebuild
-   * the client forever. The snake set comes from the manager, not latestDoc:
-   * it is exactly what was registered, and endGame mutates it, so the keys
-   * are copied first.
+   * the client forever.
    */
   private dropDeletedGame(watched: WatchedGame, endSnakes: boolean): void {
     console.warn(
       `[tt-firebase] Game doc for ${watched.gameID} no longer exists — ` +
         (endSnakes ? 'ending game' : 'dropping stale invite watch')
     );
-    if (endSnakes) {
-      const game = this.gameManager.getGame(watched.gameID);
-      if (game) {
-        for (const snakeId of [...game.controlledSnakes.keys()]) {
-          this.gameManager.endGame(watched.gameID, snakeId);
-        }
-      }
+    if (endSnakes && this.gameManager.getGame(watched.gameID)) {
+      this.gameManager.endGame(watched.gameID);
     }
     this.unwatchGame(watched);
   }
@@ -1031,6 +1025,11 @@ export class TacticToesFirebaseInterface {
     const endTimeMs =
       turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : Date.now() + 10_000;
 
+    // ONE canonical (you-less) board state per turn — the single truth the
+    // manager, the logs, and every broadcast operate on. Per-snake views are
+    // derived from it with withYou only at the decision-engine boundary.
+    const canonical = buildBoardState(watched.gameID, data.setup, turn, turnNumber, endTimeMs);
+
     // First snapshot for this game: register every controlled snake so the
     // centaur UI lists them and the manager tracks their intents.
     if (!watched.registered) {
@@ -1039,13 +1038,10 @@ export class TacticToesFirebaseInterface {
       const ourTeam = ourTeamEntry
         ? { id: ourTeamEntry.id, name: ourTeamEntry.name, color: ourTeamEntry.color }
         : null;
+      this.gameLogger.startGame(canonical, ourSnakes);
+      GameRegistry.getInstance().recordGameStart(canonical);
       for (const snakeId of ourSnakes) {
-        const view = buildGameState(watched.gameID, data.setup, turn, turnNumber, snakeId, endTimeMs);
-        if (snakeId === ourSnakes[0]) {
-          this.gameLogger.startGame(view);
-          GameRegistry.getInstance().recordGameStart(view);
-        }
-        this.gameManager.registerGame(view, ourTeam);
+        this.gameManager.registerGame(canonical, snakeId, ourTeam);
       }
       // Let the manager know which engine-server session this game belongs
       // to, so the lobby can link to the game on the engine server.
@@ -1055,10 +1051,13 @@ export class TacticToesFirebaseInterface {
     // Derive the moves the server actually applied on the PREVIOUS turn from
     // the board delta (falling back to the recorded move index for snakes that
     // died this turn). Bookkeeping must run BEFORE the new board is fed in so
-    // it measures against the old head.
+    // it measures against the old head. The derived map also rides on the
+    // canonical state (GameState.lastMoves) — the renderer's death markers
+    // consume it, on the live board and in the replay.
     if (turnNumber > 0) {
       const prevTurn = data.turns[turnNumber - 1];
       const lastMoves = this.deriveLastMoves(data, prevTurn, turn);
+      canonical.lastMoves = lastMoves;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
         for (const snakeId of ourSnakes) {
@@ -1071,17 +1070,18 @@ export class TacticToesFirebaseInterface {
       DecisionLogger.getInstance().recordServerMoves(watched.gameID, turnNumber, lastMoves);
     }
 
-    // Final turn: hand every snake its final state, close the game everywhere.
+    // Final turn: close the game everywhere off the canonical final state.
+    // The winners array (enriched with each winner's teamID from the setup)
+    // rides along so the games registry can record the true winner — the
+    // board-survivor fallback can't see team wins.
     if (turn.winners.length > 0) {
-      const anyView = buildGameState(
-        watched.gameID, data.setup, turn, turnNumber, ourSnakes[0], null
-      );
-      this.gameLogger.endGame(anyView);
-      GameRegistry.getInstance().recordGameEnd(anyView);
-      for (const snakeId of ourSnakes) {
-        const view = buildGameState(watched.gameID, data.setup, turn, turnNumber, snakeId, null);
-        this.gameManager.endGame(watched.gameID, snakeId, view);
-      }
+      (canonical as any).winners = turn.winners.map((w) => ({
+        ...w,
+        teamID: data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null,
+      }));
+      this.gameLogger.endGame(canonical);
+      GameRegistry.getInstance().recordGameEnd(canonical);
+      this.gameManager.endGame(watched.gameID, canonical);
       this.unwatchGame(watched);
       return;
     }
@@ -1090,6 +1090,8 @@ export class TacticToesFirebaseInterface {
     if (aliveOurs.length === 0) {
       // All our snakes are dead but the game continues; nothing left to stage.
       // Keep watching so the UI still receives the final state at game end.
+      // The canonical board still advances so spectators see the game play out.
+      this.gameManager.updateBoard(watched.gameID, canonical);
       this.teardownTurnWatch(watched);
       return;
     }
@@ -1106,6 +1108,10 @@ export class TacticToesFirebaseInterface {
     // selection (deadline or all-committed) before the next board arrives.
     this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
 
+    // Feed the canonical board ONCE: goto-arrival checks for every controlled
+    // snake, then the board advance and the single board-update broadcast.
+    this.gameManager.updateBoard(watched.gameID, canonical);
+
     // FAST PASS: immediately stage a cheap safe move for every snake so a
     // short turn deadline never catches a snake with nothing staged (the
     // engine default is "continue straight", which is often a wall). The
@@ -1113,9 +1119,14 @@ export class TacticToesFirebaseInterface {
     // supersedes this one in Firebase.
     const views = new Map<string, GameState>();
     for (const snakeId of aliveOurs) {
-      const view = buildGameState(watched.gameID, data.setup, turn, turnNumber, snakeId, endTimeMs);
+      const view = withYou(canonical, snakeId);
+      if (!view) {
+        // alivePlayers said the snake is alive but it isn't on the board —
+        // inconsistent turn doc; skip rather than fabricate a view.
+        console.error(`[tt-firebase] Alive snake ${snakeId} missing from board on turn ${turnNumber} of ${watched.gameID}`);
+        continue;
+      }
       views.set(snakeId, view);
-      this.gameManager.updateGameState(watched.gameID, snakeId, view);
       try {
         const quick = this.quickSafeMove(view);
         if (quick) {
@@ -1143,7 +1154,7 @@ export class TacticToesFirebaseInterface {
     // shortly before the turn's endTime, leaving room for the staging write.
     const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
     await Promise.all(
-      aliveOurs.map(async (snakeId) => {
+      [...views.keys()].map(async (snakeId) => {
         const view = views.get(snakeId)!;
         try {
           const teams = this.teamDetector.detectTeams(view.board.snakes);
