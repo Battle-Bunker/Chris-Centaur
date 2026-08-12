@@ -521,15 +521,6 @@
                         <h3><span>⚙️</span>Simulation Parameters</h3>
                         
                         <div class="config-item">
-                            <label for="maxSimulationDepth">Max Simulation Depth</label>
-                            <div class="input-group">
-                                <input type="range" id="maxSimulationDepth_slider" min="1" max="10" step="1">
-                                <input type="number" id="maxSimulationDepth" min="1" max="10" step="1">
-                            </div>
-                            <div class="description">Turns to look ahead in simulation</div>
-                        </div>
-                        
-                        <div class="config-item">
                             <label for="timeoutMs">Timeout (ms)</label>
                             <div class="input-group">
                                 <input type="range" id="timeoutMs_slider" min="100" max="490" step="10">
@@ -574,7 +565,7 @@
             'enemyH2HRisk', 'allyH2HRisk',
             'gotoProgress', 'nearProgress',
             'aggression', 'trapped',
-            'maxSimulationDepth', 'timeoutMs', 'nearbyDistance',
+            'timeoutMs', 'nearbyDistance',
             'idleTimeoutMinutes'
         ];
         
@@ -660,8 +651,6 @@
                         } else if (key === 'timeoutMs') {
                             slider.min = 100;
                             slider.max = 490;
-                        } else if (key === 'maxSimulationDepth') {
-                            slider.max = 10;
                         } else if (key === 'nearbyDistance') {
                             slider.max = 20;
                         }
