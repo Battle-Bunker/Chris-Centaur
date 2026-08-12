@@ -24,11 +24,6 @@
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
 
 export interface BoardGraphConfig {
-  // Tail growth variant:
-  // 'grow-same-turn' - snake grows immediately when eating (tail doesn't move)
-  // 'grow-next-turn' - snake grows on turn after eating (tail moves when eating)
-  tailGrowthTiming: 'grow-same-turn' | 'grow-next-turn';
-
   // Maximum turns to look ahead for optimistic passability
   maxLookaheadTurns: number;
 }
@@ -96,7 +91,6 @@ export class BoardGraph {
     this.height = state.board.height;
     this.cells = this.width * this.height;
     this.config = {
-      tailGrowthTiming: 'grow-next-turn',
       maxLookaheadTurns: 5,
       ...config
     };
@@ -147,7 +141,7 @@ export class BoardGraph {
   private buildGraph(state: BoardSnapshot): void {
     const { board } = state;
 
-    // Food mask, used for justAte checks and the food-reach BFS.
+    // Food mask, used for the food-reach BFS.
     const foodMask = new Uint8Array(this.cells);
     for (const f of board.food) foodMask[this.cellIndexOf(f)] = 1;
 
@@ -156,7 +150,7 @@ export class BoardGraph {
 
     // Phase 1: segments + hazards + static blocked layer. After this,
     // passabilityIdxFor({ clearance: 'static' }) is fully functional.
-    this.buildSegments(board.snakes, foodMask, board.hazards);
+    this.buildSegments(board.snakes, board.hazards);
 
     // Phase 2: food reach via the static predicate, then fill in each segment's
     // optimistic + conservative disappear turns. After this, the turn-aware
@@ -180,31 +174,31 @@ export class BoardGraph {
     }
   }
 
-  private buildSegments(snakes: Snake[], foodMask: Uint8Array, hazards: Coord[]): void {
+  private buildSegments(snakes: Snake[], hazards: Coord[]): void {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
-      const justAte = foodMask[this.cellIndexOf(snake.head)] === 1;
 
-      // Body segments, excluding the head at index 0. Later snakes overwrite
-      // overlapping cells (same last-writer-wins as the old Map-based build).
+      // Body segments, excluding the head at index 0. The engine may stack
+      // several segments on one cell (a snake that ate last turn carries a
+      // duplicated tail; spawns start fully stacked), so treat each run of
+      // consecutive duplicates as ONE cell whose vacate turn counts from the
+      // run's FIRST index — the cell only frees once its last copy pops.
+      // Later snakes overwrite overlapping cells (same last-writer-wins as
+      // the old Map-based build).
       for (let i = 1; i < snake.body.length; i++) {
         const idx = this.cellIndexOf(snake.body[i]);
-        const isTail = i === snake.body.length - 1;
+        let last = i;
+        while (last + 1 < snake.body.length &&
+               this.cellIndexOf(snake.body[last + 1]) === idx) last++;
+        const isTail = last === snake.body.length - 1;
+        const stacked = last > i;
         const turnsFromTail = snake.body.length - i;
 
-        let staticBlocked = true;
-        if (isTail) {
-          if (justAte) {
-            // Head on food => snake grows => tail does NOT vacate next turn.
-            staticBlocked = true;
-          } else if (this.config.tailGrowthTiming === 'grow-same-turn') {
-            staticBlocked = false; // tail moves this turn
-          } else {
-            // grow-next-turn: tail moves unless it's the only segment after head.
-            staticBlocked = snake.body.length === 2;
-          }
-        }
+        // The engine pops tails before resolving collisions, eating or not —
+        // so the tail cell vacates on the very next move unless it is
+        // stacked, in which case one pop still leaves a copy behind.
+        const staticBlocked = isTail ? stacked : true;
 
         // Both disappear turns start at the pure-geometry base (turnsFromTail)
         // and are pushed out by fillDisappearTurns once food reach is known.
@@ -214,6 +208,7 @@ export class BoardGraph {
         this.optimisticDisappear[idx] = turnsFromTail;
         this.physicalDisappear[idx] = turnsFromTail;
         this.conservativeDisappear[idx] = turnsFromTail;
+        i = last;
       }
     }
 
@@ -285,15 +280,14 @@ export class BoardGraph {
    *
    * Eat accounting is PER SEGMENT: an eat at turn t only delays segments whose
    * (current, already-delayed) vacate turn comes after the eat takes effect.
-   * Under 'grow-next-turn' timing an eat at turn t delays only segments whose
-   * vacate turn is STRICTLY greater than t (the tail vacating at turn t itself
-   * has already moved when the eat lands). Under 'grow-same-turn' the tail
-   * stays put on the eating turn itself, so an eat at turn t delays segments
-   * whose vacate turn is >= t. Turn-0 "eats" (head already on food — justAte)
-   * delay everything, matching the static-layer blocked tail.
+   * The engine pops the tail BEFORE food is processed, so an eat at turn t
+   * adds a body copy that delays only segments whose vacate turn is STRICTLY
+   * greater than t (the tail vacating at turn t itself has already moved when
+   * the eat lands). A snake that ate LAST turn needs no eat accounting here:
+   * its duplicated tail is plain geometry, handled in buildSegments.
    *
-   *  - optimistic  = base + only the eats we can CONFIRM: turn 0 (head on
-   *    food) and turn 1 (food one step away), applied per segment.
+   *  - optimistic  = base + only the eats we can CONFIRM: a food cell one
+   *    step from the owner's head (it can eat this turn), applied per segment.
    *  - physical    = base + every food the owner could reach in time to still
    *    be growing when the segment would vacate, applied per segment with NO
    *    safety buffer. Used by the subject-agnostic Voronoi layer.
@@ -306,31 +300,32 @@ export class BoardGraph {
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
       const foodByTurn = foodReach[snakeIdx] || [];
 
-      // Does an eat at turn t delay a segment currently vacating at `vacate`?
-      const growSame = this.config.tailGrowthTiming === 'grow-same-turn';
-
-      // Apply eats (count per turn) to a segment's base vacate turn.
+      // Apply eats (count per turn) to a segment's base vacate turn. An eat
+      // at turn t delays only segments vacating STRICTLY after t (the engine
+      // pops tails before food is processed).
       const applyEats = (base: number, eatsAtTurn: (t: number) => number, maxTurn: number): number => {
         let vacate = base;
         for (let t = 0; t <= maxTurn; t++) {
           const eats = eatsAtTurn(t);
-          if (eats > 0 && (growSame ? vacate >= t : vacate > t)) vacate += eats;
+          if (eats > 0 && vacate > t) vacate += eats;
         }
         return vacate;
       };
 
-      // Confirmed eats only: turn 0 = head already on food (justAte); turn 1 =
-      // a food cell reachable in a single move this turn.
-      const justAte = (foodByTurn[0] ?? 0) > 0 ? 1 : 0;
+      // Confirmed eats only: a food cell reachable in a single move this turn.
       const canEatThisTurn = (foodByTurn[1] ?? 0) > 0 ? 1 : 0;
-      const confirmedEats = (t: number): number =>
-        t === 0 ? justAte : t === 1 ? Math.min(canEatThisTurn, 1) : 0;
+      const confirmedEats = (t: number): number => (t === 1 ? canEatThisTurn : 0);
       const potentialEats = (t: number): number => foodByTurn[t] ?? 0;
 
       for (let i = 1; i < snake.body.length; i++) {
         const idx = this.cellIndexOf(snake.body[i]);
+        // Consume a run of consecutive duplicates as one cell, counting the
+        // vacate turn from the run's FIRST index (same as buildSegments).
+        let last = i;
+        while (last + 1 < snake.body.length &&
+               this.cellIndexOf(snake.body[last + 1]) === idx) last++;
         // Skip cells overwritten by another snake's overlapping segment.
-        if (this.segOwner[idx] !== snakeIdx) continue;
+        if (this.segOwner[idx] !== snakeIdx) { i = last; continue; }
 
         const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
 
@@ -342,6 +337,7 @@ export class BoardGraph {
           this.physicalDisappear[idx] = base;
         }
         this.conservativeDisappear[idx] = this.physicalDisappear[idx] + 1;
+        i = last;
       }
     }
   }

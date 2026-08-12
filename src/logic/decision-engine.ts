@@ -44,8 +44,6 @@ export interface MoveEvaluationResult {
 export interface DecisionConfig {
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
-  tailSafetyRule?: 'official' | 'custom';  // Rule variant for tail safety
-  tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';  // When snake grows after eating
   weights?: {
     // My snake weights
     myLength?: number;
@@ -113,16 +111,11 @@ export class DecisionEngine {
     this.config = {
       timeoutMs: 400,
       nearbyDistance: 5,
-      tailSafetyRule: 'custom',
-      tailGrowthTiming: 'grow-next-turn',
       ...config
     };
-    
+
     this.moveAnalyzer = new MoveAnalyzer();
-    this.boardEvaluator = new BoardEvaluator(
-      this.config.weights,
-      { tailGrowthTiming: this.config.tailGrowthTiming }
-    );
+    this.boardEvaluator = new BoardEvaluator(this.config.weights);
     this.simulator = new Simulator();
   }
   
@@ -144,7 +137,7 @@ export class DecisionEngine {
     }
     
     // Create BoardGraph once for this turn - single source of truth for passability
-    const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+    const graph = new BoardGraph(gameState);
     
     // Get move analysis with h2h risk details
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
@@ -409,7 +402,7 @@ export class DecisionEngine {
       currentFoodSet.add(`${food.x},${food.y}`);
     }
 
-    const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
+    const graph = new BoardGraph(gameState);
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
 
     // Per-move waypoint progress, computed ONCE on the main thread from the
@@ -498,7 +491,6 @@ export class DecisionEngine {
           moveSets: nearbyMoveSets.slice(i, i + CHUNK_STATES),
           simulatedSnakeIds,
           weights: this.config.weights,
-          tailGrowthTiming: this.config.tailGrowthTiming,
           h2hRisk: h2hCtxByMove.get(move)!,
           waypointProgress: waypointProgressByMove?.[move] ?? null
         });

@@ -26,7 +26,6 @@ export interface ChunkJob {
   /** Ids treated as simulated (us + nearby) — evaluation startDelay handling. */
   simulatedSnakeIds: string[];
   weights?: DecisionConfig['weights'];
-  tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';
   h2hRisk: { enemyH2HRisk: number; allyH2HRisk: number };
   /**
    * The goto/near progress stats for THIS chunk's candidate move, computed on
@@ -49,7 +48,7 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
   const { gameState } = job;
   const teamSet = new Set(job.teamSnakeIds);
   const simulatedSet = new Set(job.simulatedSnakeIds);
-  const evaluator = new BoardEvaluator(job.weights, { tailGrowthTiming: job.tailGrowthTiming });
+  const evaluator = new BoardEvaluator(job.weights);
   const simulator = new Simulator();
 
   // Current board food is "previous" food from a simulated state's perspective.

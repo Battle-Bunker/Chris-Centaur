@@ -187,7 +187,7 @@ describe('Trap survival', () => {
         { x: 5, y: 3 }
       ]);
       const gameState = makeGameState([snake], snake);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       const walk = callWalk(graph, snake, 10);
 
@@ -214,7 +214,7 @@ describe('Trap survival', () => {
       ];
       const snake = makeSnake('our-snake', body);
       const gameState = makeGameState([snake], snake);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       const walk = callWalk(graph, snake, snake.length);
 
@@ -269,8 +269,8 @@ describe('Trap survival', () => {
     });
   });
 
-  describe('tail-vacate-on-eat assumption', () => {
-    it('treats a normal tail as passable (it vacates) in both timing variants', () => {
+  describe('tail-vacate assumption', () => {
+    it('treats a normal tail as passable (it vacates on the next move)', () => {
       const body: Coord[] = [
         { x: 5, y: 5 },
         { x: 5, y: 4 },
@@ -280,42 +280,41 @@ describe('Trap survival', () => {
       const gameState = makeGameState([snake], snake);
       const tail = body[body.length - 1];
 
-      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
-        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        // The tail cell is vacated next turn, so it is passable on arrival.
-        expect(passAt(graph, tail, 1)).toBe(true);
-      }
+      const graph = new BoardGraph(gameState);
+      // The engine pops tails before resolving collisions, eating or not, so
+      // the tail cell is vacated next turn and passable on arrival.
+      expect(passAt(graph, tail, 1)).toBe(true);
     });
 
-    it('keeps the tail blocked when the snake just ate (tail does not vacate)', () => {
-      // A snake "just ate" when its head is sitting on food: it will grow, so its
-      // tail does NOT vacate next turn. Stepping onto a just-ate snake's tail is
-      // therefore always fatal and must be treated as blocked in both variants.
+    it('keeps a stacked tail blocked for one extra turn (the snake ate last turn)', () => {
+      // The engine grows a snake by duplicating its tail segment, so a snake
+      // that ate last turn carries a stacked tail: the next pop still leaves a
+      // copy behind, and the cell only frees on the SECOND move. Stepping onto
+      // a stacked tail is fatal and must be treated as blocked.
       const body: Coord[] = [
         { x: 5, y: 5 },
         { x: 5, y: 4 },
-        { x: 5, y: 3 }
+        { x: 5, y: 3 },
+        { x: 5, y: 3 } // duplicated tail: ate last turn
       ];
       const snake = makeSnake('our-snake', body, { health: 100 });
-      const food: Coord[] = [{ x: 5, y: 5 }]; // head is on food => just ate
-      const gameState = makeGameState([snake], snake, food);
+      const gameState = makeGameState([snake], snake);
       const tail = body[body.length - 1];
 
-      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
-        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        // The tail will not vacate next turn because the snake is still growing.
-        expect(passAt(graph, tail, 1)).toBe(false);
-        expect(graph.isPassableStaticIdx(graph.cellIndexOf(tail))).toBe(false);
-      }
+      const graph = new BoardGraph(gameState);
+      expect(passAt(graph, tail, 1)).toBe(false);
+      expect(passAt(graph, tail, 2)).toBe(true);
+      expect(graph.isPassableStaticIdx(graph.cellIndexOf(tail))).toBe(false);
     });
   });
 
   describe('per-segment disappear-turn eat accounting', () => {
     // Regression tests for the off-by-one that made the red fatal marker
     // misfire: the "could eat this turn" bump used to be applied uniformly to
-    // EVERY body segment, including the tail. Under grow-next-turn timing an
-    // eat at turn t only delays segments whose vacate turn is strictly greater
-    // than t — the tail (vacate turn 1) is never delayed by a turn-1 eat.
+    // EVERY body segment, including the tail. The engine pops tails before
+    // food is processed, so an eat at turn t only delays segments whose vacate
+    // turn is strictly greater than t — the tail (vacate turn 1) is never
+    // delayed by a turn-1 eat.
     const body: Coord[] = [
       { x: 5, y: 5 }, // head
       { x: 5, y: 4 }, // second-to-last (vacates turn 2)
@@ -324,13 +323,13 @@ describe('Trap survival', () => {
     const tail = body[2];
     const secondToLast = body[1];
 
-    it('keeps the tail passable at turn 1 with food adjacent to the head (grow-next-turn)', () => {
+    it('keeps the tail passable at turn 1 with food adjacent to the head', () => {
       const snake = makeSnake('our-snake', body, { health: 90 });
       // Food one step from the head: the snake COULD eat this turn, but that
       // eat lands the same turn the tail vacates, so the tail is NOT delayed.
       const food: Coord[] = [{ x: 6, y: 5 }];
       const gameState = makeGameState([snake], snake, food);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       // Physical layer: tail free on arrival.
       expect(passAt(graph, tail, 1)).toBe(true);
@@ -339,24 +338,11 @@ describe('Trap survival', () => {
       expect(optimistic(tail, 1)).toBe(true);
     });
 
-    it('delays the tail by a possible turn-1 eat under grow-same-turn', () => {
-      // grow-same-turn: eating on turn 1 grows immediately, so the tail does
-      // not move on the eating turn itself — a turn-1 eat DOES delay it.
+    it('delays the second-to-last segment by a possible turn-1 eat', () => {
       const snake = makeSnake('our-snake', body, { health: 90 });
       const food: Coord[] = [{ x: 6, y: 5 }];
       const gameState = makeGameState([snake], snake, food);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-same-turn' });
-
-      const optimistic = passFor(graph, 'our-snake', 'optimistic');
-      expect(optimistic(tail, 1)).toBe(false);
-      expect(optimistic(tail, 2)).toBe(true);
-    });
-
-    it('delays the second-to-last segment by a possible turn-1 eat (grow-next-turn)', () => {
-      const snake = makeSnake('our-snake', body, { health: 90 });
-      const food: Coord[] = [{ x: 6, y: 5 }];
-      const gameState = makeGameState([snake], snake, food);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       // Geometric vacate turn 2 > eat turn 1, so the eat pushes it to turn 3.
       // (Physical layer only: a snake's OWN interior is never passable to
@@ -368,31 +354,27 @@ describe('Trap survival', () => {
     it('does not delay anything when no food is reachable', () => {
       const snake = makeSnake('our-snake', body, { health: 90 });
       const gameState = makeGameState([snake], snake);
-      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
-        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        const optimistic = passFor(graph, 'our-snake', 'optimistic');
-        expect(optimistic(tail, 1)).toBe(true);
-        expect(passAt(graph, secondToLast, 2)).toBe(true);
-      }
+      const graph = new BoardGraph(gameState);
+      const optimistic = passFor(graph, 'our-snake', 'optimistic');
+      expect(optimistic(tail, 1)).toBe(true);
+      expect(passAt(graph, secondToLast, 2)).toBe(true);
     });
 
-    it('still blocks a just-ate tail at turn 1 in all layers and both timings', () => {
-      const snake = makeSnake('our-snake', body, { health: 100 });
-      const food: Coord[] = [{ x: 5, y: 5 }]; // head on food => just ate
-      const gameState = makeGameState([snake], snake, food);
-      for (const timing of ['grow-same-turn', 'grow-next-turn'] as const) {
-        const graph = new BoardGraph(gameState, { tailGrowthTiming: timing });
-        expect(passAt(graph, tail, 1)).toBe(false);
-        const optimistic = passFor(graph, 'our-snake', 'optimistic');
-        expect(optimistic(tail, 1)).toBe(false);
-      }
+    it('still blocks a stacked (just-ate) tail at turn 1 in all layers', () => {
+      const stackedBody: Coord[] = [...body, { ...body[body.length - 1] }];
+      const snake = makeSnake('our-snake', stackedBody, { health: 100 });
+      const gameState = makeGameState([snake], snake);
+      const graph = new BoardGraph(gameState);
+      expect(passAt(graph, tail, 1)).toBe(false);
+      const optimistic = passFor(graph, 'our-snake', 'optimistic');
+      expect(optimistic(tail, 1)).toBe(false);
     });
 
     it('keeps the conservative +1 buffer on top of the corrected physical timing', () => {
       const snake = makeSnake('our-snake', body, { health: 90 });
       const food: Coord[] = [{ x: 6, y: 5 }];
       const gameState = makeGameState([snake], snake, food);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       const conservative = passFor(graph, 'our-snake', 'conservative');
       // Tail: physical vacate turn 1 (not delayed by the turn-1 eat) + 1 buffer.
@@ -420,7 +402,7 @@ describe('Trap survival', () => {
         customizations: { color: '#00FF00', head: 'default', tail: 'default' }
       });
       const gameState = makeGameState([our, enemy], our);
-      const graph = new BoardGraph(gameState, { tailGrowthTiming: 'grow-next-turn' });
+      const graph = new BoardGraph(gameState);
 
       const staticPass = passFor(graph, 'our-snake', 'static');
       const conservative = passFor(graph, 'our-snake', 'conservative');
@@ -432,7 +414,7 @@ describe('Trap survival', () => {
         expect(pass({ x: 5, y: 4 }, 1)).toBe(false);
       }
 
-      // Our own tail vacates next turn (grow-next-turn, not just-ate). Static and
+      // Our own tail vacates next turn (not stacked). Static and
       // optimistic clearance treat it as passable on arrival (turn 1).
       expect(staticPass({ x: 5, y: 3 }, 1)).toBe(true);
       expect(optimistic({ x: 5, y: 3 }, 1)).toBe(true);
