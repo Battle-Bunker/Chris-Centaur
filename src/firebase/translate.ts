@@ -264,3 +264,17 @@ export function controlledSnakeIDs(setup: TTGameSetup, centaurId: string): strin
     .filter((gp) => gp.teamID === centaurId)
     .map((gp) => gp.id);
 }
+
+/**
+ * A snake's display identity straight from the SETUP, so it resolves even for
+ * a snake that is no longer on the board (dead snakes are absent from
+ * playerPieces). Same naming rule buildSnake applies.
+ */
+export function snakeIdentity(setup: TTGameSetup, snakeId: string): { name: string; letter: string } {
+  const gamePlayer = setup.gamePlayers.find((gp) => gp.id === snakeId);
+  const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
+  return {
+    name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : snakeId,
+    letter: gamePlayer?.letter ?? '',
+  };
+}

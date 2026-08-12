@@ -260,16 +260,27 @@ export class DecisionLogger {
       retries: 0,
     };
 
+    this.enqueue({ kind: 'insert', row });
+  }
+
+  // Single bounded enqueue for EVERY queue item, so a prolonged DB outage
+  // can't grow the queue without bound no matter which producer is hot. When
+  // full, prefer dropping the oldest per-snake item: turn-state rows are the
+  // canonical board (one per turn, never re-delivered once the game moves
+  // on), so losing one punches a permanent hole in the replay timeline while
+  // a dropped decision row costs one snake's breakdown for one turn.
+  private enqueue(item: QueueItem): void {
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      const dropped = this.queue.shift();
+      let dropIdx = this.queue.findIndex(q => q.kind !== 'turnState');
+      if (dropIdx === -1) dropIdx = 0;
+      const dropped = this.queue.splice(dropIdx, 1)[0];
       this.droppedCount++;
       if (this.droppedCount % 100 === 0) {
-        const d = dropped?.kind === 'insert' ? dropped.row : undefined;
-        console.warn(`[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: game=${d?.gameId}, turn=${d?.turn}`);
+        const d: any = dropped?.kind === 'moveUpdate' ? dropped.update : (dropped as any)?.row;
+        console.warn(`[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: kind=${dropped?.kind}, game=${d?.gameId}, turn=${d?.turn}`);
       }
     }
-
-    this.queue.push({ kind: 'insert', row });
+    this.queue.push(item);
     this.signalWakeup();
   }
 
@@ -278,11 +289,10 @@ export class DecisionLogger {
   // decision_logs.turn of the target row: a move committed for board turn N was
   // logged with decision_logs.turn = N+1, so callers pass boardTurn + 1.
   public recordSubmittedMove(gameId: string, snakeId: string, turn: number, move: Direction, fatalConsent: boolean = false): void {
-    this.queue.push({
+    this.enqueue({
       kind: 'moveUpdate',
       update: { gameId, snakeId, turn, column: 'submitted_move', move, fatalConsent, retries: 0 },
     });
-    this.signalWakeup();
   }
 
   // Back-fill the server-decided move for every snake from a freshly-arrived
@@ -297,12 +307,11 @@ export class DecisionLogger {
     if (!lastMoves) return;
     for (const [snakeId, move] of Object.entries(lastMoves)) {
       if (!move) continue;
-      this.queue.push({
+      this.enqueue({
         kind: 'moveUpdate',
         update: { gameId, snakeId, turn, column: 'server_move', move, retries: 0 },
       });
     }
-    this.signalWakeup();
   }
 
   // Enqueue a canonical turn-state write (COALESCE upsert; see TurnStateRow).
@@ -330,7 +339,7 @@ export class DecisionLogger {
     }
     if (!gameStateJson && !territoryJson && !cellOwnershipJson) return;
 
-    this.queue.push({
+    this.enqueue({
       kind: 'turnState',
       row: {
         gameId: entry.gameId,
@@ -341,7 +350,6 @@ export class DecisionLogger {
         retries: 0,
       },
     });
-    this.signalWakeup();
   }
 
   private signalWakeup(): void {
@@ -588,25 +596,12 @@ export class DecisionLogger {
         ? sql` AND (game_state->>'turn')::int >= ${sinceTurn}`
         : sql``;
 
-      const [nativeRes, synthRes, metaRes, anyNativeRes] = await Promise.all([
+      const [nativeRes, metaRes, anyNativeRes, anyLegacyRes] = await Promise.all([
         db.execute(sql`
           SELECT turn, game_state, territory, cell_ownership
           FROM turn_states
           WHERE game_id = ${gameId} AND game_state IS NOT NULL${sinceNative}
           ORDER BY turn
-        `),
-        // One board candidate per turn from old-format rows. The board is
-        // identical across the team's rows for a turn (only `you` differs, and
-        // the merge strips it) — snake_id is just a deterministic tiebreak.
-        db.execute(sql`
-          SELECT DISTINCT ON (((game_state->>'turn')::int))
-            game_state,
-            move_evaluations->'territoryCells' AS territory,
-            move_evaluations->'cellOwnership' AS cell_ownership
-          FROM decision_logs
-          WHERE game_id = ${gameId}
-            AND game_state->'board' IS NOT NULL${sinceSynth}
-          ORDER BY ((game_state->>'turn')::int), snake_id
         `),
         db.execute(sql`SELECT final_turn FROM games WHERE id = ${gameId}`),
         // Game-level fact, independent of the sinceTurn window: whether ANY
@@ -618,7 +613,31 @@ export class DecisionLogger {
           WHERE game_id = ${gameId} AND game_state IS NOT NULL
           LIMIT 1
         `),
+        // Cheap probe gating the synthesis below: modern games have no
+        // board-bearing decision rows, and the synthesis query detoasts every
+        // one it scans — skip it entirely unless legacy rows exist.
+        db.execute(sql`
+          SELECT 1 FROM decision_logs
+          WHERE game_id = ${gameId} AND game_state->'board' IS NOT NULL
+          LIMIT 1
+        `),
       ]);
+
+      // One board candidate per turn from old-format rows. The board is
+      // identical across the team's rows for a turn (only `you` differs, and
+      // the merge strips it) — snake_id is just a deterministic tiebreak.
+      const synthRes = anyLegacyRes.rows.length > 0
+        ? await db.execute(sql`
+            SELECT DISTINCT ON (((game_state->>'turn')::int))
+              game_state,
+              move_evaluations->'territoryCells' AS territory,
+              move_evaluations->'cellOwnership' AS cell_ownership
+            FROM decision_logs
+            WHERE game_id = ${gameId}
+              AND game_state->'board' IS NOT NULL${sinceSynth}
+            ORDER BY ((game_state->>'turn')::int), snake_id
+          `)
+        : { rows: [] as any[] };
 
       const turns = mergeTimelineRows(
         nativeRes.rows as unknown as NativeTurnRow[],

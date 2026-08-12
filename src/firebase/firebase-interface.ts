@@ -76,6 +76,7 @@ import {
   controlledSnakeIDs,
   directionToMoveIndex,
   moveIndexToDirection,
+  snakeIdentity,
   withYou,
 } from './translate';
 
@@ -1041,7 +1042,9 @@ export class TacticToesFirebaseInterface {
       this.gameLogger.startGame(canonical, ourSnakes);
       GameRegistry.getInstance().recordGameStart(canonical);
       for (const snakeId of ourSnakes) {
-        this.gameManager.registerGame(canonical, snakeId, ourTeam);
+        // Identity from the setup, not the board: a snake already dead at
+        // registration time (mid-game restart) isn't on the board anymore.
+        this.gameManager.registerGame(canonical, snakeId, ourTeam, snakeIdentity(data.setup, snakeId));
       }
       // Let the manager know which engine-server session this game belongs
       // to, so the lobby can link to the game on the engine server.
@@ -1075,6 +1078,10 @@ export class TacticToesFirebaseInterface {
     // rides along so the games registry can record the true winner — the
     // board-survivor fallback can't see team wins.
     if (turn.winners.length > 0) {
+      // The game is over: the turn deadline is meaningless on the final state
+      // (the old end path always passed null), so don't let it ride into the
+      // stored turn row or the snake-ended payloads.
+      delete (canonical.game as any).turnExpiryTime;
       (canonical as any).winners = turn.winners.map((w) => ({
         ...w,
         teamID: data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null,
@@ -1106,7 +1113,14 @@ export class TacticToesFirebaseInterface {
     if (aliveOurs.length === 0) {
       // All our snakes are dead but the game continues; nothing left to stage.
       // Keep watching so the UI still receives the final state at game end.
-      // The canonical board still advances so spectators see the game play out.
+      // The canonical board still advances so spectators see the game play
+      // out — with a live turn clock, not one frozen at our death turn.
+      this.gameManager.recordTurnArrival(
+        watched.gameID,
+        Date.now(),
+        data.setup.maxTurnTime * 1000,
+        endTimeMs
+      );
       this.gameManager.updateBoard(watched.gameID, canonical);
       this.teardownTurnWatch(watched);
       return;

@@ -2683,7 +2683,12 @@
     // rate-limited unless forced. Resolves to the number of NEW rows.
     function ensureTimeline(opts) {
       const force = !!(opts && opts.force);
-      if (historyFetchesFrozen || (timelineIsComplete() && !force)) return Promise.resolve(0);
+      // Deliberately NOT gated on historyFetchesFrozen: for modern games this
+      // cache is the ONLY board source, so a timeline that failed to load
+      // during the reconcile window must stay recoverable afterwards — the
+      // completeness check (plus the rate limit) is what stops the fetching,
+      // not the global freeze.
+      if (timelineIsComplete() && !force) return Promise.resolve(0);
       const now = Date.now();
       if (!force && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
         return Promise.resolve(0);
@@ -2955,7 +2960,11 @@
               return e && e.maxTurn >= finalT - 1;
             });
           if (decisionsDone && timelineIsComplete()) break;
-          // Unknown final turn: stop once two consecutive rounds add nothing.
+          // Stagnation exit: stop once consecutive rounds add nothing — the
+          // flush either landed or never will (e.g. every snake died well
+          // before the game's final turn, so no log can ever reach it). A
+          // known final turn gets one extra quiet round of patience before
+          // giving up on reaching it.
           let total = turnTimeline.size;
           for (const sid of historicSelectableIds()) {
             const e = historicCache.get(sid);
@@ -2963,7 +2972,7 @@
           }
           stagnantRounds = total === lastTotal ? stagnantRounds + 1 : 0;
           lastTotal = total;
-          if (finalT == null && stagnantRounds >= 2) break;
+          if (stagnantRounds >= (finalT == null ? 2 : 3)) break;
         }
         historyFetchesFrozen = true;
       })();
@@ -3265,11 +3274,23 @@
       const token = ++scrubLoadToken;
       // Board timeline and the inspected snake's decisions load in parallel;
       // the view is viable with EITHER (board-only replay degrades to the
-      // no-data evaluation panel, not to a dead page).
-      const [decisionsOk] = await Promise.all([
-        ensureHistoricDecisions(historicTurnNumber),
-        ensureTimeline().catch(() => 0),
-      ]);
+      // no-data evaluation panel, not to a dead page). The timeline fetch is
+      // AWAITED only when nothing cached can paint the target turn — a
+      // cached commit must keep painting with zero network on its path (the
+      // fire-and-forget tail refresh repaints if it brings anything new).
+      const loads = [ensureHistoricDecisions(historicTurnNumber)];
+      if (!timelineFloorRow(historicTurnNumber)) {
+        loads.push(ensureTimeline().catch(() => 0));
+      } else {
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && viewMode === 'historic' && !isScrubbing) {
+              scheduleHistoricCommitRender();
+            }
+          })
+          .catch(() => {});
+      }
+      const [decisionsOk] = await Promise.all(loads);
       if (token !== scrubLoadToken) return; // a newer scrub/return-to-live won
       const ok = decisionsOk || timelineTurns.length > 0;
       if (!ok) {
@@ -3445,8 +3466,19 @@
       if (tlRow && (!legacy || tlRow.turn >= legacy.turn)) {
         boardState = tlRow.game_state;
         timelineRow = tlRow;
+        // The previous board drives disappearance-based death markers, so a
+        // gapped floor row must not stand in for the true previous turn:
+        // diffing across a many-turn hole (a websocket reconnect gap in the
+        // live-seeded rows) would mark every snake that died inside the hole
+        // as dying HERE, at stale positions. Database timelines are written
+        // per turn, so a small gap there is tolerated (matching the old
+        // sparse-log behavior); a gap involving live-seeded rows is not.
         const prev = timelinePrevRow(tlRow.turn);
-        prevBoard = prev ? prev.game_state.board
+        const prevUsable = prev && (
+          prev.turn === tlRow.turn - 1 ||
+          (!prev.liveSeeded && !tlRow.liveSeeded)
+        );
+        prevBoard = prevUsable ? prev.game_state.board
           : (legacy && legacy.turn === tlRow.turn ? legacy.prevRow?.game_state?.board || null : null);
       } else if (legacy) {
         boardState = legacy.row.game_state;
@@ -3456,9 +3488,15 @@
         timelineRow = timelineRowAt(legacy.turn);
       }
       if (!boardState || !boardState.board) {
-        // Nothing covers this turn yet — kick the loads and keep the current
-        // frame instead of blanking.
-        ensureTimeline().catch(() => {});
+        // Nothing covers this turn yet — kick the load, repaint when it
+        // lands, and keep the current frame instead of blanking.
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && viewMode === 'historic' && !isScrubbing) {
+              scheduleHistoricCommitRender();
+            }
+          })
+          .catch(() => {});
         return;
       }
       historicIndex = idx >= 0 ? idx : 0;

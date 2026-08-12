@@ -485,7 +485,15 @@ export class ActiveGameManager {
   // Register a controlled snake against the CANONICAL board state. One game
   // holds one shared board; the snake's own identity (name/letter) is looked
   // up on it by id — there is no per-snake board copy anywhere anymore.
-  registerGame(canonical: BoardSnapshot, controlledSnakeId: string, ourTeam?: { id: string; name: string; color: string } | null): void {
+  // `identity` covers a snake NOT on the board (registering mid-game after it
+  // died, e.g. a server restart): the transport resolves it from the game
+  // setup, which knows every snake dead or alive.
+  registerGame(
+    canonical: BoardSnapshot,
+    controlledSnakeId: string,
+    ourTeam?: { id: string; name: string; color: string } | null,
+    identity?: { name: string; letter: string },
+  ): void {
     const gameId = canonical.game.id;
     const snakeId = controlledSnakeId;
 
@@ -524,11 +532,12 @@ export class ActiveGameManager {
 
     const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
     if (!game.controlledSnakes.has(snakeId)) {
-      console.log(`[ActiveGameManager] Registering controlled snake: ${gameId}:${snakeId} (${ourSnake?.name || snakeId})`);
+      const name = ourSnake?.name || identity?.name || snakeId;
+      console.log(`[ActiveGameManager] Registering controlled snake: ${gameId}:${snakeId} (${name})`);
       game.controlledSnakes.set(snakeId, {
         id: snakeId,
-        name: ourSnake?.name || snakeId,
-        letter: ourSnake?.letter || '',
+        name,
+        letter: ourSnake?.letter || identity?.letter || '',
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
@@ -920,7 +929,7 @@ export class ActiveGameManager {
     sessionId: string | null;
     controlledSnakes: Array<{ id: string; name: string; letter: string }>;
     turn: number;
-    gameState: GameState | null;
+    gameState: BoardSnapshot | null;
     startedAt: number;
     ourTeam: { id: string; name: string; color: string } | null;
   }> {
