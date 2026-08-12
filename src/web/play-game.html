@@ -816,6 +816,15 @@
     // live edge to return to.
     let finishedMode = false;
     let liveMaxTurn = 0;              // highest live turn seen → slider max
+    // Authoritative final board turn, once known: set from the live game-over
+    // message or the games-table metadata (final_turn). The last logged
+    // decision is made one turn before this, so it's the yardstick for "has
+    // the async log flush reached the end of the game yet".
+    let knownFinalTurn = null;
+    // Set once the post-game log reconciliation has given the server's async
+    // flush ample time: after this, no history fetch is ever issued again for
+    // this game — every cache entry is final.
+    let historyFetchesFrozen = false;
     let historicSnakeId = null;       // snake perspective being inspected (null = default)
     // Snakes with logged decisions in THIS game, derived from the logs metadata
     // API (same source enterFinishedMode uses). Selectability while scrubbing
@@ -1342,6 +1351,12 @@
           delete gotoRoutes[msg.snakeId];
           if (msg.gameOver) {
             gameEnded = true;
+            // The live view saw the true final board turn — record it so log
+            // completeness can be judged against it (the last logged decision
+            // is made one turn before the final board turn).
+            if (liveMaxTurn > 0) {
+              knownFinalTurn = Math.max(knownFinalTurn ?? 0, liveMaxTurn);
+            }
             turnExpiryTime = null;
             if (turnTimerInterval) {
               clearInterval(turnTimerInterval);
@@ -2586,20 +2601,40 @@
 
     // Load one snake's logged decisions, coalescing concurrent/duplicate
     // requests onto a single in-flight promise and caching the (~2MB) result.
-    // Historic logs are immutable except for the growing tail, so a cached entry
-    // is REUSED unless the caller needs a turn beyond what we've already fetched
-    // (live games only). This is what keeps snake selection instant: no whole-
-    // cache nuke on every live tick, and no duplicate 2MB fetches per click.
-    function loadSnakeDecisions(snakeId, targetTurn) {
+    // A cached entry is REUSED as-is unless the caller needs a turn beyond what
+    // we've already fetched — and growing an entry fetches only the missing
+    // TAIL (the API's startTurn filter), never the whole log again. This is
+    // what keeps scrubbing near the live edge cheap: the old full-refetch on
+    // every tail miss re-downloaded and re-parsed the entire multi-MB log.
+    // opts.force (game-end reconciliation) refreshes the tail even when no
+    // specific turn is being requested, bypassing the rate limit.
+    function loadSnakeDecisions(snakeId, targetTurn, opts) {
+      const force = !!(opts && opts.force);
       const entry = historicCache.get(snakeId);
       if (entry) {
-        const needsNewerTail =
-          !finishedMode &&
-          targetTurn != null &&
-          targetTurn > entry.maxTurn &&
-          entry.maxTurn < liveMaxTurn &&
-          !snakeLogIsFinal(snakeId, entry);
-        if (!needsNewerTail) return Promise.resolve(entry);
+        const wantsTail =
+          force ||
+          (targetTurn != null &&
+            targetTurn > entry.maxTurn &&
+            entry.maxTurn < liveMaxTurn);
+        if (!wantsTail || snakeLogIsFinal(snakeId, entry)) {
+          return Promise.resolve(entry);
+        }
+        // Rate-limit unforced tail refreshes so scrubbing held at the live
+        // edge (or past a dead snake's last turn) can't hammer the server.
+        const now = Date.now();
+        if (!force && entry.lastTailFetchAt && now - entry.lastTailFetchAt < 1500) {
+          return Promise.resolve(entry);
+        }
+        let p = historicInflight.get(snakeId);
+        if (!p) {
+          entry.lastTailFetchAt = now;
+          p = fetchHistoricDecisions(snakeId, entry.maxTurn + 1)
+            .then((tail) => { mergeTailIntoEntry(entry, tail); return entry; })
+            .finally(() => { historicInflight.delete(snakeId); });
+          historicInflight.set(snakeId, p);
+        }
+        return p;
       }
       let p = historicInflight.get(snakeId);
       if (!p) {
@@ -2611,13 +2646,27 @@
       return p;
     }
 
-    // A snake's log is FINAL (will never grow) once the game is over or the
-    // snake is dead. Without this, scrubbing past a dead snake's death turn in
-    // a live game re-fetches its ~2MB log on every tick forever, because the
-    // "growing tail" condition (targetTurn > maxTurn < liveMaxTurn) stays true.
+    // A snake's log is FINAL (will never grow) once that is PROVABLE. The game
+    // merely being over is NOT proof: the server flushes decision rows to the
+    // database asynchronously, and treating game-over as "log complete" is
+    // exactly what used to freeze partial logs — the final turns stayed
+    // unexplorable until a page refresh. Proof is one of:
+    //  - the log already covers the end of the game (the last decision is made
+    //    one turn before the final board turn), or
+    //  - post-game reconciliation finished (historyFetchesFrozen), or
+    //  - during a live game, the board has moved past the log's last turn and
+    //    the snake is no longer on it (it died at a turn we already have).
     function snakeLogIsFinal(snakeId, entry) {
       if (entry.complete) return true;
-      if (finishedMode || gameEnded) { entry.complete = true; return true; }
+      if (historyFetchesFrozen) { entry.complete = true; return true; }
+      const over = finishedMode || gameEnded;
+      if (over) {
+        if (knownFinalTurn != null && entry.maxTurn >= knownFinalTurn - 1) {
+          entry.complete = true;
+          return true;
+        }
+        return false;
+      }
       // Dead: the live board has moved past the log's last turn and the snake
       // is no longer on it.
       if (currentGameState && currentGameState.board &&
@@ -2629,12 +2678,12 @@
       return false;
     }
 
-    async function ensureHistoricDecisions(targetTurn) {
+    async function ensureHistoricDecisions(targetTurn, opts) {
       const snakeId = getHistoricSnakeId();
       if (!snakeId) return false;
       let entry;
       try {
-        entry = await loadSnakeDecisions(snakeId, targetTurn);
+        entry = await loadSnakeDecisions(snakeId, targetTurn, opts);
       } catch (err) {
         console.error('Failed to load historic turns:', err);
         return false;
@@ -2648,13 +2697,20 @@
     }
 
     // Fetch one snake's logged decisions and build a turn→index map. Shared by
-    // the on-demand loader and the background prefetcher.
-    async function fetchHistoricDecisions(snakeId) {
+    // the on-demand loader and the background prefetcher. With `sinceTurn`,
+    // fetches only rows from that turn on (an incremental tail). The server
+    // filters on the decision-log `turn` column, which runs one AHEAD of
+    // game_state.turn (a decision made on board turn N is stored with
+    // turn = N+1), so startTurn = sinceTurn yields every row with
+    // game_state.turn >= sinceTurn - 1: at worst a one-row overlap with what
+    // we already have (deduped on merge), never a gap.
+    async function fetchHistoricDecisions(snakeId, sinceTurn) {
       // Snake ids contain '#', which must be encoded or the suffix is read as a
       // URL fragment and the wrong (or no) snake's logs come back.
-      const resp = await fetch(
-        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`
-      );
+      let url =
+        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`;
+      if (sinceTurn != null) url += `&startTurn=${encodeURIComponent(sinceTurn)}`;
+      const resp = await fetch(url);
       const data = await resp.json();
       const decisions = (data && data.decisions) || [];
       const turnToIndex = {};
@@ -2670,6 +2726,105 @@
         recordSnakesSeen(d.game_state);
       });
       return { decisions, turnToIndex, maxTurn };
+    }
+
+    // Append a tail fetch's rows onto an existing cache entry, in place (the
+    // entry's arrays/maps are shared with historicDecisions/historicTurnToIndex,
+    // so in-place growth is what makes the new rows visible everywhere).
+    // Inserts are strictly FIFO on the server, so tail rows only ever extend
+    // the entry. Rows we already hold are REFRESHED in place rather than
+    // skipped: the server back-fills submitted_move / server_move onto a row
+    // about a turn after inserting it, and those columns drive the death
+    // markers on the last logged turn.
+    function mergeTailIntoEntry(entry, tail) {
+      let added = 0;
+      for (const d of tail.decisions) {
+        const t = d.game_state?.turn ?? d.turn;
+        const existing = entry.turnToIndex[t];
+        if (existing != null) {
+          entry.decisions[existing] = d;
+          continue;
+        }
+        if (t <= entry.maxTurn) continue; // out-of-order guard; never expected
+        entry.turnToIndex[t] = entry.decisions.length;
+        entry.decisions.push(d);
+        entry.maxTurn = t;
+        added++;
+      }
+      return added;
+    }
+
+    // Highest logged game_state.turn across every cached team log — the true
+    // explorable range for a finished game. Computed across the whole team so
+    // the default snake dying early can never cap the slider below turns that
+    // teammates' logs still cover.
+    function recomputeHistoryMaxTurn() {
+      let m = 0;
+      for (const sid of historicSelectableIds()) {
+        const e = historicCache.get(sid);
+        if (e && e.maxTurn > m) m = e.maxTurn;
+      }
+      return m;
+    }
+
+    // Adopt a freshly computed logged-turn maximum as the slider range for a
+    // finished game. A viewer pinned at the end follows the growing tail (this
+    // is how the final turns "appear" as the async log flush lands); a viewer
+    // scrubbed elsewhere keeps their place.
+    function applyHistoryMaxTurn(maxLogged) {
+      if (!finishedMode || maxLogged <= 0 || maxLogged === liveMaxTurn) return;
+      const wasAtEnd = historicTurnNumber >= liveMaxTurn;
+      liveMaxTurn = maxLogged;
+      if (wasAtEnd || historicTurnNumber > liveMaxTurn) {
+        historicTurnNumber = liveMaxTurn;
+      }
+      if (viewMode === 'historic' && !isScrubbing) {
+        scheduleHistoricCommitRender();
+      } else {
+        updateTurnControls();
+      }
+    }
+
+    // Post-game log reconciliation. The server's decision logger flushes rows
+    // asynchronously, so at the moment a game ends the database may be missing
+    // the last few turns — the root cause of "the latest moves aren't
+    // explorable until I refresh". This loop force-refreshes every team log's
+    // tail with backoff until the logs provably reach the end of the game
+    // (survivor coverage of knownFinalTurn - 1 proves the FIFO flush is done),
+    // or until ~12s of attempts are exhausted. Afterwards all history fetching
+    // is frozen: every entry is final and scrubbing costs zero network.
+    let gameEndReconcile = null;
+    function reconcileHistoryAfterGameEnd() {
+      if (gameEndReconcile) return gameEndReconcile;
+      gameEndReconcile = (async () => {
+        let lastTotal = -1;
+        let stagnantRounds = 0;
+        for (let round = 0; round < 6; round++) {
+          if (round > 0) await sleep(500 * Math.pow(1.6, round));
+          const targets = Array.from(historicSelectableIds()).filter((sid) => {
+            const e = historicCache.get(sid);
+            return !e || !snakeLogIsFinal(sid, e);
+          });
+          if (targets.length === 0) break;
+          await Promise.allSettled(
+            targets.map((sid) => loadSnakeDecisions(sid, null, { force: true }))
+          );
+          const maxLogged = recomputeHistoryMaxTurn();
+          applyHistoryMaxTurn(maxLogged);
+          if (knownFinalTurn != null && maxLogged >= knownFinalTurn - 1) break;
+          // Unknown final turn: stop once two consecutive rounds add nothing.
+          let total = 0;
+          for (const sid of historicSelectableIds()) {
+            const e = historicCache.get(sid);
+            if (e) total += e.decisions.length;
+          }
+          stagnantRounds = total === lastTotal ? stagnantRounds + 1 : 0;
+          lastTotal = total;
+          if (knownFinalTurn == null && stagnantRounds >= 2) break;
+        }
+        historyFetchesFrozen = true;
+      })();
+      return gameEndReconcile;
     }
 
     // Warm the cache for our other controlled snakes in the background so that
@@ -2867,16 +3022,28 @@
         }
 
         controlledSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
-        historicSnakeId = group.default_snake_id;
+        // The games table knows the true final board turn once the /end
+        // webhook landed — the yardstick for log completeness below.
+        if (group.final_turn != null) knownFinalTurn = group.final_turn;
+        // Keep the perspective the user was already inspecting (live selection
+        // or prior scrub) when it has logs; otherwise the game's default.
+        if (historicSnakeId && !historicSelectableIds().has(historicSnakeId)) {
+          historicSnakeId = null;
+        }
+        if (!historicSnakeId &&
+            !(selectedSnakeId && historicSelectableIds().has(selectedSnakeId))) {
+          historicSnakeId = group.default_snake_id;
+        }
 
-        // Load the default snake's decisions, retrying briefly (dropping any
-        // cached empty result) in case the logs are still being written.
-        let ok = await ensureHistoricDecisions();
+        // Load the inspected snake's decisions, retrying briefly in case the
+        // logs are still being written. force:true makes a cached mid-game
+        // snapshot (from scrubbing while live) refresh its tail instead of
+        // being trusted as-is — trusting it was why the last turns of a
+        // just-finished game went missing until a page refresh.
+        let ok = await ensureHistoricDecisions(null, { force: true });
         for (let attempt = 1; attempt < 3 && !ok; attempt++) {
           await sleep(700 * attempt);
-          const sid = getHistoricSnakeId();
-          if (sid) historicCache.delete(sid);
-          ok = await ensureHistoricDecisions();
+          ok = await ensureHistoricDecisions(null, { force: true });
         }
         if (!ok) {
           showFinishedError(
@@ -2886,18 +3053,19 @@
           return;
         }
 
-        // The last logged turn is the effective "live edge" for scrubbing.
-        // Turns are keyed by game_state.turn (the decision-log `turn` column is
-        // offset by +1), so this matches the actual final board turn.
-        liveMaxTurn = 0;
-        for (const d of historicDecisions) {
-          const t = d.game_state?.turn ?? d.turn;
-          if (t > liveMaxTurn) liveMaxTurn = t;
-        }
+        // The last logged turn across ALL cached team logs is the effective
+        // "live edge" for scrubbing — never just the default snake's log,
+        // which ends early if that snake died early. Turns are keyed by
+        // game_state.turn (the decision-log `turn` column is offset by +1).
+        liveMaxTurn = recomputeHistoryMaxTurn();
 
         document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
         showGameUI();
         await enterHistoric(liveMaxTurn);
+        // Background: keep force-refreshing the team's log tails until they
+        // provably reach the end of the game (the async server-side flush may
+        // still be landing the final rows), then freeze all history fetching.
+        reconcileHistoryAfterGameEnd();
       } catch (err) {
         console.error('Finished-game load failed:', err);
         showFinishedError(
@@ -2905,6 +3073,24 @@
           'Something went wrong while loading this game\u2019s history.',
         );
       }
+    }
+
+    // Full (heavy) historic renders — board + overlay + roster + evaluation
+    // panel — are coalesced onto one animation frame, like live renders.
+    // Holding an arrow key repeats commitScrub far faster than frames paint;
+    // without this each repeat rebuilt the whole panel DOM synchronously,
+    // which made keyboard scrubbing feel sluggish. The latest
+    // historicTurnNumber wins the frame.
+    let historicCommitRenderQueued = false;
+    function scheduleHistoricCommitRender() {
+      if (historicCommitRenderQueued) return;
+      historicCommitRenderQueued = true;
+      requestAnimationFrame(() => {
+        historicCommitRenderQueued = false;
+        if (viewMode !== 'historic') return;
+        renderHistoricAtTurn(historicTurnNumber);
+        updateTurnControls();
+      });
     }
 
     async function enterHistoric(turnNumber) {
@@ -2939,8 +3125,7 @@
       if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
       const timerEl = document.getElementById('timerDisplay');
       if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }
-      renderHistoricAtTurn(historicTurnNumber);
-      updateTurnControls();
+      scheduleHistoricCommitRender();
     }
 
     function returnToLive() {
@@ -3155,8 +3340,10 @@
       if (!isScrubbing) return;
       const target = scrubRenderTurn;
       // At/over the live edge there is nothing historic to show — let the commit
-      // path decide between live and history on release.
-      if (target >= liveMaxTurn) return;
+      // path decide between live and history on release. Finished games have no
+      // live edge: the last turn is historic like any other, so it must paint
+      // during the drag too.
+      if (!finishedMode && target >= liveMaxTurn) return;
       // Render only from data already in memory. If the inspected snake's logs
       // aren't loaded yet, kick a (deduped) load and repaint once it lands.
       if (!historicDecisions || historicDecisions.length === 0) {

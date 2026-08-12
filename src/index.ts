@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'path';
 import { createServer } from 'http';
 import { VoronoiStrategy } from './logic/voronoi-strategy-new';
@@ -20,6 +21,11 @@ import {
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
+
+// The history viewer's decision-log responses run to many megabytes of highly
+// repetitive JSON; gzip shrinks them ~10x, which is most of the transfer time
+// when replaying a game.
+app.use(compression());
 
 app.use(express.json());
 

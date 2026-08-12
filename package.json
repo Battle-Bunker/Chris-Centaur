@@ -24,6 +24,7 @@
   "license": "ISC",
   "description": "TypeScript Battlesnake AI using Voronoi territory maximization",
   "dependencies": {
+    "compression": "^1.8.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
@@ -37,6 +38,7 @@
     "jws": "3.2.3"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.1",
