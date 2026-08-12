@@ -2815,10 +2815,18 @@
           entry.complete = true;
           return true;
         }
-        return false;
+        // While a post-game reconcile pass is pending or running, stay
+        // non-final so it keeps force-refreshing this log's tail (it freezes
+        // all history fetching when done). But when no reconcile pass will
+        // ever run — the finished-mode load failed or never started — fall
+        // through to the dead-on-board proof below, so scrubbing past an
+        // early-dead snake's last turn doesn't tail-refetch forever. For a
+        // page that watched the game end live, currentGameState is the final
+        // board, which proves an absent snake's log can no longer grow.
+        if (gameEndReconcile) return false;
       }
-      // Dead: the live board has moved past the log's last turn and the snake
-      // is no longer on it.
+      // Dead: the board (live, or final after a game end) has moved past the
+      // log's last turn and the snake is no longer on it.
       if (currentGameState && currentGameState.board &&
           (currentGameState.turn ?? 0) > entry.maxTurn &&
           !currentGameState.board.snakes.some((s) => s.id === snakeId)) {
@@ -2891,15 +2899,31 @@
     // beyond it. Re-renders the viewed historic turn when data lands so the
     // command overlays appear without another user action.
     function ensureCommandHistory(targetTurn) {
+      // "The game is over" is only proof of completeness once the cached
+      // snapshots reach the last resolvable turn (final turn - 1): a fetch
+      // made mid-live is missing every later turn's snapshot, and trusting it
+      // just because the game has since ended would permanently truncate the
+      // command overlays. (finishedMode is included: a live page that watched
+      // the end converts to finishedMode reactively.) Refetches stay bounded
+      // via the commandFetchLiveTurn gate below.
+      const cmdFinalTurn = knownFinalTurn ?? timelineFinalTurn;
+      const endedComplete = (finishedMode || gameEnded) &&
+        cmdFinalTurn != null && commandHistoryMaxTurn >= cmdFinalTurn - 1;
       const haveEnough = commandHistory &&
-        (finishedMode || gameEnded ||
+        (endedComplete ||
           targetTurn == null || targetTurn <= commandHistoryMaxTurn ||
           liveMaxTurn <= commandFetchLiveTurn);
       if (haveEnough) return Promise.resolve(commandHistory);
       if (commandHistoryFetch) return commandHistoryFetch;
       const fetchedAtLiveTurn = liveMaxTurn;
       commandHistoryFetch = fetch(`/api/logs/commands?game_id=${encodeURIComponent(gameId)}`)
-        .then((resp) => resp.json())
+        .then((resp) => {
+          // A non-OK response (e.g. a 500 with a JSON error body) must not be
+          // cached as an empty history — leave commandHistory untouched so a
+          // later attempt retries.
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp.json();
+        })
         .then((data) => {
           commandHistory = {
             events: (data && data.events) || [],

@@ -254,6 +254,26 @@ describe('Command logging and turn-end command-state snapshots', () => {
     expect(state.waypoints['A'].cells).toEqual([{ x: 9, y: 5 }]);
   });
 
+  test('unresolvable operator fallback is visually distinct from the bot identity', () => {
+    const gameId = 'cmd-fallback-op';
+    processTurn(gameId, 'A', [makeSnake('A', { x: 5, y: 5 })], 1, 'right');
+    const game = mgr.getGame(gameId)!;
+    // 'ghost-user' is neither connected nor enrolled (e.g. records already
+    // torn down): the lookup falls back to a generic identity.
+    const op = (mgr as any).operatorFor(game, 'ghost-user');
+    expect(op).toEqual({ userId: 'ghost-user', name: 'Operator', color: '#4CAF50' });
+    // Bot arrows render grey (#888888). The fallback must never share it, or
+    // a real user's command would be indistinguishable from a bot decision.
+    expect(op.color).not.toBe('#888888');
+  });
+
+  test('a command event logged after the game is gone records turn -1, never turn 0', () => {
+    (mgr as any).logCommandEvent('vanished-game', 'A', 'manual-move', null, { move: 'up' });
+    const events = eventsOfType('manual-move').filter((e) => e.gameId === 'vanished-game');
+    expect(events).toHaveLength(1);
+    expect(events[0].turn).toBe(-1);
+  });
+
   test('a snake dead since an earlier turn is dropped from the snapshot stagedMoves', () => {
     const gameId = 'cmd-stale';
     processTurn(gameId, 'A', [makeSnake('A', { x: 5, y: 5 }), makeSnake('B', { x: 1, y: 1 })], 1, 'right');

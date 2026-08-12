@@ -66,6 +66,12 @@ export class CommandLogger {
   private readonly RETRY_DELAY_MS = 100;
   private queue: QueueItem[] = [];
   private droppedCount = 0;
+  // O(1) support for the drop preference in enqueue(): how many queued items
+  // are droppable (kind !== 'turnState'), and the index below which the queue
+  // is known to hold only turn-state items, so the drop scan never re-reads
+  // that prefix. Invariant: queue[i].kind === 'turnState' for all i < dropScanFrom.
+  private droppableCount = 0;
+  private dropScanFrom = 0;
 
   private workerRunning = true;
   private workerPromise: Promise<void>;
@@ -116,15 +122,31 @@ export class CommandLogger {
     this.enqueue({ kind: 'turnState', row: { gameId, turn, stateJson, retries: 0 } });
   }
 
+  // When full, prefer dropping the oldest non-turnState item (same preference
+  // as DecisionLogger): turn-state snapshots are captured once per turn and
+  // never re-delivered, so losing one punches a permanent hole in the replay's
+  // command overlays, while a dropped command event costs one audit row.
   private enqueue(item: QueueItem): void {
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      this.queue.shift();
+      let dropIdx = 0;
+      if (this.droppableCount > 0) {
+        // Amortized O(1): everything before dropScanFrom is turn-state, so
+        // resume the scan there; droppableCount > 0 guarantees a hit.
+        let i = this.dropScanFrom;
+        while (this.queue[i].kind === 'turnState') i++;
+        dropIdx = i;
+        this.dropScanFrom = i;
+      }
+      const dropped = this.queue.splice(dropIdx, 1)[0];
+      if (dropped.kind !== 'turnState') this.droppableCount--;
+      if (dropIdx < this.dropScanFrom) this.dropScanFrom--;
       this.droppedCount++;
       if (this.droppedCount % 100 === 0) {
-        console.warn(`[CommandLogger] Queue full! Dropped ${this.droppedCount} total entries.`);
+        console.warn(`[CommandLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: kind=${dropped.kind}`);
       }
     }
     this.queue.push(item);
+    if (item.kind !== 'turnState') this.droppableCount++;
     this.signalWakeup();
   }
 
@@ -151,12 +173,14 @@ export class CommandLogger {
       }
 
       const batch = this.queue.splice(0, BATCH_SIZE);
+      this.dropScanFrom = Math.max(0, this.dropScanFrom - batch.length);
       const events = batch
         .filter((i): i is { kind: 'event'; row: SerializedEvent } => i.kind === 'event')
         .map(i => i.row);
       const states = batch
         .filter((i): i is { kind: 'turnState'; row: SerializedTurnState } => i.kind === 'turnState')
         .map(i => i.row);
+      this.droppableCount -= events.length;
 
       if (events.length > 0) {
         try {

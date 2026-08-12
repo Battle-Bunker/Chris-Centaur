@@ -1564,7 +1564,11 @@ export class ActiveGameManager {
         return { userId, name: enrolment.name, color: enrolment.color };
       }
     }
-    return { userId, name: 'Player', color: '#888888' };
+    // Unresolvable operator (e.g. enrolment records already torn down). The
+    // fallback identity must stay visually distinct from the bot's — never
+    // BOT_COLOR grey — so a real user's command can't render as a bot arrow;
+    // green is the established human-fallback arrow colour.
+    return { userId, name: 'Operator', color: '#4CAF50' };
   }
 
   // Append one row to the command-event log. Never throws into the game path
@@ -1580,7 +1584,10 @@ export class ActiveGameManager {
     CommandLogger.getInstance().logEvent({
       gameId,
       snakeId,
-      turn: game?.boardStateTurn ?? 0,
+      // -1 marks "turn unknown" when the game is already gone at log time
+      // (e.g. a command racing teardown). Never default to 0: that would
+      // misattribute the event to the real first turn in the audit log.
+      turn: game?.boardStateTurn ?? -1,
       eventType,
       operator,
       payload,

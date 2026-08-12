@@ -205,6 +205,12 @@ export class DecisionLogger {
   private readonly RETRY_DELAY_MS = 100;
   private queue: QueueItem[] = [];
   private droppedCount = 0;
+  // O(1) support for the drop preference in enqueue(): how many queued items
+  // are droppable (kind !== 'turnState'), and the index below which the queue
+  // is known to hold only turn-state items, so the drop scan never re-reads
+  // that prefix. Invariant: queue[i].kind === 'turnState' for all i < dropScanFrom.
+  private droppableCount = 0;
+  private dropScanFrom = 0;
 
   // Worker loop coordination
   private workerRunning = true;
@@ -271,9 +277,20 @@ export class DecisionLogger {
   // a dropped decision row costs one snake's breakdown for one turn.
   private enqueue(item: QueueItem): void {
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      let dropIdx = this.queue.findIndex(q => q.kind !== 'turnState');
-      if (dropIdx === -1) dropIdx = 0;
+      // Oldest droppable (non-turnState) item, else the queue head — found in
+      // amortized O(1): everything before dropScanFrom is turn-state, so the
+      // scan resumes there instead of walking the queue from 0 on every
+      // enqueue while full; droppableCount > 0 guarantees the scan hits.
+      let dropIdx = 0;
+      if (this.droppableCount > 0) {
+        let i = this.dropScanFrom;
+        while (this.queue[i].kind === 'turnState') i++;
+        dropIdx = i;
+        this.dropScanFrom = i;
+      }
       const dropped = this.queue.splice(dropIdx, 1)[0];
+      if (dropped.kind !== 'turnState') this.droppableCount--;
+      if (dropIdx < this.dropScanFrom) this.dropScanFrom--;
       this.droppedCount++;
       if (this.droppedCount % 100 === 0) {
         const d: any = dropped?.kind === 'moveUpdate' ? dropped.update : (dropped as any)?.row;
@@ -281,6 +298,7 @@ export class DecisionLogger {
       }
     }
     this.queue.push(item);
+    if (item.kind !== 'turnState') this.droppableCount++;
     this.signalWakeup();
   }
 
@@ -375,6 +393,10 @@ export class DecisionLogger {
       }
 
       const batch = this.queue.splice(0, BATCH_SIZE);
+      this.dropScanFrom = Math.max(0, this.dropScanFrom - batch.length);
+      for (const consumed of batch) {
+        if (consumed.kind !== 'turnState') this.droppableCount--;
+      }
       // Process turn-state upserts first (self-contained COALESCE writes),
       // then all inserts, then move-column back-fills, so a back-fill enqueued
       // in the same batch as its target's insert finds the row.
