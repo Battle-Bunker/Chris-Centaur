@@ -9,7 +9,7 @@ const configStore = new ConfigStore();
  * Get current configuration values
  * Merges stored values with defaults
  */
-router.get('/api/config', async (req, res) => {
+router.get('/api/config', async (_req, res) => {
   try {
     // Get stored config
     const storedConfig = await configStore.getAll();
@@ -103,7 +103,7 @@ router.post('/api/config', async (req, res) => {
 /**
  * Reset configuration to defaults
  */
-router.delete('/api/config', async (req, res) => {
+router.delete('/api/config', async (_req, res) => {
   try {
     await configStore.clear();
     res.json({ 

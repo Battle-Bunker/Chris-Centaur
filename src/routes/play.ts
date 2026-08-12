@@ -4,7 +4,7 @@ import { PendingGameRegistry } from '../logic/pending-game-registry';
 
 const router = express.Router();
 
-router.get('/api/play/games', (req, res) => {
+router.get('/api/play/games', (_req, res) => {
   const manager = ActiveGameManager.getInstance();
   const games = manager.getActiveGames();
   const pendingGames = PendingGameRegistry.getInstance().list();

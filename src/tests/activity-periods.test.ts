@@ -6,7 +6,6 @@
  * liveness heartbeat, crash-with-recent-activity, legacy boots without
  * heartbeat forensics, suspend markers, and the live open-ended period.
  */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { buildPeriods } = require('../web/activity-periods.js');
 
 type Ev = { ts: number; type: string; detail?: Record<string, unknown> | null };

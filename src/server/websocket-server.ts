@@ -1,7 +1,7 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
 import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ActiveGameManager, TurnData } from './active-game-manager';
+import { ActiveGameManager } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
@@ -672,7 +672,7 @@ export class GameWebSocketServer {
           });
           try {
             client.ws.close(IDLE_CLOSE_CODE, IDLE_CLOSE_REASON);
-          } catch (e) {
+          } catch {
             // best-effort: socket may already be tearing down
           }
         }

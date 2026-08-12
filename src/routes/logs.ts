@@ -5,7 +5,7 @@ const router = express.Router();
 const logger = DecisionLogger.getInstance();
 
 // Get list of games with metadata
-router.get('/api/logs/games', async (req, res) => {
+router.get('/api/logs/games', async (_req, res) => {
   try {
     const games = await logger.getGames();
     res.json(games);
