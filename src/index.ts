@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer } from 'http';
 import { VoronoiStrategy } from './logic/voronoi-strategy-new';
 import { DecisionLogger } from './logic/decision-logger';
+import { CommandLogger } from './logic/command-logger';
 import { ActiveGameManager } from './server/active-game-manager';
 import { GameWebSocketServer } from './server/websocket-server';
 import logsRouter from './routes/logs';
@@ -209,6 +210,9 @@ async function gracefulShutdown(signal: string) {
   if (ttFirebase) await ttFirebase.stop().catch(() => undefined);
   gameManager.shutdown();
   wsServer.shutdown();
+  // CommandLogger flushes first — DecisionLogger.shutdown() closes the shared
+  // pg pool.
+  await CommandLogger.getInstance().shutdown();
   const decisionLogger = DecisionLogger.getInstance();
   await decisionLogger.shutdown();
   await ConnectionLogger.getInstance().shutdown();
