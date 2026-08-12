@@ -1090,15 +1090,19 @@ export class ActiveGameManager {
     return { ...snapshot, you };
   }
 
-  // Recompute the DERIVED green goto display route for a snake. This encodes
-  // the two-path duality the goto feature needs:
-  //  - While a move is STAGED for this turn, the route is
+  // Recompute the DERIVED green goto display route for a snake: the snake's
+  // full predicted trajectory through EVERY queued target, chained
+  // head → targets[0] → targets[1] → … so the board shows how it gets between
+  // waypoints, not just to the first one.
+  //
+  // The first leg encodes the two-path duality the goto feature needs:
+  //  - While a move is STAGED for this turn it starts
   //    [stagedDestination, ...shortestPath(stagedDestination → targets[0])] —
   //    the path the snake will actually walk, conditioned on the move the
   //    heuristic matrix chose (which may differ from the pure shortest-path
   //    first step when survival heuristics outvoted it).
-  //  - With nothing staged for this turn it is the plain shortest path from the
-  //    projected head — the "immediately optimal" path for the next decision.
+  //  - With nothing staged for this turn it starts at the projected head —
+  //    the "immediately optimal" path for the next decision.
   //
   // Uses the SAME `waypointPath` the evaluator's stat and the staging re-bias
   // use, so the number scored, the path drawn, and the move committed cannot
@@ -1112,7 +1116,7 @@ export class ActiveGameManager {
       return;
     }
     try {
-      const target = controlled.intent.targets[0];
+      const targets = controlled.intent.targets;
       const boardState = game.boardState;
       const gs = boardState ? this.viewFor(boardState, snakeId) : null;
       const anchor = this.getProjectedHead(gameId, snakeId);
@@ -1123,6 +1127,12 @@ export class ActiveGameManager {
       const board = gs.board;
       const staged = controlled.staged;
       const stagedPending = !!staged && staged.turn === game.boardStateTurn;
+
+      // Where the path starts, and how many turns from now that cell is
+      // occupied — the BFS clock every subsequent leg continues from.
+      const route: Coord[] = [];
+      let from: Coord;
+      let turnCursor: number;
       if (stagedPending) {
         const stagedDest = ActiveGameManager.destinationOf(anchor, staged!.move);
         const inBounds = stagedDest.x >= 0 && stagedDest.x < board.width && stagedDest.y >= 0 && stagedDest.y < board.height;
@@ -1130,15 +1140,44 @@ export class ActiveGameManager {
           controlled.gotoRoute = [];
           return;
         }
-        // Path continues from the staged cell; its BFS clock starts one move in
-        // the future. Unreachable → show just the staged step so the user still
-        // sees which way the snake will go while the target is cut off.
-        const rest = waypointPath(gs, snakeId, stagedDest, target, { startTurn: 1 });
-        controlled.gotoRoute = rest === null ? [stagedDest] : [stagedDest, ...rest];
+        // The staged cell is reached one move in the future, so the rest of the
+        // route is pathed with the clock already advanced by one.
+        route.push(stagedDest);
+        from = stagedDest;
+        turnCursor = 1;
       } else {
-        const path = waypointPath(gs, snakeId, anchor, target);
-        controlled.gotoRoute = path ?? [];
+        from = anchor;
+        turnCursor = 0;
       }
+
+      // Walk the WHOLE queue, one leg per target, so the board shows the
+      // snake's full predicted trajectory rather than just the first hop.
+      // Each leg's BFS starts at the turn the previous target is reached, which
+      // matters because passability is turn-aware: bodies recede as the clock
+      // advances, so a later leg legitimately sees more open board than the
+      // same leg measured from turn 0 would. (Optimistic clearance has no
+      // look-ahead ceiling — `optimisticDisappear` holds the true geometric
+      // vacate turn — so the accumulated turns stay meaningful arbitrarily far
+      // out.)
+      //
+      // Legs beyond the first are a PREDICTION in a way the first leg is not:
+      // the first is conditioned on the move actually staged this turn, while
+      // the rest assume the snake reaches each target and that other snakes'
+      // bodies only recede from where they are now. That is exactly what makes
+      // it useful for planning around a snake's default trajectory — but it is
+      // not a commitment, and only targets[0] ever reaches the decision engine.
+      for (const target of targets) {
+        const leg = waypointPath(gs, snakeId, from, target, { startTurn: turnCursor });
+        // Unreachable leg: stop at the last target we can actually get to
+        // rather than drawing a path that skips a gap. With nothing reachable
+        // at all this leaves just the staged step (or an empty route), so the
+        // user still sees which way the snake is about to go.
+        if (leg === null) break;
+        route.push(...leg);
+        turnCursor += leg.length;
+        from = target;
+      }
+      controlled.gotoRoute = route;
     } catch (e) {
       // A display cache must never break staging/commit paths.
       console.error(`[ActiveGameManager] refreshGotoRoute failed for ${gameId}:${snakeId}:`, e);

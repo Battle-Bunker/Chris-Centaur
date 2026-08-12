@@ -357,6 +357,66 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(mgr.getWaypointsForGame(gameId)['A'].cells).toEqual([{ x: 6, y: 5 }, { x: 8, y: 8 }]);
   });
 
+  test('the route spans the WHOLE queue, chaining a leg per target', () => {
+    const gameId = 'g-goto-multileg';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    // Three targets forming an L: right along y=5, then up the x=8 column.
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 8 }, userId, true);
+
+    const route = cs.gotoRoute;
+    // The drawn path must reach every queued target, in order — not stop at the
+    // first one. Manhattan legs on an open board: 3 + 3 + 3 cells, plus the
+    // staged step the route is anchored on.
+    const idx8_5 = route.findIndex(c => c.x === 8 && c.y === 5);
+    const idx8_8 = route.findIndex(c => c.x === 8 && c.y === 8);
+    const idx5_8 = route.findIndex(c => c.x === 5 && c.y === 8);
+    expect(idx8_5).toBeGreaterThanOrEqual(0);
+    expect(idx8_8).toBeGreaterThan(idx8_5);
+    expect(idx5_8).toBeGreaterThan(idx8_8);
+    // The last cell IS the final target — the route ends where the plan ends.
+    expect(route[route.length - 1]).toEqual({ x: 5, y: 8 });
+    // Every step is orthogonally adjacent to the previous one: one continuous
+    // walkable trajectory, with no jump across the seam between legs.
+    for (let i = 1; i < route.length; i++) {
+      const d = Math.abs(route[i].x - route[i - 1].x) + Math.abs(route[i].y - route[i - 1].y);
+      expect(d).toBe(1);
+    }
+  });
+
+  test('a single target still produces exactly the first leg (no behaviour change)', () => {
+    const gameId = 'g-goto-singleleg';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+
+    expect(cs.gotoRoute[0]).toEqual({ x: 6, y: 5 });
+    expect(cs.gotoRoute[cs.gotoRoute.length - 1]).toEqual({ x: 8, y: 5 });
+    expect(cs.gotoRoute.length).toBe(3);
+  });
+
+  test('an unreachable leg truncates the route at the last reachable target', () => {
+    const gameId = 'g-goto-truncate';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    // Second target is off-board, so its leg can never be pathed. The route
+    // must still show everything up to the reachable first target rather than
+    // collapsing to nothing or drawing a jump across the gap.
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    (cs.intent as { kind: 'goto'; targets: Coord[] }).targets.push({ x: 99, y: 99 });
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
+
+    const route = cs.gotoRoute;
+    expect(route.length).toBeGreaterThan(0);
+    expect(route[route.length - 1]).toEqual({ x: 8, y: 5 });
+    expect(route.some(c => c.x === 8 && c.y === 8)).toBe(false);
+  });
+
   test('reaching the active target shifts the queue; the last arrival reverts to heuristic', () => {
     const gameId = 'g-goto-arrive';
     let snakes = [makeSnake('A', { x: 5, y: 5 })];

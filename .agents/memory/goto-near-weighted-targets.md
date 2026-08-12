@@ -82,17 +82,43 @@ truthfully as `'bot'`.
 
 - **Optimal-from-current-head** — feeds the matrix (the stat above). Never rendered.
 - **Staged-conditioned** — what renders. `ControlledSnake.gotoRoute` is a DERIVED
-  cache (deliberately NOT in the intent) recomputed by `refreshGotoRoute`:
-  while a move is staged for the current turn it is
-  `[stagedDestination, ...shortestPath(stagedDestination → targets[0])]`; with
-  nothing staged for the turn it is the plain shortest path from the projected
-  head. Under the Firebase write-through model something is staged for
-  essentially every turn, so the first branch is the normal case — which is the
-  point: the drawn path is the path the snake will actually walk.
+  cache (deliberately NOT in the intent) recomputed by `refreshGotoRoute`. Its
+  FIRST leg carries the duality: while a move is staged for the current turn it
+  starts `[stagedDestination, ...shortestPath(stagedDestination → targets[0])]`;
+  with nothing staged for the turn it starts at the projected head. Under the
+  Firebase write-through model something is staged for essentially every turn,
+  so the first branch is the normal case — which is the point: the drawn path is
+  the path the snake will actually walk.
 
 `refreshGotoRoute` must run AFTER `controlled.staged` is final in `stageMove` —
 the fatal-move gate can replace the staged direction, and the drawn path must
 follow the move that will actually commit, not the one the target wanted.
+
+# The route spans the WHOLE queue
+
+The rendered path chains one leg per queued target —
+head → `targets[0]` → `targets[1]` → … — because the trajectory BETWEEN
+waypoints is the information a human needs to plan around a snake's default
+course; numbered target squares with no path between them do not convey it.
+
+Each leg's BFS starts at the turn the previous target is reached (`startTurn`
+accumulates the legs' lengths). This matters because passability is turn-aware:
+bodies recede as the clock advances, so a later leg legitimately sees more open
+board than the same leg measured from turn 0. Optimistic clearance has NO
+look-ahead ceiling — `optimisticDisappear` stores the true geometric vacate turn
+— so accumulated turns stay meaningful arbitrarily far out. (The
+`maxLookaheadTurns` cap lives only on `isPassableAtTurnIdx`, the physical layer
+`waypointPath` does not use.)
+
+An unreachable leg TRUNCATES the route at the last reachable target rather than
+skipping the gap: a drawn path must always be a walkable line.
+
+**Legs past the first are a PREDICTION in a way the first is not.** The first is
+conditioned on the move actually staged this turn; the rest assume the snake
+reaches each target and that other snakes' bodies only recede from where they
+are now. Do not read the tail of the route as a commitment — and note that only
+`targets[0]` is ever handed to the decision engine, so the later legs influence
+nothing, they only inform the human.
 
 # Goto is a QUEUE of targets (and REPLACED the premove queue)
 
