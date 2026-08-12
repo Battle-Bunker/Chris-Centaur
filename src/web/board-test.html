@@ -21,6 +21,7 @@
     function makeSnake(id, name, color, body, health, invuln) {
       return {
         id, name, health: health || 100,
+        letter: name[0].toUpperCase(),
         body: body.map(([x,y]) => ({x,y})),
         customizations: { color },
         invulnerabilityLevel: invuln || 0
@@ -66,7 +67,7 @@
         territory: {}
       },
       {
-        title: "3: Food on fertile tiles + hazards (emoji clarity test)",
+        title: "3: Food on fertile tiles + hazards (glyph clarity test)",
         width: 8, height: 8,
         snakes: [
           makeSnake("s1", "Eater", "#22bb66", [

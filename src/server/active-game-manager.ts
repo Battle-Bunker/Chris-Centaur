@@ -114,13 +114,13 @@ export type IntentMode = SnakeIntent['kind'];
 export interface SnakeInfo {
   id: string;
   name: string;
-  emoji: string;
+  letter: string;
 }
 
 export interface ControlledSnake {
   id: string;
   name: string;
-  emoji: string;
+  letter: string;
   latestTurnData: TurnData | null;
   botRecommendation: Direction | null;
   selectedBy: string | null;
@@ -202,6 +202,10 @@ export type EnrolResult =
 
 export interface ActiveGame {
   gameId: string;
+  // The engine-server session this game belongs to (set by the Firebase
+  // interface after registration). Used to build links to the game on the
+  // engine server; null until known.
+  sessionId: string | null;
   boardState: BoardSnapshot | null;
   boardStateTurn: number;
   snakes: Map<string, SnakeInfo>;
@@ -216,6 +220,10 @@ export interface ActiveGame {
   playerNames: Map<string, PlayerEnrolment>;
   turnExpiryTime: number | null;
   currentTurn: number;
+  // The centaur identity we play as in this game (setup team whose id ==
+  // configured centaur id). Set by the Firebase interface at registration;
+  // null when unknown (e.g. legacy games).
+  ourTeam: { id: string; name: string; color: string } | null;
 }
 
 const DISTINCT_COLORS = [
@@ -444,7 +452,7 @@ export class ActiveGameManager {
     console.log('[ActiveGameManager] Server ping interval started (30s, unref\'d)');
   }
 
-  registerGame(gameState: GameState): void {
+  registerGame(gameState: GameState, ourTeam?: { id: string; name: string; color: string } | null): void {
     const gameId = gameState.game.id;
     const snakeId = gameState.you.id;
 
@@ -453,6 +461,7 @@ export class ActiveGameManager {
       const now = Date.now();
       game = {
         gameId,
+        sessionId: null,
         boardState: gameState,
         boardStateTurn: gameState.turn || 0,
         snakes: new Map(),
@@ -464,16 +473,18 @@ export class ActiveGameManager {
         playerNames: new Map(),
         turnExpiryTime: null,
         currentTurn: gameState.turn || 0,
+        ourTeam: ourTeam ?? null,
       };
       this.games.set(gameId, game);
     }
+    if (ourTeam && !game.ourTeam) game.ourTeam = ourTeam;
 
     for (const snake of gameState.board.snakes) {
       if (!game.snakes.has(snake.id)) {
         game.snakes.set(snake.id, {
           id: snake.id,
           name: snake.name,
-          emoji: snake.emoji || '',
+          letter: snake.letter || '',
         });
       }
     }
@@ -483,7 +494,7 @@ export class ActiveGameManager {
       game.controlledSnakes.set(snakeId, {
         id: snakeId,
         name: gameState.you.name,
-        emoji: gameState.you.emoji || '',
+        letter: gameState.you.letter || '',
         latestTurnData: null,
         botRecommendation: null,
         selectedBy: null,
@@ -851,25 +862,39 @@ export class ActiveGameManager {
     return this.games.get(gameId);
   }
 
+  // Record which engine-server session a game belongs to (called by the
+  // Firebase interface, which is the only component that knows it).
+  setGameSession(gameId: string, sessionId: string): void {
+    const game = this.games.get(gameId);
+    if (game && game.sessionId !== sessionId) {
+      game.sessionId = sessionId;
+      this.notifyGameListChange('updated', gameId, '');
+    }
+  }
+
   getActiveGames(): Array<{
     gameId: string;
-    controlledSnakes: Array<{ id: string; name: string; emoji: string }>;
+    sessionId: string | null;
+    controlledSnakes: Array<{ id: string; name: string; letter: string }>;
     turn: number;
     gameState: GameState | null;
     startedAt: number;
+    ourTeam: { id: string; name: string; color: string } | null;
   }> {
     const result: Array<any> = [];
     for (const game of this.games.values()) {
-      const snakes: Array<{ id: string; name: string; emoji: string }> = [];
+      const snakes: Array<{ id: string; name: string; letter: string }> = [];
       for (const cs of game.controlledSnakes.values()) {
-        snakes.push({ id: cs.id, name: cs.name, emoji: cs.emoji });
+        snakes.push({ id: cs.id, name: cs.name, letter: cs.letter });
       }
       result.push({
         gameId: game.gameId,
+        sessionId: game.sessionId,
         controlledSnakes: snakes,
         turn: game.currentTurn,
         gameState: game.boardState,
         startedAt: game.startedAt,
+        ourTeam: game.ourTeam,
       });
     }
     return result;
@@ -878,7 +903,7 @@ export class ActiveGameManager {
   getGameState(gameId: string): {
     boardState: BoardSnapshot | null;
     controlledSnakes: Array<{
-      id: string; name: string; emoji: string;
+      id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
@@ -896,7 +921,7 @@ export class ActiveGameManager {
     if (!game) return null;
 
     const controlledSnakes: Array<{
-      id: string; name: string; emoji: string;
+      id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
       botRecommendation: Direction | null;
@@ -907,7 +932,7 @@ export class ActiveGameManager {
       controlledSnakes.push({
         id: cs.id,
         name: cs.name,
-        emoji: cs.emoji,
+        letter: cs.letter,
         selectedBy: cs.selectedBy,
         turnData: cs.latestTurnData,
         botRecommendation: cs.botRecommendation,
@@ -1750,7 +1775,7 @@ export class ActiveGameManager {
           game.snakes.set(snake.id, {
             id: snake.id,
             name: snake.name,
-            emoji: snake.emoji || '',
+            letter: snake.letter || '',
           });
         }
       }
@@ -1863,7 +1888,7 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (controlled) {
       controlled.name = gameState.you.name || controlled.name;
-      controlled.emoji = gameState.you.emoji || controlled.emoji;
+      controlled.letter = gameState.you.letter || controlled.letter;
     }
 
     const boardSnakeIds = new Set(gameState.board.snakes.map(s => s.id));

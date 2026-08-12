@@ -5,31 +5,28 @@
 import type { Timestamp } from 'firebase/firestore';
 
 export interface TTTeam {
-  id: string;
+  id: string; // == centaur id
   name: string;
   color: string;
 }
 
+// One snake. The first snake of a team has id == team.id, the rest are
+// `${team.id}#${k}` (k = 2..snakesPerTeam). teamID is the controlling
+// centaur's id; letter is "A".."Z" by index within the team.
 export interface TTGamePlayer {
   id: string;
-  type: 'bot' | 'human';
-  teamID?: string;
-  isKing?: boolean;
-  /** For bot clones: the underlying bots/<id> doc. Unset for the original instance. */
-  botRef?: string;
-  displayName?: string;
-  displayEmoji?: string;
+  teamID: string;
+  letter: string;
 }
 
 export interface TTGameSetup {
-  gameType: string;
+  teams: TTTeam[];
+  snakesPerTeam: number;
   gamePlayers: TTGamePlayer[];
   boardWidth: number; // includes the 1-cell perimeter wall
   boardHeight: number; // includes the 1-cell perimeter wall
   maxTurnTime: number; // seconds
   firstTurnTime?: number;
-  teams?: TTTeam[];
-  gameMode?: 'individual' | 'team';
   foodSpawnRate?: number;
   invulnerabilityPotionSpawnRate?: number;
 }
@@ -72,17 +69,16 @@ export interface TTGameStateDoc {
   turns: TTTurn[];
 }
 
-export interface TTMoveStatus {
-  moveNumber: number;
-  alivePlayerIDs: string[];
-  movedPlayerIDs: string[];
-}
-
-/** bots/{botId}/games/{gameId} invite doc written by the server at game start. */
+/**
+ * centaurs/{centaurId}/games/{gameId} invite doc. The server creates it with
+ * status 'pending' while the lobby is being configured (and deletes it if the
+ * team is removed), then overwrites the same doc with status 'started' (plus
+ * snakeIDs) at game start. A missing status is treated as 'started'.
+ */
 export interface TTGameInvite {
   sessionID: string;
   gameID: string;
-  gameType: string;
-  snakeIDs: string[];
+  status?: 'pending' | 'started';
+  snakeIDs?: string[]; // absent on pending invites
   createdAt: Timestamp;
 }

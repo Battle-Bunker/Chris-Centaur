@@ -1,13 +1,17 @@
 import express from 'express';
 import { ActiveGameManager } from '../server/active-game-manager';
+import { PendingGameRegistry } from '../logic/pending-game-registry';
 
 const router = express.Router();
 
 router.get('/api/play/games', (req, res) => {
   const manager = ActiveGameManager.getInstance();
   const games = manager.getActiveGames();
-  console.log(`[Play API] GET /api/play/games → ${games.length} active games`);
-  res.json(games);
+  const pendingGames = PendingGameRegistry.getInstance().list();
+  console.log(
+    `[Play API] GET /api/play/games → ${games.length} active, ${pendingGames.length} pending`
+  );
+  res.json({ games, pendingGames });
 });
 
 router.get('/api/play/game/:gameId', (req, res) => {

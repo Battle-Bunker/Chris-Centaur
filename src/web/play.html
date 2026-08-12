@@ -51,6 +51,19 @@
       margin-bottom: 15px; display: flex; gap: 15px; align-items: stretch;
     }
     .game-card:hover { border-color: #4CAF50; transform: translateY(-2px); }
+    /* Pending lobby: invited but not started. Not clickable — there is no
+       game page until the game starts. */
+    .game-card.pending { border: 2px solid #FF9800; cursor: default; }
+    .game-card.pending:hover { border-color: #FF9800; transform: none; }
+    .pending-badge {
+      font-size: 11px; font-weight: 700; color: #FF9800;
+      border: 1px solid #FF9800; border-radius: 10px; padding: 2px 8px;
+    }
+    .game-card-settings { font-size: 12px; color: #888; margin-bottom: 8px; }
+    .team-dot {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      border: 1px solid #555;
+    }
     .game-card-info { flex: 1; min-width: 0; }
     .game-card-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -72,6 +85,16 @@
       background: #333; padding: 4px 10px; border-radius: 12px;
       font-size: 13px; border: 1px solid #555;
     }
+    .our-team-tag { border-color: #4caf50; }
+    .us-badge {
+      background: #4caf50; color: #08130a; font-weight: 700;
+      font-size: 10px; padding: 1px 5px; border-radius: 8px; letter-spacing: 0.5px;
+    }
+    .our-centaur-line {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: #bbb; margin: 4px 0;
+    }
+    .our-centaur-line strong { color: #fff; }
     .game-card-minimap {
       width: 150px; min-width: 150px; flex-shrink: 0;
     }
@@ -79,6 +102,11 @@
       width: 100%; aspect-ratio: 1; border: 1px solid #444;
       border-radius: 4px; background: #ffffff;
     }
+    .engine-link {
+      font-size: 11px; color: #4CAF50; text-decoration: none;
+      white-space: nowrap;
+    }
+    .engine-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -114,6 +142,8 @@
     let ws = null;
     let reconnectTimer = null;
     let currentGames = [];
+    let currentPendingGames = [];
+    let engineHost = null; // GAME_ENGINE_HOST from the server; null = no links
     const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes without a turn change = stale
     const gameActivity = new Map(); // gameId -> { turn, lastChanged }
     const staleGames = new Set();   // gameIds currently hidden as stale
@@ -154,6 +184,8 @@
             wsDebug.setServerConnId(msg.connId);
           } else if (msg.type === 'lobby-update') {
             currentGames = msg.games;
+            currentPendingGames = msg.pendingGames || [];
+            engineHost = msg.engineHost || null;
             recordActivity(msg.games);
             renderGames(getLiveGames());
           } else if (msg.type === 'firebase-status') {
@@ -266,11 +298,64 @@
       }).format(new Date(ts));
     }
 
+    // Link to the game on the team snek engine server. Empty string when the
+    // host isn't configured or the session/game IDs aren't known. stopPropagation
+    // keeps the click from also triggering the card's own click handler.
+    function engineLink(sessionID, gameID) {
+      if (!engineHost || !sessionID || !gameID) return '';
+      const url = `https://${engineHost}/session/${encodeURIComponent(sessionID)}/${encodeURIComponent(gameID)}`;
+      return `<a class="engine-link" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on engine ↗</a>`;
+    }
+
+    // Firebase-provided team data is untrusted: escape names before innerHTML
+    // interpolation and only pass through colors that look like plain CSS
+    // color tokens (hex / rgb()/hsl() / simple keyword) so nothing can break
+    // out of the style attribute.
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    }
+    function safeColor(c) {
+      return typeof c === 'string' && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\))$/.test(c.trim())
+        ? c.trim() : '#888';
+    }
+
+    // Pending lobby bubble: the centaur has been invited but the game hasn't
+    // started. Identified by sessionID+gameID; deliberately NOT clickable.
+    function renderPendingCard(pg) {
+      const board = pg.boardWidth && pg.boardHeight ? `${pg.boardWidth}×${pg.boardHeight}` : '?';
+      const teams = pg.teams || [];
+      const teamTags = teams.map(t =>
+        `<span class="controlled-snake-tag${t.ours ? ' our-team-tag' : ''}"><span class="team-dot" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.name)}${t.ours ? ' <span class="us-badge">US</span>' : ''}</span>`
+      ).join('');
+      const ourTeam = teams.find(t => t.ours);
+      const ourLine = ourTeam
+        ? `<div class="our-centaur-line"><span class="team-dot" style="background:${safeColor(ourTeam.color)}"></span>Playing as <strong>${escapeHtml(ourTeam.name)}</strong></div>`
+        : '';
+      return `
+        <div class="game-card pending">
+          <div class="game-card-info">
+            <div class="game-card-header">
+              <span class="pending-badge">PENDING</span>
+              <span class="game-card-turn">${teams.length} team${teams.length === 1 ? '' : 's'}</span>
+            </div>
+            <div class="game-card-id">${pg.sessionID} / ${pg.gameID} ${engineLink(pg.sessionID, pg.gameID)}</div>
+            <div class="game-card-settings">
+              Board ${board} · ${pg.snakesPerTeam ?? '?'} snakes/team · ${pg.maxTurnTime ?? '?'}s turns
+            </div>
+            ${ourLine}
+            <div class="game-card-snakes">${teamTags}</div>
+          </div>
+        </div>`;
+    }
+
     function renderGames(games) {
       const container = document.getElementById('gameContainer');
       const statusText = document.getElementById('statusText');
+      const pending = currentPendingGames;
 
-      if (games.length === 0) {
+      if (games.length === 0 && pending.length === 0) {
         container.innerHTML = `
           <div class="no-games">
             <h2>No Active Games</h2>
@@ -281,16 +366,25 @@
         return;
       }
 
-      statusText.textContent = `${games.length} active game${games.length > 1 ? 's' : ''}`;
+      const parts = [];
+      if (games.length > 0) parts.push(`${games.length} active game${games.length > 1 ? 's' : ''}`);
+      if (pending.length > 0) parts.push(`${pending.length} pending`);
+      statusText.textContent = parts.join(' · ') || 'No active games';
 
       const sorted = [...games].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
 
       let html = '';
+      for (const pg of pending) {
+        html += renderPendingCard(pg);
+      }
       for (const game of sorted) {
         const startLabel = formatStartTime(game.startedAt);
         const snakeTags = (game.controlledSnakes || []).map(s =>
-          `<span class="controlled-snake-tag">${s.emoji || '\u{1F40D}'} ${s.name || 'Snake'}</span>`
+          `<span class="controlled-snake-tag">${escapeHtml(s.name || 'Snake')}</span>`
         ).join('');
+        const ourActiveLine = game.ourTeam
+          ? `<div class="our-centaur-line"><span class="team-dot" style="background:${safeColor(game.ourTeam.color)}"></span>Playing as <strong>${escapeHtml(game.ourTeam.name)}</strong></div>`
+          : '';
 
         html += `
         <div class="game-card" onclick="openGame('${game.gameId}')">
@@ -299,7 +393,8 @@
               <span class="game-card-turn">Turn ${game.turn}</span>
               ${startLabel ? `<span class="game-card-time">${startLabel}</span>` : ''}
             </div>
-            <div class="game-card-id">${game.gameId}</div>
+            <div class="game-card-id">${game.gameId} ${engineLink(game.sessionId, game.gameId)}</div>
+            ${ourActiveLine}
             <div class="game-card-snakes">${snakeTags}</div>
           </div>
           <div class="game-card-minimap">

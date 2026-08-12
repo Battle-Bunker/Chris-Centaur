@@ -7,6 +7,7 @@ import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
+import { PendingGameRegistry } from '../logic/pending-game-registry';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -278,6 +279,11 @@ export class GameWebSocketServer {
 
     this.gameManager.onGameListChange((event, gameId, snakeId) => {
       console.log(`[WebSocket] Game list changed: ${event} ${gameId}:${snakeId}`);
+      this.broadcastLobbyUpdate();
+    });
+
+    // Pending (unstarted) lobbies come and go independently of active games.
+    PendingGameRegistry.getInstance().onChange(() => {
       this.broadcastLobbyUpdate();
     });
 
@@ -823,17 +829,31 @@ export class GameWebSocketServer {
     }
   }
 
+  // The engine server's host, exposed to the lobby page so game cards can
+  // link to the game on the engine server. Optional: when unset the cards
+  // simply render no link.
+  private engineHost(): string | null {
+    return process.env.GAME_ENGINE_HOST || null;
+  }
+
   private sendLobbyState(ws: WebSocket): void {
     const games = this.gameManager.getActiveGames();
     this.send(ws, {
       type: 'lobby-update',
       games,
+      pendingGames: PendingGameRegistry.getInstance().list(),
+      engineHost: this.engineHost(),
     });
   }
 
   private broadcastLobbyUpdate(): void {
     const games = this.gameManager.getActiveGames();
-    const msg = { type: 'lobby-update', games };
+    const msg = {
+      type: 'lobby-update',
+      games,
+      pendingGames: PendingGameRegistry.getInstance().list(),
+      engineHost: this.engineHost(),
+    };
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
       if (client.isLobby && client.ws.readyState === WebSocket.OPEN) {

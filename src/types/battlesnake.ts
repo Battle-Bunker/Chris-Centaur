@@ -18,6 +18,10 @@ export interface Snake {
     head: string;
     tail: string;
   };
+  // Head glyph: the snake's letter within its team ("A".."Z").
+  letter?: string;
+  // Read-side fallback only: historical decision_logs game_state rows stored an
+  // emoji head glyph. Nothing writes this anymore.
   emoji?: string;
   invulnerabilityLevel?: number;
   // Last absolute game turn on which invulnerabilityLevel still applies. Supplied
@@ -69,37 +73,12 @@ export interface GameState {
 // off it — callers must obtain a real GameState for a specific snake by ID.
 export type BoardSnapshot = Omit<GameState, 'you'>;
 
-export interface MoveResponse {
-  move: string;
-  shout?: string;
-}
-
-export interface SnakeInfoResponse {
-  apiversion: string;
-  author?: string;
-  color?: string;
-  head?: string;
-  tail?: string;
-  version?: string;
-}
-
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export interface TeamInfo {
   color: string;
   snakes: Snake[];
   totalLength: number;
-}
-
-export interface VoronoiResult {
-  territories: Map<string, number>;
-  teamTerritories: Map<string, number>;
-  fertileScores?: Map<string, number>;
-  teamFertileScores?: Map<string, number>;
-  foodControlled?: Map<string, number>;
-  teamFoodControlled?: Map<string, number>;
-  foodDistances?: Map<string, number>;
-  teamFoodDistances?: Map<string, number>;
 }
 
 export interface SimulationConfig {

@@ -1,18 +1,18 @@
-# Chris-Centaur — Team Snek Bot
+# Chris-Centaur — Team Snek Centaur
 
-A TypeScript bot (and human-in-the-loop "centaur" server) for
+A TypeScript centaur (AI engine + human-in-the-loop server) for
 [TacticToes](https://github.com/Battle-Bunker/TacticToes) Team Snek. It plays
-through TacticToes' **Firebase bot interface**: the bot signs in to the game's
-Firebase project as a bot principal, discovers its games through Firestore
-listeners, and stages moves by writing Firestore documents. There is no
-Battlesnake-style HTTP interface — Firebase is the single source of truth for
-staged moves.
+through TacticToes' **Firebase centaur interface**: the centaur signs in to
+the game's Firebase project as a centaur principal, discovers its games
+through Firestore listeners, and stages moves by writing Firestore documents.
+There is no Battlesnake-style HTTP interface — Firebase is the single source
+of truth for staged moves.
 
 ## How it plays
 
-- **One identity, many snakes.** A single bot identity can own several snakes
-  in a Team Snek game (the original + clones). The interface computes and
-  stages a move for every owned snake each turn.
+- **One identity, one team of snakes.** A centaur controls every snake on its
+  team (`snakesPerTeam` of them, lettered A, B, C…). The interface computes
+  and stages a move for every owned snake each turn.
 - **Requested → confirmed → final.** Every staging action — the engine's
   recommendation, a human picking an exact move in the centaur UI, a "go to"
   waypoint or premove-queue step, or cancelling human intervention and
@@ -46,47 +46,60 @@ staged moves.
   undone for the turn.
 - **Centaur play.** The web UI (served on `PORT`, default 5000, at `/play`)
   lets humans select snakes, stage exact moves, draw premove paths and
-  waypoints, or leave snakes on bot auto-pilot. Whatever the human does is the
-  same write-through staging path the bot uses.
+  waypoints, or leave snakes on engine auto-pilot. Whatever the human does is
+  the same write-through staging path the engine uses.
 
 ## Configuring the Firebase connection
 
-The bot needs four values; without all four it starts in UI-only mode and
+The centaur needs four values; without all four it starts in UI-only mode and
 cannot play.
 
 | Env var | What it is | Where it comes from |
 | --- | --- | --- |
-| `TACTICTOES_BOT_ID` | The bot's document id in the TacticToes `bots` collection | Shown when you create the bot in TacticToes |
-| `TACTICTOES_BOT_API_KEY` | The bot's API key (`ttb_…`) | Returned **once** by the TacticToes `createBotApiKey` callable — the bot owner calls it (e.g. from the web app) with `{ botId }`; calling again rotates the key |
+| `TACTICTOES_CENTAUR_ID` | The centaur's document id in the TacticToes `centaurs` collection | Shown when you create the centaur in TacticToes |
+| `TACTICTOES_CENTAUR_API_KEY` | The centaur's API key (`ttc_…`) | Returned **once** by the TacticToes `createCentaurApiKey` callable — the centaur owner calls it (e.g. from the web app) with `{ centaurId }`; calling again rotates the key |
 | `TACTICTOES_FIREBASE_PROJECT_ID` | The TacticToes Firebase project id | e.g. `tactic-toes` (or your own staging project) |
 | `TACTICTOES_FIREBASE_API_KEY` | The Firebase **Web API key** of that project | Firebase console → Project settings → General. This is a public client identifier, not a secret |
 
-Optional:
+Also required:
 
-| Env var | Default | Purpose |
-| --- | --- | --- |
-| `TACTICTOES_FUNCTIONS_REGION` | `us-central1` | Region of the TacticToes Cloud Functions (for the `exchangeBotApiKey` callable) |
+| Env var | Purpose |
+| --- | --- |
+| `TACTICTOES_FUNCTIONS_REGION` | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable), e.g. `us-central1` (dev) or `australia-southeast1` (prod) |
 
-Set them in the deployment environment (Replit secrets, `.env` via your own
-tooling — note there is no dotenv loader; the process reads `process.env`
-directly).
+Set all of these as **Replit Secrets** (Workspace secrets for development,
+deployment secrets in the Publishing UI for production). Project policy: no
+Replit environment variables — they are written into the committed `.replit`
+file, and config values must not live in source code. There is no dotenv
+loader; the process reads `process.env` directly.
 
 ### What happens at startup
 
-1. The bot calls the public `exchangeBotApiKey` callable with
-   `{ botId, apiKey }` and receives a Firebase custom token (uid
-   `bot:<botId>`, claims `{ bot: true, botId }`).
+1. The centaur calls the public `exchangeCentaurApiKey` callable with
+   `{ centaurId, apiKey }` and receives a Firebase custom token (uid
+   `centaur:<centaurId>`, claims `{ centaur: true, centaurId }`).
 2. `signInWithCustomToken` establishes the session; the Firebase SDK
    refreshes it automatically. If the process restarts it simply re-exchanges.
-3. It listens to `bots/{botId}/games` — TacticToes writes an invite doc there
-   at every game start — and opens a listener on each live game document.
-4. Each new turn is translated into per-snake board views, the decision
-   engine runs, and each snake's move is staged via a `privateMoves` write.
-   Firestore security rules only accept writes for snakes the game's `botMap`
-   assigns to this bot identity.
+3. It listens to `centaurs/{centaurId}/games` — TacticToes writes an invite
+   doc there as soon as the centaur is added to a lobby (`status: 'pending'`)
+   and overwrites it at game start (`status: 'started'`; a missing status
+   means started).
+4. A **pending** invite gets no game-doc listener (no game exists yet):
+   the centaur acks it by writing
+   `sessions/{s}/setups/{g}/centaurStatus/{centaurId}` =
+   `{ centaurId, ready: true, respondedAt }` (this drives the lobby's
+   presence chip) and follows the setup doc so `/play` can show the lobby as
+   an orange, non-clickable "pending" bubble with its live settings. When
+   the invite flips to started the normal flow takes over; if it is deleted
+   (team removed) the pending bubble is dropped.
+5. For started games, each new turn is translated into per-snake board
+   views, the decision engine runs, and each snake's move is staged via a
+   `privateMoves` write. Firestore security rules only accept writes for
+   snakes the game's `centaurMap` assigns to this centaur identity.
 
-Rotating the API key (calling `createBotApiKey` again) invalidates the old
-key for future sign-ins — update `TACTICTOES_BOT_API_KEY` and restart.
+Rotating the API key (calling `createCentaurApiKey` again) invalidates the
+old key for future sign-ins — update `TACTICTOES_CENTAUR_API_KEY` and
+restart.
 
 ## Development
 

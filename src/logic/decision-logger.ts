@@ -134,6 +134,21 @@ function prettifyTeamName(teamId: string | null | undefined): string | null {
     .join(' ');
 }
 
+// The team's display name from a member snake's own name: translate.ts builds
+// snake names as `${team.name} ${letter}`, so stripping the trailing letter
+// token recovers the human-readable team (centaur) name. Returns null when the
+// name doesn't follow that shape (e.g. legacy games where name is a raw id).
+function deriveTeamName(
+  snakeName: string | null | undefined,
+  letter: string | null | undefined
+): string | null {
+  if (!snakeName || !letter) return null;
+  const suffix = ` ${letter}`;
+  if (!snakeName.endsWith(suffix)) return null;
+  const team = snakeName.slice(0, -suffix.length).trim();
+  return team || null;
+}
+
 // A back-fill onto an already-inserted decision row: the final move we actually
 // submitted to the server (submitted_move) or the move the server reported it
 // made (server_move, read from the next turn's lastMoves map). Both target a
@@ -492,6 +507,8 @@ export class DecisionLogger {
                FROM jsonb_array_elements(game_state->'board'->'snakes') s
                WHERE s->>'id' = snake_id
                LIMIT 1) AS team_id,
+            game_state->'you'->>'name' AS you_name,
+            game_state->'you'->>'letter' AS letter,
             game_state->'you'->'customizations'->>'color' AS color,
             (game_state->'you'->>'length')::int AS length
           FROM decision_logs
@@ -506,6 +523,8 @@ export class DecisionLogger {
           a.timestamp,
           l.squad,
           l.team_id,
+          l.you_name,
+          l.letter,
           l.color,
           l.length,
           g.started_at,
@@ -542,6 +561,8 @@ export class DecisionLogger {
       timestamp: string;
       squad: string | null;
       team_id: string | null;
+      you_name: string | null;
+      letter: string | null;
       color: string | null;
       length: number | null;
       started_at: string | null;
@@ -571,10 +592,16 @@ export class DecisionLogger {
         group = {
           game_id: row.game_id,
           team_key: teamKey,
-          // Prefer the game-server team name (teamID, e.g. "team_red"), then
-          // squad, then color, then a generic label so we never surface a raw
-          // hex code or uuid as the team name.
-          team_label: prettifyTeamName(row.team_id) || row.squad || row.color || 'Team',
+          // Prefer the human-readable team name derived from the snake's own
+          // name ("<team name> <letter>" per translate.ts) — this is the
+          // centaur identity we played as. Fall back to the game-server team
+          // id, squad, then color so we never surface a raw hex code or uuid.
+          team_label:
+            deriveTeamName(row.you_name, row.letter) ||
+            prettifyTeamName(row.team_id) ||
+            row.squad ||
+            row.color ||
+            'Team',
           team_color: row.color,
           timestamp: row.timestamp,
           turns,

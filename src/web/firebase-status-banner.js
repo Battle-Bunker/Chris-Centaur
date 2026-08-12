@@ -60,8 +60,28 @@
     return banner;
   }
 
+  // Mirror every distinct failure to the browser console so "why did retry
+  // fail" is answerable from devtools, not just the (truncated) banner text.
+  let lastLoggedError = null;
+  function logStatus(status) {
+    const key = status.state + '|' + (status.error || '');
+    if (status.state === 'error' || status.state === 'not_configured') {
+      if (key === lastLoggedError) return;
+      lastLoggedError = key;
+      console.error(
+        '[firebase-status] ' + status.state +
+        (status.error ? ' — ' + status.error : '') +
+        ' (since ' + new Date(status.since || Date.now()).toISOString() + ')'
+      );
+    } else {
+      if (lastLoggedError) console.info('[firebase-status] ' + status.state);
+      lastLoggedError = null;
+    }
+  }
+
   function set(status) {
     if (!status || typeof status !== 'object') return;
+    logStatus(status);
     // Keep the bottom-left Firebase bubble (live pages) in sync.
     if (window.FirebaseStatusBadge) window.FirebaseStatusBadge.set(status);
     ensureBanner();
@@ -79,10 +99,17 @@
   async function retry() {
     retryBtn.disabled = true;
     retryBtn.textContent = 'Retrying…';
+    console.info('[firebase-status] Retry connect requested');
     try {
       const res = await fetch('/api/firebase-retry', { method: 'POST' });
-      set(await res.json());
+      if (res.status === 429) console.warn('[firebase-status] Retry throttled (one attempt per 10s)');
+      const status = await res.json();
+      // Force a console line even if the error text is unchanged — the user
+      // just clicked Retry and deserves an explicit outcome.
+      lastLoggedError = null;
+      set(status);
     } catch (e) {
+      console.error('[firebase-status] Retry request failed:', e);
       /* keep banner as-is; refresh() below may correct it */
     } finally {
       retryBtn.disabled = false;
