@@ -20,7 +20,20 @@ export class Simulator {
     // Deep copy the board
     const newBoard = this.deepCopyBoard(gameState.board);
     const deadSnakeIds = new Set<string>();
-    
+
+    // Invulnerability projected to the turn the simulated moves resolve on
+    // (gameState.turn + 1). A level only governs a collision while the arrival
+    // turn is <= its server-provided expiry; absent an expiry the level is
+    // assumed to apply this turn only — the same convention as BoardGraph, so
+    // the simulator and the passability layer agree on what a move can do.
+    const arrivalTurn = gameState.turn + 1;
+    const invulnAtArrival = new Map<string, number>();
+    for (const snake of newBoard.snakes) {
+      const expiry = snake.invulnerabilityExpiryTurn ?? gameState.turn;
+      invulnAtArrival.set(snake.id, arrivalTurn <= expiry ? (snake.invulnerabilityLevel ?? 0) : 0);
+    }
+    const invulnOf = (id: string): number => invulnAtArrival.get(id) ?? 0;
+
     // Track new head positions for collision detection
     const newHeadPositions = new Map<string, Coord>();
     const headCollisions = new Map<string, string[]>(); // position -> snake ids
@@ -57,8 +70,8 @@ export class Simulator {
         // Invulnerability decides head-to-head first: a more-invulnerable snake
         // "acts as the bigger snake" and wins regardless of length. Length is only
         // the tiebreaker among snakes sharing the top invulnerability level.
-        const maxInvulnerability = Math.max(...collidingSnakes.map(s => s.invulnerabilityLevel ?? 0));
-        const topInvulnerable = collidingSnakes.filter(s => (s.invulnerabilityLevel ?? 0) === maxInvulnerability);
+        const maxInvulnerability = Math.max(...collidingSnakes.map(s => invulnOf(s.id)));
+        const topInvulnerable = collidingSnakes.filter(s => invulnOf(s.id) === maxInvulnerability);
         
         // Among the most-invulnerable snakes, the longest survives
         const maxLength = Math.max(...topInvulnerable.map(s => s.length));
@@ -120,17 +133,17 @@ export class Simulator {
         continue;
       }
       
-      // Find the moving snake to check its invulnerability level
-      const movingSnake = newBoard.snakes.find(s => s.id === snakeId);
-      const movingInvulnerability = movingSnake ? (movingSnake.invulnerabilityLevel ?? 0) : 0;
-      
+      // The moving snake's invulnerability level at the arrival turn
+      const movingInvulnerability = invulnOf(snakeId);
+
       // Check body collision (including other snakes)
       for (const snake of newBoard.snakes) {
         if (!this.isAlive(snake) || deadSnakeIds.has(snake.id)) continue;
-        
-        // If moving into a foreign snake's body and we have higher invulnerability, skip collision
+
+        // If moving into a foreign snake's body and we have higher invulnerability,
+        // skip collision — the mover severs through it (applied in step 5)
         if (snake.id !== snakeId &&
-            movingInvulnerability > (snake.invulnerabilityLevel ?? 0)) {
+            movingInvulnerability > invulnOf(snake.id)) {
           continue;
         }
         
@@ -206,7 +219,32 @@ export class Simulator {
       }
     }
     
-    // Step 5: Remove dead snakes from the board
+    // Step 5: Severing. A snake that moved onto a strictly-less-invulnerable
+    // snake's body doesn't just survive there (step 3 skipped that collision) —
+    // it CUTS the body: the contacted segment and everything behind it are
+    // removed, and the owner survives shortened. Mirrors the server's tiered
+    // collision pass (SnekProcessor.checkSnakeCollisionsTiered), which severs
+    // against post-move bodies with higher levels acting first.
+    const severingMovers = newBoard.snakes
+      .filter(s => !deadSnakeIds.has(s.id) && newHeadPositions.has(s.id))
+      .sort((a, b) => invulnOf(b.id) - invulnOf(a.id));
+    for (const mover of severingMovers) {
+      const moverLevel = invulnOf(mover.id);
+      for (const target of newBoard.snakes) {
+        if (target.id === mover.id || deadSnakeIds.has(target.id)) continue;
+        if (invulnOf(target.id) >= moverLevel) continue;
+        // Index 0 is the target's head — head contacts resolve as head-to-head
+        // in step 2, never as a sever.
+        const segIdx = target.body.findIndex(
+          (seg, i) => i >= 1 && seg.x === mover.head.x && seg.y === mover.head.y
+        );
+        if (segIdx === -1) continue;
+        target.body = target.body.slice(0, segIdx);
+        target.length = target.body.length;
+      }
+    }
+
+    // Step 6: Remove dead snakes from the board
     newBoard.snakes = newBoard.snakes.filter(s => !deadSnakeIds.has(s.id));
     
     return {
@@ -252,7 +290,11 @@ export class Simulator {
         shout: snake.shout,
         squad: snake.squad,
         customizations: { ...(snake.customizations ?? {}) },
-        invulnerabilityLevel: snake.invulnerabilityLevel
+        invulnerabilityLevel: snake.invulnerabilityLevel,
+        // Must survive the copy: evaluators build a BoardGraph over the
+        // simulated board, and BoardGraph reads severability lookahead from
+        // this expiry (absent = "level applies this turn only").
+        invulnerabilityExpiryTurn: snake.invulnerabilityExpiryTurn
       }))
     };
   }
