@@ -16,7 +16,7 @@
 // returned move is the FULL-board index of the target cell, matching what
 // the server expects in privateMoves.move.
 
-import { Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { TTGameSetup, TTTurn } from './tactictoes-types';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
@@ -160,17 +160,18 @@ function buildSnake(
 }
 
 /**
- * Builds the per-snake GameState view for one controlled snake, matching the
- * payload TacticToes sends over the Battlesnake HTTP interface.
+ * Builds the CANONICAL, you-less board state for a turn — the single shared
+ * truth the whole server operates on. One Firestore turn document maps to
+ * exactly one of these; per-snake views are derived from it with `withYou`
+ * only at the decision-engine boundary.
  */
-export function buildGameState(
+export function buildBoardState(
   gameID: string,
   setup: TTGameSetup,
   turn: TTTurn,
   turnNumber: number,
-  youID: string,
   turnExpiryTime: number | null
-): GameState {
+): BoardSnapshot {
   const w = setup.boardWidth;
   const h = setup.boardHeight;
 
@@ -212,6 +213,47 @@ export function buildGameState(
     game,
     turn: turnNumber,
     board,
+  };
+}
+
+/**
+ * Per-snake GameState view over a canonical board state. The `you` object is a
+ * DEEP COPY of the matching board snake (own head/body arrays), preserving the
+ * historical guarantee that mutating a view's `you` never bleeds into the
+ * shared board — buildGameState always built `you` via a second buildSnake
+ * call, and downstream code may rely on that isolation.
+ * Returns null when the snake is not on the board (e.g. it died).
+ */
+export function withYou(canonical: BoardSnapshot, snakeId: string): GameState | null {
+  const snake = canonical.board.snakes.find((s) => s.id === snakeId);
+  if (!snake) return null;
+  return {
+    ...canonical,
+    you: {
+      ...snake,
+      head: { ...snake.head },
+      body: snake.body.map((c) => ({ ...c })),
+    },
+  };
+}
+
+/**
+ * Builds the per-snake GameState view for one controlled snake, matching the
+ * payload TacticToes sends over the Battlesnake HTTP interface. Thin wrapper
+ * over buildBoardState + a per-snake `you`; kept for callers/tests that want
+ * the one-shot shape. `you` is built even for snakes absent from the board
+ * (buildSnake returns an empty-bodied snake), matching historical behavior.
+ */
+export function buildGameState(
+  gameID: string,
+  setup: TTGameSetup,
+  turn: TTTurn,
+  turnNumber: number,
+  youID: string,
+  turnExpiryTime: number | null
+): GameState {
+  return {
+    ...buildBoardState(gameID, setup, turn, turnNumber, turnExpiryTime),
     you: buildSnake(setup, turn, youID),
   };
 }
@@ -221,4 +263,18 @@ export function controlledSnakeIDs(setup: TTGameSetup, centaurId: string): strin
   return setup.gamePlayers
     .filter((gp) => gp.teamID === centaurId)
     .map((gp) => gp.id);
+}
+
+/**
+ * A snake's display identity straight from the SETUP, so it resolves even for
+ * a snake that is no longer on the board (dead snakes are absent from
+ * playerPieces). Same naming rule buildSnake applies.
+ */
+export function snakeIdentity(setup: TTGameSetup, snakeId: string): { name: string; letter: string } {
+  const gamePlayer = setup.gamePlayers.find((gp) => gp.id === snakeId);
+  const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
+  return {
+    name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : snakeId,
+    letter: gamePlayer?.letter ?? '',
+  };
 }

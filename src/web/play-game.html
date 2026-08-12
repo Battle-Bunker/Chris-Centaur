@@ -816,6 +816,15 @@
     // live edge to return to.
     let finishedMode = false;
     let liveMaxTurn = 0;              // highest live turn seen → slider max
+    // Authoritative final board turn, once known: set from the live game-over
+    // message or the games-table metadata (final_turn). The last logged
+    // decision is made one turn before this, so it's the yardstick for "has
+    // the async log flush reached the end of the game yet".
+    let knownFinalTurn = null;
+    // Set once the post-game log reconciliation has given the server's async
+    // flush ample time: after this, no history fetch is ever issued again for
+    // this game — every cache entry is final.
+    let historyFetchesFrozen = false;
     let historicSnakeId = null;       // snake perspective being inspected (null = default)
     // Snakes with logged decisions in THIS game, derived from the logs metadata
     // API (same source enterFinishedMode uses). Selectability while scrubbing
@@ -845,6 +854,22 @@
     // the inspected snake's decision at that turn (null after its death).
     let historicRenderCtx = null;
     const historicInflight = new Map(); // snakeId → in-flight fetch promise (dedupe)
+    // ── Board timeline ──────────────────────────────────────────────────────
+    // ONE canonical board per turn for the whole game, from
+    // /api/games/:id/turns (native turn_states rows merged server-side with
+    // boards synthesized from old-format per-snake logs — old, new, and
+    // mid-deploy hybrid games all look the same here). The per-snake decision
+    // caches above carry only each snake's evaluations; the BOARD being
+    // scrubbed comes from this map, so no snake's death (or absence of logs)
+    // can ever freeze or cap the board again.
+    const turnTimeline = new Map();   // board turn → {turn, game_state, territory, cell_ownership, native}
+    let timelineTurns = [];           // sorted board turns — floor/prev lookups
+    let timelineMaxTurn = -1;         // highest cached turn (live-seeded rows included)
+    let timelineDbMaxTurn = -1;       // highest turn confirmed FROM THE DATABASE
+    let timelineFinalTurn = null;     // games.final_turn as reported by the endpoint
+    let timelineHasNative = false;    // sticky: this game has native turn rows
+    let timelineInflight = null;
+    let timelineLastFetchAt = 0;
     // Every snake ever observed in this game (live updates or logged turns):
     // id → { snake, turn } at its latest known appearance. Drives the
     // full-roster team list so dead snakes stay visible (greyed out) with
@@ -1026,6 +1051,7 @@
           }
           if (msg.boardState) {
             currentGameState = msg.boardState;
+            seedTimelineFromLive(currentGameState);
           }
           if (msg.controlledSnakes) {
             controlledSnakeIds = new Set(msg.controlledSnakes.map(s => s.id));
@@ -1079,6 +1105,7 @@
             previousGameState = currentGameState;
           }
           currentGameState = msg.gameState;
+          seedTimelineFromLive(currentGameState);
           turnExpiryTime = msg.turnExpiryTime || null;
           measuredPing = msg.measuredPing || 0;
           if (msg.selections) {
@@ -1333,6 +1360,7 @@
               previousGameState = currentGameState;
             }
             currentGameState = msg.finalGameState;
+            seedTimelineFromLive(currentGameState);
             liveMaxTurn = Math.max(liveMaxTurn, msg.finalGameState.turn);
             if (viewMode === 'live') {
               document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
@@ -1351,6 +1379,12 @@
           delete gotoRoutes[msg.snakeId];
           if (msg.gameOver) {
             gameEnded = true;
+            // The live view saw the true final board turn — record it so log
+            // completeness can be judged against it (the last logged decision
+            // is made one turn before the final board turn).
+            if (liveMaxTurn > 0) {
+              knownFinalTurn = Math.max(knownFinalTurn ?? 0, liveMaxTurn);
+            }
             turnExpiryTime = null;
             if (turnTimerInterval) {
               clearInterval(turnTimerInterval);
@@ -2596,22 +2630,160 @@
       return first.done ? null : first.value;
     }
 
+    // ── Board-timeline loading ──────────────────────────────────────────────
+
+    // Ingest timeline rows into the cache (idempotent; a re-fetched row
+    // replaces its slot, which is how late-landing territory upserts get
+    // picked up). Feeds the roster registry from every board — better dead-
+    // snake coverage than the old per-snake-log feeding. Returns rows added.
+    function ingestTimelineRows(payload) {
+      if (!payload) return 0;
+      if (payload.finalTurn != null) timelineFinalTurn = payload.finalTurn;
+      if (payload.hasNative) timelineHasNative = true;
+      let added = 0;
+      for (const row of payload.turns || []) {
+        if (!row || typeof row.turn !== 'number' || !row.game_state || !row.game_state.board) continue;
+        if (!turnTimeline.has(row.turn)) {
+          timelineTurns.push(row.turn);
+          added++;
+        }
+        // Database rows always take the slot (they carry the shared grids a
+        // live-seeded row lacks) and advance the DB high-water mark.
+        turnTimeline.set(row.turn, row);
+        if (row.turn > timelineDbMaxTurn) timelineDbMaxTurn = row.turn;
+        recordSnakesSeen(row.game_state);
+      }
+      if (added > 0) timelineTurns.sort((a, b) => a - b);
+      if (timelineTurns.length > 0) timelineMaxTurn = timelineTurns[timelineTurns.length - 1];
+      return added;
+    }
+
+    // Live board broadcasts double as timeline rows: every turn the page saw
+    // live is scrubbable instantly (no network) and the board never jumps
+    // backwards at game end while the server's async log flush catches up.
+    // Never overwrites a database row, and never advances the DB high-water
+    // mark — completeness below is strictly about what the database holds.
+    function seedTimelineFromLive(gameState) {
+      if (!gameState || typeof gameState.turn !== 'number' || !gameState.board) return;
+      if (turnTimeline.has(gameState.turn)) return;
+      turnTimeline.set(gameState.turn, {
+        turn: gameState.turn,
+        game_state: gameState,
+        territory: null,
+        cell_ownership: null,
+        native: false,
+        liveSeeded: true,
+      });
+      timelineTurns.push(gameState.turn);
+      timelineTurns.sort((a, b) => a - b);
+      if (gameState.turn > timelineMaxTurn) timelineMaxTurn = gameState.turn;
+    }
+
+    // The DATABASE timeline provably covers the end of the game: native
+    // timelines include the final /end board (turn F), synthesized (old-game)
+    // ones end at the last decision turn (F - 1). Live-seeded rows don't
+    // count — they exist only in this page's memory.
+    function timelineIsComplete() {
+      const finalTurn = knownFinalTurn ?? timelineFinalTurn;
+      if (finalTurn == null) return false;
+      return timelineDbMaxTurn >= (timelineHasNative ? finalTurn : finalTurn - 1);
+    }
+
+    // Fetch the timeline (incrementally — only turns past what's cached, with
+    // a small trailing overlap so territory grids that landed after a row was
+    // first fetched get refreshed). Coalesced onto one in-flight promise and
+    // rate-limited unless forced. Resolves to the number of NEW rows.
+    function ensureTimeline(opts) {
+      const force = !!(opts && opts.force);
+      // Deliberately NOT gated on historyFetchesFrozen: for modern games this
+      // cache is the ONLY board source, so a timeline that failed to load
+      // during the reconcile window must stay recoverable afterwards — the
+      // completeness check (plus the rate limit) is what stops the fetching,
+      // not the global freeze.
+      if (timelineIsComplete() && !force) return Promise.resolve(0);
+      const now = Date.now();
+      if (!force && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
+        return Promise.resolve(0);
+      }
+      if (timelineInflight) return timelineInflight;
+      timelineLastFetchAt = now;
+      // Incremental from the DATABASE high-water mark (live-seeded rows don't
+      // count — their turns still need their DB rows for the shared grids),
+      // with a 3-turn trailing overlap so tail rows whose territory upsert
+      // landed after the board row was first served get refreshed.
+      const since = timelineDbMaxTurn >= 0 ? Math.max(0, timelineDbMaxTurn - 2) : null;
+      let url = `/api/games/${encodeURIComponent(gameId)}/turns`;
+      if (since != null) url += `?sinceTurn=${since}`;
+      timelineInflight = fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((payload) => ingestTimelineRows(payload))
+        .finally(() => { timelineInflight = null; });
+      return timelineInflight;
+    }
+
+    // Row at exactly `turn`, or null.
+    function timelineRowAt(turn) {
+      return turnTimeline.get(turn) || null;
+    }
+
+    // Highest cached row with row.turn <= turn (floor semantics — sparse
+    // timelines degrade to the nearest earlier board, like the old per-snake
+    // resolution did). Null when nothing at/before the turn is cached.
+    function timelineFloorRow(turn) {
+      let lo = 0, hi = timelineTurns.length - 1, best = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (timelineTurns[mid] <= turn) { best = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      return best === -1 ? null : turnTimeline.get(timelineTurns[best]);
+    }
+
+    // Highest cached row strictly BEFORE `turn` — the previous board for
+    // death-marker detection.
+    function timelinePrevRow(turn) {
+      return timelineFloorRow(turn - 1);
+    }
+
     // Load one snake's logged decisions, coalescing concurrent/duplicate
     // requests onto a single in-flight promise and caching the (~2MB) result.
-    // Historic logs are immutable except for the growing tail, so a cached entry
-    // is REUSED unless the caller needs a turn beyond what we've already fetched
-    // (live games only). This is what keeps snake selection instant: no whole-
-    // cache nuke on every live tick, and no duplicate 2MB fetches per click.
-    function loadSnakeDecisions(snakeId, targetTurn) {
+    // A cached entry is REUSED as-is unless the caller needs a turn beyond what
+    // we've already fetched — and growing an entry fetches only the missing
+    // TAIL (the API's startTurn filter), never the whole log again. This is
+    // what keeps scrubbing near the live edge cheap: the old full-refetch on
+    // every tail miss re-downloaded and re-parsed the entire multi-MB log.
+    // opts.force (game-end reconciliation) refreshes the tail even when no
+    // specific turn is being requested, bypassing the rate limit.
+    function loadSnakeDecisions(snakeId, targetTurn, opts) {
+      const force = !!(opts && opts.force);
       const entry = historicCache.get(snakeId);
       if (entry) {
-        const needsNewerTail =
-          !finishedMode &&
-          targetTurn != null &&
-          targetTurn > entry.maxTurn &&
-          entry.maxTurn < liveMaxTurn &&
-          !snakeLogIsFinal(snakeId, entry);
-        if (!needsNewerTail) return Promise.resolve(entry);
+        const wantsTail =
+          force ||
+          (targetTurn != null &&
+            targetTurn > entry.maxTurn &&
+            entry.maxTurn < liveMaxTurn);
+        if (!wantsTail || snakeLogIsFinal(snakeId, entry)) {
+          return Promise.resolve(entry);
+        }
+        // Rate-limit unforced tail refreshes so scrubbing held at the live
+        // edge (or past a dead snake's last turn) can't hammer the server.
+        const now = Date.now();
+        if (!force && entry.lastTailFetchAt && now - entry.lastTailFetchAt < 1500) {
+          return Promise.resolve(entry);
+        }
+        let p = historicInflight.get(snakeId);
+        if (!p) {
+          entry.lastTailFetchAt = now;
+          p = fetchHistoricDecisions(snakeId, entry.maxTurn + 1)
+            .then((tail) => { mergeTailIntoEntry(entry, tail); return entry; })
+            .finally(() => { historicInflight.delete(snakeId); });
+          historicInflight.set(snakeId, p);
+        }
+        return p;
       }
       let p = historicInflight.get(snakeId);
       if (!p) {
@@ -2623,13 +2795,28 @@
       return p;
     }
 
-    // A snake's log is FINAL (will never grow) once the game is over or the
-    // snake is dead. Without this, scrubbing past a dead snake's death turn in
-    // a live game re-fetches its ~2MB log on every tick forever, because the
-    // "growing tail" condition (targetTurn > maxTurn < liveMaxTurn) stays true.
+    // A snake's log is FINAL (will never grow) once that is PROVABLE. The game
+    // merely being over is NOT proof: the server flushes decision rows to the
+    // database asynchronously, and treating game-over as "log complete" is
+    // exactly what used to freeze partial logs — the final turns stayed
+    // unexplorable until a page refresh. Proof is one of:
+    //  - the log already covers the end of the game (the last decision is made
+    //    one turn before the final board turn), or
+    //  - post-game reconciliation finished (historyFetchesFrozen), or
+    //  - during a live game, the board has moved past the log's last turn and
+    //    the snake is no longer on it (it died at a turn we already have).
     function snakeLogIsFinal(snakeId, entry) {
       if (entry.complete) return true;
-      if (finishedMode || gameEnded) { entry.complete = true; return true; }
+      if (historyFetchesFrozen) { entry.complete = true; return true; }
+      const over = finishedMode || gameEnded;
+      if (over) {
+        const finalT = knownFinalTurn ?? timelineFinalTurn;
+        if (finalT != null && entry.maxTurn >= finalT - 1) {
+          entry.complete = true;
+          return true;
+        }
+        return false;
+      }
       // Dead: the live board has moved past the log's last turn and the snake
       // is no longer on it.
       if (currentGameState && currentGameState.board &&
@@ -2641,12 +2828,12 @@
       return false;
     }
 
-    async function ensureHistoricDecisions(targetTurn) {
+    async function ensureHistoricDecisions(targetTurn, opts) {
       const snakeId = getHistoricSnakeId();
       if (!snakeId) return false;
       let entry;
       try {
-        entry = await loadSnakeDecisions(snakeId, targetTurn);
+        entry = await loadSnakeDecisions(snakeId, targetTurn, opts);
       } catch (err) {
         console.error('Failed to load historic turns:', err);
         return false;
@@ -2660,13 +2847,20 @@
     }
 
     // Fetch one snake's logged decisions and build a turn→index map. Shared by
-    // the on-demand loader and the background prefetcher.
-    async function fetchHistoricDecisions(snakeId) {
+    // the on-demand loader and the background prefetcher. With `sinceTurn`,
+    // fetches only rows from that turn on (an incremental tail). The server
+    // filters on the decision-log `turn` column, which runs one AHEAD of
+    // game_state.turn (a decision made on board turn N is stored with
+    // turn = N+1), so startTurn = sinceTurn yields every row with
+    // game_state.turn >= sinceTurn - 1: at worst a one-row overlap with what
+    // we already have (deduped on merge), never a gap.
+    async function fetchHistoricDecisions(snakeId, sinceTurn) {
       // Snake ids contain '#', which must be encoded or the suffix is read as a
       // URL fragment and the wrong (or no) snake's logs come back.
-      const resp = await fetch(
-        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`
-      );
+      let url =
+        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`;
+      if (sinceTurn != null) url += `&startTurn=${encodeURIComponent(sinceTurn)}`;
+      const resp = await fetch(url);
       const data = await resp.json();
       const decisions = (data && data.decisions) || [];
       const turnToIndex = {};
@@ -2728,6 +2922,119 @@
         })
         .finally(() => { commandHistoryFetch = null; });
       return commandHistoryFetch;
+    }
+
+    // Append a tail fetch's rows onto an existing cache entry, in place (the
+    // entry's arrays/maps are shared with historicDecisions/historicTurnToIndex,
+    // so in-place growth is what makes the new rows visible everywhere).
+    // Inserts are strictly FIFO on the server, so tail rows only ever extend
+    // the entry. Rows we already hold are REFRESHED in place rather than
+    // skipped: the server back-fills submitted_move / server_move onto a row
+    // about a turn after inserting it, and those columns drive the death
+    // markers on the last logged turn.
+    function mergeTailIntoEntry(entry, tail) {
+      let added = 0;
+      for (const d of tail.decisions) {
+        const t = d.game_state?.turn ?? d.turn;
+        const existing = entry.turnToIndex[t];
+        if (existing != null) {
+          entry.decisions[existing] = d;
+          continue;
+        }
+        if (t <= entry.maxTurn) continue; // out-of-order guard; never expected
+        entry.turnToIndex[t] = entry.decisions.length;
+        entry.decisions.push(d);
+        entry.maxTurn = t;
+        added++;
+      }
+      return added;
+    }
+
+    // Highest explorable turn: the board timeline is the authority (it covers
+    // every turn any log covers, plus — for modern games — the final /end
+    // board no decision log ever had), with the per-snake caches as a floor
+    // for old games loaded before the timeline lands. Monotone: caches only
+    // grow.
+    function recomputeHistoryMaxTurn() {
+      let m = timelineMaxTurn > 0 ? timelineMaxTurn : 0;
+      for (const sid of historicSelectableIds()) {
+        const e = historicCache.get(sid);
+        if (e && e.maxTurn > m) m = e.maxTurn;
+      }
+      return m;
+    }
+
+    // Adopt a freshly computed logged-turn maximum as the slider range for a
+    // finished game. A viewer pinned at the end follows the growing tail (this
+    // is how the final turns "appear" as the async log flush lands); a viewer
+    // scrubbed elsewhere keeps their place.
+    function applyHistoryMaxTurn(maxLogged) {
+      if (!finishedMode || maxLogged <= 0 || maxLogged === liveMaxTurn) return;
+      const wasAtEnd = historicTurnNumber >= liveMaxTurn;
+      liveMaxTurn = maxLogged;
+      if (wasAtEnd || historicTurnNumber > liveMaxTurn) {
+        historicTurnNumber = liveMaxTurn;
+      }
+      if (viewMode === 'historic' && !isScrubbing) {
+        scheduleHistoricCommitRender();
+      } else {
+        updateTurnControls();
+      }
+    }
+
+    // Post-game log reconciliation. The server flushes decision rows AND turn-
+    // state rows asynchronously, so at the moment a game ends the database may
+    // be missing the last few turns — the root cause of "the latest moves
+    // aren't explorable until I refresh". This loop force-refreshes the board
+    // timeline's tail and every team log's tail with backoff until BOTH
+    // provably reach the end of the game (the timeline must cover the final
+    // board; decisions must cover the last decision turn, F - 1), or until
+    // ~12s of attempts are exhausted. Afterwards all history fetching is
+    // frozen: every entry is final and scrubbing costs zero network.
+    let gameEndReconcile = null;
+    function reconcileHistoryAfterGameEnd() {
+      if (gameEndReconcile) return gameEndReconcile;
+      gameEndReconcile = (async () => {
+        let lastTotal = -1;
+        let stagnantRounds = 0;
+        for (let round = 0; round < 6; round++) {
+          if (round > 0) await sleep(500 * Math.pow(1.6, round));
+          const targets = Array.from(historicSelectableIds()).filter((sid) => {
+            const e = historicCache.get(sid);
+            return !e || !snakeLogIsFinal(sid, e);
+          });
+          const wantTimeline = !timelineIsComplete();
+          if (targets.length === 0 && !wantTimeline) break;
+          await Promise.allSettled([
+            ...targets.map((sid) => loadSnakeDecisions(sid, null, { force: true })),
+            ...(wantTimeline ? [ensureTimeline({ force: true })] : []),
+          ]);
+          applyHistoryMaxTurn(recomputeHistoryMaxTurn());
+          const finalT = knownFinalTurn ?? timelineFinalTurn;
+          const decisionsDone =
+            finalT != null &&
+            Array.from(historicSelectableIds()).some((sid) => {
+              const e = historicCache.get(sid);
+              return e && e.maxTurn >= finalT - 1;
+            });
+          if (decisionsDone && timelineIsComplete()) break;
+          // Stagnation exit: stop once consecutive rounds add nothing — the
+          // flush either landed or never will (e.g. every snake died well
+          // before the game's final turn, so no log can ever reach it). A
+          // known final turn gets one extra quiet round of patience before
+          // giving up on reaching it.
+          let total = turnTimeline.size;
+          for (const sid of historicSelectableIds()) {
+            const e = historicCache.get(sid);
+            if (e) total += e.decisions.length;
+          }
+          stagnantRounds = total === lastTotal ? stagnantRounds + 1 : 0;
+          lastTotal = total;
+          if (stagnantRounds >= (finalT == null ? 2 : 3)) break;
+        }
+        historyFetchesFrozen = true;
+      })();
+      return gameEndReconcile;
     }
 
     // Warm the cache for our other controlled snakes in the background so that
@@ -2795,11 +3102,13 @@
       return best === -1 ? 0 : best;
     }
 
-    // Board state for a scrubbed turn can come from ANY cached team log, not
-    // just the inspected snake's — so the inspected snake dying never freezes
-    // the board. Returns the row with the highest game_state.turn <= target
+    // LEGACY board resolution from per-snake decision logs: the fallback for
+    // turns the timeline doesn't cover (endpoint failure, or an old-format
+    // game whose rows are already in memory before the timeline lands).
+    // Returns the highest board-BEARING row with game_state.turn <= target
     // across all cached selectable snakes (plus the prior row in the same log,
-    // for death-marker detection), or null when nothing covers it.
+    // for death-marker detection), or null when nothing covers it. Modern slim
+    // rows carry no board and are never board sources.
     function resolveBoardRow(turnNumber) {
       let best = null;
       for (const sid of historicSelectableIds()) {
@@ -2808,9 +3117,11 @@
         const i = indexForTurnInEntry(entry, turnNumber);
         if (i < 0) continue;
         const row = entry.decisions[i];
+        if (!row.game_state?.board) continue;
         const t = row.game_state?.turn ?? row.turn;
         if (!best || t > best.turn) {
-          best = { row, prevRow: i > 0 ? entry.decisions[i - 1] : null, turn: t };
+          const prev = i > 0 ? entry.decisions[i - 1] : null;
+          best = { row, prevRow: prev?.game_state?.board ? prev : null, turn: t };
         }
       }
       return best;
@@ -2925,16 +3236,39 @@
         }
 
         controlledSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
-        historicSnakeId = group.default_snake_id;
+        // The games table knows the true final board turn once the /end
+        // webhook landed — the yardstick for log completeness below.
+        if (group.final_turn != null) knownFinalTurn = group.final_turn;
+        // Keep the perspective the user was already inspecting (live selection
+        // or prior scrub) when it has logs; otherwise the game's default.
+        if (historicSnakeId && !historicSelectableIds().has(historicSnakeId)) {
+          historicSnakeId = null;
+        }
+        if (!historicSnakeId &&
+            !(selectedSnakeId && historicSelectableIds().has(selectedSnakeId))) {
+          historicSnakeId = group.default_snake_id;
+        }
 
-        // Load the default snake's decisions, retrying briefly (dropping any
-        // cached empty result) in case the logs are still being written.
-        let ok = await ensureHistoricDecisions();
+        // Load the board timeline and the inspected snake's decisions,
+        // retrying briefly in case the logs are still being written.
+        // force:true makes a cached mid-game snapshot (from scrubbing while
+        // live) refresh its tail instead of being trusted as-is — trusting it
+        // was why the last turns of a just-finished game went missing until a
+        // page refresh.
+        const loadOnce = async () => {
+          const [decisionsOk] = await Promise.all([
+            ensureHistoricDecisions(null, { force: true }),
+            ensureTimeline({ force: true }).catch(() => 0),
+          ]);
+          if (timelineFinalTurn != null && knownFinalTurn == null) {
+            knownFinalTurn = timelineFinalTurn;
+          }
+          return decisionsOk || timelineTurns.length > 0;
+        };
+        let ok = await loadOnce();
         for (let attempt = 1; attempt < 3 && !ok; attempt++) {
           await sleep(700 * attempt);
-          const sid = getHistoricSnakeId();
-          if (sid) historicCache.delete(sid);
-          ok = await ensureHistoricDecisions();
+          ok = await loadOnce();
         }
         if (!ok) {
           showFinishedError(
@@ -2944,18 +3278,18 @@
           return;
         }
 
-        // The last logged turn is the effective "live edge" for scrubbing.
-        // Turns are keyed by game_state.turn (the decision-log `turn` column is
-        // offset by +1), so this matches the actual final board turn.
-        liveMaxTurn = 0;
-        for (const d of historicDecisions) {
-          const t = d.game_state?.turn ?? d.turn;
-          if (t > liveMaxTurn) liveMaxTurn = t;
-        }
+        // The board timeline's last turn is the effective "live edge" for
+        // scrubbing (with the per-snake logs as a floor) — never any single
+        // snake's log, which ends early if that snake died early.
+        liveMaxTurn = recomputeHistoryMaxTurn();
 
         document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
         showGameUI();
         await enterHistoric(liveMaxTurn);
+        // Background: keep force-refreshing the team's log tails until they
+        // provably reach the end of the game (the async server-side flush may
+        // still be landing the final rows), then freeze all history fetching.
+        reconcileHistoryAfterGameEnd();
       } catch (err) {
         console.error('Finished-game load failed:', err);
         showFinishedError(
@@ -2963,6 +3297,24 @@
           'Something went wrong while loading this game\u2019s history.',
         );
       }
+    }
+
+    // Full (heavy) historic renders — board + overlay + roster + evaluation
+    // panel — are coalesced onto one animation frame, like live renders.
+    // Holding an arrow key repeats commitScrub far faster than frames paint;
+    // without this each repeat rebuilt the whole panel DOM synchronously,
+    // which made keyboard scrubbing feel sluggish. The latest
+    // historicTurnNumber wins the frame.
+    let historicCommitRenderQueued = false;
+    function scheduleHistoricCommitRender() {
+      if (historicCommitRenderQueued) return;
+      historicCommitRenderQueued = true;
+      requestAnimationFrame(() => {
+        historicCommitRenderQueued = false;
+        if (viewMode !== 'historic') return;
+        renderHistoricAtTurn(historicTurnNumber);
+        updateTurnControls();
+      });
     }
 
     async function enterHistoric(turnNumber) {
@@ -2981,8 +3333,27 @@
       // Latest-wins: stamp this load so a stale async resolution (an earlier,
       // slower scrub) can detect it has been superseded and bail out.
       const token = ++scrubLoadToken;
-      const ok = await ensureHistoricDecisions(historicTurnNumber);
+      // Board timeline and the inspected snake's decisions load in parallel;
+      // the view is viable with EITHER (board-only replay degrades to the
+      // no-data evaluation panel, not to a dead page). The timeline fetch is
+      // AWAITED only when nothing cached can paint the target turn — a
+      // cached commit must keep painting with zero network on its path (the
+      // fire-and-forget tail refresh repaints if it brings anything new).
+      const loads = [ensureHistoricDecisions(historicTurnNumber)];
+      if (!timelineFloorRow(historicTurnNumber)) {
+        loads.push(ensureTimeline().catch(() => 0));
+      } else {
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && viewMode === 'historic' && !isScrubbing) {
+              scheduleHistoricCommitRender();
+            }
+          })
+          .catch(() => {});
+      }
+      const [decisionsOk] = await Promise.all(loads);
       if (token !== scrubLoadToken) return; // a newer scrub/return-to-live won
+      const ok = decisionsOk || timelineTurns.length > 0;
       if (!ok) {
         // In finished mode there is no live view to fall back to — surface an
         // explicit error (returnToLive would just re-enter here and loop).
@@ -3000,8 +3371,7 @@
       if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
       const timerEl = document.getElementById('timerDisplay');
       if (timerEl) { timerEl.className = 'timer-display idle'; timerEl.textContent = 'History'; }
-      renderHistoricAtTurn(historicTurnNumber);
-      updateTurnControls();
+      scheduleHistoricCommitRender();
     }
 
     function returnToLive() {
@@ -3132,11 +3502,12 @@
     }
 
     // Mirrors the Game History viewer's per-turn render: same BoardRenderer
-    // entry points, same decision-log data shape, just with interactivity off.
-    // The BOARD is resolved from the best cached team log covering the turn
-    // (so the inspected snake dying never freezes scrubbing); the inspected
-    // snake's own log drives only its evaluation breakdown, which degrades to
-    // an explicit "no data" panel for turns after its death.
+    // entry points, just with interactivity off. The BOARD comes from the
+    // per-game timeline (with the legacy any-team-log resolution as fallback),
+    // so neither the inspected snake's death nor its log format can freeze or
+    // cap scrubbing; the inspected snake's own log drives only its evaluation
+    // breakdown, which degrades to an explicit "no data" panel for turns it
+    // doesn't cover.
     function renderHistoricAtTurn(turnNumber, opts) {
       // During a continuous drag we render the board (canvas + overlay) every
       // frame but skip the heavier side-panel DOM rebuild; the full render runs
@@ -3145,39 +3516,96 @@
       const idx = decisionIndexForTurn(turnNumber);
       const ownRow = (historicDecisions && idx >= 0) ? historicDecisions[idx] : null;
       const ownTurn = ownRow ? (ownRow.game_state?.turn ?? ownRow.turn) : -1;
-      const best = resolveBoardRow(turnNumber);
-      let boardRow = ownRow;
-      let prevRow = (historicDecisions && idx > 0) ? historicDecisions[idx - 1] : null;
-      if (best && (!ownRow || best.turn > ownTurn)) {
-        boardRow = best.row;
-        prevRow = best.prevRow;
+
+      // Board resolution: timeline first, legacy per-snake logs as fallback —
+      // whichever covers a higher turn at/below the target wins.
+      const tlRow = timelineFloorRow(turnNumber);
+      const legacy = resolveBoardRow(turnNumber);
+      let boardState = null;   // full canonical-ish state {turn, board, lastMoves?}
+      let prevBoard = null;    // previous board, for death-marker detection
+      let timelineRow = null;  // the timeline row when it's the source (grids)
+      if (tlRow && (!legacy || tlRow.turn >= legacy.turn)) {
+        boardState = tlRow.game_state;
+        timelineRow = tlRow;
+        // The previous board drives disappearance-based death markers, so a
+        // gapped floor row must not stand in for the true previous turn:
+        // diffing across a many-turn hole (a websocket reconnect gap in the
+        // live-seeded rows) would mark every snake that died inside the hole
+        // as dying HERE, at stale positions. Database timelines are written
+        // per turn, so a small gap there is tolerated (matching the old
+        // sparse-log behavior); a gap involving live-seeded rows is not.
+        const prev = timelinePrevRow(tlRow.turn);
+        const prevUsable = prev && (
+          prev.turn === tlRow.turn - 1 ||
+          (!prev.liveSeeded && !tlRow.liveSeeded)
+        );
+        prevBoard = prevUsable ? prev.game_state.board
+          : (legacy && legacy.turn === tlRow.turn ? legacy.prevRow?.game_state?.board || null : null);
+      } else if (legacy) {
+        boardState = legacy.row.game_state;
+        prevBoard = legacy.prevRow?.game_state?.board || null;
+        // Even when a legacy row paints the board, the timeline row for the
+        // SAME turn (if cached) still carries the shared grids.
+        timelineRow = timelineRowAt(legacy.turn);
       }
-      if (!boardRow || !boardRow.game_state) return;
+      if (!boardState || !boardState.board) {
+        // Nothing covers this turn yet — kick the load, repaint when it
+        // lands, and keep the current frame instead of blanking.
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && viewMode === 'historic' && !isScrubbing) {
+              scheduleHistoricCommitRender();
+            }
+          })
+          .catch(() => {});
+        return;
+      }
       historicIndex = idx >= 0 ? idx : 0;
-      // The rendered (data) turn may differ from the user-selected turn when logs
-      // are sparse. Keep historicTurnNumber (the slider/value domain) untouched;
-      // only the "Turn:" header reflects the actual data turn on screen.
-      const renderedTurn = boardRow.game_state?.turn ?? boardRow.turn;
+      // The rendered (data) turn may differ from the user-selected turn when
+      // data is sparse. Keep historicTurnNumber (the slider/value domain)
+      // untouched; only the "Turn:" header reflects the data turn on screen.
+      const renderedTurn = boardState.turn ?? 0;
       // The inspected snake's evaluation applies only when its own log covers
       // the rendered turn (i.e. it was still alive and logging there).
       const evalRow = (ownRow && ownTurn === renderedTurn) ? ownRow : null;
 
       if (evalRow) {
-        const head = evalRow.game_state.you?.head
-          || evalRow.game_state.board.snakes.find(s => s.id === evalRow.snake_id)?.body[0];
+        // Modern slim rows carry the head on game_state.you; the board lookup
+        // covers old rows and any slim row missing it.
+        const boardSnake = boardState.board.snakes.find(s => s.id === evalRow.snake_id);
+        const head = evalRow.game_state?.you?.head
+          || boardSnake?.head || boardSnake?.body?.[0];
+        // The shared territory grid moved off the eval blob onto the turn
+        // row for modern games; inject whichever this row's era provides so
+        // the renderer sees one shape.
+        const blob = evalRow.move_evaluations || {};
+        const evalInput = {
+          evaluations: blob.evaluations || (Array.isArray(blob) ? blob : []),
+          territoryCells: blob.territoryCells || timelineRow?.territory || {},
+        };
         historicMoveState = BoardRenderer.processMoveEvaluations(
-          evalRow.move_evaluations, evalRow.safe_moves, head, evalRow.bot_recommendation
+          evalInput, evalRow.safe_moves, head, evalRow.bot_recommendation
         );
         historicMoveState.selectedMove = null;
         historicMoveState.selectedSnake = null;
-        historicCellOwnership = evalRow.move_evaluations?.cellOwnership || null;
       } else {
         historicMoveState = null;
-        historicCellOwnership = null;
       }
+      // The cell inspector reads whichever era captured the ownership grid:
+      // the eval blob (old rows) or the turn row (modern rows). Set per
+      // render, never carried over — a stale grid would misattribute cells.
+      // Sourcing it from the turn row also means inspection keeps working on
+      // turns after the inspected snake's death.
+      historicCellOwnership =
+        evalRow?.move_evaluations?.cellOwnership || timelineRow?.cell_ownership || null;
       // The recorded command state at the END of the rendered turn (null when
       // command history hasn't loaded or the turn has no snapshot).
-      historicRenderCtx = { boardRow, prevRow, ownRow: evalRow, cmd: commandStateFor(renderedTurn) };
+      historicRenderCtx = {
+        boardRow: { game_state: boardState },
+        prevRow: prevBoard ? { game_state: { board: prevBoard } } : null,
+        ownRow: evalRow,
+        cmd: commandStateFor(renderedTurn),
+      };
 
       document.getElementById('currentTurn').textContent = renderedTurn;
       document.getElementById('firstMoveIndicator').style.display = 'none';
@@ -3191,10 +3619,10 @@
       if (!lightweight || snakeInfoRenderedTurn !== renderedTurn) {
         snakeInfoRenderedTurn = renderedTurn;
         BoardRenderer.renderSnakeInfo(
-          document.getElementById('snakeInfoList'), boardRow.game_state, getHistoricSnakeId(),
+          document.getElementById('snakeInfoList'), boardState, getHistoricSnakeId(),
           { groupByTeam: true, onSelectSnake: switchHistoricSnake,
             selectableSnakeIds: historicSelectableIds(),
-            deadSnakes: deadSnakesFor(boardRow.game_state) }
+            deadSnakes: deadSnakesFor(boardState) }
         );
       }
       if (lightweight) return;
@@ -3218,11 +3646,19 @@
       if (!isScrubbing) return;
       const target = scrubRenderTurn;
       // At/over the live edge there is nothing historic to show — let the commit
-      // path decide between live and history on release.
-      if (target >= liveMaxTurn) return;
-      // Render only from data already in memory. If the inspected snake's logs
-      // aren't loaded yet, kick a (deduped) load and repaint once it lands.
-      if (!historicDecisions || historicDecisions.length === 0) {
+      // path decide between live and history on release. Finished games have no
+      // live edge: the last turn is historic like any other, so it must paint
+      // during the drag too.
+      if (!finishedMode && target >= liveMaxTurn) return;
+      // Render only from data already in memory. The board needs the timeline
+      // (or a legacy board-bearing log); if neither covers anything yet, kick
+      // the (deduped) loads and repaint once something lands.
+      if (timelineTurns.length === 0 && (!historicDecisions || historicDecisions.length === 0)) {
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && isScrubbing) schedulePreviewRender(scrubRenderTurn);
+          })
+          .catch(() => {});
         ensureHistoricDecisions().then((ok) => {
           if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
         });
@@ -3234,26 +3670,48 @@
       renderHistoricAtTurn(target, { lightweight: true });
     }
 
-    // Warm the inspected snake's logs the instant the pointer lands so the first
-    // drag frame can render without waiting on the network.
+    // Warm the board timeline AND the inspected snake's logs the instant the
+    // pointer lands so the first drag frame can render without waiting on the
+    // network.
     function primeHistoricForScrub() {
+      if (timelineTurns.length === 0) {
+        ensureTimeline()
+          .then((added) => {
+            if (added > 0 && isScrubbing) schedulePreviewRender(scrubRenderTurn);
+          })
+          .catch(() => {});
+      }
       if (historicDecisions && historicDecisions.length > 0) return;
       ensureHistoricDecisions().then((ok) => {
         if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
       });
     }
 
-    // Mirror of the Game History viewer's buildOurDeaths: our own snake's death
-    // markers render only on the final logged turn — the row whose `server_move`
-    // was back-filled from the next turn's lastMoves (the snake stepped, then was
-    // gone). Solid = head + server_move; ghost = head + submitted_move, only when
-    // it differs. Rows without server_move (mid-game / older logs) → no markers.
+    // Our own snake's death markers: solid = head + server_move (back-filled
+    // from the next turn's lastMoves — the snake stepped, then was gone);
+    // ghost = head + submitted_move, only when it differs. Rows without
+    // server_move (mid-game / older logs) → no markers.
+    //
+    // The marker belongs only on the snake's DEATH turn. When the timeline has
+    // the next turn's board, that presence check is exact — a snake still on
+    // the next board gets no marker (the last decision row of a game WINNER
+    // has a back-filled server_move too, and used to draw a death marker on
+    // it). Without a next board, fall back to the legacy "last row of the own
+    // log" gate.
     function buildHistoricOurDeaths(turn) {
-      if (historicIndex !== historicDecisions.length - 1) return [];
+      const t = turn.game_state?.turn ?? (turn.turn - 1);
+      const next = timelineRowAt(t + 1);
+      if (next) {
+        const aliveNext = (next.game_state?.board?.snakes || []).some(s => s.id === turn.snake_id);
+        if (aliveNext) return [];
+      } else if (historicIndex !== historicDecisions.length - 1) {
+        return [];
+      }
       const serverMove = turn.server_move;
       if (!serverMove) return [];
-      const snakes = turn.game_state?.board?.snakes || [];
-      const ourSnake = snakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
+      const boardSnakes = historicRenderCtx?.boardRow?.game_state?.board?.snakes
+        || turn.game_state?.board?.snakes || [];
+      const ourSnake = boardSnakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
       const head = ourSnake?.body?.[0] || ourSnake?.head;
       if (!head) return [];
       const actualHead = applyMoveToCell(head, serverMove);
@@ -3406,7 +3864,11 @@
       document.getElementById('selectionUI').style.display = 'block';
       document.getElementById('selectedSnakePanel').classList.remove('active');
 
-      const snake = turn.game_state.board.snakes.find(s => s.id === turn.snake_id);
+      // The snake's identity: the rendered board first, then the row's slim
+      // `you` (modern rows carry no board), then the snake_name column.
+      const snake = (historicRenderCtx?.boardRow?.game_state?.board?.snakes
+          || turn.game_state?.board?.snakes || [])
+        .find(s => s.id === turn.snake_id) || turn.game_state?.you;
       const name = snake?.name || turn.snake_name || turn.snake_id;
       // Historical logs predating letters stored an emoji head glyph.
       const glyph = !snake?.letter && snake?.emoji ? `${snake.emoji} ` : '';
@@ -3485,16 +3947,19 @@
       note.style.display = '';
     }
 
-    // Shown instead of the breakdown when the viewed turn is after the
-    // inspected snake's death: the board keeps rendering (from other team
-    // logs), but there is no decision data for this snake at this turn.
+    // Shown instead of the breakdown when the viewed turn has no decision data
+    // for the inspected snake. Distinguishes WHY: the snake is dead on this
+    // board (its usual meaning), or this is the game's final board (no
+    // decision is ever made on it \u2014 the game ended here), or the decisions
+    // simply haven't loaded/flushed yet.
     function showHistoricNoDataPanel() {
       document.getElementById('noSelectionMsg').style.display = 'none';
       document.getElementById('selectionUI').style.display = 'block';
       document.getElementById('selectedSnakePanel').classList.remove('active');
 
-      const rec = snakeLastSeen.get(getHistoricSnakeId());
-      const name = rec?.snake?.name || getHistoricSnakeId() || 'Snake';
+      const snakeId = getHistoricSnakeId();
+      const rec = snakeLastSeen.get(snakeId);
+      const name = rec?.snake?.name || snakeId || 'Snake';
       const glyph = !rec?.snake?.letter && rec?.snake?.emoji ? `${rec.snake.emoji} ` : '';
       document.getElementById('selectedSnakeName').textContent = `${glyph}${name} (history)`;
 
@@ -3507,12 +3972,21 @@
       const submitSection = document.querySelector('#moveControls .submit-section');
       if (submitSection) submitSection.style.display = 'none';
 
+      const boardState = historicRenderCtx?.boardRow?.game_state;
+      const onBoard = !!boardState?.board?.snakes?.some(s => s.id === snakeId);
+      const finalT = knownFinalTurn ?? timelineFinalTurn;
+      const isFinalBoard = finalT != null && (boardState?.turn ?? -1) >= finalT;
+      const reason = isFinalBoard
+        ? 'the game ended on this board; no decision is made on the final turn.'
+        : onBoard
+          ? 'not loaded yet for this turn.'
+          : 'it is dead at this turn.';
       document.getElementById('moveButtons').innerHTML =
         '<div style="grid-column: 1 / -1; color: #888; text-align: center; padding: 12px;">' +
-        'No decision data for this snake at this turn \u2014 it is dead.</div>';
+        `No decision data for this snake \u2014 ${escapeHtml(reason)}</div>`;
       document.getElementById('statsTableBody').innerHTML =
         '<tr><td colspan="5" style="text-align: center; color: #888;">' +
-        'No decision data \u2014 snake is dead at this turn</td></tr>';
+        `No decision data \u2014 ${escapeHtml(reason)}</td></tr>`;
     }
 
     function restoreLiveSelectionPanel() {

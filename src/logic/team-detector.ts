@@ -27,11 +27,15 @@ export class TeamDetector {
     return teams;
   }
   
-  // Single source of truth for team identity: squad field, then color, then
-  // snake ID as a last resort. Exposed statically so other components (e.g. the
-  // history viewer's games listing) can derive team membership from logged game
-  // state without duplicating the rule.
-  static getTeamKey(snake: Pick<Snake, 'id' | 'squad' | 'customizations'>): string {
-    return snake.squad || snake.customizations?.color || snake.id;
+  // Single source of truth for team identity: the explicit teamID when the
+  // game server provided one (authoritative on the Firebase transport, where
+  // translate also mirrors it into squad — so this stays byte-identical for
+  // every Firebase-era game), then the squad/color/id heuristics inherited
+  // from the Battlesnake-HTTP era for legacy logged games. Exposed statically
+  // so other components (e.g. the history viewer's games listing) can derive
+  // team membership from logged game state without duplicating the rule.
+  // Mirror any change in board-renderer.js getTeamKey (the client copy).
+  static getTeamKey(snake: Pick<Snake, 'id' | 'squad' | 'customizations'> & { teamID?: string }): string {
+    return snake.teamID || snake.squad || snake.customizations?.color || snake.id;
   }
 }

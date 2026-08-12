@@ -1606,10 +1606,10 @@ const BoardRenderer = (function () {
   }
 
   // Single source of truth for team identity on the client, mirroring the
-  // server-side TeamDetector rule: squad → color → snake id.
+  // server-side TeamDetector rule: teamID → squad → color → snake id.
   function getTeamKey(snake) {
     if (!snake) return "";
-    return snake.squad || snake.customizations?.color || snake.color || snake.id;
+    return snake.teamID || snake.squad || snake.customizations?.color || snake.color || snake.id;
   }
 
   // Turns a raw game-server team id like "team_red" into a friendly label

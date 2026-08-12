@@ -97,10 +97,10 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(snakeId)) {
-      mgr.registerGame(gs);
+      mgr.registerGame(gs, snakeId);
     }
-    mgr.updateGameState(gameId, snakeId, gs);
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+    mgr.updateBoard(gameId, gs);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
   }
 
@@ -202,8 +202,8 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
       },
     }));
     const gs = makeGameState(gameId, 0, snakes, 'A');
-    mgr.registerGame(gs);
-    mgr.updateGameState(gameId, 'A', gs);
+    mgr.registerGame(gs, 'A');
+    mgr.updateBoard(gameId, gs);
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
     mgr.setBotRecommendation(gameId, 'A', 'up', { ...makeTurnData(gs, 'up'), moveEvaluations: evaluations });
 

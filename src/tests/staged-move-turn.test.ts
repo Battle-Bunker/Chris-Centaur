@@ -101,16 +101,18 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     return published.filter((p) => p.snakeId === snakeId);
   }
 
-  // Drives the transport side of one snake's turn intake (register + turn data
-  // + bot recommendation), the way the Firebase interface feeds the manager.
+  // Drives the transport side of one snake's turn intake (register + canonical
+  // board + bot recommendation), the way the Firebase interface feeds the
+  // manager: the board is fed once per turn via updateBoard (idempotent for
+  // re-delivery of the same turn), decisions per snake.
   function processTurn(gameId: string, snakeId: string, snakes: Snake[], turn: number, botMove: Direction) {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(snakeId)) {
-      mgr.registerGame(gs);
+      mgr.registerGame(gs, snakeId);
     }
-    mgr.updateGameState(gameId, snakeId, gs);
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+    mgr.updateBoard(gameId, gs);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
   }
 
@@ -278,7 +280,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     // The user stages a manual move for B while B's bot decision is still
     // computing (boardStateTurn is already 1).
     const gsB1 = makeGameState(gameId, 1, snakes, 'B');
-    mgr.updateGameState(gameId, 'B', gsB1);
+    mgr.updateBoard(gameId, gsB1);
     mgr.setUserSelection(gameId, 'B', 'left');
 
     const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;
