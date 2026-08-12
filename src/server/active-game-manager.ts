@@ -162,6 +162,11 @@ export interface ControlledSnake {
   // the staged move is consumed it re-anchors as the plain shortest path from
   // the projected head. Empty whenever goto isn't active.
   gotoRoute: Coord[];
+  // How many leading cells of `gotoRoute` belong to the FIRST leg (head →
+  // targets[0]), including the staged step. Everything after this index is a
+  // prediction that assumes each earlier target is reached, so the client draws
+  // it faded. 0 when there is no route.
+  gotoRouteFirstLeg: number;
   // The snake's REQUESTED move — the last move the active intent resolved to,
   // bound to its (snakeId, turn). Written only by `stageMove`, which starts
   // the publish-until-confirmed pipeline (`ensureStagedPublished`) so the
@@ -524,6 +529,7 @@ export class ActiveGameManager {
         suicideArmed: false,
         intent: { kind: 'heuristic' },
         gotoRoute: [],
+        gotoRouteFirstLeg: 0,
         staged: null,
         confirmedStaged: null,
         finalMove: null,
@@ -1113,6 +1119,7 @@ export class ActiveGameManager {
     if (!game || !controlled) return;
     if (controlled.intent.kind !== 'goto' || controlled.intent.targets.length === 0) {
       controlled.gotoRoute = [];
+      controlled.gotoRouteFirstLeg = 0;
       return;
     }
     try {
@@ -1122,6 +1129,7 @@ export class ActiveGameManager {
       const anchor = this.getProjectedHead(gameId, snakeId);
       if (!gs || !anchor) {
         controlled.gotoRoute = [];
+        controlled.gotoRouteFirstLeg = 0;
         return;
       }
       const board = gs.board;
@@ -1138,6 +1146,7 @@ export class ActiveGameManager {
         const inBounds = stagedDest.x >= 0 && stagedDest.x < board.width && stagedDest.y >= 0 && stagedDest.y < board.height;
         if (!inBounds) {
           controlled.gotoRoute = [];
+          controlled.gotoRouteFirstLeg = 0;
           return;
         }
         // The staged cell is reached one move in the future, so the rest of the
@@ -1166,6 +1175,7 @@ export class ActiveGameManager {
       // bodies only recede from where they are now. That is exactly what makes
       // it useful for planning around a snake's default trajectory — but it is
       // not a commitment, and only targets[0] ever reaches the decision engine.
+      let firstLeg = 0;
       for (const target of targets) {
         const leg = waypointPath(gs, snakeId, from, target, { startTurn: turnCursor });
         // Unreachable leg: stop at the last target we can actually get to
@@ -1176,12 +1186,17 @@ export class ActiveGameManager {
         route.push(...leg);
         turnCursor += leg.length;
         from = target;
+        // The first completed leg is the only part conditioned on the move
+        // actually staged this turn; the client fades everything after it.
+        if (firstLeg === 0) firstLeg = route.length;
       }
       controlled.gotoRoute = route;
+      controlled.gotoRouteFirstLeg = firstLeg > 0 ? firstLeg : route.length;
     } catch (e) {
       // A display cache must never break staging/commit paths.
       console.error(`[ActiveGameManager] refreshGotoRoute failed for ${gameId}:${snakeId}:`, e);
       controlled.gotoRoute = [];
+      controlled.gotoRouteFirstLeg = 0;
     }
   }
 
@@ -1691,13 +1706,16 @@ export class ActiveGameManager {
     return result;
   }
 
-  getRoutesForGame(gameId: string): { [snakeId: string]: Coord[] } {
+  // Client projection: the predicted trajectory per snake. `firstLeg` is how
+  // many leading cells are the committed-this-turn leg (head → targets[0]);
+  // the client renders the remainder faded because it is a prediction.
+  getRoutesForGame(gameId: string): { [snakeId: string]: { cells: Coord[]; firstLeg: number } } {
     const game = this.games.get(gameId);
     if (!game) return {};
-    const result: { [snakeId: string]: Coord[] } = {};
+    const result: { [snakeId: string]: { cells: Coord[]; firstLeg: number } } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
       if (cs.intent.kind === 'goto' && cs.gotoRoute.length > 0) {
-        result[snakeId] = cs.gotoRoute;
+        result[snakeId] = { cells: cs.gotoRoute, firstLeg: cs.gotoRouteFirstLeg };
       }
     }
     return result;

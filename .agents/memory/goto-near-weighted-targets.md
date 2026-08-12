@@ -7,8 +7,8 @@ description: Centaur click-targets bias the heuristic matrix through a [0,1] lin
 
 A user click-target NEVER dictates the snake's move. It contributes a bounded
 per-move stat to the same scoring matrix every other heuristic feeds, so
-survival terms retain the power to outvote it. Goto (alt-click, green) and Near
-(shift-click, blue) differ only in their stat function.
+survival terms retain the power to outvote it. Goto (right-click, green) and Near
+(ctrl-click, blue) differ only in their stat function.
 
 **The stat** (`src/logic/waypoint-pathing.ts`, the single shared module): a
 PURE [0, 1] linear ramp over BFS shortest-path distances. With
@@ -123,8 +123,8 @@ nothing, they only inform the human.
 # Goto is a QUEUE of targets (and REPLACED the premove queue)
 
 `{kind:'goto', targets: Coord[]}` — `targets[0]` is active and the only one handed
-to the decision engine. Shift+Alt+click appends (appending an already-queued cell
-removes it). The arrival check in `updateGameState` (head or `body[1]` on
+to the decision engine. Shift+Right-click cues another target (re-cueing an
+already-queued cell removes it). The arrival check in `updateGameState` (head or `body[1]` on
 `targets[0]`) SHIFTS the queue; only an emptied queue reverts to `heuristic`.
 Near is single-target and never auto-clears.
 

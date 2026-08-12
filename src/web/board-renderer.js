@@ -1584,10 +1584,17 @@ const BoardRenderer = (function () {
       button.style.height = displayCellSize + "px";
       button.style.zIndex = "10";
 
-      button.onclick = (e) => {
-        e.stopPropagation();
-        onCellClick(move.direction, e);
-      };
+      // Input is owned by the page's delegated pointerdown handler; callers
+      // that pass no handler get a presentational overlay whose teardown can
+      // never swallow an interaction.
+      if (onCellClick) {
+        button.onclick = (e) => {
+          e.stopPropagation();
+          onCellClick(move.direction, e);
+        };
+      } else {
+        button.style.cursor = 'pointer';
+      }
       const scoreText =
         move.score != null
           ? move.score.toFixed(2)

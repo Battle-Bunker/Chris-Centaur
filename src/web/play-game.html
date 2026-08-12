@@ -360,31 +360,53 @@
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
-                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Alt + Click</span> Goto
+                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Right-click</span> Goto
                 <span class="kbd-tip">
-                  <strong>Alt-click — green "goto" target</strong><br>
+                  <strong>Right-click — green "goto" target</strong><br>
                   Sets a target the bot is REWARDED for approaching. It is a
                   weighted vote in the same scoring matrix every other heuristic
                   feeds — never a path override — so survival heuristics can
                   still outvote it and the snake will never die for a target.
                   The optimal step scores the full bonus, fading to nothing at
                   twice the best path length.<br>
-                  <strong>Shift+Alt-click</strong> appends another target to the
-                  queue (click a queued cell to remove it). Reaching the active
-                  target promotes the next; emptying the queue reverts to the
-                  heuristic. Click the lone green cell again to cancel.
+                  Right-click the lone green cell again to cancel.
+                </span>
+              </span>
+              <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
+                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Shift + Right</span> Cue
+                <span class="kbd-tip">
+                  <strong>Shift+Right-click — cue another target</strong><br>
+                  Appends to the goto queue instead of replacing it; shift-right
+                  a queued cell again to remove it. Targets are numbered on the
+                  board in order, and the green path shows the snake's whole
+                  predicted trajectory through them.<br>
+                  Reaching the active target promotes the next; emptying the
+                  queue reverts to the heuristic. Only the ACTIVE target steers
+                  the bot — the faded part of the path is a prediction, not a
+                  commitment.
                 </span>
               </span>
               <span class="kbd-pill" style="background:rgba(33,150,243,0.18); border-color:#2196f3;">
-                <span class="kbd-key" style="background:#1565c0; color:#fff;">Shift + Click</span> Near
+                <span class="kbd-key" style="background:#1565c0; color:#fff;">Ctrl + Click</span> Near
                 <span class="kbd-tip">
-                  <strong>Shift-click — blue "near" target</strong><br>
+                  <strong>Ctrl-click — blue "near" target</strong><br>
                   Rewards staying close to a cell WITHOUT ever arriving on it —
                   the bonus peaks one square away and is zero for landing on the
                   target or cutting off the path to it. Weighted into the bot's
                   scoring exactly like Goto, so survival still wins. Single
-                  target, never auto-clears — click the blue cell again to
+                  target, never auto-clears — ctrl-click the blue cell again to
                   remove.
+                </span>
+              </span>
+              <span class="kbd-pill">
+                <span class="kbd-key">Alt + Click</span> Inspect
+                <span class="kbd-tip">
+                  <strong>Alt-click — inspect a cell</strong><br>
+                  Shows which snake's Voronoi territory owns that cell and at
+                  what BFS distance. Works on any cell, snake bodies included.
+                  While a candidate move is selected the popup describes that
+                  move's HYPOTHETICAL board. A plain click or <code>Esc</code>
+                  clears it.
                 </span>
               </span>
             </div>
@@ -602,11 +624,12 @@
     let selectedSnakeId = null;
 
     // ── Cell inspection (Voronoi ownership popup) ───────────────────────────
-    // RIGHT-clicking any board cell selects it and shows which snake's Voronoi
-    // territory owns it and at what BFS distance. While a candidate move is
-    // selected (and the board shows that move's projected territory), the
-    // popup reports the same HYPOTHETICAL board. Left clicks keep their
-    // existing meanings and, like Escape, clear the inspection.
+    // ALT+LEFT-clicking any board cell selects it and shows which snake's
+    // Voronoi territory owns it and at what BFS distance. (The right button is
+    // a board control now — it sets goto targets.) While a candidate move is
+    // selected (and the board shows that move's projected territory), the popup
+    // reports the same HYPOTHETICAL board. An unmodified left click, like
+    // Escape, clears the inspection.
     // Sentinels mirror OWNER_NEUTRAL / OWNER_UNREACHED in multi-source-bfs.ts.
     const CELL_OWNER_NEUTRAL = -1;
     const CELL_OWNER_UNREACHED = -2;
@@ -616,7 +639,7 @@
 
     function repaintBoard() {
       if (viewMode === 'historic') renderHistoricBoard();
-      else renderGameBoard();
+      else scheduleRender();
     }
 
     function selectCell(cell) {
@@ -738,25 +761,28 @@
       popup.style.top = (py - popupHeight - 6 >= 0 ? py - popupHeight - 6 : py + cellSize + 6) + 'px';
     }
 
-    // Right-click anywhere over the board (canvas or the candidate overlay —
-    // the event bubbles up from the overlay buttons) inspects that cell. Works
-    // on ANY cell, snake bodies included.
+    // The right button is a board control (goto targets), so the browser menu
+    // must never appear over the board. Suppressing it here — separately from
+    // the pointerdown handler — keeps the two concerns independent: the menu is
+    // suppressed even for a right-press the input handler chooses to ignore.
     document.querySelector('.canvas-wrapper').addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      const { board } = cellInspectContext();
-      if (!board) return;
-      const canvas = document.getElementById('gameCanvas');
-      const cell = BoardRenderer.getClickedCell(canvas, board, e);
-      if (!cell || cell.x < 0 || cell.x >= board.width || cell.y < 0 || cell.y >= board.height) {
-        clearCellSelection();
-        return;
-      }
-      selectCell(cell);
     });
 
-    // Left-clicking anywhere (board, overlay buttons, page chrome) clears the
-    // inspection — left clicks keep their normal selection meanings.
-    document.addEventListener('click', () => clearCellSelection());
+    // Board input, capture phase on a permanent ancestor. See
+    // handleBoardPointerDown for why this is pointerdown-on-capture and not a
+    // set of per-element click handlers.
+    document.querySelector('.canvas-wrapper').addEventListener(
+      'pointerdown', handleBoardPointerDown, true
+    );
+
+    // An UNMODIFIED left click anywhere clears the cell inspection. Alt+Left is
+    // what SETS it, so it must not immediately clear itself, and the other
+    // modified combos are board controls that should leave inspection alone.
+    document.addEventListener('click', (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      clearCellSelection();
+    });
     let myColor = '#888888';
     let controlledSnakeIds = new Set();
     let selections = {};
@@ -774,7 +800,7 @@
     let stagedMoves = {};
 
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
-    let gotoRoutes = {};     // { [snakeId]: [{x,y}, ...] } — live green "goto" path from the pathfinder
+    let gotoRoutes = {};     // { [snakeId]: {cells:[{x,y},...], firstLeg:n} } — predicted trajectory through the whole goto queue; the first `firstLeg` cells are this turn's committed leg, the rest is prediction (drawn faded)
     let activeIntentModes = {};  // { [snakeId]: 'heuristic'|'manual'|'queue'|'waypoint' } — active next-move source
 
     // ── Turn scrubbing (live vs historic view) ──────────────────────────────
@@ -1079,7 +1105,7 @@
             document.getElementById('currentTurn').textContent = msg.turn;
             document.getElementById('firstMoveIndicator').style.display = (msg.turn === 0) ? 'block' : 'none';
             startTurnTimer();
-            renderGameBoard();
+            scheduleRender();
             renderSnakeInfo();
             if (selectedSnakeId) {
               updateMoveControls();
@@ -1131,7 +1157,7 @@
             setupMoveStateForSnake(snakeId);
             updateMoveControls();
           }
-          renderGameBoard();
+          scheduleRender();
           break;
         }
 
@@ -1155,7 +1181,7 @@
             analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
-            renderGameBoard();
+            scheduleRender();
           }
           break;
         }
@@ -1187,7 +1213,7 @@
             activeIntentModes = msg.activeIntentModes;
           }
           renderConnectedUsers();
-          renderGameBoard();
+          scheduleRender();
           renderSnakeInfo();
 
           if (selectedSnakeId) {
@@ -1265,7 +1291,7 @@
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
             }
-            renderGameBoard();
+            scheduleRender();
           }
           break;
 
@@ -1302,7 +1328,7 @@
             if (viewMode === 'live') {
               document.getElementById('currentTurn').textContent = msg.finalGameState.turn;
               document.getElementById('firstMoveIndicator').style.display = 'none';
-              renderGameBoard();
+              scheduleRender();
               renderSnakeInfo();
             }
             updateTurnControls();
@@ -1389,7 +1415,7 @@
       if (viewMode === 'live') {
         document.getElementById('currentTurn').textContent = turn;
         document.getElementById('firstMoveIndicator').style.display = (turn === 0) ? 'block' : 'none';
-        renderGameBoard();
+        scheduleRender();
         renderSnakeInfo();
         startTurnTimer();
       }
@@ -1527,6 +1553,22 @@
       return head;
     }
 
+    // Renders are COALESCED onto one animation frame. A turn boundary delivers
+    // several websocket messages back to back (board, selections, staged moves,
+    // routes) and each used to force its own full repaint + overlay rebuild;
+    // hover transitions did the same. Batching collapses a burst into a single
+    // frame, which is both the performance fix and half the reliability fix —
+    // fewer teardowns is fewer chances to disturb an in-flight interaction.
+    let renderScheduled = false;
+    function scheduleRender() {
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        renderScheduled = false;
+        renderGameBoard();
+      });
+    }
+
     function renderGameBoard() {
       if (!currentGameState) return;
       // While scrubbing history, live WS updates still refresh currentGameState
@@ -1577,7 +1619,7 @@
       // path always matches the move that will actually commit.
       for (const snake of currentGameState.board.snakes) {
         const route = gotoRoutes[snake.id];
-        if (!route || route.length === 0) continue;
+        if (!route || !route.cells || route.cells.length === 0) continue;
         drawRouteOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
       }
 
@@ -1588,19 +1630,14 @@
       }
 
       if (selectedSnakeId && moveState && !moveSubmitted) {
+        // The candidate overlay is PRESENTATIONAL only — it draws the score
+        // labels and hover affordance. It deliberately has no click handler:
+        // all board input is owned by the delegated pointerdown handler on
+        // `.canvas-wrapper`, so rebuilding this overlay (which happens on every
+        // render) can never swallow an interaction.
         BoardRenderer.createBoardOverlay(
           document.getElementById('boardOverlay'), canvas,
-          currentGameState.board, moveState,
-          // Alt/shift clicks on candidate cells are waypoint clicks — forward
-          // them to the canvas handler (which owns the waypoint logic) instead
-          // of moving the purple move selection. Plain clicks select the move.
-          (direction, e) => {
-            if (e && (e.altKey || e.shiftKey)) {
-              handleCanvasClick(e);
-            } else {
-              selectMove(direction);
-            }
-          }
+          currentGameState.board, moveState, null
         );
       } else {
         document.getElementById('boardOverlay').innerHTML = '';
@@ -1620,7 +1657,7 @@
           nameTagHoverRerenderQueued = true;
           requestAnimationFrame(() => {
             nameTagHoverRerenderQueued = false;
-            renderGameBoard();
+            scheduleRender();
           });
         }
       }
@@ -1741,7 +1778,7 @@
       moveState.selectedMove = direction;
 
       updateMoveControls();
-      renderGameBoard();
+      scheduleRender();
 
       const move = moveState.moves[direction];
       if (move) {
@@ -1782,18 +1819,16 @@
         source: 'manual',
       };
 
-      // Mirror the server's "manual override drops the plan" contract locally
-      // for immediate feedback; the server enforces the same via setUserSelection
-      // (a manual intent structurally supersedes any goto/near target).
-      delete waypoints[selectedSnakeId];
-      delete gotoRoutes[selectedSnakeId];
+      // The server enforces "manual override drops the plan" via setUserSelection
+      // (a manual intent structurally supersedes any goto/near target) and
+      // broadcasts the result. No local mirror — see setWaypointForSnake.
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-move', snakeId: selectedSnakeId, move }));
       }
 
       updateMoveControls();
-      renderGameBoard();
+      scheduleRender();
     }
 
     // ── Fatal-move confirmation dialog ──────────────────────────────────
@@ -1923,102 +1958,150 @@
     // overlay updates on the same frame as the click; the broadcast is
     // authoritative and overwrites it.
     // `append=true` (green only) toggles the cell in the goto target queue.
+    // Waypoint state is SERVER-OWNED, with no local echo.
+    //
+    // The client used to mirror the mutation optimistically, which meant the
+    // append case computed a TOGGLE (re-cueing a queued cell removes it) from
+    // local state while the server independently computed the same toggle from
+    // its own. Whenever the local mirror was stale — most reliably right after
+    // a turn boundary, which overwrites `waypoints` wholesale and can also
+    // shift the queue on arrival — the two disagreed and the cue appeared to do
+    // nothing, or the opposite of what was asked.
+    //
+    // Sending the intent and rendering only what comes back removes that class
+    // of bug outright: one writer, one truth. The server coalesces its staged
+    // change broadcast per event-loop tick and renders here are frame-batched,
+    // so the round trip costs at most a frame.
     function setWaypointForSnake(snakeId, waypoint, append = false) {
       if (!snakeId) return;
-      if (waypoint === null) {
-        delete waypoints[snakeId];
-      } else if (append && waypoints[snakeId]?.type === 'green' && waypoint.type === 'green') {
-        const cells = waypoints[snakeId].cells;
-        const idx = cells.findIndex(c => c.x === waypoint.x && c.y === waypoint.y);
-        if (idx >= 0) {
-          cells.splice(idx, 1);
-          if (cells.length === 0) delete waypoints[snakeId];
-        } else {
-          cells.push({ x: waypoint.x, y: waypoint.y });
-        }
-      } else {
-        waypoints[snakeId] = { type: waypoint.type, cells: [{ x: waypoint.x, y: waypoint.y }] };
-      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint, append }));
       }
-      renderGameBoard();
     }
 
-    function handleCanvasClick(event) {
-      // Read-only history mode: clicks switch the inspected snake perspective or
-      // toggle a territory highlight. Handle this BEFORE the live guard below,
-      // because a finished game loaded from logs has no live currentGameState —
-      // the historic handler reads historicDecisions instead. (Without this,
-      // board-body clicks silently did nothing in finished games.)
-      if (viewMode === 'historic') { handleHistoricCanvasClick(event); return; }
+    // ── Board input: ONE delegated handler ────────────────────────────────
+    //
+    // Every board interaction is resolved here, from a single `pointerdown`
+    // listener registered in the CAPTURE phase on `.canvas-wrapper` (which is
+    // never torn down). Two properties make this reliable where the previous
+    // per-element `click` handlers were not:
+    //
+    //  1. `pointerdown` fires on press. A `click` only fires when mousedown AND
+    //     mouseup land on the SAME element — so any re-render between the two
+    //     silently swallowed the interaction. The candidate-move overlay is
+    //     rebuilt wholesale (`innerHTML = ''`) on every render and sits exactly
+    //     over the four cells next to the head, which are prime waypoint
+    //     targets. A turn boundary (or even a hover change) landing mid-click
+    //     therefore dropped the input entirely — the "it fails when I hold the
+    //     keys across a turn" symptom.
+    //  2. Capture phase on a permanent ancestor means the handler runs before
+    //     anything inside the overlay, whatever the overlay currently contains.
+    //     The overlay's buttons are now presentational only.
+    //
+    // The cell comes from pointer coordinates, never from the identity of the
+    // element under the cursor, so a stale overlay cannot misdirect a click.
+    function handleBoardPointerDown(event) {
+      // History mode: Alt+Left still inspects (the popup reads the historic
+      // ownership snapshot), and a plain left click keeps the replay's own
+      // meanings — switch inspected snake / toggle a territory highlight.
+      // Nothing else applies, since there is no live snake to steer.
+      if (viewMode === 'historic') {
+        if (event.button !== 0) return;
+        if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+        if (event.altKey) {
+          event.preventDefault();
+          const { board: hBoard } = cellInspectContext();
+          if (!hBoard) return;
+          const hCell = BoardRenderer.getClickedCell(document.getElementById('gameCanvas'), hBoard, event);
+          if (!hCell || hCell.x < 0 || hCell.x >= hBoard.width || hCell.y < 0 || hCell.y >= hBoard.height) {
+            clearCellSelection();
+            return;
+          }
+          selectCell(hCell);
+          return;
+        }
+        handleHistoricCanvasClick(event);
+        return;
+      }
       if (!currentGameState) return;
 
       const canvas = document.getElementById('gameCanvas');
       const board = currentGameState.board;
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
       if (!cell) return;
-      const boardX = cell.x;
-      const boardY = cell.y;
+      const { x, y } = cell;
+      const inBounds = x >= 0 && x < board.width && y >= 0 && y < board.height;
 
-      // Waypoint handling for the currently selected snake:
-      // - Alt-click sets a green "goto" target, REPLACING the queue.
-      // - Shift+Alt-click APPENDS a green target to the goto queue (clicking an
-      //   already-queued cell removes it).
-      // - Shift-click sets the blue "near" target (manual clear only).
-      // - Plain click on a waypoint cell clears the whole plan.
-      if (selectedSnakeId &&
-          boardX >= 0 && boardX < board.width &&
-          boardY >= 0 && boardY < board.height) {
+      const isRight = event.button === 2;
+      const isLeft = event.button === 0;
+      if (!isRight && !isLeft) return;
+
+      // ── Right button: goto targets ────────────────────────────────────
+      // Right = set the goto target (replacing the queue).
+      // Shift+Right = cue another target onto the queue (re-cueing removes it).
+      if (isRight) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!selectedSnakeId || !inBounds) return;
         const current = waypoints[selectedSnakeId];
-        const cells = current?.cells || [];
-        const onWaypointCell = cells.some(c => c.x === boardX && c.y === boardY);
-
-        if (event.altKey) {
-          const appendGoto = event.shiftKey && current?.type === 'green';
-          // A plain alt-click on the ONLY target clears the plan; with a queue
-          // it replaces it, and shift+alt toggles queue membership instead.
-          if (!appendGoto && onWaypointCell && cells.length === 1) {
-            setWaypointForSnake(selectedSnakeId, null);
-            return;
-          }
-          setWaypointForSnake(selectedSnakeId, { type: 'green', x: boardX, y: boardY }, appendGoto);
+        const cells = (current && current.cells) || [];
+        const onTarget = cells.some(c => c.x === x && c.y === y);
+        const append = event.shiftKey && current?.type === 'green';
+        // Right-clicking the only target cancels the plan; with a queue it
+        // replaces it, and Shift+Right toggles queue membership instead.
+        if (!append && onTarget && cells.length === 1) {
+          setWaypointForSnake(selectedSnakeId, null);
           return;
         }
+        setWaypointForSnake(selectedSnakeId, { type: 'green', x, y }, append);
+        return;
+      }
 
-        if (event.shiftKey) {
-          if (onWaypointCell && current?.type === 'blue') {
-            setWaypointForSnake(selectedSnakeId, null);
-            return;
-          }
-          setWaypointForSnake(selectedSnakeId, { type: 'blue', x: boardX, y: boardY });
+      // ── Ctrl+Left: near target ────────────────────────────────────────
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!selectedSnakeId || !inBounds) return;
+        const current = waypoints[selectedSnakeId];
+        const cells = (current && current.cells) || [];
+        const onTarget = cells.some(c => c.x === x && c.y === y);
+        if (onTarget && current?.type === 'blue') {
+          setWaypointForSnake(selectedSnakeId, null);
           return;
         }
+        setWaypointForSnake(selectedSnakeId, { type: 'blue', x, y });
+        return;
+      }
 
-        // Plain-click on a waypoint cell clears the plan. Only triggers when no
-        // controlled snake body occupies that cell, so it doesn't steal
-        // snake-selection clicks.
-        if (onWaypointCell) {
-          let blockedByControlled = false;
-          for (const s of board.snakes) {
-            if (!controlledSnakeIds.has(s.id)) continue;
-            for (const seg of s.body) {
-              if (seg.x === boardX && seg.y === boardY) { blockedByControlled = true; break; }
-            }
-            if (blockedByControlled) break;
-          }
-          if (!blockedByControlled) {
-            setWaypointForSnake(selectedSnakeId, null);
+      // ── Alt+Left: inspect the cell ────────────────────────────────────
+      if (event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!inBounds) { clearCellSelection(); return; }
+        selectCell(cell);
+        return;
+      }
+
+      // ── Plain left: pick a candidate move, else select a snake ────────
+      if (!inBounds) return;
+      if (selectedSnakeId && moveState && !moveSubmitted) {
+        for (const move of Object.values(moveState.moves)) {
+          const pos = move.position;
+          if (pos && pos.x === x && pos.y === y) {
+            event.preventDefault();
+            event.stopPropagation();
+            selectMove(move.direction);
             return;
           }
         }
       }
-
       for (const snake of board.snakes) {
         if (!controlledSnakeIds.has(snake.id)) continue;
         for (const segment of snake.body) {
-          if (segment.x === boardX && segment.y === boardY) {
+          if (segment.x === x && segment.y === y) {
             if (snake.id === selectedSnakeId) return;
+            event.preventDefault();
+            event.stopPropagation();
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'select-snake', snakeId: snake.id }));
             }
@@ -2166,23 +2249,45 @@
       ctx.restore();
     }
 
-    // Dashed path from the snake's head along a sequence of cells — the green
-    // goto route, i.e. the snake's predicted trajectory through its whole
-    // target queue. Cells are marked with plain dots, deliberately NOT numbered:
-    // the route can now span many legs, and per-cell numbers would compete with
-    // the queue ordinals drawn on the target cells themselves.
-    function drawRouteOverlay(canvas, snake, queue, board, cellSize, color) {
-      if (!snake || !queue || queue.length === 0) return;
+    // The snake's predicted trajectory through its whole goto queue.
+    //
+    // The first `route.firstLeg` cells are this turn's COMMITTED leg — the path
+    // from the move actually staged — and draw at full strength. Everything
+    // after is a prediction that assumes each earlier target is reached and
+    // that other snakes only recede from where they are now, so it draws faded.
+    // That distinction is the difference between "the snake is going here" and
+    // "the snake intends to go here next", which matters when you are planning
+    // around someone else's trajectory.
+    //
+    // Cells are marked with plain dots, deliberately NOT numbered: the route
+    // can span many legs, and per-cell numbers would compete with the queue
+    // ordinals drawn on the target cells themselves.
+    function drawRouteOverlay(canvas, snake, route, board, cellSize, color) {
+      const cells = route && route.cells;
+      if (!snake || !cells || cells.length === 0) return;
       const ctx = canvas.getContext('2d');
-      // Anchor the dashed path at the projected head so the line connects
-      // from where the snake will be next turn (not the stale current head)
-      // to queue[0]. Falls back to the current head for non-controlled snakes.
       const head = getProjectedHead(snake.id) || snake.head || snake.body[0];
+      const firstLeg = Math.max(0, Math.min(cells.length, route.firstLeg ?? cells.length));
 
       const toPx = (cell) => ({
         x: cell.x * cellSize + cellSize / 2,
         y: (board.height - 1 - cell.y) * cellSize + cellSize / 2,
       });
+
+      // One polyline per segment, so the committed leg and the prediction can
+      // carry different alpha while still meeting at a shared cell.
+      const strokeRun = (fromCell, runCells, alpha) => {
+        if (runCells.length === 0) return;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        const start = toPx(fromCell);
+        ctx.moveTo(start.x, start.y);
+        for (const cell of runCells) {
+          const p = toPx(cell);
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      };
 
       ctx.save();
       ctx.strokeStyle = color;
@@ -2190,21 +2295,19 @@
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.setLineDash([Math.max(4, cellSize * 0.18), Math.max(3, cellSize * 0.14)]);
-      ctx.globalAlpha = 0.85;
-      ctx.beginPath();
-      const startPx = toPx(head);
-      ctx.moveTo(startPx.x, startPx.y);
-      for (const cell of queue) {
-        const p = toPx(cell);
-        ctx.lineTo(p.x, p.y);
-      }
-      ctx.stroke();
+
+      const committed = cells.slice(0, firstLeg);
+      const predicted = cells.slice(firstLeg);
+      strokeRun(head, committed, 0.85);
+      // The prediction continues from the last committed cell so the line is
+      // unbroken across the seam.
+      strokeRun(committed.length > 0 ? committed[committed.length - 1] : head, predicted, 0.3);
       ctx.setLineDash([]);
 
       const dotR = Math.max(2, cellSize * 0.10);
-      for (let i = 0; i < queue.length; i++) {
-        const p = toPx(queue[i]);
-        ctx.globalAlpha = 0.9;
+      for (let i = 0; i < cells.length; i++) {
+        const p = toPx(cells[i]);
+        ctx.globalAlpha = i < firstLeg ? 0.9 : 0.35;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
@@ -2338,7 +2441,7 @@
           userSelectedMove = null;
           analyticsFrozen = false;
           hideSelectionUI();
-          renderGameBoard();
+          scheduleRender();
         }
         return;
       }
@@ -2801,7 +2904,7 @@
         document.getElementById('currentTurn').textContent = currentGameState.turn;
         document.getElementById('firstMoveIndicator').style.display =
           (currentGameState.turn === 0) ? 'block' : 'none';
-        renderGameBoard();
+        scheduleRender();
         renderSnakeInfo();
         if (selectedSnakeId) updateMoveControls();
         startTurnTimer();
@@ -3271,7 +3374,6 @@
       slider.addEventListener('blur', finish);
     })();
 
-    document.getElementById('gameCanvas').addEventListener('click', handleCanvasClick);
 
     // Hovering an owner name tag makes the whole tag clearly translucent so
     // the board under it stays readable; re-render only when the hovered tag
@@ -3286,14 +3388,14 @@
       const hit = BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos);
       if (hit !== hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = hit;
-        renderGameBoard();
+        scheduleRender();
       }
     });
     document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
       lastCanvasMousePos = null;
       if (hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = null;
-        renderGameBoard();
+        scheduleRender();
       }
     });
 

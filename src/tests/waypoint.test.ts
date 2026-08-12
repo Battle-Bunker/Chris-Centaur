@@ -303,6 +303,8 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.gotoRoute[0]).toEqual({ x: 6, y: 5 });
     expect(cs.gotoRoute[cs.gotoRoute.length - 1]).toEqual({ x: 8, y: 5 });
     expect(cs.gotoRoute.length).toBe(3);
+    // A single target is all committed leg — nothing to fade.
+    expect(cs.gotoRouteFirstLeg).toBe(cs.gotoRoute.length);
   });
 
   test('the drawn route follows the move that will actually commit, not the one the target wanted', () => {
@@ -379,6 +381,14 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(idx5_8).toBeGreaterThan(idx8_8);
     // The last cell IS the final target — the route ends where the plan ends.
     expect(route[route.length - 1]).toEqual({ x: 5, y: 8 });
+    // `firstLeg` marks the boundary the client fades at: everything up to and
+    // including the ACTIVE target is this turn's committed leg, the rest is
+    // prediction. It must land exactly on targets[0].
+    expect(cs.gotoRouteFirstLeg).toBe(idx8_5 + 1);
+    expect(route[cs.gotoRouteFirstLeg - 1]).toEqual({ x: 8, y: 5 });
+    const projected = mgr.getRoutesForGame(gameId)['A'];
+    expect(projected.cells).toEqual(route);
+    expect(projected.firstLeg).toBe(cs.gotoRouteFirstLeg);
     // Every step is orthogonally adjacent to the previous one: one continuous
     // walkable trajectory, with no jump across the seam between legs.
     for (let i = 1; i < route.length; i++) {
@@ -415,6 +425,8 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(route.length).toBeGreaterThan(0);
     expect(route[route.length - 1]).toEqual({ x: 8, y: 5 });
     expect(route.some(c => c.x === 8 && c.y === 8)).toBe(false);
+    // Truncated to the committed leg only, so nothing renders faded.
+    expect(cs.gotoRouteFirstLeg).toBe(route.length);
   });
 
   test('reaching the active target shifts the queue; the last arrival reverts to heuristic', () => {
