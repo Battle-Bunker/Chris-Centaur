@@ -167,6 +167,10 @@ interface WatchedGame {
   gameID: string;
   unsubscribe: Unsubscribe;
   lastProcessedTurn: number;
+  // Serializes onGameUpdate per game: an early-resolving turn can deliver the
+  // next snapshot while the previous one is mid-processing, and interleaved
+  // runs would double-apply bookkeeping or misorder manager state updates.
+  updateChain?: Promise<void>;
   registered: boolean;
   latestDoc: TTGameStateDoc | null;
   turnWatch: TurnWatch | null;
@@ -783,9 +787,11 @@ export class TacticToesFirebaseInterface {
           return;
         }
         watched.latestDoc = data!;
-        this.onGameUpdate(watched, data!).catch((err) => {
-          console.error(`[tt-firebase] Error handling update for game ${watched.gameID}:`, err);
-        });
+        watched.updateChain = (watched.updateChain ?? Promise.resolve())
+          .then(() => this.onGameUpdate(watched, data!))
+          .catch((err) => {
+            console.error(`[tt-firebase] Error handling update for game ${watched.gameID}:`, err);
+          });
       },
       (err) => {
         // Terminal listener error: the SDK will NOT retry after calling this.
@@ -1005,7 +1011,10 @@ export class TacticToesFirebaseInterface {
     // re-delivered from cache then server.
     if (turnNumber <= watched.lastProcessedTurn) return;
     const prevProcessed = watched.lastProcessedTurn;
-    watched.lastProcessedTurn = turnNumber;
+    // NOTE: lastProcessedTurn is advanced only after this turn's bookkeeping
+    // and fast staging pass succeed — a throw mid-processing leaves the cursor
+    // behind so the turn is retried on the next snapshot instead of being
+    // silently skipped forever.
 
     const turn = data.turns[turnNumber];
     const ourSnakes = controlledSnakeIDs(data.setup, this.config.centaurId);
@@ -1072,6 +1081,7 @@ export class TacticToesFirebaseInterface {
 
     // Final turn: hand every snake its final state, close the game everywhere.
     if (turn.winners.length > 0) {
+      watched.lastProcessedTurn = turnNumber;
       const anyView = buildGameState(
         watched.gameID, data.setup, turn, turnNumber, ourSnakes[0], null
       );
@@ -1089,6 +1099,7 @@ export class TacticToesFirebaseInterface {
     if (aliveOurs.length === 0) {
       // All our snakes are dead but the game continues; nothing left to stage.
       // Keep watching so the UI still receives the final state at game end.
+      watched.lastProcessedTurn = turnNumber;
       this.teardownTurnWatch(watched);
       return;
     }
@@ -1132,6 +1143,10 @@ export class TacticToesFirebaseInterface {
       }
     }
 
+    // Bookkeeping and fast staging succeeded: the turn is consumed. (The full
+    // pass below is fire-and-forget, so a failure there never skips a turn.)
+    watched.lastProcessedTurn = turnNumber;
+
     // FULL PASS: one ANYTIME strategy decision per controlled alive snake, all
     // snakes launched CONCURRENTLY. Each decision fans its simulations out
     // across the shared worker-thread pool and reports an updated best move
@@ -1140,8 +1155,15 @@ export class TacticToesFirebaseInterface {
     // unchanged updates would just flood the wire). The final recommendation
     // carries the full debug payload. Decisions stop at the shared deadline —
     // shortly before the turn's endTime, leaving room for the staging write.
+    //
+    // NOT awaited: onGameUpdate runs on a per-game serial chain, and a turn
+    // can resolve EARLY (every snake committed) while these decisions are
+    // still running — awaiting them here would delay the next turn's fast
+    // pass behind a doomed computation. Stale results are dropped by the
+    // manager's turn guard in setBotRecommendation; every branch below
+    // handles its own errors.
     const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
-    await Promise.all(
+    void Promise.all(
       aliveOurs.map(async (snakeId) => {
         const view = views.get(snakeId)!;
         try {

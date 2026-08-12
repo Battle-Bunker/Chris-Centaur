@@ -1794,6 +1794,18 @@ export class ActiveGameManager {
     if (!controlled) return;
 
     const incomingTurn = turnData.gameState.turn;
+    // Early-resolution race guard: a turn can resolve before its deadline
+    // (every snake committed), so a decision computed for the PREVIOUS board
+    // can land here after the game has advanced. Staging it would bind a
+    // stale move to the new turn — drop it instead; the new turn's own fast
+    // and full passes supply its moves.
+    if (incomingTurn < game.boardStateTurn) {
+      console.log(
+        `[ActiveGameManager] Dropping stale bot recommendation for ${gameId}:${snakeId} ` +
+        `(computed for turn ${incomingTurn}, board is at turn ${game.boardStateTurn})`
+      );
+      return;
+    }
     game.lastActivityAt = Date.now();
     game.gameTimeout = turnData.gameState.game.timeout || game.gameTimeout;
     game.currentTurn = Math.max(game.currentTurn, incomingTurn);
