@@ -409,6 +409,50 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.gotoRoute.length).toBe(3);
   });
 
+  test('later legs path around the snake as it WILL be, never back through its own neck', () => {
+    const gameId = 'g-goto-neck';
+    // Body extends DOWN from the head, so the column ABOVE the head is empty
+    // board and the return leg's shortest path does not involve the current
+    // head cell (which the graph already blocks). That isolates the bug: the
+    // only thing standing in the way is the body the snake WILL have.
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, left: 90, right: 80 }));
+
+    // Up the column to (5,8), then back down to (5,6). Measured against the
+    // CURRENT board the return leg is simply (5,7) then (5,6) — but (5,7) is
+    // where the snake's neck will be the instant it arrives at (5,8), so that
+    // first step is a 180° reversal into itself.
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 8 }, userId);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 6 }, userId, true);
+
+    const route = cs.gotoRoute;
+    const firstLeg = cs.gotoRouteFirstLeg;
+    expect(route[firstLeg - 1]).toEqual({ x: 5, y: 8 });
+
+    // The step immediately after arriving must not re-enter the cell the snake
+    // came from — that is the neck.
+    expect(route[firstLeg]).not.toEqual(route[firstLeg - 2]);
+
+    // More generally: no cell may be re-entered while the body still covers it.
+    // route[i] is the head at turn i+1 and the tail clears it at turn
+    // i+bodyLength, so a later visit must arrive strictly after that.
+    const bodyLength = snakes[0].body.length;
+    const lastSeen = new Map<string, number>();
+    route.forEach((c, i) => {
+      const key = `${c.x},${c.y}`;
+      const prev = lastSeen.get(key);
+      if (prev !== undefined) expect(i + 1).toBeGreaterThan(prev + bodyLength);
+      lastSeen.set(key, i);
+    });
+
+    // And it still gets there, by a continuous walkable detour.
+    expect(route[route.length - 1]).toEqual({ x: 5, y: 6 });
+    for (let i = 1; i < route.length; i++) {
+      const d = Math.abs(route[i].x - route[i - 1].x) + Math.abs(route[i].y - route[i - 1].y);
+      expect(d).toBe(1);
+    }
+  });
+
   test('an unreachable leg truncates the route at the last reachable target', () => {
     const gameId = 'g-goto-truncate';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];

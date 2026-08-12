@@ -63,6 +63,14 @@ export function destinationOf(head: Coord, move: Direction): Coord {
  * heuristics use. `startTurn` shifts the arrival-turn clock for callers whose
  * start cell is itself one move in the future (candidate-move probes).
  *
+ * `occupied` layers ADDITIONAL, caller-supplied blocking on top of that: cells
+ * the subject will occupy in the future because of movement the board does not
+ * know about yet. The graph models our body RECEDING as the tail advances, but
+ * it has no idea our head is going to walk somewhere — so a caller chaining
+ * several path legs must tell it, or later legs happily route back through the
+ * cells the earlier legs just filled (most visibly, straight back into the neck
+ * the snake would have created by arriving).
+ *
  * Runs on the graph's flat cell indices (the board is a typed-array grid since
  * the perf rework); a caller that already built a BoardGraph for this turn
  * should pass it rather than paying for a rebuild.
@@ -72,7 +80,16 @@ export function waypointPath(
   ourSnakeId: string,
   from: Coord,
   target: Coord,
-  opts?: { graph?: BoardGraph; startTurn?: number }
+  opts?: {
+    graph?: BoardGraph;
+    startTurn?: number;
+    /**
+     * Extra "our own future body" test: given a cell index and the turn we
+     * would ARRIVE there, is it still occupied? Consulted in addition to the
+     * graph's own passability, never instead of it.
+     */
+    occupied?: (cellIdx: number, arrivalTurn: number) => boolean;
+  }
 ): Coord[] | null {
   const board = gameState.board;
   if (!board) return null;
@@ -87,6 +104,7 @@ export function waypointPath(
   if (!ourSnake) return null;
 
   const graph = opts?.graph ?? new BoardGraph(gameState);
+  const occupied = opts?.occupied;
   const pass = graph.passabilityIdxFor(ourSnakeId, { clearance: 'optimistic' });
   const W = graph.boardWidth;
   const N = graph.cellCount;
@@ -125,6 +143,7 @@ export function waypointPath(
           break;
         }
         if (!pass.passableIdx(n, turn)) continue;
+        if (occupied && occupied(n, turn)) continue;
         visited[n] = 1;
         parent[n] = cur;
         queue[nextEnd++] = n;

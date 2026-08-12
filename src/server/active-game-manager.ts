@@ -1133,6 +1133,9 @@ export class ActiveGameManager {
         return;
       }
       const board = gs.board;
+      // One graph for every leg: waypointPath would otherwise rebuild the whole
+      // typed-array board per call, and this runs on every stage.
+      const graph = new BoardGraph(gs);
       const staged = controlled.staged;
       const stagedPending = !!staged && staged.turn === game.boardStateTurn;
 
@@ -1175,15 +1178,50 @@ export class ActiveGameManager {
       // bodies only recede from where they are now. That is exactly what makes
       // it useful for planning around a snake's default trajectory — but it is
       // not a commitment, and only targets[0] ever reaches the decision engine.
+      // Every leg after the first must path against the snake as it WILL BE,
+      // not as it is. The board graph models our body receding as the tail
+      // advances, but it has no idea the head is about to walk the earlier
+      // legs — so without this a later leg routes straight back through the
+      // cells the snake just filled, most visibly doubling back into the neck
+      // it would have created by arriving at the previous target.
+      //
+      // Occupancy is derived from the route itself. `route[i]` is where the
+      // head stands at turn i+1, so the body still covers that cell until the
+      // tail clears it at turn i+bodyLength. Arriving there any earlier is a
+      // self-collision. Body length is taken as it is now: growth from food
+      // eaten along the way is unknowable, and under-estimating length only
+      // makes the prediction slightly optimistic rather than wrong-shaped.
+      const bodyLength = Math.max(1, gs.you.body?.length ?? gs.you.length ?? 1);
+      const occupancyByCell = new Map<number, number[]>();
+      const noteOccupied = (cells: Coord[], firstRouteIndex: number) => {
+        cells.forEach((c, n) => {
+          const idx = graph.cellIndexOf(c);
+          const at = occupancyByCell.get(idx);
+          if (at) at.push(firstRouteIndex + n);
+          else occupancyByCell.set(idx, [firstRouteIndex + n]);
+        });
+      };
+      const occupied = (cellIdx: number, arrivalTurn: number): boolean => {
+        const at = occupancyByCell.get(cellIdx);
+        if (!at) return false;
+        for (const i of at) {
+          if (arrivalTurn >= i + 1 && arrivalTurn <= i + bodyLength) return true;
+        }
+        return false;
+      };
+      noteOccupied(route, 0);
+
       let firstLeg = 0;
       for (const target of targets) {
-        const leg = waypointPath(gs, snakeId, from, target, { startTurn: turnCursor });
+        const legStartIndex = route.length;
+        const leg = waypointPath(gs, snakeId, from, target, { graph, startTurn: turnCursor, occupied });
         // Unreachable leg: stop at the last target we can actually get to
         // rather than drawing a path that skips a gap. With nothing reachable
         // at all this leaves just the staged step (or an empty route), so the
         // user still sees which way the snake is about to go.
         if (leg === null) break;
         route.push(...leg);
+        noteOccupied(leg, legStartIndex);
         turnCursor += leg.length;
         from = target;
         // The first completed leg is the only part conditioned on the move

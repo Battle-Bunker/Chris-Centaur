@@ -110,6 +110,26 @@ look-ahead ceiling — `optimisticDisappear` stores the true geometric vacate tu
 `maxLookaheadTurns` cap lives only on `isPassableAtTurnIdx`, the physical layer
 `waypointPath` does not use.)
 
+**Each leg paths against the snake as it WILL BE, not as it is.** The board
+graph models our body RECEDING as the tail advances, but it has no idea our head
+is about to walk the earlier legs, so those cells look like empty board. Left
+alone, a later leg routes straight back through cells the snake just filled —
+most visibly doubling back into the neck it creates by arriving at the previous
+target, which is a guaranteed self-collision and an obviously wrong prediction.
+
+`waypointPath` therefore takes an `occupied(cellIdx, arrivalTurn)` predicate,
+layered ON TOP of the graph's passability (never instead of it), and
+`refreshGotoRoute` derives it from the route so far: `route[i]` is where the head
+stands at turn `i+1`, so the body still covers that cell until the tail clears it
+at turn `i+bodyLength`; arriving any earlier is a self-collision. Body length is
+taken as it is now — growth from food eaten en route is unknowable, and
+under-estimating only makes the prediction mildly optimistic rather than
+wrong-shaped.
+
+Note the graph already blocks the CURRENT head cell (`idx === headIdx`), which
+masks this bug in the easy cases and is why a regression test has to place the
+return path somewhere that does not touch the live head.
+
 An unreachable leg TRUNCATES the route at the last reachable target rather than
 skipping the gap: a drawn path must always be a walkable line.
 
