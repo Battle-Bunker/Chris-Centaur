@@ -35,6 +35,7 @@ import {
 } from 'firebase/auth';
 import {
   Firestore,
+  QuerySnapshot,
   Timestamp,
   Unsubscribe,
   addDoc,
@@ -199,9 +200,18 @@ export function listenerLooksDead(params: {
   return now > turnEndTimeMs + graceMs;
 }
 
-/** A missing status field means the invite predates the pending protocol — started. */
-export function inviteStatus(invite: Pick<TTGameInvite, 'status'>): 'pending' | 'started' {
-  return invite.status === 'pending' ? 'pending' : 'started';
+/**
+ * A missing status field means the invite predates the pending protocol —
+ * started. 'finished' (stamped at game end by a planned TacticToes-side
+ * change; never written today) means the game is over: never watch it, so a
+ * stale invite replay can't even briefly open a listener on a finished game.
+ */
+export function inviteStatus(
+  invite: Pick<TTGameInvite, 'status'>
+): 'pending' | 'started' | 'finished' {
+  if (invite.status === 'pending') return 'pending';
+  if (invite.status === 'finished') return 'finished';
+  return 'started';
 }
 
 /**
@@ -210,6 +220,46 @@ export function inviteStatus(invite: Pick<TTGameInvite, 'status'>): 'pending' | 
  */
 export function needsReack(statusDoc: { ready?: unknown } | undefined): boolean {
   return statusDoc?.ready !== true;
+}
+
+export type GameDocSnapshotAction = 'process' | 'ignore' | 'endAndUnwatch' | 'unwatch';
+
+/**
+ * What a game-doc snapshot means for the watch lifecycle. Pure so the
+ * deletion semantics are testable.
+ *
+ * Firestore never announces deletion as anything but a snapshot whose doc
+ * does not exist, and this game-doc listener is the ONLY place the centaur
+ * can observe it: the invite doc lives under centaurs/{id}/games — outside
+ * the session subtree — so it survives a session delete (console cascade
+ * included) and keeps replaying the dead game on every boot. Before this
+ * helper existed those snapshots were silently ignored, which left the game
+ * on /play until the idle sweep and, worse, left the watchedGames entry
+ * starving the listener watchdog into a permanent client-rebuild loop.
+ *
+ * Non-existence is only authoritative from a server-backed snapshot: a
+ * cache-first delivery can transiently claim a doc is missing, so
+ * fromCache non-existence is ignored (the server delivery follows).
+ *
+ * - 'endAndUnwatch': a game we registered was deleted out from under us —
+ *   end every controlled snake through the normal exit path, stop watching.
+ * - 'unwatch': a stale invite replay points at a doc that no longer exists —
+ *   nothing was ever registered, just stop watching.
+ * - 'ignore': nothing actionable (no turns yet, or unconfirmed cache state).
+ * - 'process': a live doc with turns — the normal pipeline.
+ */
+export function gameDocSnapshotAction(params: {
+  exists: boolean;
+  fromCache: boolean;
+  hasTurns: boolean;
+  registered: boolean;
+}): GameDocSnapshotAction {
+  const { exists, fromCache, hasTurns, registered } = params;
+  if (!exists) {
+    if (fromCache) return 'ignore';
+    return registered ? 'endAndUnwatch' : 'unwatch';
+  }
+  return hasTurns ? 'process' : 'ignore';
 }
 
 export type InviteChangeAction =
@@ -226,10 +276,23 @@ export type InviteChangeAction =
  */
 export function inviteChangeAction(
   changeType: 'added' | 'modified' | 'removed',
-  status: 'pending' | 'started',
+  status: 'pending' | 'started' | 'finished',
   currentlyPending: boolean
 ): InviteChangeAction {
   if (changeType === 'removed') {
+    // NOTE: 'removed' is NOT evidence the game was deleted. The invite feed
+    // is orderBy(createdAt desc) + limit(20), so an invite that merely falls
+    // out of the window surfaces as 'removed' with nothing deleted. The
+    // game-doc listener is the sole authority for a started game's existence
+    // (see gameDocSnapshotAction); here removal only matters for pending
+    // lobbies, whose invites really are deleted when the team is removed.
+    return currentlyPending ? 'dropPending' : 'none';
+  }
+  if (status === 'finished') {
+    // The game is over: nothing to watch. A finished invite that was somehow
+    // still tracked as pending drops its lobby tracking. Games this centaur
+    // is actively watching don't need handling here — the winners-bearing
+    // final turn on the game doc ends them through the normal flow.
     return currentlyPending ? 'dropPending' : 'none';
   }
   if (status === 'pending') {
@@ -353,7 +416,7 @@ export class TacticToesFirebaseInterface {
       this.teardownTurnWatch(watched);
     }
     this.watchedGames.clear();
-    this.dropAllPendingGames();
+    this.detachPendingGames();
     this.teardownClient();
     console.log('[tt-firebase] Suspended (no web clients — allowing scale to zero)');
     this.setStatus('suspended');
@@ -556,6 +619,7 @@ export class TacticToesFirebaseInterface {
               break;
           }
         });
+        this.reconcilePendingGames(snapshot);
       },
       (err) => {
         // Terminal invite-stream failure. The game-doc watchdog only covers
@@ -628,7 +692,7 @@ export class TacticToesFirebaseInterface {
         watched.unsubscribe = () => {};
         this.teardownTurnWatch(watched);
       }
-      this.dropAllPendingGames();
+      this.detachPendingGames();
       this.teardownClient();
 
       await this.initClient();
@@ -707,9 +771,19 @@ export class TacticToesFirebaseInterface {
       (snapshot) => {
         watched.lastSnapshotMs = Date.now();
         const data = snapshot.data() as TTGameStateDoc | undefined;
-        if (!data || !Array.isArray(data.turns) || data.turns.length === 0) return;
-        watched.latestDoc = data;
-        this.onGameUpdate(watched, data).catch((err) => {
+        const action = gameDocSnapshotAction({
+          exists: snapshot.exists(),
+          fromCache: snapshot.metadata.fromCache,
+          hasTurns: !!data && Array.isArray(data.turns) && data.turns.length > 0,
+          registered: watched.registered,
+        });
+        if (action === 'ignore') return;
+        if (action === 'endAndUnwatch' || action === 'unwatch') {
+          this.dropDeletedGame(watched, action === 'endAndUnwatch');
+          return;
+        }
+        watched.latestDoc = data!;
+        this.onGameUpdate(watched, data!).catch((err) => {
           console.error(`[tt-firebase] Error handling update for game ${watched.gameID}:`, err);
         });
       },
@@ -790,6 +864,35 @@ export class TacticToesFirebaseInterface {
     this.pendingGames.set(gameID, { sessionID, unsubscribe, statusUnsubscribe });
   }
 
+  /**
+   * Make the pending-game state a projection of the CURRENT invite query
+   * result, not just an accumulation of docChanges: removals that happened
+   * while no listener was attached (suspend/resume, client rebuild) are
+   * invisible to docChanges but cannot hide from the full snapshot. Drops
+   * tracked pending games whose invite is no longer pending, and display
+   * registry entries that outlived their subscriptions (kept across a client
+   * rebuild so the lobby doesn't flicker) whose invite is gone entirely.
+   * Cache-only deliveries are skipped — they can lag the server and would
+   * drop entries that still exist.
+   */
+  private reconcilePendingGames(snapshot: QuerySnapshot): void {
+    if (snapshot.metadata.fromCache) return;
+    const pendingIds = new Set<string>();
+    for (const docSnap of snapshot.docs) {
+      const invite = docSnap.data() as TTGameInvite;
+      if (inviteStatus(invite) === 'pending') pendingIds.add(invite.gameID);
+    }
+    for (const gameID of [...this.pendingGames.keys()]) {
+      if (!pendingIds.has(gameID)) this.dropPendingGame(gameID);
+    }
+    const registry = PendingGameRegistry.getInstance();
+    for (const info of registry.list()) {
+      if (!pendingIds.has(info.gameID) && !this.pendingGames.has(info.gameID)) {
+        registry.remove(info.gameID);
+      }
+    }
+  }
+
   private dropPendingGame(gameID: string): void {
     const pending = this.pendingGames.get(gameID);
     if (!pending) return;
@@ -804,6 +907,46 @@ export class TacticToesFirebaseInterface {
   // replay on the next connect re-tracks (and re-acks) everything still pending.
   private dropAllPendingGames(): void {
     for (const gameID of [...this.pendingGames.keys()]) this.dropPendingGame(gameID);
+  }
+
+  // Detach the pending setup listeners WITHOUT clearing the display registry:
+  // used by suspend/rebuild, where the invite replay on the next connect
+  // re-tracks everything still pending and reconcilePendingGames sweeps away
+  // whatever is gone. Clearing the registry here made every client rebuild
+  // blink the lobby's pending cards out and back.
+  private detachPendingGames(): void {
+    for (const pending of this.pendingGames.values()) {
+      pending.unsubscribe();
+      pending.statusUnsubscribe();
+    }
+    this.pendingGames.clear();
+  }
+
+  /**
+   * The game doc no longer exists (server-confirmed): it was deleted out from
+   * under us — e.g. an admin deleted the session in the Firebase console,
+   * whose delete cascades through the games subcollection. End every
+   * controlled snake through the manager's normal exit path (no final state —
+   * there is none) so /play drops the game immediately, then stop watching so
+   * the listener watchdog doesn't condemn the dead doc's silence and rebuild
+   * the client forever. The snake set comes from the manager, not latestDoc:
+   * it is exactly what was registered, and endGame mutates it, so the keys
+   * are copied first.
+   */
+  private dropDeletedGame(watched: WatchedGame, endSnakes: boolean): void {
+    console.warn(
+      `[tt-firebase] Game doc for ${watched.gameID} no longer exists — ` +
+        (endSnakes ? 'ending game' : 'dropping stale invite watch')
+    );
+    if (endSnakes) {
+      const game = this.gameManager.getGame(watched.gameID);
+      if (game) {
+        for (const snakeId of [...game.controlledSnakes.keys()]) {
+          this.gameManager.endGame(watched.gameID, snakeId);
+        }
+      }
+    }
+    this.unwatchGame(watched);
   }
 
   private unwatchGame(watched: WatchedGame): void {

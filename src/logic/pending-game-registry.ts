@@ -43,6 +43,14 @@ export class PendingGameRegistry {
   }
 
   upsert(info: PendingGameInfo): void {
+    // Only notify on actual change. Every setup-doc snapshot re-upserts the
+    // same settings (and the invite replay after a client rebuild re-upserts
+    // everything), and each notification fans out as a full lobby broadcast +
+    // client re-render — a no-op upsert must not repaint every lobby tab.
+    // JSON comparison is sound here: entries are built by a single
+    // constructor site with a fixed field order.
+    const prev = this.pending.get(info.gameID);
+    if (prev && JSON.stringify(prev) === JSON.stringify(info)) return;
     this.pending.set(info.gameID, info);
     this.notify();
   }
