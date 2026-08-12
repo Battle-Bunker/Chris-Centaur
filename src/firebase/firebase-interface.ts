@@ -332,7 +332,7 @@ export class TacticToesFirebaseInterface {
   private readonly gameManager = ActiveGameManager.getInstance();
   private readonly teamDetector = new TeamDetector();
   private readonly gameLogger = new GameLogger();
-  private readonly quickAnalyzer = new MoveAnalyzer('custom');
+  private readonly quickAnalyzer = new MoveAnalyzer();
 
   // Connection status surfaced to the web UI (banner + /api/firebase-status).
   // The centaur is nonfunctional without Firebase, so operators must be able to

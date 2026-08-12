@@ -118,7 +118,7 @@ export class DecisionEngine {
       ...config
     };
     
-    this.moveAnalyzer = new MoveAnalyzer(this.config.tailSafetyRule);
+    this.moveAnalyzer = new MoveAnalyzer();
     this.boardEvaluator = new BoardEvaluator(
       this.config.weights,
       { tailGrowthTiming: this.config.tailGrowthTiming }
