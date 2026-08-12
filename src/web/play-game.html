@@ -2032,25 +2032,43 @@
     // The cell comes from pointer coordinates, never from the identity of the
     // element under the cursor, so a stale overlay cannot misdirect a click.
     function handleBoardPointerDown(event) {
-      // History mode: Alt+Left still inspects (the popup reads the historic
-      // ownership snapshot), and a plain left click keeps the replay's own
-      // meanings — switch inspected snake / toggle a territory highlight.
-      // Nothing else applies, since there is no live snake to steer.
+      // History mode: Alt+Left inspects (the popup reads the historic ownership
+      // snapshot), and a plain left click keeps the replay's own meanings —
+      // pick a candidate move, else switch inspected snake / toggle a territory
+      // highlight. Nothing else applies, since there is no live snake to steer.
       if (viewMode === 'historic') {
         if (event.button !== 0) return;
         if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const { board: hBoard } = cellInspectContext();
+        if (!hBoard) return;
+        const hCell = BoardRenderer.getClickedCell(document.getElementById('gameCanvas'), hBoard, event);
+        const hIn = !!hCell && hCell.x >= 0 && hCell.x < hBoard.width && hCell.y >= 0 && hCell.y < hBoard.height;
+
         if (event.altKey) {
           event.preventDefault();
-          const { board: hBoard } = cellInspectContext();
-          if (!hBoard) return;
-          const hCell = BoardRenderer.getClickedCell(document.getElementById('gameCanvas'), hBoard, event);
-          if (!hCell || hCell.x < 0 || hCell.x >= hBoard.width || hCell.y < 0 || hCell.y >= hBoard.height) {
-            clearCellSelection();
-            return;
-          }
+          if (!hIn) { clearCellSelection(); return; }
           selectCell(hCell);
           return;
         }
+
+        // Candidate-move selection FIRST, exactly as in live play. This has to
+        // be resolved here rather than left to the overlay's own click handler:
+        // the replay's fallback below toggles a territory highlight and
+        // re-renders, which tears the overlay down between press and release,
+        // so the button's click never fires. That is the same teardown race the
+        // live path was rebuilt to avoid.
+        if (hIn && historicMoveState && historicMoveState.moves) {
+          for (const move of Object.values(historicMoveState.moves)) {
+            const pos = move.position;
+            if (pos && pos.x === hCell.x && pos.y === hCell.y) {
+              event.preventDefault();
+              event.stopPropagation();
+              historicSelectMove(move.direction);
+              return;
+            }
+          }
+        }
+
         handleHistoricCanvasClick(event);
         return;
       }
@@ -3223,9 +3241,12 @@
       });
       const overlayEl = document.getElementById('boardOverlay');
       if (historicMoveState) {
+        // Presentational only, like the live overlay: input is owned by the
+        // delegated pointerdown handler, so rebuilding this cannot swallow a
+        // click.
         BoardRenderer.createBoardOverlay(
           overlayEl, canvas, turn.game_state.board,
-          historicMoveState, historicSelectMove
+          historicMoveState, null
         );
       } else {
         overlayEl.innerHTML = '';

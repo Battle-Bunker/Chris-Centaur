@@ -41,6 +41,14 @@ suppressed even for presses the handler ignores):
 An unmodified left click clears the cell inspection; the modified combos must
 NOT, or Alt+Left would instantly clear what it just set.
 
+**History (replay) mode routes through the same handler** and must resolve
+candidate-move selection there too, before falling through to the replay's own
+click meanings (switch inspected snake / toggle a territory highlight). Leaving
+selection to the overlay's click handler is exactly the teardown race above: the
+territory toggle re-renders, destroying the button between press and release, so
+the click never fires. This was missed the first time because the live path was
+rebuilt and the replay path was not — if you change one, change both.
+
 # Renders are frame-batched
 
 `scheduleRender()` sets a dirty flag and repaints once per animation frame;

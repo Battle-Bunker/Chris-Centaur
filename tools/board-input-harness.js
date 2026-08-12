@@ -22,15 +22,56 @@ const TYPES = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css' 
 const API = {
   '/api/config': { ok: true },
   '/api/firebase-status': { connected: true },
-  '/api/logs/games': [],
+  '/api/logs/games': [{ game_id: 'g1', default_snake_id: 'A', snakes: [{ snake_id: 'A', snake_name: 'A' }] }],
   '/api/play/game/g1': { gameId: 'g1', active: true },
 };
 const API_PREFIX = [
   ['/api/play/game/g1/players', { players: [], enrolled: true }],
 ];
 
+// Decision-log rows: enough for the replay path to build a historic
+// moveState (which is what candidate selection in history reads).
+function allCells() {
+  const cells = [];
+  for (let x = 0; x < 11; x++) for (let y = 0; y < 11; y++) cells.push({ x, y });
+  return cells;
+}
+
+function historicDecisions() {
+  const rows = [];
+  for (let t = 5; t <= 8; t++) {
+    const head = { x: 5, y: 5 };
+    const s = {
+      id: 'A', name: 'A', health: 90, latency: '0', length: 3,
+      body: [head, { x:5, y:4 }, { x:5, y:3 }], head,
+      customizations: { color: '#4CAF50', head:'default', tail:'default' },
+    };
+    rows.push({
+      snake_id: 'A', turn: t + 1, submitted_move: 'up', bot_recommendation: 'up',
+      server_move: 'up', safe_moves: ['up','left','right'],
+      // Territory must cover the board the way a real Voronoi result does:
+      // clicking a cell that HAS a territory owner is what makes the replay
+      // toggle its highlight and re-render, which is the teardown that used to
+      // swallow the click.
+      move_evaluations: { evaluations: moveEvaluations, territoryCells: { A: allCells() } },
+      game_state: {
+        game: { id:'g1', ruleset:{name:'standard',version:'1',settings:{}}, map:'standard', timeout:500, source:'test' },
+        turn: t,
+        board: { width: 11, height: 11, food: [], hazards: [], snakes: [s] },
+        you: s,
+      },
+    });
+  }
+  return rows;
+}
+
 const server = http.createServer((req, res) => {
   let p = req.url.split('?')[0];
+  if (p === '/api/logs') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ decisions: historicDecisions() }));
+    return;
+  }
   const pre = API_PREFIX.find(([k]) => p === k);
   if (pre) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -258,6 +299,44 @@ const moveEvaluations = ['up','left','right'].map(m => ({
   console.log('handler hits:', JSON.stringify(await page.evaluate(() => window.__hits)));
   console.log('selected snake:', JSON.stringify(await page.evaluate(() =>
     document.querySelectorAll('#boardOverlay .cell-button').length + ' overlay buttons')));
+
+  // ── HISTORIC MODE ────────────────────────────────────────────────────
+  console.log('\n--- historic mode ---');
+  const entered = await page.evaluate(async () => {
+    if (typeof enterFinishedMode === 'function') { await enterFinishedMode(); }
+    await new Promise(r => setTimeout(r, 400));
+    return { viewMode: typeof viewMode !== 'undefined' ? viewMode : '?',
+             hasHistoricMoveState: !!(typeof historicMoveState !== 'undefined' && historicMoveState) };
+  }).catch(e => ({ error: String(e.message || e) }));
+  console.log('entered:', JSON.stringify(entered));
+
+  if (entered.hasHistoricMoveState) {
+    await page.evaluate(() => document.getElementById('gameCanvas').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(200);
+    const hg = await page.evaluate(() => {
+      const c = document.getElementById('gameCanvas');
+      const r = c.getBoundingClientRect();
+      const btns = [...document.querySelectorAll('#boardOverlay .cell-button')].map(b => {
+        const br = b.getBoundingClientRect();
+        return { title: b.title, cx: br.left + br.width/2, cy: br.top + br.height/2 };
+      });
+      return { buttons: btns };
+    });
+    const hstate = async () => page.evaluate(() => ({
+      selectedOverlay: [...document.querySelectorAll('#boardOverlay .cell-button.selected')].map(b => (b.title||'').split(' ')[0]),
+      selectedKeypad: [...document.querySelectorAll('#moveButtons .move-button.selected')].map(b => b.textContent.trim().split(/\s+/)[0]),
+    }));
+    console.log('  overlay buttons:', hg.buttons.length, '| before:', JSON.stringify(await hstate()));
+    const lt = hg.buttons.find(b => /^LEFT/i.test(b.title || ''));
+    if (!lt) { console.log('  !! no LEFT candidate in historic overlay'); }
+    else {
+      await page.mouse.move(lt.cx, lt.cy);
+      await page.mouse.down();
+      await page.mouse.up();
+      await page.waitForTimeout(250);
+      console.log('  after HISTORIC board click on LEFT:', JSON.stringify(await hstate()));
+    }
+  }
 
   console.log('--- console ---');
   logs.slice(0, 25).forEach(l => console.log(l));
