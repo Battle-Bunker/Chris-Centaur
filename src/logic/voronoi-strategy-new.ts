@@ -3,7 +3,7 @@
  * This replaces the old fragmented implementation with the principled approach.
  */
 
-import { GameState, Direction, TeamInfo, SimulationConfig } from '../types/battlesnake';
+import { GameState, Direction, TeamInfo } from '../types/battlesnake';
 import { DecisionEngine, MoveDecision } from './decision-engine';
 import { WaypointContext } from './waypoint-pathing';
 import { DecisionLogger } from './decision-logger';
@@ -116,79 +116,11 @@ export class VoronoiStrategy {
     return this.cachedConfig || DEFAULT_CONFIG;
   }
   
-  setConfig(config: Partial<SimulationConfig>) {
-    // Get weights from environment variables or use defaults
-    const weights = {
-      myLength: parseFloat(process.env.WEIGHT_MY_LENGTH || '10'),
-      myTerritory: parseFloat(process.env.WEIGHT_MY_TERRITORY || '1'),
-      myControlledFood: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FOOD || '10'),
-      myControlledFertile: parseFloat(process.env.WEIGHT_MY_CONTROLLED_FERTILE || '2'),
-      teamLength: parseFloat(process.env.WEIGHT_TEAM_LENGTH || '10'),
-      teamTerritory: parseFloat(process.env.WEIGHT_TEAM_TERRITORY || '1'),
-      teamControlledFood: parseFloat(process.env.WEIGHT_TEAM_CONTROLLED_FOOD || '10'),
-      foodProximity: parseFloat(process.env.WEIGHT_FOOD_PROXIMITY || '50'),
-      enemyTerritory: parseFloat(process.env.WEIGHT_ENEMY_TERRITORY || '0'),
-      enemyLength: parseFloat(process.env.WEIGHT_ENEMY_LENGTH || '0'),
-      edgePenalty: parseFloat(process.env.WEIGHT_EDGE_PENALTY || '0'),
-      selfSpace: parseFloat(process.env.WEIGHT_SELF_SPACE || '120'),
-      alliesEnoughSpace: parseFloat(process.env.WEIGHT_ALLIES_ENOUGH_SPACE || '30'),
-      opponentsEnoughSpace: parseFloat(process.env.WEIGHT_OPPONENTS_ENOUGH_SPACE || '-45'),
-      kills: parseFloat(process.env.WEIGHT_KILLS || '0'),
-      deaths: parseFloat(process.env.WEIGHT_DEATHS || '-500')
-    };
-    
-    // Update decision engine config
-    this.decisionEngine = new DecisionEngine({
-      timeoutMs: config.maxEvaluationTimeMs || 400,
-      nearbyDistance: config.maxDistance || 3,
-      weights
-    });
-  }
-  
-  async getBestMove(gameState: GameState, _ourTeam?: TeamInfo): Promise<Direction> {
-    // Reload config if needed (cached for 1 second)
-    const config = await this.getConfig();
-    this.updateDecisionEngine(config);
-    
-    // Detect teams
-    const teams = this.teamDetector.detectTeams(gameState.board.snakes);
-    const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
-    const teamSnakeIds = new Set<string>(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
-    
-    // Use decision engine to get best move
-    const decision = this.decisionEngine.decide(gameState, teamSnakeIds);
-    
-    // Log turn info
-    this.logTurnInfo(gameState, decision);
-    
-    return decision.move;
-  }
-  
-  async getBestMoveWithDebug(gameState: GameState, _ourTeam?: TeamInfo, waypoint?: WaypointContext | null): Promise<StrategyResult> {
-    // Reload config if needed (cached for 1 second)
-    const config = await this.getConfig();
-    this.updateDecisionEngine(config);
-    
-    // Detect teams
-    const teams = this.teamDetector.detectTeams(gameState.board.snakes);
-    const ourTeam = teams.find(t => t.snakes.some(s => s.id === gameState.you.id));
-    const teamSnakeIds = new Set<string>(ourTeam ? ourTeam.snakes.map(s => s.id) : [gameState.you.id]);
-    
-    // Use decision engine to get best move (with optional user-directed waypoint)
-    const decision = this.decisionEngine.decide(gameState, teamSnakeIds, waypoint);
-
-    // Log turn info to console
-    this.logTurnInfo(gameState, decision);
-
-    return this.assembleDebugResult(gameState, decision);
-  }
-
   /**
    * Anytime variant: runs the engine's parallel iterative decision on the
    * shared worker pool, invoking onRecommendation with the current best move
    * every ~100ms until deadlineMs or full 3^k completion, then returning the
-   * same debug payload as getBestMoveWithDebug (assembled from the final
-   * decision, logged once).
+   * debug payload assembled from the final decision (logged once).
    */
   async getBestMoveIterative(
     gameState: GameState,
