@@ -28,6 +28,7 @@ export interface TTGameSetup {
   maxTurnTime: number; // seconds
   firstTurnTime?: number;
   foodSpawnRate?: number;
+  invulnerabilityPotionEnabled?: boolean;
   invulnerabilityPotionSpawnRate?: number;
 }
 

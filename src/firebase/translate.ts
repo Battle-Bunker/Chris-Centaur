@@ -173,19 +173,19 @@ export function buildGameState(
 ): GameState {
   const w = setup.boardWidth;
   const h = setup.boardHeight;
-  const foodSpawnRate = setup.foodSpawnRate ?? 0.5;
 
   const game: GameState['game'] = {
     id: gameID,
     ruleset: {
       name: 'teamsnek',
       version: 'v1',
+      // Mirrors the TacticToes setup verbatim — nothing in the decision logic
+      // reads these; they exist for logs and dashboards only.
       settings: {
-        foodSpawnChance: (foodSpawnRate / 5) * 100,
-        foodSpawnRate,
-        invulnerabilityPotionSpawnRate: setup.invulnerabilityPotionSpawnRate ?? 0.15,
-        minimumFood: 0,
-        hazardDamagePerTurn: 100,
+        foodSpawnRate: setup.foodSpawnRate ?? 0.5,
+        invulnerabilityPotionSpawnRate: setup.invulnerabilityPotionEnabled
+          ? setup.invulnerabilityPotionSpawnRate ?? 0.15
+          : 0,
       },
     },
     map: 'standard',
