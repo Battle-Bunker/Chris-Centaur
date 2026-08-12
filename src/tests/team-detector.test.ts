@@ -64,8 +64,9 @@ describe('TeamDetector.getTeamKey precedence', () => {
       snake('enemy1', { squad: 'centB' }),
       snake('enemy2', { squad: 'centB' }),
     ];
-    const ours = detector.getTeammates(snakes[0], snakes);
-    expect(ours.map((s) => s.id)).toEqual(['centA#2']);
-    expect(detector.getEnemySnakes(snakes[0], snakes).map((s) => s.id)).toEqual(['enemy1', 'enemy2']);
+    const teams = detector.detectTeams(snakes);
+    const byKey = new Map(teams.map((t) => [t.color, t.snakes.map((s) => s.id)]));
+    expect(byKey.get('centA')).toEqual(['centA', 'centA#2']);
+    expect(byKey.get('centB')).toEqual(['enemy1', 'enemy2']);
   });
 });

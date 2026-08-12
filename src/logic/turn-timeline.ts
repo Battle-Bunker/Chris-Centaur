@@ -58,7 +58,8 @@ export function mergeTimelineRows(
     // Strip `you`: it is whichever snake's row happened to be picked, and a
     // timeline consumer treating it as "the" snake would anchor overlays at
     // the wrong head. Timeline states are you-less by contract.
-    const { you: _you, ...youless } = r.game_state;
+    const youless = { ...r.game_state };
+    delete youless.you;
     byTurn.set(t, {
       turn: t,
       game_state: youless,

@@ -74,7 +74,7 @@ function makeTurn(): TTTurn {
     playerHealth: { centA: 90, 'centA#2': 80, centB: 70 },
     startTime: null as any,
     endTime: null as any,
-    scores: {},
+    moves: {},
     alivePlayers: ['centA', 'centA#2', 'centB'],
     food: [24],
     hazards: [],

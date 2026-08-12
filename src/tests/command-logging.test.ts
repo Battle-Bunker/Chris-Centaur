@@ -112,9 +112,9 @@ describe('Command logging and turn-end command-state snapshots', () => {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(snakeId)) {
-      mgr.registerGame(gs);
+      mgr.registerGame(gs, snakeId);
     }
-    mgr.updateGameState(gameId, snakeId, gs);
+    mgr.updateBoard(gameId, gs);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
   }
 
@@ -241,7 +241,7 @@ describe('Command logging and turn-end command-state snapshots', () => {
 
     // Next turn: the snake arrived on the first target — the queue shifts.
     const arrived = makeSnake('A', { x: 6, y: 5 });
-    mgr.updateGameState(gameId, 'A', makeGameState(gameId, 2, [arrived], 'A'));
+    mgr.updateBoard(gameId, makeGameState(gameId, 2, [arrived], 'A'));
 
     const shifts = eventsOfType('goto-target-reached');
     expect(shifts).toHaveLength(1);
