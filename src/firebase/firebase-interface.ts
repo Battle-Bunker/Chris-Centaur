@@ -23,8 +23,8 @@
 //      server's own turn timer fires, unless a human hits Submit All (which
 //      writes moveStatuses through the MoveCommitter).
 //   5. Resolution bookkeeping: when the next turn arrives, the moves the
-//      server actually applied are derived from the board delta and fed back
-//      (decision log, UI move-committed events).
+//      server actually applied are read from the turn's authoritative `moves`
+//      map and fed back (decision log, UI move-committed events).
 
 import { FirebaseApp, deleteApp, initializeApp } from 'firebase/app';
 import {
@@ -1052,10 +1052,9 @@ export class TacticToesFirebaseInterface {
       this.gameManager.setGameSession(watched.gameID, watched.sessionID);
     }
 
-    // Derive the moves the server actually applied on the PREVIOUS turn from
-    // the board delta (falling back to the recorded move index for snakes that
-    // died this turn). Bookkeeping must run BEFORE the new board is fed in so
-    // it measures against the old head.
+    // Read the moves the server actually applied on the PREVIOUS turn from
+    // the new turn's authoritative `moves` map. Bookkeeping must run BEFORE
+    // the new board is fed in so it measures against the old head.
     if (turnNumber > 0) {
       const prevTurn = data.turns[turnNumber - 1];
       const lastMoves = this.deriveLastMoves(data, prevTurn, turn);
@@ -1359,10 +1358,9 @@ export class TacticToesFirebaseInterface {
     );
   }
 
-  // The applied move for each snake on the prev → curr transition. The
-  // server records every player's actually-applied move (staged or engine
-  // default) in the new turn's `moves` map, so that is authoritative; the
-  // head delta remains as a fallback for games recorded before that change.
+  // The applied move for each snake on the prev → curr transition, read from
+  // the new turn's authoritative `moves` map (the server records every
+  // player's actually-applied move there, staged or engine default alike).
   private deriveLastMoves(
     data: TTGameStateDoc,
     prevTurn: TTTurn,
@@ -1373,13 +1371,9 @@ export class TacticToesFirebaseInterface {
     for (const snakeId of Object.keys(prevTurn.playerPieces)) {
       const prevHead = prevTurn.playerPieces[snakeId]?.[0];
       if (prevHead === undefined) continue;
-      let dir: Direction | null = null;
-      const recorded = currTurn.moves?.[snakeId];
-      if (recorded !== undefined) dir = moveIndexToDirection(prevHead, recorded, width);
-      if (!dir) {
-        const newHead = currTurn.playerPieces[snakeId]?.[0];
-        if (newHead !== undefined) dir = moveIndexToDirection(prevHead, newHead, width);
-      }
+      const recorded = currTurn.moves[snakeId];
+      if (recorded === undefined) continue;
+      const dir = moveIndexToDirection(prevHead, recorded, width);
       if (dir) result[snakeId] = dir;
     }
     return result;

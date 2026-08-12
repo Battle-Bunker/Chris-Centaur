@@ -26,7 +26,6 @@ export interface TTGameSetup {
   boardWidth: number; // includes the 1-cell perimeter wall
   boardHeight: number; // includes the 1-cell perimeter wall
   maxTurnTime: number; // seconds
-  firstTurnTime?: number;
   foodSpawnRate?: number;
   invulnerabilityPotionEnabled?: boolean;
   invulnerabilityPotionSpawnRate?: number;
@@ -36,14 +35,13 @@ export interface TTTurn {
   playerHealth: Record<string, number>;
   startTime: Timestamp;
   endTime: Timestamp;
-  scores: Record<string, number>;
   alivePlayers: string[];
   food: number[];
   hazards: number[];
   playerPieces: Record<string, number[]>; // board indices, head first, full-board coords
-  // Submitted move indices that produced this turn (server-defaulted moves for
-  // players who never staged are absent — derive those from the head delta).
-  moves?: Record<string, number>;
+  // The move index the server actually applied for EVERY player alive at turn
+  // start — staged or engine-defaulted alike. Authoritative and complete.
+  moves: Record<string, number>;
   winners: Array<{ playerID: string; score: number }>;
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];
@@ -83,6 +81,5 @@ export interface TTGameInvite {
   // the centaur already understands it (never watches a finished invite) so
   // the server can start stamping it without coordinating a deploy.
   status?: 'pending' | 'started' | 'finished';
-  snakeIDs?: string[]; // absent on pending invites
   createdAt: Timestamp;
 }

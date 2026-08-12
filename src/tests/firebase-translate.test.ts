@@ -39,7 +39,7 @@ function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
     playerHealth: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
     startTime: null as any,
     endTime: null as any,
-    scores: {},
+    moves: {},
     alivePlayers: ['centA', 'centA#2', 'centB', 'centB#2'],
     food: [idx(2, 2)],
     hazards: [idx(3, 3)],
