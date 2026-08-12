@@ -154,6 +154,9 @@ export class GameRegistry {
           GROUP BY game_id
         ),
         rep AS (
+          -- Modern rows carry a slim {turn, you} game_state with no board/
+          -- game metadata; prefer a board-bearing (old-format) row as the
+          -- representative so a hybrid game never backfills NULL dimensions.
           SELECT DISTINCT ON (game_id)
             game_id,
             (game_state->'board'->>'width')::int AS board_width,
@@ -163,7 +166,7 @@ export class GameRegistry {
             (game_state->'game'->>'timeout')::int AS timeout_ms
           FROM decision_logs
           WHERE game_id IN (SELECT game_id FROM missing)
-          ORDER BY game_id, turn DESC
+          ORDER BY game_id, (game_state->'board' IS NULL) ASC, turn DESC
         )
         INSERT INTO games (
           id, started_at, ended_at, final_turn,

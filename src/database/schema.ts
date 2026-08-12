@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
   boolean,
 } from 'drizzle-orm/pg-core';
 
@@ -49,6 +50,37 @@ export const decisionLogs = pgTable(
     index('idx_decision_logs_turn').on(table.turn),
     index('idx_decision_logs_timestamp').on(table.timestamp),
     index('idx_decision_logs_game_snake_turn').on(table.gameId, table.snakeId, table.turn),
+  ],
+);
+
+// ONE canonical board state per (game, turn) — the shared truth the replay
+// timeline is built from. Written by the canonical turn pipeline; the
+// per-snake decision_logs rows carry only per-snake data (evaluations, moves,
+// a slim {turn, you} game_state) and reference the board implicitly by turn.
+// `turn` is in the BOARD domain (game_state.turn), NOT the decision-log
+// domain (which is board turn + 1).
+//
+// Writes are COALESCE upserts (first non-null value wins per column), so the
+// board write from the turn pipeline and the territory write from the
+// decision pass can land in either order — and Firestore snapshot re-delivery
+// can never regress a filled column.
+export const turnStates = pgTable(
+  'turn_states',
+  {
+    id: serial('id').primaryKey(),
+    gameId: varchar('game_id', { length: 255 }).notNull(),
+    turn: integer('turn').notNull(),
+    // Canonical you-less state {game, turn, board, lastMoves?, winners?}.
+    // Null until the board write lands (a territory write can arrive first).
+    gameState: jsonb('game_state'),
+    // Shared per-turn Voronoi data (snake-independent), formerly duplicated
+    // into every snake's move_evaluations blob.
+    territory: jsonb('territory'),
+    cellOwnership: jsonb('cell_ownership'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    uniqueIndex('uidx_turn_states_game_turn').on(table.gameId, table.turn),
   ],
 );
 

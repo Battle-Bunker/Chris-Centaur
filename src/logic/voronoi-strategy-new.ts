@@ -227,7 +227,7 @@ export class VoronoiStrategy {
   // Cache of the current-board Voronoi keyed by `${gameId}:${turn}`: the five
   // controlled snakes' decisions for a turn all describe the same board, so
   // the first one computes and the rest reuse. Small LRU (games can overlap).
-  private boardVoronoiCache = new Map<string, { territoryCells: { [snakeId: string]: { x: number; y: number }[] }; cellOwnership: CellOwnership }>();
+  private boardVoronoiCache = new Map<string, { territoryCells: { [snakeId: string]: { x: number; y: number }[] }; cellOwnership: CellOwnership; loggedTurnState?: boolean }>();
   private static readonly MAX_VORONOI_CACHE_ENTRIES = 8;
 
   private currentBoardVoronoi(gameState: GameState, graph: BoardGraph) {
@@ -251,7 +251,7 @@ export class VoronoiStrategy {
     const bfs = new MultiSourceBFS(graph);
     const bfsResult = bfs.compute(sources, gameState.board.food, { optimistic: true }, gameState.board.fertileTiles);
 
-    const entry = {
+    const entry: { territoryCells: { [snakeId: string]: { x: number; y: number }[] }; cellOwnership: CellOwnership; loggedTurnState?: boolean } = {
       territoryCells: territoryCellsToObject(bfsResult),
       cellOwnership: toCellOwnership(bfsResult, sources, graph),
     };
@@ -311,10 +311,25 @@ export class VoronoiStrategy {
     // are snake-independent, so ONE computation per (game, turn) serves every
     // controlled snake's decision; the engine's already-built graph is reused
     // (one graph per decision, one clearance config).
-    const { territoryCells: territoryCellsObj, cellOwnership } =
-      this.currentBoardVoronoi(gameState, decision.graph);
+    const voronoiEntry = this.currentBoardVoronoi(gameState, decision.graph);
+    const { territoryCells: territoryCellsObj, cellOwnership } = voronoiEntry;
 
-    // Log the decision to database (non-blocking)
+    // The shared grids are persisted ONCE per (game, turn) onto the turn-state
+    // row (they used to be duplicated into every snake's decision blob). The
+    // cache entry doubles as the once-per-turn latch.
+    if (!voronoiEntry.loggedTurnState) {
+      voronoiEntry.loggedTurnState = true;
+      this.decisionLogger.logTurnState({
+        gameId: gameState.game.id,
+        turn: gameState.turn,
+        territory: territoryCellsObj,
+        cellOwnership,
+      });
+    }
+
+    // Log the decision to database (non-blocking). The row carries only this
+    // snake's data (slim game_state; per-move evaluations with their
+    // per-candidate projections).
     // IMPORTANT: Only log the actual candidate moves, not all possible moves
     this.decisionLogger.logDecision({
       gameId: gameState.game.id,
@@ -327,8 +342,6 @@ export class VoronoiStrategy {
       botRecommendation: decision.move,
       moveEvaluations,
       gameState,
-      territoryCells: territoryCellsObj,
-      cellOwnership
     });
     
     // Return for backwards compatibility

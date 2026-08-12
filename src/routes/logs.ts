@@ -15,6 +15,27 @@ router.get('/api/logs/games', async (req, res) => {
   }
 });
 
+// The per-game board timeline: one canonical you-less state per turn, plus
+// the shared territory/ownership grids. Native turn_states rows are merged
+// per turn with boards synthesized from old-format decision rows, so old,
+// new, and mid-deploy hybrid games all serve one contiguous timeline.
+// ?sinceTurn= (board domain) makes the fetch incremental.
+router.get('/api/games/:gameId/turns', async (req, res) => {
+  try {
+    const sinceTurn = req.query.sinceTurn != null
+      ? parseInt(req.query.sinceTurn as string, 10)
+      : undefined;
+    const result = await logger.getTurnTimeline(
+      req.params.gameId,
+      Number.isFinite(sinceTurn as number) ? sinceTurn : undefined,
+    );
+    res.json(result);
+  } catch (error) {
+    console.error('Error building turn timeline:', error);
+    res.status(500).json({ error: 'Failed to build turn timeline' });
+  }
+});
+
 // Query logs with filters
 router.get('/api/logs', async (req, res) => {
   try {

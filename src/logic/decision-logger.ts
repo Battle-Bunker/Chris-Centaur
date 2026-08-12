@@ -1,8 +1,15 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, pool } from '../database/db';
 import { decisionLogs } from '../database/schema';
-import { Direction } from '../types/battlesnake';
+import { BoardSnapshot, Direction } from '../types/battlesnake';
 import { TeamDetector } from './team-detector';
+import {
+  mergeTimelineRows,
+  NativeTurnRow,
+  slimGameStateForLog,
+  SynthesizedTurnRow,
+  TimelineRow,
+} from './turn-timeline';
 
 export interface DecisionLogEntry {
   gameId: string;
@@ -60,10 +67,6 @@ export interface DecisionLogEntry {
     };
   }[];
   gameState: any;
-  territoryCells?: { [snakeId: string]: { x: number; y: number }[] };
-  // Per-cell Voronoi owner/distance snapshot (see CellOwnership) — stored
-  // inside the move_evaluations blob so the replay cell inspector works.
-  cellOwnership?: any;
 }
 
 // Compact pre-serialized row. Holds only primitives + already-stringified
@@ -166,13 +169,31 @@ interface MoveUpdate {
   retries: number;
 }
 
-// The async worker queue holds either per-move inserts or move-column back-fills.
-// A back-fill always targets a row inserted at least a full turn earlier, and the
-// worker processes all inserts in a batch before any move-updates in the same
-// batch, so the row a back-fill targets exists by the time we UPDATE it.
+// One canonical turn-state write: a COALESCE upsert onto turn_states keyed by
+// (game, BOARD turn). The board write (canonical pipeline) and the territory
+// write (decision pass) arrive as separate items in either order; per-column
+// COALESCE means the first non-null value wins and re-delivery can never
+// regress a filled column. JSON is pre-serialized at enqueue time, same as
+// decision rows, so the live object graphs are GC-eligible immediately.
+interface TurnStateRow {
+  gameId: string;
+  turn: number; // BOARD domain (game_state.turn), not board turn + 1
+  gameStateJson: string | null;
+  territoryJson: string | null;
+  cellOwnershipJson: string | null;
+  retries: number;
+}
+
+// The async worker queue holds per-move inserts, move-column back-fills, or
+// turn-state upserts. A back-fill always targets a row inserted at least a
+// full turn earlier, and the worker processes all inserts in a batch before
+// any move-updates in the same batch, so the row a back-fill targets exists
+// by the time we UPDATE it. Turn-state upserts are self-contained (COALESCE)
+// and processed first within their batch.
 type QueueItem =
   | { kind: 'insert'; row: SerializedRow }
-  | { kind: 'moveUpdate'; update: MoveUpdate };
+  | { kind: 'moveUpdate'; update: MoveUpdate }
+  | { kind: 'turnState'; row: TurnStateRow };
 
 const BATCH_SIZE = 100;
 
@@ -204,18 +225,21 @@ export class DecisionLogger {
   }
 
   // Synchronous, non-blocking enqueue. Pre-serializes everything so the live
-  // gameState / territoryCells object graphs become GC-eligible immediately.
+  // gameState object graph becomes GC-eligible immediately.
+  //
+  // Decision rows are PER-SNAKE data only: the stored game_state is the slim
+  // {turn, you} identity (see slimGameStateForLog) and the move_evaluations
+  // blob no longer embeds the shared territory/ownership grids — the board
+  // and the grids live once per turn in turn_states (see logTurnState),
+  // instead of once per snake per turn. Rows logged before this change keep
+  // their full embedded game_state; every read path handles both formats
+  // per row.
   public logDecision(entry: DecisionLogEntry): void {
     let moveEvaluationsJson: string;
     let gameStateJson: string;
     try {
-      const moveEvalWithTerritory = {
-        evaluations: entry.moveEvaluations,
-        territoryCells: entry.territoryCells || {},
-        cellOwnership: entry.cellOwnership || null,
-      };
-      moveEvaluationsJson = JSON.stringify(moveEvalWithTerritory);
-      gameStateJson = JSON.stringify(entry.gameState);
+      moveEvaluationsJson = JSON.stringify({ evaluations: entry.moveEvaluations });
+      gameStateJson = JSON.stringify(slimGameStateForLog(entry.gameState));
     } catch (e) {
       console.error('[DecisionLogger] Failed to serialize entry, dropping:', e);
       return;
@@ -281,6 +305,45 @@ export class DecisionLogger {
     this.signalWakeup();
   }
 
+  // Enqueue a canonical turn-state write (COALESCE upsert; see TurnStateRow).
+  // Called from two places with complementary halves of the row:
+  //  - the canonical turn pipeline, with the you-less game_state (+lastMoves),
+  //  - the decision pass, with the shared territory/ownership grids, once per
+  //    (game, turn).
+  public logTurnState(entry: {
+    gameId: string;
+    turn: number;
+    gameState?: BoardSnapshot | null;
+    territory?: any | null;
+    cellOwnership?: any | null;
+  }): void {
+    let gameStateJson: string | null = null;
+    let territoryJson: string | null = null;
+    let cellOwnershipJson: string | null = null;
+    try {
+      if (entry.gameState) gameStateJson = JSON.stringify(entry.gameState);
+      if (entry.territory) territoryJson = JSON.stringify(entry.territory);
+      if (entry.cellOwnership) cellOwnershipJson = JSON.stringify(entry.cellOwnership);
+    } catch (e) {
+      console.error('[DecisionLogger] Failed to serialize turn state, dropping:', e);
+      return;
+    }
+    if (!gameStateJson && !territoryJson && !cellOwnershipJson) return;
+
+    this.queue.push({
+      kind: 'turnState',
+      row: {
+        gameId: entry.gameId,
+        turn: entry.turn,
+        gameStateJson,
+        territoryJson,
+        cellOwnershipJson,
+        retries: 0,
+      },
+    });
+    this.signalWakeup();
+  }
+
   private signalWakeup(): void {
     if (this.wakeup) {
       const w = this.wakeup;
@@ -304,14 +367,22 @@ export class DecisionLogger {
       }
 
       const batch = this.queue.splice(0, BATCH_SIZE);
-      // Process all inserts in the batch first, then move-column back-fills, so a
-      // back-fill enqueued in the same batch as its target's insert finds the row.
+      // Process turn-state upserts first (self-contained COALESCE writes),
+      // then all inserts, then move-column back-fills, so a back-fill enqueued
+      // in the same batch as its target's insert finds the row.
+      const turnStateRows = batch
+        .filter((item): item is { kind: 'turnState'; row: TurnStateRow } => item.kind === 'turnState')
+        .map(item => item.row);
       const rows = batch
         .filter((item): item is { kind: 'insert'; row: SerializedRow } => item.kind === 'insert')
         .map(item => item.row);
       const moveUpdates = batch
         .filter((item): item is { kind: 'moveUpdate'; update: MoveUpdate } => item.kind === 'moveUpdate')
         .map(item => item.update);
+
+      for (const tsRow of turnStateRows) {
+        await this.applyTurnStateWithRetry(tsRow);
+      }
 
       if (rows.length > 0) {
         try {
@@ -328,6 +399,40 @@ export class DecisionLogger {
 
       for (const update of moveUpdates) {
         await this.applyMoveUpdateWithRetry(update);
+      }
+    }
+  }
+
+  // COALESCE upsert: whichever half (board / territory) lands first inserts
+  // the row; the other fills its columns in. Real SQL NULLs (never 'null'::
+  // jsonb) so IS NULL / IS NOT NULL filters classify rows correctly.
+  private async applyTurnState(row: TurnStateRow): Promise<void> {
+    const gs = row.gameStateJson === null ? sql`NULL` : sql`${row.gameStateJson}::jsonb`;
+    const terr = row.territoryJson === null ? sql`NULL` : sql`${row.territoryJson}::jsonb`;
+    const own = row.cellOwnershipJson === null ? sql`NULL` : sql`${row.cellOwnershipJson}::jsonb`;
+    await db.execute(sql`
+      INSERT INTO turn_states (game_id, turn, game_state, territory, cell_ownership)
+      VALUES (${row.gameId}, ${row.turn}, ${gs}, ${terr}, ${own})
+      ON CONFLICT (game_id, turn) DO UPDATE SET
+        game_state = COALESCE(turn_states.game_state, EXCLUDED.game_state),
+        territory = COALESCE(turn_states.territory, EXCLUDED.territory),
+        cell_ownership = COALESCE(turn_states.cell_ownership, EXCLUDED.cell_ownership)
+    `);
+  }
+
+  private async applyTurnStateWithRetry(row: TurnStateRow): Promise<void> {
+    while (true) {
+      try {
+        await this.applyTurnState(row);
+        return;
+      } catch (error) {
+        row.retries++;
+        if (row.retries > this.MAX_RETRIES) {
+          console.error(`[DecisionLogger] Failed to write turn state after ${this.MAX_RETRIES} retries for game ${row.gameId}, turn ${row.turn}:`, error);
+          return;
+        }
+        const delay = this.RETRY_DELAY_MS * Math.pow(2, row.retries - 1) * (0.5 + Math.random() * 0.5);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   }
@@ -467,6 +572,67 @@ export class DecisionLogger {
     }
   }
 
+  // The per-game board timeline: native turn_states rows merged PER TURN with
+  // boards synthesized from old-format decision rows (whose game_state still
+  // embeds the full board). Per-turn merging is what makes hybrid games —
+  // early turns logged in the old format, later turns in the new, after a
+  // mid-game deploy — come out contiguous. `sinceTurn` (BOARD domain) makes
+  // the fetch incremental for the client's tail refreshes.
+  public async getTurnTimeline(
+    gameId: string,
+    sinceTurn?: number,
+  ): Promise<{ turns: TimelineRow[]; finalTurn: number | null; hasNative: boolean }> {
+    try {
+      const sinceNative = sinceTurn != null ? sql` AND turn >= ${sinceTurn}` : sql``;
+      const sinceSynth = sinceTurn != null
+        ? sql` AND (game_state->>'turn')::int >= ${sinceTurn}`
+        : sql``;
+
+      const [nativeRes, synthRes, metaRes, anyNativeRes] = await Promise.all([
+        db.execute(sql`
+          SELECT turn, game_state, territory, cell_ownership
+          FROM turn_states
+          WHERE game_id = ${gameId} AND game_state IS NOT NULL${sinceNative}
+          ORDER BY turn
+        `),
+        // One board candidate per turn from old-format rows. The board is
+        // identical across the team's rows for a turn (only `you` differs, and
+        // the merge strips it) — snake_id is just a deterministic tiebreak.
+        db.execute(sql`
+          SELECT DISTINCT ON (((game_state->>'turn')::int))
+            game_state,
+            move_evaluations->'territoryCells' AS territory,
+            move_evaluations->'cellOwnership' AS cell_ownership
+          FROM decision_logs
+          WHERE game_id = ${gameId}
+            AND game_state->'board' IS NOT NULL${sinceSynth}
+          ORDER BY ((game_state->>'turn')::int), snake_id
+        `),
+        db.execute(sql`SELECT final_turn FROM games WHERE id = ${gameId}`),
+        // Game-level fact, independent of the sinceTurn window: whether ANY
+        // native row exists. The client's completeness predicate keys on it
+        // (native timelines include the final /end board; synthesized ones
+        // end one turn earlier).
+        db.execute(sql`
+          SELECT 1 FROM turn_states
+          WHERE game_id = ${gameId} AND game_state IS NOT NULL
+          LIMIT 1
+        `),
+      ]);
+
+      const turns = mergeTimelineRows(
+        nativeRes.rows as unknown as NativeTurnRow[],
+        synthRes.rows as unknown as SynthesizedTurnRow[],
+      );
+      const finalTurnRaw = (metaRes.rows[0] as any)?.final_turn;
+      const finalTurn = finalTurnRaw == null ? null : Number(finalTurnRaw);
+      return { turns, finalTurn, hasNative: anyNativeRes.rows.length > 0 };
+    } catch (error) {
+      console.error('[DecisionLogger] Failed to build turn timeline:', error);
+      throw error;
+    }
+  }
+
   public async getGames(): Promise<GameTeamGroup[]> {
     try {
       // Per (game, snake) aggregate stats joined with a representative (latest)
@@ -502,11 +668,14 @@ export class DecisionLogger {
             snake_id,
             snake_name,
             game_state->'you'->>'squad' AS squad,
-            -- teamID is carried on the board snakes, not the 'you' object.
-            (SELECT s->>'teamID'
-               FROM jsonb_array_elements(game_state->'board'->'snakes') s
-               WHERE s->>'id' = snake_id
-               LIMIT 1) AS team_id,
+            -- Modern slim rows carry teamID directly on 'you'; legacy rows
+            -- only carried it on the board snakes.
+            COALESCE(
+              game_state->'you'->>'teamID',
+              (SELECT s->>'teamID'
+                 FROM jsonb_array_elements(game_state->'board'->'snakes') s
+                 WHERE s->>'id' = snake_id
+                 LIMIT 1)) AS team_id,
             game_state->'you'->>'name' AS you_name,
             game_state->'you'->>'letter' AS letter,
             game_state->'you'->'customizations'->>'color' AS color,
@@ -652,6 +821,13 @@ export class DecisionLogger {
       await db.execute(sql`
         DELETE FROM decision_logs
         WHERE timestamp < NOW() - (${daysToKeep} * INTERVAL '1 day')
+      `);
+      // The board timelines age out with their decision rows — turn_states is
+      // where the bulky per-turn game_state blobs live now, so pruning only
+      // decision_logs would leave storage growing unbounded.
+      await db.execute(sql`
+        DELETE FROM turn_states
+        WHERE created_at < NOW() - (${daysToKeep} * INTERVAL '1 day')
       `);
       console.log(`[DecisionLogger] Cleared logs older than ${daysToKeep} days`);
     } catch (error) {

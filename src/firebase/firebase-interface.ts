@@ -1079,12 +1079,28 @@ export class TacticToesFirebaseInterface {
         ...w,
         teamID: data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null,
       }));
+      // Persist the FINAL board too — the death positions were never
+      // replayable before (no /move is made on the final turn, so no decision
+      // row ever covered it).
+      DecisionLogger.getInstance().logTurnState({
+        gameId: watched.gameID,
+        turn: turnNumber,
+        gameState: canonical,
+      });
       this.gameLogger.endGame(canonical);
       GameRegistry.getInstance().recordGameEnd(canonical);
       this.gameManager.endGame(watched.gameID, canonical);
       this.unwatchGame(watched);
       return;
     }
+
+    // Persist this turn's canonical board onto the turn-state row (the
+    // decision pass upserts the territory half; either order works).
+    DecisionLogger.getInstance().logTurnState({
+      gameId: watched.gameID,
+      turn: turnNumber,
+      gameState: canonical,
+    });
 
     const aliveOurs = ourSnakes.filter((id) => turn.alivePlayers.includes(id));
     if (aliveOurs.length === 0) {
