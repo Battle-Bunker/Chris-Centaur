@@ -1,4 +1,9 @@
-import { inviteChangeAction, inviteStatus, needsReack } from '../firebase/firebase-interface';
+import {
+  gameDocSnapshotAction,
+  inviteChangeAction,
+  inviteStatus,
+  needsReack,
+} from '../firebase/firebase-interface';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 
 // The invite feed now carries lobby invites too: status 'pending' means the
@@ -18,6 +23,10 @@ describe('inviteStatus', () => {
 
   it('treats a missing status as started (pre-protocol invites)', () => {
     expect(inviteStatus({})).toBe('started');
+  });
+
+  it('reads an explicit finished status (forward-compat with game-end stamping)', () => {
+    expect(inviteStatus({ status: 'finished' })).toBe('finished');
   });
 });
 
@@ -71,6 +80,58 @@ describe('inviteChangeAction', () => {
   it('ignores removal of an invite it never tracked', () => {
     expect(inviteChangeAction('removed', 'started', false)).toBe('none');
   });
+
+  // 'removed' must NEVER tear down a started game: the invite feed is a
+  // limit(20) window, so an invite that merely scrolls out of the window
+  // surfaces as 'removed' with nothing actually deleted. The game-doc
+  // listener is the sole authority for a started game's existence.
+  it('ignores removal of a started invite even while the game is live', () => {
+    expect(inviteChangeAction('removed', 'started', false)).toBe('none');
+  });
+
+  it('never watches a finished invite (replay of a stamped, ended game)', () => {
+    expect(inviteChangeAction('added', 'finished', false)).toBe('none');
+    expect(inviteChangeAction('modified', 'finished', false)).toBe('none');
+  });
+
+  it('drops the pending tracking when a tracked lobby finishes', () => {
+    expect(inviteChangeAction('modified', 'finished', true)).toBe('dropPending');
+  });
+});
+
+describe('gameDocSnapshotAction', () => {
+  const snap = (over: Partial<Parameters<typeof gameDocSnapshotAction>[0]>) =>
+    gameDocSnapshotAction({
+      exists: true,
+      fromCache: false,
+      hasTurns: true,
+      registered: false,
+      ...over,
+    });
+
+  it('processes a live doc with turns', () => {
+    expect(snap({})).toBe('process');
+    expect(snap({ registered: true })).toBe('process');
+  });
+
+  it('ignores a live doc with no turns yet', () => {
+    expect(snap({ hasTurns: false })).toBe('ignore');
+  });
+
+  it('ends and unwatches a registered game whose doc was deleted (server-confirmed)', () => {
+    expect(snap({ exists: false, hasTurns: false, registered: true })).toBe('endAndUnwatch');
+  });
+
+  it('silently unwatches a stale invite replay pointing at a deleted doc', () => {
+    expect(snap({ exists: false, hasTurns: false, registered: false })).toBe('unwatch');
+  });
+
+  // A cache-first delivery can transiently claim the doc is missing; only a
+  // server-backed snapshot may end a game.
+  it('never acts on cache-only non-existence', () => {
+    expect(snap({ exists: false, fromCache: true, hasTurns: false, registered: true })).toBe('ignore');
+    expect(snap({ exists: false, fromCache: true, hasTurns: false, registered: false })).toBe('ignore');
+  });
 });
 
 describe('PendingGameRegistry', () => {
@@ -117,5 +178,18 @@ describe('PendingGameRegistry', () => {
     registry.onChange(() => notified++);
     registry.remove('nope');
     expect(notified).toBe(0);
+  });
+
+  // Every setup-doc snapshot re-upserts the same settings, and each notify
+  // fans out as a full lobby broadcast + re-render on every client — a no-op
+  // upsert must stay silent.
+  it('does not notify on an unchanged re-upsert', () => {
+    registry.upsert(info('g1'));
+    let notified = 0;
+    registry.onChange(() => notified++);
+    registry.upsert(info('g1'));
+    expect(notified).toBe(0);
+    registry.upsert({ ...info('g1'), maxTurnTime: 30 });
+    expect(notified).toBe(1);
   });
 });

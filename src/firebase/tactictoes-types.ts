@@ -78,7 +78,10 @@ export interface TTGameStateDoc {
 export interface TTGameInvite {
   sessionID: string;
   gameID: string;
-  status?: 'pending' | 'started';
+  // 'finished' is written by a planned TacticToes-side change at game end;
+  // the centaur already understands it (never watches a finished invite) so
+  // the server can start stamping it without coordinating a deploy.
+  status?: 'pending' | 'started' | 'finished';
   snakeIDs?: string[]; // absent on pending invites
   createdAt: Timestamp;
 }
