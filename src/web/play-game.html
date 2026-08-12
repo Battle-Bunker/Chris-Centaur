@@ -1560,13 +1560,28 @@
     // frame, which is both the performance fix and half the reliability fix —
     // fewer teardowns is fewer chances to disturb an in-flight interaction.
     let renderScheduled = false;
+    let renderFallbackTimer = null;
+    function runScheduledRender() {
+      // Clear the latch FIRST and unconditionally. If renderGameBoard throws,
+      // the latch must not stay set — otherwise every later scheduleRender()
+      // returns early and the board is frozen for the rest of the session.
+      renderScheduled = false;
+      if (renderFallbackTimer) { clearTimeout(renderFallbackTimer); renderFallbackTimer = null; }
+      try {
+        renderGameBoard();
+      } catch (e) {
+        console.error('renderGameBoard failed:', e);
+      }
+    }
     function scheduleRender() {
       if (renderScheduled) return;
       renderScheduled = true;
-      requestAnimationFrame(() => {
-        renderScheduled = false;
-        renderGameBoard();
-      });
+      requestAnimationFrame(runScheduledRender);
+      // rAF does not fire in a backgrounded/occluded tab, and never fires at
+      // all in some headless contexts. Without a fallback the board would sit
+      // stale until the tab is focused, so a timer backstops it; whichever
+      // arrives first clears the latch and cancels the other.
+      renderFallbackTimer = setTimeout(runScheduledRender, 250);
     }
 
     function renderGameBoard() {
@@ -1777,14 +1792,30 @@
       userSelectedMove = direction;
       moveState.selectedMove = direction;
 
-      updateMoveControls();
+      // Schedule the repaint BEFORE any of the panel updates below. Those
+      // render third-party-shaped data (score breakdowns) and a single bad
+      // field in one of them used to throw partway through, silently skipping
+      // the repaint that followed — leaving the keypad updated but the board's
+      // purple selection box and projected territory stale. The board is the
+      // primary feedback for this action, so it must not depend on the panels
+      // rendering cleanly.
       scheduleRender();
 
-      const move = moveState.moves[direction];
-      if (move) {
-        BoardRenderer.updateStatsTable(
-          document.getElementById('statsTableBody'), move, moveState
-        );
+      try {
+        updateMoveControls();
+      } catch (e) {
+        console.error('updateMoveControls failed:', e);
+      }
+
+      try {
+        const move = moveState.moves[direction];
+        if (move) {
+          BoardRenderer.updateStatsTable(
+            document.getElementById('statsTableBody'), move, moveState
+          );
+        }
+      } catch (e) {
+        console.error('updateStatsTable failed:', e);
       }
     }
 
@@ -2043,12 +2074,20 @@
         event.preventDefault();
         event.stopPropagation();
         if (!selectedSnakeId || !inBounds) return;
+        // The MODIFIER is the intent — never derive it from the local mirror.
+        // Waypoint state is server-owned, so `waypoints` is empty until the
+        // broadcast lands; gating `append` on it meant a cue issued before that
+        // round trip silently became a REPLACE, wiping the queue. That is the
+        // same staleness race the optimistic mirror used to cause, just moved.
+        // The server already resolves what appending means (toggle within an
+        // existing goto queue, otherwise start one), so it decides.
+        const append = event.shiftKey;
         const current = waypoints[selectedSnakeId];
         const cells = (current && current.cells) || [];
         const onTarget = cells.some(c => c.x === x && c.y === y);
-        const append = event.shiftKey && current?.type === 'green';
-        // Right-clicking the only target cancels the plan; with a queue it
-        // replaces it, and Shift+Right toggles queue membership instead.
+        // Right-clicking the only target cancels the plan. This one may read
+        // the mirror: it is a deliberate second click on a cell the user can
+        // see, not part of a rapid sequence, so the broadcast has landed.
         if (!append && onTarget && cells.length === 1) {
           setWaypointForSnake(selectedSnakeId, null);
           return;

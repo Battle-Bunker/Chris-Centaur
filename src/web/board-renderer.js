@@ -2103,7 +2103,16 @@ const BoardRenderer = (function () {
         : []),
     ];
 
+    // Coerce defensively: these values come from stored decision-log rows as
+    // well as live evaluations, and a single non-numeric field used to throw
+    // partway through building the table. The table is diagnostics — it must
+    // degrade to a dash rather than take the rest of the UI update down with it.
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
     metricsConfig.forEach((metric) => {
+      metric.value = num(metric.value);
+      metric.weight = num(metric.weight);
+      metric.weightedScore = num(metric.weightedScore);
+      metric.averageWeighted = num(metric.averageWeighted);
       metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
     });
 
