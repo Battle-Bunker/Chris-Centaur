@@ -5,7 +5,7 @@
 
 import { GameState, Direction, TeamInfo, SimulationConfig } from '../types/battlesnake';
 import { DecisionEngine, MoveDecision } from './decision-engine';
-import { WaypointContext } from './board-evaluator';
+import { WaypointContext } from './waypoint-pathing';
 import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
@@ -89,8 +89,8 @@ export class VoronoiStrategy {
       deaths: config.deaths,
       enemyH2HRisk: config.enemyH2HRisk,
       allyH2HRisk: config.allyH2HRisk,
-      waypointGoto: config.waypointGoto,
-      waypointNear: config.waypointNear,
+      gotoProgress: config.gotoProgress,
+      nearProgress: config.nearProgress,
       aggression: config.aggression,
       trapped: config.trapped
     };
@@ -293,8 +293,8 @@ export class VoronoiStrategy {
         deaths: evaluation.worstEvaluation.stats.deaths,
         enemyH2HRisk: evaluation.worstEvaluation.stats.enemyH2HRisk,
         allyH2HRisk: evaluation.worstEvaluation.stats.allyH2HRisk,
-        waypointGoto: evaluation.worstEvaluation.stats.waypointGoto,
-        waypointNear: evaluation.worstEvaluation.stats.waypointNear,
+        gotoProgress: evaluation.worstEvaluation.stats.gotoProgress,
+        nearProgress: evaluation.worstEvaluation.stats.nearProgress,
         aggression: evaluation.worstEvaluation.stats.aggression,
         trapped: evaluation.worstEvaluation.stats.trapped,
         weights: evaluation.worstEvaluation.weights,

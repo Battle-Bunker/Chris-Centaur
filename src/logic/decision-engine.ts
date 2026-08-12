@@ -5,13 +5,17 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation, WaypointContext } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
 import { ChunkJob, ChunkResult } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
+import { WaypointContext, computeWaypointProgressByMove } from './waypoint-pathing';
+
+// Re-exported for consumers that take a waypoint alongside a DecisionConfig.
+export { WaypointContext } from './waypoint-pathing';
 
 export interface MoveDecision {
   move: Direction;
@@ -62,10 +66,39 @@ export interface DecisionConfig {
     // Head-to-head risk weights
     enemyH2HRisk?: number;
     allyH2HRisk?: number;
-    // Waypoint weights
-    waypointGoto?: number;
-    waypointNear?: number;
+    // Waypoint progress weights
+    gotoProgress?: number;
+    nearProgress?: number;
   };
+}
+
+// The candidate-level fatal-pocket veto threshold: a move whose worst-case
+// `trapped` signal is at/above this leads into a clearly-fatal dead-end pocket
+// in some reachable branch and must never be picked while a non-fatal
+// alternative exists.
+export const FATAL_TRAP_THRESHOLD = 0.5;
+
+/**
+ * The single move-selection rule, shared by the decision engine and the
+ * server's waypoint re-bias (ActiveGameManager): apply the fatal-pocket veto
+ * (drop candidates with trapped >= threshold unless ALL are fatal), then take
+ * the highest score. Returns null for an empty candidate list.
+ *
+ * Exported because staging re-scores this turn's evaluations when the goto/near
+ * target moves mid-turn; a second copy of the rule would drift from the engine
+ * and the staged move would stop matching what the bot would actually pick.
+ */
+export function pickBestMove(
+  candidates: Array<{ move: Direction; score: number; trapped: number }>
+): Direction | null {
+  if (candidates.length === 0) return null;
+  const nonFatal = candidates.filter(c => c.trapped < FATAL_TRAP_THRESHOLD);
+  const pool = nonFatal.length > 0 ? nonFatal : candidates;
+  let best = pool[0];
+  for (const c of pool) {
+    if (c.score > best.score) best = c;
+  }
+  return best.move;
 }
 
 export class DecisionEngine {
@@ -115,7 +148,14 @@ export class DecisionEngine {
     
     // Get move analysis with h2h risk details
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
-    
+
+    // Per-move waypoint progress (centaur goto/near): computed ONCE here from the
+    // pre-move board with the shared waypoint pathfinder, then injected into every
+    // evaluation of that move. The optimal next move along a shortest path to the
+    // target gets the maximum stat; the weight (config gotoProgress/nearProgress)
+    // decides how strongly it pulls against the rest of the matrix.
+    const waypointProgressByMove = computeWaypointProgressByMove(gameState, waypoint, { graph });
+
     // Consider ALL non-lethal moves (safe + risky) - h2h risk is now a weighted penalty
     let ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
     
@@ -155,7 +195,7 @@ export class DecisionEngine {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
           },
-          waypoint
+          waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null
         }
       );
       
@@ -221,7 +261,7 @@ export class DecisionEngine {
             prevFoodSet: currentFoodSet,  // Current food is "previous" from simulated state's perspective
             h2hRisk: h2hCtxByMove.get(move)!,
             simulatedSnakeIds: state.simulatedSnakeIds,  // Snakes that were simulated get startDelay: 1
-            waypoint
+            waypointProgress: waypointProgressByMove?.[move] ?? null
           }
         );
         evaluatedByMove.get(move)!.push(evaluation);
@@ -244,7 +284,7 @@ export class DecisionEngine {
             gameState,
             gameState.you.id,
             teamSnakeIds,
-            { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypoint }
+            { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
           )
         });
         continue;
@@ -286,20 +326,15 @@ export class DecisionEngine {
   // guarantee on top of the strongly-negative `trapped` weight. If EVERY
   // candidate is fatal, we fall back to scoring among all of them (least-bad
   // death).
+  //
+  // Delegates to the exported `pickBestMove` so the server's mid-turn waypoint
+  // re-bias selects by exactly the same rule.
   private static selectBestMove(evaluations: MoveEvaluationResult[]): Direction {
-    const FATAL_TRAP_THRESHOLD = 0.5;
-    const nonFatal = evaluations.filter(e => e.worstEvaluation.stats.trapped < FATAL_TRAP_THRESHOLD);
-    const selectionPool = nonFatal.length > 0 ? nonFatal : evaluations;
-
-    let bestMove = selectionPool[0].move;
-    let bestScore = -Infinity;
-    for (const evalResult of selectionPool) {
-      if (evalResult.worstScore > bestScore) {
-        bestScore = evalResult.worstScore;
-        bestMove = evalResult.move;
-      }
-    }
-    return bestMove;
+    return pickBestMove(evaluations.map(e => ({
+      move: e.move,
+      score: e.worstScore,
+      trapped: e.worstEvaluation.stats.trapped,
+    }))) ?? evaluations[0].move;
   }
 
   // Compute projected territory per candidate move (asymmetric BFS) for the
@@ -376,6 +411,13 @@ export class DecisionEngine {
 
     const graph = new BoardGraph(gameState, { tailGrowthTiming: this.config.tailGrowthTiming });
     const moveAnalysis = this.moveAnalyzer.analyzeMoves(gameState.you, gameState, graph, teamSnakeIds);
+
+    // Per-move waypoint progress, computed ONCE on the main thread from the
+    // pre-move board. Chunks are per-candidate-move, so each job carries just
+    // its own move's stats — a plain {gotoProgress, nearProgress} pair that
+    // structured-clones into the worker for free, instead of every worker
+    // re-running the waypoint BFS against a board it would have to re-graph.
+    const waypointProgressByMove = computeWaypointProgressByMove(gameState, waypoint, { graph });
 
     let ourMoves = [...moveAnalysis.safe, ...moveAnalysis.risky];
     const nonAllyMoves = ourMoves.filter(
@@ -458,7 +500,7 @@ export class DecisionEngine {
           weights: this.config.weights,
           tailGrowthTiming: this.config.tailGrowthTiming,
           h2hRisk: h2hCtxByMove.get(move)!,
-          waypoint
+          waypointProgress: waypointProgressByMove?.[move] ?? null
         });
       }
       chunksByMove.set(move, chunks);
@@ -489,7 +531,7 @@ export class DecisionEngine {
           gameState,
           gameState.you.id,
           teamSnakeIds,
-          { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypoint }
+          { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
         );
         fallbackEvalByMove.set(move, cached);
       }

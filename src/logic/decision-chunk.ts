@@ -12,7 +12,8 @@
  */
 
 import { GameState, Direction } from '../types/battlesnake';
-import { BoardEvaluator, BoardEvaluation, WaypointContext } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
+import { WaypointProgress } from './waypoint-pathing';
 import { Simulator } from './simulator';
 import { DecisionConfig } from './decision-engine';
 
@@ -27,7 +28,13 @@ export interface ChunkJob {
   weights?: DecisionConfig['weights'];
   tailGrowthTiming?: 'grow-same-turn' | 'grow-next-turn';
   h2hRisk: { enemyH2HRisk: number; allyH2HRisk: number };
-  waypoint: WaypointContext | null;
+  /**
+   * The goto/near progress stats for THIS chunk's candidate move, computed on
+   * the main thread from the pre-move board. A per-move constant (the stat
+   * describes the move, not the simulated board), so it is injected unchanged
+   * into every state this chunk evaluates.
+   */
+  waypointProgress: WaypointProgress | null;
 }
 
 export interface ChunkResult {
@@ -74,7 +81,7 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
       prevFoodSet: currentFoodSet,
       h2hRisk: job.h2hRisk,
       simulatedSnakeIds: simulatedSet,
-      waypoint: job.waypoint ?? undefined,
+      waypointProgress: job.waypointProgress ?? null,
       // Chunk evaluations feed only the minimax score aggregation — per-state
       // territory cell lists are never shipped back (see the strip below), so
       // don't build them at all.

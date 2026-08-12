@@ -1,16 +1,16 @@
 /**
  * Regression tests for:
- *  1. The 180° neck-reversal root cause: a premove queue / goto route whose
- *     first cell is the snake's just-vacated neck must never derive a move
- *     (adjacency alone is not validity), and the queue HOLD tolerance must not
- *     retain a cell the snake is moving away from.
- *  2. The fatal-move consent gate: a HUMAN-sourced certain-death move (manual /
- *     queue / waypoint) stages only with minted consent; without it the bot's
+ *  1. The fatal-move consent gate: a HUMAN-AUTHORED certain-death move (a
+ *     manual selection) stages only with minted consent; without it the bot's
  *     move is staged instead and a confirmation prompt fires. Bot-sourced fatal
- *     moves are exempt. The kill-all path carries consent implicitly.
+ *     moves are exempt, and so are waypoint-sourced ones — since the goto/near
+ *     redesign that direction is chosen by the heuristic matrix, not by the
+ *     human. The kill-all path carries consent implicitly.
+ *  2. The reversal tripwire: any staged move onto the snake's own neck is a
+ *     guaranteed 180° self-collision and must log full state.
  */
 
-import { ActiveGameManager, TurnData } from '../server/active-game-manager';
+import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
 
 // Body extends straight DOWN from the head: body[1] (the neck) is at
@@ -182,42 +182,41 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     expect(prompts).toHaveLength(0);
   });
 
-  test('neck guard: a queue whose first cell is the just-vacated neck derives NO move (falls back to bot)', () => {
-    const gameId = 'g-queue-neck';
+  test('exemption: a WAYPOINT-sourced fatal move stages without any prompt or fallback', () => {
+    const gameId = 'g-wp-fatal';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    processMove(gameId, 'A', snakes, 0, 'up');
+    // Evaluations where the reversal 'down' both outscores everything AND is the
+    // shortest-path step toward a goto target below the snake, so the biased
+    // matrix pick lands on it. A goto/near direction is chosen by the heuristic
+    // matrix (trapped veto + argmax), not dictated by the human, so the consent
+    // gate must not intercept it — asking the operator to confirm a move the BOT
+    // picked is exactly the prompt fatigue this narrowing removes.
+    const evaluations: MoveEvaluation[] = (['down', 'up', 'left'] as Direction[]).map((move) => ({
+      move,
+      score: move === 'down' ? 500 : 10,
+      numStates: 1,
+      breakdown: {
+        trapped: 0,
+        weights: { gotoProgress: 300, nearProgress: 250 },
+        weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
+      },
+    }));
+    const gs = makeGameState(gameId, 0, snakes, 'A');
+    mgr.registerGame(gs);
+    mgr.updateGameState(gameId, 'A', gs);
+    mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+    mgr.setBotRecommendation(gameId, 'A', 'up', { ...makeTurnData(gs, 'up'), moveEvaluations: evaluations });
+
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
     cs.selectedBy = 'u1';
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 0 }, 'u1')).toBe(true);
 
-    // Queue head = (5,4) = the neck. Adjacent to the head, so the old code
-    // derived a perfect 180° reversal from it.
-    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 4 }], 'u1')).toBe(true);
-    expect(cs.staged?.move).toBe('up');
-    expect(cs.staged?.source).toBe('bot');
-    expect(warnedText()).toMatch(/Stale premove queue .* just-vacated neck/);
-    // The neck guard fires before the fatal gate, so no confirmation prompt.
+    expect(cs.staged?.move).toBe('down');
+    expect(cs.staged?.source).toBe('waypoint');
     expect(prompts).toHaveLength(0);
-  });
-
-  test('turn-72 pattern: a queue cell equal to the current head is cleared at commit, not HELD into a next-turn reversal', () => {
-    const gameId = 'g-hold-backwards';
-    const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    processMove(gameId, 'A', snakes, 0, 'up');
-    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
-    cs.selectedBy = 'u1';
-
-    // Queue head = the CURRENT head cell (5,5): directionFromTo(head, cells[0])
-    // is null, so the bot's 'up' stages. The old HOLD branch then retained
-    // (5,5) because it is adjacent to the projected head (5,6) — and next turn
-    // (head at (5,6), neck at (5,5)) it derived 'down': the exact reversal that
-    // killed snake #mepf2x on turn 72 of game qBLZZS36mve52yHabN3G.
-    expect(mgr.setPremoveQueue(gameId, 'A', [{ x: 5, y: 5 }], 'u1')).toBe(true);
-    expect(cs.staged?.move).toBe('up'); // queue unresolvable → bot
-
-    // The server resolved the turn with 'up' → queue advancement bookkeeping.
-    mgr.applyResolvedMoves(gameId, 0, { A: 'up' });
-
-    // The backwards-pointing plan must be CLEARED, not held.
-    expect(cs.intent.kind).toBe('heuristic');
+    expect(warnedText()).not.toMatch(/FATAL-MOVE GATE/);
+    // The move is still surfaced to the human as certain death by the
+    // source-agnostic marker — the gate is narrowed, not the warning.
+    expect(mgr.isStagedMoveFatal(gameId, 'A')).toBe(true);
   });
 });

@@ -66,7 +66,7 @@ describe('evaluateChunk', () => {
       moveSets,
       simulatedSnakeIds: ['us', 'enemy'],
       h2hRisk: { enemyH2HRisk: 0, allyH2HRisk: 0 },
-      waypoint: null,
+      waypointProgress: null,
     };
 
     const result = evaluateChunk(job);
@@ -89,7 +89,7 @@ describe('evaluateChunk', () => {
       moveSets: [],
       simulatedSnakeIds: ['us'],
       h2hRisk: { enemyH2HRisk: 0, allyH2HRisk: 0 },
-      waypoint: null,
+      waypointProgress: null,
     };
     const result = evaluateChunk(job);
     expect(result.statesEvaluated).toBe(0);

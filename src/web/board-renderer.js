@@ -1584,10 +1584,17 @@ const BoardRenderer = (function () {
       button.style.height = displayCellSize + "px";
       button.style.zIndex = "10";
 
-      button.onclick = (e) => {
-        e.stopPropagation();
-        onCellClick(move.direction, e);
-      };
+      // Input is owned by the page's delegated pointerdown handler; callers
+      // that pass no handler get a presentational overlay whose teardown can
+      // never swallow an interaction.
+      if (onCellClick) {
+        button.onclick = (e) => {
+          e.stopPropagation();
+          onCellClick(move.direction, e);
+        };
+      } else {
+        button.style.cursor = 'pointer';
+      }
       const scoreText =
         move.score != null
           ? move.score.toFixed(2)
@@ -1877,8 +1884,8 @@ const BoardRenderer = (function () {
         deathsScore: 0,
         enemyH2HRiskScore: 0,
         allyH2HRiskScore: 0,
-        waypointGotoScore: 0,
-        waypointNearScore: 0,
+        gotoProgressScore: 0,
+        nearProgressScore: 0,
         aggressionScore: 0,
         trappedScore: 0,
         fertileScore: 0,
@@ -2056,18 +2063,18 @@ const BoardRenderer = (function () {
         averageWeighted: averageWeighted.allyH2HRiskScore ?? 0,
       },
       {
-        name: "Waypoint Goto (green)",
-        value: breakdown.waypointGoto ?? 0,
-        weight: breakdown.weights?.waypointGoto ?? 0,
-        weightedScore: breakdown.weighted?.waypointGotoScore ?? 0,
-        averageWeighted: averageWeighted.waypointGotoScore ?? 0,
+        name: "Goto progress (green)",
+        value: breakdown.gotoProgress ?? 0,
+        weight: breakdown.weights?.gotoProgress ?? 0,
+        weightedScore: breakdown.weighted?.gotoProgressScore ?? 0,
+        averageWeighted: averageWeighted.gotoProgressScore ?? 0,
       },
       {
-        name: "Waypoint Near (blue)",
-        value: breakdown.waypointNear ?? 0,
-        weight: breakdown.weights?.waypointNear ?? 0,
-        weightedScore: breakdown.weighted?.waypointNearScore ?? 0,
-        averageWeighted: averageWeighted.waypointNearScore ?? 0,
+        name: "Near progress (blue)",
+        value: breakdown.nearProgress ?? 0,
+        weight: breakdown.weights?.nearProgress ?? 0,
+        weightedScore: breakdown.weighted?.nearProgressScore ?? 0,
+        averageWeighted: averageWeighted.nearProgressScore ?? 0,
       },
       {
         name: "Aggression (hunt weaker)",
@@ -2096,7 +2103,16 @@ const BoardRenderer = (function () {
         : []),
     ];
 
+    // Coerce defensively: these values come from stored decision-log rows as
+    // well as live evaluations, and a single non-numeric field used to throw
+    // partway through building the table. The table is diagnostics — it must
+    // degrade to a dash rather than take the rest of the UI update down with it.
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
     metricsConfig.forEach((metric) => {
+      metric.value = num(metric.value);
+      metric.weight = num(metric.weight);
+      metric.weightedScore = num(metric.weightedScore);
+      metric.averageWeighted = num(metric.averageWeighted);
       metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
     });
 
