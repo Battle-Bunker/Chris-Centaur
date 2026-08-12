@@ -1,5 +1,6 @@
 import express from 'express';
 import { DecisionLogger } from '../logic/decision-logger';
+import { CommandLogger } from '../logic/command-logger';
 
 const router = express.Router();
 const logger = DecisionLogger.getInstance();
@@ -58,11 +59,31 @@ router.get('/api/logs', async (req, res) => {
   }
 });
 
+// Command history for one game: the raw operator command events (goto/near/
+// manual/…, with operator attribution) plus the per-turn command-state
+// snapshots keyed by the board turn whose END they describe. The history
+// viewer feeds the snapshots straight into the live render paths.
+router.get('/api/logs/commands', async (req, res) => {
+  try {
+    const gameId = (req.query.game_id as string) || (req.query.gameId as string);
+    if (!gameId) {
+      res.status(400).json({ error: 'game_id is required' });
+      return;
+    }
+    const commands = await CommandLogger.getInstance().getGameCommands(gameId);
+    res.json(commands);
+  } catch (error) {
+    console.error('Error querying command logs:', error);
+    res.status(500).json({ error: 'Failed to query command logs' });
+  }
+});
+
 // Clear old logs (admin endpoint)
 router.delete('/api/logs/old', async (req, res) => {
   try {
     const daysToKeep = req.query.days ? parseInt(req.query.days as string, 10) : 7;
     await logger.clearOldLogs(daysToKeep);
+    await CommandLogger.getInstance().clearOldCommands(daysToKeep);
     res.json({ message: `Cleared logs older than ${daysToKeep} days` });
   } catch (error) {
     console.error('Error clearing old logs:', error);

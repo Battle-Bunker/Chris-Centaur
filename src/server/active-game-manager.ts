@@ -11,6 +11,7 @@ import {
 } from '../logic/waypoint-pathing';
 import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
+import { CommandLogger, OperatorRef } from '../logic/command-logger';
 
 export interface MoveEvaluation {
   move: Direction;
@@ -129,6 +130,35 @@ export type SnakeIntent =
 // the union's discriminant so the client contract is unchanged.
 export type IntentMode = SnakeIntent['kind'];
 
+// Staged-move projection broadcast to clients (and snapshotted per turn by the
+// command logger): the three-layer requested → confirmed → final pipeline plus
+// the render colour/source and the fatal warning flag.
+export interface StagedMoveView {
+  move: string | null;
+  requestedMove: string;
+  committed: boolean;
+  color: string;
+  source: string;
+  fatal: boolean;
+}
+
+// Everything a client (live or replay) needs to render the command state of a
+// game's snakes, in exactly the shape the live WebSocket broadcast uses. The
+// command logger persists one of these per (game, turn) when the turn
+// resolves, so the history viewer replays command state through the same
+// render paths as live play.
+export interface CommandTurnState {
+  stagedMoves: { [snakeId: string]: StagedMoveView };
+  waypoints: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } };
+  routes: { [snakeId: string]: { cells: Coord[]; firstLeg: number } };
+  activeIntentModes: { [snakeId: string]: IntentMode };
+  owners: { [snakeId: string]: { userId: string; name: string; color: string } | null };
+  // The operator whose command produced each snake's ACTIVE intent (null for
+  // heuristic / bot-driven snakes). Unlike `owners` this tracks the command,
+  // not the persistent snake ownership.
+  operators: { [snakeId: string]: OperatorRef | null };
+}
+
 export interface SnakeInfo {
   id: string;
   name: string;
@@ -150,11 +180,20 @@ export interface ControlledSnake {
   // their snakes.
   ownedBy: string | null;
   suicideArmed: boolean;
+  // Who armed the pending suicide (kill-all before turn data existed), so the
+  // deferred staging attributes to the right operator.
+  suicideArmedBy: OperatorRef | null;
   // The snake's intention — the single source of truth for the goto/near
   // targets, the manual selection, and the active mode. Set only through
   // `setIntent`. The client-facing projections (waypoints, routes,
   // activeIntentModes) are derived from this.
   intent: SnakeIntent;
+  // The operator whose command produced the CURRENT intent. Null while the
+  // intent is heuristic (bot-driven). Preserved across server-side intent
+  // transitions that continue the same command (goto arrival shifts), so
+  // command attribution survives deselects and disconnects for as long as the
+  // command is in force. Feeds the command log and the staged-arrow colour.
+  intentBy: OperatorRef | null;
   // DERIVED display cache for the green goto path — deliberately NOT part of
   // the intent, because it is never durable state. Recomputed by
   // `refreshGotoRoute` on every stage: while a move is staged it is
@@ -527,7 +566,9 @@ export class ActiveGameManager {
         selectedBy: null,
         ownedBy: null,
         suicideArmed: false,
+        suicideArmedBy: null,
         intent: { kind: 'heuristic' },
+        intentBy: null,
         gotoRoute: [],
         gotoRouteFirstLeg: 0,
         staged: null,
@@ -645,10 +686,11 @@ export class ActiveGameManager {
     return { success: true };
   }
 
-  suicideAllSnakes(gameId: string): { affected: string[] } {
+  suicideAllSnakes(gameId: string, byUserId?: string): { affected: string[] } {
     const game = this.games.get(gameId);
     if (!game) return { affected: [] };
 
+    const operator = this.operatorFor(game, byUserId);
     const affected: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
       affected.push(snakeId);
@@ -657,14 +699,17 @@ export class ActiveGameManager {
       if (gameState) {
         const move = computeSuicideMove(gameState);
         console.log(`[ActiveGameManager] SUICIDE: staging ${move} for ${gameId}:${snakeId}`);
+        this.logCommandEvent(gameId, snakeId, 'suicide', operator, { move });
         // Kill-all is the second fatal-consent mint point: stage the suicide
         // move WITH consent so it flows through the single staged-move writer
         // (and its gate). The write-through submitter publishes it to Firebase
         // where it becomes the snake's staged move for the turn.
-        this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: mintFatalMoveConsent() });
+        this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: mintFatalMoveConsent() }, operator);
       } else {
         // No turn data yet — arm, and the next turn's staging pass fires it.
+        this.logCommandEvent(gameId, snakeId, 'suicide', operator, { armed: true });
         controlled.suicideArmed = true;
+        controlled.suicideArmedBy = operator;
       }
     }
     if (affected.length > 0) {
@@ -681,10 +726,11 @@ export class ActiveGameManager {
   // commit that fires automatically the moment their confirmation lands
   // (setConfirmedStagedMove), keeping Submit All one click without ever
   // freezing the wrong move. Never called automatically.
-  commitAllStaged(gameId: string): { affected: string[] } {
+  commitAllStaged(gameId: string, byUserId?: string): { affected: string[] } {
     const game = this.games.get(gameId);
     if (!game) return { affected: [] };
 
+    const operator = this.operatorFor(game, byUserId);
     const affected: string[] = [];
     for (const [snakeId, controlled] of game.controlledSnakes) {
       const staged = controlled.staged;
@@ -694,6 +740,10 @@ export class ActiveGameManager {
       if (!staged || staged.turn !== game.boardStateTurn) continue;
       if (controlled.lastCommittedTurn === staged.turn) continue;
       affected.push(snakeId);
+      this.logCommandEvent(gameId, snakeId, 'commit', operator, {
+        move: staged.move,
+        source: staged.source,
+      });
 
       const confirmed =
         controlled.confirmedStaged?.turn === staged.turn &&
@@ -1038,12 +1088,16 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return false;
     if (controlled.selectedBy !== userId) return false;
+    const operator = this.operatorFor(game, userId);
 
     if (waypoint === null) {
       // Clearing only applies while in a waypoint mode; otherwise leave the
       // current intent (manual/heuristic) untouched and just re-stage.
       if (controlled.intent.kind === 'goto' || controlled.intent.kind === 'near') {
-        this.setIntent(gameId, snakeId, { kind: 'heuristic' });
+        this.logCommandEvent(gameId, snakeId, 'waypoint-clear', operator, {
+          cleared: controlled.intent.kind,
+        });
+        this.setIntent(gameId, snakeId, { kind: 'heuristic' }, null);
       } else {
         this.stageMove(gameId, snakeId);
       }
@@ -1061,7 +1115,8 @@ export class ActiveGameManager {
     if (waypoint.type !== 'green' && waypoint.type !== 'blue') return false;
 
     if (waypoint.type === 'blue') {
-      this.setIntent(gameId, snakeId, { kind: 'near', target: { x, y } });
+      this.logCommandEvent(gameId, snakeId, 'near-set', operator, { target: { x, y } });
+      this.setIntent(gameId, snakeId, { kind: 'near', target: { x, y } }, operator);
       return true;
     }
 
@@ -1071,13 +1126,24 @@ export class ActiveGameManager {
       const existing = targets.findIndex(t => t.x === x && t.y === y);
       if (existing >= 0) {
         targets.splice(existing, 1);
+        this.logCommandEvent(gameId, snakeId, 'goto-remove', operator, {
+          target: { x, y },
+          targets: targets.slice(),
+        });
         if (targets.length === 0) {
-          this.setIntent(gameId, snakeId, { kind: 'heuristic' });
+          this.setIntent(gameId, snakeId, { kind: 'heuristic' }, null);
         } else {
+          // The queue continues under the toggling operator's command.
+          controlled.intentBy = operator;
           this.stageMove(gameId, snakeId);
         }
       } else {
         targets.push({ x, y });
+        this.logCommandEvent(gameId, snakeId, 'goto-append', operator, {
+          target: { x, y },
+          targets: targets.slice(),
+        });
+        controlled.intentBy = operator;
         this.stageMove(gameId, snakeId);
       }
       return true;
@@ -1086,7 +1152,11 @@ export class ActiveGameManager {
     // Replace (or start) the goto queue with this single target. setIntent →
     // stageMove refreshes the derived route immediately, so the green path
     // renders the instant the user clicks, not only after the next decision.
-    this.setIntent(gameId, snakeId, { kind: 'goto', targets: [{ x, y }] });
+    this.logCommandEvent(gameId, snakeId, 'goto-set', operator, {
+      target: { x, y },
+      targets: [{ x, y }],
+    });
+    this.setIntent(gameId, snakeId, { kind: 'goto', targets: [{ x, y }] }, operator);
     return true;
   }
 
@@ -1440,7 +1510,10 @@ export class ActiveGameManager {
   // is the mutual exclusion: the new intent structurally supersedes whatever
   // queue/waypoint/manual state the old one held — no field-by-field clearing.
   // Always re-stages the move so `staged` and the broadcast arrow track it.
-  private setIntent(gameId: string, snakeId: string, intent: SnakeIntent): void {
+  // `by` is the operator whose command produced this intent (callers pass the
+  // existing intentBy for server-side continuations like goto arrival shifts);
+  // it is forced to null for heuristic — the bot has no commanding operator.
+  private setIntent(gameId: string, snakeId: string, intent: SnakeIntent, by: OperatorRef | null): void {
     const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
     if (!controlled) return;
     const previous = controlled.intent;
@@ -1451,7 +1524,44 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] Manual selection ${previous.move} for ${gameId}:${snakeId} cleared (intent → ${intent.kind})`);
     }
     controlled.intent = intent;
+    controlled.intentBy = intent.kind === 'heuristic' ? null : by;
     this.stageMove(gameId, snakeId);
+  }
+
+  // Resolve a userId to the operator identity commands are attributed to:
+  // the live connected user, else the game-lifetime name enrolment (so a
+  // command from a momentarily-disconnected but enrolled player still
+  // attributes correctly).
+  private operatorFor(game: ActiveGame, userId: string | null | undefined): OperatorRef | null {
+    if (!userId) return null;
+    const user = game.connectedUsers.get(userId);
+    if (user) return { userId, name: user.name, color: user.color };
+    for (const enrolment of game.playerNames.values()) {
+      if (enrolment.userId === userId) {
+        return { userId, name: enrolment.name, color: enrolment.color };
+      }
+    }
+    return { userId, name: 'Player', color: '#888888' };
+  }
+
+  // Append one row to the command-event log. Never throws into the game path
+  // (the CommandLogger enqueue is synchronous and exception-free).
+  private logCommandEvent(
+    gameId: string,
+    snakeId: string | null,
+    eventType: string,
+    operator: OperatorRef | null,
+    payload: unknown
+  ): void {
+    const game = this.games.get(gameId);
+    CommandLogger.getInstance().logEvent({
+      gameId,
+      snakeId,
+      turn: game?.boardStateTurn ?? 0,
+      eventType,
+      operator,
+      payload,
+    });
   }
 
   // The sole writer of `staged`: resolves the active intent to one Direction via
@@ -1734,6 +1844,90 @@ export class ActiveGameManager {
     }
   }
 
+  // Staged moves drive the arrow render on every client. Three layers per
+  // snake, all pure reads of this manager's mirrors of Firebase state:
+  //  - `requestedMove`: the last move the user/bot requested (ghost arrow
+  //    whenever it differs from the confirmed move — optimistic state).
+  //  - `move`: the CONFIRMED staged move from the Firebase read-back (solid
+  //    arrow — what the game server will play if the turn ends now). Null
+  //    until the first confirmation for the turn lands.
+  //  - `committed`: true once Firebase finalized the turn's move (deadline
+  //    passed or all players committed) — the double arrow; `move` then
+  //    carries the final selection.
+  // Color/source are derived from the requested record's source: heuristic =
+  // grey/'bot' (bot-seeded), any human method (manual/queue/waypoint) = the
+  // commanding operator's color (which survives deselects), falling back to
+  // the selecting user's.
+  //
+  // Every controlled snake gets an entry, gated only on having a `staged`
+  // record. The client only draws arrows for snakes present on the board, so
+  // eliminated snakes are naturally skipped there.
+  //
+  // Shared by the live WebSocket broadcast and the per-turn command-state
+  // snapshot, so live play and the history replay render from the same data.
+  getStagedMovesForGame(gameId: string): { [snakeId: string]: StagedMoveView } {
+    const game = this.games.get(gameId);
+    if (!game) return {};
+
+    const BOT_COLOR = '#888888';
+    const staged: { [snakeId: string]: StagedMoveView } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      if (!cs.staged) continue;
+      const requested = cs.staged;
+      const userColor =
+        cs.intentBy?.color ||
+        (cs.selectedBy ? game.connectedUsers.get(cs.selectedBy)?.color : undefined) ||
+        '#4CAF50';
+      // Colour/source reflect the TRUE origin of the requested move, NOT the
+      // nominal activeIntentMode. A waypoint/queue that fell back to the bot's
+      // move this turn has source 'bot'/'fallback' and renders grey — so a
+      // user-coloured arrow always guarantees the user's own requested move.
+      const isBot = requested.source === 'bot' || requested.source === 'fallback';
+      const color = isBot ? BOT_COLOR : userColor;
+      // `fatal` flags a certain-death requested move so the client can warn
+      // the human; it NEVER changes what is staged.
+      const fatal = this.isStagedMoveFatal(gameId, snakeId);
+      const confirmed = cs.confirmedStaged?.turn === requested.turn ? cs.confirmedStaged.move : null;
+      const final = cs.finalMove?.turn === requested.turn ? cs.finalMove.move : null;
+      staged[snakeId] = {
+        move: final ?? confirmed,
+        requestedMove: requested.move,
+        committed: final !== null,
+        color,
+        source: requested.source,
+        fatal,
+      };
+    }
+    return staged;
+  }
+
+  // The command-state snapshot for a game, in exactly the live broadcast
+  // shape (see CommandTurnState). Persisted per turn by applyResolvedMoves.
+  getCommandStateForGame(gameId: string): CommandTurnState | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+
+    const stagedMoves = this.getStagedMovesForGame(gameId);
+    const operators: { [snakeId: string]: OperatorRef | null } = {};
+    for (const [snakeId, cs] of game.controlledSnakes) {
+      // A snake dead since an earlier turn keeps its last staged record; it is
+      // not part of THIS turn's command state, so drop the stale entry.
+      if (cs.staged && cs.staged.turn !== game.boardStateTurn) {
+        delete stagedMoves[snakeId];
+      }
+      operators[snakeId] = cs.intentBy;
+    }
+
+    return {
+      stagedMoves,
+      waypoints: this.getWaypointsForGame(gameId),
+      routes: this.getRoutesForGame(gameId),
+      activeIntentModes: this.getActiveIntentModesForGame(gameId),
+      owners: this.getOwnersForGame(gameId),
+      operators,
+    };
+  }
+
   getActiveIntentModesForGame(gameId: string): { [snakeId: string]: IntentMode } {
     const game = this.games.get(gameId);
     if (!game) return {};
@@ -1857,7 +2051,7 @@ export class ActiveGameManager {
     const prevStagedTurn = controlled.staged?.turn ?? null;
     controlled.staged = null;
     if (controlled.intent.kind === 'manual' && prevStagedTurn !== game.boardStateTurn) {
-      this.setIntent(gameId, snakeId, { kind: 'heuristic' });
+      this.setIntent(gameId, snakeId, { kind: 'heuristic' }, null);
     } else {
       this.stageMove(gameId, snakeId);
     }
@@ -1870,7 +2064,9 @@ export class ActiveGameManager {
       const suicideMove = computeSuicideMove(turnData.gameState);
       console.log(`[ActiveGameManager] SUICIDE: staging ${suicideMove} for ${gameId}:${snakeId} (turn ${incomingTurn})`);
       controlled.suicideArmed = false;
-      this.setIntent(gameId, snakeId, { kind: 'manual', move: suicideMove, fatalConsent: mintFatalMoveConsent() });
+      const armedBy = controlled.suicideArmedBy;
+      controlled.suicideArmedBy = null;
+      this.setIntent(gameId, snakeId, { kind: 'manual', move: suicideMove, fatalConsent: mintFatalMoveConsent() }, armedBy);
     }
 
     if (boardUpdated) {
@@ -1891,7 +2087,11 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return;
 
-    this.setIntent(gameId, snakeId, { kind: 'manual', move });
+    // Only the selecting user can reach this path (validated by the WS layer),
+    // so the command attributes to them.
+    const operator = this.operatorFor(game, controlled.selectedBy);
+    this.logCommandEvent(gameId, snakeId, 'manual-move', operator, { move });
+    this.setIntent(gameId, snakeId, { kind: 'manual', move }, operator);
     console.log(`[ActiveGameManager] User staged move for ${gameId}:${snakeId}: ${move} (intent: ${controlled.intent.kind}, turn ${game.currentTurn})`);
   }
 
@@ -1913,7 +2113,9 @@ export class ActiveGameManager {
     const stillFatal = this.isMoveFatal(gameId, snakeId, move);
     const consent = stillFatal ? mintFatalMoveConsent() : undefined;
     console.log(`[ActiveGameManager] User CONFIRMED ${stillFatal ? 'fatal' : 'no-longer-fatal'} move ${move} for ${gameId}:${snakeId} — staging with${consent ? '' : 'out'} consent`);
-    this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: consent });
+    const operator = this.operatorFor(game, userId);
+    this.logCommandEvent(gameId, snakeId, 'fatal-move-confirmed', operator, { move, stillFatal });
+    this.setIntent(gameId, snakeId, { kind: 'manual', move, fatalConsent: consent }, operator);
     return true;
   }
 
@@ -1955,10 +2157,19 @@ export class ActiveGameManager {
       if (headHit || justSteppedThrough) {
         const remaining = controlled.intent.targets.slice(1);
         console.log(`[ActiveGameManager] Goto target reached for ${gameId}:${snakeId} (head=${head?.x},${head?.y} target=${wp.x},${wp.y} reason=${headHit ? 'head' : 'body[1]'}) — ${remaining.length} target(s) remaining`);
+        // System event (no operator): the queue shifting on arrival is a
+        // consequence of the standing goto command, not a new command.
+        this.logCommandEvent(gameId, snakeId, 'goto-target-reached', null, {
+          target: { x: wp.x, y: wp.y },
+          targets: remaining,
+        });
         this.setIntent(
           gameId,
           snakeId,
-          remaining.length > 0 ? { kind: 'goto', targets: remaining } : { kind: 'heuristic' }
+          remaining.length > 0 ? { kind: 'goto', targets: remaining } : { kind: 'heuristic' },
+          // The remaining queue continues the SAME command — attribution is
+          // preserved so replays keep crediting the commanding operator.
+          remaining.length > 0 ? controlled.intentBy : null
         );
       }
     }
@@ -1978,6 +2189,18 @@ export class ActiveGameManager {
   applyResolvedMoves(gameId: string, resolvedTurn: number, moves: { [snakeId: string]: Direction }): void {
     const game = this.games.get(gameId);
     if (!game) return;
+
+    // Snapshot every snake's command state AS IT STOOD WHEN THIS TURN ENDED.
+    // We run before the new board is fed in, so goto queues are un-shifted,
+    // staged records still bind to resolvedTurn, and operator attribution is
+    // exactly what was in force at the deadline. The history viewer replays
+    // this snapshot through the same render paths the live client uses.
+    if (game.boardStateTurn === resolvedTurn) {
+      const state = this.getCommandStateForGame(gameId);
+      if (state) {
+        CommandLogger.getInstance().logTurnState(gameId, resolvedTurn, state);
+      }
+    }
 
     for (const [snakeId, move] of Object.entries(moves)) {
       const controlled = game.controlledSnakes.get(snakeId);

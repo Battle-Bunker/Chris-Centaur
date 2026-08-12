@@ -824,6 +824,15 @@
     // reconnect after a death), making its logged past un-inspectable.
     let historyLoggedSnakeIds = new Set();
     let historyLoggedFetch = null;    // in-flight/settled fetch promise (fetch once per page)
+    // Recorded command state (/api/logs/commands): per-turn snapshots of every
+    // snake's command state at the END of each turn — same shape as the live
+    // broadcast (stagedMoves/waypoints/routes/activeIntentModes/owners plus
+    // per-snake operators) — and the raw operator command events. Drives the
+    // history render's command overlays through the SAME code paths live uses.
+    let commandHistory = null;        // { events: [...], turnStates: { turn: state } }
+    let commandHistoryFetch = null;   // in-flight fetch promise (dedupe)
+    let commandHistoryMaxTurn = -1;   // highest turn with a recorded snapshot
+    let commandFetchLiveTurn = -1;    // liveMaxTurn when we last fetched (refetch gate)
     const historicCache = new Map();  // snakeId → { decisions, turnToIndex }
     let historicDecisions = null;     // decisions for the currently-viewed snake
     let historicTurnToIndex = {};     // turn number → index into historicDecisions
@@ -2319,11 +2328,14 @@
     // Cells are marked with plain dots, deliberately NOT numbered: the route
     // can span many legs, and per-cell numbers would compete with the queue
     // ordinals drawn on the target cells themselves.
-    function drawRouteOverlay(canvas, snake, route, board, cellSize, color) {
+    // `headOverride` anchors the polyline explicitly — the history replay
+    // passes the historic board's head, since getProjectedHead reads the LIVE
+    // game state (absent or ahead of the replayed turn).
+    function drawRouteOverlay(canvas, snake, route, board, cellSize, color, headOverride) {
       const cells = route && route.cells;
       if (!snake || !cells || cells.length === 0) return;
       const ctx = canvas.getContext('2d');
-      const head = getProjectedHead(snake.id) || snake.head || snake.body[0];
+      const head = headOverride || getProjectedHead(snake.id) || snake.head || snake.body[0];
       const firstLeg = Math.max(0, Math.min(cells.length, route.firstLeg ?? cells.length));
 
       const toPx = (cell) => ({
@@ -2672,6 +2684,52 @@
       return { decisions, turnToIndex, maxTurn };
     }
 
+    // The recorded command state for one displayed turn, or null while the
+    // command history hasn't loaded (or the turn has no snapshot — e.g. the
+    // final turn, which never resolves).
+    function commandStateFor(turnNumber) {
+      const states = commandHistory && commandHistory.turnStates;
+      return (states && states[turnNumber]) || null;
+    }
+
+    // Fetch the game's command history once (deduped), refetching only when a
+    // live game has advanced past what we loaded and the user is scrubbing
+    // beyond it. Re-renders the viewed historic turn when data lands so the
+    // command overlays appear without another user action.
+    function ensureCommandHistory(targetTurn) {
+      const haveEnough = commandHistory &&
+        (finishedMode || gameEnded ||
+          targetTurn == null || targetTurn <= commandHistoryMaxTurn ||
+          liveMaxTurn <= commandFetchLiveTurn);
+      if (haveEnough) return Promise.resolve(commandHistory);
+      if (commandHistoryFetch) return commandHistoryFetch;
+      const fetchedAtLiveTurn = liveMaxTurn;
+      commandHistoryFetch = fetch(`/api/logs/commands?game_id=${encodeURIComponent(gameId)}`)
+        .then((resp) => resp.json())
+        .then((data) => {
+          commandHistory = {
+            events: (data && data.events) || [],
+            turnStates: (data && data.turnStates) || {},
+          };
+          commandHistoryMaxTurn = -1;
+          for (const t of Object.keys(commandHistory.turnStates)) {
+            const n = Number(t);
+            if (n > commandHistoryMaxTurn) commandHistoryMaxTurn = n;
+          }
+          commandFetchLiveTurn = fetchedAtLiveTurn;
+          if (viewMode === 'historic' && !isScrubbing) {
+            renderHistoricAtTurn(historicTurnNumber);
+          }
+          return commandHistory;
+        })
+        .catch((err) => {
+          console.error('Failed to load command history:', err);
+          return null;
+        })
+        .finally(() => { commandHistoryFetch = null; });
+      return commandHistoryFetch;
+    }
+
     // Warm the cache for our other controlled snakes in the background so that
     // switching perspective (list click or board click) is instant instead of
     // paying a network round-trip per selection.
@@ -2917,6 +2975,9 @@
       // The selected turn lives in the slider (value) domain and is kept exactly
       // as the user picked it — we never echo a snapped data turn back to it.
       historicTurnNumber = Math.max(0, Math.min(liveMaxTurn, turnNumber));
+      // Recorded command state (waypoints, routes, staged arrows, operators)
+      // for the viewed turns; fire-and-forget, re-renders when it lands.
+      ensureCommandHistory(historicTurnNumber);
       // Latest-wins: stamp this load so a stale async resolution (an earlier,
       // slower scrub) can detect it has been superseded and bail out.
       const token = ++scrubLoadToken;
@@ -3114,7 +3175,9 @@
         historicMoveState = null;
         historicCellOwnership = null;
       }
-      historicRenderCtx = { boardRow, prevRow, ownRow: evalRow };
+      // The recorded command state at the END of the rendered turn (null when
+      // command history hasn't loaded or the turn has no snapshot).
+      historicRenderCtx = { boardRow, prevRow, ownRow: evalRow, cmd: commandStateFor(renderedTurn) };
 
       document.getElementById('currentTurn').textContent = renderedTurn;
       document.getElementById('firstMoveIndicator').style.display = 'none';
@@ -3227,7 +3290,14 @@
       // this applies only while the inspected snake has data for the turn.
       const submitted = own ? (own.submitted_move || null) : null;
       const botRec = own ? (own.bot_recommendation || null) : null;
-      BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
+      // Recorded command state at the end of this turn: the same maps the live
+      // broadcast carries, so the exact live render paths draw them — staged
+      // arrows + owner name tags inside renderBoard, goto routes and waypoint
+      // cells via the shared overlay functions below. The inspected snake keeps
+      // its ground-truth submitted/recommendation arrow (the chosenMove branch
+      // wins over its staged entry inside the renderer).
+      const cmd = ctx.cmd || null;
+      const cellSize = BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
         snakeId: own ? own.snake_id : getHistoricSnakeId(),
         chosenMove: submitted || botRec,
         chosenMoveStyle: submitted ? 'submitted' : 'recommendation-only',
@@ -3237,8 +3307,25 @@
         ourDeaths: own ? buildHistoricOurDeaths(own) : [],
         lastMoves: turn.game_state?.lastMoves || null,
         fatalConsented: !!(own && own.fatal_consent),
-        interactive: false,
+        stagedMoves: cmd ? cmd.stagedMoves : null,
+        owners: cmd ? cmd.owners : null,
       });
+      if (cmd) {
+        const board = turn.game_state.board;
+        // Same overlays as the live render loop, gated on board presence so a
+        // dead snake's lingering targets never draw on later turns.
+        for (const snake of board.snakes) {
+          const route = cmd.routes && cmd.routes[snake.id];
+          if (route && route.cells && route.cells.length > 0) {
+            drawRouteOverlay(canvas, snake, route, board, cellSize, '#4CAF50',
+              snake.head || snake.body[0]);
+          }
+        }
+        for (const snakeId in (cmd.waypoints || {})) {
+          if (!board.snakes.some((s) => s.id === snakeId)) continue;
+          drawWaypointOverlay(canvas, cmd.waypoints[snakeId], board, cellSize);
+        }
+      }
       const overlayEl = document.getElementById('boardOverlay');
       if (historicMoveState) {
         // Presentational only, like the live overlay: input is owned by the
@@ -3346,12 +3433,56 @@
       const submitSection = document.querySelector('#moveControls .submit-section');
       if (submitSection) submitSection.style.display = 'none';
 
+      renderHistoricCommandNote(turn.snake_id);
+
       BoardRenderer.renderMoveButtons(
         document.getElementById('moveButtons'), historicMoveState, historicSelectMove
       );
       BoardRenderer.updateStatsTable(
         document.getElementById('statsTableBody'), null, historicMoveState
       );
+    }
+
+    // Read-only mirror of the live intent badge: the inspected snake's command
+    // state at the END of the displayed turn — active command mode plus the
+    // operator who issued it — from the recorded per-turn snapshot. Hidden when
+    // no snapshot covers the turn (history predating command logging, or the
+    // final turn, which never resolves).
+    function renderHistoricCommandNote(snakeId) {
+      const nameEl = document.getElementById('selectedSnakeName');
+      let note = document.getElementById('commandStateNote');
+      const cmd = historicRenderCtx && historicRenderCtx.cmd;
+      const mode = cmd && cmd.activeIntentModes ? cmd.activeIntentModes[snakeId] : null;
+      if (!mode) {
+        if (note) note.style.display = 'none';
+        return;
+      }
+      if (!note) {
+        note = document.createElement('span');
+        note.id = 'commandStateNote';
+        note.style.cssText = 'font-size: 12px; font-weight: 600; border: 1px solid #555; border-radius: 10px; padding: 2px 8px; margin-left: 8px; color: #ccc;';
+        nameEl.after(note);
+      }
+      // Built with textContent — operator names are untrusted.
+      let label;
+      if (mode === 'goto') {
+        const cells = (cmd.waypoints && cmd.waypoints[snakeId] && cmd.waypoints[snakeId].cells) || [];
+        label = `goto ×${cells.length}`;
+      } else if (mode === 'near') {
+        const cell = cmd.waypoints && cmd.waypoints[snakeId] && cmd.waypoints[snakeId].cells
+          ? cmd.waypoints[snakeId].cells[0] : null;
+        label = cell ? `near (${cell.x},${cell.y})` : 'near';
+      } else if (mode === 'manual') {
+        const staged = cmd.stagedMoves && cmd.stagedMoves[snakeId];
+        label = staged && staged.requestedMove ? `manual ${staged.requestedMove}` : 'manual';
+      } else {
+        label = 'bot (heuristic)';
+      }
+      const operator = cmd.operators ? cmd.operators[snakeId] : null;
+      note.textContent = operator ? `${label} — ${operator.name}` : label;
+      note.style.borderColor = operator ? operator.color : '#555';
+      note.style.color = operator ? operator.color : '#999';
+      note.style.display = '';
     }
 
     // Shown instead of the breakdown when the viewed turn is after the
@@ -3369,6 +3500,8 @@
 
       const fatalNote = document.getElementById('fatalConsentNote');
       if (fatalNote) fatalNote.style.display = 'none';
+      const commandNote = document.getElementById('commandStateNote');
+      if (commandNote) commandNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = 'none';
       const submitSection = document.querySelector('#moveControls .submit-section');
@@ -3385,6 +3518,8 @@
     function restoreLiveSelectionPanel() {
       const fatalNote = document.getElementById('fatalConsentNote');
       if (fatalNote) fatalNote.style.display = 'none';
+      const commandNote = document.getElementById('commandStateNote');
+      if (commandNote) commandNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = '';
       const submitSection = document.querySelector('#moveControls .submit-section');

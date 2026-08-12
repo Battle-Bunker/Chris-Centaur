@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
   boolean,
 } from 'drizzle-orm/pg-core';
 
@@ -79,6 +80,53 @@ export const games = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   table => [index('idx_games_started_at').on(table.startedAt)],
+);
+
+// Operator command events written by the CommandLogger worker: every command a
+// human gives a controlled snake (goto/near targets, manual moves, clears,
+// fatal-move confirmations, suicide, commits) plus the server-side transitions
+// that alter command state (goto arrival shifts). Each row carries the issuing
+// operator's identity so a replay can attribute every command.
+export const commandEvents = pgTable(
+  'command_events',
+  {
+    id: serial('id').primaryKey(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    gameId: varchar('game_id', { length: 255 }).notNull(),
+    // Null for game-scoped events; the affected snake otherwise.
+    snakeId: varchar('snake_id', { length: 255 }),
+    // The board turn that was current when the command was issued.
+    turn: integer('turn').notNull(),
+    eventType: varchar('event_type', { length: 48 }).notNull(),
+    // The operator who issued the command; all null for system events.
+    operatorId: varchar('operator_id', { length: 255 }),
+    operatorName: varchar('operator_name', { length: 255 }),
+    operatorColor: varchar('operator_color', { length: 32 }),
+    payload: jsonb('payload'),
+  },
+  table => [
+    index('idx_command_events_game_id').on(table.gameId),
+    index('idx_command_events_game_turn').on(table.gameId, table.turn),
+  ],
+);
+
+// One snapshot per (game, turn) of every controlled snake's command state as
+// it stood WHEN THE TURN ENDED (captured just before the next board is fed
+// in, so goto queues are un-shifted and staged records still bind to the
+// resolved turn). The state blob uses exactly the live WebSocket broadcast
+// shape (stagedMoves / waypoints / routes / activeIntentModes / owners plus
+// per-snake operators), so the history viewer can feed it straight into the
+// same render paths the live client uses.
+export const commandTurnStates = pgTable(
+  'command_turn_states',
+  {
+    id: serial('id').primaryKey(),
+    gameId: varchar('game_id', { length: 255 }).notNull(),
+    turn: integer('turn').notNull(),
+    state: jsonb('state').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [uniqueIndex('idx_command_turn_states_game_turn').on(table.gameId, table.turn)],
 );
 
 // Server lifecycle/activity events (boot, shutdown, woke, went-idle) powering
