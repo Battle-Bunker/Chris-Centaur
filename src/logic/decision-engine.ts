@@ -104,8 +104,6 @@ export class DecisionEngine {
   private boardEvaluator: BoardEvaluator;
   private simulator: Simulator;
   private config: DecisionConfig;
-  private lastFoodSetByGameId: Map<string, Set<string>> = new Map();
-  private static readonly MAX_FOOD_SET_ENTRIES = 20;
   
   constructor(config?: Partial<DecisionConfig>) {
     this.config = {
@@ -125,11 +123,7 @@ export class DecisionEngine {
    */
   public decide(gameState: GameState, teamSnakeIds: Set<string>, waypoint?: WaypointContext | null): MoveDecision {
     const startTime = Date.now();
-    const gameId = gameState.game.id;
-    
-    // Get previous food positions for this game
-    const prevFoodSet = this.lastFoodSetByGameId.get(gameId);
-    
+
     // Build current food set for simulated evaluations
     const currentFoodSet = new Set<string>();
     for (const food of gameState.board.food) {
@@ -182,8 +176,7 @@ export class DecisionEngine {
         gameState, 
         gameState.you.id, 
         teamSnakeIds,
-        { 
-          prevFoodSet,
+        {
           h2hRisk: {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
@@ -200,9 +193,6 @@ export class DecisionEngine {
         worstEvaluation: evaluation
       }];
       this.computeProjectedTerritories(gameState, graph, teamSnakeIds, evaluations);
-
-      // Update food set for next turn
-      this.setLastFoodSet(gameId, currentFoodSet);
 
       return {
         move: ourMoves[0],
@@ -277,7 +267,7 @@ export class DecisionEngine {
             gameState,
             gameState.you.id,
             teamSnakeIds,
-            { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+            { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
           )
         });
         continue;
@@ -297,9 +287,6 @@ export class DecisionEngine {
 
     const bestMove = DecisionEngine.selectBestMove(evaluations);
     this.computeProjectedTerritories(gameState, graph, teamSnakeIds, evaluations);
-
-    // Update food set for next turn (with LRU cap to avoid unbounded growth)
-    this.setLastFoodSet(gameId, currentFoodSet);
 
     return {
       move: bestMove,
@@ -396,7 +383,6 @@ export class DecisionEngine {
     const gameId = gameState.game.id;
     const startTime = Date.now();
 
-    const prevFoodSet = this.lastFoodSetByGameId.get(gameId);
     const currentFoodSet = new Set<string>();
     for (const food of gameState.board.food) {
       currentFoodSet.add(`${food.x},${food.y}`);
@@ -523,7 +509,7 @@ export class DecisionEngine {
           gameState,
           gameState.you.id,
           teamSnakeIds,
-          { prevFoodSet, h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+          { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
         );
         fallbackEvalByMove.set(move, cached);
       }
@@ -580,7 +566,6 @@ export class DecisionEngine {
         if (deadlineTimer) clearTimeout(deadlineTimer);
         const decision = buildDecision();
         this.computeProjectedTerritories(gameState, graph, teamSnakeIds, decision.evaluations);
-        this.setLastFoodSet(gameId, currentFoodSet);
         onUpdate?.(decision);
         recordDecisionTelemetry({
           ts: Date.now(),
@@ -656,31 +641,6 @@ export class DecisionEngine {
 
       pump();
     });
-  }
-
-  /**
-   * Called when a game ends. Releases per-game state so it doesn't leak.
-   */
-  public onGameEnd(gameId: string): void {
-    this.lastFoodSetByGameId.delete(gameId);
-  }
-
-  /**
-   * Set the last-food-set for a game, capping the map to MAX_FOOD_SET_ENTRIES
-   * via LRU eviction (oldest insertion key first). Belt-and-suspenders against
-   * the case where /end never arrives for some game.
-   */
-  private setLastFoodSet(gameId: string, foodSet: Set<string>): void {
-    // Re-insert to refresh insertion order for LRU.
-    if (this.lastFoodSetByGameId.has(gameId)) {
-      this.lastFoodSetByGameId.delete(gameId);
-    }
-    this.lastFoodSetByGameId.set(gameId, foodSet);
-    while (this.lastFoodSetByGameId.size > DecisionEngine.MAX_FOOD_SET_ENTRIES) {
-      const oldest = this.lastFoodSetByGameId.keys().next().value;
-      if (oldest === undefined) break;
-      this.lastFoodSetByGameId.delete(oldest);
-    }
   }
 
   /**

@@ -285,11 +285,10 @@ export class VoronoiStrategy {
   }
   
   /**
-   * Called from the /end route so per-game state in the decision engine
-   * (notably lastFoodSetByGameId) doesn't accumulate over the process lifetime.
+   * Called when a game ends so per-game cache entries don't accumulate over
+   * the process lifetime.
    */
   public onGameEnd(gameId: string): void {
-    this.decisionEngine.onGameEnd(gameId);
     for (const key of this.boardVoronoiCache.keys()) {
       if (key.startsWith(`${gameId}:`)) this.boardVoronoiCache.delete(key);
     }

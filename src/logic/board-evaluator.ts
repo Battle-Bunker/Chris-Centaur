@@ -75,8 +75,10 @@ export interface H2HRiskContext {
 }
 
 export interface EvaluationContext {
-  prevFoodSet?: Set<string>;  // Food positions from previous board state
-  optimistic?: boolean;       // Use optimistic passability for body segments
+  // Food positions of the PRE-MOVE board, supplied when evaluating a
+  // SIMULATED state (the simulation consumes eaten food, so a head sitting on
+  // a pre-move food cell means this branch ate). Absent for real states.
+  prevFoodSet?: Set<string>;
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
   // Per-move goto/near progress stats for the candidate move that produced this
