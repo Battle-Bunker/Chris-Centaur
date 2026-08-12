@@ -59,7 +59,7 @@ import {
   httpsCallable,
 } from 'firebase/functions';
 import { Direction, GameState } from '../types/battlesnake';
-import { VoronoiStrategy } from '../logic/voronoi-strategy-new';
+import { VoronoiStrategy } from '../logic/voronoi-strategy';
 import { BoardGraph } from '../logic/board-graph';
 import { MoveAnalyzer } from '../logic/move-analyzer';
 import { TeamDetector } from '../logic/team-detector';

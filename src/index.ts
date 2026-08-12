@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer } from 'http';
-import { VoronoiStrategy } from './logic/voronoi-strategy-new';
+import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { DecisionLogger } from './logic/decision-logger';
 import { ActiveGameManager } from './server/active-game-manager';
 import { GameWebSocketServer } from './server/websocket-server';
