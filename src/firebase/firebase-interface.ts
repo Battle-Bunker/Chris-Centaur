@@ -1460,7 +1460,8 @@ export class TacticToesFirebaseInterface {
     for (const snakeId of Object.keys(prev.turn.playerPieces)) {
       const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
-      const recorded = curr.turn.moves[snakeId];
+      // deploy-order tolerance: pre-moves turns from a not-yet-redeployed engine must not wedge the game
+      const recorded = curr.turn.moves?.[snakeId];
       if (recorded === undefined) continue;
       const dir = moveIndexToDirection(prevHead, recorded, width);
       if (dir) result[snakeId] = dir;
