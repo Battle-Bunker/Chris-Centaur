@@ -1258,17 +1258,31 @@ export class TacticToesFirebaseInterface {
           this.gameManager.setBotRecommendation(watched.gameID, snakeId, result.move, turnData);
         } catch (err) {
           console.error(`[tt-firebase] Decision failed for ${snakeId} turn ${turnNumber}:`, err);
-          this.gameManager.setBotRecommendation(watched.gameID, snakeId, 'up', {
-            gameState: view,
-            moveEvaluations: [],
-            territoryCells: {},
-            safeMoves: [],
-            botRecommendation: 'up',
-            timestamp: Date.now(),
-          });
+          // The fallback staging itself must never throw: this whole pass is
+          // fire-and-forget (void Promise.all below), so a synchronous throw
+          // from setBotRecommendation here would reject the voided promise
+          // and land in index.ts's unhandledRejection handler — killing the
+          // process over one snake's failed fallback. Log and move on.
+          try {
+            this.gameManager.setBotRecommendation(watched.gameID, snakeId, 'up', {
+              gameState: view,
+              moveEvaluations: [],
+              territoryCells: {},
+              safeMoves: [],
+              botRecommendation: 'up',
+              timestamp: Date.now(),
+            });
+          } catch (stagingErr) {
+            console.error(`[tt-firebase] Fallback staging failed for ${snakeId} turn ${turnNumber} of ${watched.gameID}:`, stagingErr);
+          }
         }
       })
-    );
+    ).catch((err) => {
+      // Belt-and-braces: nothing above should be able to reject, but a voided
+      // Promise.all with no .catch would turn any future slip here into an
+      // unhandledRejection → process exit. Contain it to a log line instead.
+      console.error(`[tt-firebase] Decision pass rejected for game ${watched.gameID} turn ${turnNumber}:`, err);
+    });
   }
 
   // A cheap (~1ms) safe move for the fast staging pass: prefer continuing
