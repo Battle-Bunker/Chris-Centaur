@@ -4,7 +4,7 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
+import { MoveAnalyzer, H2HRiskInfo, PieceThreatInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, HeuristicWeights } from './board-evaluator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
@@ -151,6 +151,7 @@ export class DecisionEngine {
     if (ourMoves.length === 1) {
       // Only one move available - still evaluate it properly
       const h2hRisk = moveAnalysis.h2hRiskByMove.get(ourMoves[0]);
+      const pieceThreat = moveAnalysis.pieceThreatByMove.get(ourMoves[0]);
       const evaluation = this.boardEvaluator.evaluateBoard(
         gameState,
         gameState.you.id,
@@ -159,6 +160,10 @@ export class DecisionEngine {
           h2hRisk: {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
+          },
+          pieceThreat: {
+            enemyPieceThreat: pieceThreat?.hasEnemyThreat ? 1 : 0,
+            allyPieceThreat: pieceThreat?.hasAllyThreat ? 1 : 0
           },
           waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null
         }
@@ -186,6 +191,7 @@ export class DecisionEngine {
     // combinations decideIteratively fans out to the pool.
     const { simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
+    const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
 
     // Evaluate through the SAME evaluateChunk unit the workers run, inline,
     // in chunk-sized ROUND-ROBIN order across candidate moves under a hard
@@ -214,6 +220,7 @@ export class DecisionEngine {
           simulatedSnakeIds,
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
+          pieceThreat: pieceThreatCtxByMove.get(move)!,
           waypointProgress: waypointProgressByMove?.[move] ?? null
         });
         const acc = worstByMove.get(move)!;
@@ -239,7 +246,11 @@ export class DecisionEngine {
             gameState,
             gameState.you.id,
             teamSnakeIds,
-            { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+            {
+              h2hRisk: h2hCtxByMove.get(move)!,
+              pieceThreat: pieceThreatCtxByMove.get(move)!,
+              waypointProgress: waypointProgressByMove?.[move] ?? null
+            }
           )
         };
       }
@@ -278,6 +289,11 @@ export class DecisionEngine {
     const nearbySnakes: Snake[] = [];
     for (const snake of gameState.board.snakes) {
       if (snake.id === gameState.you.id || snake.health <= 0) continue;
+      // Documented v1 approximation: chess pieces are treated as STATIONARY
+      // 1-cell snakes in lookahead. They never enter the move sets (moveSet
+      // absence = frozen in the Simulator), so the engine plans around where
+      // they stand, not where they could jump.
+      if ((snake.unitType ?? 'snake') !== 'snake') continue;
       if (this.manhattanDistance(gameState.you.head, snake.head) <= this.config.nearbyDistance) {
         nearbySnakes.push(snake);
       }
@@ -306,6 +322,27 @@ export class DecisionEngine {
       });
     }
     return h2hCtxByMove;
+  }
+
+  /**
+   * Per-move piece-threat context (0/1 flags), the piece counterpart of
+   * h2hContexts: computed once per decision from the pre-move board (the
+   * analyzer's per-decision threat map) and injected into every evaluation
+   * of that move — plain objects, so they ride into worker chunk jobs.
+   */
+  private pieceThreatContexts(
+    ourMoves: Direction[],
+    pieceThreatByMove: Map<Direction, PieceThreatInfo>
+  ): Map<Direction, { enemyPieceThreat: number; allyPieceThreat: number }> {
+    const ctxByMove = new Map<Direction, { enemyPieceThreat: number; allyPieceThreat: number }>();
+    for (const move of ourMoves) {
+      const threat = pieceThreatByMove.get(move);
+      ctxByMove.set(move, {
+        enemyPieceThreat: threat?.hasEnemyThreat ? 1 : 0,
+        allyPieceThreat: threat?.hasAllyThreat ? 1 : 0
+      });
+    }
+    return ctxByMove;
   }
 
   // Select the best move with a candidate-level fatal-pocket veto.
@@ -454,6 +491,7 @@ export class DecisionEngine {
     // structured-clone to worker threads).
     const { nearbySnakes, simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
+    const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
 
     // Chunk the combination space per candidate move, then interleave chunks
     // ROUND-ROBIN across moves so partial results cover every move instead of
@@ -475,6 +513,7 @@ export class DecisionEngine {
           simulatedSnakeIds,
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
+          pieceThreat: pieceThreatCtxByMove.get(move)!,
           waypointProgress: waypointProgressByMove?.[move] ?? null
         });
       }
@@ -506,7 +545,11 @@ export class DecisionEngine {
           gameState,
           gameState.you.id,
           teamSnakeIds,
-          { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+          {
+            h2hRisk: h2hCtxByMove.get(move)!,
+            pieceThreat: pieceThreatCtxByMove.get(move)!,
+            waypointProgress: waypointProgressByMove?.[move] ?? null
+          }
         );
         fallbackEvalByMove.set(move, cached);
       }

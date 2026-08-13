@@ -28,6 +28,13 @@ export interface ChunkJob {
   weights?: DecisionConfig['weights'];
   h2hRisk: { enemyH2HRisk: number; allyH2HRisk: number };
   /**
+   * Piece-threat flags for THIS chunk's candidate move, computed once per
+   * decision on the main thread from the pre-move board (same per-move
+   * constant contract as h2hRisk). Plain object — structured-clones into
+   * worker threads for free. Optional so piece-free callers pay nothing.
+   */
+  pieceThreat?: { enemyPieceThreat: number; allyPieceThreat: number };
+  /**
    * The goto/near progress stats for THIS chunk's candidate move, computed on
    * the main thread from the pre-move board. A per-move constant (the stat
    * describes the move, not the simulated board), so it is injected unchanged
@@ -79,6 +86,7 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
     const evaluation = evaluator.evaluateBoard(nextGameState, gameState.you.id, teamSet, {
       prevFoodSet: currentFoodSet,
       h2hRisk: job.h2hRisk,
+      pieceThreat: job.pieceThreat,
       simulatedSnakeIds: simulatedSet,
       waypointProgress: job.waypointProgress ?? null,
       // Chunk evaluations feed only the minimax score aggregation — per-state

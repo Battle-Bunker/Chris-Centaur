@@ -193,6 +193,30 @@ export const HEURISTICS = {
     section: 'combat',
   },
 
+  // ── Chess-piece threat (the piece counterpart of h2h risk). Deliberately
+  // moderate — comparable to the h2h weights: a threatened square is a
+  // deterrent, not a paralyzer (the piece may not move at all, and an
+  // equal-weight attack trades the piece too). ─────────────────────────────
+  enemyPieceThreat: {
+    default: -100,
+    uiRange: { min: -500, max: 0, step: 5 },
+    label: 'Enemy Piece Threat Weight',
+    description:
+      'Penalty for landing on a square an enemy chess piece could reach next turn when the ' +
+      'contest there would kill us (higher-tier piece, or equal tier and at least our ' +
+      'weight). Moderate by design — the piece may not move (negative).',
+    section: 'combat',
+  },
+  allyPieceThreat: {
+    default: -50,
+    uiRange: { min: -500, max: 0, step: 5 },
+    label: 'Ally Piece Threat Weight',
+    description:
+      'Penalty for landing on a square one of our own chess pieces could reach next turn — ' +
+      'like ally h2h risk, we never want the trade regardless of who survives it (negative)',
+    section: 'combat',
+  },
+
   // ── User-directed waypoints (centaur UI: alt-click goto, shift-click near).
   // The progress stat is a BOUNDED [0,1] ramp that equals 1 for the optimal
   // next step, so the weight IS the bonus that step receives — not a

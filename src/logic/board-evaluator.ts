@@ -46,12 +46,21 @@ export interface H2HRiskContext {
   allyH2HRisk?: number;   // 1 if this move has h2h risk with ally, 0 otherwise
 }
 
+export interface PieceThreatContext {
+  enemyPieceThreat?: number;  // 1 if the move lands on a square a threatening enemy piece could take
+  allyPieceThreat?: number;   // 1 if the move lands on a square an ally piece could take
+}
+
 export interface EvaluationContext {
   // Food positions of the PRE-MOVE board, supplied when evaluating a
   // SIMULATED state (the simulation consumes eaten food, so a head sitting on
   // a pre-move food cell means this branch ate). Absent for real states.
   prevFoodSet?: Set<string>;
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
+  // Piece-threat info for the move being evaluated — same injection pattern
+  // (and reason) as h2hRisk: a property of the candidate MOVE computed once
+  // per decision from the pre-move board, not of the board being scored.
+  pieceThreat?: PieceThreatContext;
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
   // Per-move goto/near progress stats for the candidate move that produced this
   // board (centaur play mode). Computed once per decision from the PRE-move
@@ -277,6 +286,8 @@ export class BoardEvaluator {
         deaths: isDead ? 1 : 0,
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
         allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
+        enemyPieceThreat: ctx?.pieceThreat?.enemyPieceThreat ?? 0,  // From context, 1 if a threatening enemy piece can take the landing square
+        allyPieceThreat: ctx?.pieceThreat?.allyPieceThreat ?? 0,    // From context, 1 if an ally piece can take the landing square
         gotoProgress,
         nearProgress,
         aggression,
