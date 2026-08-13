@@ -793,10 +793,20 @@
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
-    // Name tag currently under the mouse (renders ~90% translucent).
+    // Unit tag currently under the mouse (hover shows the REVERSE of the
+    // current default opacity state).
     let hoveredNameTagSnakeId = null;
     let lastCanvasMousePos = null; // last {clientX, clientY} over the canvas
     let nameTagHoverRerenderQueued = false;
+    // Unit-tag default opacity: false → tags rest opaque (hover fades them),
+    // true → tags rest translucent (hover solidifies them). Toggled by a bare
+    // Alt TAP (keydown+keyup with no intervening key/mouse — Alt+click cell
+    // inspection is untouched) and persisted per-browser.
+    const TAG_OPACITY_PREF_KEY = 'unitTagsTranslucentDefault';
+    let tagsTranslucentDefault = false;
+    try {
+      tagsTranslucentDefault = localStorage.getItem(TAG_OPACITY_PREF_KEY) === '1';
+    } catch (_e) { /* storage unavailable → session-only default */ }
     let stagedMoves = {};
 
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
@@ -1627,11 +1637,13 @@
         showChosenArrow: false,
         controlledSnakeIds: controlledSnakeIds,
         selectionGlows: selectionGlows,
-        // Ownership name tags: styling derives reactively from the selections
-        // map (single selection property) inside the renderer.
+        // Unit tags: styling derives reactively from the selections map
+        // (single selection property) inside the renderer; the Alt-tap
+        // opacity default rides along.
         owners: owners,
         selections: selections,
         hoveredNameTagSnakeId: hoveredNameTagSnakeId,
+        tagsTranslucentDefault: tagsTranslucentDefault,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
@@ -3856,6 +3868,10 @@
         fatalConsented: !!(own && own.fatal_consent),
         stagedMoves: cmd ? cmd.stagedMoves : null,
         owners: cmd ? cmd.owners : null,
+        // Unit tags render here through the same shared path as live play;
+        // hover + the Alt-tap opacity default apply identically.
+        hoveredNameTagSnakeId: hoveredNameTagSnakeId,
+        tagsTranslucentDefault: tagsTranslucentDefault,
       });
       if (cmd) {
         const board = turn.game_state.board;
@@ -4142,29 +4158,68 @@
     })();
 
 
-    // Hovering an owner name tag makes the whole tag clearly translucent so
-    // the board under it stays readable; re-render only when the hovered tag
-    // actually changes. The last mouse position is tracked so the hover can be
-    // revalidated against fresh hit rects after every render (tags move as the
-    // snakes do), and it is cleared on mouseleave so no tag can stay stuck in
-    // the faded state after the cursor leaves the canvas.
+    // Hovering a unit tag shows the REVERSE of the current default opacity
+    // state (default opaque → hover fades it so the board underneath stays
+    // readable; default translucent → hover solidifies it); re-render only
+    // when the hovered tag actually changes. The last mouse position is
+    // tracked so the hover can be revalidated against fresh hit rects after
+    // every render (tags move as the units do), and it is cleared on
+    // mouseleave so no tag can stay stuck in the hover state after the cursor
+    // leaves the canvas. Applies in BOTH live and historic view — the tags
+    // render through the same shared path in each.
+    function repaintForTagChange() {
+      if (viewMode === 'historic') renderHistoricBoard();
+      else scheduleRender();
+    }
     document.getElementById('gameCanvas').addEventListener('mousemove', (event) => {
       lastCanvasMousePos = { clientX: event.clientX, clientY: event.clientY };
-      if (viewMode !== 'live') return;
       const canvas = document.getElementById('gameCanvas');
       const hit = BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos);
       if (hit !== hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = hit;
-        scheduleRender();
+        repaintForTagChange();
       }
     });
     document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
       lastCanvasMousePos = null;
       if (hoveredNameTagSnakeId) {
         hoveredNameTagSnakeId = null;
-        scheduleRender();
+        repaintForTagChange();
       }
     });
+
+    // ── Alt tap: toggle the unit tags' default opacity ──────────────────────
+    // A bare Alt TAP (keydown then keyup with no other key or mouse press in
+    // between) flips the default between opaque and translucent; the
+    // preference persists in localStorage. Any intervening key or pointer
+    // press cancels the pending tap, so Alt+click cell inspection (and every
+    // other Alt chord) never toggles. Auto-repeat keydowns of Alt itself do
+    // NOT cancel — a slow press-and-release still counts as a tap.
+    let altTapPending = false;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Alt') {
+        if (!e.repeat) altTapPending = true;
+      } else {
+        altTapPending = false;
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.key !== 'Alt') { altTapPending = false; return; }
+      if (!altTapPending) return;
+      altTapPending = false;
+      e.preventDefault(); // keep the browser from focusing its menu bar
+      tagsTranslucentDefault = !tagsTranslucentDefault;
+      try {
+        localStorage.setItem(TAG_OPACITY_PREF_KEY, tagsTranslucentDefault ? '1' : '0');
+      } catch (_e) { /* storage unavailable → session-only toggle */ }
+      repaintForTagChange();
+    });
+    // Capture phase so overlay handlers that stop propagation can't let a
+    // click slip through without cancelling the tap.
+    document.addEventListener('pointerdown', () => { altTapPending = false; }, true);
+    // Alt+Tab and friends: the keyup never arrives, so a stale pending tap
+    // must not fire on some later bare Alt release.
+    window.addEventListener('blur', () => { altTapPending = false; });
 
     setInterval(sendClockPing, 5000);
 

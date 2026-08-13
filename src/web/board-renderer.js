@@ -66,16 +66,187 @@ const BoardRenderer = (function () {
     return dead;
   }
 
-  // Chess-piece head glyphs (filled/black Unicode chess set, drawn white with
-  // an outline like the team letters so they read on any team colour).
-  const PIECE_GLYPHS = {
-    pawn: "♟",
-    knight: "♞",
-    bishop: "♝",
-    rook: "♜",
-    queen: "♛",
-    king: "♚",
+  // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
+  // distinctive at ~20px, where the old Unicode chess glyphs blurred together.
+  // Each icon is an ordered list of layers; a layer is either a filled shape
+  // (white with a dark outline so it reads on any team colour) or a stroked
+  // detail. The SAME definitions drive the canvas head glyphs on the board
+  // (via Path2D in drawUnitIcon) and the inline-SVG icons in the per-team
+  // units table (via unitIconSVG), so the two can never drift apart.
+  // Design notes for small-size separability: pawn = round head on a squat
+  // base; bishop = tall pointed mitre with a dark slash; rook = square
+  // crenellations; king = big cross over a plain body; queen = spiky crown
+  // with dots; knight = horse silhouette; snake = S-curve serpent.
+  const ICON_COLORS = {
+    base: "#ffffff",
+    line: "rgba(0, 0, 0, 0.8)",
+    accent: "#e53935",
   };
+  const UNIT_ICONS = {
+    pawn: [
+      {
+        d:
+          "M12 3.4 a3.2 3.2 0 1 0 0.001 0 Z " +
+          "M10.6 10.4 L9.4 16.2 L5.8 18.3 L5.8 20.8 L18.2 20.8 L18.2 18.3 L14.6 16.2 L13.4 10.4 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+    ],
+    bishop: [
+      {
+        d:
+          "M12 1.6 a1.7 1.7 0 1 0 0.001 0 Z " +
+          "M12 5.6 C9 8.2 7.5 10.7 7.5 12.9 C7.5 15.3 9.4 16.9 12 16.9 C14.6 16.9 16.5 15.3 16.5 12.9 C16.5 10.7 15 8.2 12 5.6 Z " +
+          "M7.2 18.4 L16.8 18.4 L17.8 20.8 L6.2 20.8 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      { d: "M12.2 7.6 L15.2 11.2", op: "stroke", color: "line", w: 1.6 },
+    ],
+    rook: [
+      {
+        d:
+          "M5.5 3.2 L8.3 3.2 L8.3 5.8 L10.6 5.8 L10.6 3.2 L13.4 3.2 L13.4 5.8 L15.7 5.8 L15.7 3.2 L18.5 3.2 " +
+          "L18.5 8.2 L16.8 9.8 L16.8 16.6 L18.5 18.2 L18.5 20.8 L5.5 20.8 L5.5 18.2 L7.2 16.6 L7.2 9.8 L5.5 8.2 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+    ],
+    knight: [
+      {
+        d:
+          "M7 20.8 C7 15.6 8.9 13.7 11.3 12.4 C9.8 13 7.9 13.2 7.1 12.3 C6.5 11.6 6.9 10.6 7.6 9.9 " +
+          "C9.1 8.5 10.5 7.1 11 5.3 L11.8 3 L13 5.1 C16.8 6.7 18.8 9.9 18.8 14.1 L18.8 20.8 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      { d: "M12.9 6.6 a1 1 0 1 0 0.001 0 Z", op: "fill", color: "line" },
+    ],
+    queen: [
+      {
+        d:
+          "M4.3 4.4 a1.4 1.4 0 1 0 0.001 0 Z " +
+          "M12 1.9 a1.5 1.5 0 1 0 0.001 0 Z " +
+          "M19.7 4.4 a1.4 1.4 0 1 0 0.001 0 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      {
+        d: "M4.3 8.6 L8.2 12.6 L12 7 L15.8 12.6 L19.7 8.6 L18.1 17 L5.9 17 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      {
+        d: "M6.3 18.5 L17.7 18.5 L18.4 20.8 L5.6 20.8 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+    ],
+    king: [
+      {
+        d: "M10.8 1.6 L13.2 1.6 L13.2 3.8 L15.4 3.8 L15.4 6.2 L13.2 6.2 L13.2 8.4 L10.8 8.4 L10.8 6.2 L8.6 6.2 L8.6 3.8 L10.8 3.8 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      {
+        d:
+          "M7.6 9.6 L16.4 9.6 L17.4 17.2 L6.6 17.2 Z " +
+          "M6.2 18.5 L17.8 18.5 L18.5 20.8 L5.5 20.8 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+    ],
+    snake: [
+      {
+        d: "M6 19.6 C13.6 19.6 14.8 16.6 9.8 15 C5.4 13.6 5.5 9.6 9.9 8.5 C12.6 7.8 14.4 7.7 15.9 6.4",
+        op: "stroke",
+        color: "line",
+        w: 5.4,
+      },
+      {
+        d: "M6 19.6 C13.6 19.6 14.8 16.6 9.8 15 C5.4 13.6 5.5 9.6 9.9 8.5 C12.6 7.8 14.4 7.7 15.9 6.4",
+        op: "stroke",
+        color: "base",
+        w: 3.2,
+      },
+      {
+        d: "M16.6 2.9 a2.7 2.7 0 1 0 0.001 0 Z",
+        op: "fill",
+        color: "base",
+        outline: true,
+      },
+      { d: "M17.6 4.2 a0.8 0.8 0 1 0 0.001 0 Z", op: "fill", color: "line" },
+      {
+        d: "M18.9 4.2 L20.7 2.9 M20.7 2.9 L21.6 3.7 M20.7 2.9 L20.1 1.8",
+        op: "stroke",
+        color: "accent",
+        w: 1.3,
+      },
+    ],
+  };
+
+  // Draw a unit icon centred at (cx, cy) with the given pixel size on a canvas.
+  // Filled layers stroke their dark outline FIRST so the outline sits behind
+  // the fill (bold mark, thin dark rim).
+  function drawUnitIcon(ctx, unitKey, cx, cy, size) {
+    const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
+    ctx.save();
+    ctx.translate(cx - size / 2, cy - size / 2);
+    ctx.scale(size / 24, size / 24);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    for (const layer of icon) {
+      const p = new Path2D(layer.d);
+      const color = ICON_COLORS[layer.color] || ICON_COLORS.base;
+      if (layer.op === "stroke") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = layer.w || 2;
+        ctx.stroke(p);
+      } else {
+        if (layer.outline) {
+          ctx.strokeStyle = ICON_COLORS.line;
+          ctx.lineWidth = 2.4;
+          ctx.stroke(p);
+        }
+        ctx.fillStyle = color;
+        ctx.fill(p);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Same icon as inline SVG markup (for the per-team units table rows). Layer
+  // order matches drawUnitIcon exactly: the outline is emitted as a separate
+  // stroke-only path BEFORE the fill path so it renders behind the fill.
+  function unitIconSVG(unitKey, sizePx) {
+    const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
+    const parts = [];
+    for (const layer of icon) {
+      const color = ICON_COLORS[layer.color] || ICON_COLORS.base;
+      if (layer.op === "stroke") {
+        parts.push(
+          `<path d="${layer.d}" fill="none" stroke="${color}" stroke-width="${layer.w || 2}" stroke-linecap="round" stroke-linejoin="round"/>`,
+        );
+      } else {
+        if (layer.outline) {
+          parts.push(
+            `<path d="${layer.d}" fill="none" stroke="${ICON_COLORS.line}" stroke-width="2.4" stroke-linejoin="round"/>`,
+          );
+        }
+        parts.push(`<path d="${layer.d}" fill="${color}"/>`);
+      }
+    }
+    return `<svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true" style="display:block;">${parts.join("")}</svg>`;
+  }
 
   // The four staged-move direction strings. Chess pieces stage NUMERIC moves
   // (full-board destination index); anything not in this set must never be fed
@@ -100,25 +271,24 @@ const BoardRenderer = (function () {
     return { x, y };
   }
 
-  // Head glyph: the snake's team letter, bold white with a dark outline so it
-  // reads against any team colour. Chess pieces draw their piece glyph instead
-  // of the letter, plus a small weight badge when their weight (length) > 1,
-  // and — for pawns — a facing triangle at the faced cell edge. Historical
-  // replays predating letters stored an emoji head — render that; a snake with
-  // neither gets "?".
+  // Head glyph: every unit's head cell draws its unit ICON — the shared
+  // drawn snake icon for snakes, the custom-drawn piece marks for chess
+  // pieces (see UNIT_ICONS). The unit's LETTER lives in its unit tag
+  // (renderUnitTags), not on the head. Pieces additionally keep their facing
+  // triangle (pawns) and staged-rotation badge; their weight now shows in
+  // the unit tag rather than the old corner badge.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
     const cy = hy + cellSize / 2 - cellSize * 0.06;
-    const pieceGlyph = snake.unitType ? PIECE_GLYPHS[snake.unitType] : null;
     ctx.save();
     ctx.beginPath();
     ctx.rect(hx, hy, cellSize, cellSize);
     ctx.clip();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (pieceGlyph) {
+    if (snake.unitType) {
       // Pawn facing: a small triangle hugging the faced cell edge. The wire
       // facing has y growing DOWNWARD (full-board convention), which matches
       // canvas rows exactly, so dx/dy apply to canvas offsets with no flip.
@@ -143,29 +313,7 @@ const BoardRenderer = (function () {
         ctx.fill();
         ctx.stroke();
       }
-      const size = Math.max(cellSize * 0.62, 9);
-      ctx.font = `bold ${size}px serif`;
-      ctx.lineJoin = "round";
-      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
-      ctx.strokeText(pieceGlyph, cx, cy);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(pieceGlyph, cx, cy);
-      // Weight badge: pieces are 1-cell units whose `length` is their WEIGHT
-      // (stack size). The snake body-length label draws on the neck, which a
-      // piece doesn't have — show the weight as a small corner number instead.
-      if (snake.length > 1) {
-        const badgeSize = Math.max(cellSize * 0.3, 7);
-        ctx.font = `bold ${badgeSize}px sans-serif`;
-        const bx = hx + cellSize * 0.8;
-        // Kept above the bottom-anchored health bar (drawHealthBar).
-        const by = hy + cellSize * 0.68;
-        ctx.lineWidth = Math.max(cellSize * 0.06, 1.5);
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
-        ctx.strokeText(String(snake.length), bx, by);
-        ctx.fillStyle = "#ffe082";
-        ctx.fillText(String(snake.length), bx, by);
-      }
+      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
       // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
       // mirror of the bottom-right weight badge) while a side-square rotation
       // is staged — the piece spends the turn turning, so no destination
@@ -190,28 +338,11 @@ const BoardRenderer = (function () {
         ctx.fillStyle = "#80d8ff";
         ctx.fillText(rotGlyph, rx, ry);
       }
-    } else if (snake.letter) {
-      const size = Math.max(cellSize * 0.55, 8);
-      ctx.font = `bold ${size}px sans-serif`;
-      ctx.lineJoin = "round";
-      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
-      ctx.strokeText(snake.letter, cx, cy);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(snake.letter, cx, cy);
-    } else if (snake.emoji) {
-      const size = Math.max(cellSize * 0.55, 8);
-      ctx.font = `${size}px serif`;
-      ctx.fillText(snake.emoji, cx, cy);
     } else {
-      const size = Math.max(cellSize * 0.5, 8);
-      ctx.font = `bold ${size}px sans-serif`;
-      ctx.lineJoin = "round";
-      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
-      ctx.strokeText("?", cx, cy);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText("?", cx, cy);
+      // Snakes (and any letter/emoji-era historical unit): the uniform drawn
+      // snake icon. The identifying letter (or historic emoji) shows in the
+      // unit tag instead.
+      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
     ctx.restore();
   }
@@ -1488,10 +1619,11 @@ const BoardRenderer = (function () {
       }
     });
 
-    // Owner name tags: a compact translucent player-name tag near each owned
-    // snake's neck, in the owner's colour. Placement + hover hit-testing live
-    // in renderOwnerNameTags / getNameTagAt.
-    renderOwnerNameTags(ctx, canvas, board, cellSize, options);
+    // Unit tags: a compact tag anchored at each unit's head cell (top-right)
+    // carrying the unit's letter, weight, health, and operator name when
+    // owned, with a colour-coded health bar underneath. Placement + hover
+    // hit-testing live in renderUnitTags / getNameTagAt.
+    renderUnitTags(ctx, canvas, board, cellSize, options);
 
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
@@ -1616,64 +1748,135 @@ const BoardRenderer = (function () {
     return cellSize;
   }
 
-  // Per-canvas name-tag rects from the last render, for hover hit-testing.
+  // Per-canvas unit-tag rects from the last render, for hover hit-testing.
   // Rects are in BOARD-PIXEL space (the canvas's internal coordinate system).
   const _nameTagRects = new WeakMap();
 
-  // Draw a compact translucent player-name tag for every OWNED snake, anchored
-  // at the neck:
-  //   - head pointing horizontally → the tag extends from the neck AWAY from
-  //     the head (so it trails behind the snake, not over its face);
-  //   - head pointing vertically  → the tag is centred on the neck.
-  // Positioning heuristics: candidate placements are scored by how many OTHER
-  // snake heads they cover, and the least-overlapping candidate wins.
-  // Styling derives reactively from the selections map (the single selection
-  // property): owned snakes get thin text + a thin border; the currently
-  // selected snake's tag gets thicker, brighter lines. Hovering a tag drops it
-  // to ~90% translucency so the board beneath stays readable.
-  // Draw an owner name tag as ONE atomic unit: the opacity is computed once
-  // from the tag's state and applied to background, outline, and text alike
-  // inside a single save/restore block. This guarantees the three parts can
-  // never appear/disappear independently, and no alpha can leak in or out.
-  function drawOwnerTag(ctx, rect, owner, fontSize, font, cellSize, state) {
-    const { selected, hovered } = state;
-    // Hovered → clearly translucent (board underneath visible, tag still
-    // legible). Selected → fully opaque. Default → slightly translucent.
-    const alpha = hovered ? 0.35 : selected ? 1 : 0.9;
-    const ownerColor = owner.color || "#555555";
+  // Draw ONE unit tag: a rounded white pill anchored at the unit's head cell,
+  // containing (left to right) the unit's LETTER in a team-coloured chip, its
+  // WEIGHT (×N — body length for snakes, stack weight for pieces), its
+  // numeric HEALTH behind a heart tinted by the shared health thresholds, and
+  // the OPERATOR name when the unit is owned. A colour-coded health bar
+  // (healthFraction/healthBarColor — same thresholds as the board bars) sits
+  // directly under the tag.
+  // The whole tag is one atomic unit: the opacity is computed once from the
+  // tag's state and applied to every part inside a single save/restore block,
+  // so no piece can appear/disappear independently and no alpha can leak.
+  // Opacity model: `translucentDefault` (Alt-tap toggle, plumbed through
+  // options.tagsTranslucentDefault) picks the resting state; hovering always
+  // shows the REVERSE of the current default.
+  function drawUnitTag(ctx, tag, state) {
+    const {
+      rect,
+      fontSize,
+      font,
+      padX,
+      gap,
+      chipW,
+      tagH,
+      barH,
+      letter,
+      weightText,
+      health,
+      frac,
+      nameText,
+      unitColor,
+      ownerColor,
+    } = tag;
+    const { selected, hovered, translucentDefault } = state;
+    let alpha;
+    if (hovered) alpha = translucentDefault ? 0.95 : 0.35;
+    else if (translucentDefault) alpha = 0.35;
+    else alpha = selected ? 1 : 0.9;
+
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = font;
-    const r = rect.h * 0.3;
+    ctx.textBaseline = "middle";
+
+    // Tag body: white background, outlined in the owner's colour when owned,
+    // else the unit's own colour; the selected unit gets a thicker outline.
+    const r = tagH * 0.3;
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, rect.h, r);
-    else ctx.rect(rect.x, rect.y, rect.w, rect.h);
-    // White background with owner-colored outline and dark text for contrast.
+    if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, tagH, r);
+    else ctx.rect(rect.x, rect.y, rect.w, tagH);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.lineWidth = selected ? Math.max(2, cellSize * 0.07) : 1.5;
-    ctx.strokeStyle = ownerColor;
+    ctx.lineWidth = selected ? Math.max(2, fontSize * 0.2) : 1.5;
+    ctx.strokeStyle = ownerColor || unitColor;
     ctx.stroke();
-    ctx.fillStyle = "#1a1a1a";
+
+    const midY = rect.y + tagH / 2 + fontSize * 0.05;
+    let x = rect.x + padX;
+
+    // Letter chip in the unit's colour (white bold letter on top).
+    const chipH = tagH - Math.max(2, fontSize * 0.25);
+    const chipY = rect.y + (tagH - chipH) / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, chipY, chipW, chipH, chipH * 0.25);
+    else ctx.rect(x, chipY, chipW, chipH);
+    ctx.fillStyle = unitColor;
+    ctx.fill();
+    ctx.font = `700 ${fontSize}px sans-serif`;
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      owner.name,
-      rect.x + rect.w / 2,
-      rect.y + rect.h / 2 + fontSize * 0.05,
-    );
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(letter, x + chipW / 2, midY);
+    x += chipW + gap;
+
+    // Weight (×N).
+    ctx.font = font;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillText(weightText, x, midY);
+    x += ctx.measureText(weightText).width;
+
+    // Numeric health, heart tinted by the shared health thresholds.
+    if (health != null) {
+      x += gap;
+      ctx.fillStyle = healthBarColor(frac);
+      ctx.fillText("\u2665", x, midY);
+      x += ctx.measureText("\u2665").width + fontSize * 0.15;
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillText(String(health), x, midY);
+      x += ctx.measureText(String(health)).width;
+    }
+
+    // Operator name when owned.
+    if (nameText) {
+      x += gap;
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillText(nameText, x, midY);
+    }
+
+    // Colour-coded health bar directly under the tag (same thresholds as the
+    // on-cell board bars).
+    if (barH) {
+      const by = rect.y + tagH + 1;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(rect.x, by, rect.w, barH);
+      if (frac > 0) {
+        ctx.fillStyle = healthBarColor(frac);
+        ctx.fillRect(rect.x, by, rect.w * frac, barH);
+      }
+    }
     ctx.restore();
   }
 
-  function renderOwnerNameTags(ctx, canvas, board, cellSize, options) {
-    const owners = options?.owners || null;
+  // One tag per unit head cell, for EVERY unit on the board (owned or not) —
+  // the generalization of the old owner name tags. Anchored at the head
+  // cell's TOP-RIGHT corner; candidate placements (top-right primary, then
+  // top-left / bottom-right fallbacks) are scored by how many OTHER unit
+  // heads and already-placed tags they cover, and the least-overlapping
+  // candidate wins. Styling derives reactively from the selections map; the
+  // Alt-tap opacity default arrives via options.tagsTranslucentDefault.
+  function renderUnitTags(ctx, canvas, board, cellSize, options) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
-    if (!owners) return;
+    const owners = options?.owners || {};
     const selections = options?.selections || {};
     const hoveredId = options?.hoveredNameTagSnakeId || null;
+    const translucentDefault = !!options?.tagsTranslucentDefault;
 
-    // Other snakes' head cells (board-pixel rects) for overlap avoidance.
+    // Other units' head cells (board-pixel rects) for overlap avoidance.
     const headRects = {};
     board.snakes.forEach((s) => {
       const h = s.body && s.body[0];
@@ -1688,46 +1891,65 @@ const BoardRenderer = (function () {
     });
     const intersects = (a, b) =>
       a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    const placed = [];
 
     board.snakes.forEach((snake) => {
-      const owner = owners[snake.id];
-      if (!owner || !owner.name) return;
       const head = snake.body && snake.body[0];
       if (!head) return;
-      const neck = snake.body.length > 1 ? snake.body[1] : head;
+      const owner = owners[snake.id] || null;
       const selected = !!selections[snake.id];
       const hovered = hoveredId === snake.id;
+      const unitColor =
+        snake.customizations?.color || snake.color || "#888888";
+
+      // Letter for verbal reference; historic pre-letter units fall back to
+      // their emoji, then "?".
+      const letter = snake.letter || snake.emoji || "?";
+      const weight = snake.length ?? snake.body.length;
+      const health = typeof snake.health === "number" ? snake.health : null;
+      const frac = health != null ? healthFraction(snake) : 0;
 
       const fontSize = Math.max(9, cellSize * 0.32);
       const font = `${selected ? "600" : "400"} ${fontSize}px sans-serif`;
+      const padX = fontSize * 0.4;
+      const gap = fontSize * 0.4;
+      const weightText = `\u00d7${weight}`;
+      const nameText = owner && owner.name ? owner.name : null;
+
       ctx.save();
+      ctx.font = `700 ${fontSize}px sans-serif`;
+      const chipW = Math.max(
+        fontSize * 1.25,
+        ctx.measureText(letter).width + fontSize * 0.5,
+      );
       ctx.font = font;
-      const padX = fontSize * 0.45;
-      const tagW = ctx.measureText(owner.name).width + padX * 2;
-      const tagH = fontSize * 1.5;
+      let contentW = chipW + gap + ctx.measureText(weightText).width;
+      if (health != null) {
+        contentW +=
+          gap +
+          ctx.measureText("\u2665").width +
+          fontSize * 0.15 +
+          ctx.measureText(String(health)).width;
+      }
+      if (nameText) contentW += gap + ctx.measureText(nameText).width;
       ctx.restore();
 
-      const neckCx = neck.x * cellSize + cellSize / 2;
-      const neckCy = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
-      const dx = head.x - neck.x;
-      const dy = head.y - neck.y;
+      const tagW = contentW + padX * 2;
+      const tagH = fontSize * 1.5;
+      const barH = health != null ? Math.max(2, fontSize * 0.3) : 0;
+      const totalH = tagH + (barH ? barH + 1 : 0);
 
-      // Primary placement per head direction, plus fallbacks shifted a cell
-      // up/down (horizontal) or left/right (vertical) for overlap avoidance.
-      const candidates = [];
-      if (dx !== 0) {
-        // Head horizontal → extend away from the head, vertically centred on
-        // the neck. dx>0 means head is right of neck, so extend leftwards.
-        const x = dx > 0 ? neckCx + cellSize / 2 - tagW : neckCx - cellSize / 2;
-        candidates.push({ x, y: neckCy - tagH / 2 });
-        candidates.push({ x, y: neckCy - tagH / 2 - cellSize });
-        candidates.push({ x, y: neckCy - tagH / 2 + cellSize });
-      } else {
-        // Head vertical (or single-segment) → centred on the neck.
-        candidates.push({ x: neckCx - tagW / 2, y: neckCy - tagH / 2 });
-        candidates.push({ x: neckCx - tagW / 2 - cellSize, y: neckCy - tagH / 2 });
-        candidates.push({ x: neckCx - tagW / 2 + cellSize, y: neckCy - tagH / 2 });
-      }
+      // Anchor at the head cell's TOP-RIGHT corner, extending up-right with a
+      // slight overlap into the cell so the association stays unambiguous.
+      const hxLeft = head.x * cellSize;
+      const hyTop = (board.height - 1 - head.y) * cellSize;
+      const hxRight = hxLeft + cellSize;
+      const overlap = cellSize * 0.18;
+      const candidates = [
+        { x: hxRight - overlap, y: hyTop - totalH + overlap }, // top-right
+        { x: hxLeft - tagW + overlap, y: hyTop - totalH + overlap }, // top-left
+        { x: hxRight - overlap, y: hyTop + cellSize - overlap }, // bottom-right
+      ];
 
       const boardW = board.width * cellSize;
       const boardH = board.height * cellSize;
@@ -1736,14 +1958,17 @@ const BoardRenderer = (function () {
       for (const c of candidates) {
         const rect = {
           x: Math.max(1, Math.min(c.x, boardW - tagW - 1)),
-          y: Math.max(1, Math.min(c.y, boardH - tagH - 1)),
+          y: Math.max(1, Math.min(c.y, boardH - totalH - 1)),
           w: tagW,
-          h: tagH,
+          h: totalH,
         };
         let score = 0;
         for (const [sid, hr] of Object.entries(headRects)) {
           if (sid === snake.id) continue;
           if (intersects(rect, hr)) score++;
+        }
+        for (const pr of placed) {
+          if (intersects(rect, pr)) score++;
         }
         if (score < bestScore) {
           bestScore = score;
@@ -1753,21 +1978,35 @@ const BoardRenderer = (function () {
       }
       if (!best) return;
 
-      // The whole tag (background + outline + text) is one atomic unit drawn
-      // under a SINGLE alpha inside one save/restore block. Hover makes the
-      // entire tag clearly translucent (but still legible); nothing about the
-      // tag is ever drawn in a separate pass or with a different alpha.
-      drawOwnerTag(ctx, best, owner, fontSize, font, cellSize, {
-        selected,
-        hovered,
-      });
+      drawUnitTag(
+        ctx,
+        {
+          rect: best,
+          fontSize,
+          font,
+          padX,
+          gap,
+          chipW,
+          tagH,
+          barH,
+          letter,
+          weightText,
+          health,
+          frac,
+          nameText,
+          unitColor,
+          ownerColor: owner && owner.color ? owner.color : null,
+        },
+        { selected, hovered, translucentDefault },
+      );
 
+      placed.push(best);
       rects.push({ snakeId: snake.id, ...best });
     });
   }
 
-  // Hit-test a mouse event against the name-tag rects from the last render.
-  // Returns the owned snake's id, or null. Uses the CSS-displayed size so it
+  // Hit-test a mouse event against the unit-tag rects from the last render.
+  // Returns the unit's snake id, or null. Uses the CSS-displayed size so it
   // stays correct when the canvas is scaled (same principle as getClickedCell).
   function getNameTagAt(canvas, event) {
     const rects = _nameTagRects.get(canvas);
@@ -1935,14 +2174,21 @@ const BoardRenderer = (function () {
         `<span style="display:inline-block;width:48px;height:8px;background:rgba(0,0,0,0.35);border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
         `${snake.health}</span>`;
     }
+    // Unit icon: the SAME drawn icon as the unit's board head glyph
+    // (unitIconSVG shares its path data with drawUnitIcon), rendered white on
+    // the unit's colour box so the row reads like the board cell.
+    const unitIcon = unitIconSVG(snake.unitType || "snake", 14);
+    // Weight: the unit-generic size stat — body length for snakes, stack
+    // weight for pieces.
+    const weight = snake.length ?? snake.body.length;
     return `
         <div class="${itemClass}"${clickAttr}>
-          <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
+          <div class="snake-color-box" style="background-color: ${snakeColor}; display: flex; align-items: center; justify-content: center;">${unitIcon}</div>
           <div class="snake-details">
             <div class="snake-name">${glyphPrefix}${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
             <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
-              <span>\u{1F4CF} ${snake.body.length}</span>
+              <span title="Weight">\u2696\uFE0F ${weight}</span>
               ${healthDisplay}
               ${invulnDisplay}
               ${ownerBadge}
@@ -2583,6 +2829,8 @@ const BoardRenderer = (function () {
     drawUnknownDeathMarker,
     getClickedCell,
     getNameTagAt,
+    drawUnitIcon,
+    unitIconSVG,
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
     _moveClickHandler: null,

@@ -86,7 +86,8 @@
         const dot = s.color
           ? `<span class="snake-dot" style="background-color:${escapeHtml(s.color)};"></span>`
           : '';
-        const len = s.length != null ? ` \u{1F4CF}${s.length}` : '';
+        // Weight (= body length for snakes, stack weight for pieces).
+        const len = s.length != null ? ` ⚖️${s.length}` : '';
         return `<span class="snake-tag">${dot}${escapeHtml(s.snake_name || 'Snake')}${len}</span>`;
       }).join('');
 
