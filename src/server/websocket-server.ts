@@ -8,6 +8,7 @@ import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
+import { ActivityController } from './activity-controller';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -73,15 +74,6 @@ export class GameWebSocketServer {
   // Last known Firebase connection status; replayed to every new connection
   // and re-broadcast on change (drives the red error banner in the web UI).
   private latestFirebaseStatus: unknown = null;
-
-  // Notified with the active client count on every connect/disconnect; used
-  // to suspend/resume the Firebase transport as web operators come and go.
-  private presenceListener: ((count: number) => void) | null = null;
-
-  onPresenceChange(listener: (count: number) => void): void {
-    this.presenceListener = listener;
-    listener(this.clients.size);
-  }
 
   broadcastFirebaseStatus(status: unknown): void {
     this.latestFirebaseStatus = status;
@@ -153,6 +145,13 @@ export class GameWebSocketServer {
             if (client.userId) {
               this.userActivity.set(client.userId, client.lastActivityAt);
             }
+            // Every USER_INTENT message is a VERIFIABLE human action for the
+            // instance-level awake rule: state-mutating commands, and the
+            // 'activity' heartbeat, which the client only sends after real
+            // local input (key/click/touch/mouse) since its last beat. Socket
+            // keepalives, pings and auto-resubscribes never reach this branch,
+            // so a connected-but-untouched tab counts as nothing.
+            ActivityController.getInstance().recordHumanAction();
             // Real state-mutating intent — this (not mere connections or
             // presence heartbeats) marks the server "active" on the
             // /activity timeline. The 'activity' heartbeat fires on any
@@ -700,9 +699,10 @@ export class GameWebSocketServer {
     );
     // Feed every connection-count change into the activity tracker so 0↔1
     // transitions emit went-idle / woke server events (includes idle-sweep
-    // closes — they arrive here via the socket's close handler).
+    // closes — they arrive here via the socket's close handler). NOTE: a
+    // connection is deliberately NOT a human action for the awake rule — a
+    // connected-but-untouched (auto-reconnecting) tab counts as nothing.
     ServerEventLogger.getInstance().setConnectionCount(this.clients.size);
-    this.presenceListener?.(this.clients.size);
   }
 
   private handleDisconnect(client: WSClient): void {

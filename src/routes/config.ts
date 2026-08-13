@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
+import { ActivityController } from '../server/activity-controller';
 
 const router = Router();
 const configStore = new ConfigStore();
@@ -38,6 +39,9 @@ router.get('/api/config', async (_req, res) => {
  * Update configuration values
  */
 router.post('/api/config', async (req, res) => {
+  // A config save is a mutating API call — a verifiable human action for the
+  // instance-level awake rule.
+  ActivityController.getInstance().recordHumanAction();
   try {
     const updates = req.body;
     
@@ -104,6 +108,8 @@ router.post('/api/config', async (req, res) => {
  * Reset configuration to defaults
  */
 router.delete('/api/config', async (_req, res) => {
+  // Config reset: mutating API call → verifiable human action.
+  ActivityController.getInstance().recordHumanAction();
   try {
     await configStore.clear();
     res.json({ 

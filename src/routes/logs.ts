@@ -1,6 +1,7 @@
 import express from 'express';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger } from '../logic/command-logger';
+import { ActivityController } from '../server/activity-controller';
 
 const router = express.Router();
 const logger = DecisionLogger.getInstance();
@@ -101,6 +102,8 @@ router.get('/api/logs/commands', async (req, res) => {
 
 // Clear old logs (admin endpoint)
 router.delete('/api/logs/old', async (req, res) => {
+  // Mutating admin call → verifiable human action for the awake rule.
+  ActivityController.getInstance().recordHumanAction();
   try {
     const daysToKeep = req.query.days ? parseInt(req.query.days as string, 10) : 7;
     await logger.clearOldLogs(daysToKeep);

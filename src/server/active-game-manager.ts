@@ -12,6 +12,8 @@ import {
 import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
+import { ActivityController } from './activity-controller';
+import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 
 export interface MoveEvaluation {
   move: Direction;
@@ -343,7 +345,33 @@ export class ActiveGameManager {
   // never invoked automatically.
   private moveCommitter: MoveCommitter | null = null;
 
-  private constructor() {}
+  private constructor() {
+    // The manager is the controller's game-progress source: a game counts
+    // toward keeping the instance awake only while verifiably progressing
+    // (see hasProgressingGame). Register/end/cleanup transitions poke the
+    // controller so the awake rule is re-evaluated immediately.
+    ActivityController.getInstance().registerSource(
+      'running-games',
+      () => this.hasProgressingGame()
+    );
+  }
+
+  /**
+   * True while any registered game is VERIFIABLY progressing: its turn
+   * deadline is still in the future, or its latest turn/activity arrived
+   * within GAME_PROGRESS_WINDOW_MS. This reuses the same per-game
+   * lastActivityAt clock the stale-game cleanup evicts on (one staleness
+   * clock, two thresholds), so a registered-but-stuck game — no turn advance,
+   * deadline long past — counts as INACTIVE for the awake rule long before
+   * the cleanup removes it from memory.
+   */
+  hasProgressingGame(now: number = Date.now()): boolean {
+    for (const game of this.games.values()) {
+      if (game.turnExpiryTime !== null && game.turnExpiryTime > now) return true;
+      if (now - game.lastActivityAt < GAME_PROGRESS_WINDOW_MS) return true;
+    }
+    return false;
+  }
 
   setMoveSubmitter(submitter: MoveSubmitter | null): void {
     this.moveSubmitter = submitter;
@@ -600,6 +628,8 @@ export class ActiveGameManager {
       });
       this.notifyGameListChange('added', gameId, snakeId);
     }
+    // A (re)registered game is fresh progress — re-evaluate the awake rule.
+    ActivityController.getInstance().poke();
   }
 
   // End the whole game in ONE call against the canonical final state. The
@@ -622,6 +652,7 @@ export class ActiveGameManager {
       console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
       this.games.delete(gameId);
       this.logIfFullyIdle();
+      ActivityController.getInstance().poke();
       return;
     }
 
@@ -660,6 +691,8 @@ export class ActiveGameManager {
     console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
     this.games.delete(gameId);
     this.logIfFullyIdle();
+    // Game gone — the awake rule may flip (no game branch left to hold it).
+    ActivityController.getInstance().poke();
   }
 
   isSnakeSelected(gameId: string, snakeId: string): boolean {
@@ -2322,6 +2355,7 @@ export class ActiveGameManager {
     if (this.staleGameCleanupInterval) return;
     this.staleGameCleanupInterval = setInterval(() => {
       const now = Date.now();
+      let removedAny = false;
       for (const [gameId, game] of this.games) {
         const idleTime = now - game.lastActivityAt;
         if (idleTime > maxIdleMs) {
@@ -2331,8 +2365,10 @@ export class ActiveGameManager {
           }
           this.games.delete(gameId);
           this.logIfFullyIdle();
+          removedAny = true;
         }
       }
+      if (removedAny) ActivityController.getInstance().poke();
     }, intervalMs);
     // Unref so this long-cycle timer doesn't keep the event loop alive on its
     // own, allowing the autoscale instance to drain to zero when idle.

@@ -32,6 +32,19 @@ export class DecisionWorkerPool {
     return DecisionWorkerPool.shared;
   }
 
+  /**
+   * Terminate the shared pool's workers if a shared pool exists — called on
+   * instance idle entry and at graceful shutdown. Clears the singleton so the
+   * next decision after a wake lazily respawns a fresh pool; a never-used
+   * pool is left uncreated (this must not instantiate one just to kill it).
+   */
+  static shutdownSharedIfRunning(): void {
+    if (DecisionWorkerPool.shared) {
+      DecisionWorkerPool.shared.shutdown();
+      DecisionWorkerPool.shared = null;
+    }
+  }
+
   readonly size: number;
   private workers: Worker[] = [];
   private idle: Worker[] = [];
