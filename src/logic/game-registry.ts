@@ -76,18 +76,32 @@ export class GameRegistry {
     if (!gameId || this.ended.has(gameId)) return;
     this.ended.add(gameId);
 
-    // The custom team engine's /end payload has no `board`; it carries a
-    // top-level `winners` array of { playerID, teamID, ... }. Prefer that.
-    // Fall back to the standard-engine shape (sole surviving board snake).
+    // The canonical final state carries a top-level `winners` array of
+    // { playerID, score, teamID, teamName } — every snake of each winning
+    // team, enriched by the Firebase interface. Prefer that: it covers both
+    // elimination finishes and turn-limit score finishes (where losing teams
+    // are still on the board). Fall back to the standard-engine shape (sole
+    // surviving board snake) only when no winners array is present.
     let winnerSnakeId: string | null = null;
     let winnerName: string | null = null;
     let endReason: string | null = null;
     const winners = (gameState as any)?.winners;
     if (Array.isArray(winners)) {
       if (winners.length > 0) {
-        winnerSnakeId = winners[0]?.playerID ?? null;
-        winnerName = winners[0]?.teamID ?? null;
-        endReason = 'winner';
+        // Winners spanning more than one team = a tie at the turn limit — the
+        // engine emits every tied team's snakes. That's a draw, not a win for
+        // whichever team happens to be listed first.
+        const teamIDs = new Set(
+          winners.map((w: any) => w?.teamID).filter((t: any) => t != null)
+        );
+        if (teamIDs.size > 1) {
+          endReason = 'draw';
+        } else {
+          winnerSnakeId = winners[0]?.playerID ?? null;
+          // Display name (team name), never a raw team id if we can help it.
+          winnerName = winners[0]?.teamName ?? winners[0]?.teamID ?? null;
+          endReason = 'winner';
+        }
       } else {
         endReason = 'draw';
       }

@@ -1102,10 +1102,16 @@ export class TacticToesFirebaseInterface {
       // (the old end path always passed null), so don't let it ride into the
       // stored turn row or the snake-ended payloads.
       delete (canonical.game as any).turnExpiryTime;
-      (canonical as any).winners = pt.turn.winners.map((w) => ({
-        ...w,
-        teamID: data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null,
-      }));
+      (canonical as any).winners = pt.turn.winners.map((w) => {
+        const teamID = data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null;
+        return {
+          ...w,
+          teamID,
+          // Display name for the games table — winnerName must never hold a
+          // raw team id.
+          teamName: (teamID && data.setup.teams.find((t) => t.id === teamID)?.name) || null,
+        };
+      });
       // Persist the FINAL board too — the death positions were never
       // replayable before (no /move is made on the final turn, so no decision
       // row ever covered it).
