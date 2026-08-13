@@ -49,6 +49,34 @@ of truth for staged moves.
   waypoints, or leave snakes on engine auto-pilot. Whatever the human does is
   the same write-through staging path the engine uses.
 
+## Chess pieces
+
+TacticToes games can mix chess pieces (pawn, knight, bishop, rook, queen,
+king) with snakes on the same board. The centaur supports them as a
+pragmatic v1:
+
+- **Rendering.** Pieces render with their chess glyph (♟♞♝♜♛♚) instead of a
+  team letter, with a small weight badge when their weight (stack size) > 1
+  and a facing triangle for pawns. A piece arrives from the wire as a 1-cell
+  unit whose `length` is its weight.
+- **Commanding.** Right-click a destination square (the goto waypoint) —
+  that IS the piece's staged move. If the target is a legal single move
+  (mirroring the server's `pieceMoves.ts` legality, including pawn facing,
+  the side-square rotation encoding and diagonal-only-onto-target), the
+  destination's full-board index is staged and published through the normal
+  requested → confirmed → final pipeline; anything illegal stages the
+  piece's own square (= stay). Staging a pawn's side square spends the turn
+  rotating to face that way. The 4-way keypad / Space staging doesn't apply
+  to pieces.
+- **Not automated.** The minimax engine drives **snakes only**: own pieces
+  get no engine recommendation — an uncommanded piece stages nothing and the
+  server defaults it to stay (Submit All still works: it publishes an
+  explicit stay and commits once Firebase confirms it). In lookahead, enemy
+  and allied pieces are approximated as **stationary 1-cell snakes** (they
+  never enter the simulated move sets), so the engine plans around where
+  pieces stand, not where they could jump. Decision logs and death markers
+  stay snake-only.
+
 ## Configuring the Firebase connection
 
 The centaur needs four values; without all four it starts in UI-only mode and
@@ -65,7 +93,7 @@ Also required:
 
 | Env var | Purpose |
 | --- | --- |
-| `TACTICTOES_FUNCTIONS_REGION` | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable), e.g. `us-central1` (dev) or `australia-southeast1` (prod) |
+| `TACTICTOES_FUNCTIONS_REGION` | Region of the TacticToes Cloud Functions (for the `exchangeCentaurApiKey` callable). **Required, no default** — must match the region where the TacticToes project you point at deploys its functions. If the four vars above are set but this one is missing, startup fails with an error |
 
 Set all of these as **Replit Secrets** (Workspace secrets for development,
 deployment secrets in the Publishing UI for production). Project policy: no
@@ -125,5 +153,7 @@ never-destroy-data rule for that database.
   (manual / queue / waypoint / heuristic), the fatal-move consent gate, and
   the single `stageMove` writer that write-through publishes every staged
   move to Firebase.
+- `src/logic/piece-moves.ts` — chess-piece movement legality, mirrored from
+  the TacticToes engine (keep in lockstep with the server's `pieceMoves.ts`).
 - `src/server/websocket-server.ts` + `src/web/` — the centaur UI.
 - `src/logic/` — the decision engine (Voronoi territory strategy).
