@@ -307,3 +307,197 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     expect(csR.intent.kind).toBe('heuristic');
   });
 });
+
+describe('Generalized candidate UI: stub evaluations, numeric manual staging, rotations', () => {
+  let mgr: ActiveGameManager;
+  let published: Published[];
+  let warnSpy: jest.SpyInstance;
+  const turnUpdates: Array<{ gameId: string; snakeId: string; turnData: any }> = [];
+
+  beforeAll(() => {
+    // The manager is a singleton with an append-only callback list; register
+    // one collector and filter per test by gameId.
+    ActiveGameManager.getInstance().onTurnUpdate((gameId, snakeId, turnData) => {
+      turnUpdates.push({ gameId, snakeId, turnData });
+    });
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mgr = ActiveGameManager.getInstance();
+    published = [];
+    turnUpdates.length = 0;
+    mgr.setMoveSubmitter(async (gameId, snakeId, turn, move, source) => {
+      published.push({ gameId, snakeId, turn, move, source });
+    });
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    mgr.setMoveSubmitter(null);
+    mgr.setMoveCommitter(null);
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    warnSpy.mockRestore();
+  });
+
+  function processPieceTurn(
+    gameId: string,
+    unitId: string,
+    snakes: Snake[],
+    turn: number,
+    food: Coord[] = []
+  ) {
+    const gs = makeGameState(gameId, turn, snakes, unitId, food);
+    const existing = mgr.getGame(gameId);
+    if (!existing || !existing.controlledSnakes.has(unitId)) {
+      mgr.registerGame(gs, unitId);
+    }
+    mgr.updateBoard(gameId, gs);
+    mgr.updatePieceTurn(gameId, unitId, gs);
+    mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+  }
+
+  test('updatePieceTurn fills turn data with a zero-scored stub evaluation per legal candidate and broadcasts it', () => {
+    const gameId = 'g-stub-eval';
+    const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook], 0);
+
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    const evals = cs.latestTurnData!.moveEvaluations;
+    // 11x11 interior rook at (5,5): 10 file + 10 rank + stay.
+    expect(evals).toHaveLength(21);
+    const stay = fullIdx({ x: 5, y: 5 });
+    for (const e of evals) {
+      expect(typeof e.move).toBe('number');
+      expect(e.score).toBe(0);
+      expect(e.numStates).toBe(0);
+      expect(e.breakdown).toEqual({ weights: {}, weighted: {} });
+      expect(e.dest).toBeDefined();
+      expect(e.kind).toBe(e.move === stay ? 'stay' : 'move');
+    }
+    // The stay candidate maps back to the piece's own api square.
+    const stayEval = evals.find((e) => e.move === stay)!;
+    expect(stayEval.dest).toEqual({ x: 5, y: 5 });
+    // Other turn-data fields keep the snake contract shape.
+    expect(cs.latestTurnData!.safeMoves).toEqual([]);
+    expect(cs.latestTurnData!.botRecommendation).toBeNull();
+
+    // The previously-missing broadcast: the piece's turn intake notifies.
+    const updates = turnUpdates.filter((u) => u.gameId === gameId && u.snakeId === 'R');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].turnData.moveEvaluations).toHaveLength(21);
+  });
+
+  test('pawn stub evaluations enumerate forward, rotations, stay, and diagonal-onto-food', () => {
+    const gameId = 'g-stub-pawn';
+    // Wire facing +x (y down): forward api (6,5); rotations api (5,4)/(5,6);
+    // diagonal-forward api squares are (6,4) and (6,6).
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    processPieceTurn(gameId, 'P', [pawn], 0, [{ x: 6, y: 6 }]);
+
+    const evals = mgr.getGame(gameId)!.controlledSnakes.get('P')!.latestTurnData!.moveEvaluations;
+    const byMove = new Map(evals.map((e) => [e.move, e]));
+    // forward + 2 rotations + stay + 1 diagonal (only the food one).
+    expect(evals).toHaveLength(5);
+    expect(byMove.get(fullIdx({ x: 6, y: 5 }))!.kind).toBe('move');
+    expect(byMove.get(fullIdx({ x: 5, y: 5 }))!.kind).toBe('stay');
+    expect(byMove.get(fullIdx({ x: 6, y: 6 }))!.kind).toBe('move'); // eat
+    expect(byMove.get(fullIdx({ x: 5, y: 4 }))!.kind).toBe('rotate');
+    expect(byMove.get(fullIdx({ x: 5, y: 6 }))!.kind).toBe('rotate');
+    expect(byMove.has(fullIdx({ x: 6, y: 4 }))).toBe(false); // empty diagonal
+  });
+
+  test('setUserSelection accepts a numeric destination for a piece and stages it as manual', () => {
+    const gameId = 'g-manual-num';
+    const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    cs.selectedBy = 'u1';
+
+    const dest = fullIdx({ x: 5, y: 9 });
+    mgr.setUserSelection(gameId, 'R', dest);
+    expect(cs.intent).toEqual({ kind: 'manual', move: dest });
+    expect(cs.staged).toMatchObject({ snakeId: 'R', turn: 0, move: dest, source: 'manual' });
+    // The recorded action carries the full traversed ray, ending on the dest.
+    expect(cs.staged!.action!.kind).toBe('move');
+    const path = (cs.staged!.action as { kind: 'move'; path: number[] }).path;
+    expect(path[path.length - 1]).toBe(dest);
+    expect(path).toHaveLength(4);
+    expect(publishedFor(gameId, 'R').slice(-1)[0]).toMatchObject({ move: dest, source: 'manual' });
+
+    // An out-of-bounds destination is refused outright (no staging change).
+    mgr.setUserSelection(gameId, 'R', 13 * 13);
+    expect(cs.staged!.move).toBe(dest);
+    // A numeric move for a SNAKE is refused symmetrically.
+    const snakeGame = 'g-manual-num-snake';
+    const snake = makeUnit('S', { x: 2, y: 5 });
+    const gs = makeGameState(snakeGame, 0, [snake], 'S');
+    mgr.registerGame(gs, 'S');
+    mgr.updateBoard(snakeGame, gs);
+    const csS = mgr.getGame(snakeGame)!.controlledSnakes.get('S')!;
+    csS.selectedBy = 'u1';
+    mgr.setUserSelection(snakeGame, 'S', 42);
+    expect(csS.intent.kind).toBe('heuristic');
+  });
+
+  test('a manual illegal destination stages the own square (stay), never a direction', () => {
+    const gameId = 'g-manual-illegal';
+    const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    cs.selectedBy = 'u1';
+
+    // In-bounds but off the rook's rank/file → legality resolver stages stay.
+    mgr.setUserSelection(gameId, 'R', fullIdx({ x: 6, y: 9 }));
+    expect(cs.staged).toMatchObject({ turn: 0, move: fullIdx({ x: 5, y: 5 }), source: 'manual' });
+    expect(cs.staged!.action).toEqual({ kind: 'stay' });
+  });
+
+  test('staging a pawn side square records the rotation and projects it on the staged-move view', () => {
+    const gameId = 'g-rotate';
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+
+    // api (5,4) is the full-board side square (6,7): quarter turn to face +y (wire).
+    const side = fullIdx({ x: 5, y: 4 });
+    mgr.setUserSelection(gameId, 'P', side);
+    expect(cs.staged).toMatchObject({ turn: 0, move: side, source: 'manual' });
+    expect(cs.staged!.action).toEqual({ kind: 'rotate', facing: { dx: 0, dy: 1 } });
+
+    const view = mgr.getStagedMovesForGame(gameId)['P'];
+    expect(view.requestedMove).toBe(side);
+    expect(view.rotation).toEqual({ dx: 0, dy: 1 });
+    // The wire sees only the numeric destination — rotation is presentation.
+    expect(publishedFor(gameId, 'P').slice(-1)[0].move).toBe(side);
+
+    // A non-rotation staging projects no rotation.
+    mgr.setUserSelection(gameId, 'P', fullIdx({ x: 6, y: 5 }));
+    expect(mgr.getStagedMovesForGame(gameId)['P'].rotation).toBeNull();
+  });
+
+  test('a manual destination is single-turn: the next piece turn intake resets it to heuristic', () => {
+    const gameId = 'g-manual-stale';
+    const rook0 = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook0], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    cs.selectedBy = 'u1';
+
+    mgr.setUserSelection(gameId, 'R', fullIdx({ x: 5, y: 9 }));
+    expect(cs.intent.kind).toBe('manual');
+    expect(cs.staged).toMatchObject({ turn: 0 });
+
+    // Turn advances (the rook did not move): the stale manual reverts to the
+    // heuristic and nothing is staged — the server defaults the piece to stay.
+    const rook1 = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook1], 1);
+    expect(cs.intent.kind).toBe('heuristic');
+    expect(cs.staged).toBeNull();
+  });
+
+  function publishedFor(gameId: string, snakeId: string): Published[] {
+    return published.filter((p) => p.gameId === gameId && p.snakeId === snakeId);
+  }
+});

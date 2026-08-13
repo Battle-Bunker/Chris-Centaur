@@ -26,6 +26,10 @@ export interface DecisionLogEntry {
     move: Direction;
     score: number;
     numStates: number;
+    // The candidate's destination cell (api coords), when the engine's
+    // projection pass computed it. Optional: legacy rows lack it and readers
+    // must tolerate absence.
+    dest?: { x: number; y: number };
     projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
     // One stat per heuristic registry key, plus the raw foodDistance and the
     // legacy wire aliases (a UI/DB contract — see VoronoiStrategy.buildBreakdown).

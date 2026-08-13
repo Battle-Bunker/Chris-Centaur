@@ -1177,7 +1177,9 @@
               };
             }
             moveSubmitted = msg.moveCommitted || false;
-            userSelectedMove = msg.stagedMove || null;
+            // Candidate keys are strings; a piece's staged move arrives as a
+            // numeric destination index, so normalize to the key space.
+            userSelectedMove = msg.stagedMove != null ? String(msg.stagedMove) : null;
             analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
@@ -1424,15 +1426,6 @@
     }
 
     function setupMoveStateForSnake(snakeId) {
-      // Chess pieces have no candidate-move state: no per-direction
-      // evaluations, no move cursor, no Space staging. A null moveState keeps
-      // the candidate overlay, keypad and plain-left-click move picking inert;
-      // updateMoveControls shows the piece hint instead.
-      const pieceUnit = currentGameState?.board?.snakes?.find(s => s.id === snakeId);
-      if (unitIsPiece(pieceUnit)) {
-        moveState = null;
-        return;
-      }
       const csData = controlledSnakeTurnData[snakeId];
       if (!csData || !csData.turnData || !currentGameState) {
         moveState = null;
@@ -1463,7 +1456,7 @@
         if (post) {
           moveState = post;
         } else {
-          moveState.selectedMove = csData.committedMove;
+          moveState.selectedMove = String(csData.committedMove);
         }
         moveSubmitted = true;
         analyticsFrozen = true;
@@ -1479,11 +1472,20 @@
           // to the best bot move if no staged move exists.
           const staged = stagedMoves[snakeId];
           // Prefer the requested move (what the snake is trying to do), then
-          // the confirmed staged move.
-          const stagedMove = staged ? (staged.requestedMove || staged.move || null) : null;
-          const defaultMove = (stagedMove && moveState.moves[stagedMove])
-            ? stagedMove
+          // the confirmed staged move. Candidate keys are strings (a piece's
+          // staged move is a numeric destination index), so normalize.
+          const stagedMove = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
+          const stagedKey = stagedMove != null ? String(stagedMove) : null;
+          let defaultMove = (stagedKey && moveState.moves[stagedKey])
+            ? stagedKey
             : getBestBotMove();
+          if (unitIsPiece(snake) && !(stagedKey && moveState.moves[stagedKey])) {
+            // The stub evaluator scores every piece candidate 0, so "best bot
+            // move" is arbitrary — default the cursor to the piece's own
+            // square (stay) instead.
+            const stay = Object.values(moveState.moves).find(m => m.kind === 'stay');
+            if (stay) defaultMove = stay.key;
+          }
           if (defaultMove) {
             moveState.selectedMove = defaultMove;
           }
@@ -1735,36 +1737,46 @@
       }
     }
 
+    // The keypad slot's hint for a selected chess piece: candidates live on
+    // the board itself (every legal destination is a colored cell), so the
+    // 3x2 direction keypad is suppressed rather than generalized.
+    function renderPieceMoveHint(text) {
+      document.getElementById('moveButtons').innerHTML =
+        '<div style="grid-column: 1 / -1; padding: 10px 6px; color: #999; ' +
+        'font-size: 12px; text-align: center; line-height: 1.5;">' +
+        text + '</div>';
+    }
+
     function updateMoveControls() {
       if (viewMode === 'historic') return;
       if (!selectedSnakeId) return;
-      // Chess piece selected: the keypad / move cursor doesn't apply. Replace
-      // the move buttons with a short hint and disable the Stage button —
-      // pieces are commanded by right-clicking a destination square.
-      if (selectedUnitIsPiece()) {
-        updateIntentModeBadge();
-        document.getElementById('moveButtons').innerHTML =
-          '<div style="grid-column: 1 / -1; padding: 10px 6px; color: #999; ' +
-          'font-size: 12px; text-align: center; line-height: 1.5;">' +
-          'Chess piece — right-click a destination square to command it.<br>' +
-          'Illegal targets stage “stay”.</div>';
-        const submitBtn = document.getElementById('submitBtn');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = 'Right-click a destination';
+      const isPiece = selectedUnitIsPiece();
+      if (!moveState) {
+        if (isPiece) {
+          // Candidate turn data for the piece hasn't landed yet.
+          updateIntentModeBadge();
+          renderPieceMoveHint('Waiting for this piece’s candidate moves…');
+          const submitBtn = document.getElementById('submitBtn');
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = 'Stage Move <span class="shortcut">[Space]</span>';
+        }
         return;
       }
-      if (!moveState) return;
       updateIntentModeBadge();
 
       if (moveSubmitted) {
         const csData = controlledSnakeTurnData[selectedSnakeId];
         const committedDir = csData?.committedMove;
 
-        BoardRenderer.renderMoveButtons(
-          document.getElementById('moveButtons'), moveState, () => {}
-        );
+        if (isPiece) {
+          renderPieceMoveHint('Move committed for this turn.');
+        } else {
+          BoardRenderer.renderMoveButtons(
+            document.getElementById('moveButtons'), moveState, () => {}
+          );
+        }
 
-        if (committedDir) {
+        if (!isPiece && committedDir) {
           const buttons = document.querySelectorAll('#moveButtons .move-button');
           buttons.forEach(btn => {
             btn.disabled = true;
@@ -1792,9 +1804,16 @@
         submitBtn.disabled = true;
         submitBtn.innerHTML = 'Move Committed \u2713';
       } else {
-        BoardRenderer.renderMoveButtons(
-          document.getElementById('moveButtons'), moveState, selectMove
-        );
+        if (isPiece) {
+          renderPieceMoveHint(
+            'Chess piece \u2014 click a candidate square (or use arrows), then ' +
+            'Space to stage. Right-click still sets a goto destination.'
+          );
+        } else {
+          BoardRenderer.renderMoveButtons(
+            document.getElementById('moveButtons'), moveState, selectMove
+          );
+        }
         updateSubmitButton();
       }
 
@@ -1811,13 +1830,13 @@
     // projected-territory overlay and nothing else: no server message, no
     // staged-move write, no queue clear. Staging is a separate explicit
     // action (Space / Stage button -> stageSelectedMove).
-    function selectMove(direction) {
+    function selectMove(moveKey) {
       if (moveSubmitted || !selectedSnakeId) return;
-      if (selectedUnitIsPiece()) return; // pieces have no 4-way move cursor
       if (!moveState) return;
+      if (!moveState.moves[moveKey]) return; // not a candidate this turn
 
-      userSelectedMove = direction;
-      moveState.selectedMove = direction;
+      userSelectedMove = moveKey;
+      moveState.selectedMove = moveKey;
 
       // Schedule the repaint BEFORE any of the panel updates below. Those
       // render third-party-shaped data (score breakdowns) and a single bad
@@ -1835,7 +1854,7 @@
       }
 
       try {
-        const move = moveState.moves[direction];
+        const move = moveState.moves[moveKey];
         if (move) {
           BoardRenderer.updateStatsTable(
             document.getElementById('statsTableBody'), move, moveState
@@ -1865,9 +1884,25 @@
     // the confirmation for this request lands.
     function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
-      if (selectedUnitIsPiece()) return; // pieces stage via right-click goto only
-      const move = userSelectedMove;
-      if (!move) return;
+      if (!userSelectedMove) return;
+      // The wire move is the candidate's own id: a Direction for snakes, a
+      // numeric full-board destination index for pieces (a pawn's side-square
+      // candidate stages the 90° rotation — same id, the server's planner
+      // classifies it). Candidate keys are strings, so read the wire value
+      // off the entry.
+      const entry = moveState?.moves?.[userSelectedMove];
+      const move = entry ? entry.move : userSelectedMove;
+      if (move == null) return;
+
+      // Optimistic rotation flag for the echo: a pawn side-square candidate is
+      // a rotation, whose NEW facing (wire convention, y down) points from the
+      // pawn toward the side square (api y is flipped).
+      let rotation = null;
+      if (entry && entry.kind === 'rotate' && entry.position) {
+        const unit = getSelectedSnake();
+        const h = unit?.head || unit?.body?.[0];
+        if (h) rotation = { dx: entry.position.x - h.x, dy: -(entry.position.y - h.y) };
+      }
 
       const existing = stagedMoves[selectedSnakeId] || { move: null, committed: false };
       stagedMoves[selectedSnakeId] = {
@@ -1876,6 +1911,7 @@
         committed: false,
         color: myColor || '#4CAF50',
         source: 'manual',
+        rotation,
       };
 
       // The server enforces "manual override drops the plan" via setUserSelection
@@ -1941,7 +1977,7 @@
       for (const move of Object.values(moveState.moves)) {
         if ((move.isSafe || move.isEvaluated) && move.displayScore != null && move.displayScore > bestScore) {
           bestScore = move.displayScore;
-          bestMove = move.direction;
+          bestMove = move.key ?? move.direction;
         }
       }
       return bestMove;
@@ -1953,8 +1989,10 @@
         btn.disabled = true;
         btn.innerHTML = 'Move Committed \u2713';
       } else if (userSelectedMove) {
+        const label = moveState?.moves?.[userSelectedMove]?.label
+          ?? String(userSelectedMove).toUpperCase();
         btn.disabled = false;
-        btn.innerHTML = `Stage ${userSelectedMove.toUpperCase()} <span class="shortcut">[Space]</span>`;
+        btn.innerHTML = `Stage ${label} <span class="shortcut">[Space]</span>`;
       } else {
         btn.disabled = true;
         btn.innerHTML = 'Stage Move <span class="shortcut">[Space]</span>';
@@ -2091,7 +2129,7 @@
             if (pos && pos.x === hCell.x && pos.y === hCell.y) {
               event.preventDefault();
               event.stopPropagation();
-              historicSelectMove(move.direction);
+              historicSelectMove(move.key ?? move.direction);
               return;
             }
           }
@@ -2175,7 +2213,7 @@
           if (pos && pos.x === x && pos.y === y) {
             event.preventDefault();
             event.stopPropagation();
-            selectMove(move.direction);
+            selectMove(move.key ?? move.direction);
             return;
           }
         }
@@ -2243,6 +2281,9 @@
     function buildPostCommitCandidates(snakeId) {
       const csData = controlledSnakeTurnData[snakeId];
       if (!csData?.moveCommitted || !csData.committedMove) return null;
+      // Snake-only: a piece's committed move is a numeric destination with no
+      // reverse to exclude and no forward fan — no post-commit candidates.
+      if (!directionOffset(csData.committedMove)) return null;
       const proj = getProjectedHead(snakeId);
       if (!proj || !currentGameState) return null;
       const board = currentGameState.board;
@@ -2259,7 +2300,11 @@
         // `positionKey`) — the renderer uses these to place candidate cells,
         // overlays, and tooltips.
         moves[dir] = {
+          key: dir,
+          move: dir,
           direction: dir,
+          kind: 'move',
+          label: dir.toUpperCase(),
           position: cell,
           positionKey: `${cell.x},${cell.y}`,
           isSafe: inBounds,
@@ -2547,23 +2592,47 @@
 
       if (!selectedSnakeId || moveSubmitted) return;
 
+      // For snakes an arrow key IS the candidate key ('up'…). For a chess
+      // piece the same key resolves to the candidate occupying the adjacent
+      // board cell in that direction — for a pawn, the left/right side squares
+      // ARE the 90° rotation candidates (matching by position sidesteps the
+      // wire-facing y-flip entirely), so ArrowLeft/Right stage rotations.
+      const resolveArrowKey = (dir) => {
+        if (!selectedUnitIsPiece()) return dir;
+        if (!moveState) return null;
+        const unit = getSelectedSnake();
+        const h = unit?.head || unit?.body?.[0];
+        const off = directionOffset(dir);
+        if (!h || !off) return null;
+        const target = { x: h.x + off.dx, y: h.y + off.dy };
+        for (const move of Object.values(moveState.moves)) {
+          const pos = move.position;
+          if (pos && pos.x === target.x && pos.y === target.y) return move.key;
+        }
+        return null;
+      };
+      const selectArrow = (dir) => {
+        const key = resolveArrowKey(dir);
+        if (key != null) selectMove(key);
+      };
+
       switch (e.key) {
         case 'ArrowUp':
         case 'w':
         case 'W':
-          e.preventDefault(); selectMove('up'); break;
+          e.preventDefault(); selectArrow('up'); break;
         case 'ArrowDown':
         case 's':
         case 'S':
-          e.preventDefault(); selectMove('down'); break;
+          e.preventDefault(); selectArrow('down'); break;
         case 'ArrowLeft':
         case 'a':
         case 'A':
-          e.preventDefault(); selectMove('left'); break;
+          e.preventDefault(); selectArrow('left'); break;
         case 'ArrowRight':
         case 'd':
         case 'D':
-          e.preventDefault(); selectMove('right'); break;
+          e.preventDefault(); selectArrow('right'); break;
         case ' ':
           e.preventDefault(); stageSelectedMove(); break;
       }
@@ -3956,7 +4025,16 @@
         label = cell ? `near (${cell.x},${cell.y})` : 'near';
       } else if (mode === 'manual') {
         const staged = cmd.stagedMoves && cmd.stagedMoves[snakeId];
-        label = staged && staged.requestedMove ? `manual ${staged.requestedMove}` : 'manual';
+        let moveLabel = staged && staged.requestedMove != null ? staged.requestedMove : null;
+        // A piece's manual move is a numeric full-board index — show the
+        // destination cell (or the rotation) instead of a bare index.
+        if (typeof moveLabel === 'number') {
+          const board = historicRenderCtx?.boardRow?.game_state?.board;
+          const cell = board ? BoardRenderer.moveDestinationCell(moveLabel, board) : null;
+          if (staged.rotation) moveLabel = 'rotate';
+          else moveLabel = cell ? `(${cell.x},${cell.y})` : String(moveLabel);
+        }
+        label = moveLabel != null ? `manual ${moveLabel}` : 'manual';
       } else {
         label = 'bot (heuristic)';
       }

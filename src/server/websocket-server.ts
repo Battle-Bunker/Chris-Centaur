@@ -2,7 +2,7 @@ import { Server as HTTPServer, IncomingMessage } from 'http';
 import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ActiveGameManager, StagedMoveView } from './active-game-manager';
-import { Direction } from '../types/battlesnake';
+import { CentaurMove, Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
@@ -482,18 +482,27 @@ export class GameWebSocketServer {
         // last staged move at the deadline. Manual staging
         // drops the queue/waypoint per the "manual override drops the plan"
         // contract (handled inside setUserSelection).
-        // SNAKES ONLY by design: chess pieces are commanded via set-waypoint
-        // (goto destination), so this allow-list deliberately stays the four
-        // direction strings — no numeric moves cross this message.
+        // The move is a CentaurMove: one of the four direction strings for a
+        // snake, or a numeric FULL-BOARD destination index for a chess piece
+        // (the generalized candidate UI sends the candidate's own id). This
+        // allow-list validates the SHAPE; setUserSelection enforces the
+        // unit-kind match and the board-bounds check on numeric destinations.
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;
-        if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
+        const rawMove = msg.move;
+        let move: CentaurMove | null = null;
+        if (typeof rawMove === 'string' && (validMoves as string[]).includes(rawMove)) {
+          move = rawMove as Direction;
+        } else if (typeof rawMove === 'number' && Number.isInteger(rawMove) && rawMove >= 0) {
+          move = rawMove;
+        }
+        if (client.gameId && client.userId && snakeId && move !== null) {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
             // setUserSelection re-stages the move, which fires the coalesced
             // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
-            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
+            this.gameManager.setUserSelection(client.gameId, snakeId, move);
           }
         }
         break;

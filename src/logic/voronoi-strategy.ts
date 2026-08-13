@@ -207,6 +207,9 @@ export class VoronoiStrategy {
       move: evaluation.move,
       score: evaluation.worstScore,
       numStates: evaluation.numStates,
+      // Destination cell (api coords) when the projection pass computed it —
+      // keeps the wire/DB row destination-carrying alongside the move id.
+      dest: evaluation.dest,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
       projectedCellOwnership: evaluation.projectedCellOwnership || null,
       breakdown: this.buildBreakdown(evaluation.worstEvaluation)

@@ -85,13 +85,28 @@ const BoardRenderer = (function () {
     return move === "up" || move === "down" || move === "left" || move === "right";
   }
 
+  // A numeric staged move is a chess piece's FULL-BOARD destination index
+  // (perimeter included, y grows downward). Resolve it to the api-coord board
+  // cell, or null when it isn't a numeric move / lands outside the playable
+  // interior. This is what lets the one arrow path draw slider/knight staged
+  // moves as a single straight arrow to the destination.
+  function moveDestinationCell(move, board) {
+    if (typeof move !== "number" || !board) return null;
+    const fullW = board.width + 2;
+    const fullH = board.height + 2;
+    const x = (move % fullW) - 1;
+    const y = fullH - Math.floor(move / fullW) - 2;
+    if (x < 0 || x >= board.width || y < 0 || y >= board.height) return null;
+    return { x, y };
+  }
+
   // Head glyph: the snake's team letter, bold white with a dark outline so it
   // reads against any team colour. Chess pieces draw their piece glyph instead
   // of the letter, plus a small weight badge when their weight (length) > 1,
   // and — for pawns — a facing triangle at the faced cell edge. Historical
   // replays predating letters stored an emoji head — render that; a snake with
   // neither gets "?".
-  function drawHeadGlyph(ctx, snake, hx, hy, cellSize) {
+  function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
@@ -150,6 +165,30 @@ const BoardRenderer = (function () {
         ctx.strokeText(String(snake.length), bx, by);
         ctx.fillStyle = "#ffe082";
         ctx.fillText(String(snake.length), bx, by);
+      }
+      // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
+      // mirror of the bottom-right weight badge) while a side-square rotation
+      // is staged — the piece spends the turn turning, so no destination
+      // arrow is drawn. Both facing and the staged rotation use the wire
+      // convention (y grows downward), which matches canvas rows: a positive
+      // cross product is a clockwise (screen) quarter turn.
+      const stagedRotation = glyphOpts && glyphOpts.stagedRotation;
+      if (stagedRotation) {
+        const f = snake.facing;
+        let rotGlyph = "↻"; // ↻ clockwise
+        if (f && (f.dx || f.dy)) {
+          const cross = f.dx * stagedRotation.dy - f.dy * stagedRotation.dx;
+          if (cross < 0) rotGlyph = "↺"; // ↺ counter-clockwise
+        }
+        const rotSize = Math.max(cellSize * 0.34, 8);
+        ctx.font = `bold ${rotSize}px sans-serif`;
+        const rx = hx + cellSize * 0.2;
+        const ry = hy + cellSize * 0.3;
+        ctx.lineWidth = Math.max(cellSize * 0.06, 1.5);
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.strokeText(rotGlyph, rx, ry);
+        ctx.fillStyle = "#80d8ff";
+        ctx.fillText(rotGlyph, rx, ry);
       }
     } else if (snake.letter) {
       const size = Math.max(cellSize * 0.55, 8);
@@ -869,6 +908,17 @@ const BoardRenderer = (function () {
     }
   }
 
+  // Candidate labels: a snake candidate is labelled by its direction; a piece
+  // candidate by its kind (stay / rotation) or its destination cell.
+  function candidateLabel(candidate) {
+    if (candidate.direction) return candidate.direction.toUpperCase();
+    if (candidate.kind === "stay") return "STAY";
+    if (candidate.kind === "rotate") return "ROTATE";
+    if (candidate.position)
+      return `(${candidate.position.x},${candidate.position.y})`;
+    return String(candidate.move);
+  }
+
   function processMoveEvaluations(
     moveEvaluations,
     safeMoves,
@@ -883,9 +933,6 @@ const BoardRenderer = (function () {
       selectedSnake: null,
     };
 
-    const directions = ["up", "down", "left", "right"];
-    const evaluationsMap = {};
-
     let evaluationsArray = [];
     if (moveEvaluations) {
       if (Array.isArray(moveEvaluations)) {
@@ -896,43 +943,82 @@ const BoardRenderer = (function () {
       }
     }
 
+    const evaluationsMap = {};
     evaluationsArray.forEach((evalData) => {
-      evaluationsMap[evalData.move] = evalData;
+      evaluationsMap[String(evalData.move)] = evalData;
     });
 
-    directions.forEach((direction) => {
-      let candidatePos = null;
-      switch (direction) {
-        case "up":
-          candidatePos = { x: head.x, y: head.y + 1 };
-          break;
-        case "down":
-          candidatePos = { x: head.x, y: head.y - 1 };
-          break;
-        case "left":
-          candidatePos = { x: head.x - 1, y: head.y };
-          break;
-        case "right":
-          candidatePos = { x: head.x + 1, y: head.y };
-          break;
-      }
+    // Candidate source. Snakes (direction-keyed rows, incl. every historic
+    // row): the four directions with head-derived positions, whether or not
+    // each was evaluated — the historic 4-way model, unchanged. Pieces
+    // (destination-keyed rows): the evaluation rows ARE the candidates — the
+    // unit's legal moves this turn, each carrying its numeric destination id
+    // (`move`, the same value staging puts on the wire), its `dest` cell and
+    // its stay/move/rotate kind.
+    const destinationKeyed = evaluationsArray.some(
+      (e) => e && (typeof e.move === "number" || (e.dest && typeof e.move !== "string")),
+    );
 
-      const isSafe = moveState.safeMoves.includes(direction);
-      const evalData = evaluationsMap[direction];
+    let candidates;
+    if (destinationKeyed) {
+      candidates = evaluationsArray.map((evalData) => ({
+        key: String(evalData.move),
+        move: evalData.move,
+        direction: null,
+        kind: evalData.kind || "move",
+        position: evalData.dest || null,
+        // Enumerated candidates are legal by construction — "safe" here means
+        // exactly what safeMoves means for snakes: offerable.
+        isSafe: true,
+      }));
+    } else {
+      candidates = ["up", "down", "left", "right"].map((direction) => {
+        let candidatePos = null;
+        switch (direction) {
+          case "up":
+            candidatePos = { x: head.x, y: head.y + 1 };
+            break;
+          case "down":
+            candidatePos = { x: head.x, y: head.y - 1 };
+            break;
+          case "left":
+            candidatePos = { x: head.x - 1, y: head.y };
+            break;
+          case "right":
+            candidatePos = { x: head.x + 1, y: head.y };
+            break;
+        }
+        return {
+          key: direction,
+          move: direction,
+          direction: direction,
+          kind: "move",
+          position: candidatePos,
+          isSafe: moveState.safeMoves.includes(direction),
+        };
+      });
+    }
 
-      moveState.moves[direction] = {
-        direction: direction,
-        position: candidatePos,
-        positionKey: candidatePos
-          ? `${candidatePos.x},${candidatePos.y}`
+    const chosenKey = chosenMove == null ? null : String(chosenMove);
+    candidates.forEach((candidate) => {
+      const evalData = evaluationsMap[candidate.key];
+      moveState.moves[candidate.key] = {
+        key: candidate.key,
+        move: candidate.move,
+        direction: candidate.direction,
+        kind: candidate.kind,
+        label: candidateLabel(candidate),
+        position: candidate.position,
+        positionKey: candidate.position
+          ? `${candidate.position.x},${candidate.position.y}`
           : null,
-        isSafe: isSafe,
-        isChosen: direction === chosenMove,
+        isSafe: candidate.isSafe,
+        isChosen: candidate.key === chosenKey,
         isEvaluated: !!evalData,
         score: evalData?.score ?? null,
         breakdown: evalData?.breakdown ?? null,
         numStates: evalData?.numStates ?? null,
-        displayScore: evalData?.score ?? (isSafe ? 0 : null),
+        displayScore: evalData?.score ?? (candidate.isSafe ? 0 : null),
         projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
         projectedCellOwnership: evalData?.projectedCellOwnership ?? null,
         quality: null,
@@ -1082,7 +1168,7 @@ const BoardRenderer = (function () {
           const y = (board.height - 1 - move.position.y) * cellSize;
           ctx.fillStyle = move.color;
           ctx.fillRect(x, y, cellSize, cellSize);
-          if (moveState.selectedMove === move.direction) {
+          if (moveState.selectedMove === (move.key ?? move.direction)) {
             ctx.strokeStyle = "#9C27B0";
             ctx.lineWidth = 3;
             ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
@@ -1152,12 +1238,20 @@ const BoardRenderer = (function () {
       });
     });
 
+    // Staged-move lookup hoisted above the glyph pass: the head glyph needs
+    // the staged rotation flag (pawn rotation badge) before the arrow block
+    // reads the same map.
+    const stagedMovesMap = options?.stagedMoves || {};
+
     board.snakes.forEach((snake) => {
+      const stagedForThisSnake = stagedMovesMap[snake.id];
       const head = snake.body[0];
       if (head) {
         const hx = head.x * cellSize;
         const hy = (board.height - 1 - head.y) * cellSize;
-        drawHeadGlyph(ctx, snake, hx, hy, cellSize);
+        drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
+          stagedRotation: stagedForThisSnake?.rotation || null,
+        });
         // Alive board snakes only — dead snakes render as ghosts/death
         // markers in a separate pass and never reach this loop.
         drawHealthBar(ctx, snake, hx, hy, cellSize);
@@ -1194,8 +1288,6 @@ const BoardRenderer = (function () {
         }
       }
 
-      const stagedMoves = options?.stagedMoves || {};
-      const stagedForThisSnake = stagedMoves[snake.id];
       let arrowMove = null;
       let arrowColor = "#4CAF50";
       let arrowCommitted = false;
@@ -1224,16 +1316,22 @@ const BoardRenderer = (function () {
       } else if (stagedForThisSnake) {
         // `move` is the confirmed staged move (null until Firebase's first
         // confirmation for the turn lands); `requestedMove` is what was asked
-        // for most recently. Chess pieces stage NUMERIC destination indices —
-        // those never draw a direction arrow (the goto waypoint overlay
-        // already shows the destination cell), so filter to the four
-        // direction strings here.
+        // for most recently. Chess pieces stage NUMERIC destination indices;
+        // those draw the same arrow straight to the destination cell (one
+        // long continuous arrow for sliders, a direct one for knight jumps).
+        // A staged ROTATION doesn't translate the piece, so it draws the
+        // rotation badge (drawHeadGlyph) instead of an arrow; a staged stay
+        // resolves to the head cell and endpointFor drops it below.
+        const rotationStaged = !!stagedForThisSnake.rotation;
+        const arrowWorthy = (move) =>
+          isDirectionMove(move) ||
+          (typeof move === "number" && !rotationStaged);
         const confirmedMove = stagedForThisSnake.move;
-        arrowMove = isDirectionMove(confirmedMove) ? confirmedMove : null;
+        arrowMove = arrowWorthy(confirmedMove) ? confirmedMove : null;
         arrowColor = stagedForThisSnake.color || "#4CAF50";
         arrowCommitted = !!stagedForThisSnake.committed;
         const requested = stagedForThisSnake.requestedMove;
-        if (isDirectionMove(requested) && requested !== arrowMove) {
+        if (arrowWorthy(requested) && requested !== arrowMove) {
           ghostMove = requested;
         }
       }
@@ -1245,31 +1343,51 @@ const BoardRenderer = (function () {
           const centerX = x + cellSize / 2;
           const centerY = y + cellSize / 2;
           const arrowLen = cellSize * 1.2;
+          // Direction moves keep the fixed-length one-cell geometry; numeric
+          // (piece) moves aim at the real destination cell's center, inset
+          // toward the origin so the arrowhead doesn't cover the glyph there.
+          // Returns null for a move with no drawable endpoint (stay = own
+          // square, or an index outside the playable interior).
           const endpointFor = (move) => {
-            let ex = centerX;
-            let ey = centerY;
-            switch (move) {
-              case "up":
-                ey -= arrowLen;
-                break;
-              case "down":
-                ey += arrowLen;
-                break;
-              case "left":
-                ex -= arrowLen;
-                break;
-              case "right":
-                ex += arrowLen;
-                break;
+            if (isDirectionMove(move)) {
+              let ex = centerX;
+              let ey = centerY;
+              switch (move) {
+                case "up":
+                  ey -= arrowLen;
+                  break;
+                case "down":
+                  ey += arrowLen;
+                  break;
+                case "left":
+                  ex -= arrowLen;
+                  break;
+                case "right":
+                  ex += arrowLen;
+                  break;
+              }
+              return { ex, ey };
             }
-            return { ex, ey };
+            const dest = moveDestinationCell(move, board);
+            if (!dest) return null;
+            if (dest.x === shead.x && dest.y === shead.y) return null; // stay
+            const destX = dest.x * cellSize + cellSize / 2;
+            const destY = (board.height - 1 - dest.y) * cellSize + cellSize / 2;
+            const ang = Math.atan2(destY - centerY, destX - centerX);
+            const inset = cellSize * 0.35;
+            return {
+              ex: destX - Math.cos(ang) * inset,
+              ey: destY - Math.sin(ang) * inset,
+            };
           };
           const drawArrow = (move, color, lineWidth, dashed, headScale, chevrons) => {
+            const endpoint = endpointFor(move);
+            if (!endpoint) return null;
+            const { ex, ey } = endpoint;
             ctx.strokeStyle = color;
             ctx.fillStyle = color;
             ctx.lineWidth = lineWidth;
             ctx.setLineDash(dashed ? [lineWidth * 1.6, lineWidth * 1.4] : []);
-            const { ex, ey } = endpointFor(move);
             ctx.beginPath();
             ctx.moveTo(centerX, centerY);
             ctx.lineTo(ex, ey);
@@ -1691,7 +1809,7 @@ const BoardRenderer = (function () {
       const button = document.createElement("button");
       button.className = "cell-button";
       if (move.isSafe) button.className += " candidate";
-      if (moveState.selectedMove === move.direction)
+      if (moveState.selectedMove === (move.key ?? move.direction))
         button.className += " selected";
 
       const x = move.position.x * displayCellSize;
@@ -1708,7 +1826,7 @@ const BoardRenderer = (function () {
       if (onCellClick) {
         button.onclick = (e) => {
           e.stopPropagation();
-          onCellClick(move.direction, e);
+          onCellClick(move.key ?? move.direction, e);
         };
       } else {
         button.style.cursor = 'pointer';
@@ -1719,7 +1837,8 @@ const BoardRenderer = (function () {
           : move.isSafe
             ? "0.00"
             : "N/A";
-      button.title = `${move.direction.toUpperCase()} - Score: ${scoreText}`;
+      const label = move.label ?? move.direction.toUpperCase();
+      button.title = `${label} - Score: ${scoreText}`;
       overlayEl.appendChild(button);
     });
   }
@@ -1992,6 +2111,20 @@ const BoardRenderer = (function () {
     }
 
     const breakdown = move.breakdown;
+    // Key-presence-driven rows: a breakdown carrying no heuristic keys at all
+    // (no stats, empty weights/weighted tables — the piece stub evaluator's
+    // shape) renders a genuinely EMPTY table through this same component.
+    // Every real snake breakdown carries keys and renders exactly as before.
+    const hasBreakdownKeys =
+      Object.keys(breakdown).some(
+        (k) => k !== "weights" && k !== "weighted" && k !== "stats",
+      ) ||
+      Object.keys(breakdown.weights || {}).length > 0 ||
+      Object.keys(breakdown.weighted || {}).length > 0;
+    if (!hasBreakdownKeys) {
+      tbody.innerHTML = "";
+      return;
+    }
     const candidateMoves = Object.values(moveState.moves).filter(
       (m) => m.isEvaluated || m.isSafe,
     );
@@ -2296,7 +2429,7 @@ const BoardRenderer = (function () {
     const totalMarginalImpact =
       move.score -
       candidateMoves.reduce((sum, m) => sum + (m.score ?? 0), 0) /
-        candidateMoves.length;
+        (candidateMoves.length || 1);
     rows.push(`
       <tr class="total-row">
         <td>Total Score</td>
@@ -2435,6 +2568,7 @@ const BoardRenderer = (function () {
     getMoveQuality,
     getScoreColor,
     processMoveEvaluations,
+    moveDestinationCell,
     renderBoard,
     createBoardOverlay,
     renderSnakeInfo,

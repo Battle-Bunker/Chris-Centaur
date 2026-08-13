@@ -33,6 +33,12 @@ export interface MoveEvaluationResult {
   worstScore: number;
   numStates: number;
   worstEvaluation: BoardEvaluation;
+  // The candidate's destination cell (api coords). Attached where the
+  // projection BFS already computes it; optional so evaluation rows that skip
+  // the projection pass (and legacy stored rows) stay valid. Generalizes the
+  // row shape so destination-keyed candidates (chess pieces) and
+  // direction-keyed candidates (snakes) share one contract.
+  dest?: { x: number; y: number };
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
   // Per-cell owner/distance for the HYPOTHETICAL board where our head has
   // moved onto this candidate cell — the same projection BFS that produces
@@ -389,6 +395,9 @@ export class DecisionEngine {
     for (const evalResult of evaluations) {
       const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
       if (!candidatePos) continue;
+      // The only engine-side spot where a candidate's board position exists —
+      // attach it so every downstream row is destination-carrying.
+      evalResult.dest = candidatePos;
 
       const projSources: BFSSource[] = [
         {

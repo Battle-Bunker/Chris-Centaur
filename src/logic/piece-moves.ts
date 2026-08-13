@@ -102,6 +102,42 @@ export const planPieceAction = (
   }
 };
 
+// One legal candidate for a piece this turn: the destination's FULL-BOARD
+// index plus the action staging it would plan (stay / move-with-path /
+// rotate-with-facing).
+export interface PieceCandidate {
+  dest: number;
+  action: PieceAction;
+}
+
+/**
+ * Enumerates every legal single-move destination for a piece THIS turn —
+ * slider ray squares, knight jumps, king steps, pawn forward /
+ * legal-diagonals / two side-square rotations, plus stay (the origin square).
+ *
+ * Implemented as an interior-square loop validated through planPieceAction so
+ * the enumerated set can NEVER diverge from the staging validator: a candidate
+ * is offered if and only if staging it would not degrade to stay.
+ */
+export const legalPieceDestinations = (
+  type: string,
+  origin: number,
+  boardWidth: number,
+  boardHeight: number,
+  facing?: Facing,
+  pawnTargets?: Set<number>,
+): PieceCandidate[] => {
+  const candidates: PieceCandidate[] = [];
+  for (let y = 1; y <= boardHeight - 2; y++) {
+    for (let x = 1; x <= boardWidth - 2; x++) {
+      const dest = toIndex(x, y, boardWidth);
+      const action = planPieceAction(type, origin, dest, boardWidth, boardHeight, facing, pawnTargets);
+      if (action) candidates.push({ dest, action });
+    }
+  }
+  return candidates;
+};
+
 const rayPath = (
   o: { x: number; y: number },
   d: { x: number; y: number },

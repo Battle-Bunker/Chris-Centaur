@@ -1,8 +1,8 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
 import { healthAfterEntering } from '../logic/simulator';
-import { planPieceAction } from '../logic/piece-moves';
-import { apiCoordToIndex } from '../firebase/translate';
+import { planPieceAction, legalPieceDestinations, PieceAction } from '../logic/piece-moves';
+import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
@@ -19,11 +19,22 @@ import { ActivityController, ManagedTimerHandle, transientTimeout } from './acti
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 
 export interface MoveEvaluation {
-  move: Direction;
+  // The candidate id: a Direction for snakes (byte-identical to the historic
+  // rows), a FULL-BOARD destination index for chess pieces — the same
+  // CentaurMove value staging puts on the wire.
+  move: CentaurMove;
   score: number;
   numStates: number;
   breakdown: any;
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
+  // The candidate's destination cell (api coords). Always present on piece
+  // rows (the enumerator computes it); present on snake rows when the engine's
+  // projection pass ran. Optional so legacy rows stay valid.
+  dest?: Coord;
+  // Piece candidate kind (the PieceAction discriminant): lets the client label
+  // candidates and route pawn arrow keys to the side-square rotations. Absent
+  // on snake rows.
+  kind?: 'stay' | 'move' | 'rotate';
 }
 
 export interface TurnData {
@@ -111,6 +122,12 @@ export interface StagedMove {
   // the certain-death dialog, or used kill-all). Recorded onto the decision log
   // at commit so replays can distinguish a deliberate death from a bot mistake.
   readonly fatalConsented: boolean;
+  // Chess pieces only: the PieceAction the staged destination planned to
+  // (stay / move-with-path / rotate-with-facing), captured at bind time — the
+  // only moment origin + facing are guaranteed to match the staged turn. Lets
+  // the broadcast distinguish a pawn rotation from a one-square move. Absent
+  // for snakes.
+  readonly action?: PieceAction | null;
 }
 
 // A controlled snake's intention: ONE discriminated union, so two sources can
@@ -133,7 +150,9 @@ export interface StagedMove {
 // recomputed from the live board — see ControlledSnake.gotoRoute.
 export type SnakeIntent =
   | { kind: 'heuristic' }
-  | { kind: 'manual'; move: Direction; fatalConsent?: FatalMoveConsent }
+  // manual.move is CentaurMove: a Direction for snakes, a FULL-BOARD
+  // destination index for chess pieces (setUserSelection enforces the split).
+  | { kind: 'manual'; move: CentaurMove; fatalConsent?: FatalMoveConsent }
   | { kind: 'goto'; targets: Coord[] }
   | { kind: 'near'; target: Coord };
 
@@ -152,6 +171,12 @@ export interface StagedMoveView {
   color: string;
   source: string;
   fatal: boolean;
+  // Pawn rotation: the NEW facing (wire convention, dy grows downward) when
+  // the requested move is a side-square rotation; null/absent otherwise. The
+  // client renders a rotation symbol on the pawn's cell instead of a
+  // destination arrow. Flows to live broadcasts AND the persisted per-turn
+  // command snapshot through this one projection.
+  rotation?: { dx: number; dy: number } | null;
 }
 
 // Everything a client (live or replay) needs to render the command state of a
@@ -742,7 +767,7 @@ export class ActiveGameManager {
           affected.push(snakeId);
           console.log(`[ActiveGameManager] SUICIDE: piece ${gameId}:${snakeId} has no suicide move — staging stay (${stay})`);
           this.logCommandEvent(gameId, snakeId, 'suicide', operator, { move: stay });
-          this.bindStagedPieceMove(gameId, snakeId, stay, 'manual');
+          this.bindStagedPieceMove(gameId, snakeId, stay, 'manual', { kind: 'stay' });
         }
         continue;
       }
@@ -797,7 +822,7 @@ export class ActiveGameManager {
         const stay = this.pieceOwnSquareIndex(gameId, snakeId);
         if (stay !== null) {
           console.log(`[ActiveGameManager] COMMIT-ALL: staging stay (${stay}) for uncommanded piece ${gameId}:${snakeId} turn ${game.boardStateTurn}`);
-          this.bindStagedPieceMove(gameId, snakeId, stay, 'fallback');
+          this.bindStagedPieceMove(gameId, snakeId, stay, 'fallback', { kind: 'stay' });
         }
       }
       const staged = controlled.staged;
@@ -1427,6 +1452,9 @@ export class ActiveGameManager {
 
       const candidates: Array<{ move: Direction; score: number; trapped: number }> = [];
       for (const evaluation of evaluations) {
+        // Snake evaluations only carry Directions; the narrowing keeps the
+        // widened MoveEvaluation.move (CentaurMove) out of the direction math.
+        if (typeof evaluation.move !== 'string') continue;
         const breakdown: any = evaluation.breakdown || {};
         const weighted = breakdown.weighted || {};
         const weights = breakdown.weights || {};
@@ -1805,22 +1833,27 @@ export class ActiveGameManager {
     return targets;
   }
 
-  // Resolve a piece's goto intent to a wire destination for this turn:
-  //  - targets[0] is a legal single move (ray/jump/step, pawn facing and
+  // The SINGLE resolver for a piece's commanded destination this turn —
+  // goto (targets[0]) and manual (numeric destination from the candidate UI)
+  // both funnel through here, so legality is decided by exactly one
+  // planPieceAction call for every command source:
+  //  - a legal single move (ray/jump/step, pawn facing and
   //    diagonal-only-onto-target rules included; a pawn's side square is the
   //    rotate encoding) → stage that square's index;
   //  - anything else → stage the piece's own square (= stay; the wire accepts
-  //    any int and the server treats an illegal/own-square move as stay).
-  // Returns null when the piece has no goto command (or no board yet) — the
-  // caller then stages nothing at all and the server defaults to stay.
+  //    any int and the server treats an illegal/own-square move as stay). The
+  //    piece fallback is ALWAYS its own square, never a direction.
+  // The planned PieceAction rides along so staging can record the
+  // stay/move/rotate distinction instead of discarding it.
+  // Returns null when the piece has no command (or no board yet) — the caller
+  // then stages nothing at all and the server defaults to stay.
   private computePieceStagedMove(
     gameId: string,
     snakeId: string
-  ): { move: number; source: IntendedMoveSource } | null {
+  ): { move: number; source: IntendedMoveSource; action: PieceAction | null } | null {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     if (!game || !controlled) return null;
-    if (controlled.intent.kind !== 'goto' || controlled.intent.targets.length === 0) return null;
     const board = game.boardState?.board;
     const you = board?.snakes?.find(s => s.id === snakeId);
     const head = you?.head || you?.body?.[0];
@@ -1828,8 +1861,19 @@ export class ActiveGameManager {
 
     const fullW = board.width + 2;
     const fullH = board.height + 2;
+    const intent = controlled.intent;
+    let destIdx: number;
+    let source: IntendedMoveSource;
+    if (intent.kind === 'manual' && typeof intent.move === 'number') {
+      destIdx = intent.move;
+      source = 'manual';
+    } else if (intent.kind === 'goto' && intent.targets.length > 0) {
+      destIdx = apiCoordToIndex(intent.targets[0], fullW, fullH);
+      source = 'waypoint';
+    } else {
+      return null;
+    }
     const originIdx = apiCoordToIndex(head, fullW, fullH);
-    const destIdx = apiCoordToIndex(controlled.intent.targets[0], fullW, fullH);
     const pawnTargets =
       controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
     const action = planPieceAction(
@@ -1841,7 +1885,11 @@ export class ActiveGameManager {
       you.facing,
       pawnTargets
     );
-    return { move: action ? destIdx : originIdx, source: 'waypoint' };
+    return {
+      move: action ? destIdx : originIdx,
+      source,
+      action: action ?? { kind: 'stay' },
+    };
   }
 
   // The piece analog of stageMove's tail: bind one atomic staged record and
@@ -1853,7 +1901,8 @@ export class ActiveGameManager {
     gameId: string,
     snakeId: string,
     move: number,
-    source: IntendedMoveSource
+    source: IntendedMoveSource,
+    action: PieceAction | null = null
   ): void {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
@@ -1871,7 +1920,7 @@ export class ActiveGameManager {
       controlled.pendingCommitTurn = null;
     }
 
-    controlled.staged = { snakeId, turn, move, source, fatalConsented: false };
+    controlled.staged = { snakeId, turn, move, source, fatalConsented: false, action };
     controlled.gotoRoute = [];
     controlled.gotoRouteFirstLeg = 0;
     this.ensureStagedPublished(gameId, snakeId);
@@ -1892,15 +1941,45 @@ export class ActiveGameManager {
 
     const planned = this.computePieceStagedMove(gameId, snakeId);
     if (planned) {
-      this.bindStagedPieceMove(gameId, snakeId, planned.move, planned.source);
+      this.bindStagedPieceMove(gameId, snakeId, planned.move, planned.source, planned.action);
       return;
     }
     if (controlled.staged?.turn === turn) {
       const stay = this.pieceOwnSquareIndex(gameId, snakeId);
       if (stay !== null && controlled.staged.move !== stay) {
-        this.bindStagedPieceMove(gameId, snakeId, stay, 'fallback');
+        this.bindStagedPieceMove(gameId, snakeId, stay, 'fallback', { kind: 'stay' });
       }
     }
+  }
+
+  // STUB piece evaluator: the same aggregate weight (0) for every legal
+  // candidate, enumerated by legalPieceDestinations so the offered set can
+  // never diverge from what staging would accept. The SAME score→color path
+  // that shades snake candidates turns these uniform (range 0 → neutral
+  // amber), reflecting zero information from the bot for now. A real piece
+  // evaluator later replaces only the score/breakdown fill here — the row
+  // shape (move id + dest + kind) is already the full UI contract.
+  private computePieceMoveEvaluations(gameState: GameState): MoveEvaluation[] {
+    const board = gameState.board;
+    const you = gameState.you;
+    const head = you?.head || you?.body?.[0];
+    const unitType = you?.unitType ?? 'snake';
+    if (!board || !head || unitType === 'snake') return [];
+    const fullW = board.width + 2;
+    const fullH = board.height + 2;
+    const originIdx = apiCoordToIndex(head, fullW, fullH);
+    const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+    return legalPieceDestinations(unitType, originIdx, fullW, fullH, you.facing, pawnTargets)
+      .map(({ dest, action }) => ({
+        move: dest,
+        score: 0,
+        numStates: 0,
+        // Empty weights/weighted tables: the breakdown-table component renders
+        // ZERO rows for a breakdown that carries no heuristic keys.
+        breakdown: { weights: {}, weighted: {} },
+        dest: toApiCoord(dest, fullW, fullH),
+        kind: action.kind,
+      }));
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of
@@ -1953,9 +2032,11 @@ export class ActiveGameManager {
 
     // Promotion changes the unit type mid-game (pawn → queen).
     controlled.unitType = gameState.you.unitType ?? controlled.unitType;
+    // Candidate turn data: every legal destination as a zero-scored stub
+    // evaluation, through the same TurnData/broadcast contract snakes use.
     controlled.latestTurnData = {
       gameState,
-      moveEvaluations: [],
+      moveEvaluations: this.computePieceMoveEvaluations(gameState),
       territoryCells: {},
       safeMoves: [],
       botRecommendation: null,
@@ -1964,12 +2045,25 @@ export class ActiveGameManager {
 
     // Re-stage for the new turn: goto commands persist across turns (the
     // queue shifts on arrival in updateBoard); heuristic stages nothing.
+    // Manual is single-turn, exactly as for snakes (setBotRecommendation):
+    // a manual destination staged for a PRIOR turn is stale and reverts to
+    // the heuristic (= uncommanded: nothing staged, server defaults to stay);
+    // a manual selection made for THIS turn stays authoritative.
+    const prevStagedTurn = controlled.staged?.turn ?? null;
     controlled.staged = null;
-    this.stageMove(gameId, snakeId);
+    if (controlled.intent.kind === 'manual' && prevStagedTurn !== game.boardStateTurn) {
+      this.setIntent(gameId, snakeId, { kind: 'heuristic' }, null);
+    } else {
+      this.stageMove(gameId, snakeId);
+    }
 
     if (boardUpdated) {
       this.notifyBoardUpdate(gameId, gameState);
     }
+    // The piece counterpart of setBotRecommendation's broadcast: without this
+    // no snake-turn-update frame ever reaches the client for a piece, and the
+    // candidate cells only appear via game-subscribed / snake-selected.
+    this.notifyTurnUpdate(gameId, snakeId, controlled.latestTurnData);
   }
 
   private static readonly STAGING_RETRY_MS = 1000;
@@ -2215,6 +2309,10 @@ export class ActiveGameManager {
         color,
         source: requested.source,
         fatal,
+        // Recorded at bind time (never recomputed here — this projection also
+        // runs after the board advanced, where origin/facing may no longer
+        // match the staged turn).
+        rotation: requested.action?.kind === 'rotate' ? requested.action.facing : null,
       };
     }
     return staged;
@@ -2408,17 +2506,29 @@ export class ActiveGameManager {
   // re-stages the move via setIntent, which write-through publishes it to
   // Firebase. The game server finalizes the turn from the last staged move at
   // its deadline.
-  setUserSelection(gameId: string, snakeId: string, move: Direction): void {
+  setUserSelection(gameId: string, snakeId: string, move: CentaurMove): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return;
 
-    // Directional manual staging is a snake affordance; pieces are commanded
-    // by destination (set-waypoint → goto). The client suppresses its keypad
-    // for pieces, so this is a defense-in-depth guard.
+    // The move's shape must match the unit's kind: snakes stage Directions,
+    // pieces stage numeric FULL-BOARD destination indices (the generalized
+    // candidate UI sends the candidate's own id). Mismatches are refused as
+    // defense in depth — the client never offers them.
     if (this.isPieceUnit(controlled)) {
-      console.log(`[ActiveGameManager] Ignoring manual direction ${move} for piece ${gameId}:${snakeId} — pieces are commanded by destination`);
+      if (typeof move !== 'number') {
+        console.log(`[ActiveGameManager] Ignoring manual direction ${move} for piece ${gameId}:${snakeId} — pieces are commanded by destination`);
+        return;
+      }
+      const board = game.boardState?.board;
+      const fullSquares = board ? (board.width + 2) * (board.height + 2) : 0;
+      if (!Number.isInteger(move) || move < 0 || move >= fullSquares) {
+        console.log(`[ActiveGameManager] Ignoring out-of-bounds manual destination ${move} for piece ${gameId}:${snakeId}`);
+        return;
+      }
+    } else if (typeof move !== 'string') {
+      console.log(`[ActiveGameManager] Ignoring numeric manual move ${move} for snake ${gameId}:${snakeId} — snakes stage directions`);
       return;
     }
 
