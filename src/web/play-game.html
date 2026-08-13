@@ -528,6 +528,7 @@
   <script src="/firebase-status-banner.js"></script>
   <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
+  <script src="/ws-client.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
     // Works for both /game/:id (unified) and legacy /play/:id URLs.
@@ -618,7 +619,6 @@
       clockSync.offset = clockSync.offset === null ? target : clockSync.offset + (target - clockSync.offset) * alpha;
       clockSync.rtt = clockSync.rtt === null ? rtt : Math.round(clockSync.rtt * 0.7 + rtt * 0.3);
     }
-    let reconnectTimer = null;
     let gameEnded = false;
     let gameEndedSnakes = {};
     let selectedSnakeId = null;
@@ -948,74 +948,40 @@
       }
     }
 
-    function connectWebSocket() {
-      const statusEl = document.getElementById('connectionStatus');
-      statusEl.className = 'connection-status connecting';
-      statusEl.textContent = 'Connecting...';
-
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-      const openTimeout = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) resolveFinishedIfNotLive();
-      }, 4000);
-
-      ws.onopen = () => {
-        clearTimeout(openTimeout);
-        statusEl.className = 'connection-status connected';
-        statusEl.textContent = 'Connected';
-        ws.send(JSON.stringify({ type: 'subscribe-game', gameId, userId, playerName: myPlayerName || '' }));
-        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        wsDebug.onOpen();
-        idleWatcher.onConnected();
-        // Tight ping burst right after connect so a usable clock-offset
-        // estimate exists before the first turn deadline matters.
+    // Shared connect/status/reconnect/idle-close lifecycle from ws-client.js;
+    // only the game-page-specific pieces are configured here.
+    const wsClient = window.WSClient.create({
+      statusEl: document.getElementById('connectionStatus'),
+      statusClassPrefix: 'connection-status',
+      statusText: (phase, event) => {
+        if (phase === 'connecting') return 'Connecting...';
+        if (phase === 'disconnected') {
+          const codeStr = event && typeof event.code === 'number' ? ` (code ${event.code})` : '';
+          return 'Disconnected' + codeStr;
+        }
+        return null;
+      },
+      subscribeMessage: () => ({ type: 'subscribe-game', gameId, userId, playerName: myPlayerName || '' }),
+      onMessage: handleWSMessage,
+      wsDebug,
+      idleWatcher,
+      onSocket: (s) => { ws = s; },
+      // If the socket isn't open after 4s, the game is probably finished (no
+      // live server session) — fall back to the read-only replay.
+      openTimeoutMs: 4000,
+      onOpenTimeout: () => resolveFinishedIfNotLive(),
+      // Tight ping burst right after connect so a usable clock-offset
+      // estimate exists before the first turn deadline matters.
+      afterOpen: () => {
         for (let i = 0; i < 5; i++) setTimeout(sendClockPing, 150 + i * 350);
-      };
+      },
+      // Distinguish this page's idle closes in the connection log.
+      idleCloseExtra: () => ({ gameId, userId }),
+      dedupeReconnect: false,
+    });
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          handleWSMessage(msg);
-        } catch (e) {
-          console.error('WS message parse error:', e);
-        }
-      };
-
-      ws.onclose = (event) => {
-        statusEl.className = 'connection-status disconnected';
-        const codeStr = event && typeof event.code === 'number' ? ` (code ${event.code})` : '';
-        statusEl.textContent = 'Disconnected' + codeStr;
-        wsDebug.onClose(event);
-        const wasIdle = idleWatcher.onClose(event);
-        if (wasIdle) {
-          // Distinguish the idle close in the connection log from generic
-          // network drops so /connection-debug shows it as its own row.
-          fetch('/api/connection-log/client', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'client-idle-close',
-              gameId,
-              userId,
-              code: event.code,
-              reason: event.reason || '',
-            }),
-          }).catch(() => {});
-          return;
-        }
-        if (idleWatcher.shouldSuppressReconnect()) return;
-        reconnectTimer = setTimeout(() => {
-          wsDebug.onReconnectAttempt();
-          connectWebSocket();
-        }, 2000);
-      };
-
-      ws.onerror = (event) => {
-        statusEl.className = 'connection-status disconnected';
-        statusEl.textContent = 'Error';
-        wsDebug.onError(event);
-      };
+    function connectWebSocket() {
+      wsClient.connect();
     }
 
     function handleWSMessage(msg) {

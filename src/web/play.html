@@ -139,9 +139,9 @@
   <script src="/firebase-status-banner.js"></script>
   <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
+  <script src="/ws-client.js"></script>
   <script>
     let ws = null;
-    let reconnectTimer = null;
     let currentGames = [];
     let currentPendingGames = [];
     let engineHost = null; // GAME_ENGINE_HOST from the server; null = no links
@@ -151,85 +151,32 @@
       reconnect: () => connectWebSocket(),
     });
 
+    // Shared connect/status/reconnect/idle-close lifecycle from ws-client.js;
+    // only the lobby-specific pieces are configured here.
+    const wsClient = window.WSClient.create({
+      statusEl: document.getElementById('wsStatus'),
+      statusClassPrefix: 'ws-status',
+      subscribeMessage: () => ({ type: 'subscribe-lobby' }),
+      onMessage: (msg) => {
+        if (msg.type === 'debug-hello') {
+          wsDebug.setServerConnId(msg.connId);
+        } else if (msg.type === 'lobby-update') {
+          currentGames = msg.games;
+          currentPendingGames = msg.pendingGames || [];
+          engineHost = msg.engineHost || null;
+          renderGames(currentGames);
+        } else if (msg.type === 'firebase-status') {
+          window.FirebaseStatusBanner?.set(msg.status);
+        }
+      },
+      wsDebug,
+      idleWatcher,
+      onSocket: (s) => { ws = s; },
+      dedupeReconnect: true,
+    });
+
     function connectWebSocket() {
-      const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${location.host}/ws`;
-
-      const statusEl = document.getElementById('wsStatus');
-      statusEl.textContent = 'Connecting';
-      statusEl.className = 'ws-status connecting';
-
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        statusEl.textContent = 'Connected';
-        statusEl.className = 'ws-status connected';
-        ws.send(JSON.stringify({ type: 'subscribe-lobby' }));
-        if (reconnectTimer) {
-          clearInterval(reconnectTimer);
-          reconnectTimer = null;
-        }
-        wsDebug.onOpen();
-        idleWatcher.onConnected();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'debug-hello') {
-            wsDebug.setServerConnId(msg.connId);
-          } else if (msg.type === 'lobby-update') {
-            currentGames = msg.games;
-            currentPendingGames = msg.pendingGames || [];
-            engineHost = msg.engineHost || null;
-            renderGames(currentGames);
-          } else if (msg.type === 'firebase-status') {
-            window.FirebaseStatusBanner?.set(msg.status);
-          }
-        } catch (e) {
-          console.error('WS message parse error:', e);
-        }
-      };
-
-      ws.onclose = (event) => {
-        statusEl.textContent = 'Disconnected';
-        statusEl.className = 'ws-status disconnected';
-        wsDebug.onClose(event);
-        const wasIdle = idleWatcher.onClose(event);
-        if (wasIdle) {
-          // Surface the idle close in the connection log as its own event
-          // so /connection-debug clearly distinguishes "user went idle" from
-          // a network blip or page navigation.
-          fetch('/api/connection-log/client', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'client-idle-close',
-              code: event.code,
-              reason: event.reason || '',
-            }),
-          }).catch(() => {});
-          return;
-        }
-        if (idleWatcher.shouldSuppressReconnect()) return;
-        scheduleReconnect();
-      };
-
-      ws.onerror = (event) => {
-        statusEl.textContent = 'Error';
-        statusEl.className = 'ws-status disconnected';
-        wsDebug.onError(event);
-      };
-    }
-
-    function scheduleReconnect() {
-      if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null;
-          wsDebug.onReconnectAttempt();
-          connectWebSocket();
-        }, 2000);
-      }
+      wsClient.connect();
     }
 
     // No client-side liveness filtering: the server's game list is now kept
