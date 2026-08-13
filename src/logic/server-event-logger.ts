@@ -23,13 +23,19 @@ const USER_ACTIVE_WINDOW_MS = 3 * 60 * 1000;
 // Cadence for the decay check that notices the game-traffic window expiring.
 // Unref'd so it never keeps the process alive on its own.
 const DECAY_CHECK_INTERVAL_MS = 15 * 1000;
-// Liveness heartbeat cadence: upserts a single "last alive" row so the next
-// boot can bound when this process actually died (autoscale kills send no
-// catchable signal). Unref'd, fire-and-forget, produces no inbound requests.
-const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+// LIVENESS HEARTBEAT cadence: upserts the single server_liveness "last alive"
+// row so the next boot can bound when this process actually died (autoscale
+// kills send no catchable signal). Unref'd, fire-and-forget, produces no
+// inbound requests. Runs in EVERY state, idle included — its whole purpose is
+// detecting exactly when the platform kills the instance, and the outbound DB
+// upsert does not count as the inbound traffic autoscale gauges, so stopping
+// it on idle would blind the death-watch for nothing. Distinct from the WS
+// socket keepalive (proxy-drop prevention) and the client's input-gated
+// activity heartbeat (human-presence signal) — three mechanisms, three names.
+const LIVENESS_HEARTBEAT_INTERVAL_MS = 60 * 1000;
 // If a heartbeat tick fires this much later than scheduled within the same
 // process, the process was suspended/frozen (not killed) — record it.
-const SUSPEND_DRIFT_THRESHOLD_MS = 2 * HEARTBEAT_INTERVAL_MS;
+const SUSPEND_DRIFT_THRESHOLD_MS = 2 * LIVENESS_HEARTBEAT_INTERVAL_MS;
 
 /**
  * Records server lifecycle/activity events (boot, shutdown, woke, went-idle)
@@ -53,8 +59,8 @@ export class ServerEventLogger {
   private lastGameRequestGameId: string | null = null;
   private active = false;
   private decayInterval: NodeJS.Timeout | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private lastHeartbeatTickAt = 0;
+  private livenessHeartbeatInterval: NodeJS.Timeout | null = null;
+  private lastLivenessTickAt = 0;
   private bootedAt: Date | null = null;
   private exitRecorded = false;
   // Settles once boot forensics has finished READING the previous lifetime's
@@ -87,7 +93,7 @@ export class ServerEventLogger {
       console.error('[ServerEventLogger] Boot forensics failed:', (err as Error)?.message || err);
       return null;
     });
-    // Heartbeat upserts are gated on this read completing (see upsertHeartbeat)
+    // Heartbeat upserts are gated on this read completing (see upsertLivenessHeartbeat)
     // so the previous row can't be clobbered before it has been read.
     this.forensicsRead = forensics;
     const p = forensics.then(prev => {
@@ -99,13 +105,13 @@ export class ServerEventLogger {
       this.decayInterval = setInterval(() => this.checkDecay(), DECAY_CHECK_INTERVAL_MS);
       if (typeof this.decayInterval.unref === 'function') this.decayInterval.unref();
     }
-    if (!this.heartbeatInterval) {
-      this.lastHeartbeatTickAt = Date.now();
-      this.heartbeatInterval = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
-      if (typeof this.heartbeatInterval.unref === 'function') this.heartbeatInterval.unref();
+    if (!this.livenessHeartbeatInterval) {
+      this.lastLivenessTickAt = Date.now();
+      this.livenessHeartbeatInterval = setInterval(() => this.livenessHeartbeatTick(), LIVENESS_HEARTBEAT_INTERVAL_MS);
+      if (typeof this.livenessHeartbeatInterval.unref === 'function') this.livenessHeartbeatInterval.unref();
       // Write the first heartbeat immediately so even a very short lifetime
       // leaves a liveness bound.
-      this.upsertHeartbeat();
+      this.upsertLivenessHeartbeat();
     }
   }
 
@@ -149,7 +155,7 @@ export class ServerEventLogger {
   /** Upsert the single liveness row (update-in-place, not an event append).
    *  Always waits for boot forensics to finish reading the previous row first
    *  — otherwise this upsert could erase the prior lifetime's death bound. */
-  private upsertHeartbeat(): void {
+  private upsertLivenessHeartbeat(): void {
     const now = new Date();
     const lastActivity = Math.max(this.lastUserIntentAt, this.lastGameRequestAt);
     const p = this.forensicsRead
@@ -180,21 +186,21 @@ export class ServerEventLogger {
     void p;
   }
 
-  private heartbeatTick(): void {
+  private livenessHeartbeatTick(): void {
     if (this.shuttingDown) return;
     const now = Date.now();
-    const sinceLast = now - this.lastHeartbeatTickAt;
+    const sinceLast = now - this.lastLivenessTickAt;
     // Suspend/freeze detection: the tick fired far later than scheduled
     // within the same process — the runtime was paused, not killed.
     if (sinceLast > SUSPEND_DRIFT_THRESHOLD_MS) {
       this.write('suspended', {
         gapMs: sinceLast,
-        expectedIntervalMs: HEARTBEAT_INTERVAL_MS,
+        expectedIntervalMs: LIVENESS_HEARTBEAT_INTERVAL_MS,
         resumedAt: now,
       });
     }
-    this.lastHeartbeatTickAt = now;
-    this.upsertHeartbeat();
+    this.lastLivenessTickAt = now;
+    this.upsertLivenessHeartbeat();
   }
 
   /**
@@ -213,9 +219,9 @@ export class ServerEventLogger {
       clearInterval(this.decayInterval);
       this.decayInterval = null;
     }
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
+    if (this.livenessHeartbeatInterval) {
+      clearInterval(this.livenessHeartbeatInterval);
+      this.livenessHeartbeatInterval = null;
     }
     this.write('shutdown', { signal, connections: this.wsConnections, ...(extraDetail ?? {}) });
     await Promise.race([

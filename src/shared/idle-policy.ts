@@ -13,7 +13,7 @@ export const SERVER_IDLE_SWEEP_INTERVAL_MS = 60 * 1000;
 // keepalive) and the client (unconditional app-level keepalive) fire on this
 // cadence to keep an idle-but-open socket warm so the proxy in front of the app
 // never drops it (~5-minute idle window). Comfortably under that window.
-export const WS_KEEPALIVE_INTERVAL_MS = 25 * 1000;
+export const SOCKET_KEEPALIVE_INTERVAL_MS = 25 * 1000;
 
 // ── Instance-idleness policy (ActivityController) ───────────────────────────
 // The instance is awake iff

@@ -28,7 +28,7 @@
     IDLE_CLOSE_REASON: 'idle-timeout',
     ACTIVITY_HEARTBEAT_INTERVAL_MS: 2 * 60 * 1000,
     IDLE_CHECK_INTERVAL_MS: 30 * 1000,
-    WS_KEEPALIVE_INTERVAL_MS: 25 * 1000,
+    SOCKET_KEEPALIVE_INTERVAL_MS: 25 * 1000,
   };
 
   function buildOverlay() {
@@ -79,7 +79,7 @@
       this.getWS = opts.getWS;
       this.reconnect = opts.reconnect;
       this.lastActivityAt = Date.now();
-      this.lastHeartbeatAt = 0;
+      this.lastActivityHeartbeatAt = 0;
       this.idleTriggered = false;
       this.suppressReconnect = false;
       this.overlay = buildOverlay();
@@ -135,14 +135,14 @@
         })
         .catch(() => { /* keep default */ });
 
-      // Unconditional connection keepalive. Sent on a steady cadence regardless
+      // SOCKET KEEPALIVE: unconditional, sent on a steady cadence regardless
       // of whether the user has interacted, so a passive watcher never goes
       // silent and the proxy never drops the idle-but-open socket. This is
-      // deliberately separate from the activity heartbeat: `keepalive` does NOT
-      // count as user intent server-side, so it never resets the 30-minute idle
-      // window — only genuine activity does.
-      this.keepaliveInterval = setInterval(() => this._keepalive(),
-        POLICY.WS_KEEPALIVE_INTERVAL_MS);
+      // deliberately separate from the ACTIVITY HEARTBEAT below: `keepalive`
+      // does NOT count as user intent server-side, so it never resets the
+      // 30-minute idle window or wakes the server — only genuine activity does.
+      this.socketKeepaliveInterval = setInterval(() => this._socketKeepalive(),
+        POLICY.SOCKET_KEEPALIVE_INTERVAL_MS);
     }
 
     _markActivity() {
@@ -155,7 +155,7 @@
       if (window.ServerStatusBadge) window.ServerStatusBadge.set(state, label);
     }
 
-    _keepalive() {
+    _socketKeepalive() {
       const ws = this.getWS && this.getWS();
       if (!ws || ws.readyState !== 1 /* OPEN */) return;
       try {
@@ -239,15 +239,16 @@
         return;
       }
 
-      // Heartbeat: only beat if the user has been active since the last
-      // beat. The absence of heartbeats is the signal the server uses to
-      // detect a dead/zombie tab.
-      const sinceBeat = now - this.lastHeartbeatAt;
+      // ACTIVITY HEARTBEAT: input-gated — only beat if the user produced
+      // real local input (key/click/touch/mouse) since the last beat, so the
+      // server can treat each beat as a VERIFIABLE human action. The absence
+      // of beats is the signal the server uses to detect a dead/zombie tab.
+      const sinceBeat = now - this.lastActivityHeartbeatAt;
       if (sinceBeat >= POLICY.ACTIVITY_HEARTBEAT_INTERVAL_MS &&
-          this.lastActivityAt > this.lastHeartbeatAt) {
+          this.lastActivityAt > this.lastActivityHeartbeatAt) {
         try {
           ws.send(JSON.stringify({ type: 'activity' }));
-          this.lastHeartbeatAt = now;
+          this.lastActivityHeartbeatAt = now;
         } catch (e) { /* ignore */ }
       }
     }
