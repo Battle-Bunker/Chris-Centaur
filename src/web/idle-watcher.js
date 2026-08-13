@@ -22,14 +22,15 @@
  *   idle.onClose(event);  // call from ws.onclose; returns true if idle
  */
 (function () {
-  const POLICY = window.IdlePolicy || {
-    IDLE_TIMEOUT_MS: 30 * 60 * 1000,
-    IDLE_CLOSE_CODE: 4001,
-    IDLE_CLOSE_REASON: 'idle-timeout',
-    ACTIVITY_HEARTBEAT_INTERVAL_MS: 2 * 60 * 1000,
-    IDLE_CHECK_INTERVAL_MS: 30 * 1000,
-    SOCKET_KEEPALIVE_INTERVAL_MS: 25 * 1000,
-  };
+  // idle-policy.js is the single source of the policy constants (UMD, shared
+  // verbatim with the server). It must be loaded first — every page that
+  // includes idle-watcher.js includes idle-policy.js above it, so a missing
+  // policy is a script-ordering bug worth failing loudly on, not silently
+  // running with drifted duplicate values.
+  const POLICY = window.IdlePolicy;
+  if (!POLICY) {
+    throw new Error('idle-watcher.js requires idle-policy.js to be loaded first');
+  }
 
   function buildOverlay() {
     const style = document.createElement('style');

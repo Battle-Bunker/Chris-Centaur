@@ -62,7 +62,10 @@
     <a href="/api/connection-log/download">Download log file</a>
     <button id="refreshBtn">Refresh</button>
     <button id="clearBtn">Clear view</button>
-    <label><input type="checkbox" id="autoRefresh" checked> Auto-refresh (2s)</label>
+    <!-- Auto-refresh is opt-in: an open debug tab must not poll the server
+         every 2s on its own — that inbound traffic would hold the autoscale
+         instance up with nobody actually debugging. -->
+    <label><input type="checkbox" id="autoRefresh"> Auto-refresh (2s)</label>
     <label>
       Filter:
       <select id="filter">
