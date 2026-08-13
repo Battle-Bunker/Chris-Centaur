@@ -574,7 +574,6 @@
     let userSelectedMove = null;
     let turnTimerInterval = null;
     let turnExpiryTime = null;
-    let measuredPing = 0; // server→Battlesnake-engine ping (kept internally; no longer shown as "Ping")
 
     // ── Clock-skew estimation (NTP-style over the WS ping/pong) ──────────────
     // The countdown compares the server's absolute turnExpiryTime against the
@@ -1083,7 +1082,6 @@
           if (msg.activeIntentModes) {
             activeIntentModes = msg.activeIntentModes;
           }
-          measuredPing = msg.measuredPing || 0;
           turnExpiryTime = msg.turnExpiryTime || null;
           if (currentGameState) {
             showGameUI();
@@ -1107,7 +1105,6 @@
           currentGameState = msg.gameState;
           seedTimelineFromLive(currentGameState);
           turnExpiryTime = msg.turnExpiryTime || null;
-          measuredPing = msg.measuredPing || 0;
           if (msg.selections) {
             selections = msg.selections;
           }

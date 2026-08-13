@@ -224,7 +224,6 @@ export class GameWebSocketServer {
         turn: gameState.turn,
         gameState: gameState,
         turnExpiryTime: game?.turnExpiryTime || null,
-        measuredPing: this.gameManager.getMeasuredPing(),
         selections: this.getSelectionsForGame(gameId),
         owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),

@@ -116,7 +116,6 @@ const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);
-gameManager.startServerPing();
 
 // The TacticToes Firebase interface is the SOLE game transport: it signs in
 // as the centaur, discovers games via invite docs, feeds turns to the game

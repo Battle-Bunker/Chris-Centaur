@@ -303,6 +303,10 @@ const DISTINCT_COLORS = [
   '#f032e6',
 ];
 
+// Fallback network-latency allowance when a turn arrives WITHOUT the server's
+// own expiry timestamp (see recordTurnArrival — every live caller passes it).
+const ESTIMATED_TURN_DELIVERY_LATENCY_MS = 50;
+
 export type TurnUpdateCallback = (gameId: string, snakeId: string, turnData: TurnData) => void;
 // Board/end payloads are the canonical you-less state: no client reads `.you`
 // off a broadcast board (verified across src/web), and server consumers derive
@@ -334,8 +338,6 @@ export class ActiveGameManager {
   // single operation broadcasts at most once.
   private stagedDirtyGames: Set<string> = new Set();
   private stagedFlushScheduled: boolean = false;
-  private gameServerPing: number = 50;
-  private pingInterval: NodeJS.Timer | null = null;
   private staleGameCleanupInterval: NodeJS.Timer | null = null;
   // Write-through publisher for staged moves (see MoveSubmitter). Firestore is
   // the single source of truth for staged moves; until a submitter is wired,
@@ -500,10 +502,6 @@ export class ActiveGameManager {
     }
   }
 
-  getMeasuredPing(): number {
-    return this.gameServerPing;
-  }
-
   recordTurnArrival(gameId: string, arrivalTime: number, gameTimeout: number, serverExpiryTime: number | null = null): void {
     const game = this.games.get(gameId);
     if (!game) return;
@@ -511,42 +509,12 @@ export class ActiveGameManager {
     if (serverExpiryTime) {
       game.turnExpiryTime = serverExpiryTime;
     } else {
-      game.turnExpiryTime = arrivalTime + gameTimeout - this.gameServerPing;
+      // Near-dead fallback: every live caller passes the server's own expiry
+      // time. The constant replaces the deleted engine.battlesnake.com ping
+      // measurement (its perpetual 30s HEAD probe was the last legacy of the
+      // HTTP Battlesnake era); 50ms was that measurement's starting estimate.
+      game.turnExpiryTime = arrivalTime + gameTimeout - ESTIMATED_TURN_DELIVERY_LATENCY_MS;
     }
-  }
-
-  startServerPing(gameServerUrl: string = 'https://engine.battlesnake.com'): void {
-    if (this.pingInterval) return;
-
-    const pingGameServer = async () => {
-      // Only measure ping while games are actually running. A truly idle
-      // server must generate zero background network traffic, or the
-      // autoscale platform may never consider the instance quiescent.
-      if (this.games.size === 0) return;
-      try {
-        const start = Date.now();
-        const response = await fetch(gameServerUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
-        const elapsed = Date.now() - start;
-        if (response.ok || response.status < 500) {
-          this.gameServerPing = this.gameServerPing > 0
-            ? Math.round(this.gameServerPing * 0.7 + elapsed * 0.3)
-            : elapsed;
-        }
-      } catch {
-      }
-    };
-
-    pingGameServer();
-    this.pingInterval = setInterval(pingGameServer, 30000);
-    // Keep the ping running for the whole process lifetime (simplest, and the
-    // measured ping stays warm for when a game registers), but unref it so this
-    // short-cycle timer never keeps the Node event loop alive on its own. That
-    // lets the autoscale instance go genuinely idle and drain to zero once all
-    // games and users are gone.
-    if (typeof (this.pingInterval as any).unref === 'function') {
-      (this.pingInterval as any).unref();
-    }
-    console.log('[ActiveGameManager] Server ping interval started (30s, unref\'d)');
   }
 
   // Register a controlled snake against the CANONICAL board state. One game
@@ -1049,7 +1017,6 @@ export class ActiveGameManager {
     waypoints: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } };
     gameTimeout: number;
     turnExpiryTime: number | null;
-    measuredPing: number;
   } | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -1091,7 +1058,6 @@ export class ActiveGameManager {
       waypoints: this.getWaypointsForGame(gameId),
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
-      measuredPing: this.gameServerPing,
     };
   }
 
@@ -2341,10 +2307,6 @@ export class ActiveGameManager {
   }
 
   shutdown(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval as any);
-      this.pingInterval = null;
-    }
     if (this.staleGameCleanupInterval) {
       clearInterval(this.staleGameCleanupInterval as any);
       this.staleGameCleanupInterval = null;
