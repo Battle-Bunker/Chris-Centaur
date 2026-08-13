@@ -44,6 +44,7 @@ const USER_INTENT_TYPES = new Set([
   'select-snake',
   'deselect',
   'suicide-all',
+  'commit-all-staged',
   'select-move',
   'confirm-fatal-move',
   'set-waypoint',

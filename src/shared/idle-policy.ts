@@ -19,6 +19,7 @@ interface IdlePolicyConstants {
   IDLE_CLOSE_CODE: number;
   IDLE_CLOSE_REASON: string;
   ACTIVITY_HEARTBEAT_INTERVAL_MS: number;
+  ACTIVITY_BEAT_MIN_GAP_MS: number;
   IDLE_CHECK_INTERVAL_MS: number;
   SERVER_IDLE_SWEEP_INTERVAL_MS: number;
   SOCKET_KEEPALIVE_INTERVAL_MS: number;
@@ -37,6 +38,7 @@ export const IDLE_POLICY: IdlePolicyConstants = policy;
 export const IDLE_CLOSE_CODE: number = policy.IDLE_CLOSE_CODE;
 export const IDLE_CLOSE_REASON: string = policy.IDLE_CLOSE_REASON;
 export const ACTIVITY_HEARTBEAT_INTERVAL_MS: number = policy.ACTIVITY_HEARTBEAT_INTERVAL_MS;
+export const ACTIVITY_BEAT_MIN_GAP_MS: number = policy.ACTIVITY_BEAT_MIN_GAP_MS;
 export const SERVER_IDLE_SWEEP_INTERVAL_MS: number = policy.SERVER_IDLE_SWEEP_INTERVAL_MS;
 export const SOCKET_KEEPALIVE_INTERVAL_MS: number = policy.SOCKET_KEEPALIVE_INTERVAL_MS;
 export const IDLE_GRACE_MS: number = policy.IDLE_GRACE_MS;

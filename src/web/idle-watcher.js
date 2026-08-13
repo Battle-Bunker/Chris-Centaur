@@ -8,10 +8,12 @@
  *   - tells the reconnect loop to stand down (so it doesn't immediately
  *     re-establish the very connection we just closed)
  *
- * Also sends a lightweight `activity` heartbeat to the server every couple
- * of minutes ONLY while the user has been active since the last beat. The
- * absence of these heartbeats is what lets the server independently sweep
- * idle sockets (in case the client tab is frozen / OS-suspended / buggy).
+ * Also sends a lightweight `activity` heartbeat to the server, gated on
+ * genuine local input: event-driven on real input (at most once per
+ * ACTIVITY_BEAT_MIN_GAP_MS), with the periodic ACTIVITY_HEARTBEAT_INTERVAL_MS
+ * cadence as a ceiling backstop. The absence of these heartbeats is what lets
+ * the server independently sweep idle sockets (in case the client tab is
+ * frozen / OS-suspended / buggy).
  *
  * Usage:
  *   const idle = IdleWatcher.attach({
@@ -148,6 +150,26 @@
 
     _markActivity() {
       this.lastActivityAt = Date.now();
+      // EVENT-DRIVEN BEAT: the periodic cadence alone (2 min ceiling) is
+      // longer than the server's 60s instance-idle grace, so an actively
+      // interacting human would let the grace lapse between beats (suspend/
+      // resume oscillation). On genuine input, beat immediately — but never
+      // more often than ACTIVITY_BEAT_MIN_GAP_MS — so the server's awake
+      // clock stays fresh while input continues. _tick's periodic beat
+      // remains as the ceiling when input is sparse.
+      if (Date.now() - this.lastActivityHeartbeatAt >= POLICY.ACTIVITY_BEAT_MIN_GAP_MS) {
+        this._sendActivityBeat();
+      }
+    }
+
+    /** Send one input-gated `activity` heartbeat if the socket is open. */
+    _sendActivityBeat() {
+      const ws = this.getWS && this.getWS();
+      if (!ws || ws.readyState !== 1 /* OPEN */) return;
+      try {
+        ws.send(JSON.stringify({ type: 'activity' }));
+        this.lastActivityHeartbeatAt = Date.now();
+      } catch (e) { /* ignore */ }
     }
 
     /** Update the always-visible server-state badge (shared component from
@@ -240,17 +262,17 @@
         return;
       }
 
-      // ACTIVITY HEARTBEAT: input-gated — only beat if the user produced
-      // real local input (key/click/touch/mouse) since the last beat, so the
-      // server can treat each beat as a VERIFIABLE human action. The absence
-      // of beats is the signal the server uses to detect a dead/zombie tab.
+      // ACTIVITY HEARTBEAT (periodic ceiling): input-gated — only beat if
+      // the user produced real local input (key/click/touch/mouse) since the
+      // last beat, so the server can treat each beat as a VERIFIABLE human
+      // action. The absence of beats is the signal the server uses to detect
+      // a dead/zombie tab. Most beats are now sent event-driven from
+      // _markActivity (min-gap throttled); this periodic path is the backstop
+      // ceiling for input that arrived while the throttle window was closed.
       const sinceBeat = now - this.lastActivityHeartbeatAt;
       if (sinceBeat >= POLICY.ACTIVITY_HEARTBEAT_INTERVAL_MS &&
           this.lastActivityAt > this.lastActivityHeartbeatAt) {
-        try {
-          ws.send(JSON.stringify({ type: 'activity' }));
-          this.lastActivityHeartbeatAt = now;
-        } catch (e) { /* ignore */ }
+        this._sendActivityBeat();
       }
     }
 

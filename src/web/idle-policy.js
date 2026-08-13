@@ -17,11 +17,21 @@
     IDLE_CLOSE_CODE: 4001,
     IDLE_CLOSE_REASON: 'idle-timeout',
 
-    // ACTIVITY HEARTBEAT: how often the client reports "a real human touched
-    // this page" — sent only when genuine local input (key/click/touch/wheel/
-    // mouse) happened since the last beat, so the server can treat each beat
-    // as a verifiable human action.
+    // ACTIVITY HEARTBEAT: the CEILING cadence for the client reporting "a
+    // real human touched this page" — sent only when genuine local input
+    // (key/click/touch/wheel/mouse) happened since the last beat, so the
+    // server can treat each beat as a verifiable human action.
     ACTIVITY_HEARTBEAT_INTERVAL_MS: 2 * 60 * 1000,
+
+    // Event-driven floor for the activity heartbeat: on genuine input, a beat
+    // is sent IMMEDIATELY if at least this long has passed since the last one.
+    // Must be comfortably below IDLE_GRACE_MS — the periodic 2-minute ceiling
+    // alone exceeds the 60s grace, so an actively-present human with no game
+    // running would let the grace expire between beats (Firebase suspend →
+    // next beat resumes it, oscillating every ~2 minutes and delaying invite
+    // discovery). Event-driven beats keep the awake clock fresh while a human
+    // is actually interacting, without ever beating faster than this gap.
+    ACTIVITY_BEAT_MIN_GAP_MS: 30 * 1000,
 
     // Client-side cadence for checking whether the user crossed the idle
     // threshold (idle-watcher.js).

@@ -6,6 +6,7 @@
  */
 
 import {
+  ACTIVITY_BEAT_MIN_GAP_MS,
   ACTIVITY_HEARTBEAT_INTERVAL_MS,
   GAME_HUMAN_ATTENTION_CAP_MS,
   GAME_PROGRESS_WINDOW_MS,
@@ -29,6 +30,7 @@ describe('idle-policy single-sourcing', () => {
     expect(IDLE_CLOSE_CODE).toBe(clientPolicy.IDLE_CLOSE_CODE);
     expect(IDLE_CLOSE_REASON).toBe(clientPolicy.IDLE_CLOSE_REASON);
     expect(ACTIVITY_HEARTBEAT_INTERVAL_MS).toBe(clientPolicy.ACTIVITY_HEARTBEAT_INTERVAL_MS);
+    expect(ACTIVITY_BEAT_MIN_GAP_MS).toBe(clientPolicy.ACTIVITY_BEAT_MIN_GAP_MS);
     expect(SERVER_IDLE_SWEEP_INTERVAL_MS).toBe(clientPolicy.SERVER_IDLE_SWEEP_INTERVAL_MS);
     expect(SOCKET_KEEPALIVE_INTERVAL_MS).toBe(clientPolicy.SOCKET_KEEPALIVE_INTERVAL_MS);
     expect(IDLE_GRACE_MS).toBe(clientPolicy.IDLE_GRACE_MS);
@@ -46,5 +48,11 @@ describe('idle-policy single-sourcing', () => {
     expect(GAME_HUMAN_ATTENTION_CAP_MS).toBe(10 * 60 * 1000);
     expect(GAME_PROGRESS_WINDOW_MS).toBeGreaterThan(IDLE_GRACE_MS);
     expect(GAME_PROGRESS_WINDOW_MS).toBeLessThan(GAME_HUMAN_ATTENTION_CAP_MS);
+    // The event-driven beat gap must sit strictly inside the idle grace, or
+    // an actively-present human could still let the grace expire between
+    // beats (the suspend/resume oscillation this floor exists to prevent).
+    expect(ACTIVITY_BEAT_MIN_GAP_MS).toBeGreaterThan(0);
+    expect(ACTIVITY_BEAT_MIN_GAP_MS).toBeLessThan(IDLE_GRACE_MS);
+    expect(ACTIVITY_BEAT_MIN_GAP_MS).toBeLessThan(ACTIVITY_HEARTBEAT_INTERVAL_MS);
   });
 });
