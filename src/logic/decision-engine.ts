@@ -336,27 +336,32 @@ export class DecisionEngine {
     teamSnakeIds: Set<string>,
     evaluations: MoveEvaluationResult[]
   ): void {
+    // The enemy/ally sources are identical for every candidate move — only
+    // our own head position (slot 0) changes per candidate. Build them once.
+    const otherSources: BFSSource[] = [];
+    for (const snake of gameState.board.snakes) {
+      if (snake.id === gameState.you.id || snake.health <= 0) continue;
+      otherSources.push({
+        id: snake.id,
+        position: snake.head,
+        isTeam: teamSnakeIds.has(snake.id),
+        startDelay: 0
+      });
+    }
+
     for (const evalResult of evaluations) {
       const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
       if (!candidatePos) continue;
 
-      const projSources: BFSSource[] = [];
-      projSources.push({
-        id: gameState.you.id,
-        position: candidatePos,
-        isTeam: true,
-        startDelay: 1
-      });
-
-      for (const snake of gameState.board.snakes) {
-        if (snake.id === gameState.you.id || snake.health <= 0) continue;
-        projSources.push({
-          id: snake.id,
-          position: snake.head,
-          isTeam: teamSnakeIds.has(snake.id),
-          startDelay: 0
-        });
-      }
+      const projSources: BFSSource[] = [
+        {
+          id: gameState.you.id,
+          position: candidatePos,
+          isTeam: true,
+          startDelay: 1
+        },
+        ...otherSources
+      ];
 
       const projBfs = new MultiSourceBFS(graph);
       // Turn-aware clearance, matching the evaluation BFS: projected

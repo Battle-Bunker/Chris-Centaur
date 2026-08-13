@@ -5,7 +5,7 @@
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
-import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
+import { BoardGraph, BoardGraphConfig, ClearanceMode, fillNeighbors4 } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 import { WaypointProgress } from './waypoint-pathing';
 import {
@@ -379,6 +379,9 @@ export class BoardEvaluator {
   private visitStamp: Int32Array = new Int32Array(0);
   private floodQueue: Int32Array = new Int32Array(0);
   private stamp = 0;
+  // 4-slot scratch for fillNeighbors4 in the region flood (never used while
+  // another fill of the same buffer is in flight).
+  private neighborScratch = new Int32Array(4);
 
   private ensureScratch(cells: number): void {
     if (this.scratchCells < cells) {
@@ -427,6 +430,7 @@ export class BoardEvaluator {
     queue[0] = startIdx;
     let levelStart = 0;
     let levelEnd = 1;
+    const nbuf = this.neighborScratch;
 
     let reachableCount = 1; // head occupies a cell
     let tailReachable = false;
@@ -438,14 +442,10 @@ export class BoardEvaluator {
       let nextEnd = levelEnd;
       for (let q = levelStart; q < levelEnd; q++) {
         const cur = queue[q];
-        const x = cur % W;
-        const n0 = cur + W < N ? cur + W : -1;
-        const n1 = cur - W >= 0 ? cur - W : -1;
-        const n2 = x > 0 ? cur - 1 : -1;
-        const n3 = x < W - 1 ? cur + 1 : -1;
-        for (let t = 0; t < 4; t++) {
-          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
-          if (n < 0 || visit[n] === stamp) continue;
+        const nCount = fillNeighbors4(cur, W, N, nbuf);
+        for (let t = 0; t < nCount; t++) {
+          const n = nbuf[t];
+          if (visit[n] === stamp) continue;
           // Contest-aware restriction: expansion limited to cells we win the
           // Voronoi arrival race for; the tail cell is always allowed
           // (tail-chase survival).
@@ -502,17 +502,10 @@ export class BoardEvaluator {
     const visit = this.visitStamp;
     const stamp = ++this.stamp;
 
-    const neighborsOf = (c: number, out: number[]): number => {
-      const x = c % W;
-      let count = 0;
-      if (c + W < N) out[count++] = c + W;
-      if (c - W >= 0) out[count++] = c - W;
-      if (x > 0) out[count++] = c - 1;
-      if (x < W - 1) out[count++] = c + 1;
-      return count;
-    };
-    const candBuf = [0, 0, 0, 0];
-    const degBuf = [0, 0, 0, 0];
+    // Two DISTINCT scratch buffers: degree counting runs while the candidate
+    // buffer is still being iterated.
+    const candBuf = new Int32Array(4);
+    const degBuf = new Int32Array(4);
 
     let current = graph.cellIndexOf(snake.head);
     visit[current] = stamp;
@@ -521,7 +514,7 @@ export class BoardEvaluator {
 
     while (steps < cap) {
       const arrivalTurn = steps + 1;
-      const nCount = neighborsOf(current, candBuf);
+      const nCount = fillNeighbors4(current, W, N, candBuf);
       let candidates = 0;
       for (let i = 0; i < nCount; i++) {
         const n = candBuf[i];
@@ -540,7 +533,7 @@ export class BoardEvaluator {
       const nextArrival = arrivalTurn + 1;
       for (let i = 0; i < candidates; i++) {
         const cand = candBuf[i];
-        const dCount = neighborsOf(cand, degBuf);
+        const dCount = fillNeighbors4(cand, W, N, degBuf);
         let degree = 0;
         for (let j = 0; j < dCount; j++) {
           const nn = degBuf[j];

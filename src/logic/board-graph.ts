@@ -57,6 +57,29 @@ export interface PassabilityOptions {
 
 const NO_SNAKE = -1;
 
+/**
+ * Fill `out` with the in-bounds orthogonal neighbor cell indices of `idx` on a
+ * W-wide grid of N cells, returning how many were written (2-4). THE one
+ * implementation of the n0..n3 neighbor arithmetic — every grid walker
+ * (evaluation flood fills, the multi-source BFS, waypoint pathing, adjacency
+ * builds) calls this instead of re-deriving it inline.
+ *
+ * Scratch-array form rather than a callback: these are the measured hot loops
+ * and the fill compiles to straight-line stores with no closure allocation.
+ * Callers own their scratch buffer, so nested use (e.g. the Warnsdorff walk's
+ * candidate + degree buffers) stays safe. Order (+W, -W, -1, +1) is the
+ * historical enumeration order — BFS parent/first-visit choices depend on it.
+ */
+export function fillNeighbors4(idx: number, W: number, N: number, out: Int32Array): number {
+  const x = idx % W;
+  let count = 0;
+  if (idx + W < N) out[count++] = idx + W;
+  if (idx - W >= 0) out[count++] = idx - W;
+  if (x > 0) out[count++] = idx - 1;
+  if (x < W - 1) out[count++] = idx + 1;
+  return count;
+}
+
 export class BoardGraph {
   private width: number;
   private height: number;
@@ -242,20 +265,17 @@ export class BoardGraph {
       let levelStart = 0;
       let levelEnd = 1;
       this.queue[0] = headIdx;
+      const nbuf = new Int32Array(4);
 
       for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
         let nextEnd = levelEnd;
         let foodFoundThisTurn = 0;
         for (let q = levelStart; q < levelEnd; q++) {
           const cur = this.queue[q];
-          const x = cur % W;
-          // Orthogonal neighbors via index arithmetic; -1 marks out-of-bounds.
-          const n0 = cur + W < this.cells ? cur + W : -1;
-          const n1 = cur - W >= 0 ? cur - W : -1;
-          const n2 = x > 0 ? cur - 1 : -1;
-          const n3 = x < W - 1 ? cur + 1 : -1;
-          for (const n of [n0, n1, n2, n3]) {
-            if (n < 0 || this.visitStamp[n] === stamp) continue;
+          const nCount = fillNeighbors4(cur, W, this.cells, nbuf);
+          for (let t = 0; t < nCount; t++) {
+            const n = nbuf[t];
+            if (this.visitStamp[n] === stamp) continue;
             if (!pass.passableIdx(n, turn)) continue;
             this.visitStamp[n] = stamp;
             this.queue[nextEnd++] = n;
@@ -443,6 +463,25 @@ export class BoardGraph {
     return this.segOwner[idx] === NO_SNAKE ? 0 : this.physicalDisappear[idx];
   }
 
+  // Memoized whole-board physicalVacateTurn snapshot (below).
+  private vacateTurnsCache: number[] | null = null;
+
+  /**
+   * The physicalVacateTurn of EVERY cell as a JSON-ready array, built once
+   * per graph and shared: the per-candidate cell-ownership payloads all
+   * describe the same graph, so each used to rebuild an identical array per
+   * call. Treat as READ-ONLY — the same instance is embedded in every
+   * CellOwnership snapshot for this graph (consumers only serialize it).
+   */
+  physicalVacateTurns(): number[] {
+    if (!this.vacateTurnsCache) {
+      const arr = new Array<number>(this.cells);
+      for (let idx = 0; idx < this.cells; idx++) arr[idx] = this.physicalVacateTurn(idx);
+      this.vacateTurnsCache = arr;
+    }
+    return this.vacateTurnsCache;
+  }
+
   // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
   // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
   // i. A statically-blocked cell has an empty neighbor list (it is not a
@@ -466,18 +505,15 @@ export class BoardGraph {
     const N = this.cells;
     const start = new Int32Array(N + 1);
     const neighbors = new Int32Array(N * 4);
+    const nbuf = new Int32Array(4);
     let filled = 0;
     for (let idx = 0; idx < N; idx++) {
       start[idx] = filled;
       if (this.isStaticBlockedIdx(idx)) continue;
-      const x = idx % W;
-      const n0 = idx + W < N ? idx + W : -1;
-      const n1 = idx - W >= 0 ? idx - W : -1;
-      const n2 = x > 0 ? idx - 1 : -1;
-      const n3 = x < W - 1 ? idx + 1 : -1;
-      for (let t = 0; t < 4; t++) {
-        const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
-        if (n >= 0 && !this.isStaticBlockedIdx(n)) neighbors[filled++] = n;
+      const nCount = fillNeighbors4(idx, W, N, nbuf);
+      for (let t = 0; t < nCount; t++) {
+        const n = nbuf[t];
+        if (!this.isStaticBlockedIdx(n)) neighbors[filled++] = n;
       }
     }
     start[N] = filled;
