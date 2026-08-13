@@ -29,7 +29,11 @@
  *     key extend out the far side. This is the only way to cross hold.
  *   - Arrow Down retracts to hold KEEPING the axis; Down at hold is
  *     unavailable (Down never crosses hold). Arrow Up from hold with a
- *     retained axis re-extends it to distance 1; Up at TWELVE is unavailable.
+ *     retained axis re-extends it to distance 1. Up at TWELVE selects the
+ *     STRAIGHT-UP axis at distance 1 when that axis is legal, else the first
+ *     legal axis clockwise of 12:00 (the same axis Right would pick); units
+ *     that cannot hold are never legitimately at hold, so for them Up at
+ *     TWELVE stays unavailable (snakes: no-op flash).
  *
  * Transitions take a context describing the unit's live legality:
  *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null }
@@ -158,8 +162,19 @@
       return ok(axis, 1); // switching axis always resets distance to 1
     }
     if (dir === 'up') {
-      // TWELVE has no direction to extend along.
-      if (!isVector(state.axis)) return unavailable();
+      if (!isVector(state.axis)) {
+        // TWELVE: Up adds one unit straight up when that axis is legal for
+        // the piece; otherwise (e.g. bishop) it falls back to the first
+        // legal axis clockwise of 12:00 — the axis Right would pick. Units
+        // that cannot hold (snakes) are never legitimately at hold, so Up
+        // stays unavailable for them.
+        if (!ctx.canHold) return unavailable();
+        const straightUp = ctx.ring.find((a) => a.dx === 0 && a.dy === 1);
+        const axis = straightUp && ctx.maxDist(straightUp) >= 1
+          ? straightUp
+          : axisFromTwelve('right', ctx);
+        return axis ? ok(axis, 1) : unavailable();
+      }
       const d = Math.min(state.distance + 1, ctx.maxDist(state.axis));
       if (d < 1 || d === state.distance) return unavailable();
       return ok(state.axis, d);

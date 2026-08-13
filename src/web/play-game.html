@@ -2574,7 +2574,9 @@
     //   Hold has no well-defined axis: when the cursor initializes on hold
     //     (or numpad 5 selects it) the axis is KeyNavMachine.TWELVE — arrow
     //     Right then picks the first legal axis clockwise of 12:00, arrow
-    //     Left the first counter-clockwise.
+    //     Left the first counter-clockwise, and arrow Up adds one unit
+    //     straight up when that axis is legal (else it takes Right's pick;
+    //     snakes cannot hold, so their Up still flashes).
     //
     // The pure {axis, distance} transitions live in /keynav-machine.js
     // (KeyNavMachine, unit-tested in src/tests/keynav-machine.test.ts); this

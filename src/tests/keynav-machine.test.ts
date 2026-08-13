@@ -12,6 +12,9 @@
  *     travel at the moment hold is reached (the only way to cross hold);
  *   - arrow Down retracting to hold KEEPING the axis, never crossing it,
  *     with arrow Up re-extending the kept axis to distance 1;
+ *   - arrow Up from the TWELVE state selecting straight up at distance 1
+ *     when legal, else the first legal axis clockwise of 12:00 (Right's
+ *     pick) — with snakes (no hold) unchanged: Up still flashes;
  *   - the confirmed knight numpad anchoring map.
  */
 const {
@@ -85,6 +88,24 @@ describe('12:00 state: arrow Left/Right first-legal-axis selection', () => {
     expect(arrowStep(nav(TWELVE, 0), 'left', ctx)).toEqual(okStep({ dx: -1, dy: 1 }, 1));
   });
 
+  test('Left/Right from hold land at distance 1 — a concrete destination cell, never hold', () => {
+    // The rotation must be immediately visible as a selected candidate on
+    // the board: axis·distance from the head, not distance 0 (hold). For a
+    // queen head at (4,4), Right selects (5,5) and Left selects (3,5).
+    const ctx = makeCtx('queen', { defaultDist: 2 });
+    const head = { x: 4, y: 4 };
+    const cellFor = (s: StepResult) => ({
+      x: head.x + (s.axis as Axis).dx * (s.distance as number),
+      y: head.y + (s.axis as Axis).dy * (s.distance as number),
+    });
+    const right = arrowStep(nav(TWELVE, 0), 'right', ctx);
+    const left = arrowStep(nav(TWELVE, 0), 'left', ctx);
+    expect(right.distance).toBe(1);
+    expect(left.distance).toBe(1);
+    expect(cellFor(right)).toEqual({ x: 5, y: 5 });
+    expect(cellFor(left)).toEqual({ x: 3, y: 5 });
+  });
+
   test('rook, all axes legal: straight up is not "clockwise of 12:00"', () => {
     const ctx = makeCtx('rook', { defaultDist: 2 });
     expect(arrowStep(nav(TWELVE, 0), 'right', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
@@ -108,8 +129,34 @@ describe('12:00 state: arrow Left/Right first-legal-axis selection', () => {
     expect(arrowStep(nav(TWELVE, 0), 'right', ctx).ok).toBe(false);
   });
 
-  test('Up at TWELVE is unavailable (nothing to extend along)', () => {
+  test('Up at TWELVE adds one unit straight up when that axis is legal (queen)', () => {
     const ctx = makeCtx('queen', { defaultDist: 2 });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 0, dy: 1 }, 1));
+  });
+
+  test('Up at TWELVE goes straight up for a rook too', () => {
+    const ctx = makeCtx('rook', { defaultDist: 3 });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 0, dy: 1 }, 1));
+  });
+
+  test('Up at TWELVE without a straight-up axis falls back to Right\'s pick (bishop)', () => {
+    const ctx = makeCtx('bishop', { defaultDist: 2 });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 1, dy: 1 }, 1));
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(arrowStep(nav(TWELVE, 0), 'right', ctx));
+  });
+
+  test('Up at TWELVE with the straight-up ray blocked sweeps clockwise like Right', () => {
+    const ctx = makeCtx('rook', { defaultDist: 2, dist: { '0,1': 0 } });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
+  });
+
+  test('Up at TWELVE with no legal axes is unavailable', () => {
+    const ctx = makeCtx('queen', { defaultDist: 0 });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx).ok).toBe(false);
+  });
+
+  test('snakes cannot hold: Up at TWELVE remains a no-op flash', () => {
+    const ctx = makeCtx(undefined, { defaultDist: 1, canHold: false });
     expect(arrowStep(nav(TWELVE, 0), 'up', ctx).ok).toBe(false);
   });
 
