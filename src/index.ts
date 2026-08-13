@@ -17,6 +17,7 @@ import activityRouter from './routes/activity';
 import { ConnectionLogger } from './utils/connection-logger';
 import { ServerEventLogger } from './logic/server-event-logger';
 import { GameRegistry } from './logic/game-registry';
+import { pool } from './database/db';
 import {
   TacticToesFirebaseInterface,
   firebaseInterfaceConfigFromEnv,
@@ -222,27 +223,46 @@ httpServer.listen(port, '0.0.0.0', () => {
   void gameRegistry.backfillFromDecisionLogs();
 });
 
+// ── Graceful shutdown: ordering owned by the ActivityController ─────────────
+// Steps run strictly in this registration order, each awaited, a failing step
+// logged and skipped (see ActivityController.shutdown). The sequence: write
+// the shutdown event (bounded flush) → real WS close (client sockets + wss,
+// so httpServer.close() can actually complete) → Firebase stop → game-manager
+// timers → logger flushes → pg pool end (AFTER both logger flushes — the
+// loggers only flush; the pool is owned here) → worker-pool terminate → HTTP
+// close and exit.
+activityController.onShutdown('server-event-flush', (signal) =>
+  // Bounded by a short internal timeout so an unreachable database can never
+  // block process exit.
+  serverEventLogger.recordShutdownAndFlush(signal)
+);
+activityController.onShutdown('ws-close', () => wsServer.shutdown());
+if (ttFirebase) {
+  activityController.onShutdown('firebase-stop', () => ttFirebase.stop());
+}
+activityController.onShutdown('game-manager-timers', () => gameManager.shutdown());
+activityController.onShutdown('command-logger-flush', () => CommandLogger.getInstance().shutdown());
+activityController.onShutdown('decision-logger-flush', () => DecisionLogger.getInstance().shutdown());
+activityController.onShutdown('connection-logger-close', () => ConnectionLogger.getInstance().shutdown());
+activityController.onShutdown('pg-pool-end', () => pool.end());
+activityController.onShutdown('decision-worker-pool', () => DecisionWorkerPool.shutdownSharedIfRunning());
+activityController.onShutdown('http-close', () => {
+  httpServer.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  // Kick idle keep-alive HTTP connections loose so close() can complete; the
+  // WS sockets are already gone (ws-close step above — the old bug was that
+  // they never were, leaving process.exit unreachable).
+  httpServer.closeIdleConnections();
+});
+
 let shuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully...`);
-  // Write the shutdown event first, bounded by a short timeout so an
-  // unreachable database can never block process exit.
-  await serverEventLogger.recordShutdownAndFlush(signal);
-  if (ttFirebase) await ttFirebase.stop().catch(() => undefined);
-  gameManager.shutdown();
-  wsServer.shutdown();
-  // CommandLogger flushes first — DecisionLogger.shutdown() closes the shared
-  // pg pool.
-  await CommandLogger.getInstance().shutdown();
-  const decisionLogger = DecisionLogger.getInstance();
-  await decisionLogger.shutdown();
-  await ConnectionLogger.getInstance().shutdown();
-  httpServer.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+  await activityController.shutdown(signal);
 }
 
 process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });

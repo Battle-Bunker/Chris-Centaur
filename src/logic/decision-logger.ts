@@ -1,5 +1,5 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
-import { db, pool } from '../database/db';
+import { db } from '../database/db';
 import { decisionLogs } from '../database/schema';
 import { BoardSnapshot, Direction } from '../types/battlesnake';
 import { TeamDetector } from './team-detector';
@@ -876,6 +876,9 @@ export class DecisionLogger {
     }
   }
 
+  // Flush and stop the worker. Does NOT close the shared pg pool — pool.end()
+  // is owned by the controller-orchestrated graceful shutdown in src/index.ts,
+  // which runs it after BOTH the CommandLogger and DecisionLogger flushes.
   public async shutdown(): Promise<void> {
     console.log(`[DecisionLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
 
@@ -889,8 +892,6 @@ export class DecisionLogger {
     } else {
       console.log('[DecisionLogger] Shutdown complete. All entries flushed.');
     }
-
-    await pool.end();
   }
 
   public getQueueStats(): { queueSize: number; droppedCount: number; maxQueueSize: number } {

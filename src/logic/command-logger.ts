@@ -332,8 +332,9 @@ export class CommandLogger {
     }
   }
 
-  // Flush and stop the worker. Does NOT close the shared pg pool — that is
-  // owned by DecisionLogger.shutdown(), which must run after this.
+  // Flush and stop the worker. Does NOT close the shared pg pool — pool.end()
+  // is owned by the controller-orchestrated graceful shutdown in src/index.ts,
+  // which runs it after BOTH logger flushes.
   public async shutdown(): Promise<void> {
     console.log(`[CommandLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
     this.workerRunning = false;

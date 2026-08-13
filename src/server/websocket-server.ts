@@ -8,7 +8,7 @@ import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
-import { ActivityController } from './activity-controller';
+import { ActivityController, transientTimeout } from './activity-controller';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -625,8 +625,17 @@ export class GameWebSocketServer {
     }
   }
 
-  /** Stop background timers so the process can shut down cleanly. */
-  shutdown(): void {
+  /**
+   * Real server close for graceful shutdown: stop the background timers,
+   * close every client socket with 1001 (going away), then close the
+   * WebSocketServer itself — all BEFORE httpServer.close(). Previously only
+   * the timers were cleared and the client sockets stayed open, so with any
+   * client attached the HTTP server's close callback never fired and
+   * process.exit(0) was unreachable. Sockets that don't complete the close
+   * handshake within a short bound are terminated so shutdown can never hang
+   * on a dead client.
+   */
+  async shutdown(): Promise<void> {
     if (this.idleSweepInterval) {
       clearInterval(this.idleSweepInterval);
       this.idleSweepInterval = null;
@@ -635,6 +644,49 @@ export class GameWebSocketServer {
       clearInterval(this.socketKeepaliveInterval);
       this.socketKeepaliveInterval = null;
     }
+
+    const sockets = [...this.clients].map((client) => client.ws);
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let remaining = sockets.length;
+      let terminateBound: NodeJS.Timeout | null = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (terminateBound) clearTimeout(terminateBound);
+        // Stops the server accepting new connections. In server-attached mode
+        // this does NOT close client sockets — that's what the loop above is
+        // for — so it completes promptly once the clients are gone.
+        this.wss.close(() => resolve());
+      };
+      if (remaining === 0) {
+        finish();
+        return;
+      }
+      const oneClosed = () => {
+        remaining--;
+        if (remaining === 0) finish();
+      };
+      // Backstop: a client that never answers the close handshake would hold
+      // its TCP socket (and therefore httpServer.close()) open indefinitely.
+      terminateBound = transientTimeout(() => {
+        for (const ws of sockets) {
+          try { ws.terminate(); } catch { /* already down */ }
+        }
+      }, SHUTDOWN_CLOSE_BOUND_MS);
+      for (const ws of sockets) {
+        if (ws.readyState === WebSocket.CLOSED) {
+          oneClosed();
+          continue;
+        }
+        ws.once('close', oneClosed);
+        try {
+          ws.close(SHUTDOWN_CLOSE_CODE, SHUTDOWN_CLOSE_REASON);
+        } catch {
+          try { ws.terminate(); } catch { /* already down */ }
+        }
+      }
+    });
   }
 
   private startIdleSweep(): void {
@@ -903,6 +955,13 @@ export class GameWebSocketServer {
     ws.send(data);
   }
 }
+
+// Graceful-shutdown close: 1001 "going away", the standard server-restart code.
+const SHUTDOWN_CLOSE_CODE = 1001;
+const SHUTDOWN_CLOSE_REASON = 'server-shutdown';
+// How long shutdown waits for clients to answer the close handshake before
+// terminating the stragglers outright.
+const SHUTDOWN_CLOSE_BOUND_MS = 2000;
 
 // 1 MB — drop superseded updates (next turn replaces them anyway) beyond this.
 const BACKPRESSURE_DROP_BYTES = 1024 * 1024;

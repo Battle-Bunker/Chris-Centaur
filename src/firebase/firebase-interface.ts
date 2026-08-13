@@ -59,6 +59,7 @@ import {
   httpsCallable,
 } from 'firebase/functions';
 import { Direction, GameState } from '../types/battlesnake';
+import { transientInterval } from '../server/activity-controller';
 import { VoronoiStrategy } from '../logic/voronoi-strategy';
 import { BoardGraph } from '../logic/board-graph';
 import { MoveAnalyzer } from '../logic/move-analyzer';
@@ -518,7 +519,16 @@ export class TacticToesFirebaseInterface {
     // turn 0 runs for `firstTurnTime`, 60s by default, and even ordinary
     // turns outlast a few seconds of silence, so a fixed window declares
     // healthy games blind over and over.
-    this.watchdogTimer = setInterval(() => {
+    //
+    // Double-start hazard fix: clear any existing watchdog before assigning.
+    // Previously start() overwrote the field unconditionally and only caller
+    // discipline (retryConnect's watchdogTimer check) prevented a second
+    // interval from leaking unstoppably.
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+    this.watchdogTimer = transientInterval(() => {
       const GRACE_MS = 8_000;
       const now = Date.now();
       for (const watched of this.watchedGames.values()) {
@@ -533,7 +543,6 @@ export class TacticToesFirebaseInterface {
         break;
       }
     }, 2_500);
-    this.watchdogTimer.unref?.();
   }
 
   /**
