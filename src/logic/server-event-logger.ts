@@ -1,6 +1,11 @@
 import { sql, eq, desc, inArray } from 'drizzle-orm';
 import { db } from '../database/db';
 import { serverEvents, serverLiveness } from '../database/schema';
+import {
+  ActivityController,
+  ManagedTimerHandle,
+  transientDelay,
+} from '../server/activity-controller';
 
 export type ServerEventType = 'boot' | 'shutdown' | 'woke' | 'went-idle' | 'suspended';
 
@@ -58,8 +63,12 @@ export class ServerEventLogger {
   private lastGameRequestAt = 0;
   private lastGameRequestGameId: string | null = null;
   private active = false;
-  private decayInterval: NodeJS.Timeout | null = null;
-  private livenessHeartbeatInterval: NodeJS.Timeout | null = null;
+  // Both scope 'always': the activity-decay check is in-memory bookkeeping the
+  // /activity timeline depends on in every state, and the LIVENESS heartbeat
+  // must keep upserting while idle — its whole purpose is bounding when the
+  // platform kills the instance (see LIVENESS_HEARTBEAT_INTERVAL_MS).
+  private decayInterval: ManagedTimerHandle | null = null;
+  private livenessHeartbeatInterval: ManagedTimerHandle | null = null;
   private lastLivenessTickAt = 0;
   private bootedAt: Date | null = null;
   private exitRecorded = false;
@@ -101,14 +110,23 @@ export class ServerEventLogger {
     });
     this.pendingWrites = this.pendingWrites.then(() => p.then(() => undefined));
 
+    const controller = ActivityController.getInstance();
     if (!this.decayInterval) {
-      this.decayInterval = setInterval(() => this.checkDecay(), DECAY_CHECK_INTERVAL_MS);
-      if (typeof this.decayInterval.unref === 'function') this.decayInterval.unref();
+      this.decayInterval = controller.managedInterval(
+        'event-activity-decay',
+        () => this.checkDecay(),
+        DECAY_CHECK_INTERVAL_MS,
+        { scope: 'always' }
+      );
     }
     if (!this.livenessHeartbeatInterval) {
       this.lastLivenessTickAt = Date.now();
-      this.livenessHeartbeatInterval = setInterval(() => this.livenessHeartbeatTick(), LIVENESS_HEARTBEAT_INTERVAL_MS);
-      if (typeof this.livenessHeartbeatInterval.unref === 'function') this.livenessHeartbeatInterval.unref();
+      this.livenessHeartbeatInterval = controller.managedInterval(
+        'liveness-heartbeat',
+        () => this.livenessHeartbeatTick(),
+        LIVENESS_HEARTBEAT_INTERVAL_MS,
+        { scope: 'always' }
+      );
       // Write the first heartbeat immediately so even a very short lifetime
       // leaves a liveness bound.
       this.upsertLivenessHeartbeat();
@@ -216,21 +234,15 @@ export class ServerEventLogger {
     this.exitRecorded = true;
     this.shuttingDown = true;
     if (this.decayInterval) {
-      clearInterval(this.decayInterval);
+      this.decayInterval.clear();
       this.decayInterval = null;
     }
     if (this.livenessHeartbeatInterval) {
-      clearInterval(this.livenessHeartbeatInterval);
+      this.livenessHeartbeatInterval.clear();
       this.livenessHeartbeatInterval = null;
     }
     this.write('shutdown', { signal, connections: this.wsConnections, ...(extraDetail ?? {}) });
-    await Promise.race([
-      this.pendingWrites,
-      new Promise<void>(resolve => {
-        const t = setTimeout(resolve, timeoutMs);
-        if (typeof t.unref === 'function') t.unref();
-      }),
-    ]);
+    await Promise.race([this.pendingWrites, transientDelay(timeoutMs)]);
   }
 
   /** Called by the WebSocket server whenever the live connection count

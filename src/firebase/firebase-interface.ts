@@ -59,7 +59,7 @@ import {
   httpsCallable,
 } from 'firebase/functions';
 import { Direction, GameState } from '../types/battlesnake';
-import { transientInterval } from '../server/activity-controller';
+import { transientInterval, transientTimeout } from '../server/activity-controller';
 import { VoronoiStrategy } from '../logic/voronoi-strategy';
 import { BoardGraph } from '../logic/board-graph';
 import { MoveAnalyzer } from '../logic/move-analyzer';
@@ -643,9 +643,9 @@ export class TacticToesFirebaseInterface {
         console.error('[tt-firebase] Invite listener failed:', err);
         this.setStatus('error', `Invite listener failed: ${String((err as Error)?.message || err)}`);
         if (!this.stopped) {
-          setTimeout(() => {
+          transientTimeout(() => {
             if (!this.stopped && this.connState === 'error') void this.rebuildClient();
-          }, 5_000).unref?.();
+          }, 5_000);
         }
       }
     );
@@ -809,7 +809,7 @@ export class TacticToesFirebaseInterface {
         // Resubscribe after a short backoff.
         console.error(`[tt-firebase] Game listener error for ${watched.gameID} — resubscribing:`, err.message);
         watched.unsubscribe();
-        setTimeout(() => {
+        transientTimeout(() => {
           if (!this.stopped && this.watchedGames.has(watched.gameID)) {
             this.subscribeGameDoc(watched);
           }

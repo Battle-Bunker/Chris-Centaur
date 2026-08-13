@@ -1,5 +1,6 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '../database/db';
+import { transientDelay } from '../server/activity-controller';
 import { decisionLogs } from '../database/schema';
 import { BoardSnapshot, Direction } from '../types/battlesnake';
 import { TeamDetector } from './team-detector';
@@ -462,7 +463,7 @@ export class DecisionLogger {
           return;
         }
         const delay = this.RETRY_DELAY_MS * Math.pow(2, row.retries - 1) * (0.5 + Math.random() * 0.5);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await transientDelay(delay);
       }
     }
   }
@@ -502,7 +503,7 @@ export class DecisionLogger {
           return;
         }
         const delay = this.RETRY_DELAY_MS * Math.pow(2, update.retries - 1) * (0.5 + Math.random() * 0.5);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await transientDelay(delay);
       }
     }
   }
@@ -545,7 +546,7 @@ export class DecisionLogger {
         }
         const delay = this.RETRY_DELAY_MS * Math.pow(2, row.retries - 1) * (0.5 + Math.random() * 0.5);
         console.warn(`[DecisionLogger] Insert failed, retry ${row.retries}/${this.MAX_RETRIES} after ${Math.round(delay)}ms:`, (error as Error).message);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await transientDelay(delay);
       }
     }
   }

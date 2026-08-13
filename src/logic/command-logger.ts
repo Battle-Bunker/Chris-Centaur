@@ -1,5 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../database/db';
+import { transientDelay } from '../server/activity-controller';
 import { commandEvents, commandTurnStates } from '../database/schema';
 
 // The operator identity attached to commands: the enrolled player who issued
@@ -245,7 +246,7 @@ export class CommandLogger {
           return;
         }
         const delay = this.RETRY_DELAY_MS * Math.pow(2, row.retries - 1) * (0.5 + Math.random() * 0.5);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await transientDelay(delay);
       }
     }
   }

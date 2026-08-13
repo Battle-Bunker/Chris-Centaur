@@ -13,6 +13,7 @@ import { ChunkJob, ChunkResult } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
 import { WaypointContext, computeWaypointProgressByMove } from './waypoint-pathing';
+import { transientInterval, transientTimeout } from '../server/activity-controller';
 
 // Re-exported for consumers that take a waypoint alongside a DecisionConfig.
 export { WaypointContext } from './waypoint-pathing';
@@ -627,17 +628,14 @@ export class DecisionEngine {
         }
       };
 
-      updateTimer = setInterval(() => {
+      updateTimer = transientInterval(() => {
         if (done) return;
         updatesEmitted++;
         onUpdate?.(buildDecision());
       }, updateIntervalMs);
-      // Timers must not keep the process alive on their own.
-      updateTimer.unref?.();
 
       const remaining = Math.max(0, deadlineMs - Date.now());
-      deadlineTimer = setTimeout(finalize, remaining);
-      deadlineTimer.unref?.();
+      deadlineTimer = transientTimeout(finalize, remaining);
 
       pump();
     });

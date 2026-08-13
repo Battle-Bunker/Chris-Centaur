@@ -12,7 +12,7 @@ import {
 import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
-import { ActivityController } from './activity-controller';
+import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 
 export interface MoveEvaluation {
@@ -338,7 +338,7 @@ export class ActiveGameManager {
   // single operation broadcasts at most once.
   private stagedDirtyGames: Set<string> = new Set();
   private stagedFlushScheduled: boolean = false;
-  private staleGameCleanupInterval: NodeJS.Timer | null = null;
+  private staleGameCleanupInterval: ManagedTimerHandle | null = null;
   // Write-through publisher for staged moves (see MoveSubmitter). Firestore is
   // the single source of truth for staged moves; until a submitter is wired,
   // staging actions log an error instead of silently staying local.
@@ -1760,7 +1760,7 @@ export class ActiveGameManager {
     // Backstop: if Firebase hasn't confirmed the requested move by the next
     // tick, treat the write as lost and republish.
     clearRetry();
-    const timer = setTimeout(() => {
+    const timer = transientTimeout(() => {
       const cs = this.games.get(gameId)?.controlledSnakes.get(snakeId);
       if (!cs || cs.stagingRetryTimer !== timer) return;
       cs.stagingRetryTimer = null;
@@ -1772,7 +1772,6 @@ export class ActiveGameManager {
       cs.lastSubmittedMove = null;
       this.ensureStagedPublished(gameId, snakeId);
     }, ActiveGameManager.STAGING_RETRY_MS);
-    timer.unref?.();
     controlled.stagingRetryTimer = timer;
   }
 
@@ -2308,14 +2307,20 @@ export class ActiveGameManager {
 
   shutdown(): void {
     if (this.staleGameCleanupInterval) {
-      clearInterval(this.staleGameCleanupInterval as any);
+      this.staleGameCleanupInterval.clear();
       this.staleGameCleanupInterval = null;
     }
   }
 
+  // Scope 'while-active': eviction only matters for games that stopped
+  // progressing while the instance is up — and every idle-entry path already
+  // leaves such games unable to keep the instance awake (hasProgressingGame
+  // ignores them long before eviction). Games still in memory at idle entry
+  // (mid-game suspend at the human-attention cap) just wait; the first sweep
+  // after a wake evicts them.
   startStaleGameCleanup(intervalMs: number = 300000, maxIdleMs: number = 600000): void {
     if (this.staleGameCleanupInterval) return;
-    this.staleGameCleanupInterval = setInterval(() => {
+    this.staleGameCleanupInterval = ActivityController.getInstance().managedInterval('stale-game-cleanup', () => {
       const now = Date.now();
       let removedAny = false;
       for (const [gameId, game] of this.games) {
@@ -2331,12 +2336,7 @@ export class ActiveGameManager {
         }
       }
       if (removedAny) ActivityController.getInstance().poke();
-    }, intervalMs);
-    // Unref so this long-cycle timer doesn't keep the event loop alive on its
-    // own, allowing the autoscale instance to drain to zero when idle.
-    if (typeof (this.staleGameCleanupInterval as any).unref === 'function') {
-      (this.staleGameCleanupInterval as any).unref();
-    }
+    }, intervalMs, { scope: 'while-active' });
     console.log(`[ActiveGameManager] Stale-game cleanup interval started (every ${Math.round(intervalMs / 1000)}s, maxIdle ${Math.round(maxIdleMs / 1000)}s, unref'd)`);
   }
 }

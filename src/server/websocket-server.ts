@@ -8,7 +8,7 @@ import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
-import { ActivityController, transientTimeout } from './activity-controller';
+import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -60,8 +60,15 @@ export class GameWebSocketServer {
   private clients: Set<WSClient> = new Set();
   private gameManager: ActiveGameManager;
   private connLogger: ConnectionLogger;
-  private idleSweepInterval: NodeJS.Timeout | null = null;
-  private socketKeepaliveInterval: NodeJS.Timeout | null = null;
+  // Managed by the ActivityController with scope 'always', NOT 'while-active':
+  // under the amended awake rule the instance can be IDLE while untouched tabs
+  // are still connected, and these two loops are precisely what digests such
+  // tabs — the socket keepalive stops the proxy dropping them into a reconnect
+  // churn, and the idle sweep is the only mechanism that eventually closes
+  // them (4001). Both are already free at zero clients (no traffic, sweep
+  // skips its DB read), so running through idle costs nothing.
+  private idleSweepInterval: ManagedTimerHandle | null = null;
+  private socketKeepaliveInterval: ManagedTimerHandle | null = null;
   // Last REAL user activity per userId, persisted across reconnects. Without
   // this, every proxy-drop → auto-reconnect cycle produced a brand-new client
   // whose lastActivityAt reset to "now" (and `subscribe-game` counted as
@@ -588,7 +595,7 @@ export class GameWebSocketServer {
   private startSocketKeepalive(): void {
     if (this.socketKeepaliveInterval) return;
     const keepaliveData = JSON.stringify({ type: 'keepalive', ts: 0 });
-    this.socketKeepaliveInterval = setInterval(() => {
+    this.socketKeepaliveInterval = ActivityController.getInstance().managedInterval('ws-socket-keepalive', () => {
       for (const client of this.clients) {
         if (client.ws.readyState !== WebSocket.OPEN) continue;
         if (!client.isAlive) {
@@ -617,11 +624,7 @@ export class GameWebSocketServer {
         // App-level keepalive as the proxy-forwarding fallback.
         try { client.ws.send(keepaliveData); } catch { /* best-effort */ }
       }
-    }, SOCKET_KEEPALIVE_INTERVAL_MS);
-    // Don't keep the event loop alive solely for the keepalive timer.
-    if (typeof this.socketKeepaliveInterval.unref === 'function') {
-      this.socketKeepaliveInterval.unref();
-    }
+    }, SOCKET_KEEPALIVE_INTERVAL_MS, { scope: 'always' });
   }
 
   /**
@@ -636,11 +639,11 @@ export class GameWebSocketServer {
    */
   async shutdown(): Promise<void> {
     if (this.idleSweepInterval) {
-      clearInterval(this.idleSweepInterval);
+      this.idleSweepInterval.clear();
       this.idleSweepInterval = null;
     }
     if (this.socketKeepaliveInterval) {
-      clearInterval(this.socketKeepaliveInterval);
+      this.socketKeepaliveInterval.clear();
       this.socketKeepaliveInterval = null;
     }
 
@@ -690,7 +693,7 @@ export class GameWebSocketServer {
 
   private startIdleSweep(): void {
     if (this.idleSweepInterval) return;
-    this.idleSweepInterval = setInterval(async () => {
+    this.idleSweepInterval = ActivityController.getInstance().managedInterval('ws-idle-sweep', async () => {
       // With zero clients there is nothing to sweep — skip entirely (including
       // the config read) so an idle server generates no background database
       // traffic that could keep the autoscale instance from draining to zero.
@@ -750,11 +753,7 @@ export class GameWebSocketServer {
       for (const [userId, ts] of this.userActivity) {
         if (ts < pruneCutoff) this.userActivity.delete(userId);
       }
-    }, SERVER_IDLE_SWEEP_INTERVAL_MS);
-    // Don't keep the event loop alive solely for the sweep timer.
-    if (typeof this.idleSweepInterval.unref === 'function') {
-      this.idleSweepInterval.unref();
-    }
+    }, SERVER_IDLE_SWEEP_INTERVAL_MS, { scope: 'always' });
   }
 
   /** Emit a single line whenever the active-connection count changes. Called
