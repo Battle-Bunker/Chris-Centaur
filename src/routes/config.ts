@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
+import { CONFIG_UI } from '../config/heuristics';
 import { ActivityController } from '../server/activity-controller';
 
 const router = Router();
@@ -8,29 +9,32 @@ const configStore = new ConfigStore();
 
 /**
  * Get current configuration values
- * Merges stored values with defaults
+ * Merges stored values with defaults. `ui` carries the registry-derived
+ * section/slider metadata the config page renders itself from.
  */
 router.get('/api/config', async (_req, res) => {
   try {
     // Get stored config
     const storedConfig = await configStore.getAll();
-    
+
     // Merge with defaults (stored values override defaults)
     const mergedConfig = {
       ...DEFAULT_CONFIG,
       ...storedConfig
     };
-    
+
     res.json({
       config: mergedConfig,
-      defaults: DEFAULT_CONFIG
+      defaults: DEFAULT_CONFIG,
+      ui: CONFIG_UI
     });
   } catch (error) {
     console.error('Error getting config:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get configuration',
       config: DEFAULT_CONFIG,
-      defaults: DEFAULT_CONFIG
+      defaults: DEFAULT_CONFIG,
+      ui: CONFIG_UI
     });
   }
 });
