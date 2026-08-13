@@ -8,58 +8,30 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 import { WaypointProgress } from './waypoint-pathing';
+import {
+  HEURISTIC_KEYS,
+  HeuristicWeights,
+  WeightedScores,
+  defaultHeuristicWeights,
+} from '../config/heuristics';
 
-export interface HeuristicStats {
-  // My snake stats
-  myLength: number;           // Our snake's length
-  myTerritory: number;        // Our snake's voronoi territory cells
-  myControlledFood: number;   // Food cells within our voronoi territory
-  myControlledFertile: number; // Fertile tiles within our voronoi territory
-  
-  // Team stats (includes our snake)
-  teamLength: number;         // Combined length of team snakes
-  teamTerritory: number;      // Team voronoi territory cells
-  teamControlledFood: number; // Food cells within team voronoi territory
-  
-  // Distance/proximity metrics
-  foodDistance: number;       // Distance to nearest food (1000 if none reachable) - raw unweighted
-  foodProximity: number;      // Normalized linear proximity [0,1]: (boardSize - distance)/boardSize, 0 when eating
-  foodEaten: number;          // 1 if eating (justAte or onFoodNow), 0 otherwise - direct reward
-  
-  // Enemy stats
-  enemyTerritory: number;     // Enemy controlled territory
-  enemyLength: number;        // Combined length of enemy snakes
-  
-  // Safety heuristics
-  edgePenalty: number;        // Penalty for being on edge of board (-1 if on edge, 0 otherwise)
-  
-  // Enhanced space detection heuristics
-  selfSpace: number;          // Continuous survival room (sqrt-scaled, length-normalised) from the contest-aware conservative region: room == length → 1.0
-  alliesEnoughSpace: number;  // Sum of space scores for allied snakes
-  opponentsEnoughSpace: number; // Sum of space scores for opponent snakes
-  
-  // Life/death tracking
-  kills: number;              // Number of enemy snakes that died
-  deaths: number;             // Number of team snakes that died (including self)
-  
-  // Head-to-head risk tracking
-  enemyH2HRisk: number;       // 1 if move has h2h risk with enemy, 0 otherwise
-  allyH2HRisk: number;        // 1 if move has h2h risk with ally, 0 otherwise
-  
-  // User-directed waypoint heuristics (0 when no waypoint is set for this snake).
-  // Both are BOUNDED [0,1] shortest-path progress ramps computed per candidate
-  // move by the decision engine and injected via EvaluationContext — not derived
-  // from the evaluated board. The optimal next move scores exactly 1, so the
-  // config weight IS the bonus that move receives.
-  gotoProgress: number;       // Goto (green): 1 on the optimal step, falling linearly to 0 at double the best path
-  nearProgress: number;       // Near (blue): same ramp anchored one cell short; 0 for landing ON the target
+// The heuristic key set, weight/score types and defaults are DERIVED from the
+// heuristic registry (config/heuristics.ts) — one entry there fans out to all
+// of these. Re-exported so existing consumers keep their import path.
+export { HeuristicWeights, WeightedScores } from '../config/heuristics';
 
-  // Offensive aggression heuristic
-  aggression: number;           // Reward [0,2] for closing in on / landing on the head/body of an enemy we strictly out-invulnerate; 0 otherwise
-
-  // Hard trap survival signal
-  trapped: number;              // 1 if the move leads into a clearly-fatal dead-end pocket (no tail-chase, not enough room to outlast our length), 0 otherwise
-}
+/**
+ * Individual heuristic values for a board state: one stat per registry key,
+ * plus `foodDistance` — the raw unweighted BFS distance to the nearest food
+ * (1000 if none reachable), tracked for logs/UI but never weighted (its
+ * scored form is the normalized `foodProximity`).
+ *
+ * Stat semantics live where each stat is computed (calculateStatsWithTerritory
+ * and its helpers); weight semantics live in the registry.
+ */
+export type HeuristicStats = { [K in keyof HeuristicWeights]: number } & {
+  foodDistance: number;
+};
 
 export interface BoardEvaluation {
   score: number;              // Overall board score
@@ -93,163 +65,17 @@ export interface EvaluationContext {
   collectTerritory?: boolean;
 }
 
-export interface HeuristicWeights {
-  // My snake weights
-  myLength: number;
-  myTerritory: number;
-  myControlledFood: number;
-  myControlledFertile: number;
-  
-  // Team weights
-  teamLength: number;
-  teamTerritory: number;
-  teamControlledFood: number;
-  
-  // Distance/proximity weights
-  foodProximity: number;      // Weight for food proximity (linear)
-  foodEaten: number;          // Weight for actually eating food
-  
-  // Enemy weights
-  enemyTerritory: number;
-  enemyLength: number;
-  
-  // Safety weights
-  edgePenalty: number;        // Weight for edge penalty
-  
-  // Enhanced space detection weights
-  selfSpace: number;          // Weight for the continuous contest-aware survival room (sqrt-scaled; room == length → 1.0)
-  alliesEnoughSpace: number;  // Weight for allies' space scores
-  opponentsEnoughSpace: number; // Weight for opponents' space scores (negative to encourage trapping)
-  
-  // Life/death weights
-  kills: number;
-  deaths: number;
-  
-  // Head-to-head risk weights
-  enemyH2HRisk: number;       // Penalty for h2h risk with enemy
-  allyH2HRisk: number;        // Penalty for h2h risk with ally
-  
-  // Waypoint progress weights. Because the stat is a bounded [0,1] ramp whose
-  // maximum is the optimal next move, the weight IS the bonus that move gets.
-  // Keep both BELOW the deaths (-500) and trapped (-600) weights: that ordering
-  // is what guarantees the snake never dies for a click-target.
-  gotoProgress: number;
-  nearProgress: number;
-
-  // Offensive aggression weight
-  aggression: number;           // Weight applied to the aggression reward (positive, conservative so survival dominates)
-
-  // Hard trap survival weight
-  trapped: number;              // Weight applied to the trapped signal (strongly negative; a fatal pocket should dominate non-survival heuristics)
-}
-
-export interface WeightedScores {
-  // My snake weighted scores
-  myLengthScore: number;
-  myTerritoryScore: number;
-  myControlledFoodScore: number;
-  myControlledFertileScore: number;
-  
-  // Team weighted scores
-  teamLengthScore: number;
-  teamTerritoryScore: number;
-  teamControlledFoodScore: number;
-  
-  // Distance/proximity weighted scores
-  foodProximityScore: number;  // Weighted food proximity score
-  foodEatenScore: number;      // Weighted food eaten score
-  
-  // Enemy weighted scores
-  enemyTerritoryScore: number;
-  enemyLengthScore: number;
-  
-  // Safety weighted scores
-  edgePenaltyScore: number;   // Weighted edge penalty score
-  
-  // Enhanced space detection weighted scores
-  selfSpaceScore: number;          // Weighted continuous contest-aware survival room
-  alliesEnoughSpaceScore: number;  // Weighted allies' space scores
-  opponentsEnoughSpaceScore: number; // Weighted opponents' space scores
-  
-  // Life/death weighted scores
-  killsScore: number;
-  deathsScore: number;
-  
-  // Head-to-head risk weighted scores
-  enemyH2HRiskScore: number;
-  allyH2HRiskScore: number;
-  
-  // Waypoint weighted scores
-  gotoProgressScore: number;
-  nearProgressScore: number;
-
-  // Offensive aggression weighted score
-  aggressionScore: number;
-
-  // Hard trap survival weighted score
-  trappedScore: number;
-}
-
 export class BoardEvaluator {
   private weights: HeuristicWeights;
   private graphConfig: BoardGraphConfig;
-  
+
   constructor(weights?: Partial<HeuristicWeights>, graphConfig?: Partial<BoardGraphConfig>) {
-    // Default weights for each heuristic (can be overridden)
+    // Registry defaults for each heuristic (can be overridden)
     this.weights = {
-      // My snake weights
-      myLength: 10.0,           // High weight for staying alive
-      myTerritory: 1.0,         // Basic territory value
-      myControlledFood: 10.0,   // High value for controlling food
-      myControlledFertile: 2.0, // Value for controlling fertile ground
-      
-      // Team weights
-      teamLength: 10.0,         // Team coordination value
-      teamTerritory: 1.0,       // Basic territory value
-      teamControlledFood: 10.0, // High value for controlling food
-      
-      // Distance/proximity weights
-      foodProximity: 50.0,      // Weight for food proximity (linear)
-      foodEaten: 200.0,         // High reward for actually eating food
-      
-      // Enemy weights
-      enemyTerritory: 0,        // Currently not used but tracked
-      enemyLength: 0,           // Currently not used but tracked
-      
-      // Safety weights
-      edgePenalty: 50.0,        // Penalty for being on edge of board
-      
-      // Enhanced space detection weights
-      selfSpace: 120,           // Continuous contest-aware room (sqrt; room == length → 1.0), ~territory-scale
-      alliesEnoughSpace: 15.0,  // Weight for allies having space (positive = good teamwork; ×3 for the flat ±1 tier)
-      opponentsEnoughSpace: -15.0, // Weight for opponents having space (negative = encourage trapping; ×3 for the flat ±1 tier)
-      
-      // Life/death weights
-      kills: 0,                 // Currently not used but tracked
-      deaths: -500,             // Heavy penalty for death
-      
-      // Head-to-head risk weights
-      enemyH2HRisk: -100,       // Penalty for h2h risk with enemy
-      allyH2HRisk: -50,         // Penalty for h2h risk with ally
-      
-      // Waypoint weights (only active when a waypoint is set)
-      gotoProgress: 300,        // Bonus for the optimal step toward a goto target (bounded: this IS the max)
-      nearProgress: 250,        // Bonus for the optimal step toward a near target (bounded: this IS the max)
-
-      // Offensive aggression weight (conservative: max stat 2 → max +50, far below
-      // the death penalty of -500, so survival always dominates aggression)
-      aggression: 25,              // Reward hunting enemies we strictly out-invulnerate
-
-      // Hard trap survival weight: a clearly-fatal pocket is effectively a death,
-      // so this dominates every non-survival heuristic. The candidate-level veto
-      // in the decision engine is the hard guarantee; this weight ensures the
-      // signal also dominates scoring when a veto is not possible.
-      trapped: -600,
-      
-      // Override with provided weights
+      ...defaultHeuristicWeights(),
       ...weights
     };
-    
+
     this.graphConfig = {
       maxLookaheadTurns: 5,
       ...graphConfig
@@ -286,33 +112,15 @@ export class BoardEvaluator {
     // Check if we're dead
     const isDead = !ourSnake || ourSnake.health <= 0;
     if (isDead) {
+      // Every stat zero except: no reachable food, and the death itself.
+      // trapped stays 0 — death is already captured by deaths: 1; avoid
+      // double-penalizing.
+      const deadStats = {} as HeuristicStats;
+      for (const key of HEURISTIC_KEYS) deadStats[key] = 0;
+      deadStats.foodDistance = 1000;
+      deadStats.deaths = 1;
       return {
-        stats: {
-          myLength: 0,
-          myTerritory: 0,
-          myControlledFood: 0,
-          myControlledFertile: 0,
-          teamLength: 0,
-          teamTerritory: 0,
-          teamControlledFood: 0,
-          foodDistance: 1000,
-          foodProximity: 0,
-          foodEaten: 0,
-          enemyTerritory: 0,
-          enemyLength: 0,
-          edgePenalty: 0,
-          selfSpace: 0,
-          alliesEnoughSpace: 0,
-          opponentsEnoughSpace: 0,
-          kills: 0,
-          deaths: 1,
-          enemyH2HRisk: 0,
-          allyH2HRisk: 0,
-          gotoProgress: 0,
-          nearProgress: 0,
-          aggression: 0,
-          trapped: 0   // death is already captured by deaths:1; avoid double-penalizing
-        },
+        stats: deadStats,
         territoryCells: new Map()
       };
     }
@@ -788,62 +596,27 @@ export class BoardEvaluator {
   }
   
   /**
-   * Calculate weighted scores for each heuristic.
+   * Calculate weighted scores for each heuristic (stat × weight, one entry
+   * per registry key).
    */
   private calculateWeightedScores(stats: HeuristicStats): WeightedScores {
-    return {
-      myLengthScore: stats.myLength * this.weights.myLength,
-      myTerritoryScore: stats.myTerritory * this.weights.myTerritory,
-      myControlledFoodScore: stats.myControlledFood * this.weights.myControlledFood,
-      myControlledFertileScore: stats.myControlledFertile * this.weights.myControlledFertile,
-      teamLengthScore: stats.teamLength * this.weights.teamLength,
-      teamTerritoryScore: stats.teamTerritory * this.weights.teamTerritory,
-      teamControlledFoodScore: stats.teamControlledFood * this.weights.teamControlledFood,
-      foodProximityScore: stats.foodProximity * this.weights.foodProximity,
-      foodEatenScore: stats.foodEaten * this.weights.foodEaten,
-      enemyTerritoryScore: stats.enemyTerritory * this.weights.enemyTerritory,
-      enemyLengthScore: stats.enemyLength * this.weights.enemyLength,
-      edgePenaltyScore: stats.edgePenalty * this.weights.edgePenalty,
-      selfSpaceScore: stats.selfSpace * this.weights.selfSpace,
-      alliesEnoughSpaceScore: stats.alliesEnoughSpace * this.weights.alliesEnoughSpace,
-      opponentsEnoughSpaceScore: stats.opponentsEnoughSpace * this.weights.opponentsEnoughSpace,
-      killsScore: stats.kills * this.weights.kills,
-      deathsScore: stats.deaths * this.weights.deaths,
-      enemyH2HRiskScore: stats.enemyH2HRisk * this.weights.enemyH2HRisk,
-      allyH2HRiskScore: stats.allyH2HRisk * this.weights.allyH2HRisk,
-      gotoProgressScore: stats.gotoProgress * this.weights.gotoProgress,
-      nearProgressScore: stats.nearProgress * this.weights.nearProgress,
-      aggressionScore: stats.aggression * this.weights.aggression,
-      trappedScore: stats.trapped * this.weights.trapped
-    };
+    const weighted = {} as WeightedScores;
+    for (const key of HEURISTIC_KEYS) {
+      weighted[`${key}Score`] = stats[key] * this.weights[key];
+    }
+    return weighted;
   }
-  
+
   /**
-   * Calculate total score from weighted scores.
+   * Calculate total score from weighted scores: a flat sum in registry order.
+   * (Registry order is the historical summation order — float addition is not
+   * associative, and exact-value tests depend on it.)
    */
   private calculateTotalScore(weighted: WeightedScores): number {
-    return weighted.myLengthScore +
-           weighted.myTerritoryScore +
-           weighted.myControlledFoodScore +
-           weighted.myControlledFertileScore +
-           weighted.teamLengthScore +
-           weighted.teamTerritoryScore +
-           weighted.teamControlledFoodScore +
-           weighted.foodProximityScore +
-           weighted.foodEatenScore +
-           weighted.enemyTerritoryScore +
-           weighted.enemyLengthScore +
-           weighted.edgePenaltyScore +
-           weighted.selfSpaceScore +
-           weighted.alliesEnoughSpaceScore +
-           weighted.opponentsEnoughSpaceScore +
-           weighted.killsScore +
-           weighted.deathsScore +
-           weighted.enemyH2HRiskScore +
-           weighted.allyH2HRiskScore +
-           weighted.gotoProgressScore +
-           weighted.nearProgressScore +
-           weighted.aggressionScore +
-           weighted.trappedScore;
+    let total = 0;
+    for (const key of HEURISTIC_KEYS) {
+      total += weighted[`${key}Score`];
+    }
+    return total;
   }
 }

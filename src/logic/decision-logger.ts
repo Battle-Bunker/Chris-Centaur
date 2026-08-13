@@ -3,6 +3,7 @@ import { db } from '../database/db';
 import { transientDelay } from '../server/activity-controller';
 import { decisionLogs } from '../database/schema';
 import { BoardSnapshot, Direction } from '../types/battlesnake';
+import { HeuristicKey } from '../config/heuristics';
 import { TeamDetector } from './team-detector';
 import {
   mergeTimelineRows,
@@ -26,36 +27,10 @@ export interface DecisionLogEntry {
     score: number;
     numStates: number;
     projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
-    breakdown?: {
-      myLength: number;
-      myTerritory: number;
-      myControlledFood: number;
-      myControlledFertile: number;
-
-      teamLength: number;
-      teamTerritory: number;
-      teamControlledFood: number;
-
-      foodDistance: number;
-      foodProximity: number;
-      foodEaten: number;
-
-      enemyTerritory?: number;
-      enemyLength?: number;
-
-      kills?: number;
-      deaths?: number;
-
-      gotoProgress?: number;
-      nearProgress?: number;
-
-      enemyH2HRisk?: number;
-      allyH2HRisk?: number;
-
-      selfSpace?: number;
-
-      aggression?: number;
-      trapped?: number;
+    // One stat per heuristic registry key, plus the raw foodDistance and the
+    // legacy wire aliases (a UI/DB contract — see VoronoiStrategy.buildBreakdown).
+    breakdown?: { [K in HeuristicKey]?: number } & {
+      foodDistance?: number;
 
       fertileTerritory?: number;
       foodDistanceInverse?: number;

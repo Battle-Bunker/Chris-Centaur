@@ -5,7 +5,7 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
-import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
+import { BoardEvaluator, BoardEvaluation, HeuristicWeights } from './board-evaluator';
 import { Simulator } from './simulator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
@@ -45,30 +45,11 @@ export interface MoveEvaluationResult {
 export interface DecisionConfig {
   timeoutMs: number;
   nearbyDistance: number;  // Focal distance: snakes within this Manhattan distance have all moves enumerated; snakes beyond are frozen
-  weights?: {
-    // My snake weights
-    myLength?: number;
-    myTerritory?: number;
-    myControlledFood?: number;
-    // Team weights
-    teamLength?: number;
-    teamTerritory?: number;
-    teamControlledFood?: number;
-    // Distance/proximity weights
-    foodProximity?: number;
-    // Enemy weights
-    enemyTerritory?: number;
-    enemyLength?: number;
-    // Life/death weights
-    kills?: number;
-    deaths?: number;
-    // Head-to-head risk weights
-    enemyH2HRisk?: number;
-    allyH2HRisk?: number;
-    // Waypoint progress weights
-    gotoProgress?: number;
-    nearProgress?: number;
-  };
+  // Heuristic weight overrides, forwarded to the BoardEvaluator (and into
+  // worker chunk jobs). Registry-derived, so this can never silently miss
+  // keys the runtime supplies — the old hand-listed shape was ~8 keys short
+  // and only typechecked via excess-property-check evasion.
+  weights?: Partial<HeuristicWeights>;
 }
 
 // The candidate-level fatal-pocket veto threshold: a move whose worst-case

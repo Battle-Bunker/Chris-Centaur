@@ -4,12 +4,14 @@
  */
 
 import { GameState, Direction, TeamInfo } from '../types/battlesnake';
+import { BoardEvaluation } from './board-evaluator';
 import { DecisionEngine, MoveDecision } from './decision-engine';
 import { WaypointContext } from './waypoint-pathing';
-import { DecisionLogger } from './decision-logger';
+import { DecisionLogEntry, DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
+import { HEURISTIC_KEYS, HeuristicWeights } from '../config/heuristics';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
 
@@ -68,32 +70,12 @@ export class VoronoiStrategy {
     }
   }
   
-  private extractWeights(config: GameConfig) {
-    return {
-      myLength: config.myLength,
-      myTerritory: config.myTerritory,
-      myControlledFood: config.myControlledFood,
-      myControlledFertile: config.myControlledFertile,
-      teamLength: config.teamLength,
-      teamTerritory: config.teamTerritory,
-      teamControlledFood: config.teamControlledFood,
-      foodProximity: config.foodProximity,
-      foodEaten: config.foodEaten,
-      enemyTerritory: config.enemyTerritory,
-      enemyLength: config.enemyLength,
-      edgePenalty: config.edgePenalty,
-      selfSpace: config.selfSpace,
-      alliesEnoughSpace: config.alliesEnoughSpace,
-      opponentsEnoughSpace: config.opponentsEnoughSpace,
-      kills: config.kills,
-      deaths: config.deaths,
-      enemyH2HRisk: config.enemyH2HRisk,
-      allyH2HRisk: config.allyH2HRisk,
-      gotoProgress: config.gotoProgress,
-      nearProgress: config.nearProgress,
-      aggression: config.aggression,
-      trapped: config.trapped
-    };
+  // The heuristic-weight half of the config, keyed by the registry — a new
+  // heuristic key is picked up here automatically.
+  private extractWeights(config: GameConfig): HeuristicWeights {
+    const weights = {} as HeuristicWeights;
+    for (const key of HEURISTIC_KEYS) weights[key] = config[key];
+    return weights;
   }
   
   private updateDecisionEngine(config: GameConfig): void {
@@ -196,6 +178,29 @@ export class VoronoiStrategy {
     return entry;
   }
 
+  // The per-move breakdown blob logged to the DB and consumed by the UI: every
+  // registry stat, the raw foodDistance, the weights/weighted tables, plus the
+  // legacy wire aliases.
+  private buildBreakdown(
+    evaluation: BoardEvaluation
+  ): NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']> {
+    const { stats } = evaluation;
+    const breakdown: { [key: string]: any } = {};
+    for (const key of HEURISTIC_KEYS) breakdown[key] = stats[key];
+    breakdown.foodDistance = stats.foodDistance;
+    breakdown.weights = evaluation.weights;
+    breakdown.weighted = evaluation.weighted;
+    // LEGACY WIRE ALIASES — a UI/DB contract (history viewer and stored rows
+    // read these names). Keep them exactly as-is; do not fold into the
+    // registry-driven block above.
+    breakdown.fertileTerritory = stats.teamTerritory + stats.teamControlledFood * 10;
+    breakdown.foodDistanceInverse = stats.foodProximity;
+    breakdown.myFoodCount = stats.myControlledFood;
+    breakdown.teamFoodCount = stats.teamControlledFood;
+    breakdown.teamFertileScore = stats.teamTerritory + stats.teamControlledFood * 10;
+    return breakdown as NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']>;
+  }
+
   private assembleDebugResult(gameState: GameState, decision: MoveDecision): StrategyResult {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
@@ -204,39 +209,7 @@ export class VoronoiStrategy {
       numStates: evaluation.numStates,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
       projectedCellOwnership: evaluation.projectedCellOwnership || null,
-      breakdown: {
-        myLength: evaluation.worstEvaluation.stats.myLength,
-        myTerritory: evaluation.worstEvaluation.stats.myTerritory,
-        myControlledFood: evaluation.worstEvaluation.stats.myControlledFood,
-        myControlledFertile: evaluation.worstEvaluation.stats.myControlledFertile,
-        teamLength: evaluation.worstEvaluation.stats.teamLength,
-        teamTerritory: evaluation.worstEvaluation.stats.teamTerritory,
-        teamControlledFood: evaluation.worstEvaluation.stats.teamControlledFood,
-        foodDistance: evaluation.worstEvaluation.stats.foodDistance,
-        foodProximity: evaluation.worstEvaluation.stats.foodProximity,
-        foodEaten: evaluation.worstEvaluation.stats.foodEaten,
-        enemyTerritory: evaluation.worstEvaluation.stats.enemyTerritory,
-        enemyLength: evaluation.worstEvaluation.stats.enemyLength,
-        edgePenalty: evaluation.worstEvaluation.stats.edgePenalty,
-        selfSpace: evaluation.worstEvaluation.stats.selfSpace,
-        alliesEnoughSpace: evaluation.worstEvaluation.stats.alliesEnoughSpace,
-        opponentsEnoughSpace: evaluation.worstEvaluation.stats.opponentsEnoughSpace,
-        kills: evaluation.worstEvaluation.stats.kills,
-        deaths: evaluation.worstEvaluation.stats.deaths,
-        enemyH2HRisk: evaluation.worstEvaluation.stats.enemyH2HRisk,
-        allyH2HRisk: evaluation.worstEvaluation.stats.allyH2HRisk,
-        gotoProgress: evaluation.worstEvaluation.stats.gotoProgress,
-        nearProgress: evaluation.worstEvaluation.stats.nearProgress,
-        aggression: evaluation.worstEvaluation.stats.aggression,
-        trapped: evaluation.worstEvaluation.stats.trapped,
-        weights: evaluation.worstEvaluation.weights,
-        weighted: evaluation.worstEvaluation.weighted,
-        fertileTerritory: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10,
-        foodDistanceInverse: evaluation.worstEvaluation.stats.foodProximity,
-        myFoodCount: evaluation.worstEvaluation.stats.myControlledFood,
-        teamFoodCount: evaluation.worstEvaluation.stats.teamControlledFood,
-        teamFertileScore: evaluation.worstEvaluation.stats.teamTerritory + evaluation.worstEvaluation.stats.teamControlledFood * 10
-      }
+      breakdown: this.buildBreakdown(evaluation.worstEvaluation)
     }));
     
     // Current-board territory + ownership for visualization. Owner/distance
@@ -314,63 +287,33 @@ export class VoronoiStrategy {
     console.log(`Position: (${gameState.you.head.x}, ${gameState.you.head.y}), Health: ${gameState.you.health}`);
     console.log(`Candidate moves: ${decision.candidateMoves.join(', ')}`);
     
-    // Log detailed breakdown for each evaluated move
+    // Log detailed breakdown for each evaluated move. Rows are derived from
+    // the heuristic registry: one row per key (labelled by the key itself),
+    // shown when the stat or its weighted score is non-zero, plus the raw
+    // (never-weighted) foodDistance row.
     for (const evaluation of decision.evaluations) {
       if (evaluation.worstScore === -Infinity) {
         console.log(`\nMove ${evaluation.move}: DEATH (no valid scenarios)`);
         continue;
       }
-      
+
       const breakdown = evaluation.worstEvaluation;
       console.log(`\nMove ${evaluation.move}: Total Score = ${breakdown.score.toFixed(2)} (${evaluation.numStates} states evaluated)`);
-      console.log('┌─────────────────────┬──────────┬──────────┬──────────┐');
-      console.log('│ Component           │  Average │ × Weight │  = Score │');
-      console.log('├─────────────────────┼──────────┼──────────┤');
-      
-      // My Snake Stats
-      console.log(`│ My Length           │ ${breakdown.stats.myLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.myLength.toString().padStart(7)} │ ${breakdown.weighted.myLengthScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ My Territory        │ ${breakdown.stats.myTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.myTerritory.toString().padStart(7)} │ ${breakdown.weighted.myTerritoryScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ My Controlled Food  │ ${breakdown.stats.myControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFood.toString().padStart(7)} │ ${breakdown.weighted.myControlledFoodScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ My Fertile Ground   │ ${breakdown.stats.myControlledFertile.toFixed(1).padStart(8)} │ ×${breakdown.weights.myControlledFertile.toString().padStart(7)} │ ${breakdown.weighted.myControlledFertileScore.toFixed(2).padStart(8)} │`);
-      
-      // Team Stats
-      console.log(`│ Team Length         │ ${breakdown.stats.teamLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamLength.toString().padStart(7)} │ ${breakdown.weighted.teamLengthScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ Team Territory      │ ${breakdown.stats.teamTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamTerritory.toString().padStart(7)} │ ${breakdown.weighted.teamTerritoryScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ Team Controlled Food│ ${breakdown.stats.teamControlledFood.toFixed(1).padStart(8)} │ ×${breakdown.weights.teamControlledFood.toString().padStart(7)} │ ${breakdown.weighted.teamControlledFoodScore.toFixed(2).padStart(8)} │`);
-      
-      // Food Distance and Proximity
-      console.log(`│ Food Distance       │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
-      console.log(`│ Food Proximity      │ ${breakdown.stats.foodProximity.toFixed(3).padStart(8)} │ ×${breakdown.weights.foodProximity.toString().padStart(7)} │ ${breakdown.weighted.foodProximityScore.toFixed(2).padStart(8)} │`);
-      console.log(`│ Food Eaten          │ ${breakdown.stats.foodEaten.toFixed(1).padStart(8)} │ ×${breakdown.weights.foodEaten.toString().padStart(7)} │ ${breakdown.weighted.foodEatenScore.toFixed(2).padStart(8)} │`);
-      
-      // Enhanced Space Detection
-      if (breakdown.stats.selfSpace !== undefined && breakdown.weights.selfSpace !== undefined) {
-        console.log(`│ Self Space          │ ${(breakdown.stats.selfSpace || 0).toFixed(2).padStart(8)} │ ×${(breakdown.weights.selfSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.selfSpaceScore || 0).toFixed(2).padStart(8)} │`);
+      console.log('┌──────────────────────┬──────────┬──────────┬──────────┐');
+      console.log('│ Component            │     Stat │ × Weight │  = Score │');
+      console.log('├──────────────────────┼──────────┼──────────┤');
+
+      for (const key of HEURISTIC_KEYS) {
+        if (key === 'foodProximity') {
+          console.log(`│ ${'foodDistance'.padEnd(20)} │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
+        }
+        const stat = breakdown.stats[key];
+        const weighted = breakdown.weighted[`${key}Score`];
+        if (stat === 0 && weighted === 0) continue;
+        console.log(`│ ${key.padEnd(20)} │ ${stat.toFixed(2).padStart(8)} │ ×${breakdown.weights[key].toString().padStart(7)} │ ${weighted.toFixed(2).padStart(8)} │`);
       }
-      if (breakdown.stats.alliesEnoughSpace !== undefined && breakdown.weights.alliesEnoughSpace !== undefined) {
-        console.log(`│ Allies Space        │ ${(breakdown.stats.alliesEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.alliesEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.alliesEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
-      }
-      if (breakdown.stats.opponentsEnoughSpace !== undefined && breakdown.weights.opponentsEnoughSpace !== undefined) {
-        console.log(`│ Opponents Space     │ ${(breakdown.stats.opponentsEnoughSpace || 0).toFixed(1).padStart(8)} │ ×${(breakdown.weights.opponentsEnoughSpace || 0).toString().padStart(7)} │ ${(breakdown.weighted.opponentsEnoughSpaceScore || 0).toFixed(2).padStart(8)} │`);
-      }
-      
-      // Edge Penalty
-      if (breakdown.stats.edgePenalty !== 0) {
-        console.log(`│ Edge Penalty        │ ${breakdown.stats.edgePenalty.toFixed(1).padStart(8)} │ ×${breakdown.weights.edgePenalty.toString().padStart(7)} │ ${breakdown.weighted.edgePenaltyScore.toFixed(2).padStart(8)} │`);
-      }
-      
-      // Enemy stats (currently zero weight but tracked)
-      if (breakdown.weights.enemyTerritory > 0 || breakdown.weights.enemyLength > 0) {
-        console.log(`│ Enemy Territory     │ ${breakdown.stats.enemyTerritory.toFixed(1).padStart(8)} │ ×${breakdown.weights.enemyTerritory.toString().padStart(7)} │ ${breakdown.weighted.enemyTerritoryScore.toFixed(2).padStart(8)} │`);
-        console.log(`│ Enemy Length        │ ${breakdown.stats.enemyLength.toFixed(1).padStart(8)} │ ×${breakdown.weights.enemyLength.toString().padStart(7)} │ ${breakdown.weighted.enemyLengthScore.toFixed(2).padStart(8)} │`);
-      }
-      
-      // Deaths penalty
-      if (breakdown.stats.deaths > 0) {
-        console.log(`│ Deaths              │ ${breakdown.stats.deaths.toFixed(1).padStart(8)} │ ×${breakdown.weights.deaths.toString().padStart(7)} │ ${breakdown.weighted.deathsScore.toFixed(2).padStart(8)} │`);
-      }
-      
-      console.log('└─────────────────────┴──────────┴──────────┴──────────┘');
+
+      console.log('└──────────────────────┴──────────┴──────────┴──────────┘');
     }
     
     console.log(`\nCHOSEN: ${decision.move.toUpperCase()}`);
