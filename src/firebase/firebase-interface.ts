@@ -58,7 +58,7 @@ import {
   getFunctions,
   httpsCallable,
 } from 'firebase/functions';
-import { Direction, GameState } from '../types/battlesnake';
+import { CentaurMove, Direction, GameState } from '../types/battlesnake';
 import { transientInterval, transientTimeout } from '../server/activity-controller';
 import { VoronoiStrategy } from '../logic/voronoi-strategy';
 import { BoardGraph } from '../logic/board-graph';
@@ -81,6 +81,7 @@ import {
   parseLatestTurn,
   parseTurn,
   snakeIdentity,
+  unitTypeFor,
   withYou,
 } from './translate';
 
@@ -99,7 +100,17 @@ export interface FirebaseInterfaceConfig {
   };
 }
 
-/** Builds the config from env, or returns null when the interface is not configured. */
+/**
+ * Builds the config from env, or returns null when the interface is not
+ * configured (web-UI-only mode).
+ *
+ * Throws when the interface IS otherwise configured but
+ * TACTICTOES_FUNCTIONS_REGION is missing. The region is deliberately NOT
+ * defaulted: source code must stay deployment-agnostic, deployments point at
+ * Firebase projects in different regions, and a silent us-central1 fallback
+ * once produced a confusing functions/not-found in production. Failing startup
+ * calls the missing value out instead of quietly degrading to UI-only mode.
+ */
 export function firebaseInterfaceConfigFromEnv(
   env: NodeJS.ProcessEnv
 ): FirebaseInterfaceConfig | null {
@@ -107,12 +118,15 @@ export function firebaseInterfaceConfigFromEnv(
   const centaurApiKey = env.TACTICTOES_CENTAUR_API_KEY;
   const projectId = env.TACTICTOES_FIREBASE_PROJECT_ID;
   const apiKey = env.TACTICTOES_FIREBASE_API_KEY;
-  // The functions region is deliberately NOT defaulted: dev and prod point at
-  // Firebase projects in different regions, and a silent us-central1 fallback
-  // produced a confusing functions/not-found in production. Fail configuration
-  // instead so the missing value is called out at startup.
   const region = env.TACTICTOES_FUNCTIONS_REGION;
-  if (!centaurId || !centaurApiKey || !projectId || !apiKey || !region) return null;
+  if (!centaurId || !centaurApiKey || !projectId || !apiKey) return null;
+  if (!region) {
+    throw new Error(
+      'TACTICTOES_FUNCTIONS_REGION is not set but the other TACTICTOES_* variables are. ' +
+        'The functions region is required configuration with no default — set it to the ' +
+        "region where the TacticToes project's Cloud Functions are deployed (see README.md)."
+    );
+  }
 
   // Emulator plumbing for local integration testing against the Firebase
   // emulator suite: TACTICTOES_EMULATOR_FIRESTORE=host:port,
@@ -157,8 +171,9 @@ interface TurnWatch {
   // finalizes exactly when its commit is observed in movedPlayerIDs.
   statusUnsub: Unsubscribe | null;
   // Latest server-acked staged move per owned snake (ts <= endTime), i.e.
-  // the move the server's own resolution rule would pick right now.
-  confirmed: Map<string, { ts: number; direction: Direction }>;
+  // the move the server's own resolution rule would pick right now. Snakes
+  // are decoded to a Direction; chess pieces keep the raw destination index.
+  confirmed: Map<string, { ts: number; move: CentaurMove }>;
   // Snakes whose privateMoves read-back has delivered at least one snapshot
   // (even an empty one) — the precondition for trusting "nothing staged".
   readBackReady: Set<string>;
@@ -1001,7 +1016,7 @@ export class TacticToesFirebaseInterface {
     console.log(
       `[tt-firebase] Re-opening turn ${pt.turnNumber} read-back for ${watched.gameID} after client rebuild`
     );
-    this.beginTurnWatch(watched, pt, endTimeMs, aliveOurs);
+    this.beginTurnWatch(watched, data.setup, pt, endTimeMs, aliveOurs);
   }
 
   private teardownTurnWatch(watched: WatchedGame): void {
@@ -1082,7 +1097,7 @@ export class TacticToesFirebaseInterface {
     // renderer's death markers consume it, on the live board and in the replay.
     if (turnNumber > 0) {
       const prevPt = parseTurn(data, turnNumber - 1)!;
-      const lastMoves = this.deriveLastMoves(prevPt, pt);
+      const lastMoves = this.deriveLastMoves(data.setup, prevPt, pt);
       canonical.lastMoves = lastMoves;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
@@ -1167,7 +1182,14 @@ export class TacticToesFirebaseInterface {
     // Read-back + finalization for this turn: confirm what Firebase actually
     // holds as each snake's staged move, and detect the turn's final
     // selection (deadline or all-committed) before the next board arrives.
-    this.beginTurnWatch(watched, pt, endTimeMs, aliveOurs);
+    this.beginTurnWatch(watched, data.setup, pt, endTimeMs, aliveOurs);
+
+    // Our chess pieces take a different intake path: no engine decision (the
+    // minimax engine drives snakes only), no quick safe move — a piece with
+    // no operator command stages nothing and the server defaults it to stay.
+    const pieceUnits = new Set(
+      aliveOurs.filter((id) => unitTypeFor(data.setup, pt.turn, id) !== 'snake')
+    );
 
     // Feed the canonical board ONCE: goto-arrival checks for every controlled
     // snake, then the board advance and the single board-update broadcast.
@@ -1185,6 +1207,15 @@ export class TacticToesFirebaseInterface {
         // alivePlayers said the snake is alive but it isn't on the board —
         // inconsistent turn doc; skip rather than fabricate a view.
         console.error(`[tt-firebase] Alive snake ${snakeId} missing from board on turn ${turnNumber} of ${watched.gameID}`);
+        continue;
+      }
+      if (pieceUnits.has(snakeId)) {
+        // Piece turn intake: updateBoard above already advanced the board and
+        // ran the goto-arrival shift; this refreshes the unit type (promotion)
+        // and re-stages the piece's goto command against the new turn. No
+        // quick safe move and no engine decision — an uncommanded piece
+        // stages nothing and the server defaults it to stay.
+        this.gameManager.updatePieceTurn(watched.gameID, snakeId, view);
         continue;
       }
       views.set(snakeId, view);
@@ -1224,8 +1255,12 @@ export class TacticToesFirebaseInterface {
     // pass behind a doomed computation. Stale results are dropped by the
     // manager's turn guard in setBotRecommendation; every branch below
     // handles its own errors.
+    // Decisions are computed for our SNAKE units only — own pieces get no
+    // engine recommendation (their moves are operator commands or stay).
     const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
     void Promise.all(
+      // views holds SNAKE units only (pieces took the intake branch above),
+      // so this fan-out is snake-only by construction.
       [...views.keys()].map(async (snakeId) => {
         const view = views.get(snakeId)!;
         try {
@@ -1319,6 +1354,7 @@ export class TacticToesFirebaseInterface {
   //    timeout without commits never finalize; the next board just arrives.
   private beginTurnWatch(
     watched: WatchedGame,
+    setup: TTGameSetup,
     pt: ParsedTurn,
     endTimeMs: number,
     aliveOurs: string[]
@@ -1338,6 +1374,12 @@ export class TacticToesFirebaseInterface {
     };
     watched.turnWatch = tw;
 
+    // Chess pieces confirm by RAW destination index — their staged move is any
+    // legal square, so the adjacency decode (and its warning) never applies.
+    const pieceUnits = new Set(
+      aliveOurs.filter((id) => unitTypeFor(setup, pt.turn, id) !== 'snake')
+    );
+
     // A snake finalizes once its commit is observed AND its outcome is
     // knowable from Firebase state (never from timers):
     //  - a confirmed staged move → that move;
@@ -1353,11 +1395,20 @@ export class TacticToesFirebaseInterface {
       if (!tw.committedSnakes.has(snakeId)) return;
       const confirmed = tw.confirmed.get(snakeId);
       if (confirmed) {
-        this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, confirmed.direction);
+        this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, confirmed.move);
         return;
       }
       if (!tw.readBackReady.has(snakeId)) return;
       if (this.gameManager.hasUnconfirmedRequest(watched.gameID, snakeId, tw.turn)) return;
+      if (pieceUnits.has(snakeId)) {
+        // A piece's engine default is deterministic and always knowable: stay
+        // on its own square.
+        const stay = pt.headIndex(snakeId);
+        if (stay === undefined) return;
+        console.log(`[tt-firebase] Piece ${snakeId} committed with nothing staged — stay (${stay}) is final for turn ${tw.turn}`);
+        this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, stay);
+        return;
+      }
       const def = continuationDirection(pt.pieces(snakeId), width);
       if (!def) return; // no previous direction — the engine's fallback pick isn't reproduced
       console.log(`[tt-firebase] ${snakeId} committed with nothing staged — engine default ${def} is final for turn ${tw.turn}`);
@@ -1390,12 +1441,19 @@ export class TacticToesFirebaseInterface {
           // the turn's endTime. Both times are server-issued, so there is no
           // client clock in the comparison, and the turn's endTime never
           // moves once written.
-          let best: { ts: number; direction: Direction } | null = null;
+          const isPiece = pieceUnits.has(snakeId);
+          let best: { ts: number; move: CentaurMove } | null = null;
           snapshot.forEach((docSnap) => {
             const d = docSnap.data() as { move: number; timestamp: Timestamp | null };
             const ts = d.timestamp instanceof Timestamp ? d.timestamp.toMillis() : null;
             if (ts === null || ts > tw.endTimeMs) return;
             if (best && ts <= best.ts) return;
+            if (isPiece) {
+              // Pieces confirm by raw index: any square is a valid staged
+              // destination (own square = stay), so no adjacency decode.
+              best = { ts, move: d.move };
+              return;
+            }
             const direction = moveIndexToDirection(headIndex, d.move, width);
             if (!direction) {
               // Only reachable if the board moved under a staged write, which
@@ -1407,16 +1465,16 @@ export class TacticToesFirebaseInterface {
               );
               return;
             }
-            best = { ts, direction };
+            best = { ts, move: direction };
           });
           if (best) {
-            const chosen: { ts: number; direction: Direction } = best;
+            const chosen: { ts: number; move: CentaurMove } = best;
             tw.confirmed.set(snakeId, chosen);
             this.gameManager.setConfirmedStagedMove(
               watched.gameID,
               snakeId,
               turnNumber,
-              chosen.direction
+              chosen.move
             );
           }
           // A commit observed before this delivery may now be resolvable —
@@ -1458,10 +1516,16 @@ export class TacticToesFirebaseInterface {
   // The applied move for each snake on the prev → curr transition, read from
   // the new turn's authoritative `moves` map (the server records every
   // player's actually-applied move there, staged or engine default alike).
-  private deriveLastMoves(prev: ParsedTurn, curr: ParsedTurn): Record<string, Direction> {
+  private deriveLastMoves(setup: TTGameSetup, prev: ParsedTurn, curr: ParsedTurn): Record<string, Direction> {
     const width = prev.boardWidth;
     const result: Record<string, Direction> = {};
     for (const snakeId of Object.keys(prev.turn.playerPieces)) {
+      // Chess pieces are skipped outright: their applied move is positional
+      // (any square, own square = stay), so there is no direction bookkeeping —
+      // and an adjacent piece step (king/pawn) must not masquerade as one.
+      // This keeps applyResolvedMoves, decision logs and death markers
+      // snake-only by construction.
+      if (unitTypeFor(setup, prev.turn, snakeId) !== 'snake') continue;
       const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
       // deploy-order tolerance: pre-moves turns from a not-yet-redeployed engine must not wedge the game
@@ -1482,7 +1546,7 @@ export class TacticToesFirebaseInterface {
     gameId: string,
     snakeId: string,
     turn: number,
-    move: Direction,
+    move: CentaurMove,
     source: string
   ): Promise<void> {
     if (!this.db || this.connState !== 'connected') {
@@ -1492,13 +1556,20 @@ export class TacticToesFirebaseInterface {
     const data = watched?.latestDoc;
     if (!watched || !data) throw new Error(`Unknown game ${gameId}`);
 
-    const pt = parseTurn(data, turn);
-    const headIndex = pt?.headIndex(snakeId);
-    if (pt === null || headIndex === undefined) {
-      throw new Error(`No head for ${snakeId} on turn ${turn} of ${gameId}`);
+    // A numeric move is a chess piece's destination, ALREADY a full-board
+    // index — it goes on the wire verbatim (no direction decode).
+    let moveIndex: number;
+    if (typeof move === 'number') {
+      moveIndex = move;
+    } else {
+      const pt = parseTurn(data, turn);
+      const headIndex = pt?.headIndex(snakeId);
+      if (pt === null || headIndex === undefined) {
+        throw new Error(`No head for ${snakeId} on turn ${turn} of ${gameId}`);
+      }
+      moveIndex = directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
     }
 
-    const moveIndex = directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
 
     await addDoc(
       collection(this.db, `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`),

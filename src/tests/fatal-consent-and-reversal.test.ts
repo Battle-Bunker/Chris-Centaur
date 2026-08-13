@@ -11,7 +11,7 @@
  */
 
 import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
-import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
+import { GameState, Snake, Coord, Direction, CentaurMove } from '../types/battlesnake';
 
 // Body extends straight DOWN from the head: body[1] (the neck) is at
 // (head.x, head.y - 1), so 'down' is always a 180° reversal / certain death.
@@ -60,7 +60,9 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
   let mgr: ActiveGameManager;
   let warnSpy: jest.SpyInstance;
   let prompts: Array<{ gameId: string; snakeId: string; move: Direction; turn: number }>;
-  let published: Array<{ snakeId: string; turn: number; move: Direction; source: string }>;
+  // MoveSubmitter hands a CentaurMove (Direction for snakes, numeric
+  // destination for pieces); this suite drives snakes only.
+  let published: Array<{ snakeId: string; turn: number; move: CentaurMove; source: string }>;
 
   beforeAll(() => {
     mgr = ActiveGameManager.getInstance();

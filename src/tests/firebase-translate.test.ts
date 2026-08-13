@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore';
 import { Direction } from '../types/battlesnake';
 import {
+  apiCoordToIndex,
   buildGameState,
   continuationDirection,
   controlledSnakeIDs,
@@ -157,6 +158,119 @@ describe('buildGameState', () => {
   it('omits turnExpiryTime when no deadline is supplied', () => {
     const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
     expect((state.game as any).turnExpiryTime).toBeUndefined();
+  });
+});
+
+describe('apiCoordToIndex', () => {
+  it('is the exact inverse of toApiCoord over every playable cell', () => {
+    for (let y = 1; y <= H - 2; y++) {
+      for (let x = 1; x <= W - 2; x++) {
+        const index = idx(x, y);
+        expect(apiCoordToIndex(toApiCoord(index, W, H), W, H)).toBe(index);
+      }
+    }
+  });
+});
+
+describe('buildGameState with chess pieces', () => {
+  const pieceSetup = () =>
+    makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B', unitType: 'pawn' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+    });
+
+  it('collapses a piece weight-stack to a 1-cell body with length = weight, attaching unitType and facing', () => {
+    const turn = makeTurn({
+      playerPieces: {
+        centA: [idx(1, 1), idx(1, 2)],
+        // Pawn at weight 3: the wire idiom is 3 copies of its single square.
+        'centA#2': [idx(5, 4), idx(5, 4), idx(5, 4)],
+        centB: [idx(3, 1)],
+        'centB#2': [idx(2, 4)],
+      },
+      unitFacing: { 'centA#2': { dx: -1, dy: 0 } },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+
+    const pawn = byId.get('centA#2')!;
+    expect(pawn.unitType).toBe('pawn');
+    expect(pawn.body).toEqual([{ x: 4, y: 0 }]); // stack collapsed to one cell
+    expect(pawn.head).toEqual({ x: 4, y: 0 });
+    expect(pawn.length).toBe(3); // length = WEIGHT (stack size), not cell count
+    // Facing rides along verbatim (wire convention, y down).
+    expect(pawn.facing).toEqual({ dx: -1, dy: 0 });
+
+    const rook = byId.get('centB')!;
+    expect(rook.unitType).toBe('rook');
+    expect(rook.body).toEqual([{ x: 2, y: 3 }]);
+    expect(rook.length).toBe(1);
+    expect(rook.facing).toBeUndefined();
+
+    // Snakes are exactly as today (multi-cell body, length = cell count),
+    // with the explicit 'snake' unit type attached.
+    const snakeA = byId.get('centA')!;
+    expect(snakeA.unitType).toBe('snake');
+    expect(snakeA.body).toEqual([{ x: 0, y: 3 }, { x: 0, y: 2 }]);
+    expect(snakeA.length).toBe(2);
+    expect(snakeA.facing).toBeUndefined();
+  });
+
+  it('turn.unitTypes overrides the setup type (pawn promotion mid-game)', () => {
+    const turn = makeTurn({
+      unitTypes: { 'centA#2': 'queen' },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 9, 'centA', null);
+    const promoted = state.board.snakes.find((s) => s.id === 'centA#2')!;
+    expect(promoted.unitType).toBe('queen');
+  });
+});
+
+describe('maxHealth from setup.maxHealthPerUnit', () => {
+  it('attaches the configured per-type max, resolved by CURRENT unit type', () => {
+    const setup = makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B', unitType: 'pawn' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+      maxHealthPerUnit: { snake: 150, pawn: 30, queen: 80 },
+    });
+    // centA#2 promoted mid-game: the QUEEN max applies, not the pawn's.
+    const turn = makeTurn({ unitTypes: { 'centA#2': 'queen' } });
+    const state = buildGameState('g1', setup, turn, 3, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+
+    expect(byId.get('centA')!.maxHealth).toBe(150); // snake key
+    expect(byId.get('centA#2')!.maxHealth).toBe(80); // current type (queen) wins
+    expect(byId.get('centB')!.maxHealth).toBe(100); // rook: key absent -> default
+    expect(byId.get('centB#2')!.maxHealth).toBe(150); // implicit snake
+    // `you` is built by the same path.
+    expect(state.you.maxHealth).toBe(150);
+  });
+
+  it('defaults every unit to 100 when the setup carries no maxHealthPerUnit', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    for (const snake of state.board.snakes) {
+      expect(snake.maxHealth).toBe(100);
+    }
+  });
+});
+
+describe('hazardDamage from setup', () => {
+  it('rides on the board verbatim when the setup configures it', () => {
+    const state = buildGameState('g1', makeSetup({ hazardDamage: 25 }), makeTurn(), 0, 'centA', null);
+    expect(state.board.hazardDamage).toBe(25);
+  });
+
+  it('stays absent when the setup omits it — readers default to 100', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.hazardDamage).toBeUndefined();
   });
 });
 

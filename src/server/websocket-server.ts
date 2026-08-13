@@ -1,7 +1,7 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
 import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ActiveGameManager } from './active-game-manager';
+import { ActiveGameManager, StagedMoveView } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
@@ -482,6 +482,9 @@ export class GameWebSocketServer {
         // last staged move at the deadline. Manual staging
         // drops the queue/waypoint per the "manual override drops the plan"
         // contract (handled inside setUserSelection).
+        // SNAKES ONLY by design: chess pieces are commanded via set-waypoint
+        // (goto destination), so this allow-list deliberately stays the four
+        // direction strings — no numeric moves cross this message.
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;
         if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
@@ -801,8 +804,11 @@ export class GameWebSocketServer {
   // Staged moves drive the arrow render on every client. The projection lives
   // in the manager (getStagedMovesForGame) because the per-turn command-state
   // snapshot persists the identical shape — live play and the history replay
-  // must render from the same data.
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } {
+  // must render from the same data. Moves are CentaurMove: Direction strings
+  // for snakes, numeric full-board destination indices for chess pieces (the
+  // renderer draws direction arrows only for the four direction strings — a
+  // piece's destination is visualized by the goto waypoint overlay).
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: StagedMoveView } {
     return this.gameManager.getStagedMovesForGame(gameId);
   }
 

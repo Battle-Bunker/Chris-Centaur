@@ -8,7 +8,7 @@
  */
 
 import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
-import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
+import { GameState, Snake, Coord, Direction, CentaurMove } from '../types/battlesnake';
 
 function makeSnake(id: string, head: Coord, length = 3): Snake {
   const body: Coord[] = [];
@@ -71,7 +71,9 @@ interface Published {
   gameId: string;
   snakeId: string;
   turn: number;
-  move: Direction;
+  // The submitter hands a CentaurMove (Direction for snakes, numeric
+  // destination for pieces); this suite drives snakes only.
+  move: CentaurMove;
   source: string;
 }
 
@@ -407,7 +409,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 5, y: 10 }, 'u1', true)).toBe(true);
     const publishedBefore = publishedFor('A').length;
 
-    const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
+    const committed: Array<{ snakeId: string; move: CentaurMove; source: string }> = [];
     mgr.onMoveCommitted((_gameId, snakeId, move, source) => {
       if (_gameId === gameId) committed.push({ snakeId, move, source });
     });
@@ -507,7 +509,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     processTurn(gameId, 'A', snakes, 0, 'right');
     processTurn(gameId, 'B', snakes, 0, 'left');
 
-    const committed: Array<{ snakeId: string; move: Direction; source: string }> = [];
+    const committed: Array<{ snakeId: string; move: CentaurMove; source: string }> = [];
     mgr.onMoveCommitted((gId, snakeId, move, source) => {
       if (gId === gameId) committed.push({ snakeId, move, source });
     });

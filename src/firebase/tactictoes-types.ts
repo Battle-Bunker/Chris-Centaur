@@ -10,18 +10,34 @@ export interface TTTeam {
   color: string;
 }
 
-// One snake. The first snake of a team has id == team.id, the rest are
-// `${team.id}#${k}` (k = 2..snakesPerTeam). teamID is the controlling
-// centaur's id; letter is "A".."Z" by index within the team.
+// Unit kinds (mirrors shared/types/Game.ts UnitType). Absent fields mean
+// "snake" (legacy games).
+export type TTUnitType =
+  | 'snake'
+  | 'pawn'
+  | 'knight'
+  | 'bishop'
+  | 'rook'
+  | 'queen'
+  | 'king';
+
+// One unit. The first unit of a team has id == team.id, the rest are
+// `${team.id}#${k}`. teamID is the controlling centaur's id; letter is
+// "A".."Z" by index within the team.
 export interface TTGamePlayer {
   id: string;
   teamID: string;
   letter: string;
+  unitType?: TTUnitType; // Initial unit type; absent means "snake"
 }
 
 export interface TTGameSetup {
   teams: TTTeam[];
   snakesPerTeam: number;
+  // Per-team unit counts (mirrors shared/types/Game.ts UnitCounts). When
+  // present, snakesPerTeam is ignored by the server's expansion.
+  unitsPerTeam?: Partial<Record<TTUnitType, number>>;
+  pawnPromotionWeight?: number; // Pawns promote to queens at this weight (default 10)
   gamePlayers: TTGamePlayer[];
   boardWidth: number; // includes the 1-cell perimeter wall
   boardHeight: number; // includes the 1-cell perimeter wall
@@ -29,6 +45,15 @@ export interface TTGameSetup {
   foodSpawnRate?: number;
   invulnerabilityPotionEnabled?: boolean;
   invulnerabilityPotionSpawnRate?: number;
+  // Per-unit-type max health (mirrors shared/types/Game.ts maxHealthPerUnit).
+  // A unit's health starts at its type's max and eating restores to it.
+  // Absent map or absent key means the engine default of 100.
+  maxHealthPerUnit?: Partial<Record<TTUnitType, number>>;
+  // Damage a unit takes when it ENTERS a hazard square (mirrors
+  // shared/types/Game.ts hazardDamage). Hazards are no longer instant death —
+  // a unit dies only when its health reaches <= 0. Absent means the engine
+  // default of 100.
+  hazardDamage?: number;
 }
 
 export interface TTTurn {
@@ -38,11 +63,19 @@ export interface TTTurn {
   alivePlayers: string[];
   food: number[];
   hazards: number[];
-  playerPieces: Record<string, number[]>; // board indices, head first, full-board coords
+  // Board indices, head first, full-board coords. A chess piece is a
+  // weight-stack: N copies of its single square (weight = array length).
+  playerPieces: Record<string, number[]>;
   // The move index the server actually applied for EVERY player alive at turn
   // start — staged or engine-defaulted alike. Authoritative and complete.
   moves: Record<string, number>;
   winners: Array<{ playerID: string; score: number }>;
+  // Current type per unit (changes on pawn promotion); absent in snake-only games.
+  unitTypes?: Record<string, TTUnitType>;
+  // Pawn facing (full-board convention, y down); updated when a pawn rotates.
+  unitFacing?: Record<string, { dx: number; dy: number }>;
+  // Squares each chess piece actually traversed this turn (snakes excluded).
+  paths?: Record<string, number[]>;
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];
   playerInvulnerabilityLevel?: Record<string, number>;

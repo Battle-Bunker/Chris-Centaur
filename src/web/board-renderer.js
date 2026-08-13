@@ -66,19 +66,92 @@ const BoardRenderer = (function () {
     return dead;
   }
 
+  // Chess-piece head glyphs (filled/black Unicode chess set, drawn white with
+  // an outline like the team letters so they read on any team colour).
+  const PIECE_GLYPHS = {
+    pawn: "♟",
+    knight: "♞",
+    bishop: "♝",
+    rook: "♜",
+    queen: "♛",
+    king: "♚",
+  };
+
+  // The four staged-move direction strings. Chess pieces stage NUMERIC moves
+  // (full-board destination index); anything not in this set must never be fed
+  // to the direction-arrow paths — the piece's destination is already
+  // visualized by the goto waypoint overlay (green cell).
+  function isDirectionMove(move) {
+    return move === "up" || move === "down" || move === "left" || move === "right";
+  }
+
   // Head glyph: the snake's team letter, bold white with a dark outline so it
-  // reads against any team colour. Historical replays predating letters stored
-  // an emoji head — render that; a snake with neither gets "?".
+  // reads against any team colour. Chess pieces draw their piece glyph instead
+  // of the letter, plus a small weight badge when their weight (length) > 1,
+  // and — for pawns — a facing triangle at the faced cell edge. Historical
+  // replays predating letters stored an emoji head — render that; a snake with
+  // neither gets "?".
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize) {
     const cx = hx + cellSize / 2;
-    const cy = hy + cellSize / 2;
+    // Nudged slightly above center so the glyph clears the health bar
+    // anchored to the cell's bottom edge (drawHealthBar).
+    const cy = hy + cellSize / 2 - cellSize * 0.06;
+    const pieceGlyph = snake.unitType ? PIECE_GLYPHS[snake.unitType] : null;
     ctx.save();
     ctx.beginPath();
     ctx.rect(hx, hy, cellSize, cellSize);
     ctx.clip();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (snake.letter) {
+    if (pieceGlyph) {
+      // Pawn facing: a small triangle hugging the faced cell edge. The wire
+      // facing has y growing DOWNWARD (full-board convention), which matches
+      // canvas rows exactly, so dx/dy apply to canvas offsets with no flip.
+      if (snake.facing && (snake.facing.dx || snake.facing.dy)) {
+        const fdx = snake.facing.dx;
+        const fdy = snake.facing.dy;
+        const edgeX = cx + fdx * (cellSize / 2);
+        const edgeY = cy + fdy * (cellSize / 2);
+        const half = cellSize * 0.14; // triangle half-width along the edge
+        const depth = cellSize * 0.16; // how far the base sits inside the cell
+        // Perpendicular of the facing vector spans the triangle's base.
+        const px = -fdy;
+        const py = fdx;
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.lineWidth = Math.max(1, cellSize * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(edgeX, edgeY); // tip on the faced edge
+        ctx.lineTo(edgeX - fdx * depth + px * half, edgeY - fdy * depth + py * half);
+        ctx.lineTo(edgeX - fdx * depth - px * half, edgeY - fdy * depth - py * half);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      const size = Math.max(cellSize * 0.62, 9);
+      ctx.font = `bold ${size}px serif`;
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(cellSize * 0.08, 1.5);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+      ctx.strokeText(pieceGlyph, cx, cy);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(pieceGlyph, cx, cy);
+      // Weight badge: pieces are 1-cell units whose `length` is their WEIGHT
+      // (stack size). The snake body-length label draws on the neck, which a
+      // piece doesn't have — show the weight as a small corner number instead.
+      if (snake.length > 1) {
+        const badgeSize = Math.max(cellSize * 0.3, 7);
+        ctx.font = `bold ${badgeSize}px sans-serif`;
+        const bx = hx + cellSize * 0.8;
+        // Kept above the bottom-anchored health bar (drawHealthBar).
+        const by = hy + cellSize * 0.68;
+        ctx.lineWidth = Math.max(cellSize * 0.06, 1.5);
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.strokeText(String(snake.length), bx, by);
+        ctx.fillStyle = "#ffe082";
+        ctx.fillText(String(snake.length), bx, by);
+      }
+    } else if (snake.letter) {
       const size = Math.max(cellSize * 0.55, 8);
       ctx.font = `bold ${size}px sans-serif`;
       ctx.lineJoin = "round";
@@ -100,6 +173,45 @@ const BoardRenderer = (function () {
       ctx.strokeText("?", cx, cy);
       ctx.fillStyle = "#ffffff";
       ctx.fillText("?", cx, cy);
+    }
+    ctx.restore();
+  }
+
+  // Health-bar fill colour by remaining fraction: red when nearly starved,
+  // orange when low, green otherwise. Shared by the board bar and the unit
+  // info panel so the two readouts always agree.
+  function healthBarColor(frac) {
+    if (frac < 0.1) return "#e53935";
+    if (frac < 0.25) return "#fb8c00";
+    return "#43a047";
+  }
+
+  // Health fraction for a snake: health over its configured per-type max
+  // (snake.maxHealth, engine default 100), clamped to [0, 1].
+  function healthFraction(snake) {
+    const max = snake.maxHealth ?? 100;
+    if (!(max > 0)) return 0;
+    return Math.max(0, Math.min(1, (snake.health ?? 0) / max));
+  }
+
+  // Prominent per-unit health bar on the unit's key cell (snake head cell /
+  // piece cell): bottom-anchored, ~90% of the cell wide, ~15% tall, a dark
+  // translucent track under a red/orange/green fill. Callers skip ghost/dead
+  // snakes — a corpse has no health to read.
+  function drawHealthBar(ctx, snake, hx, hy, cellSize) {
+    if (typeof snake.health !== "number") return; // pre-health historical rows
+    const frac = healthFraction(snake);
+    const barW = cellSize * 0.9;
+    const barH = Math.max(2, cellSize * 0.15);
+    const inset = Math.max(1, cellSize * 0.03);
+    const bx = hx + (cellSize - barW) / 2;
+    const by = hy + cellSize - barH - inset;
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+    ctx.fillRect(bx, by, barW, barH);
+    if (frac > 0) {
+      ctx.fillStyle = healthBarColor(frac);
+      ctx.fillRect(bx, by, barW * frac, barH);
     }
     ctx.restore();
   }
@@ -1046,6 +1158,9 @@ const BoardRenderer = (function () {
         const hx = head.x * cellSize;
         const hy = (board.height - 1 - head.y) * cellSize;
         drawHeadGlyph(ctx, snake, hx, hy, cellSize);
+        // Alive board snakes only — dead snakes render as ghosts/death
+        // markers in a separate pass and never reach this loop.
+        drawHealthBar(ctx, snake, hx, hy, cellSize);
       }
 
       if (turn > 0 && snake.body.length > 1) {
@@ -1109,12 +1224,16 @@ const BoardRenderer = (function () {
       } else if (stagedForThisSnake) {
         // `move` is the confirmed staged move (null until Firebase's first
         // confirmation for the turn lands); `requestedMove` is what was asked
-        // for most recently.
-        arrowMove = stagedForThisSnake.move || null;
+        // for most recently. Chess pieces stage NUMERIC destination indices —
+        // those never draw a direction arrow (the goto waypoint overlay
+        // already shows the destination cell), so filter to the four
+        // direction strings here.
+        const confirmedMove = stagedForThisSnake.move;
+        arrowMove = isDirectionMove(confirmedMove) ? confirmedMove : null;
         arrowColor = stagedForThisSnake.color || "#4CAF50";
         arrowCommitted = !!stagedForThisSnake.committed;
         const requested = stagedForThisSnake.requestedMove;
-        if (requested && requested !== arrowMove) {
+        if (isDirectionMove(requested) && requested !== arrowMove) {
           ghostMove = requested;
         }
       }
@@ -1682,6 +1801,21 @@ const BoardRenderer = (function () {
     const deadSuffix = isDead
       ? ' <span style="color:#aaa;font-weight:400;">(dead)</span>'
       : "";
+    // Inline health readout: the same red/orange/green bar as the board cell
+    // (fraction of the unit's configured maxHealth) plus the raw number.
+    // Skipped for dead rows and for historical rows without a health value.
+    let healthDisplay = "";
+    if (!isDead && typeof snake.health === "number") {
+      const frac = healthFraction(snake);
+      const fill =
+        frac > 0
+          ? `<span style="display:block;width:${(frac * 100).toFixed(1)}%;height:100%;background:${healthBarColor(frac)};"></span>`
+          : "";
+      healthDisplay =
+        `<span style="display:inline-flex;align-items:center;gap:4px;">` +
+        `<span style="display:inline-block;width:48px;height:8px;background:rgba(0,0,0,0.35);border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
+        `${snake.health}</span>`;
+    }
     return `
         <div class="${itemClass}"${clickAttr}>
           <div class="snake-color-box" style="background-color: ${snakeColor};"></div>
@@ -1690,6 +1824,7 @@ const BoardRenderer = (function () {
             <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
               <span>\u{1F4CF} ${snake.body.length}</span>
+              ${healthDisplay}
               ${invulnDisplay}
               ${ownerBadge}
             </div>
@@ -1883,6 +2018,8 @@ const BoardRenderer = (function () {
         deathsScore: 0,
         enemyH2HRiskScore: 0,
         allyH2HRiskScore: 0,
+        enemyPieceThreatScore: 0,
+        allyPieceThreatScore: 0,
         gotoProgressScore: 0,
         nearProgressScore: 0,
         aggressionScore: 0,
@@ -2060,6 +2197,20 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.allyH2HRisk ?? 0,
         weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0,
         averageWeighted: averageWeighted.allyH2HRiskScore ?? 0,
+      },
+      {
+        name: "Enemy Piece Threat",
+        value: breakdown.enemyPieceThreat ?? 0,
+        weight: breakdown.weights?.enemyPieceThreat ?? 0,
+        weightedScore: breakdown.weighted?.enemyPieceThreatScore ?? 0,
+        averageWeighted: averageWeighted.enemyPieceThreatScore ?? 0,
+      },
+      {
+        name: "Ally Piece Threat",
+        value: breakdown.allyPieceThreat ?? 0,
+        weight: breakdown.weights?.allyPieceThreat ?? 0,
+        weightedScore: breakdown.weighted?.allyPieceThreatScore ?? 0,
+        averageWeighted: averageWeighted.allyPieceThreatScore ?? 0,
       },
       {
         name: "Goto progress (green)",

@@ -18,12 +18,29 @@
 
 import { Timestamp } from 'firebase/firestore';
 import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
+import { TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tactictoes-types';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
   const y = Math.floor(index / boardWidth);
   return { x: x - 1, y: boardHeight - y - 2 };
+}
+
+/** Inverse of toApiCoord: api coord → FULL-board index (perimeter included). */
+export function apiCoordToIndex(coord: Coord, boardWidth: number, boardHeight: number): number {
+  const x = coord.x + 1;
+  const y = boardHeight - coord.y - 2;
+  return y * boardWidth + x;
+}
+
+/**
+ * A player's CURRENT unit type: the turn's live map (promotion changes it
+ * mid-game) first, then the setup's initial type, then the legacy "snake".
+ */
+export function unitTypeFor(setup: TTGameSetup, turn: TTTurn, playerID: string): TTUnitType {
+  const fromTurn = turn.unitTypes?.[playerID];
+  if (fromTurn) return fromTurn;
+  return setup.gamePlayers.find((gp) => gp.id === playerID)?.unitType ?? 'snake';
 }
 
 /** Full-board index of the cell one step in `direction` from the head, clamped like the server. */
@@ -188,9 +205,21 @@ function buildSnake(
 ): Snake {
   const w = setup.boardWidth;
   const h = setup.boardHeight;
-  const body = (turn.playerPieces[playerID] || []).map((i) => toApiCoord(i, w, h));
+  const rawPieces = turn.playerPieces[playerID] || [];
   const gamePlayer = setup.gamePlayers.find((gp) => gp.id === playerID);
   const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
+  const unitType = unitTypeFor(setup, turn, playerID);
+
+  // Chess pieces arrive as a weight-stack — N copies of ONE square. Collapse
+  // the stack to a single body cell (the engine treats a length-1 body as a
+  // segment-free unit), but keep `length` = N: length is the piece's WEIGHT,
+  // which is exactly what head-to-head adjudication compares, so H2H risk
+  // against pieces stays weight-correct. Snakes are untouched.
+  const isPiece = unitType !== 'snake';
+  const body = isPiece
+    ? rawPieces.slice(0, 1).map((i) => toApiCoord(i, w, h))
+    : rawPieces.map((i) => toApiCoord(i, w, h));
+  const length = isPiece ? rawPieces.length : body.length;
 
   const snake: Snake = {
     id: playerID,
@@ -199,7 +228,7 @@ function buildSnake(
     health: turn.playerHealth[playerID] ?? 0,
     body,
     head: body.length > 0 ? { ...body[0] } : { x: 0, y: 0 },
-    length: body.length,
+    length,
     shout: '',
     squad: gamePlayer?.teamID ?? '',
     customizations: {
@@ -210,6 +239,15 @@ function buildSnake(
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
   };
   if (gamePlayer) snake.letter = gamePlayer.letter;
+  snake.unitType = unitType;
+  // Per-type max health from the setup config, resolved against the unit's
+  // CURRENT type (promotion moves a pawn onto the queen's max). Engine
+  // default is 100 when the map or key is absent.
+  snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
+  // Pawn facing rides along verbatim (wire convention, y down — see the Snake
+  // type for the api/canvas mapping).
+  const facing = turn.unitFacing?.[playerID];
+  if (facing) snake.facing = { dx: facing.dx, dy: facing.dy };
   const expiry = invulnerabilityExpiryTurn(turn, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
@@ -261,6 +299,10 @@ export function buildBoardState(
     hazards: mapIndices(turn.hazards, w, h),
     snakes: Object.keys(turn.playerPieces).map((pid) => buildSnake(setup, turn, pid)),
   };
+  // Setup-derived hazard damage rides on the board so the simulator (and any
+  // fatality reasoning) sees the configured value; readers default an absent
+  // field to the engine's 100.
+  if (setup.hazardDamage !== undefined) board.hazardDamage = setup.hazardDamage;
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);

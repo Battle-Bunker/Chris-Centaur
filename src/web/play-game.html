@@ -1424,6 +1424,15 @@
     }
 
     function setupMoveStateForSnake(snakeId) {
+      // Chess pieces have no candidate-move state: no per-direction
+      // evaluations, no move cursor, no Space staging. A null moveState keeps
+      // the candidate overlay, keypad and plain-left-click move picking inert;
+      // updateMoveControls shows the piece hint instead.
+      const pieceUnit = currentGameState?.board?.snakes?.find(s => s.id === snakeId);
+      if (unitIsPiece(pieceUnit)) {
+        moveState = null;
+        return;
+      }
       const csData = controlledSnakeTurnData[snakeId];
       if (!csData || !csData.turnData || !currentGameState) {
         moveState = null;
@@ -1728,7 +1737,23 @@
 
     function updateMoveControls() {
       if (viewMode === 'historic') return;
-      if (!selectedSnakeId || !moveState) return;
+      if (!selectedSnakeId) return;
+      // Chess piece selected: the keypad / move cursor doesn't apply. Replace
+      // the move buttons with a short hint and disable the Stage button —
+      // pieces are commanded by right-clicking a destination square.
+      if (selectedUnitIsPiece()) {
+        updateIntentModeBadge();
+        document.getElementById('moveButtons').innerHTML =
+          '<div style="grid-column: 1 / -1; padding: 10px 6px; color: #999; ' +
+          'font-size: 12px; text-align: center; line-height: 1.5;">' +
+          'Chess piece — right-click a destination square to command it.<br>' +
+          'Illegal targets stage “stay”.</div>';
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = 'Right-click a destination';
+        return;
+      }
+      if (!moveState) return;
       updateIntentModeBadge();
 
       if (moveSubmitted) {
@@ -1788,6 +1813,7 @@
     // action (Space / Stage button -> stageSelectedMove).
     function selectMove(direction) {
       if (moveSubmitted || !selectedSnakeId) return;
+      if (selectedUnitIsPiece()) return; // pieces have no 4-way move cursor
       if (!moveState) return;
 
       userSelectedMove = direction;
@@ -1839,6 +1865,7 @@
     // the confirmation for this request lands.
     function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
+      if (selectedUnitIsPiece()) return; // pieces stage via right-click goto only
       const move = userSelectedMove;
       if (!move) return;
 
@@ -2172,6 +2199,17 @@
     function getSelectedSnake() {
       if (!selectedSnakeId || !currentGameState) return null;
       return currentGameState.board.snakes.find(s => s.id === selectedSnakeId) || null;
+    }
+
+    // Whether a board unit is a chess piece (vs an ordinary snake). Pieces are
+    // commanded by right-clicking a destination (goto); the 4-way keypad,
+    // candidate-cell cursor and Space-staging don't apply to them.
+    function unitIsPiece(snake) {
+      return !!(snake && snake.unitType && snake.unitType !== 'snake');
+    }
+
+    function selectedUnitIsPiece() {
+      return unitIsPiece(getSelectedSnake());
     }
 
     // Mirror of active-game-manager.getProjectedHead. The cell the snake's

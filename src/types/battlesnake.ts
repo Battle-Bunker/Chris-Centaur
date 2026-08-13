@@ -28,6 +28,19 @@ export interface Snake {
   // by the game server; when absent the level is assumed to apply this turn only.
   invulnerabilityExpiryTurn?: number;
   teamID?: string;
+  // Chess-piece support: the unit's current type ("pawn" | "knight" | "bishop" |
+  // "rook" | "queen" | "king"), absent or "snake" for ordinary snakes. Pieces
+  // arrive as 1-cell units whose `length` is their WEIGHT (stack size), not
+  // their body cell count.
+  unitType?: string;
+  // The unit's max health from the game setup's per-type config
+  // (maxHealthPerUnit); eating restores health to this. Absent means the
+  // engine default of 100 — readers use `snake.maxHealth ?? 100`.
+  maxHealth?: number;
+  // Pawn facing, VERBATIM from the TacticToes wire (full-board convention:
+  // dy grows DOWNWARD). Note api y is flipped, so the faced api cell is
+  // {x + dx, y - dy}; canvas rows share the wire's sign (no flip when drawing).
+  facing?: { dx: number; dy: number };
 }
 
 export interface Board {
@@ -35,6 +48,11 @@ export interface Board {
   width: number;
   food: Coord[];
   hazards: Coord[];
+  // Damage a unit takes on ENTERING a hazard square, from the game setup
+  // (GameSetup.hazardDamage). Death only at health <= 0 — hazards are
+  // damage-based, not instant death. Absent means the engine default of 100 —
+  // readers use `board.hazardDamage ?? 100`.
+  hazardDamage?: number;
   snakes: Snake[];
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];
@@ -74,6 +92,12 @@ export interface GameState {
 export type BoardSnapshot = Omit<GameState, 'you'>;
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
+
+// A staged move on the centaur side: snakes stage a Direction; chess pieces
+// stage the FULL-BOARD index of their destination square (the same integer the
+// TacticToes wire carries in privateMoves.move — a piece's own square means
+// stay). Direction-only logic must narrow with `typeof move === 'string'`.
+export type CentaurMove = Direction | number;
 
 export interface TeamInfo {
   color: string;
