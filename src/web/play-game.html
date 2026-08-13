@@ -521,6 +521,7 @@
     </div>
   </div>
 
+  <script src="/dom-utils.js"></script>
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
@@ -1439,12 +1440,6 @@
       detailEl.innerHTML =
         `Final turn: ${maxTurn}<br>` + lines.join('<br>');
       banner.style.display = 'block';
-    }
-
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      })[c]);
     }
 
     function showGameUI() {

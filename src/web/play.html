@@ -132,6 +132,7 @@
     </div>
   </div>
 
+  <script src="/dom-utils.js"></script>
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
@@ -255,15 +256,10 @@
       return `<a class="engine-link" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on engine ↗</a>`;
     }
 
-    // Firebase-provided team data is untrusted: escape names before innerHTML
-    // interpolation and only pass through colors that look like plain CSS
-    // color tokens (hex / rgb()/hsl() / simple keyword) so nothing can break
-    // out of the style attribute.
-    function escapeHtml(s) {
-      return String(s ?? '').replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      })[c]);
-    }
+    // Firebase-provided team data is untrusted: escape names (escapeHtml from
+    // dom-utils.js) before innerHTML interpolation and only pass through
+    // colors that look like plain CSS color tokens (hex / rgb()/hsl() / simple
+    // keyword) so nothing can break out of the style attribute.
     function safeColor(c) {
       return typeof c === 'string' && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\))$/.test(c.trim())
         ? c.trim() : '#888';
@@ -365,10 +361,6 @@
           }
         });
       });
-    }
-
-    function openGame(gameId) {
-      window.location.href = `/game/${encodeURIComponent(gameId)}`;
     }
 
     connectWebSocket();

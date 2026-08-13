@@ -77,17 +77,8 @@
     </div>
   </div>
 
+  <script src="/dom-utils.js"></script>
   <script>
-    function escapeHtml(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      })[c]);
-    }
-
-    function openGame(gameId) {
-      window.location.href = `/game/${encodeURIComponent(gameId)}`;
-    }
-
     async function loadGames() {
       const container = document.getElementById('gameContainer');
       const status = document.getElementById('statusText');

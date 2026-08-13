@@ -25,30 +25,8 @@
     return id;
   }
 
-  function fmtTime(ts) {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour12: false }) + '.' +
-      String(d.getMilliseconds()).padStart(3, '0');
-  }
-
-  function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function fmtDur(ms) {
-    if (ms == null) return '';
-    if (ms < 1000) return ms + 'ms';
-    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-    const m = Math.floor(ms / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    return m + 'm ' + s + 's';
-  }
+  // Shared formatting/escaping helpers; /dom-utils.js must be loaded first.
+  const { escapeHtml, fmtTime, fmtDur } = window.DomUtils;
 
   class ConnectionDebugger {
     constructor(opts) {
