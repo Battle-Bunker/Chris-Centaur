@@ -33,7 +33,7 @@ app.use(compression());
 
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
@@ -76,25 +76,25 @@ app.use(playRouter);
 app.use(connectionDebugRouter);
 app.use(activityRouter);
 
-app.get('/config', markHumanAction, (req, res) => {
+app.get('/config', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
 });
 
-app.get('/board-test', markHumanAction, (req, res) => {
+app.get('/board-test', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/board-test.html'));
 });
 
-app.get('/history', markHumanAction, (req, res) => {
+app.get('/history', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });
 
-app.get('/play', markHumanAction, (req, res) => {
+app.get('/play', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play.html'));
 });
 
 // Unified game viewer: works for both live (WebSocket) and finished
 // (decision-log replay) games. See src/web/play-game.html.
-app.get('/game/:id', markHumanAction, (req, res) => {
+app.get('/game/:id', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
 });
 
@@ -104,11 +104,11 @@ app.get('/play/:gameId', markHumanAction, (req, res) => {
 });
 
 // Server activity page: audit autoscale behavior (boot/idle/wake/shutdown).
-app.get('/activity', markHumanAction, (req, res) => {
+app.get('/activity', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/activity.html'));
 });
 
-app.get('/connection-debug', markHumanAction, (req, res) => {
+app.get('/connection-debug', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/connection-debug.html'));
 });
 
