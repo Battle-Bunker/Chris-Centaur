@@ -14,3 +14,30 @@ export const SERVER_IDLE_SWEEP_INTERVAL_MS = 60 * 1000;
 // cadence to keep an idle-but-open socket warm so the proxy in front of the app
 // never drops it (~5-minute idle window). Comfortably under that window.
 export const WS_KEEPALIVE_INTERVAL_MS = 25 * 1000;
+
+// ── Instance-idleness policy (ActivityController) ───────────────────────────
+// The instance is awake iff
+//   (now − lastHumanActionAt < IDLE_GRACE_MS)
+//   OR (a game is verifiably progressing AND
+//       now − lastHumanActionAt < GAME_HUMAN_ATTENTION_CAP_MS).
+// A connected-but-untouched tab counts as NOTHING — only verifiable human
+// actions (user-intent WS messages, input-gated activity heartbeats, dashboard
+// page loads, mutating API calls) reset the clock.
+
+// Grace window after the last verifiable human action before the instance is
+// allowed to go idle (Firebase suspend). Also absorbs transient windows during
+// page navigations. Same 60s the old index.ts Firebase-suspend timer used.
+export const IDLE_GRACE_MS = 60 * 1000;
+
+// ABSOLUTE cap on how long a running game may hold the instance awake past
+// the last verifiable human action. A game nobody has touched a page for in
+// 10 minutes suspends mid-game, deliberately.
+export const GAME_HUMAN_ATTENTION_CAP_MS = 10 * 60 * 1000;
+
+// How recently a game's latest turn must have arrived for the game to count
+// as "verifiably progressing" (unless its turn deadline is still in the
+// future). ~2 turn windows of the longest normal turn (60s first turn), and
+// the same per-game lastActivityAt clock the stale-game cleanup evicts on at
+// 10 minutes — one staleness clock, two thresholds. A registered-but-stuck
+// game (no turn advance, deadline long past) counts as INACTIVE.
+export const GAME_PROGRESS_WINDOW_MS = 3 * 60 * 1000;
