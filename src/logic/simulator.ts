@@ -1,7 +1,31 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { isPieceUnit, winsStationaryContest } from './piece-threats';
 
 // MoveSet type definition (previously from move-enumerator)
 export type MoveSet = Map<string, Direction>;
+
+/**
+ * The engine's exact health rule for a unit ENTERING `dest` this turn, shared
+ * by the Simulator, MoveAnalyzer's health-aware hazard fatality and the
+ * staged-move fatality probe so the three can never drift:
+ *  - health loss is MOVEMENT-based (no universal per-turn decay): a snake
+ *    that moves pays 1 — unless it eats, which restores health to the unit's
+ *    configured type max (snake.maxHealth, engine default 100);
+ *  - a hazard square deals board.hazardDamage (default 100) on ENTRY, applied
+ *    AFTER the eat/step update, so food on a hazard cell restores to max
+ *    first and the damage lands on the restored value.
+ * Death is health <= 0 — hazards are damage-based, never instant death.
+ * Call with the PRE-move snake and a board whose food has not yet been
+ * spliced for this move.
+ */
+export function healthAfterEntering(snake: Snake, board: Board, dest: Coord): number {
+  const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
+  let health = eats ? (snake.maxHealth ?? 100) : snake.health - 1;
+  if ((board.hazards ?? []).some(h => h.x === dest.x && h.y === dest.y)) {
+    health -= board.hazardDamage ?? 100;
+  }
+  return health;
+}
 
 export interface SimulatedBoardState {
   board: Board;
@@ -46,7 +70,14 @@ export class Simulator {
       }
       
       const move = moveSet.get(snake.id);
-      if (!move) continue; // Skip if no move provided
+      // No move provided = FROZEN in place. This is also the documented v1
+      // chess approximation: pieces (ours and enemies) enter the board as
+      // 1-cell "snakes" whose `length` is their weight, are never given a
+      // move by the enumerator, and therefore stand still in lookahead. A
+      // stationary 1-cell body contributes no wall segments (index 0 is the
+      // head), so a piece's square is only contested via the stationary-
+      // square rule in step 3 — weight-correct because length = weight.
+      if (!move) continue;
       
       const newHead = this.getNewHead(snake.head, move);
       newHeadPositions.set(snake.id, newHead);
@@ -135,10 +166,31 @@ export class Simulator {
       
       // The moving snake's invulnerability level at the arrival turn
       const movingInvulnerability = invulnOf(snakeId);
+      const mover = newBoard.snakes.find(s => s.id === snakeId)!;
 
       // Check body collision (including other snakes)
       for (const snake of newBoard.snakes) {
         if (!this.isAlive(snake) || deadSnakeIds.has(snake.id)) continue;
+
+        // Stationary chess piece: entering its (single) square is a CONTEST
+        // the engine adjudicates tier-first, weight-second — everyone below
+        // the top tier at the square dies with weight never consulted; within
+        // the top tier the unique heaviest survives and ties kill all
+        // (`length` is a piece's WEIGHT). A won contest KILLS the piece: the
+        // mover occupies the square with no growth and no health restore —
+        // a piece is not food (the normal movement rule in step 4 applies).
+        if (snake.id !== snakeId && isPieceUnit(snake)) {
+          const sq = snake.body[0];
+          if (sq && sq.x === newHead.x && sq.y === newHead.y) {
+            const moverWins = winsStationaryContest(
+              movingInvulnerability, mover.length, invulnOf(snake.id), snake.length);
+            const pieceWins = winsStationaryContest(
+              invulnOf(snake.id), snake.length, movingInvulnerability, mover.length);
+            if (!moverWins) deadSnakeIds.add(snakeId);
+            if (!pieceWins) deadSnakeIds.add(snake.id);
+          }
+          continue; // a 1-cell piece has no other segments to collide with
+        }
 
         // If moving into a foreign snake's body and we have higher invulnerability,
         // skip collision — the mover severs through it (applied in step 5)
@@ -180,6 +232,16 @@ export class Simulator {
       );
       const isEating = foodIndex !== -1;
 
+      // Health via the ONE shared movement/eat/hazard rule, computed BEFORE
+      // the eaten food is spliced off the board (the rule reads dest food).
+      // Movement-based decay only: units absent from the moveSet — frozen
+      // snakes and stationary chess pieces — never reach this block (the
+      // `if (!newHead) continue` above) and lose NO health; there is no
+      // universal per-turn tick. Frozen units SITTING on hazard squares are
+      // deliberately unmodeled: they don't move in lookahead, and hazard
+      // damage triggers on ENTERING a hazard square.
+      const newHealth = healthAfterEntering(snake, newBoard, newHead);
+
       // Update body the way the engine does: pop the tail first (it vacates
       // whether or not the snake eats), then grow by duplicating the NEW tail
       // — which is how "ate last turn" stays visible as a stacked tail.
@@ -190,29 +252,22 @@ export class Simulator {
         newBody.push({ x: tail.x, y: tail.y });
         // Remove the eaten food
         newBoard.food.splice(foodIndex, 1);
-        snake.health = 100; // Reset health when eating
       }
-      
+
       // Update snake
       snake.head = newHead;
       snake.body = newBody;
       snake.length = newBody.length;
-      
-      // Decrease health if not eating
-      if (!isEating) {
-        snake.health -= 1;
-        
-        // Check if snake starved
-        if (snake.health <= 0) {
-          deadSnakeIds.add(snake.id);
-        }
-      }
-      
-      // Hazards are instant death in this ruleset — entering a hazard cell
-      // kills the snake outright regardless of health. Matches the BoardGraph
-      // pathfinding treatment (hazards are impassable, same class as walls).
-      if (newBoard.hazards.some(h => h.x === newHead.x && h.y === newHead.y)) {
-        snake.health = 0;
+      snake.health = newHealth;
+
+      // Death only at health <= 0, for starvation and hazard damage alike
+      // (hazards are damage-based, no longer instant death). Starvation is
+      // decided HERE, before any food spawn could help: the engine spawns
+      // food AFTER movement, so this-turn survival is fully decidable from
+      // the pre-move board and the simulator must NEVER invent food — a move
+      // that doesn't land on existing food and takes health to 0 is certain
+      // death (pinned by the conservative-starvation tests).
+      if (newHealth <= 0) {
         deadSnakeIds.add(snake.id);
       }
     }
@@ -276,18 +331,30 @@ export class Simulator {
       width: board.width,
       food: (board.food ?? []).map(f => ({ x: f.x, y: f.y })),
       hazards: (board.hazards ?? []).map(h => ({ x: h.x, y: h.y })),
+      // Must survive the copy: the hazard branch of healthAfterEntering reads
+      // this configured damage on boards simulated FROM this copy.
+      hazardDamage: board.hazardDamage,
       fertileTiles: board.fertileTiles ? board.fertileTiles.map(f => ({ x: f.x, y: f.y })) : undefined,
       snakes: (board.snakes ?? []).map(snake => ({
         id: snake.id,
         name: snake.name,
         latency: snake.latency,
         health: snake.health,
+        // Must survive the copy: the eat branch above restores health to this
+        // configured per-type max on boards simulated FROM this copy.
+        maxHealth: snake.maxHealth,
         body: (snake.body ?? []).map(b => ({ x: b.x, y: b.y })),
         head: { x: snake.head.x, y: snake.head.y },
         length: snake.length,
         shout: snake.shout,
         squad: snake.squad,
         customizations: { ...(snake.customizations ?? {}) },
+        // Must survive the copy: the stationary-piece contest in step 3, the
+        // BoardGraph piece layers (piece squares as walls, the starvation
+        // guard) and the piece threat map all key off the unit's type — and
+        // pawn threat geometry reads its facing.
+        unitType: snake.unitType,
+        facing: snake.facing ? { dx: snake.facing.dx, dy: snake.facing.dy } : undefined,
         invulnerabilityLevel: snake.invulnerabilityLevel,
         // Must survive the copy: evaluators build a BoardGraph over the
         // simulated board, and BoardGraph reads severability lookahead from

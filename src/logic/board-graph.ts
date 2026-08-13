@@ -15,6 +15,28 @@
  * BoardGraph has no concept of `you`: every perspective-dependent query takes a
  * subject snake id.
  *
+ * Starvation-aware body vacating: health loss is movement-tied (snakes always
+ * move, so they lose exactly 1/turn unless they eat), so a snake with health h
+ * dies during relative turn h unless it eats by then. If a walls-only BFS
+ * (ignoring all bodies and hazards — a deliberately generous LOWER bound on
+ * its earliest possible eat, e) cannot reach any ALREADY-SPAWNED food within h
+ * turns (e > h), the snake certainly starves and its ENTIRE body is treated as
+ * vacated from arrival turn h+1 onward (floored at turn 2 — never the very
+ * next turn) in the optimistic and physical layers; the conservative layer
+ * keeps its usual +1 safety buffer on top. Like the tail-vacate projections,
+ * this ACCEPTS new-food-spawn risk: food spawning after this board snapshot
+ * could save the snake, in which case we briefly treat a still-alive body as
+ * passable. Chess pieces (`(unitType ?? 'snake') !== 'snake'`) never starve —
+ * they can stand still and lose nothing — and a subject's OWN body is never
+ * starvation-vacated for itself in the subjective layer.
+ *
+ * Chess-piece squares: a piece is a 1-cell unit whose `length` is its WEIGHT.
+ * Its square is a WALL in the physical layer (frozen at its current square,
+ * the documented v1 approximation), while the subjective layer grants passage
+ * exactly when the subject would WIN the stationary-square contest there —
+ * tier first, weight second, ties kill all (see piece-threats.ts) — the same
+ * physical-wall/subjective-grant split as snake-body severability.
+ *
  * The graph is integer-indexed throughout (cell index = y * width + x): the
  * evaluation pipeline runs thousands of flood fills per turn, and string-keyed
  * Maps/Sets plus per-neighbor object allocation were measured at a ~28x tax
@@ -22,6 +44,7 @@
  */
 
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
+import { isPieceUnit, winsStationaryContest } from './piece-threats';
 
 export interface BoardGraphConfig {
   // Maximum turns to look ahead for optimistic passability
@@ -53,6 +76,15 @@ export type ClearanceMode = 'static' | 'conservative' | 'optimistic';
 export interface PassabilityOptions {
   // Body-segment clearance model. Defaults to 'static'.
   clearance?: ClearanceMode;
+  // Skip the hazard veto. Hazards are damage-based in the engine
+  // (board.hazardDamage on entry, default 100; death only at health <= 0),
+  // so a high-health unit CAN survive stepping onto one. Callers that model
+  // that survival themselves (MoveAnalyzer's health-aware one-step fatality,
+  // the staged-move fatality probe) opt out of the veto here and layer the
+  // simulator's exact health rule (healthAfterEntering) on top of the raw
+  // wall/body passability this then returns. Multi-turn pathing must NOT set
+  // this — see the veto's comment in passableIdx.
+  ignoreHazards?: boolean;
 }
 
 const NO_SNAKE = -1;
@@ -90,6 +122,13 @@ export class BoardGraph {
   // Per-cell layers (length = cells).
   private hazard: Uint8Array;
   private segOwner: Int16Array;       // snake index owning a body segment here, or NO_SNAKE
+  // Snake index of the stationary chess piece standing here, or NO_SNAKE. A
+  // piece is a 1-cell unit (its weight-stack collapses at translate time), so
+  // it contributes no body segments — this layer is how its square becomes a
+  // wall. Pieces are modeled FROZEN at their current square (the documented
+  // v1 approximation shared with the Simulator), so the layer is not
+  // turn-aware: a piece square never recedes.
+  private pieceOwner: Int16Array;
   private segIsTail: Uint8Array;
   private segStaticBlocked: Uint8Array;
   private optimisticDisappear: Int16Array;
@@ -103,6 +142,13 @@ export class BoardGraph {
   private snakeExpiryTurn: number[] = [];
   private snakeHeadIdx: number[] = [];
   private snakeTailIdx: number[] = [];
+  // Contest weight: snake.length. For pieces `length` is the WEIGHT (stack
+  // size), which is exactly what stationary-square adjudication compares.
+  private snakeWeight: number[] = [];
+  // Relative arrival turn from which the snake's whole body counts as vacated
+  // because it certainly starves first (Infinity = no certain starvation).
+  // Optimistic/physical timing; the conservative layer adds its usual +1.
+  private snakeStarveVacate: number[] = [];
 
   // Scratch buffers for internal BFS (epoch-stamped visited avoids clearing).
   private visitStamp: Int32Array;
@@ -121,6 +167,7 @@ export class BoardGraph {
 
     this.hazard = new Uint8Array(this.cells);
     this.segOwner = new Int16Array(this.cells).fill(NO_SNAKE);
+    this.pieceOwner = new Int16Array(this.cells).fill(NO_SNAKE);
     this.segIsTail = new Uint8Array(this.cells);
     this.segStaticBlocked = new Uint8Array(this.cells);
     this.optimisticDisappear = new Int16Array(this.cells);
@@ -180,6 +227,11 @@ export class BoardGraph {
     // clearance layers ('optimistic' and 'conservative') are correct.
     const foodReach = this.calculateSnakeFoodReachability(board.snakes, foodMask);
     this.fillDisappearTurns(board.snakes, foodReach);
+
+    // Phase 3: starvation-aware body vacating (see the header doc). Only needs
+    // walls + the food mask, so it composes freely on top of the tail
+    // projections filled in phase 2.
+    this.applyStarvationVacates(board.snakes, foodMask, board.food.length);
   }
 
   private buildSnakeMeta(snakes: Snake[]): void {
@@ -194,6 +246,12 @@ export class BoardGraph {
       this.snakeExpiryTurn.push(snake.invulnerabilityExpiryTurn ?? this.currentTurn);
       this.snakeHeadIdx.push(this.cellIndexOf(snake.head));
       this.snakeTailIdx.push(this.cellIndexOf(snake.body[snake.body.length - 1]));
+      this.snakeWeight.push(snake.length);
+      this.snakeStarveVacate.push(Infinity);
+      // A chess piece's square is a wall in the physical layer (it stands
+      // still in lookahead); the subjective layer grants passage only on a
+      // WON contest — see passabilityIdxFor.
+      if (isPieceUnit(snake)) this.pieceOwner[this.cellIndexOf(snake.head)] = idx;
     }
   }
 
@@ -202,11 +260,15 @@ export class BoardGraph {
       if (snake.health <= 0) continue;
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
 
-      // Body segments, excluding the head at index 0. The engine may stack
-      // several segments on one cell (a snake that ate last turn carries a
-      // duplicated tail; spawns start fully stacked), so treat each run of
-      // consecutive duplicates as ONE cell whose vacate turn counts from the
-      // run's FIRST index — the cell only frees once its last copy pops.
+      // Body segments, excluding the head at index 0. A 1-cell unit (a chess
+      // piece, whose stack is collapsed to a single body cell at translate
+      // time) therefore contributes NO segments — its square participates in
+      // head/H2H reasoning only, with `length` carrying its weight. The
+      // engine may stack several segments on one cell (a snake that ate last
+      // turn carries a duplicated tail; spawns start fully stacked), so treat
+      // each run of consecutive duplicates as ONE cell whose vacate turn
+      // counts from the run's FIRST index — the cell only frees once its last
+      // copy pops.
       // Later snakes overwrite overlapping cells (same last-writer-wins as
       // the old Map-based build).
       for (let i = 1; i < snake.body.length; i++) {
@@ -372,6 +434,74 @@ export class BoardGraph {
     }
   }
 
+  /**
+   * Starvation-aware body vacating (phase 3). For every snake S:
+   *  - deathTurn h = S.health: health loss is movement-tied and snakes always
+   *    move, so S dies during relative turn h unless it eats first (the engine
+   *    checks the eat branch before the starvation branch, so eating ON turn h
+   *    saves it).
+   *  - earliestFoodTurn e = a LOWER bound on S's earliest possible eat of any
+   *    ALREADY-SPAWNED food: BFS from S's head blocked only by walls, ignoring
+   *    all bodies and hazards (they might vacate / only cost health — being
+   *    generous to S keeps OUR prediction conservative). e = Infinity when the
+   *    board has no food.
+   *  - S certainly starves iff e > h; then its whole body vacates from arrival
+   *    turn max(h + 1, 2) — never the very next turn (with h >= 1 for a living
+   *    snake the clamp is automatic, but it is pinned explicitly).
+   *
+   * Chess pieces never starve: their health only ticks when they move, and
+   * they can stand still indefinitely. New-food-spawn risk is accepted, same
+   * risk class as the tail projections (see the header doc).
+   */
+  private applyStarvationVacates(snakes: Snake[], foodMask: Uint8Array, foodCount: number): void {
+    for (const snake of snakes) {
+      if (snake.health <= 0) continue;
+      if ((snake.unitType ?? 'snake') !== 'snake') continue; // pieces don't starve
+      const snakeIdx = this.snakeIndexById.get(snake.id)!;
+      const h = snake.health;
+      const canEatInTime =
+        foodCount > 0 && this.wallsOnlyFoodWithin(this.snakeHeadIdx[snakeIdx], foodMask, h);
+      if (!canEatInTime) {
+        this.snakeStarveVacate[snakeIdx] = Math.max(h + 1, 2);
+      }
+    }
+  }
+
+  /**
+   * Can any food cell be reached from `headIdx` within `maxDepth` BFS steps
+   * over the interior, ignoring everything except walls (board bounds)?
+   * The generous lower bound on a snake's earliest eat used by
+   * applyStarvationVacates.
+   */
+  private wallsOnlyFoodWithin(headIdx: number, foodMask: Uint8Array, maxDepth: number): boolean {
+    if (foodMask[headIdx] === 1) return true;
+    const W = this.width;
+    const stamp = ++this.stamp;
+    this.visitStamp[headIdx] = stamp;
+    this.queue[0] = headIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
+    const nbuf = new Int32Array(4);
+
+    for (let depth = 1; depth <= maxDepth; depth++) {
+      let nextEnd = levelEnd;
+      for (let q = levelStart; q < levelEnd; q++) {
+        const nCount = fillNeighbors4(this.queue[q], W, this.cells, nbuf);
+        for (let t = 0; t < nCount; t++) {
+          const n = nbuf[t];
+          if (this.visitStamp[n] === stamp) continue;
+          this.visitStamp[n] = stamp;
+          if (foodMask[n] === 1) return true;
+          this.queue[nextEnd++] = n;
+        }
+      }
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
+      if (levelStart === levelEnd) break;
+    }
+    return false;
+  }
+
   /** Invulnerability level of a snake (by index) projected to an absolute game turn. */
   private invulnAtIdx(snakeIdx: number, absoluteTurn: number): number {
     if (snakeIdx < 0) return 0;
@@ -398,14 +528,52 @@ export class BoardGraph {
     const headIdx = subjectIdx >= 0 ? this.snakeHeadIdx[subjectIdx] : -1;
     const tailIdx = subjectIdx >= 0 ? this.snakeTailIdx[subjectIdx] : -1;
     const clearance: ClearanceMode = opts?.clearance ?? 'static';
+    const ignoreHazards = opts?.ignoreHazards ?? false;
 
     const clearanceArr =
       clearance === 'conservative' ? this.conservativeDisappear :
       clearance === 'optimistic' ? this.optimisticDisappear : null;
+    // Starvation vacate timing per layer: optimistic/physical use the stored
+    // turn (h + 1) directly; conservative keeps its usual +1 safety buffer,
+    // mirroring how the tail projections differ across layers.
+    const starveExtra = clearance === 'conservative' ? 1 : 0;
 
     const passableIdx = (idx: number, arrivalTurn: number): boolean => {
-      if (this.hazard[idx] === 1) return false;
+      // Hazard veto — DELIBERATE CONSERVATISM under damage-based hazards.
+      // The engine deals board.hazardDamage per hazard ENTRY (death only at
+      // health <= 0), so a high-health unit could survive crossing hazard
+      // cells. Multi-turn walkers (flood fills, food-reach, Voronoi/territory
+      // BFS, waypoint pathing) stay health-unaware here: health varies along
+      // a path and per-entry damage compounds across hazard cells, so making
+      // this layer exact would thread health state through every BFS. We
+      // therefore keep hazards impassable — never banking on surviving one —
+      // and leave the health-aware exception to the single-step fatality
+      // callers that opt out via `ignoreHazards` and apply the simulator's
+      // exact rule themselves.
+      if (!ignoreHazards && this.hazard[idx] === 1) return false;
       if (idx === headIdx) return false; // origin, never a destination
+
+      // Stationary chess-piece square: entering it is a CONTEST the engine
+      // adjudicates tier-first, weight-second (weights are only compared
+      // within the top tier; ties kill all — `length` is a piece's weight).
+      // The subject may pass iff it WINS outright: the piece is strictly
+      // lower-tier at the arrival turn, or equal-tier and strictly lighter.
+      // Losing AND tying are both death, so they stay impassable. This
+      // mirrors the severability pattern below — piece squares are physical
+      // walls, and the win-grant is subject-relative so it lives ONLY here.
+      // Same frozen approximation as the Simulator: the piece is modeled at
+      // its current square (it could really move away or toward us), and the
+      // subject's CURRENT weight is used for every arrival turn.
+      const pieceIdx = this.pieceOwner[idx];
+      if (pieceIdx !== NO_SNAKE && pieceIdx !== subjectIdx) {
+        const absTurn = this.currentTurn + arrivalTurn;
+        return subjectIdx >= 0 && winsStationaryContest(
+          this.invulnAtIdx(subjectIdx, absTurn),
+          this.snakeWeight[subjectIdx],
+          this.invulnAtIdx(pieceIdx, absTurn),
+          this.snakeWeight[pieceIdx]
+        );
+      }
 
       const owner = this.segOwner[idx];
       if (owner === NO_SNAKE) return true; // empty cell (including other snakes' heads)
@@ -430,6 +598,14 @@ export class BoardGraph {
         return true;
       }
 
+      // Starvation vacate — OTHER snakes only (own-body handling returned
+      // above: a subject never banks on walking through its own still-alive
+      // body, starving or not). Turn-aware clearances only: 'static' projects
+      // nothing. Applies to the whole body, stacked tails included.
+      if (clearanceArr && this.snakeStarveVacate[owner] + starveExtra <= arrivalTurn) {
+        return true;
+      }
+
       // Otherwise the cell is passable only once the owner's body has receded
       // there under the chosen clearance timing (tail and interior alike).
       return receded;
@@ -439,7 +615,9 @@ export class BoardGraph {
   }
 
   private isStaticBlockedIdx(idx: number): boolean {
-    return this.hazard[idx] === 1 || (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
+    return this.hazard[idx] === 1 ||
+           this.pieceOwner[idx] !== NO_SNAKE ||
+           (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
   }
 
   /**
@@ -448,8 +626,20 @@ export class BoardGraph {
    * safety buffer — that buffer belongs to the 'conservative' clearance mode).
    */
   isPassableAtTurnIdx(idx: number, arrivalTurn: number): boolean {
-    if (this.segOwner[idx] !== NO_SNAKE && arrivalTurn <= this.config.maxLookaheadTurns) {
-      return this.physicalDisappear[idx] <= arrivalTurn;
+    // Chess-piece squares never recede: pieces are modeled FROZEN at their
+    // current square (they don't starve and this layer banks on nothing
+    // moving). Winning a contest there is subject-relative and lives only in
+    // passabilityIdxFor — exactly like snake-body severability.
+    if (this.pieceOwner[idx] !== NO_SNAKE) return false;
+    const owner = this.segOwner[idx];
+    if (owner !== NO_SNAKE) {
+      // Starvation vacate: a certainly-starving owner's body is gone from
+      // this arrival turn on (not gated by maxLookaheadTurns — the starve
+      // turn is exact, not a projection horizon).
+      if (this.snakeStarveVacate[owner] <= arrivalTurn) return true;
+      if (arrivalTurn <= this.config.maxLookaheadTurns) {
+        return this.physicalDisappear[idx] <= arrivalTurn;
+      }
     }
     return !this.isStaticBlockedIdx(idx);
   }
@@ -470,7 +660,11 @@ export class BoardGraph {
    * body cell counts as future territory.
    */
   physicalVacateTurn(idx: number): number {
-    return this.segOwner[idx] === NO_SNAKE ? 0 : this.physicalDisappear[idx];
+    const owner = this.segOwner[idx];
+    if (owner === NO_SNAKE) return 0;
+    // Starvation vacate caps the physical timing (min stays finite because
+    // physicalDisappear always is).
+    return Math.min(this.physicalDisappear[idx], this.snakeStarveVacate[owner]);
   }
 
   // Memoized whole-board physicalVacateTurn snapshot (below).
