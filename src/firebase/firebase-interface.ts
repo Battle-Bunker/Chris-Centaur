@@ -428,7 +428,11 @@ export class TacticToesFirebaseInterface {
     this.watchedGames.clear();
     this.detachPendingGames();
     this.teardownClient();
-    console.log('[tt-firebase] Suspended (no web clients — allowing scale to zero)');
+    console.log(
+      '[tt-firebase] Suspended (instance idle: no verifiable human action within ' +
+      'the grace window and no progressing game within the attention cap — ' +
+      'allowing scale to zero)'
+    );
     this.setStatus('suspended');
     // Presence can also return during the (synchronous) teardown above via a
     // resume() that saw connState !== 'suspended' and bailed. Converge here.

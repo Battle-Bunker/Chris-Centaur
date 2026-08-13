@@ -13,6 +13,23 @@ import * as schema from './schema';
  * pool is never closed on idle: the liveness heartbeat keeps using it in
  * every state, and idle clients drain naturally via idleTimeoutMillis.
  */
+/**
+ * Whether a database is configured at all. Without DATABASE_URL the Pool
+ * below is built with `connectionString: undefined`, so pg falls back to the
+ * libpq PG* env defaults (typically localhost:5432) — a dead socket in this
+ * deployment. Every DB write path (DecisionLogger / CommandLogger /
+ * ServerEventLogger) gates on this up front so an unconfigured instance skips
+ * persistence with one boot-time log line instead of per-decision retry spam
+ * and a minutes-long shutdown flush against a socket that can never connect.
+ */
+export const dbConfigured = !!process.env.DATABASE_URL;
+if (!dbConfigured) {
+  console.warn(
+    '[db] DATABASE_URL is not set — database persistence disabled ' +
+    '(decision, command and server-event logging will be skipped)'
+  );
+}
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 10,

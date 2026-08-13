@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db } from '../database/db';
+import { db, dbConfigured } from '../database/db';
 import { transientDelay } from '../server/activity-controller';
 import { commandEvents, commandTurnStates } from '../database/schema';
 
@@ -128,6 +128,10 @@ export class CommandLogger {
   // never re-delivered, so losing one punches a permanent hole in the replay's
   // command overlays, while a dropped command event costs one audit row.
   private enqueue(item: QueueItem): void {
+    // No database configured: skip persistence entirely (announced once at
+    // boot by db.ts) instead of queueing rows destined for per-row retry spam
+    // against a socket that can never connect.
+    if (!dbConfigured) return;
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
       let dropIdx = 0;
       if (this.droppableCount > 0) {
@@ -336,11 +340,25 @@ export class CommandLogger {
   // Flush and stop the worker. Does NOT close the shared pg pool — pool.end()
   // is owned by the controller-orchestrated graceful shutdown in src/index.ts,
   // which runs it after BOTH logger flushes.
-  public async shutdown(): Promise<void> {
+  //
+  // Deadline-capped like DecisionLogger.shutdown (and ServerEventLogger's
+  // bounded shutdown-flush): an unreachable database must cost seconds, not
+  // minutes, of shutdown time.
+  public async shutdown(timeoutMs = 2000): Promise<void> {
     console.log(`[CommandLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
     this.workerRunning = false;
     this.signalWakeup();
-    await this.workerPromise;
+    const flushed = await Promise.race([
+      this.workerPromise.then(() => true),
+      transientDelay(timeoutMs).then(() => false),
+    ]);
+    if (!flushed) {
+      console.warn(
+        `[CommandLogger] Shutdown flush deadline (${timeoutMs}ms) reached; ` +
+        `dropping ${this.queue.length} unflushed entries.`
+      );
+      return;
+    }
     if (this.droppedCount > 0) {
       console.warn(`[CommandLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
     }

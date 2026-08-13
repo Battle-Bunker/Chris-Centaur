@@ -33,6 +33,7 @@ jest.mock('../database/db', () => {
       execute: async () => ({ rows: [] }),
     },
     pool: { end: async () => {} },
+    dbConfigured: true,
   };
 });
 

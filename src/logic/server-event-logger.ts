@@ -1,5 +1,5 @@
 import { sql, eq, desc, inArray } from 'drizzle-orm';
-import { db } from '../database/db';
+import { db, dbConfigured } from '../database/db';
 import { serverEvents, serverLiveness } from '../database/schema';
 import {
   ActivityController,
@@ -142,6 +142,8 @@ export class ServerEventLogger {
    * - 'unknown'     — no heartbeat data (pre-feature boots)
    */
   private async classifyPreviousEnd(): Promise<Record<string, unknown> | null> {
+    // No database → no liveness history to read (and no dead-socket timeout).
+    if (!dbConfigured) return { prevEndClass: 'unknown' satisfies PrevEndClass };
     const [prev] = await db.select().from(serverLiveness).where(eq(serverLiveness.id, 1)).limit(1);
     if (!prev) return { prevEndClass: 'unknown' satisfies PrevEndClass };
     const prevLastAliveAt = prev.lastAliveAt.getTime();
@@ -174,6 +176,9 @@ export class ServerEventLogger {
    *  Always waits for boot forensics to finish reading the previous row first
    *  — otherwise this upsert could erase the prior lifetime's death bound. */
   private upsertLivenessHeartbeat(): void {
+    // No database configured (announced once at boot by db.ts): skip the
+    // upsert instead of failing against a dead socket once a minute.
+    if (!dbConfigured) return;
     const now = new Date();
     const lastActivity = Math.max(this.lastUserIntentAt, this.lastGameRequestAt);
     const p = this.forensicsRead
@@ -299,6 +304,9 @@ export class ServerEventLogger {
   }
 
   private write(eventType: ServerEventType, detail: Record<string, unknown> | null): void {
+    // No database configured: event persistence is off (one boot log line in
+    // db.ts); in-memory activity tracking above continues to work as normal.
+    if (!dbConfigured) return;
     const cleanDetail =
       detail == null
         ? null

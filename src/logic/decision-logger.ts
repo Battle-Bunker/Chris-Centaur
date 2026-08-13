@@ -1,5 +1,5 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
-import { db } from '../database/db';
+import { db, dbConfigured } from '../database/db';
 import { transientDelay } from '../server/activity-controller';
 import { decisionLogs } from '../database/schema';
 import { BoardSnapshot, Direction } from '../types/battlesnake';
@@ -252,6 +252,10 @@ export class DecisionLogger {
   // on), so losing one punches a permanent hole in the replay timeline while
   // a dropped decision row costs one snake's breakdown for one turn.
   private enqueue(item: QueueItem): void {
+    // No database configured: skip persistence entirely (announced once at
+    // boot by db.ts) instead of queueing rows destined for per-row retry spam
+    // against a socket that can never connect.
+    if (!dbConfigured) return;
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
       // Oldest droppable (non-turnState) item, else the queue head — found in
       // amortized O(1): everything before dropScanFrom is turn-state, so the
@@ -855,13 +859,29 @@ export class DecisionLogger {
   // Flush and stop the worker. Does NOT close the shared pg pool — pool.end()
   // is owned by the controller-orchestrated graceful shutdown in src/index.ts,
   // which runs it after BOTH the CommandLogger and DecisionLogger flushes.
-  public async shutdown(): Promise<void> {
+  //
+  // The flush is DEADLINE-CAPPED (mirroring ServerEventLogger's bounded
+  // shutdown-flush): against an unreachable database the batch + per-row
+  // retry + backoff worker was observed grinding for ~3 minutes under
+  // SIGTERM, delaying exit only to drop most entries anyway. Whatever hasn't
+  // landed when the deadline hits is dropped with a log line.
+  public async shutdown(timeoutMs = 4000): Promise<void> {
     console.log(`[DecisionLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
 
     this.workerRunning = false;
     this.signalWakeup();
 
-    await this.workerPromise;
+    const flushed = await Promise.race([
+      this.workerPromise.then(() => true),
+      transientDelay(timeoutMs).then(() => false),
+    ]);
+    if (!flushed) {
+      console.warn(
+        `[DecisionLogger] Shutdown flush deadline (${timeoutMs}ms) reached; ` +
+        `dropping ${this.queue.length} unflushed entries.`
+      );
+      return;
+    }
 
     if (this.droppedCount > 0) {
       console.warn(`[DecisionLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
