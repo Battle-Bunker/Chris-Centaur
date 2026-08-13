@@ -414,7 +414,7 @@
               <button id="submitAllBtn" onclick="submitAll()" title="Commit all our snakes for this turn. Commitment is binding: each snake's confirmed staged move is frozen (Firebase rejects further staging) and the turn can end early once every player has committed. Snakes whose requested move is still confirming commit automatically the moment it confirms. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
-              <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the Battlesnake engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
+              <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the game engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
             </div>
           </div>
           <div class="turn-controls" id="turnControls" style="display:none;">
