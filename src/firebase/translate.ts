@@ -16,8 +16,9 @@
 // returned move is the FULL-board index of the target cell, matching what
 // the server expects in privateMoves.move.
 
+import { Timestamp } from 'firebase/firestore';
 import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { TTGameSetup, TTTurn } from './tactictoes-types';
+import { TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
@@ -93,6 +94,62 @@ export function continuationDirection(
 
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
   return (indices || []).map((i) => toApiCoord(i, w, h));
+}
+
+/**
+ * The ONE place that interprets a TTGameStateDoc turn. Every consumer of a
+ * turn document's raw fields (deadline, winners gating, alive set, per-snake
+ * piece/head indices, board dimensions) goes through this view instead of
+ * re-reading the doc inline — the Firebase interface used to parse endTime
+ * alone in three places, with two different fallbacks.
+ */
+export interface ParsedTurn {
+  /** The raw turn document (for buildBoardState and field-level access). */
+  turn: TTTurn;
+  turnNumber: number;
+  /** FULL-board dimensions from the setup (include the 1-cell perimeter). */
+  boardWidth: number;
+  boardHeight: number;
+  /** winners.length > 0 — the game is over as of this turn. */
+  isFinal: boolean;
+  /** Whether `id` is alive at this turn's start. */
+  alive(id: string): boolean;
+  /** Full-board piece indices (head first) for `id`, or undefined. */
+  pieces(id: string): number[] | undefined;
+  /** Full-board head index for `id`, or undefined when absent/empty. */
+  headIndex(id: string): number | undefined;
+  /**
+   * The turn's resolution deadline in epoch ms. The server always stamps
+   * endTime; `fallbackMs` is what a caller banks on when it is missing or
+   * malformed. Call sites deliberately differ — 0 ("no deadline known") for
+   * the listener watchdog vs Date.now() + 10s ("assume a near deadline") for
+   * turn processing — so the fallback is an explicit parameter, never a
+   * silently unified default.
+   */
+  endTimeMs(fallbackMs: number): number;
+}
+
+/** Parsed view over doc.turns[turnNumber], or null when that turn is absent. */
+export function parseTurn(doc: TTGameStateDoc, turnNumber: number): ParsedTurn | null {
+  const turn = doc.turns?.[turnNumber];
+  if (!turn) return null;
+  return {
+    turn,
+    turnNumber,
+    boardWidth: doc.setup.boardWidth,
+    boardHeight: doc.setup.boardHeight,
+    isFinal: turn.winners.length > 0,
+    alive: (id) => turn.alivePlayers.includes(id),
+    pieces: (id) => turn.playerPieces?.[id],
+    headIndex: (id) => turn.playerPieces?.[id]?.[0],
+    endTimeMs: (fallbackMs) =>
+      turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : fallbackMs,
+  };
+}
+
+/** Parsed view over the doc's latest turn, or null when it has no turns. */
+export function parseLatestTurn(doc: TTGameStateDoc): ParsedTurn | null {
+  return parseTurn(doc, (doc.turns?.length ?? 0) - 1);
 }
 
 

@@ -70,13 +70,16 @@ import { ServerEventLogger } from '../logic/server-event-logger';
 import { GameLogger } from '../utils/logger';
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
-import { TTGameInvite, TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
+import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
 import {
+  ParsedTurn,
   buildBoardState,
   continuationDirection,
   controlledSnakeIDs,
   directionToMoveIndex,
   moveIndexToDirection,
+  parseLatestTurn,
+  parseTurn,
   snakeIdentity,
   withYou,
 } from './translate';
@@ -658,9 +661,9 @@ export class TacticToesFirebaseInterface {
    * silence.
    */
   private nextTurnDueBy(watched: WatchedGame): number {
-    const turns = watched.latestDoc?.turns;
-    const turn = turns?.[turns.length - 1];
-    return turn?.endTime instanceof Timestamp ? turn.endTime.toMillis() : 0;
+    const doc = watched.latestDoc;
+    if (!doc) return 0;
+    return parseLatestTurn(doc)?.endTimeMs(0) ?? 0;
   }
 
   /** Best-effort teardown of the current Firebase app stack. */
@@ -976,26 +979,25 @@ export class TacticToesFirebaseInterface {
    */
   private restoreTurnWatch(watched: WatchedGame): void {
     const data = watched.latestDoc;
-    if (!data || data.turns.length === 0) return;
-    const turnNumber = data.turns.length - 1;
+    if (!data) return;
+    const pt = parseLatestTurn(data);
+    if (!pt) return;
     // A turn we haven't processed yet is the replayed snapshot's job — it will
     // run the full pipeline, turn watch included.
-    if (turnNumber !== watched.lastProcessedTurn) return;
+    if (pt.turnNumber !== watched.lastProcessedTurn) return;
 
-    const turn = data.turns[turnNumber];
-    if (turn.winners.length > 0) return; // game over — nothing left to stage
+    if (pt.isFinal) return; // game over — nothing left to stage
 
     const aliveOurs = controlledSnakeIDs(data.setup, this.config.centaurId).filter((id) =>
-      turn.alivePlayers.includes(id)
+      pt.alive(id)
     );
     if (aliveOurs.length === 0) return;
 
-    const endTimeMs =
-      turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : Date.now() + 10_000;
+    const endTimeMs = pt.endTimeMs(Date.now() + 10_000);
     console.log(
-      `[tt-firebase] Re-opening turn ${turnNumber} read-back for ${watched.gameID} after client rebuild`
+      `[tt-firebase] Re-opening turn ${pt.turnNumber} read-back for ${watched.gameID} after client rebuild`
     );
-    this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
+    this.beginTurnWatch(watched, pt, endTimeMs, aliveOurs);
   }
 
   private teardownTurnWatch(watched: WatchedGame): void {
@@ -1007,7 +1009,9 @@ export class TacticToesFirebaseInterface {
   }
 
   private async onGameUpdate(watched: WatchedGame, data: TTGameStateDoc): Promise<void> {
-    const turnNumber = data.turns.length - 1;
+    const pt = parseLatestTurn(data);
+    if (!pt) return;
+    const turnNumber = pt.turnNumber;
     // Turns are append-only and immutable: the server writes each one exactly
     // once, deadline included (TacticToes `startGame` for turn 0, `processTurn`
     // for the rest). So a snapshot that doesn't advance the turn number has
@@ -1020,7 +1024,6 @@ export class TacticToesFirebaseInterface {
     // behind so the turn is retried on the next snapshot instead of being
     // silently skipped forever.
 
-    const turn = data.turns[turnNumber];
     const ourSnakes = controlledSnakeIDs(data.setup, this.config.centaurId);
     if (ourSnakes.length === 0) {
       this.unwatchGame(watched);
@@ -1031,7 +1034,7 @@ export class TacticToesFirebaseInterface {
     // snapshot, never surface it. Registering first and ending a moment later
     // flashes a phantom 1-turn game onto /play on every boot/reconnect (the
     // invite feed replays the 20 most recent invites, finished ones included).
-    if (!watched.registered && turn.winners.length > 0) {
+    if (!watched.registered && pt.isFinal) {
       console.log(
         `[tt-firebase] Ignoring already-finished game ${watched.gameID} from invite replay`
       );
@@ -1041,13 +1044,12 @@ export class TacticToesFirebaseInterface {
 
     ServerEventLogger.getInstance().recordGameActivity(watched.gameID);
 
-    const endTimeMs =
-      turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : Date.now() + 10_000;
+    const endTimeMs = pt.endTimeMs(Date.now() + 10_000);
 
     // ONE canonical (you-less) board state per turn — the single truth the
     // manager, the logs, and every broadcast operate on. Per-snake views are
     // derived from it with withYou only at the decision-engine boundary.
-    const canonical = buildBoardState(watched.gameID, data.setup, turn, turnNumber, endTimeMs);
+    const canonical = buildBoardState(watched.gameID, data.setup, pt.turn, turnNumber, endTimeMs);
 
     // First snapshot for this game: register every controlled snake so the
     // centaur UI lists them and the manager tracks their intents.
@@ -1075,8 +1077,8 @@ export class TacticToesFirebaseInterface {
     // also rides on the canonical state (GameState.lastMoves) — the
     // renderer's death markers consume it, on the live board and in the replay.
     if (turnNumber > 0) {
-      const prevTurn = data.turns[turnNumber - 1];
-      const lastMoves = this.deriveLastMoves(data, prevTurn, turn);
+      const prevPt = parseTurn(data, turnNumber - 1)!;
+      const lastMoves = this.deriveLastMoves(prevPt, pt);
       canonical.lastMoves = lastMoves;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
@@ -1094,13 +1096,13 @@ export class TacticToesFirebaseInterface {
     // The winners array (enriched with each winner's teamID from the setup)
     // rides along so the games registry can record the true winner — the
     // board-survivor fallback can't see team wins.
-    if (turn.winners.length > 0) {
+    if (pt.isFinal) {
       watched.lastProcessedTurn = turnNumber;
       // The game is over: the turn deadline is meaningless on the final state
       // (the old end path always passed null), so don't let it ride into the
       // stored turn row or the snake-ended payloads.
       delete (canonical.game as any).turnExpiryTime;
-      (canonical as any).winners = turn.winners.map((w) => ({
+      (canonical as any).winners = pt.turn.winners.map((w) => ({
         ...w,
         teamID: data.setup.gamePlayers.find((gp) => gp.id === w.playerID)?.teamID ?? null,
       }));
@@ -1127,7 +1129,7 @@ export class TacticToesFirebaseInterface {
       gameState: canonical,
     });
 
-    const aliveOurs = ourSnakes.filter((id) => turn.alivePlayers.includes(id));
+    const aliveOurs = ourSnakes.filter((id) => pt.alive(id));
     if (aliveOurs.length === 0) {
       // All our snakes are dead but the game continues; nothing left to stage.
       // Keep watching so the UI still receives the final state at game end.
@@ -1155,7 +1157,7 @@ export class TacticToesFirebaseInterface {
     // Read-back + finalization for this turn: confirm what Firebase actually
     // holds as each snake's staged move, and detect the turn's final
     // selection (deadline or all-committed) before the next board arrives.
-    this.beginTurnWatch(watched, data, turnNumber, endTimeMs, aliveOurs);
+    this.beginTurnWatch(watched, pt, endTimeMs, aliveOurs);
 
     // Feed the canonical board ONCE: goto-arrival checks for every controlled
     // snake, then the board advance and the single board-update broadcast.
@@ -1293,14 +1295,14 @@ export class TacticToesFirebaseInterface {
   //    timeout without commits never finalize; the next board just arrives.
   private beginTurnWatch(
     watched: WatchedGame,
-    data: TTGameStateDoc,
-    turnNumber: number,
+    pt: ParsedTurn,
     endTimeMs: number,
     aliveOurs: string[]
   ): void {
     if (!this.db) return;
     this.teardownTurnWatch(watched);
 
+    const turnNumber = pt.turnNumber;
     const tw: TurnWatch = {
       turn: turnNumber,
       endTimeMs,
@@ -1332,7 +1334,7 @@ export class TacticToesFirebaseInterface {
       }
       if (!tw.readBackReady.has(snakeId)) return;
       if (this.gameManager.hasUnconfirmedRequest(watched.gameID, snakeId, tw.turn)) return;
-      const def = continuationDirection(turnData.playerPieces[snakeId], width);
+      const def = continuationDirection(pt.pieces(snakeId), width);
       if (!def) return; // no previous direction — the engine's fallback pick isn't reproduced
       console.log(`[tt-firebase] ${snakeId} committed with nothing staged — engine default ${def} is final for turn ${tw.turn}`);
       this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, def);
@@ -1342,11 +1344,10 @@ export class TacticToesFirebaseInterface {
       this.db,
       `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`
     );
-    const width = data.setup.boardWidth;
-    const turnData = data.turns[turnNumber];
+    const width = pt.boardWidth;
 
     for (const snakeId of aliveOurs) {
-      const headIndex = turnData.playerPieces[snakeId]?.[0];
+      const headIndex = pt.headIndex(snakeId);
       if (headIndex === undefined) continue;
       const q = query(
         movesCol,
@@ -1433,17 +1434,13 @@ export class TacticToesFirebaseInterface {
   // The applied move for each snake on the prev → curr transition, read from
   // the new turn's authoritative `moves` map (the server records every
   // player's actually-applied move there, staged or engine default alike).
-  private deriveLastMoves(
-    data: TTGameStateDoc,
-    prevTurn: TTTurn,
-    currTurn: TTTurn
-  ): Record<string, Direction> {
-    const width = data.setup.boardWidth;
+  private deriveLastMoves(prev: ParsedTurn, curr: ParsedTurn): Record<string, Direction> {
+    const width = prev.boardWidth;
     const result: Record<string, Direction> = {};
-    for (const snakeId of Object.keys(prevTurn.playerPieces)) {
-      const prevHead = prevTurn.playerPieces[snakeId]?.[0];
+    for (const snakeId of Object.keys(prev.turn.playerPieces)) {
+      const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
-      const recorded = currTurn.moves[snakeId];
+      const recorded = curr.turn.moves[snakeId];
       if (recorded === undefined) continue;
       const dir = moveIndexToDirection(prevHead, recorded, width);
       if (dir) result[snakeId] = dir;
@@ -1470,18 +1467,13 @@ export class TacticToesFirebaseInterface {
     const data = watched?.latestDoc;
     if (!watched || !data) throw new Error(`Unknown game ${gameId}`);
 
-    const turnData = data.turns[turn];
-    const headIndex = turnData?.playerPieces?.[snakeId]?.[0];
-    if (headIndex === undefined) {
+    const pt = parseTurn(data, turn);
+    const headIndex = pt?.headIndex(snakeId);
+    if (pt === null || headIndex === undefined) {
       throw new Error(`No head for ${snakeId} on turn ${turn} of ${gameId}`);
     }
 
-    const moveIndex = directionToMoveIndex(
-      move,
-      headIndex,
-      data.setup.boardWidth,
-      data.setup.boardHeight
-    );
+    const moveIndex = directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
 
     await addDoc(
       collection(this.db, `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`),

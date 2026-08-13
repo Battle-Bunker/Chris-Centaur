@@ -1,12 +1,15 @@
+import { Timestamp } from 'firebase/firestore';
 import { Direction } from '../types/battlesnake';
 import {
   buildGameState,
   continuationDirection,
   controlledSnakeIDs,
   directionToMoveIndex,
+  parseLatestTurn,
+  parseTurn,
   toApiCoord,
 } from '../firebase/translate';
-import { TTGameSetup, TTTurn } from '../firebase/tactictoes-types';
+import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
 
 // Full board 7x6 (including perimeter walls) -> api board 5x4.
 const W = 7;
@@ -154,5 +157,75 @@ describe('buildGameState', () => {
   it('omits turnExpiryTime when no deadline is supplied', () => {
     const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
     expect((state.game as any).turnExpiryTime).toBeUndefined();
+  });
+});
+
+describe('parseTurn', () => {
+  const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: makeSetup(), turns });
+
+  it('returns null for a turn number the doc does not have', () => {
+    const doc = makeDoc([makeTurn()]);
+    expect(parseTurn(doc, 1)).toBeNull();
+    expect(parseTurn(doc, -1)).toBeNull();
+    expect(parseLatestTurn(makeDoc([]))).toBeNull();
+  });
+
+  it('exposes the raw turn, its number and the FULL board dimensions', () => {
+    const t0 = makeTurn();
+    const t1 = makeTurn({ alivePlayers: ['centA'] });
+    const doc = makeDoc([t0, t1]);
+
+    const pt = parseTurn(doc, 0)!;
+    expect(pt.turn).toBe(t0);
+    expect(pt.turnNumber).toBe(0);
+    expect(pt.boardWidth).toBe(W);
+    expect(pt.boardHeight).toBe(H);
+
+    const latest = parseLatestTurn(doc)!;
+    expect(latest.turn).toBe(t1);
+    expect(latest.turnNumber).toBe(1);
+  });
+
+  it('isFinal reflects the winners array', () => {
+    expect(parseLatestTurn(makeDoc([makeTurn()]))!.isFinal).toBe(false);
+    const finalTurn = makeTurn({ winners: [{ playerID: 'centA', score: 10 }] });
+    expect(parseLatestTurn(makeDoc([finalTurn]))!.isFinal).toBe(true);
+  });
+
+  it('alive() checks alivePlayers membership', () => {
+    const pt = parseLatestTurn(makeDoc([makeTurn({ alivePlayers: ['centA', 'centB#2'] })]))!;
+    expect(pt.alive('centA')).toBe(true);
+    expect(pt.alive('centB#2')).toBe(true);
+    expect(pt.alive('centB')).toBe(false);
+    expect(pt.alive('nobody')).toBe(false);
+  });
+
+  it('pieces()/headIndex() read playerPieces, tolerating absent snakes', () => {
+    const pt = parseLatestTurn(makeDoc([makeTurn()]))!;
+    expect(pt.pieces('centA')).toEqual([idx(1, 1), idx(1, 2)]);
+    expect(pt.headIndex('centA')).toBe(idx(1, 1));
+    expect(pt.pieces('ghost')).toBeUndefined();
+    expect(pt.headIndex('ghost')).toBeUndefined();
+    // Malformed doc without playerPieces: undefined, never a throw.
+    const malformed = parseLatestTurn(makeDoc([makeTurn({ playerPieces: undefined as any })]))!;
+    expect(malformed.headIndex('centA')).toBeUndefined();
+  });
+
+  describe('endTimeMs', () => {
+    it('returns the server-stamped deadline when endTime is a Timestamp', () => {
+      const stamped = makeTurn({ endTime: Timestamp.fromMillis(123_456) });
+      const pt = parseLatestTurn(makeDoc([stamped]))!;
+      expect(pt.endTimeMs(0)).toBe(123_456);
+      expect(pt.endTimeMs(999_999)).toBe(123_456); // fallback ignored when stamped
+    });
+
+    it('returns the CALLER-CHOSEN fallback when endTime is missing — the two call-site semantics stay distinct', () => {
+      const pt = parseLatestTurn(makeDoc([makeTurn()]))!; // endTime: null
+      // Watchdog semantics: 0 = "no deadline known", plain-silence fallback.
+      expect(pt.endTimeMs(0)).toBe(0);
+      // Turn-processing semantics: assume a near deadline.
+      const soon = Date.now() + 10_000;
+      expect(pt.endTimeMs(soon)).toBe(soon);
+    });
   });
 });
