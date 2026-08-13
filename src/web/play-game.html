@@ -531,6 +531,7 @@
 
   <script src="/dom-utils.js"></script>
   <script src="/board-renderer.js"></script>
+  <script src="/keynav-machine.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
   <script src="/firebase-status-banner.js"></script>
@@ -2555,37 +2556,31 @@
     //
     //   4-arrow pad: Left/Right rotate the axis through the unit's legal axis
     //     ring (rook 4 orthogonals, bishop 4 diagonals, queen/king 8, knight
-    //     its 8 L-directions, snake 4 orthogonals); Up extends along the
-    //     current axis (clamped at the last board-legal ray square — 1-step
-    //     pieces lock after 1), Down retracts through to hold for pieces that
-    //     may hold. Snakes can neither extend nor hold → Up/Down flash.
+    //     its 8 L-directions, snake 4 orthogonals) — switching axis RESETS
+    //     the distance to 1; Up extends along the current axis (clamped at
+    //     the last board-legal ray square — 1-step pieces lock after 1), Down
+    //     retracts through to hold for pieces that may hold, KEEPING the axis
+    //     (Down never crosses hold; a further Down at hold flashes, Up from
+    //     hold re-extends the kept axis to 1). Snakes can neither extend nor
+    //     hold → Up/Down flash.
     //     Pawns: Left/Right pick the two rotation candidates; with Up HELD,
     //     Left/Right pick the diagonal-forward candidates (when legal).
     //   9-key numpad (with or without NumLock — e.code is the same): a
     //     direction key selects its axis at distance 1; repeated presses
     //     extend one square per press; the OPPOSITE key retracts one per
-    //     press, through hold and out into the opposite axis. 5 = hold.
+    //     press, through hold and out into the opposite axis — reaching hold
+    //     this way FLIPS the axis to the direction of travel (the only way to
+    //     cross hold). 5 = hold, and resets the axis to the 12:00 state.
+    //   Hold has no well-defined axis: when the cursor initializes on hold
+    //     (or numpad 5 selects it) the axis is KeyNavMachine.TWELVE — arrow
+    //     Right then picks the first legal axis clockwise of 12:00, arrow
+    //     Left the first counter-clockwise.
     //
-    // Unavailable actions flash the unit's cell (flashUnavailable) — never a
-    // silent stage.
-    // Axis rings in api board coords (y grows upward), ordered CLOCKWISE on
-    // screen so ArrowRight advances clockwise, ArrowLeft counter-clockwise.
-    const ORTHO_AXES = [
-      { dx: 0, dy: 1 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: -1, dy: 0 },
-    ];
-    const DIAG_AXES = [
-      { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 1 },
-    ];
-    const ALL_AXES = [
-      { dx: 0, dy: 1 }, { dx: 1, dy: 1 }, { dx: 1, dy: 0 }, { dx: 1, dy: -1 },
-      { dx: 0, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 0 }, { dx: -1, dy: 1 },
-    ];
-    // Knight "axes" are the eight L-offsets themselves, clockwise from
-    // two-up-one-right.
-    const KNIGHT_AXES = [
-      { dx: 1, dy: 2 }, { dx: 2, dy: 1 }, { dx: 2, dy: -1 }, { dx: 1, dy: -2 },
-      { dx: -1, dy: -2 }, { dx: -2, dy: -1 }, { dx: -2, dy: 1 }, { dx: -1, dy: 2 },
-    ];
+    // The pure {axis, distance} transitions live in /keynav-machine.js
+    // (KeyNavMachine, unit-tested in src/tests/keynav-machine.test.ts); this
+    // page supplies the candidate-derived legality context and applies the
+    // results. Unavailable actions flash the unit's cell (flashUnavailable) —
+    // never a silent stage.
     // Physical numpad keys → digit. e.code names the physical key and is the
     // same with NumLock on (e.key '8') or off (e.key 'ArrowUp'), so one map
     // covers both keycode regimes.
@@ -2593,27 +2588,8 @@
       Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5,
       Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
     };
-    // Numpad digit → api-coord direction, reading the keypad as a compass
-    // (8 = up, 9 = up-right, …). 5 is hold, handled separately.
-    const NUMPAD_AXES = {
-      8: { dx: 0, dy: 1 }, 9: { dx: 1, dy: 1 }, 6: { dx: 1, dy: 0 },
-      3: { dx: 1, dy: -1 }, 2: { dx: 0, dy: -1 }, 1: { dx: -1, dy: -1 },
-      4: { dx: -1, dy: 0 }, 7: { dx: -1, dy: 1 },
-    };
-    // Knight numpad anchoring: an orthogonal key is two steps that way with
-    // the minor step CLOCKWISE (8 = 2up1right, 6 = 2right1down, 2 = 2down1left,
-    // 4 = 2left1up); each diagonal key is the counter-clockwise partner of its
-    // neighbouring orthogonal (7 = 2up1left, 9 = 2right1up, 3 = 2down1right,
-    // 1 = 2left1down). Every key's OPPOSITE key maps to its exact negation,
-    // so retract-through-hold works unchanged for knights.
-    const KNIGHT_NUMPAD_AXES = {
-      8: { dx: 1, dy: 2 }, 6: { dx: 2, dy: -1 }, 2: { dx: -1, dy: -2 }, 4: { dx: -2, dy: 1 },
-      7: { dx: -1, dy: 2 }, 9: { dx: 2, dy: 1 }, 3: { dx: 1, dy: -2 }, 1: { dx: -2, dy: -1 },
-    };
 
     let arrowExtendHeld = false; // ArrowUp/W held — the pawn diagonal chord
-
-    const axisEq = (a, b) => !!a && !!b && a.dx === b.dx && a.dy === b.dy;
 
     function selectedUnitHead() {
       const unit = getSelectedSnake();
@@ -2655,45 +2631,54 @@
       return d;
     }
 
-    function unitAxisRing(unit) {
-      switch (unit?.unitType) {
-        case 'knight': return KNIGHT_AXES;
-        case 'bishop': return DIAG_AXES;
-        case 'queen':
-        case 'king': return ALL_AXES;
-        default: return ORTHO_AXES; // rook, snake, historic letter/emoji units
-      }
-    }
-
-    // The unit's LEGAL axis set right now: its type's ring minus axes with no
-    // board-legal square (a rook on the left edge has no left axis).
-    function legalAxesFor(unit) {
-      return unitAxisRing(unit).filter((a) => maxDistAlong(a) >= 1);
+    // The unit's live legality context for KeyNavMachine transitions: its
+    // type's axis ring, the candidate-derived per-axis reach, and whether a
+    // hold (stay) candidate exists this turn.
+    function keyNavCtx(unit) {
+      return {
+        ring: KeyNavMachine.ringFor(unit?.unitType),
+        maxDist: maxDistAlong,
+        canHold: !!holdCandidate(),
+        axisFor: (digit) => KeyNavMachine.numpadAxisFor(unit?.unitType, digit),
+      };
     }
 
     // {axis, distance} ← a selected candidate, so keyboard steering picks up
     // seamlessly from a click. Stay keeps the previous axis as memory (Up /
-    // the same numpad key re-extends along it out of hold).
+    // the same numpad key re-extends along it out of hold); with no memory it
+    // lands in the 12:00 state (KeyNavMachine.TWELVE).
     function deriveKeyNavFromSelection(move, prev) {
       const unit = getSelectedSnake();
       const head = selectedUnitHead();
-      const memory = { axis: prev?.axis || null, distance: 0 };
-      if (!move || !head || move.kind === 'stay' || !move.position) return memory;
-      const dx = move.position.x - head.x;
-      const dy = move.position.y - head.y;
-      if (!dx && !dy) return memory;
-      if (unit?.unitType === 'knight') return { axis: { dx, dy }, distance: 1 };
-      return {
-        axis: { dx: Math.sign(dx), dy: Math.sign(dy) },
-        distance: Math.max(Math.abs(dx), Math.abs(dy)),
-      };
+      const hasOffset = move && head && move.kind !== 'stay' && move.position;
+      return KeyNavMachine.deriveFromOffset(
+        unit?.unitType,
+        hasOffset ? move.position.x - head.x : 0,
+        hasOffset ? move.position.y - head.y : 0,
+        prev?.axis || null
+      );
     }
 
     function keyNavState() {
       if (!moveState) return null;
       if (!moveState.keyNav) {
+        // Initial axis: the currently SELECTED candidate first, else the
+        // STAGED move; when both are hold (or absent) the axis is the 12:00
+        // state (TWELVE). The distance always reflects the actual selection —
+        // a hold selection with a directional staged move keeps distance 0
+        // and carries the staged move's axis as memory.
         const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
-        moveState.keyNav = deriveKeyNavFromSelection(sel, null);
+        let nav = deriveKeyNavFromSelection(sel, null);
+        if (nav.axis === KeyNavMachine.TWELVE && selectedSnakeId) {
+          const staged = stagedMoves[selectedSnakeId];
+          const stagedMove = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
+          const stagedCand = stagedMove != null ? moveState.moves[String(stagedMove)] : null;
+          const fromStaged = deriveKeyNavFromSelection(stagedCand || null, null);
+          if (fromStaged.axis !== KeyNavMachine.TWELVE) {
+            nav = { axis: fromStaged.axis, distance: nav.distance };
+          }
+        }
+        moveState.keyNav = nav;
       }
       return moveState.keyNav;
     }
@@ -2783,49 +2768,19 @@
       return null;
     }
 
-    // 4-arrow pad dispatch (see the schema comment above).
+    // 4-arrow pad dispatch (see the schema comment above). The transition
+    // itself is KeyNavMachine.arrowStep; snakes fall out naturally (maxDist 1
+    // on every axis, no hold candidate → Up/Down always unavailable).
     function handleArrowPad(dir) {
       if (!moveState) return;
       const unit = getSelectedSnake();
       if (!unit) return;
       if (unit.unitType === 'pawn') { handlePawnArrow(dir); return; }
       const nav = keyNavState();
-      const isSnakeUnit = !unitIsPiece(unit);
-
-      if (dir === 'left' || dir === 'right') {
-        const axes = legalAxesFor(unit);
-        if (axes.length === 0) { flashUnavailable(); return; }
-        let idx = nav.axis ? axes.findIndex((a) => axisEq(a, nav.axis)) : -1;
-        idx = idx < 0
-          ? 0
-          : (idx + (dir === 'right' ? 1 : -1) + axes.length) % axes.length;
-        const axis = axes[idx];
-        // Axis switch preserves the current distance, clamped to the new
-        // axis's board-legal maximum (a hold selection re-enters at 1).
-        const dist = Math.max(1, Math.min(nav.distance || 1, maxDistAlong(axis)));
-        setKeyNavSelection(axis, dist);
-        return;
-      }
-
-      // Up/Down: extend/retract. Snakes can neither extend nor hold.
-      if (isSnakeUnit) { flashUnavailable(); return; }
-      if (!nav.axis) {
-        // Fresh hold selection with no axis memory: nowhere to extend, and
-        // Down at hold has nothing lower.
-        flashUnavailable();
-        return;
-      }
-      if (dir === 'up') {
-        const maxD = maxDistAlong(nav.axis);
-        const d = Math.min(nav.distance + 1, maxD);
-        if (d < 1 || d === nav.distance) { flashUnavailable(); return; }
-        setKeyNavSelection(nav.axis, d);
-      } else {
-        const d = nav.distance - 1;
-        if (d >= 1) setKeyNavSelection(nav.axis, d);
-        else if (d === 0 && holdCandidate()) setKeyNavSelection(nav.axis, 0);
-        else flashUnavailable();
-      }
+      if (!nav) { flashUnavailable(); return; }
+      const step = KeyNavMachine.arrowStep(nav, dir, keyNavCtx(unit));
+      if (!step.ok) { flashUnavailable(); return; }
+      setKeyNavSelection(step.axis, step.distance);
     }
 
     function handlePawnArrow(dir) {
@@ -2850,44 +2805,19 @@
       else flashUnavailable();
     }
 
-    // 9-key numpad dispatch (see the schema comment above).
+    // 9-key numpad dispatch (see the schema comment above). The transition
+    // itself — extend / retract-through-hold with the axis flip / new axis at
+    // distance 1 / 5 = hold at the 12:00 axis — is KeyNavMachine.numpadStep.
     function handleNumpadSelect(digit) {
       if (!moveState) return;
       const unit = getSelectedSnake();
       if (!unit) return;
-      if (digit === 5) {
-        if (holdCandidate()) setKeyNavSelection(keyNavState()?.axis || null, 0);
-        else flashUnavailable(); // snakes cannot hold
-        return;
-      }
-      if (unit.unitType === 'pawn') { handlePawnNumpad(digit); return; }
-      const axis = unit.unitType === 'knight' ? KNIGHT_NUMPAD_AXES[digit] : NUMPAD_AXES[digit];
-      const ring = unitAxisRing(unit);
-      if (!axis || !ring.some((a) => axisEq(a, axis))) {
-        flashUnavailable(); // e.g. a diagonal key for a rook
-        return;
-      }
+      if (digit !== 5 && unit.unitType === 'pawn') { handlePawnNumpad(digit); return; }
       const nav = keyNavState();
-      const opposite = { dx: -axis.dx, dy: -axis.dy };
-      if (nav.distance >= 1 && axisEq(nav.axis, axis)) {
-        // Same direction again: extend one square per press (single-step
-        // pieces and snakes lock at 1).
-        if (nav.distance + 1 > maxDistAlong(axis)) { flashUnavailable(); return; }
-        setKeyNavSelection(axis, nav.distance + 1);
-        return;
-      }
-      if (nav.distance >= 1 && axisEq(nav.axis, opposite)) {
-        // Opposite direction: retract one per press — through hold (when the
-        // piece may hold) and out into the pressed axis.
-        if (nav.distance > 1) { setKeyNavSelection(nav.axis, nav.distance - 1); return; }
-        if (holdCandidate()) { setKeyNavSelection(nav.axis, 0); return; }
-        if (maxDistAlong(axis) >= 1) { setKeyNavSelection(axis, 1); return; }
-        flashUnavailable();
-        return;
-      }
-      // New axis (or stepping out of hold): distance 1.
-      if (maxDistAlong(axis) >= 1) setKeyNavSelection(axis, 1);
-      else flashUnavailable();
+      if (!nav) { flashUnavailable(); return; }
+      const step = KeyNavMachine.numpadStep(nav, digit, keyNavCtx(unit));
+      if (!step.ok) { flashUnavailable(); return; }
+      setKeyNavSelection(step.axis, step.distance);
     }
 
     // Pawn numpad: facing-relative like the arrow pad — 8 forward, 4/6 the
