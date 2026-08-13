@@ -214,9 +214,17 @@ export class BoardGraph {
         let last = i;
         while (last + 1 < snake.body.length &&
                this.cellIndexOf(snake.body[last + 1]) === idx) last++;
+        // A run that also covers the HEAD cell (spawn stacks [H,H,H]; the
+        // two-copy stack [H,H] right after a sever) really starts at index 0:
+        // once the head moves, its copy is just another body copy the tail
+        // still has to pop through, so the engine-truth vacate turn is
+        // body.length − 0. A NON-stacked head stays a non-segment (this loop
+        // never visits index 0 alone), so other subjects still read a normal
+        // head cell as empty.
+        const runStart = i === 1 && this.cellIndexOf(snake.body[0]) === idx ? 0 : i;
         const isTail = last === snake.body.length - 1;
-        const stacked = last > i;
-        const turnsFromTail = snake.body.length - i;
+        const stacked = last > runStart;
+        const turnsFromTail = snake.body.length - runStart;
 
         // The engine pops tails before resolving collisions, eating or not —
         // so the tail cell vacates on the very next move unless it is
@@ -347,7 +355,9 @@ export class BoardGraph {
         // Skip cells overwritten by another snake's overlapping segment.
         if (this.segOwner[idx] !== snakeIdx) { i = last; continue; }
 
-        const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
+        // Head-overlapping run counts from index 0 (same as buildSegments).
+        const runStart = i === 1 && this.cellIndexOf(snake.body[0]) === idx ? 0 : i;
+        const base = snake.body.length - runStart; // pure-geometry disappear turn (turnsFromTail)
 
         this.optimisticDisappear[idx] = applyEats(base, confirmedEats, 1);
 
