@@ -1762,9 +1762,13 @@ const BoardRenderer = (function () {
   // The whole tag is one atomic unit: the opacity is computed once from the
   // tag's state and applied to every part inside a single save/restore block,
   // so no piece can appear/disappear independently and no alpha can leak.
-  // Opacity model: `translucentDefault` (Alt-tap toggle, plumbed through
-  // options.tagsTranslucentDefault) picks the resting state; hovering always
-  // shows the REVERSE of the current default.
+  // Display model (Alt-tap toggle, plumbed through
+  // options.tagsHiddenByDefault):
+  //   shown-by-default  → every tag renders; hovering a tag/unit fades THAT
+  //                       tag translucent so the board under it stays readable.
+  //   hidden-by-default → tags don't render at all; only the hovered unit's
+  //                       tag is drawn (solid), placed by renderUnitTags so it
+  //                       never covers the hovered cell.
   function drawUnitTag(ctx, tag, state) {
     const {
       rect,
@@ -1783,10 +1787,10 @@ const BoardRenderer = (function () {
       unitColor,
       ownerColor,
     } = tag;
-    const { selected, hovered, translucentDefault } = state;
+    const { selected, hovered, hiddenDefault } = state;
     let alpha;
-    if (hovered) alpha = translucentDefault ? 0.95 : 0.35;
-    else if (translucentDefault) alpha = 0.35;
+    if (hiddenDefault) alpha = 0.95; // the hover-shown tag (others aren't drawn)
+    else if (hovered) alpha = 0.35;
     else alpha = selected ? 1 : 0.9;
 
     ctx.save();
@@ -1867,14 +1871,29 @@ const BoardRenderer = (function () {
   // top-left / bottom-right fallbacks) are scored by how many OTHER unit
   // heads and already-placed tags they cover, and the least-overlapping
   // candidate wins. Styling derives reactively from the selections map; the
-  // Alt-tap opacity default arrives via options.tagsTranslucentDefault.
+  // Alt-tap display default arrives via options.tagsHiddenByDefault.
+  // When tags are hidden by default, ONLY the hovered unit's tag renders,
+  // anchored to a spot adjacent to the head that never covers the hovered
+  // cell (options.hoverCell) — the cell under the cursor must stay fully
+  // visible and clickable for destination selection / inspection.
   function renderUnitTags(ctx, canvas, board, cellSize, options) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
     const owners = options?.owners || {};
     const selections = options?.selections || {};
-    const hoveredId = options?.hoveredNameTagSnakeId || null;
-    const translucentDefault = !!options?.tagsTranslucentDefault;
+    const hoveredId = options?.hoveredUnitId || null;
+    const hiddenDefault = !!options?.tagsHiddenByDefault;
+    // The board cell under the cursor, as a board-pixel rect: hover-shown
+    // tags must never intersect it.
+    const hoverCell = options?.hoverCell || null;
+    const cursorRect = hoverCell
+      ? {
+          x: hoverCell.x * cellSize,
+          y: (board.height - 1 - hoverCell.y) * cellSize,
+          w: cellSize,
+          h: cellSize,
+        }
+      : null;
 
     // Other units' head cells (board-pixel rects) for overlap avoidance.
     const headRects = {};
@@ -1896,9 +1915,11 @@ const BoardRenderer = (function () {
     board.snakes.forEach((snake) => {
       const head = snake.body && snake.body[0];
       if (!head) return;
+      const hovered = hoveredId === snake.id;
+      // Hidden-by-default: nothing renders except the hovered unit's tag.
+      if (hiddenDefault && !hovered) return;
       const owner = owners[snake.id] || null;
       const selected = !!selections[snake.id];
-      const hovered = hoveredId === snake.id;
       const unitColor =
         snake.customizations?.color || snake.color || "#888888";
 
@@ -1945,16 +1966,39 @@ const BoardRenderer = (function () {
       const hyTop = (board.height - 1 - head.y) * cellSize;
       const hxRight = hxLeft + cellSize;
       const overlap = cellSize * 0.18;
-      const candidates = [
-        { x: hxRight - overlap, y: hyTop - totalH + overlap }, // top-right
-        { x: hxLeft - tagW + overlap, y: hyTop - totalH + overlap }, // top-left
-        { x: hxRight - overlap, y: hyTop + cellSize - overlap }, // bottom-right
-      ];
+      // A hover-shown tag (hidden-by-default mode) must never cover the cell
+      // the mouse is on: use anchors fully OUTSIDE the head cell, ringed
+      // around it, and hard-filter any placement that intersects the cursor
+      // cell below. The shown-by-default tags keep the head-overlapping
+      // anchors (association reads better and hover already fades them).
+      const avoidCursor = hiddenDefault && hovered && !!cursorRect;
+      const pad = Math.max(2, cellSize * 0.06);
+      const candidates = avoidCursor
+        ? [
+            { x: hxRight + pad, y: hyTop - totalH - pad }, // outside top-right
+            { x: hxLeft - tagW - pad, y: hyTop - totalH - pad }, // outside top-left
+            { x: hxLeft + (cellSize - tagW) / 2, y: hyTop - totalH - pad }, // above
+            { x: hxRight + pad, y: hyTop + (cellSize - totalH) / 2 }, // right
+            { x: hxLeft - tagW - pad, y: hyTop + (cellSize - totalH) / 2 }, // left
+            { x: hxRight + pad, y: hyTop + cellSize + pad }, // outside bottom-right
+            { x: hxLeft - tagW - pad, y: hyTop + cellSize + pad }, // outside bottom-left
+            { x: hxLeft + (cellSize - tagW) / 2, y: hyTop + cellSize + pad }, // below
+          ]
+        : [
+            { x: hxRight - overlap, y: hyTop - totalH + overlap }, // top-right
+            { x: hxLeft - tagW + overlap, y: hyTop - totalH + overlap }, // top-left
+            { x: hxRight - overlap, y: hyTop + cellSize - overlap }, // bottom-right
+          ];
 
       const boardW = board.width * cellSize;
       const boardH = board.height * cellSize;
       let best = null;
       let bestScore = Infinity;
+      // Last resort when EVERY candidate would touch the cursor cell (tiny
+      // boards): the least-overlapping placement, cursor be damned — a tag
+      // still beats no tag.
+      let fallback = null;
+      let fallbackScore = Infinity;
       for (const c of candidates) {
         const rect = {
           x: Math.max(1, Math.min(c.x, boardW - tagW - 1)),
@@ -1970,12 +2014,23 @@ const BoardRenderer = (function () {
         for (const pr of placed) {
           if (intersects(rect, pr)) score++;
         }
+        // The cursor-cell constraint is HARD for hover-shown tags: the board
+        // clamp above can push an outside anchor back over the hovered cell,
+        // so it must be re-checked on the final rect, not the raw anchor.
+        if (avoidCursor && intersects(rect, cursorRect)) {
+          if (score < fallbackScore) {
+            fallbackScore = score;
+            fallback = rect;
+          }
+          continue;
+        }
         if (score < bestScore) {
           bestScore = score;
           best = rect;
         }
         if (score === 0) break;
       }
+      if (!best) best = fallback;
       if (!best) return;
 
       drawUnitTag(
@@ -1997,7 +2052,7 @@ const BoardRenderer = (function () {
           unitColor,
           ownerColor: owner && owner.color ? owner.color : null,
         },
-        { selected, hovered, translucentDefault },
+        { selected, hovered, hiddenDefault },
       );
 
       placed.push(best);

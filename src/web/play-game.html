@@ -153,6 +153,14 @@
       border-color: #9C27B0 !important;
     }
     .move-button:disabled { opacity: 0.3; cursor: not-allowed; }
+    /* Keyboard destination selection: brief "unavailable" flash overlaid on
+       the selected unit's cell (see flashUnavailable). */
+    .keynav-flash {
+      position: absolute; pointer-events: none; z-index: 30;
+      border: 3px solid #ff5252; border-radius: 6px;
+      box-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
+      opacity: 0; transition: opacity 0.25s ease-out;
+    }
     .move-button .score {
       font-size: 11px; color: #aaa; display: block; margin-top: 3px;
     }
@@ -793,19 +801,26 @@
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
-    // Unit tag currently under the mouse (hover shows the REVERSE of the
-    // current default opacity state).
-    let hoveredNameTagSnakeId = null;
+    // Unit (tag or body) currently under the mouse. Shown-by-default tags:
+    // hovering a tag/unit fades THAT tag translucent. Hidden-by-default:
+    // hovering a unit shows its tag, placed clear of the hovered cell.
+    let hoveredUnitId = null;
     let lastCanvasMousePos = null; // last {clientX, clientY} over the canvas
+    let hoverBoardCell = null;     // board cell under the cursor, for tag placement
     let nameTagHoverRerenderQueued = false;
-    // Unit-tag default opacity: false → tags rest opaque (hover fades them),
-    // true → tags rest translucent (hover solidifies them). Toggled by a bare
-    // Alt TAP (keydown+keyup with no intervening key/mouse — Alt+click cell
+    // Unit-tag display default: false → tags are DISPLAYED by default
+    // (hovering one fades it), true → tags are NOT displayed by default
+    // (hovering a unit shows its tag). Toggled by a bare Alt TAP
+    // (keydown+keyup with no intervening key/mouse — Alt+click cell
     // inspection is untouched) and persisted per-browser.
-    const TAG_OPACITY_PREF_KEY = 'unitTagsTranslucentDefault';
-    let tagsTranslucentDefault = false;
+    const TAG_DISPLAY_PREF_KEY = 'unitTagsHiddenByDefault';
+    let tagsHiddenByDefault = false;
     try {
-      tagsTranslucentDefault = localStorage.getItem(TAG_OPACITY_PREF_KEY) === '1';
+      // Migrate from the pre-rename translucency preference: a translucent
+      // default is the nearest ancestor of "not displayed by default".
+      const stored = localStorage.getItem(TAG_DISPLAY_PREF_KEY)
+        ?? localStorage.getItem('unitTagsTranslucentDefault');
+      tagsHiddenByDefault = stored === '1';
     } catch (_e) { /* storage unavailable → session-only default */ }
     let stagedMoves = {};
 
@@ -1639,11 +1654,13 @@
         selectionGlows: selectionGlows,
         // Unit tags: styling derives reactively from the selections map
         // (single selection property) inside the renderer; the Alt-tap
-        // opacity default rides along.
+        // display default rides along, plus the hovered cell so a
+        // hover-shown tag can be placed clear of the cursor.
         owners: owners,
         selections: selections,
-        hoveredNameTagSnakeId: hoveredNameTagSnakeId,
-        tagsTranslucentDefault: tagsTranslucentDefault,
+        hoveredUnitId: hoveredUnitId,
+        tagsHiddenByDefault: tagsHiddenByDefault,
+        hoverCell: hoverBoardCell,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
@@ -1682,16 +1699,18 @@
         document.getElementById('boardOverlay').innerHTML = '';
       }
 
-      // Hover revalidation: tags move as the snakes do, so after each render
-      // re-hit-test the last known mouse position against the fresh tag rects.
-      // If the cursor is no longer over the tag it was hovering (or the mouse
-      // has left the canvas), clear/update the hover so no tag can get stuck
-      // in the faded state. Schedules at most one corrective re-render.
+      // Hover revalidation: tags and units move as the turns land, so after
+      // each render re-hit-test the last known mouse position against the
+      // fresh tag rects / unit cells. If the cursor is no longer over the
+      // unit it was hovering (or the mouse has left the canvas), clear/update
+      // the hover so no tag can get stuck shown or faded. Schedules at most
+      // one corrective re-render.
       const freshHit = lastCanvasMousePos && viewMode === 'live'
-        ? BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos)
+        ? unitHoverHit(lastCanvasMousePos)
         : null;
-      if (freshHit !== hoveredNameTagSnakeId) {
-        hoveredNameTagSnakeId = freshHit;
+      if (viewMode === 'live') hoverBoardCell = hoverCellAt(lastCanvasMousePos);
+      if (freshHit !== hoveredUnitId) {
+        hoveredUnitId = freshHit;
         if (!nameTagHoverRerenderQueued) {
           nameTagHoverRerenderQueued = true;
           requestAnimationFrame(() => {
@@ -1818,8 +1837,10 @@
       } else {
         if (isPiece) {
           renderPieceMoveHint(
-            'Chess piece \u2014 click a candidate square (or use arrows), then ' +
-            'Space to stage. Right-click still sets a goto destination.'
+            'Chess piece \u2014 click a candidate square, or steer with the ' +
+            'keyboard: \u2190/\u2192 pick a direction, \u2191/\u2193 extend / retract to ' +
+            'hold (numpad 1\u20139 too, 5 = hold), then Space to stage. ' +
+            'Right-click still sets a goto destination.'
           );
         } else {
           BoardRenderer.renderMoveButtons(
@@ -1849,6 +1870,10 @@
 
       userSelectedMove = moveKey;
       moveState.selectedMove = moveKey;
+      // Keep the keyboard cursor ({axis, distance}) in step with EVERY
+      // selection source (board click, keypad button, keyboard), so
+      // arrow/numpad steering continues from wherever the selection is.
+      moveState.keyNav = deriveKeyNavFromSelection(moveState.moves[moveKey], moveState.keyNav);
 
       // Schedule the repaint BEFORE any of the panel updates below. Those
       // render third-party-shaped data (score breakdowns) and a single bad
@@ -2251,9 +2276,11 @@
       return currentGameState.board.snakes.find(s => s.id === selectedSnakeId) || null;
     }
 
-    // Whether a board unit is a chess piece (vs an ordinary snake). Pieces are
-    // commanded by right-clicking a destination (goto); the 4-way keypad,
-    // candidate-cell cursor and Space-staging don't apply to them.
+    // Whether a board unit is a chess piece (vs an ordinary snake). Pieces
+    // share the snake candidate UI (candidate cells, keyboard destination
+    // selection, Space-staging) but differ in what the keys mean — see the
+    // generalized keyboard schema above handleArrowPad — and can also be
+    // commanded by right-clicking a destination (goto).
     function unitIsPiece(snake) {
       return !!(snake && snake.unitType && snake.unitType !== 'snake');
     }
@@ -2518,6 +2545,387 @@
       ws.send(JSON.stringify({ type: 'suicide-all', password: password }));
     }
 
+    // ── Generalized keyboard destination selection ──────────────────────────
+    // ONE schema for every unit type. The keyboard cursor is {axis, distance},
+    // stored on moveState.keyNav (so it resets whenever the move state is
+    // rebuilt — new turn, new unit); the selected candidate is derived by
+    // POSITION (head + axis·distance; distance 0 = the stay/hold candidate)
+    // and fed through the ordinary selectMove path, so the purple cursor,
+    // stats table and Space-staging behave exactly as for a click.
+    //
+    //   4-arrow pad: Left/Right rotate the axis through the unit's legal axis
+    //     ring (rook 4 orthogonals, bishop 4 diagonals, queen/king 8, knight
+    //     its 8 L-directions, snake 4 orthogonals); Up extends along the
+    //     current axis (clamped at the last board-legal ray square — 1-step
+    //     pieces lock after 1), Down retracts through to hold for pieces that
+    //     may hold. Snakes can neither extend nor hold → Up/Down flash.
+    //     Pawns: Left/Right pick the two rotation candidates; with Up HELD,
+    //     Left/Right pick the diagonal-forward candidates (when legal).
+    //   9-key numpad (with or without NumLock — e.code is the same): a
+    //     direction key selects its axis at distance 1; repeated presses
+    //     extend one square per press; the OPPOSITE key retracts one per
+    //     press, through hold and out into the opposite axis. 5 = hold.
+    //
+    // Unavailable actions flash the unit's cell (flashUnavailable) — never a
+    // silent stage.
+    // Axis rings in api board coords (y grows upward), ordered CLOCKWISE on
+    // screen so ArrowRight advances clockwise, ArrowLeft counter-clockwise.
+    const ORTHO_AXES = [
+      { dx: 0, dy: 1 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: -1, dy: 0 },
+    ];
+    const DIAG_AXES = [
+      { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 1 },
+    ];
+    const ALL_AXES = [
+      { dx: 0, dy: 1 }, { dx: 1, dy: 1 }, { dx: 1, dy: 0 }, { dx: 1, dy: -1 },
+      { dx: 0, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 0 }, { dx: -1, dy: 1 },
+    ];
+    // Knight "axes" are the eight L-offsets themselves, clockwise from
+    // two-up-one-right.
+    const KNIGHT_AXES = [
+      { dx: 1, dy: 2 }, { dx: 2, dy: 1 }, { dx: 2, dy: -1 }, { dx: 1, dy: -2 },
+      { dx: -1, dy: -2 }, { dx: -2, dy: -1 }, { dx: -2, dy: 1 }, { dx: -1, dy: 2 },
+    ];
+    // Physical numpad keys → digit. e.code names the physical key and is the
+    // same with NumLock on (e.key '8') or off (e.key 'ArrowUp'), so one map
+    // covers both keycode regimes.
+    const NUMPAD_DIGIT_CODES = {
+      Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5,
+      Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
+    };
+    // Numpad digit → api-coord direction, reading the keypad as a compass
+    // (8 = up, 9 = up-right, …). 5 is hold, handled separately.
+    const NUMPAD_AXES = {
+      8: { dx: 0, dy: 1 }, 9: { dx: 1, dy: 1 }, 6: { dx: 1, dy: 0 },
+      3: { dx: 1, dy: -1 }, 2: { dx: 0, dy: -1 }, 1: { dx: -1, dy: -1 },
+      4: { dx: -1, dy: 0 }, 7: { dx: -1, dy: 1 },
+    };
+    // Knight numpad anchoring: an orthogonal key is two steps that way with
+    // the minor step CLOCKWISE (8 = 2up1right, 6 = 2right1down, 2 = 2down1left,
+    // 4 = 2left1up); each diagonal key is the counter-clockwise partner of its
+    // neighbouring orthogonal (7 = 2up1left, 9 = 2right1up, 3 = 2down1right,
+    // 1 = 2left1down). Every key's OPPOSITE key maps to its exact negation,
+    // so retract-through-hold works unchanged for knights.
+    const KNIGHT_NUMPAD_AXES = {
+      8: { dx: 1, dy: 2 }, 6: { dx: 2, dy: -1 }, 2: { dx: -1, dy: -2 }, 4: { dx: -2, dy: 1 },
+      7: { dx: -1, dy: 2 }, 9: { dx: 2, dy: 1 }, 3: { dx: 1, dy: -2 }, 1: { dx: -2, dy: -1 },
+    };
+
+    let arrowExtendHeld = false; // ArrowUp/W held — the pawn diagonal chord
+
+    const axisEq = (a, b) => !!a && !!b && a.dx === b.dx && a.dy === b.dy;
+
+    function selectedUnitHead() {
+      const unit = getSelectedSnake();
+      return (unit && (unit.head || unit.body?.[0])) || null;
+    }
+
+    // The candidate occupying head + offset — position match, the one shape
+    // every candidate flavour shares (snake directions, piece destinations,
+    // pawn rotations). Stay is excluded: its position IS the head.
+    function keyNavCandidateAt(off) {
+      const head = selectedUnitHead();
+      if (!head || !moveState) return null;
+      const tx = head.x + off.dx;
+      const ty = head.y + off.dy;
+      for (const m of Object.values(moveState.moves)) {
+        if (m.kind !== 'stay' && m.position && m.position.x === tx && m.position.y === ty) {
+          return m;
+        }
+      }
+      return null;
+    }
+
+    function holdCandidate() {
+      if (!moveState) return null;
+      return Object.values(moveState.moves).find((m) => m.kind === 'stay') || null;
+    }
+
+    // Largest distance with a board-legal candidate along the axis: the full
+    // remaining ray for sliders, 1 for single-step pieces and snakes (a
+    // knight's axis·2 is never a candidate).
+    function maxDistAlong(axis) {
+      if (!axis) return 0;
+      const board = currentGameState?.board;
+      const limit = board ? Math.max(board.width, board.height) : 32;
+      let d = 0;
+      while (d < limit && keyNavCandidateAt({ dx: axis.dx * (d + 1), dy: axis.dy * (d + 1) })) {
+        d++;
+      }
+      return d;
+    }
+
+    function unitAxisRing(unit) {
+      switch (unit?.unitType) {
+        case 'knight': return KNIGHT_AXES;
+        case 'bishop': return DIAG_AXES;
+        case 'queen':
+        case 'king': return ALL_AXES;
+        default: return ORTHO_AXES; // rook, snake, historic letter/emoji units
+      }
+    }
+
+    // The unit's LEGAL axis set right now: its type's ring minus axes with no
+    // board-legal square (a rook on the left edge has no left axis).
+    function legalAxesFor(unit) {
+      return unitAxisRing(unit).filter((a) => maxDistAlong(a) >= 1);
+    }
+
+    // {axis, distance} ← a selected candidate, so keyboard steering picks up
+    // seamlessly from a click. Stay keeps the previous axis as memory (Up /
+    // the same numpad key re-extends along it out of hold).
+    function deriveKeyNavFromSelection(move, prev) {
+      const unit = getSelectedSnake();
+      const head = selectedUnitHead();
+      const memory = { axis: prev?.axis || null, distance: 0 };
+      if (!move || !head || move.kind === 'stay' || !move.position) return memory;
+      const dx = move.position.x - head.x;
+      const dy = move.position.y - head.y;
+      if (!dx && !dy) return memory;
+      if (unit?.unitType === 'knight') return { axis: { dx, dy }, distance: 1 };
+      return {
+        axis: { dx: Math.sign(dx), dy: Math.sign(dy) },
+        distance: Math.max(Math.abs(dx), Math.abs(dy)),
+      };
+    }
+
+    function keyNavState() {
+      if (!moveState) return null;
+      if (!moveState.keyNav) {
+        const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
+        moveState.keyNav = deriveKeyNavFromSelection(sel, null);
+      }
+      return moveState.keyNav;
+    }
+
+    function candidateKeyFor(axis, distance) {
+      if (!moveState) return null;
+      if (distance === 0) {
+        const stay = holdCandidate();
+        return stay ? stay.key : null;
+      }
+      if (!axis) return null;
+      const m = keyNavCandidateAt({ dx: axis.dx * distance, dy: axis.dy * distance });
+      return m ? m.key : null;
+    }
+
+    // Move the keyboard cursor: select the candidate at axis·distance through
+    // the ordinary selectMove path and remember {axis, distance} (selectMove's
+    // own derivation loses the axis memory a hold selection carries). Flashes
+    // and selects nothing when no such candidate exists — never a silent
+    // stage.
+    function setKeyNavSelection(axis, distance) {
+      const key = candidateKeyFor(axis, distance);
+      if (key == null) { flashUnavailable(); return false; }
+      selectMove(key);
+      if (moveState && moveState.keyNav) {
+        moveState.keyNav.axis = axis;
+        moveState.keyNav.distance = distance;
+      }
+      return true;
+    }
+
+    // Brief non-intrusive "unavailable" flash on the selected unit's head
+    // cell: a red outline overlay that fades right out. Pure DOM — it never
+    // touches the canvas render path.
+    let keyNavFlashTimer = null;
+    function flashUnavailable() {
+      const canvas = document.getElementById('gameCanvas');
+      const board = currentGameState?.board;
+      const head = selectedUnitHead();
+      if (!canvas || !board || !head) return;
+      let el = document.getElementById('keyNavFlash');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'keyNavFlash';
+        el.className = 'keynav-flash';
+        document.querySelector('.canvas-wrapper').appendChild(el);
+      }
+      const displayW = canvas.clientWidth || canvas.width;
+      const displayH = canvas.clientHeight || canvas.height;
+      const cell = Math.min(displayW / board.width, displayH / board.height);
+      el.style.left = (canvas.offsetLeft + head.x * cell) + 'px';
+      el.style.top = (canvas.offsetTop + (board.height - 1 - head.y) * cell) + 'px';
+      el.style.width = cell + 'px';
+      el.style.height = cell + 'px';
+      el.style.opacity = '1';
+      if (keyNavFlashTimer) clearTimeout(keyNavFlashTimer);
+      keyNavFlashTimer = setTimeout(() => {
+        el.style.opacity = '0';
+        keyNavFlashTimer = null;
+      }, 200);
+    }
+
+    // Pawn facing in api coords (the wire facing has y growing downward).
+    function pawnFacingApi(unit) {
+      const f = unit?.facing;
+      if (!f || (!f.dx && !f.dy)) return null;
+      return { dx: f.dx, dy: -f.dy };
+    }
+
+    // The pawn candidate of the wanted flavour on the pawn's own 'left' or
+    // 'right' (counter-clockwise / clockwise of facing — for a pawn facing up
+    // that is also screen-left/right). 'rotate' matches the two side-square
+    // rotation candidates; 'diagonal' the diagonal-forward attack/eat
+    // candidates, which exist only when legal.
+    function pawnCandidateOnSide(unit, side, kindWanted) {
+      const fa = pawnFacingApi(unit);
+      const head = selectedUnitHead();
+      if (!fa || !head || !moveState) return null;
+      for (const m of Object.values(moveState.moves)) {
+        if (!m.position || m.kind === 'stay') continue;
+        const off = { dx: m.position.x - head.x, dy: m.position.y - head.y };
+        const isDiagonal = m.kind === 'move' && Math.abs(off.dx) === 1 && Math.abs(off.dy) === 1;
+        if (kindWanted === 'rotate' ? m.kind !== 'rotate' : !isDiagonal) continue;
+        const cross = fa.dx * off.dy - fa.dy * off.dx;
+        if ((side === 'left' && cross > 0) || (side === 'right' && cross < 0)) return m;
+      }
+      return null;
+    }
+
+    // 4-arrow pad dispatch (see the schema comment above).
+    function handleArrowPad(dir) {
+      if (!moveState) return;
+      const unit = getSelectedSnake();
+      if (!unit) return;
+      if (unit.unitType === 'pawn') { handlePawnArrow(dir); return; }
+      const nav = keyNavState();
+      const isSnakeUnit = !unitIsPiece(unit);
+
+      if (dir === 'left' || dir === 'right') {
+        const axes = legalAxesFor(unit);
+        if (axes.length === 0) { flashUnavailable(); return; }
+        let idx = nav.axis ? axes.findIndex((a) => axisEq(a, nav.axis)) : -1;
+        idx = idx < 0
+          ? 0
+          : (idx + (dir === 'right' ? 1 : -1) + axes.length) % axes.length;
+        const axis = axes[idx];
+        // Axis switch preserves the current distance, clamped to the new
+        // axis's board-legal maximum (a hold selection re-enters at 1).
+        const dist = Math.max(1, Math.min(nav.distance || 1, maxDistAlong(axis)));
+        setKeyNavSelection(axis, dist);
+        return;
+      }
+
+      // Up/Down: extend/retract. Snakes can neither extend nor hold.
+      if (isSnakeUnit) { flashUnavailable(); return; }
+      if (!nav.axis) {
+        // Fresh hold selection with no axis memory: nowhere to extend, and
+        // Down at hold has nothing lower.
+        flashUnavailable();
+        return;
+      }
+      if (dir === 'up') {
+        const maxD = maxDistAlong(nav.axis);
+        const d = Math.min(nav.distance + 1, maxD);
+        if (d < 1 || d === nav.distance) { flashUnavailable(); return; }
+        setKeyNavSelection(nav.axis, d);
+      } else {
+        const d = nav.distance - 1;
+        if (d >= 1) setKeyNavSelection(nav.axis, d);
+        else if (d === 0 && holdCandidate()) setKeyNavSelection(nav.axis, 0);
+        else flashUnavailable();
+      }
+    }
+
+    function handlePawnArrow(dir) {
+      const unit = getSelectedSnake();
+      const nav = keyNavState();
+      if (!nav) return;
+      if (dir === 'left' || dir === 'right') {
+        // Chorded with a held Up: the diagonal-forward candidate on that side
+        // (present only when legal — attack/eat squares). Bare: the rotation.
+        const m = pawnCandidateOnSide(unit, dir, arrowExtendHeld ? 'diagonal' : 'rotate');
+        if (m) selectMove(m.key); else flashUnavailable();
+        return;
+      }
+      if (dir === 'up') {
+        const fa = pawnFacingApi(unit);
+        const fwd = fa ? keyNavCandidateAt(fa) : null;
+        if (fwd) selectMove(fwd.key); else flashUnavailable();
+        return;
+      }
+      // Down → retract to hold (pawns are 1-step; there is nothing between).
+      if (holdCandidate()) setKeyNavSelection(nav.axis, 0);
+      else flashUnavailable();
+    }
+
+    // 9-key numpad dispatch (see the schema comment above).
+    function handleNumpadSelect(digit) {
+      if (!moveState) return;
+      const unit = getSelectedSnake();
+      if (!unit) return;
+      if (digit === 5) {
+        if (holdCandidate()) setKeyNavSelection(keyNavState()?.axis || null, 0);
+        else flashUnavailable(); // snakes cannot hold
+        return;
+      }
+      if (unit.unitType === 'pawn') { handlePawnNumpad(digit); return; }
+      const axis = unit.unitType === 'knight' ? KNIGHT_NUMPAD_AXES[digit] : NUMPAD_AXES[digit];
+      const ring = unitAxisRing(unit);
+      if (!axis || !ring.some((a) => axisEq(a, axis))) {
+        flashUnavailable(); // e.g. a diagonal key for a rook
+        return;
+      }
+      const nav = keyNavState();
+      const opposite = { dx: -axis.dx, dy: -axis.dy };
+      if (nav.distance >= 1 && axisEq(nav.axis, axis)) {
+        // Same direction again: extend one square per press (single-step
+        // pieces and snakes lock at 1).
+        if (nav.distance + 1 > maxDistAlong(axis)) { flashUnavailable(); return; }
+        setKeyNavSelection(axis, nav.distance + 1);
+        return;
+      }
+      if (nav.distance >= 1 && axisEq(nav.axis, opposite)) {
+        // Opposite direction: retract one per press — through hold (when the
+        // piece may hold) and out into the pressed axis.
+        if (nav.distance > 1) { setKeyNavSelection(nav.axis, nav.distance - 1); return; }
+        if (holdCandidate()) { setKeyNavSelection(nav.axis, 0); return; }
+        if (maxDistAlong(axis) >= 1) { setKeyNavSelection(axis, 1); return; }
+        flashUnavailable();
+        return;
+      }
+      // New axis (or stepping out of hold): distance 1.
+      if (maxDistAlong(axis) >= 1) setKeyNavSelection(axis, 1);
+      else flashUnavailable();
+    }
+
+    // Pawn numpad: facing-relative like the arrow pad — 8 forward, 4/6 the
+    // two rotations, 7/9 the diagonal-forward candidates, 2 retract to hold
+    // (nothing behind a pawn is ever legal), 1/3 unavailable.
+    function handlePawnNumpad(digit) {
+      const unit = getSelectedSnake();
+      const fa = pawnFacingApi(unit);
+      const nav = keyNavState();
+      if (!fa || !nav) { flashUnavailable(); return; }
+      switch (digit) {
+        case 8: {
+          const fwd = keyNavCandidateAt(fa);
+          if (fwd) selectMove(fwd.key); else flashUnavailable();
+          return;
+        }
+        case 2: {
+          if (nav.distance >= 1 && holdCandidate()) setKeyNavSelection(nav.axis, 0);
+          else flashUnavailable();
+          return;
+        }
+        case 4:
+        case 6: {
+          const m = pawnCandidateOnSide(unit, digit === 4 ? 'left' : 'right', 'rotate');
+          if (m) selectMove(m.key); else flashUnavailable();
+          return;
+        }
+        case 7:
+        case 9: {
+          const m = pawnCandidateOnSide(unit, digit === 7 ? 'left' : 'right', 'diagonal');
+          if (m) selectMove(m.key); else flashUnavailable();
+          return;
+        }
+        default:
+          flashUnavailable();
+      }
+    }
+
     document.addEventListener('keydown', (e) => {
       // Let the buffer input (or any text/number field) receive keys normally.
       const active = document.activeElement;
@@ -2604,51 +3012,47 @@
 
       if (!selectedSnakeId || moveSubmitted) return;
 
-      // For snakes an arrow key IS the candidate key ('up'…). For a chess
-      // piece the same key resolves to the candidate occupying the adjacent
-      // board cell in that direction — for a pawn, the left/right side squares
-      // ARE the 90° rotation candidates (matching by position sidesteps the
-      // wire-facing y-flip entirely), so ArrowLeft/Right stage rotations.
-      const resolveArrowKey = (dir) => {
-        if (!selectedUnitIsPiece()) return dir;
-        if (!moveState) return null;
-        const unit = getSelectedSnake();
-        const h = unit?.head || unit?.body?.[0];
-        const off = directionOffset(dir);
-        if (!h || !off) return null;
-        const target = { x: h.x + off.dx, y: h.y + off.dy };
-        for (const move of Object.values(moveState.moves)) {
-          const pos = move.position;
-          if (pos && pos.x === target.x && pos.y === target.y) return move.key;
-        }
-        return null;
-      };
-      const selectArrow = (dir) => {
-        const key = resolveArrowKey(dir);
-        if (key != null) selectMove(key);
-      };
+      // Numpad first: e.code names the physical key regardless of NumLock
+      // (NumLock-off numpad presses report ArrowUp/Home/… as e.key, so they
+      // must be claimed here before the arrow-pad switch below).
+      if (e.code && NUMPAD_DIGIT_CODES[e.code] != null) {
+        e.preventDefault();
+        handleNumpadSelect(NUMPAD_DIGIT_CODES[e.code]);
+        return;
+      }
 
+      // 4-arrow pad (WASD aliases included): Left/Right rotate the axis,
+      // Up/Down extend/retract — see handleArrowPad.
       switch (e.key) {
         case 'ArrowUp':
         case 'w':
         case 'W':
-          e.preventDefault(); selectArrow('up'); break;
+          e.preventDefault(); arrowExtendHeld = true; handleArrowPad('up'); break;
         case 'ArrowDown':
         case 's':
         case 'S':
-          e.preventDefault(); selectArrow('down'); break;
+          e.preventDefault(); handleArrowPad('down'); break;
         case 'ArrowLeft':
         case 'a':
         case 'A':
-          e.preventDefault(); selectArrow('left'); break;
+          e.preventDefault(); handleArrowPad('left'); break;
         case 'ArrowRight':
         case 'd':
         case 'D':
-          e.preventDefault(); selectArrow('right'); break;
+          e.preventDefault(); handleArrowPad('right'); break;
         case ' ':
           e.preventDefault(); stageSelectedMove(); break;
       }
     });
+
+    // Pawn diagonal chord bookkeeping: "holding Up while tapping Left/Right
+    // selects the diagonal-forward candidates". The flag is set by the
+    // ArrowUp/W keydown above and cleared on release — and on window blur,
+    // since an Alt+Tab-style focus loss eats the keyup.
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') arrowExtendHeld = false;
+    });
+    window.addEventListener('blur', () => { arrowExtendHeld = false; });
 
     // ── Turn scrubbing implementation ───────────────────────────────────────
 
@@ -3869,9 +4273,10 @@
         stagedMoves: cmd ? cmd.stagedMoves : null,
         owners: cmd ? cmd.owners : null,
         // Unit tags render here through the same shared path as live play;
-        // hover + the Alt-tap opacity default apply identically.
-        hoveredNameTagSnakeId: hoveredNameTagSnakeId,
-        tagsTranslucentDefault: tagsTranslucentDefault,
+        // hover + the Alt-tap display default apply identically.
+        hoveredUnitId: hoveredUnitId,
+        tagsHiddenByDefault: tagsHiddenByDefault,
+        hoverCell: hoverBoardCell,
       });
       if (cmd) {
         const board = turn.game_state.board;
@@ -4158,43 +4563,82 @@
     })();
 
 
-    // Hovering a unit tag shows the REVERSE of the current default opacity
-    // state (default opaque → hover fades it so the board underneath stays
-    // readable; default translucent → hover solidifies it); re-render only
-    // when the hovered tag actually changes. The last mouse position is
-    // tracked so the hover can be revalidated against fresh hit rects after
-    // every render (tags move as the units do), and it is cleared on
-    // mouseleave so no tag can stay stuck in the hover state after the cursor
-    // leaves the canvas. Applies in BOTH live and historic view — the tags
-    // render through the same shared path in each.
+    // Unit-tag hover. With tags DISPLAYED by default, hovering a tag or a
+    // unit's body fades that unit's tag translucent so the board underneath
+    // stays readable. With tags HIDDEN by default, hovering a unit's body
+    // shows its tag (placed clear of the hovered cell — see renderUnitTags);
+    // tag rects aren't hit-tested in that mode, so the shown tag never pins
+    // itself under the cursor. Re-render only when the hover state actually
+    // changes. The last mouse position is tracked so the hover can be
+    // revalidated against fresh hit rects after every render (tags move as
+    // the units do), and it is cleared on mouseleave so no tag can stay
+    // stuck shown/faded after the cursor leaves the canvas. Applies in BOTH
+    // live and historic view — the tags render through the same shared path.
     function repaintForTagChange() {
       if (viewMode === 'historic') renderHistoricBoard();
       else scheduleRender();
     }
+    // The board currently on screen (live or historic), for hover hit-tests.
+    function activeBoard() {
+      return viewMode === 'historic'
+        ? historicRenderCtx?.boardRow?.game_state?.board || null
+        : currentGameState?.board || null;
+    }
+    function hoverCellAt(pos) {
+      const board = activeBoard();
+      if (!pos || !board) return null;
+      const cell = BoardRenderer.getClickedCell(document.getElementById('gameCanvas'), board, pos);
+      if (!cell || cell.x < 0 || cell.x >= board.width || cell.y < 0 || cell.y >= board.height) return null;
+      return cell;
+    }
+    // The hovered unit: a shown tag under the cursor (only while tags are
+    // displayed by default), else the unit whose body occupies the hovered
+    // cell.
+    function unitHoverHit(pos) {
+      if (!pos) return null;
+      if (!tagsHiddenByDefault) {
+        const tagHit = BoardRenderer.getNameTagAt(document.getElementById('gameCanvas'), pos);
+        if (tagHit) return tagHit;
+      }
+      const board = activeBoard();
+      const cell = hoverCellAt(pos);
+      if (!board || !cell) return null;
+      const unit = BoardRenderer.findSnakeAtCell(board, cell);
+      return unit ? unit.id : null;
+    }
     document.getElementById('gameCanvas').addEventListener('mousemove', (event) => {
       lastCanvasMousePos = { clientX: event.clientX, clientY: event.clientY };
-      const canvas = document.getElementById('gameCanvas');
-      const hit = BoardRenderer.getNameTagAt(canvas, lastCanvasMousePos);
-      if (hit !== hoveredNameTagSnakeId) {
-        hoveredNameTagSnakeId = hit;
+      const prevCell = hoverBoardCell;
+      hoverBoardCell = hoverCellAt(lastCanvasMousePos);
+      const cellChanged =
+        !!prevCell !== !!hoverBoardCell ||
+        (prevCell && hoverBoardCell &&
+          (prevCell.x !== hoverBoardCell.x || prevCell.y !== hoverBoardCell.y));
+      const hit = unitHoverHit(lastCanvasMousePos);
+      // A hover-shown tag is placed relative to the CURSOR CELL, so moving to
+      // a different cell of the same unit still needs a repaint.
+      if (hit !== hoveredUnitId || (hit && tagsHiddenByDefault && cellChanged)) {
+        hoveredUnitId = hit;
         repaintForTagChange();
       }
     });
     document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
       lastCanvasMousePos = null;
-      if (hoveredNameTagSnakeId) {
-        hoveredNameTagSnakeId = null;
+      hoverBoardCell = null;
+      if (hoveredUnitId) {
+        hoveredUnitId = null;
         repaintForTagChange();
       }
     });
 
-    // ── Alt tap: toggle the unit tags' default opacity ──────────────────────
+    // ── Alt tap: toggle whether unit tags are displayed by default ──────────
     // A bare Alt TAP (keydown then keyup with no other key or mouse press in
-    // between) flips the default between opaque and translucent; the
-    // preference persists in localStorage. Any intervening key or pointer
-    // press cancels the pending tap, so Alt+click cell inspection (and every
-    // other Alt chord) never toggles. Auto-repeat keydowns of Alt itself do
-    // NOT cancel — a slow press-and-release still counts as a tap.
+    // between) flips the default between tags-displayed (hover fades one) and
+    // tags-hidden (hover a unit to see its tag); the preference persists in
+    // localStorage. Any intervening key or pointer press cancels the pending
+    // tap, so Alt+click cell inspection (and every other Alt chord) never
+    // toggles. Auto-repeat keydowns of Alt itself do NOT cancel — a slow
+    // press-and-release still counts as a tap.
     let altTapPending = false;
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Alt') {
@@ -4208,9 +4652,9 @@
       if (!altTapPending) return;
       altTapPending = false;
       e.preventDefault(); // keep the browser from focusing its menu bar
-      tagsTranslucentDefault = !tagsTranslucentDefault;
+      tagsHiddenByDefault = !tagsHiddenByDefault;
       try {
-        localStorage.setItem(TAG_OPACITY_PREF_KEY, tagsTranslucentDefault ? '1' : '0');
+        localStorage.setItem(TAG_DISPLAY_PREF_KEY, tagsHiddenByDefault ? '1' : '0');
       } catch (_e) { /* storage unavailable → session-only toggle */ }
       repaintForTagChange();
     });
