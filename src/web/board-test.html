@@ -19,10 +19,16 @@
   <script src="/board-renderer.js"></script>
   <script>
     function makeSnake(id, name, color, body, health, invuln) {
+      // Wire facing (y down) from head minus neck — every unit carries one.
+      const [hx, hy] = body[0];
+      const [nx, ny] = body[1] || body[0];
+      const fdx = Math.sign(hx - nx);
+      const fdy = Math.sign(ny - hy);
       return {
         id, name, health: health || 100,
         letter: name[0].toUpperCase(),
         body: body.map(([x,y]) => ({x,y})),
+        facing: fdx || fdy ? { dx: fdx, dy: fdy } : { dx: 0, dy: -1 },
         customizations: { color },
         invulnerabilityLevel: invuln || 0
       };

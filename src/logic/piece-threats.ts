@@ -176,7 +176,6 @@ export function pieceReachableIdx(piece: Snake, board: Board, occupied: Uint8Arr
       break;
     case 'pawn': {
       const f = piece.facing;
-      if (!f) break; // a pawn without facing cannot advance
       // Wire deltas (y down); api cell of wire delta d is {x + d.dx, y - d.dy}.
       const deltas = [
         { dx: f.dx, dy: f.dy },                    // forward

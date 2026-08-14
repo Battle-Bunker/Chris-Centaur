@@ -53,6 +53,14 @@ function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
       centB: [idx(3, 1)],
       'centB#2': [idx(2, 4)],
     },
+    // Every unit carries a facing (wire coords, y down): head-minus-neck
+    // for the multi-cell snakes, centre-facing for the single-cell units.
+    unitFacing: {
+      centA: { dx: 0, dy: -1 },
+      'centA#2': { dx: 0, dy: 1 },
+      centB: { dx: 0, dy: 1 },
+      'centB#2': { dx: 0, dy: -1 },
+    },
     winners: [],
     ...overrides,
   };
@@ -94,19 +102,20 @@ describe('directionToMoveIndex', () => {
 });
 
 describe('continuationDirection', () => {
-  it('matches the engine default: step in the head−neck direction', () => {
-    // Head at (3,3), neck at (3,4) in full-board coords (y down): the snake
-    // last moved full-board-up, which is api 'up'.
-    expect(continuationDirection([idx(3, 3), idx(3, 4)], W)).toBe('up');
-    expect(continuationDirection([idx(3, 3), idx(2, 3)], W)).toBe('right');
-    expect(continuationDirection([idx(3, 3), idx(4, 3)], W)).toBe('left');
-    expect(continuationDirection([idx(3, 3), idx(3, 2)], W)).toBe('down');
-  });
-
-  it('returns null when the snake has no direction yet', () => {
-    expect(continuationDirection([idx(3, 3)], W)).toBeNull();
-    expect(continuationDirection([idx(3, 3), idx(3, 3)], W)).toBeNull(); // stacked spawn
-    expect(continuationDirection(undefined, W)).toBeNull();
+  it('matches the engine default: step in the wire facing direction', () => {
+    // Wire y grows downward, so wire dy -1 is api 'up'.
+    const turn = makeTurn({
+      unitFacing: {
+        centA: { dx: 0, dy: -1 },
+        'centA#2': { dx: 0, dy: 1 },
+        centB: { dx: -1, dy: 0 },
+        'centB#2': { dx: 1, dy: 0 },
+      },
+    });
+    expect(continuationDirection(turn, 'centA')).toBe('up');
+    expect(continuationDirection(turn, 'centA#2')).toBe('down');
+    expect(continuationDirection(turn, 'centB')).toBe('left');
+    expect(continuationDirection(turn, 'centB#2')).toBe('right');
   });
 });
 
@@ -192,7 +201,12 @@ describe('buildGameState with chess pieces', () => {
         centB: [idx(3, 1)],
         'centB#2': [idx(2, 4)],
       },
-      unitFacing: { 'centA#2': { dx: -1, dy: 0 } },
+      unitFacing: {
+        centA: { dx: 0, dy: -1 },
+        'centA#2': { dx: -1, dy: 0 },
+        centB: { dx: 0, dy: 1 },
+        'centB#2': { dx: 0, dy: -1 },
+      },
     });
     const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
     const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
@@ -209,22 +223,20 @@ describe('buildGameState with chess pieces', () => {
     expect(rook.unitType).toBe('rook');
     expect(rook.body).toEqual([{ x: 2, y: 3 }]);
     expect(rook.length).toBe(1);
-    expect(rook.facing).toBeUndefined();
+    expect(rook.facing).toEqual({ dx: 0, dy: 1 });
 
-    // Snakes are exactly as today (multi-cell body, length = cell count),
-    // with the explicit 'snake' unit type attached.
+    // Snakes keep their multi-cell body and length = cell count, with the
+    // explicit 'snake' unit type attached.
     const snakeA = byId.get('centA')!;
     expect(snakeA.unitType).toBe('snake');
     expect(snakeA.body).toEqual([{ x: 0, y: 3 }, { x: 0, y: 2 }]);
     expect(snakeA.length).toBe(2);
-    expect(snakeA.facing).toBeUndefined();
+    expect(snakeA.facing).toEqual({ dx: 0, dy: -1 });
   });
 
-  // Owner's wire-orientation rework: the engine stamps Turn.unitFacing for
-  // EVERY unit in piece games (centre-facing at spawn, moved direction
-  // after; holds keep it), and translate forwards it verbatim for all of
-  // them — the UI anchors icon rotation and keyNav on this wire facing.
-  it('populates facing for EVERY unit present in turn.unitFacing, verbatim', () => {
+  // Turn.unitFacing carries a facing for EVERY unit; translate forwards it
+  // verbatim — the UI anchors icon rotation and keyNav on this wire facing.
+  it('every unit carries its wire facing verbatim', () => {
     const turn = makeTurn({
       playerPieces: {
         centA: [idx(1, 1), idx(1, 2)],

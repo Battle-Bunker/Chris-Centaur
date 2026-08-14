@@ -354,7 +354,7 @@ export class Simulator {
         // guard) and the piece threat map all key off the unit's type — and
         // pawn threat geometry reads its facing.
         unitType: snake.unitType,
-        facing: snake.facing ? { dx: snake.facing.dx, dy: snake.facing.dy } : undefined,
+        facing: { dx: snake.facing.dx, dy: snake.facing.dy },
         invulnerabilityLevel: snake.invulnerabilityLevel,
         // Must survive the copy: evaluators build a BoardGraph over the
         // simulated board, and BoardGraph reads severability lookahead from

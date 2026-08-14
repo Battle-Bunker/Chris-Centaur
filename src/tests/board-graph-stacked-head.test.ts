@@ -15,6 +15,7 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 let nextId = 0;
 function makeSnake(body: Coord[]): Snake {
   return {
+    facing: { dx: 0, dy: -1 },
     id: `s${nextId++}`,
     name: 'test',
     health: 100,

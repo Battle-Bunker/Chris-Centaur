@@ -1731,9 +1731,9 @@ export class ActiveGameManager {
     // exempt: when the bot itself picks a fatal move there is no better
     // alternative to offer.
     //
-    // 'waypoint' is deliberately EXCLUDED from the gate. Since the goto/near
-    // redesign the direction is BOT-chosen — the heuristic matrix with the
-    // waypoint weight integrated — so the bot's own death-aversion already
+    // 'waypoint' is deliberately EXCLUDED from the gate: a goto/near
+    // direction is BOT-chosen — the heuristic matrix with the waypoint
+    // weight integrated — so the bot's own death-aversion already
     // arbitrates it. Prompting would ask the human to confirm a move the bot
     // picked, and the fallback would swap one bot-chosen move for another. The
     // source-agnostic red marker (isStagedMoveFatal) still flags it in the UI.
@@ -1956,14 +1956,16 @@ export class ActiveGameManager {
   // candidate, enumerated by legalPieceDestinations so the offered set can
   // never diverge from what staging would accept. The SAME score→color path
   // that shades snake candidates turns these uniform (range 0 → neutral
-  // amber), reflecting zero information from the bot for now. A real piece
-  // evaluator later replaces only the score/breakdown fill here — the row
-  // shape (move id + dest + kind) is already the full UI contract.
+  // amber). A real piece evaluator replaces only the score/breakdown fill
+  // here — the row shape (move id + dest + kind) is already the full UI
+  // contract.
   private computePieceMoveEvaluations(gameState: GameState): MoveEvaluation[] {
     const board = gameState.board;
     const you = gameState.you;
     const head = you?.head || you?.body?.[0];
     const unitType = you?.unitType ?? 'snake';
+    // Snake candidates come from the bot's evaluated-move path (real
+    // heuristic weights); only pieces are enumerated here.
     if (!board || !head || unitType === 'snake') return [];
     const fullW = board.width + 2;
     const fullH = board.height + 2;

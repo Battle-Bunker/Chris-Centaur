@@ -30,6 +30,49 @@ export const toIndex = (x: number, y: number, boardWidth: number): number => y *
 export const isInterior = (x: number, y: number, boardWidth: number, boardHeight: number): boolean =>
   x >= 1 && x <= boardWidth - 2 && y >= 1 && y <= boardHeight - 2;
 
+const ORTHOGONALS: Facing[] = [
+  { dx: 1, dy: 0 },
+  { dx: -1, dy: 0 },
+  { dx: 0, dy: 1 },
+  { dx: 0, dy: -1 },
+];
+const DIAGONALS: Facing[] = [
+  { dx: 1, dy: 1 },
+  { dx: 1, dy: -1 },
+  { dx: -1, dy: 1 },
+  { dx: -1, dy: -1 },
+];
+const KNIGHT_OFFSETS: Facing[] = [
+  { dx: 1, dy: 2 },
+  { dx: 2, dy: 1 },
+  { dx: 2, dy: -1 },
+  { dx: 1, dy: -2 },
+  { dx: -1, dy: -2 },
+  { dx: -2, dy: -1 },
+  { dx: -2, dy: 1 },
+  { dx: -1, dy: 2 },
+];
+
+// The legal facing-direction set per unit type: the directions a unit's
+// orientation can ever take (snake/rook/pawn: the 4 orthogonals; bishop:
+// the 4 diagonals; queen/king: all 8; knight: its 8 L-offsets). The keyNav
+// axis rings (src/web/keynav-machine.js) are these sets y-flipped to api
+// coords and sorted clockwise from up; keynav-machine.test.ts asserts the
+// parity.
+export const facingDirections = (type: string): Facing[] => {
+  switch (type) {
+    case 'bishop':
+      return DIAGONALS;
+    case 'queen':
+    case 'king':
+      return [...ORTHOGONALS, ...DIAGONALS];
+    case 'knight':
+      return KNIGHT_OFFSETS;
+    default: // snake, rook, pawn
+      return ORTHOGONALS;
+  }
+};
+
 export type PieceAction =
   | { kind: 'stay' }
   | { kind: 'move'; path: number[] }
@@ -51,7 +94,7 @@ export const planPieceAction = (
   dest: number,
   boardWidth: number,
   boardHeight: number,
-  facing?: Facing,
+  facing: Facing,
   pawnTargets?: Set<number>,
 ): PieceAction | null => {
   if (dest === origin) return { kind: 'stay' };
@@ -83,7 +126,6 @@ export const planPieceAction = (
         ? { kind: 'move', path: rayPath(o, d, boardWidth) }
         : null;
     case 'pawn': {
-      if (!facing) return null;
       if (dx === facing.dx && dy === facing.dy) return { kind: 'move', path: [dest] };
       // Side squares: a full-turn quarter rotation toward that side.
       if ((dx === -facing.dy && dy === facing.dx) || (dx === facing.dy && dy === -facing.dx)) {
@@ -124,7 +166,7 @@ export const legalPieceDestinations = (
   origin: number,
   boardWidth: number,
   boardHeight: number,
-  facing?: Facing,
+  facing: Facing,
   pawnTargets?: Set<number>,
 ): PieceCandidate[] => {
   const candidates: PieceCandidate[] = [];

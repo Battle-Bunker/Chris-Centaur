@@ -66,46 +66,15 @@ const BoardRenderer = (function () {
     return dead;
   }
 
-  // ── Universal unit facing (owner's universal-facing redesign) ────────────
-  // Every unit faces its WIRE orientation (Snake.facing — engine-stamped
-  // per turn for all units in piece games, and PRESERVED across holds, so a
-  // held unit keeps its orientation, and spawn stamps a centre-oriented
-  // facing so piece games always carry one); legacy docs without unitFacing
-  // (snake-only / pre-feature) fall back to last-move derivation, and
-  // 12:00 remains only as the legacy fallback for a genuinely unknown
-  // facing (effectively legacy turn 0). The
-  // ONE shared derivation lives in KeyNavMachine.deriveFacing
-  // (keynav-machine.js) — the same helper that seeds the keyboard-nav axis —
-  // so board icons and keyNav can never disagree. play-game.html loads that
-  // script alongside this one (browser global); under Node/Jest it is
-  // required directly. A page that renders boards without keynav-machine.js
-  // simply draws icons unrotated (12:00).
-  let _keyNavMachine;
-  function keyNavMachineRef() {
-    if (_keyNavMachine !== undefined) return _keyNavMachine;
-    if (typeof KeyNavMachine !== "undefined") {
-      _keyNavMachine = KeyNavMachine;
-    } else if (typeof module !== "undefined" && module.exports) {
-      try {
-        _keyNavMachine = require("./keynav-machine.js");
-      } catch (e) {
-        _keyNavMachine = null;
-      }
-    } else {
-      _keyNavMachine = null;
-    }
-    return _keyNavMachine;
-  }
-  function deriveUnitFacing(unit, previousBoard, lastMoves) {
-    const machine = keyNavMachineRef();
-    return machine ? machine.deriveFacing(unit, previousBoard, lastMoves) : null;
-  }
-  // Screen rotation for a facing axis (api coords, y up): clockwise radians
-  // from 12:00 — 0 when facing is null (the 12:00 hold/turn-0 state). Both
-  // canvas rotate() (y down) and SVG rotate() treat positive as clockwise on
-  // screen, so one formula serves both.
+  // ── Unit facing ──────────────────────────────────────────────────────────
+  // Every unit carries its WIRE orientation on Snake.facing (Turn.unitFacing,
+  // verbatim: full-board convention, dy grows DOWNWARD), and icons render
+  // rotated to it, live and replay.
+  // Screen rotation for a wire facing vector: clockwise radians from
+  // straight up. Both canvas rotate() (y down) and SVG rotate() treat
+  // positive as clockwise on screen, so one formula serves both.
   function facingRotationRad(facing) {
-    return facing ? Math.atan2(facing.dx, facing.dy) : 0;
+    return Math.atan2(facing.dx, -facing.dy);
   }
 
   // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
@@ -123,7 +92,7 @@ const BoardRenderer = (function () {
   // carries a discernible "nose" at its TOP — pawn: spiked helmet tip;
   // bishop: pointed mitre + ball; rook: crenellations; knight: upright ears;
   // queen: crown spikes; king: cross; snake: head with an upward forked
-  // tongue. Drawn at 12:00 they look exactly like a unit that held.
+  // tongue.
   const ICON_COLORS = {
     base: "#ffffff",
     line: "rgba(0, 0, 0, 0.8)",
@@ -334,19 +303,15 @@ const BoardRenderer = (function () {
 
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS) — ROTATED to the unit's facing
-  // (glyphOpts.facing, an api axis from deriveUnitFacing: the WIRE
-  // orientation for every unit, which the engine preserves across holds —
-  // a held unit renders at its kept facing, never forced to 12:00; legacy
-  // docs fall back to last-move derivation, and 12:00 means only that the
-  // facing is genuinely unknown). The unit's LETTER lives in
-  // its unit tag (renderUnitTags), not on the head. Pawns additionally keep
-  // their facing triangle (engine-facing, drawn unrotated) and
-  // staged-rotation badge; their weight now shows in the unit tag rather
-  // than the old corner badge. Only the icon rotates: triangle, badge, tags
-  // and health bars stay screen-aligned.
+  // pieces (see UNIT_ICONS) — ROTATED to the unit's wire facing
+  // (snake.facing). The unit's LETTER lives in its unit tag
+  // (renderUnitTags), not on the head. Pawns additionally carry their
+  // facing triangle (the one facing that gates move legality) and
+  // staged-rotation badge; their weight shows in the unit tag. Only the
+  // icon rotates: triangle, badge, tags and health bars stay
+  // screen-aligned.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
-    const iconRotation = facingRotationRad(glyphOpts && glyphOpts.facing);
+    const iconRotation = facingRotationRad(snake.facing);
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
@@ -361,10 +326,10 @@ const BoardRenderer = (function () {
       // Pawn facing: a small triangle hugging the faced cell edge. The wire
       // facing has y growing DOWNWARD (full-board convention), which matches
       // canvas rows exactly, so dx/dy apply to canvas offsets with no flip.
-      // PAWN-ONLY: every unit now carries a wire facing, but only the pawn's
+      // PAWN-ONLY: every unit carries a wire facing, but only the pawn's
       // gates move legality, so only pawns get the explicit edge marker —
       // other pieces show orientation through icon rotation alone.
-      if (snake.unitType === "pawn" && snake.facing && (snake.facing.dx || snake.facing.dy)) {
+      if (snake.unitType === "pawn") {
         const fdx = snake.facing.dx;
         const fdy = snake.facing.dy;
         const edgeX = cx + fdx * (cellSize / 2);
@@ -1229,6 +1194,17 @@ const BoardRenderer = (function () {
       };
     });
 
+    // Position→candidate index for keyboard navigation: every non-stay
+    // candidate keyed by its destination cell ("x,y"), plus the hold (stay)
+    // candidate itself — so per-keypress lookups are O(1) instead of a scan
+    // over the whole candidate set.
+    moveState.candidatesByPosition = new Map();
+    moveState.holdCandidate = null;
+    Object.values(moveState.moves).forEach((m) => {
+      if (m.kind === "stay") moveState.holdCandidate = m;
+      else if (m.positionKey) moveState.candidatesByPosition.set(m.positionKey, m);
+    });
+
     const scoredMoves = Object.values(moveState.moves).filter(
       (m) => m.displayScore != null,
     );
@@ -1445,14 +1421,6 @@ const BoardRenderer = (function () {
     // the staged rotation flag (pawn rotation badge) before the arrow block
     // reads the same map.
     const stagedMovesMap = options?.stagedMoves || {};
-    // Facing inputs for the head-icon rotation: the WIRE facing on each
-    // snake is authoritative (live AND replay — holds keep it); the
-    // previous board (last actual movement) and the engine's lastMoves are
-    // only the legacy-doc fallback — the same inputs live play and the
-    // history replay already pass for death markers, so both render paths
-    // get rotated icons for free.
-    const previousBoardForFacing = options?.previousBoard || null;
-    const lastMovesForFacing = options?.lastMoves || gameState?.lastMoves || null;
 
     board.snakes.forEach((snake) => {
       const stagedForThisSnake = stagedMovesMap[snake.id];
@@ -1462,7 +1430,6 @@ const BoardRenderer = (function () {
         const hy = (board.height - 1 - head.y) * cellSize;
         drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
           stagedRotation: stagedForThisSnake?.rotation || null,
-          facing: deriveUnitFacing(snake, previousBoardForFacing, lastMovesForFacing),
         });
         // Alive board snakes only — dead snakes render as ghosts/death
         // markers in a separate pass and never reach this loop.
@@ -1878,8 +1845,9 @@ const BoardRenderer = (function () {
     ctx.globalAlpha = alpha;
     ctx.textBaseline = "middle";
 
-    // Tag body: white background, outlined in the owner's colour when owned,
-    // else the unit's own colour; the selected unit gets a thicker outline.
+    // Tag body: white background, outlined in the owning player's colour
+    // when owned, else the unit's own colour; the selected unit gets a
+    // thicker outline.
     const r = tagH * 0.3;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, tagH, r);
@@ -2275,7 +2243,7 @@ const BoardRenderer = (function () {
     // letter is already the suffix of a current snake's name, so only the
     // emoji era needs a prefix.
     const glyphPrefix = !snake.letter && snake.emoji ? `${snake.emoji} ` : "";
-    // Owner badge: shown for owned snakes in the owner's player colour.
+    // Owner badge: shown for owned snakes in the owning player's colour.
     const owner = opts && opts.owner;
     const ownerBadge = owner
       ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px 6px;border-radius:8px;font-weight:400;">${owner.name}</span>`
@@ -2313,9 +2281,10 @@ const BoardRenderer = (function () {
     // Unit icon: the SAME drawn icon as the unit's board head glyph
     // (unitIconSVG shares its path data with drawUnitIcon), rendered white on
     // the unit's colour box so the row reads like the board cell — including
-    // the facing rotation (opts.facing, same derivation as the board).
+    // the wire-facing rotation (opts.facing). Dead rows carry no facing and
+    // draw unrotated.
     const facing = (opts && opts.facing) || null;
-    const rotationDeg = (facingRotationRad(facing) * 180) / Math.PI;
+    const rotationDeg = facing ? (facingRotationRad(facing) * 180) / Math.PI : 0;
     const unitIcon = unitIconSVG(snake.unitType || "snake", 14, rotationDeg);
     // Weight: the unit-generic size stat — body length for snakes, stack
     // weight for pieces.
@@ -2359,18 +2328,9 @@ const BoardRenderer = (function () {
     );
     const deadIds = new Set(deadSnakes.map((s) => s.id));
     const allSnakes = snakes.concat(deadSnakes);
-    // Facing for the row icons (same shared derivation as the board head
-    // glyphs): the WIRE facing rotates the icon whenever the snake carries
-    // one; previousBoard/lastMoves only feed the legacy fallback, so
-    // callers that omit them — or pages without keynav-machine.js — still
-    // get unrotated (12:00) icons only for facing-less legacy units.
-    const previousBoardForFacing = (options && options.previousBoard) || null;
-    const lastMovesForFacing =
-      (options && options.lastMoves) || gameState.lastMoves || null;
-    const facingFor = (snake) =>
-      deadIds.has(snake.id)
-        ? null
-        : deriveUnitFacing(snake, previousBoardForFacing, lastMovesForFacing);
+    // Facing for the row icons: the unit's wire facing, the same vector that
+    // rotates its board head glyph. Dead units carry no facing.
+    const facingFor = (snake) => (deadIds.has(snake.id) ? null : snake.facing);
 
     if (!options || !options.groupByTeam) {
       container.innerHTML = allSnakes
@@ -2786,8 +2746,8 @@ const BoardRenderer = (function () {
     ];
 
     // Coerce defensively: these values come from stored decision-log rows as
-    // well as live evaluations, and a single non-numeric field used to throw
-    // partway through building the table. The table is diagnostics — it must
+    // well as live evaluations, and a single non-numeric field must not
+    // abort the table build partway. The table is diagnostics — it must
     // degrade to a dash rather than take the rest of the UI update down with it.
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
     metricsConfig.forEach((metric) => {

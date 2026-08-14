@@ -18,73 +18,77 @@ const idx = (x: number, y: number) => toIndex(x, y, W);
 // Piece parked mid-board.
 const ORIGIN = idx(6, 6);
 
+// Every plan takes the unit's facing; only the pawn's gates legality, so the
+// non-pawn tests share this one.
+const F = { dx: 1, dy: 0 };
+
 describe('planPieceAction — rook', () => {
   it('moves any distance along a row or column, with the traversed ray as path', () => {
-    expect(planPieceAction('rook', ORIGIN, idx(6, 2), W, H)).toEqual({
+    expect(planPieceAction('rook', ORIGIN, idx(6, 2), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(6, 5), idx(6, 4), idx(6, 3), idx(6, 2)],
     });
-    expect(planPieceAction('rook', ORIGIN, idx(9, 6), W, H)).toEqual({
+    expect(planPieceAction('rook', ORIGIN, idx(9, 6), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(7, 6), idx(8, 6), idx(9, 6)],
     });
   });
 
   it('rejects diagonals and knight-shaped targets', () => {
-    expect(planPieceAction('rook', ORIGIN, idx(7, 7), W, H)).toBeNull();
-    expect(planPieceAction('rook', ORIGIN, idx(7, 8), W, H)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, idx(7, 7), W, H, F)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, idx(7, 8), W, H, F)).toBeNull();
   });
 
   it('rejects a destination on the perimeter wall even when it is on-ray', () => {
-    expect(planPieceAction('rook', ORIGIN, idx(0, 6), W, H)).toBeNull();
-    expect(planPieceAction('rook', ORIGIN, idx(6, 12), W, H)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, idx(0, 6), W, H, F)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, idx(6, 12), W, H, F)).toBeNull();
   });
 });
 
 describe('planPieceAction — bishop / queen / knight / king', () => {
   it('bishop moves along diagonals only', () => {
-    expect(planPieceAction('bishop', ORIGIN, idx(9, 9), W, H)).toEqual({
+    expect(planPieceAction('bishop', ORIGIN, idx(9, 9), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(7, 7), idx(8, 8), idx(9, 9)],
     });
-    expect(planPieceAction('bishop', ORIGIN, idx(4, 8), W, H)).toEqual({
+    expect(planPieceAction('bishop', ORIGIN, idx(4, 8), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(5, 7), idx(4, 8)],
     });
-    expect(planPieceAction('bishop', ORIGIN, idx(6, 3), W, H)).toBeNull();
+    expect(planPieceAction('bishop', ORIGIN, idx(6, 3), W, H, F)).toBeNull();
   });
 
   it('queen combines rook and bishop rays', () => {
-    expect(planPieceAction('queen', ORIGIN, idx(6, 9), W, H)).toEqual({
+    expect(planPieceAction('queen', ORIGIN, idx(6, 9), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(6, 7), idx(6, 8), idx(6, 9)],
     });
-    expect(planPieceAction('queen', ORIGIN, idx(3, 3), W, H)).toEqual({
+    expect(planPieceAction('queen', ORIGIN, idx(3, 3), W, H, F)).toEqual({
       kind: 'move',
       path: [idx(5, 5), idx(4, 4), idx(3, 3)],
     });
-    expect(planPieceAction('queen', ORIGIN, idx(7, 8), W, H)).toBeNull();
+    expect(planPieceAction('queen', ORIGIN, idx(7, 8), W, H, F)).toBeNull();
   });
 
   it('knight takes the 8 L-jumps, touching only the destination', () => {
     for (const [dx, dy] of [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]]) {
-      expect(planPieceAction('knight', ORIGIN, idx(6 + dx, 6 + dy), W, H)).toEqual({
+      expect(planPieceAction('knight', ORIGIN, idx(6 + dx, 6 + dy), W, H, F)).toEqual({
         kind: 'move',
         path: [idx(6 + dx, 6 + dy)],
       });
     }
-    expect(planPieceAction('knight', ORIGIN, idx(6, 8), W, H)).toBeNull();
-    expect(planPieceAction('knight', ORIGIN, idx(8, 8), W, H)).toBeNull();
+    expect(planPieceAction('knight', ORIGIN, idx(6, 8), W, H, F)).toBeNull();
+    expect(planPieceAction('knight', ORIGIN, idx(8, 8), W, H, F)).toBeNull();
   });
 
   it('king steps one square in any of the 8 directions', () => {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      expect(planPieceAction('king', ORIGIN, idx(6 + dx, 6 + dy), W, H)).toEqual({
+      expect(planPieceAction('king', ORIGIN, idx(6 + dx, 6 + dy), W, H, F)).toEqual({
         kind: 'move',
         path: [idx(6 + dx, 6 + dy)],
       });
     }
-    expect(planPieceAction('king', ORIGIN, idx(6, 8), W, H)).toBeNull();
+    expect(planPieceAction('king', ORIGIN, idx(6, 8), W, H, F)).toBeNull();
   });
 });
 
@@ -134,27 +138,23 @@ describe('planPieceAction — pawn (facing, rotation encoding, diagonal-onto-tar
     // Diagonal-BACKWARD is never legal, target or not.
     expect(planPieceAction('pawn', ORIGIN, idx(5, 5), W, H, facing, new Set([idx(5, 5)]))).toBeNull();
   });
-
-  it('is illegal without a facing', () => {
-    expect(planPieceAction('pawn', ORIGIN, idx(7, 6), W, H)).toBeNull();
-  });
 });
 
 describe('planPieceAction — shared rules', () => {
   it('own square is always a legal stay', () => {
     for (const type of ['rook', 'bishop', 'knight', 'queen', 'king', 'pawn']) {
-      expect(planPieceAction(type, ORIGIN, ORIGIN, W, H)).toEqual({ kind: 'stay' });
+      expect(planPieceAction(type, ORIGIN, ORIGIN, W, H, F)).toEqual({ kind: 'stay' });
     }
   });
 
   it('rejects off-board and non-integer destinations', () => {
-    expect(planPieceAction('rook', ORIGIN, -1, W, H)).toBeNull();
-    expect(planPieceAction('rook', ORIGIN, W * H, W, H)).toBeNull();
-    expect(planPieceAction('rook', ORIGIN, 6.5, W, H)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, -1, W, H, F)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, W * H, W, H, F)).toBeNull();
+    expect(planPieceAction('rook', ORIGIN, 6.5, W, H, F)).toBeNull();
   });
 
   it('rejects unknown unit types (snakes never plan piece actions)', () => {
-    expect(planPieceAction('snake', ORIGIN, idx(7, 6), W, H)).toBeNull();
+    expect(planPieceAction('snake', ORIGIN, idx(7, 6), W, H, F)).toBeNull();
   });
 });
 
@@ -176,7 +176,7 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
   });
 
   it('rook: full rank + file rays plus stay, each move carrying its ray path', () => {
-    const cands = legalPieceDestinations('rook', ORIGIN, W, H);
+    const cands = legalPieceDestinations('rook', ORIGIN, W, H, F);
     // 10 file squares + 10 rank squares + stay on an 11x11 interior.
     expect(cands).toHaveLength(21);
     expect(destSet(cands).has(ORIGIN)).toBe(true);
@@ -188,9 +188,9 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
   });
 
   it('bishop and queen: diagonal rays (queen = rook ∪ bishop)', () => {
-    const bishop = legalPieceDestinations('bishop', ORIGIN, W, H);
-    const queen = legalPieceDestinations('queen', ORIGIN, W, H);
-    const rook = legalPieceDestinations('rook', ORIGIN, W, H);
+    const bishop = legalPieceDestinations('bishop', ORIGIN, W, H, F);
+    const queen = legalPieceDestinations('queen', ORIGIN, W, H, F);
+    const rook = legalPieceDestinations('rook', ORIGIN, W, H, F);
     // Diagonals from (6,6) on an 11x11 interior: 5+5+5+5 = 20, plus stay.
     expect(bishop).toHaveLength(21);
     // Queen = 20 rook rays + 20 bishop rays + stay (stay counted once).
@@ -201,8 +201,8 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
   });
 
   it('knight: the 8 L-jumps plus stay; king: the 8 neighbours plus stay', () => {
-    const knight = legalPieceDestinations('knight', ORIGIN, W, H);
-    const king = legalPieceDestinations('king', ORIGIN, W, H);
+    const knight = legalPieceDestinations('knight', ORIGIN, W, H, F);
+    const king = legalPieceDestinations('king', ORIGIN, W, H, F);
     expect(knight).toHaveLength(9);
     expect(king).toHaveLength(9);
     expect(destSet(knight).has(idx(8, 7))).toBe(true);
@@ -243,7 +243,7 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
 
   it('near a wall the rays stop at the interior edge (no perimeter candidates)', () => {
     const corner = idx(1, 1);
-    const king = legalPieceDestinations('king', corner, W, H);
+    const king = legalPieceDestinations('king', corner, W, H, F);
     // 3 in-board neighbours + stay.
     expect(king).toHaveLength(4);
     for (const c of king) {
@@ -257,7 +257,7 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
   });
 
   it('unknown types (snake) enumerate only stay', () => {
-    const cands = legalPieceDestinations('snake', ORIGIN, W, H);
+    const cands = legalPieceDestinations('snake', ORIGIN, W, H, F);
     expect(cands).toHaveLength(1);
     expect(cands[0]).toEqual({ dest: ORIGIN, action: { kind: 'stay' } });
   });

@@ -44,6 +44,7 @@ function makeUnit(
     body.push({ x: head.x, y: head.y - i });
   }
   const snake: Snake = {
+    facing: { dx: 0, dy: -1 },
     id,
     name: id,
     latency: '0',

@@ -1384,7 +1384,7 @@ export class TacticToesFirebaseInterface {
     // knowable from Firebase state (never from timers):
     //  - a confirmed staged move → that move;
     //  - provably nothing staged → the engine's deterministic default
-    //    (continue the previous move). This inference is exact because ONLY
+    //    (step in the facing direction). This inference is exact because ONLY
     //    this server can write this snake's privateMoves (Firestore rules):
     //    once the read-back has delivered its state and the manager holds no
     //    unconfirmed request that a retry could still land, no staged write
@@ -1409,8 +1409,7 @@ export class TacticToesFirebaseInterface {
         this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, stay);
         return;
       }
-      const def = continuationDirection(pt.pieces(snakeId), width);
-      if (!def) return; // no previous direction — the engine's fallback pick isn't reproduced
+      const def = continuationDirection(pt.turn, snakeId);
       console.log(`[tt-firebase] ${snakeId} committed with nothing staged — engine default ${def} is final for turn ${tw.turn}`);
       this.gameManager.finalizeTurnMove(watched.gameID, snakeId, tw.turn, def);
     };

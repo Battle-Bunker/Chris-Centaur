@@ -35,7 +35,7 @@ export function apiCoordToIndex(coord: Coord, boardWidth: number, boardHeight: n
 
 /**
  * A player's CURRENT unit type: the turn's live map (promotion changes it
- * mid-game) first, then the setup's initial type, then the legacy "snake".
+ * mid-game) first, then the setup's initial type, then "snake".
  */
 export function unitTypeFor(setup: TTGameSetup, turn: TTTurn, playerID: string): TTUnitType {
   const fromTurn = turn.unitTypes?.[playerID];
@@ -93,20 +93,15 @@ export function moveIndexToDirection(
 
 /**
  * The TacticToes engine's default move for a snake that has nothing staged
- * when its turn resolves: continue the previous move, i.e. step in the
- * head−neck direction. Returns null when the snake has no direction yet
- * (single cell or stacked spawn) — the engine then falls back to its
- * adjacent-cell pick, which we don't reproduce.
+ * when its turn resolves: step in its facing direction (turn.unitFacing —
+ * present for every living unit; a snake's facing is always one of the four
+ * orthogonals). Wire y grows downward, so wire dy -1 is api 'up'.
  */
-export function continuationDirection(
-  pieces: number[] | undefined,
-  boardWidth: number
-): Direction | null {
-  if (!pieces || pieces.length < 2) return null;
-  const head = pieces[0];
-  const neck = pieces[1];
-  if (head === neck) return null;
-  return moveIndexToDirection(neck, head, boardWidth);
+export function continuationDirection(turn: TTTurn, playerID: string): Direction {
+  const f = turn.unitFacing[playerID];
+  if (f.dx === 1) return 'right';
+  if (f.dx === -1) return 'left';
+  return f.dy === -1 ? 'up' : 'down';
 }
 
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
@@ -117,8 +112,8 @@ function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[
  * The ONE place that interprets a TTGameStateDoc turn. Every consumer of a
  * turn document's raw fields (deadline, winners gating, alive set, per-snake
  * piece/head indices, board dimensions) goes through this view instead of
- * re-reading the doc inline — the Firebase interface used to parse endTime
- * alone in three places, with two different fallbacks.
+ * re-reading the doc inline, so each field has exactly one parse and one
+ * fallback rule.
  */
 export interface ParsedTurn {
   /** The raw turn document (for buildBoardState and field-level access). */
@@ -237,6 +232,10 @@ function buildSnake(
       tail: 'default',
     },
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
+    // Facing rides along verbatim for EVERY unit (wire convention, y down —
+    // see the Snake type for the api/canvas mapping): the UI anchors icon
+    // orientation and keyNav movement behaviour on this wire orientation.
+    facing: { ...turn.unitFacing[playerID] },
   };
   if (gamePlayer) snake.letter = gamePlayer.letter;
   snake.unitType = unitType;
@@ -244,14 +243,6 @@ function buildSnake(
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
   // default is 100 when the map or key is absent.
   snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
-  // Facing rides along verbatim for EVERY unit (wire convention, y down —
-  // see the Snake type for the api/canvas mapping): the engine stamps
-  // Turn.unitFacing per turn for all units in piece games (centre-facing at
-  // spawn, moved direction after; holds keep it), and the UI anchors icon
-  // orientation and keyNav movement behaviour on this wire orientation.
-  // Only legacy docs without unitFacing leave it undefined.
-  const facing = turn.unitFacing?.[playerID];
-  if (facing) snake.facing = { dx: facing.dx, dy: facing.dy };
   const expiry = invulnerabilityExpiryTurn(turn, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;

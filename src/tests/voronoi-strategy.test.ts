@@ -38,6 +38,7 @@ import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
 
 function makeSnake(id: string, color: string, body: Coord[]): Snake {
   return {
+    facing: { dx: 0, dy: -1 },
     id,
     name: id,
     health: 100,

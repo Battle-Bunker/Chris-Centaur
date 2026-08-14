@@ -3,114 +3,61 @@
  *
  * Shared between the browser page (via <script src="/keynav-machine.js">,
  * loaded before play-game.html's inline script, as window.KeyNavMachine) and
- * the Jest unit tests (src/tests/keynav-machine.test.ts, via require) — the
- * single source of truth for how the keyboard cursor moves. The page owns
- * everything DOM- and candidate-shaped (which squares hold candidates, the
- * hold candidate itself, flashing, selection); this module owns only the
- * transitions.
+ * the Jest unit tests (src/tests/keynav-machine.test.ts, via require). The
+ * page owns everything DOM- and candidate-shaped (which squares hold
+ * candidates, flashing, selection); this module owns only the transitions.
  *
  * The cursor state is {axis, distance}:
  *   - axis is a direction vector {dx, dy} in api board coords (y grows
- *     upward) drawn from the unit's axis ring, or the sentinel TWELVE — the
- *     "12:00" state for a unit whose facing is genuinely UNKNOWN (legacy
- *     turn 0), where no directional axis is retained and the conceptual
- *     pointer sits straight up. A unit with a known wire facing at hold
- *     keeps that facing as its axis — hold does not mean 12:00.
+ *     upward) — the unit's wire facing on a fresh seed, then whatever the
+ *     last transition selected.
  *   - distance 0 means the hold (stay) candidate; >= 1 means axis·distance.
- *
- * Owner-confirmed semantics implemented here:
- *   - Switching axis (arrow Left/Right, or a numpad key from a different
- *     axis) RESETS distance to 1 — never preserved across an axis change.
- *   - From the TWELVE state, arrow Right selects the first legal axis
- *     STRICTLY clockwise of 12:00, arrow Left the first strictly
- *     counter-clockwise (an axis exactly at 12:00 is a full turn away in
- *     either direction, so it is only chosen when it is the sole legal axis).
- *   - Numpad 5 (hold) resets the axis to the unit's WIRE orientation
- *     (ctx.facing — its turn-start engine facing, which the engine
- *     preserves across holds): selecting hold means "no change", not a
- *     snap to 12:00. TWELVE only when the facing is unknown.
- *   - Numpad opposite-key retraction that reaches hold FLIPS the axis to the
- *     direction of travel (the pressed key), so further presses of the same
- *     key extend out the far side. This is the only way to cross hold.
- *   - Arrow Down retracts to hold KEEPING the axis; Down at hold is
- *     unavailable (Down never crosses hold). Arrow Up from hold with a
- *     retained axis re-extends it to distance 1. Up at TWELVE selects the
- *     STRAIGHT-UP axis at distance 1 when that axis is legal, else the first
- *     legal axis clockwise of 12:00 (the same axis Right would pick) — for
- *     EVERY unit, snakes included: a turn-0 snake's Up selects the board-up
- *     move. Snakes still cannot hold, so their Down at distance 1 flashes.
- *   - FACING (owner's universal-facing redesign, anchored on the WIRE): the
- *     engine now stamps an orientation for EVERY unit in piece games
- *     (Turn.unitFacing → Snake.facing): every unit spawns facing toward
- *     the board centre (chosen from its type's legal facing set, ties
- *     randomized engine-side — turn-0 wire facing is ALWAYS present);
- *     after each turn it is the normalized moved direction (knight: the
- *     exact L-offset; snake: head-neck), pawns turn ONLY via their
- *     rotation action, and HOLDS KEEP the facing. That wire orientation at
- *     turn start is what the UI anchors on — icon rotation and the keyNav
- *     axis alike. Facing and the keyNav current axis are the same concept,
- *     so the axis seeds as: selected candidate → staged move →
- *     facing(wire) → 12:00-fallback (deriveFacing + seedNav below). Only
- *     LEGACY docs lacking unitFacing (snake-only or pre-feature games)
- *     fall back to last-move derivation; the 12:00/TWELVE state is a
- *     LEGACY FALLBACK for a genuinely unknown facing, not a gameplay
- *     state — wire-facing-present units never touch it.
  *
  * Transitions take a context describing the unit's live legality:
  *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null,
- *     facing: axis|null (the unit's wire orientation, deriveFacing) }
+ *     facing: axis (the unit's wire orientation as an api axis, facingOf) }
  * and return { ok: false } (caller flashes "unavailable") or
  * { ok: true, axis, distance } (caller selects the candidate there).
  */
 (function (global) {
   'use strict';
 
-  // Hold with no directional axis: the conceptual pointer sits at 12:00.
-  const TWELVE = 'twelve';
-
   const axisEq = (a, b) => !!a && !!b && a.dx === b.dx && a.dy === b.dy;
-  const isVector = (a) => !!a && typeof a === 'object';
+  // `|| 0` normalizes the -0 that negating 0 produces.
+  const neg = (a) => ({ dx: -a.dx || 0, dy: -a.dy || 0 });
 
-  // Axis rings in api board coords (y grows upward), ordered CLOCKWISE on
-  // screen so arrow Right advances clockwise, arrow Left counter-clockwise.
-  const ORTHO_AXES = [
-    { dx: 0, dy: 1 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: -1, dy: 0 },
+  // Clockwise screen angle of an api-coord axis in [0, 2π): straight up is
+  // 0, screen-right is π/2.
+  function cwFromUp(axis) {
+    const a = Math.atan2(axis.dx, axis.dy);
+    return a < 0 ? a + 2 * Math.PI : a;
+  }
+
+  // Per-type legal facing sets in WIRE coords (y grows DOWNWARD), copied
+  // verbatim from facingDirections() in src/logic/piece-moves.ts — the
+  // lockstep mirror of the engine's pieceMoves.ts. Keep all three in step;
+  // src/tests/keynav-machine.test.ts asserts the parity.
+  const WIRE_ORTHOGONALS = [
+    { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
   ];
-  const DIAG_AXES = [
-    { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 1 },
+  const WIRE_DIAGONALS = [
+    { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: -1, dy: -1 },
   ];
-  const ALL_AXES = [
-    { dx: 0, dy: 1 }, { dx: 1, dy: 1 }, { dx: 1, dy: 0 }, { dx: 1, dy: -1 },
-    { dx: 0, dy: -1 }, { dx: -1, dy: -1 }, { dx: -1, dy: 0 }, { dx: -1, dy: 1 },
-  ];
-  // Knight "axes" are the eight L-offsets themselves, clockwise from
-  // two-up-one-right.
-  const KNIGHT_AXES = [
+  const WIRE_KNIGHT_OFFSETS = [
     { dx: 1, dy: 2 }, { dx: 2, dy: 1 }, { dx: 2, dy: -1 }, { dx: 1, dy: -2 },
     { dx: -1, dy: -2 }, { dx: -2, dy: -1 }, { dx: -2, dy: 1 }, { dx: -1, dy: 2 },
   ];
-  // Engine lastMoves direction strings → api-coord axes (y grows upward).
-  const DIRECTION_AXES = {
-    up: { dx: 0, dy: 1 }, down: { dx: 0, dy: -1 },
-    left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 },
-  };
-  // Numpad digit → api-coord direction, reading the keypad as a compass
-  // (8 = up, 9 = up-right, …). 5 is hold, handled inside numpadStep.
-  const NUMPAD_AXES = {
-    8: { dx: 0, dy: 1 }, 9: { dx: 1, dy: 1 }, 6: { dx: 1, dy: 0 },
-    3: { dx: 1, dy: -1 }, 2: { dx: 0, dy: -1 }, 1: { dx: -1, dy: -1 },
-    4: { dx: -1, dy: 0 }, 7: { dx: -1, dy: 1 },
-  };
-  // Knight numpad anchoring: an orthogonal key is two steps that way with
-  // the minor step CLOCKWISE (8 = 2up1right, 6 = 2right1down, 2 = 2down1left,
-  // 4 = 2left1up); each diagonal key is the counter-clockwise partner of its
-  // neighbouring orthogonal (7 = 2up1left, 9 = 2right1up, 3 = 2down1right,
-  // 1 = 2left1down). Every key's OPPOSITE key maps to its exact negation,
-  // so retract-through-hold works unchanged for knights.
-  const KNIGHT_NUMPAD_AXES = {
-    8: { dx: 1, dy: 2 }, 6: { dx: 2, dy: -1 }, 2: { dx: -1, dy: -2 }, 4: { dx: -2, dy: 1 },
-    7: { dx: -1, dy: 2 }, 9: { dx: 2, dy: 1 }, 3: { dx: 1, dy: -2 }, 1: { dx: -2, dy: -1 },
-  };
+
+  // Axis rings: the same sets as api-coord axes (one y-flip), ordered
+  // clockwise from straight up — the order arrow Right walks. A knight's
+  // "axes" are its eight L-offsets.
+  const ring = (wire) => wire
+    .map((f) => ({ dx: f.dx, dy: -f.dy || 0 }))
+    .sort((a, b) => cwFromUp(a) - cwFromUp(b));
+  const ORTHO_AXES = ring(WIRE_ORTHOGONALS);
+  const DIAG_AXES = ring(WIRE_DIAGONALS);
+  const ALL_AXES = ring(WIRE_ORTHOGONALS.concat(WIRE_DIAGONALS));
+  const KNIGHT_AXES = ring(WIRE_KNIGHT_OFFSETS);
 
   function ringFor(unitType) {
     switch (unitType) {
@@ -118,37 +65,44 @@
       case 'bishop': return DIAG_AXES;
       case 'queen':
       case 'king': return ALL_AXES;
-      default: return ORTHO_AXES; // rook, snake, historic letter/emoji units
+      default: return ORTHO_AXES; // orthogonal-facing types (rook, snake, pawn)
     }
   }
 
+  // Numpad digit → ring index, reading the keypad as a compass clockwise
+  // from up (8, then 9 = up-right, and on around). Knights read their
+  // L-ring in the same order, so every key's OPPOSITE key is its exact
+  // negation for every type. 5 is hold, handled inside numpadStep.
+  const NUMPAD_ORDER = [8, 9, 6, 3, 2, 1, 4, 7];
+
   function numpadAxisFor(unitType, digit) {
-    const map = unitType === 'knight' ? KNIGHT_NUMPAD_AXES : NUMPAD_AXES;
-    return map[digit] || null;
+    const axes = unitType === 'knight' ? KNIGHT_AXES : ALL_AXES;
+    return axes[NUMPAD_ORDER.indexOf(digit)] || null;
   }
 
-  // Clockwise angle from 12:00 in [0, 2π), api coords (y up): straight up is
-  // 0, screen-right is π/2.
-  function cwAngleFromTwelve(axis) {
-    const a = Math.atan2(axis.dx, axis.dy);
-    return a < 0 ? a + 2 * Math.PI : a;
-  }
+  // Physical numpad keys → digit. e.code names the physical key and is the
+  // same with NumLock on (e.key '8') or off (e.key 'ArrowUp'), so one map
+  // covers both keycode regimes.
+  const NUMPAD_DIGIT_CODES = {
+    Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5,
+    Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
+  };
 
   function legalAxes(ctx) {
     return ctx.ring.filter((a) => ctx.maxDist(a) >= 1);
   }
 
-  // From the TWELVE state: the first legal axis strictly clockwise
-  // (dir 'right') or strictly counter-clockwise (dir 'left') of 12:00. An
-  // axis exactly at 12:00 sweeps a full turn, so it is picked only when it
-  // is the sole legal axis.
-  function axisFromTwelve(dir, ctx) {
+  // The first legal axis strictly clockwise (dir 'right') or strictly
+  // counter-clockwise (dir 'left') of `from`, or null when no axis is
+  // legal. An axis at the reference angle is a full turn away in either
+  // direction, so it is picked only when it is the sole legal axis.
+  function nearestLegalAxis(from, dir, ctx) {
     const TAU = 2 * Math.PI;
     let best = null;
     let bestSweep = Infinity;
     for (const a of legalAxes(ctx)) {
-      const cw = cwAngleFromTwelve(a);
-      const sweep = cw === 0 ? TAU : (dir === 'right' ? cw : TAU - cw);
+      const cw = (cwFromUp(a) - cwFromUp(from) + TAU) % TAU;
+      const sweep = cw === 0 ? TAU : dir === 'right' ? cw : TAU - cw;
       if (sweep < bestSweep) {
         bestSweep = sweep;
         best = a;
@@ -160,84 +114,27 @@
   const ok = (axis, distance) => ({ ok: true, axis, distance });
   const unavailable = () => ({ ok: false });
 
-  // The unit's ENGINE orientation (Snake.facing, wire convention: dy grows
-  // DOWNWARD) as an api-coord axis, or null when the wire carries none
-  // (legacy docs without unitFacing) or it is degenerate. Knights keep the raw
-  // L-offset — their axes ARE the L-offsets; everything else collapses to a
-  // unit axis (the wire is already normalized for them; Math.sign is belt
-  // and braces).
-  function wireFacingToApi(unit) {
-    const f = unit && unit.facing;
-    if (!f || (!f.dx && !f.dy)) return null;
-    if (unit.unitType === 'knight') return { dx: f.dx, dy: -f.dy };
-    // (`f.dy ? … : 0` sidesteps the -0 that -Math.sign(0) would produce.)
-    return { dx: Math.sign(f.dx), dy: f.dy ? -Math.sign(f.dy) : 0 };
+  // A unit's facing as an api-coord axis: the wire facing verbatim, y
+  // flipped (wire y grows downward). A knight's facing is its raw L-offset
+  // — its axes ARE the L-offsets; every other type's is a unit vector.
+  function facingOf(unit) {
+    return { dx: unit.facing.dx, dy: -unit.facing.dy || 0 };
   }
 
-  // Universal FACING for a unit, as an api-coord axis, or null only when the
-  // facing is genuinely unknown (effectively turn 0 of a legacy doc). The
-  // ONE shared derivation for keyNav axis seeding AND board icon rotation,
-  // live and replay:
-  //   - WIRE FIRST: the engine's Snake.facing (Turn.unitFacing, wire
-  //     convention: dy grows DOWNWARD) is authoritative for EVERY unit when
-  //     present — the engine stamps it per turn for all units in piece
-  //     games and PRESERVES it across holds, so a held unit keeps its
-  //     orientation (no forced 12:00). Knights keep the raw L-offset (their
-  //     axes ARE the L-offsets); everything else normalizes to a unit axis.
-  //   - Pawns have no fallback beyond the wire: their facing changes ONLY
-  //     via the rotation action, so last-move derivation must never apply.
-  //   - LEGACY fallback (docs without unitFacing — snake-only or
-  //     pre-feature games): the engine's
-  //     lastMoves direction when present, else the direction of last actual
-  //     movement — previous head → current head from the previous board.
-  //   - null (12:00) only when none of the above exists.
-  // A wire facing outside the unit's ring (a knight's L-offset after
-  // promotion to a slider cannot happen today, but the machine does not
-  // assume it): the axis simply behaves like any not-in-ring axis — arrow
-  // Left/Right sweep from 12:00 to the nearest legal axis (axisFromTwelve,
-  // the same bishop-style clockwise fallback) and Up flashes, so seeding
-  // degrades to the nearest legal axis per the existing ring logic.
-  function deriveFacing(unit, previousBoard, lastMoves) {
-    if (!unit) return null;
-    const wire = wireFacingToApi(unit);
-    if (wire) return wire;
-    if (unit.unitType === 'pawn') return null; // engine facing only — never last-move
-    const lastMove = lastMoves && unit.id != null ? lastMoves[unit.id] : null;
-    if (lastMove && DIRECTION_AXES[lastMove]) return DIRECTION_AXES[lastMove];
-    const head = unit.head || (unit.body && unit.body[0]) || null;
-    const prev = previousBoard && previousBoard.snakes
-      ? previousBoard.snakes.find((s) => s.id === unit.id)
-      : null;
-    const prevHead = prev ? prev.head || (prev.body && prev.body[0]) || null : null;
-    if (!head || !prevHead) return null; // legacy turn 0 / just appeared → 12:00
-    const dx = head.x - prevHead.x;
-    const dy = head.y - prevHead.y;
-    if (!dx && !dy) return null; // legacy doc, didn't move → facing unknown
-    if (unit.unitType === 'knight') return { dx, dy };
-    return { dx: Math.sign(dx), dy: Math.sign(dy) };
-  }
-
-  // KeyNav axis seeding priority: selected candidate → staged move → facing
-  // → 12:00. `selNav` is the {axis, distance} derived from the current
-  // selection (deriveFromOffset); the staged axis and facing fill in the
-  // AXIS only when the earlier sources landed at TWELVE — the distance
+  // KeyNav axis seeding priority: selected candidate → staged move → wire
+  // facing. The later sources fill in the AXIS only when the selection is
+  // the hold candidate (which has no direction of its own); the distance
   // always reflects the actual selection.
   function seedNav(selNav, stagedAxis, facing) {
-    let nav = selNav;
-    if (nav.axis === TWELVE && stagedAxis && stagedAxis !== TWELVE) {
-      nav = { axis: stagedAxis, distance: nav.distance };
-    }
-    if (nav.axis === TWELVE && facing) {
-      nav = { axis: facing, distance: nav.distance };
-    }
-    return nav;
+    return { axis: selNav.axis || stagedAxis || facing, distance: selNav.distance };
   }
 
   // {axis, distance} ← a candidate offset from the unit's head, so keyboard
   // steering picks up seamlessly from a click. A zero/absent offset is the
-  // hold candidate: it keeps prevAxis as memory, else lands in TWELVE.
+  // hold candidate: it keeps prevAxis as memory (seedNav fills in the wire
+  // facing when there is none).
   function deriveFromOffset(unitType, dx, dy, prevAxis) {
-    if (!dx && !dy) return { axis: prevAxis || TWELVE, distance: 0 };
+    if (!dx && !dy) return { axis: prevAxis || null, distance: 0 };
     if (unitType === 'knight') return { axis: { dx, dy }, distance: 1 };
     return {
       axis: { dx: Math.sign(dx), dy: Math.sign(dy) },
@@ -245,95 +142,126 @@
     };
   }
 
+  // One signed-distance rule for every extend/retract: the cursor projected
+  // onto the pressed axis as a signed scalar, plus one. Reaching hold with
+  // `cross` (numpad) FLIPS the axis to the direction of travel, so further
+  // presses of the same key extend out the far side — and units that cannot
+  // hold pass straight through to the far ray. Without `cross` (arrow Down)
+  // the step floors at hold, keeping the current axis.
+  function step(state, axis, ctx, cross) {
+    const s = axisEq(state.axis, axis) ? state.distance
+      : axisEq(state.axis, neg(axis)) ? -state.distance
+        : null;
+    let s2 = s === null ? 1 : s + 1;
+    if (s2 === 0) {
+      if (ctx.canHold) return ok(cross ? axis : state.axis, 0);
+      if (!cross) return unavailable();
+      s2 = 1;
+    }
+    if (!cross && s2 > 0) return unavailable(); // Down never crosses hold
+    const out = s2 > 0 ? axis : neg(axis);
+    const d = Math.abs(s2);
+    return d <= ctx.maxDist(out) ? ok(out, d) : unavailable();
+  }
+
   // 4-arrow pad transition. dir: 'left' | 'right' | 'up' | 'down'.
   function arrowStep(state, dir, ctx) {
     if (dir === 'left' || dir === 'right') {
-      let axis = null;
-      if (isVector(state.axis)) {
-        const axes = legalAxes(ctx);
-        const idx = axes.findIndex((a) => axisEq(a, state.axis));
-        if (idx >= 0) {
-          axis = axes[(idx + (dir === 'right' ? 1 : -1) + axes.length) % axes.length];
-        }
-      }
-      // TWELVE (or a current axis no longer legal): pick relative to 12:00.
-      if (!axis) axis = axisFromTwelve(dir, ctx);
-      if (!axis) return unavailable();
-      return ok(axis, 1); // switching axis always resets distance to 1
+      const axes = legalAxes(ctx);
+      const idx = axes.findIndex((a) => axisEq(a, state.axis));
+      const axis = idx >= 0
+        ? axes[(idx + (dir === 'right' ? 1 : -1) + axes.length) % axes.length]
+        : nearestLegalAxis(state.axis, dir, ctx);
+      // Switching axis always resets distance to 1.
+      return axis ? ok(axis, 1) : unavailable();
     }
     if (dir === 'up') {
-      if (!isVector(state.axis)) {
-        // TWELVE: Up adds one unit straight up when that axis is legal for
-        // the unit; otherwise (e.g. bishop) it falls back to the first
-        // legal axis clockwise of 12:00 — the axis Right would pick. The
-        // facing-relative pad applies to EVERY unit: a snake at TWELVE
-        // (legacy turn 0 — wire games always carry a facing) gets the
-        // board-up move from Up too.
-        const straightUp = ctx.ring.find((a) => a.dx === 0 && a.dy === 1);
-        const axis = straightUp && ctx.maxDist(straightUp) >= 1
-          ? straightUp
-          : axisFromTwelve('right', ctx);
+      if (ctx.maxDist(state.axis) < 1) {
+        // The current axis is unusable this turn (off the type's ring, or
+        // no legal candidate along it): Up selects the first legal axis
+        // clockwise of it at distance 1.
+        const axis = nearestLegalAxis(state.axis, 'right', ctx);
         return axis ? ok(axis, 1) : unavailable();
       }
+      // Extend one square, clamped at the last board-legal ray square.
       const d = Math.min(state.distance + 1, ctx.maxDist(state.axis));
-      if (d < 1 || d === state.distance) return unavailable();
-      return ok(state.axis, d);
+      return d === state.distance ? unavailable() : ok(state.axis, d);
     }
-    // down: retract one, into hold at 1 — keeping the axis — and never past.
-    if (state.distance >= 2) return ok(state.axis, state.distance - 1);
-    if (state.distance === 1 && ctx.canHold) return ok(state.axis, 0);
-    return unavailable(); // already at hold, or the unit cannot hold
+    // down: retract one toward hold, keeping the axis.
+    return step(state, neg(state.axis), ctx, false);
   }
 
-  // Numpad transition. digit: 1-9 (5 = hold).
+  // Numpad transition. digit: 1-9. 5 selects hold AND resets the axis to
+  // the wire facing — "no change".
   function numpadStep(state, digit, ctx) {
     if (digit === 5) {
-      if (!ctx.canHold) return unavailable();
-      // Selecting hold resets the keyNav axis to the unit's WIRE orientation
-      // (turn-start facing, ctx.facing) — "no change", identical for pawns
-      // and every other piece; holding does NOT reset orientation to 12:00.
-      // TWELVE remains only for a genuinely unknown facing (legacy turn 0).
-      return ok(ctx.facing || TWELVE, 0);
+      return ctx.canHold ? ok(ctx.facing, 0) : unavailable();
     }
     const axis = ctx.axisFor(digit);
     if (!axis || !ctx.ring.some((a) => axisEq(a, axis))) {
       return unavailable(); // e.g. a diagonal key for a rook
     }
-    if (isVector(state.axis) && state.distance >= 1) {
-      if (axisEq(state.axis, axis)) {
-        // Same direction again: extend one square per press.
-        if (state.distance + 1 > ctx.maxDist(axis)) return unavailable();
-        return ok(axis, state.distance + 1);
-      }
-      if (axisEq(state.axis, { dx: -axis.dx, dy: -axis.dy })) {
-        // Opposite direction: retract one per press. Reaching hold FLIPS the
-        // axis to the direction of travel; units that cannot hold pass
-        // straight through to the opposite ray.
-        if (state.distance > 1) return ok(state.axis, state.distance - 1);
-        if (ctx.canHold) return ok(axis, 0);
+    return step(state, axis, ctx, true);
+  }
+
+  // Pawn keys resolve to one of five primitives; a side is the pawn's OWN
+  // left/right (counter-clockwise / clockwise of its facing). Arrow
+  // Left/Right pick the rotation candidates — or, chorded with a held
+  // Up, the diagonal-forward candidates (which exist only when legal:
+  // attack/eat squares). Keys with no entry (numpad 1/3 — nothing behind a
+  // pawn is ever legal) are unavailable.
+  const PAWN_KEYS = {
+    up: ['forward'], 8: ['forward'],
+    down: ['retract'], 2: ['retract'],
+    left: ['side', 'left'], right: ['side', 'right'],
+    4: ['rotate', 'left'], 6: ['rotate', 'right'],
+    7: ['diagonal', 'left'], 9: ['diagonal', 'right'],
+    5: ['hold'],
+  };
+
+  // Pawn transition for both pads. key: an arrow dir or a numpad digit;
+  // `chorded` is true while Up is held. A pawn's facing IS its forward
+  // axis, so every primitive is plain axis arithmetic: rotations sit on the
+  // facing's perpendiculars, diagonals on facing + perpendicular.
+  function pawnStep(state, key, chorded, ctx) {
+    const entry = PAWN_KEYS[key];
+    if (!entry) return unavailable();
+    const prim = entry[0] === 'side' ? (chorded ? 'diagonal' : 'rotate') : entry[0];
+    const fa = ctx.facing;
+    switch (prim) {
+      case 'forward':
+        return ctx.maxDist(fa) >= 1 ? ok(fa, 1) : unavailable();
+      case 'retract':
+        return step(state, neg(state.axis), ctx, false);
+      case 'hold':
+        return ctx.canHold ? ok(fa, 0) : unavailable();
+      default: {
+        const side = entry[1];
+        const p = side === 'left'
+          ? { dx: -fa.dy || 0, dy: fa.dx }
+          : { dx: fa.dy, dy: -fa.dx || 0 };
+        const axis = prim === 'rotate' ? p : { dx: fa.dx + p.dx, dy: fa.dy + p.dy };
         return ctx.maxDist(axis) >= 1 ? ok(axis, 1) : unavailable();
       }
     }
-    // A different axis, the retained axis out of hold, or TWELVE: distance 1.
-    return ctx.maxDist(axis) >= 1 ? ok(axis, 1) : unavailable();
   }
 
   const api = {
-    TWELVE,
     ORTHO_AXES,
     DIAG_AXES,
     ALL_AXES,
     KNIGHT_AXES,
-    NUMPAD_AXES,
-    KNIGHT_NUMPAD_AXES,
+    NUMPAD_ORDER,
+    NUMPAD_DIGIT_CODES,
     axisEq,
     ringFor,
     numpadAxisFor,
-    deriveFacing,
+    facingOf,
     seedNav,
     deriveFromOffset,
     arrowStep,
     numpadStep,
+    pawnStep,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

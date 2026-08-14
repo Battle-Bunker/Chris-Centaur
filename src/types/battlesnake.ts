@@ -37,14 +37,14 @@ export interface Snake {
   // (maxHealthPerUnit); eating restores health to this. Absent means the
   // engine default of 100 — readers use `snake.maxHealth ?? 100`.
   maxHealth?: number;
-  // Unit orientation (EVERY unit in piece games — Turn.unitFacing),
-  // VERBATIM from the TacticToes wire (full-board convention: dy grows
-  // DOWNWARD). Centre-facing at spawn, the moved direction after each turn
-  // (knight: exact L-offset; pawns turn only via rotation); holds keep it.
-  // Note api y is flipped, so the faced api cell is {x + dx, y - dy};
-  // canvas rows share the wire's sign (no flip when drawing). Absent only
-  // in legacy (snake-only / pre-feature) documents.
-  facing?: { dx: number; dy: number };
+  // Unit orientation (EVERY unit in EVERY game — Turn.unitFacing), VERBATIM
+  // from the TacticToes wire (full-board convention: dy grows DOWNWARD).
+  // Centre-facing at spawn, the moved direction after each turn (knight:
+  // exact L-offset; snake: head-minus-neck; pawns turn only via rotation);
+  // holds keep it. Note api y is flipped, so the faced api cell is
+  // {x + dx, y - dy}; canvas rows share the wire's sign (no flip when
+  // drawing).
+  facing: { dx: number; dy: number };
 }
 
 export interface Board {

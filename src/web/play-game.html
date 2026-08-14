@@ -1315,7 +1315,7 @@
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
               analyticsFrozen = true;
-              // Bug A: re-root the candidate set at the projected head.
+              // Re-root the candidate set at the projected head.
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
             }
@@ -1451,6 +1451,17 @@
       updateTurnControls();
     }
 
+    // The snake's staged candidate this turn, or null: the requested move
+    // first (what the snake is trying to do), then the confirmed staged
+    // move, resolved against the current candidate set. Candidate keys are
+    // strings (a piece's staged move is a numeric destination index), so
+    // normalize.
+    function stagedCandidate(snakeId) {
+      const staged = stagedMoves[snakeId];
+      const move = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
+      return move != null ? (moveState?.moves?.[String(move)] ?? null) : null;
+    }
+
     function setupMoveStateForSnake(snakeId) {
       const csData = controlledSnakeTurnData[snakeId];
       if (!csData || !csData.turnData || !currentGameState) {
@@ -1474,10 +1485,10 @@
       moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
 
       if (csData.moveCommitted && csData.committedMove) {
-        // Bug A fix: after the move is committed, candidates for "what next"
-        // must come from the projected head (head + committed offset), not
-        // the stale current head. buildPostCommitCandidates gives us the 3
-        // forward options (reverse-of-committed excluded) rooted there.
+        // After the move is committed, candidates for "what next" come from
+        // the projected head (head + committed offset), not the stale
+        // current head. buildPostCommitCandidates gives us the 3 forward
+        // options (reverse-of-committed excluded) rooted there.
         const post = buildPostCommitCandidates(snakeId);
         if (post) {
           moveState = post;
@@ -1496,16 +1507,9 @@
           // move (grey bot-seeded or user-colored staged arrow) so the initial
           // selection matches what the snake is actually about to do. Fall back
           // to the best bot move if no staged move exists.
-          const staged = stagedMoves[snakeId];
-          // Prefer the requested move (what the snake is trying to do), then
-          // the confirmed staged move. Candidate keys are strings (a piece's
-          // staged move is a numeric destination index), so normalize.
-          const stagedMove = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
-          const stagedKey = stagedMove != null ? String(stagedMove) : null;
-          let defaultMove = (stagedKey && moveState.moves[stagedKey])
-            ? stagedKey
-            : getBestBotMove();
-          if (unitIsPiece(snake) && !(stagedKey && moveState.moves[stagedKey])) {
+          const stagedCand = stagedCandidate(snakeId);
+          let defaultMove = stagedCand ? stagedCand.key : getBestBotMove();
+          if (unitIsPiece(snake) && !stagedCand) {
             // The stub evaluator scores every piece candidate 0, so "best bot
             // move" is arbitrary — default the cursor to the piece's own
             // square (stay) instead.
@@ -1593,10 +1597,9 @@
 
     // Renders are COALESCED onto one animation frame. A turn boundary delivers
     // several websocket messages back to back (board, selections, staged moves,
-    // routes) and each used to force its own full repaint + overlay rebuild;
-    // hover transitions did the same. Batching collapses a burst into a single
-    // frame, which is both the performance fix and half the reliability fix —
-    // fewer teardowns is fewer chances to disturb an in-flight interaction.
+    // routes), and hover transitions arrive in bursts too. Batching collapses
+    // a burst into a single frame — fewer teardowns is fewer chances to
+    // disturb an in-flight interaction.
     let renderScheduled = false;
     let renderFallbackTimer = null;
     function runScheduledRender() {
@@ -1755,11 +1758,7 @@
       BoardRenderer.renderSnakeInfo(
         document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId,
         { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds,
-          owners: owners, deadSnakes: deadSnakesFor(currentGameState),
-          // Facing rotation for the row icons — same derivation inputs as
-          // the board head glyphs.
-          previousBoard: previousGameState?.board || null,
-          lastMoves: currentGameState?.lastMoves || null }
+          owners: owners, deadSnakes: deadSnakesFor(currentGameState) }
       );
     }
 
@@ -1775,7 +1774,7 @@
 
     // The keypad slot's hint for a selected chess piece: candidates live on
     // the board itself (every legal destination is a colored cell), so the
-    // 3x2 direction keypad is suppressed rather than generalized.
+    // slot shows the keyboard controls instead of direction buttons.
     function renderPieceMoveHint(text) {
       document.getElementById('moveButtons').innerHTML =
         '<div style="grid-column: 1 / -1; padding: 10px 6px; color: #999; ' +
@@ -1813,25 +1812,14 @@
         }
 
         if (!isPiece && committedDir) {
-          const buttons = document.querySelectorAll('#moveButtons .move-button');
-          buttons.forEach(btn => {
+          // Disable every direction button and mark the committed one.
+          document.querySelectorAll('#moveButtons .move-button').forEach(btn => {
             btn.disabled = true;
+            btn.style.cursor = 'not-allowed';
             const dir = btn.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
             if (dir === committedDir) {
               btn.classList.add('committed');
               btn.innerHTML = btn.innerHTML.replace(/<\/button>/, ' \u2713');
-            }
-          });
-
-          document.querySelectorAll('#moveButtons .move-button').forEach(btn => {
-            const text = btn.textContent.trim().toLowerCase();
-            if (['up', 'down', 'left', 'right'].some(d => text.startsWith(d))) {
-              const dir = ['up', 'down', 'left', 'right'].find(d => text.startsWith(d));
-              if (dir === committedDir) {
-                btn.classList.add('committed');
-              }
-              btn.disabled = true;
-              btn.style.cursor = 'not-allowed';
             }
           });
         }
@@ -1843,9 +1831,11 @@
         if (isPiece) {
           renderPieceMoveHint(
             'Chess piece \u2014 click a candidate square, or steer with the ' +
-            'keyboard: \u2190/\u2192 pick a direction, \u2191/\u2193 extend / retract to ' +
-            'hold (numpad 1\u20139 too, 5 = hold), then Space to stage. ' +
-            'Right-click still sets a goto destination.'
+            'keyboard: \u2190/\u2192 turn through the piece\u2019s directions, ' +
+            '\u2191 extends / \u2193 retracts to hold; numpad picks absolute ' +
+            'directions (5 = hold, no change). Pawns: \u2190/\u2192 rotate, ' +
+            '\u2191+\u2190/\u2192 diagonal. Space stages. ' +
+            'Right-click sets a goto destination.'
           );
         } else {
           BoardRenderer.renderMoveButtons(
@@ -1868,7 +1858,7 @@
     // projected-territory overlay and nothing else: no server message, no
     // staged-move write, no queue clear. Staging is a separate explicit
     // action (Space / Stage button -> stageSelectedMove).
-    function selectMove(moveKey) {
+    function selectMove(moveKey, nav) {
       if (moveSubmitted || !selectedSnakeId) return;
       if (!moveState) return;
       if (!moveState.moves[moveKey]) return; // not a candidate this turn
@@ -1878,15 +1868,17 @@
       // Keep the keyboard cursor ({axis, distance}) in step with EVERY
       // selection source (board click, keypad button, keyboard), so
       // arrow/numpad steering continues from wherever the selection is.
-      moveState.keyNav = deriveKeyNavFromSelection(moveState.moves[moveKey], moveState.keyNav);
+      // Keyboard transitions pass their own authoritative nav (it carries
+      // axis memory a position-derived one cannot); clicks derive it from
+      // the candidate.
+      moveState.keyNav = nav
+        || deriveKeyNavFromSelection(moveState.moves[moveKey], moveState.keyNav);
 
-      // Schedule the repaint BEFORE any of the panel updates below. Those
-      // render third-party-shaped data (score breakdowns) and a single bad
-      // field in one of them used to throw partway through, silently skipping
-      // the repaint that followed — leaving the keypad updated but the board's
-      // purple selection box and projected territory stale. The board is the
-      // primary feedback for this action, so it must not depend on the panels
-      // rendering cleanly.
+      // Schedule the repaint BEFORE any of the panel updates below. They
+      // render third-party-shaped data (score breakdowns) and must not be
+      // able to skip the repaint by throwing partway through — the board is
+      // the primary feedback for this action, so it cannot depend on the
+      // panels rendering cleanly.
       scheduleRender();
 
       try {
@@ -2097,20 +2089,13 @@
     // overlay updates on the same frame as the click; the broadcast is
     // authoritative and overwrites it.
     // `append=true` (green only) toggles the cell in the goto target queue.
-    // Waypoint state is SERVER-OWNED, with no local echo.
-    //
-    // The client used to mirror the mutation optimistically, which meant the
-    // append case computed a TOGGLE (re-cueing a queued cell removes it) from
-    // local state while the server independently computed the same toggle from
-    // its own. Whenever the local mirror was stale — most reliably right after
-    // a turn boundary, which overwrites `waypoints` wholesale and can also
-    // shift the queue on arrival — the two disagreed and the cue appeared to do
-    // nothing, or the opposite of what was asked.
-    //
-    // Sending the intent and rendering only what comes back removes that class
-    // of bug outright: one writer, one truth. The server coalesces its staged
-    // change broadcast per event-loop tick and renders here are frame-batched,
-    // so the round trip costs at most a frame.
+    // Waypoint state is SERVER-OWNED, with no local echo: the client sends
+    // the intent and renders only what comes back. One writer, one truth —
+    // a local optimistic mirror can go stale across a turn boundary (which
+    // overwrites `waypoints` wholesale) and then disagree with the server's
+    // append-toggle resolution. The server coalesces its staged-change
+    // broadcast per event-loop tick and renders here are frame-batched, so
+    // the round trip costs at most a frame.
     function setWaypointForSnake(snakeId, waypoint, append = false) {
       if (!snakeId) return;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2122,20 +2107,17 @@
     //
     // Every board interaction is resolved here, from a single `pointerdown`
     // listener registered in the CAPTURE phase on `.canvas-wrapper` (which is
-    // never torn down). Two properties make this reliable where the previous
-    // per-element `click` handlers were not:
+    // never torn down). Two properties make this reliable:
     //
     //  1. `pointerdown` fires on press. A `click` only fires when mousedown AND
-    //     mouseup land on the SAME element — so any re-render between the two
-    //     silently swallowed the interaction. The candidate-move overlay is
-    //     rebuilt wholesale (`innerHTML = ''`) on every render and sits exactly
-    //     over the four cells next to the head, which are prime waypoint
-    //     targets. A turn boundary (or even a hover change) landing mid-click
-    //     therefore dropped the input entirely — the "it fails when I hold the
-    //     keys across a turn" symptom.
+    //     mouseup land on the SAME element, so a `click` handler would drop any
+    //     interaction that a re-render lands in the middle of — the
+    //     candidate-move overlay is rebuilt wholesale (`innerHTML = ''`) on
+    //     every render and sits exactly over the four cells next to the head,
+    //     which are prime waypoint targets.
     //  2. Capture phase on a permanent ancestor means the handler runs before
     //     anything inside the overlay, whatever the overlay currently contains.
-    //     The overlay's buttons are now presentational only.
+    //     The overlay's buttons are presentational only.
     //
     // The cell comes from pointer coordinates, never from the identity of the
     // element under the cursor, so a stale overlay cannot misdirect a click.
@@ -2202,10 +2184,9 @@
         if (!selectedSnakeId || !inBounds) return;
         // The MODIFIER is the intent — never derive it from the local mirror.
         // Waypoint state is server-owned, so `waypoints` is empty until the
-        // broadcast lands; gating `append` on it meant a cue issued before that
-        // round trip silently became a REPLACE, wiping the queue. That is the
-        // same staleness race the optimistic mirror used to cause, just moved.
-        // The server already resolves what appending means (toggle within an
+        // broadcast lands; gating `append` on it would turn a cue issued
+        // before that round trip into a REPLACE, wiping the queue. The
+        // server already resolves what appending means (toggle within an
         // existing goto queue, otherwise start one), so it decides.
         const append = event.shiftKey;
         const current = waypoints[selectedSnakeId];
@@ -2284,8 +2265,8 @@
     // Whether a board unit is a chess piece (vs an ordinary snake). Pieces
     // share the snake candidate UI (candidate cells, keyboard destination
     // selection, Space-staging) but differ in what the keys mean — see the
-    // generalized keyboard schema above handleArrowPad — and can also be
-    // commanded by right-clicking a destination (goto).
+    // keyboard schema above handleKeyNav — and can also be commanded by
+    // right-clicking a destination (goto).
     function unitIsPiece(snake) {
       return !!(snake && snake.unitType && snake.unitType !== 'snake');
     }
@@ -2314,8 +2295,8 @@
     }
 
     // Build a synthetic moveState rooted at the projected head after a move
-    // has been committed this turn (Bug A fix: candidates were being drawn
-    // from the old head). The candidates represent the THREE forward options
+    // has been committed this turn — candidates must never be drawn from the
+    // old head. The candidates represent the THREE forward options
     // for next turn (the reverse of the committed move is excluded — going
     // back would mean colliding with our own neck).
     //
@@ -2356,7 +2337,14 @@
           displayScore: null,
         };
       }
-      return { head: proj, moves, selectedMove: null, postCommit: true };
+      // Same position→candidate index shape as processMoveEvaluations, so
+      // every moveState consumer sees one contract (no stay candidate here).
+      const candidatesByPosition = new Map();
+      for (const m of Object.values(moves)) candidatesByPosition.set(m.positionKey, m);
+      return {
+        head: proj, moves, selectedMove: null, postCommit: true,
+        candidatesByPosition, holdCandidate: null,
+      };
     }
 
     // Small transient toast (bottom of the viewport) for one-line user
@@ -2550,7 +2538,7 @@
       ws.send(JSON.stringify({ type: 'suicide-all', password: password }));
     }
 
-    // ── Generalized keyboard destination selection ──────────────────────────
+    // ── Keyboard destination selection ──────────────────────────────────────
     // ONE schema for every unit type. The keyboard cursor is {axis, distance},
     // stored on moveState.keyNav (so it resets whenever the move state is
     // rebuilt — new turn, new unit); the selected candidate is derived by
@@ -2558,66 +2546,30 @@
     // and fed through the ordinary selectMove path, so the purple cursor,
     // stats table and Space-staging behave exactly as for a click.
     //
-    //   4-arrow pad (FACING-relative, for ALL units, snakes included): the
-    //     axis seeds from the unit's FACING — its WIRE orientation at turn
-    //     start (Snake.facing, engine-stamped for every unit in piece games
-    //     — centre-facing at spawn, so it is always present there — and
-    //     preserved across holds; legacy docs without unitFacing
-    //     (snake-only / pre-feature) fall back to last-move derivation,
-    //     12:00 only when neither exists —
-    //     KeyNavMachine.deriveFacing/seedNav) —
-    //     so Up extends FORWARD along the current facing/axis (from
-    //     hold/unselected it selects the facing-direction move at distance
-    //     1; a turn-0 snake's Up selects the board-up move), and Left/Right
-    //     TURN through the unit's legal axis ring (rook 4 orthogonals,
-    //     bishop 4 diagonals, queen/king 8, knight its 8 L-directions,
-    //     snake 4 orthogonals) — switching axis RESETS the distance to 1 so
-    //     the turn is visibly represented. Up clamps at the last board-legal
-    //     ray square (1-step pieces lock after 1); Down retracts toward
-    //     hold KEEPING the axis (Down never crosses hold; a further Down at
-    //     hold flashes). Snakes cannot hold or reverse, so their Down
-    //     flashes and their backward axis is unavailable mid-game — a
-    //     turn-0 snake reaches the downward move in two Left/Right presses
-    //     (intended). This REPLACES the old absolute snake arrow controls;
-    //     WASD follows the same relative scheme.
+    //   4-arrow pad (facing-relative, WASD alike, for ALL units): the axis
+    //     seeds from the unit's wire facing (Snake.facing), so Up extends
+    //     FORWARD along the current axis (clamped at the last board-legal
+    //     ray square; an unusable axis sweeps to the first legal axis
+    //     clockwise at distance 1) and Left/Right TURN through the unit's
+    //     legal axis ring — switching axis resets the distance to 1 so the
+    //     turn is visibly represented. Down retracts toward hold, keeping
+    //     the axis, and never crosses it. Snakes cannot hold or reverse, so
+    //     their Down flashes and their backward axis is unavailable.
     //     Pawns: Left/Right pick the two rotation candidates; with Up HELD,
-    //     Left/Right pick the diagonal-forward candidates (when legal). The
-    //     ENGINE facing (Snake.facing) stays authoritative for pawns.
-    //   9-key numpad (with or without NumLock — e.code is the same): a
-    //     direction key selects its axis at distance 1; repeated presses
-    //     extend one square per press; the OPPOSITE key retracts one per
-    //     press, through hold and out into the opposite axis — reaching hold
-    //     this way FLIPS the axis to the direction of travel (the only way to
-    //     cross hold). 5 = hold, and resets the axis to the unit's WIRE
-    //     orientation (turn-start facing) — "no change", the same for pawns
-    //     as for every other piece. Holding does NOT reset orientation to
-    //     12:00: the engine preserves a held unit's facing, and the hold
-    //     state's axis IS that facing (Up extends along it, Left/Right turn
-    //     from it, through-hold flips unchanged).
-    //   The 12:00 state is a LEGACY FALLBACK only — a genuinely unknown
-    //     facing (docs without unitFacing, effectively legacy turn 0),
-    //     never reached in piece games: the axis is KeyNavMachine.TWELVE
-    //     — arrow Right then
-    //     picks the first legal axis clockwise of 12:00, arrow Left the
-    //     first counter-clockwise, and arrow Up adds one unit straight up
-    //     when that axis is legal (else it takes Right's pick — bishop).
-    //     A facing axis that is illegal for the piece this turn (blocked
-    //     ray, or an axis outside the ring) degrades the same way: Up
-    //     flashes and Left/Right sweep to the nearest legal axis per the
-    //     existing ring logic.
+    //     Left/Right pick the diagonal-forward candidates (when legal).
+    //   9-key numpad (absolute; both NumLock keycode families): a direction
+    //     key selects its axis at distance 1 and repeat-extends; the
+    //     OPPOSITE key retracts one per press, through hold and out the
+    //     other side — crossing hold flips the axis to the direction of
+    //     travel. 5 selects hold AND resets the axis to the wire facing
+    //     ("no change"). Pawns: 7/9 diagonal-forward, 4/6 rotations, 8
+    //     forward, 2 retract-to-hold, 1/3 flash.
     //
     // The pure {axis, distance} transitions live in /keynav-machine.js
     // (KeyNavMachine, unit-tested in src/tests/keynav-machine.test.ts); this
     // page supplies the candidate-derived legality context and applies the
     // results. Unavailable actions flash the unit's cell (flashUnavailable) —
     // never a silent stage.
-    // Physical numpad keys → digit. e.code names the physical key and is the
-    // same with NumLock on (e.key '8') or off (e.key 'ArrowUp'), so one map
-    // covers both keycode regimes.
-    const NUMPAD_DIGIT_CODES = {
-      Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5,
-      Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
-    };
 
     let arrowExtendHeld = false; // ArrowUp/W held — the pawn diagonal chord
 
@@ -2628,23 +2580,16 @@
 
     // The candidate occupying head + offset — position match, the one shape
     // every candidate flavour shares (snake directions, piece destinations,
-    // pawn rotations). Stay is excluded: its position IS the head.
+    // pawn rotations). Stay is excluded: its position IS the head. Lookup on
+    // the moveState's position→candidate index.
     function keyNavCandidateAt(off) {
       const head = selectedUnitHead();
-      if (!head || !moveState) return null;
-      const tx = head.x + off.dx;
-      const ty = head.y + off.dy;
-      for (const m of Object.values(moveState.moves)) {
-        if (m.kind !== 'stay' && m.position && m.position.x === tx && m.position.y === ty) {
-          return m;
-        }
-      }
-      return null;
+      if (!head || !moveState || !moveState.candidatesByPosition) return null;
+      return moveState.candidatesByPosition.get(`${head.x + off.dx},${head.y + off.dy}`) || null;
     }
 
     function holdCandidate() {
-      if (!moveState) return null;
-      return Object.values(moveState.moves).find((m) => m.kind === 'stay') || null;
+      return (moveState && moveState.holdCandidate) || null;
     }
 
     // Largest distance with a board-legal candidate along the axis: the full
@@ -2677,8 +2622,8 @@
 
     // {axis, distance} ← a selected candidate, so keyboard steering picks up
     // seamlessly from a click. Stay keeps the previous axis as memory (Up /
-    // the same numpad key re-extends along it out of hold); with no memory it
-    // lands in the 12:00 state (KeyNavMachine.TWELVE).
+    // the same numpad key re-extends along it out of hold); with no memory
+    // seedNav fills in the wire facing.
     function deriveKeyNavFromSelection(move, prev) {
       const unit = getSelectedSnake();
       const head = selectedUnitHead();
@@ -2691,39 +2636,26 @@
       );
     }
 
-    // Universal facing for a unit (the shared derivation in KeyNavMachine —
-    // the same one the board icon rotation uses): its WIRE orientation
-    // (Snake.facing, engine-stamped for every unit and preserved across
-    // holds); legacy docs without unitFacing fall back to last-move
-    // derivation (engine lastMoves, else head-vs-previous-board); null =
-    // the 12:00 state (facing genuinely unknown — legacy turn 0).
+    // The unit's wire orientation (Snake.facing) as an api-coord axis.
     function unitFacing(unit) {
-      return KeyNavMachine.deriveFacing(
-        unit,
-        previousGameState?.board || null,
-        currentGameState?.lastMoves || null
-      );
+      return KeyNavMachine.facingOf(unit);
     }
 
     function keyNavState() {
       if (!moveState) return null;
       if (!moveState.keyNav) {
         // Initial axis seeding priority (KeyNavMachine.seedNav): the
-        // currently SELECTED candidate → the STAGED move → the unit's
-        // FACING → the 12:00 state (TWELVE). The distance always reflects
-        // the actual selection — a hold selection with a directional staged
-        // move keeps distance 0 and carries the staged move's axis as
-        // memory; likewise an unselected unit starts at distance 0 on its
-        // facing axis, so arrow Up extends straight out along the facing.
+        // currently SELECTED candidate → the STAGED move → the unit's wire
+        // FACING. The distance always reflects the actual selection — a
+        // hold selection with a directional staged move keeps distance 0
+        // and carries the staged move's axis as memory; likewise an
+        // unselected unit starts at distance 0 on its facing axis, so arrow
+        // Up extends straight out along the facing.
         const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
         const nav = deriveKeyNavFromSelection(sel, null);
-        let stagedAxis = null;
-        if (selectedSnakeId) {
-          const staged = stagedMoves[selectedSnakeId];
-          const stagedMove = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
-          const stagedCand = stagedMove != null ? moveState.moves[String(stagedMove)] : null;
-          stagedAxis = deriveKeyNavFromSelection(stagedCand || null, null).axis;
-        }
+        const stagedAxis = selectedSnakeId
+          ? deriveKeyNavFromSelection(stagedCandidate(selectedSnakeId), null).axis
+          : null;
         moveState.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitFacing(getSelectedSnake()));
       }
       return moveState.keyNav;
@@ -2741,18 +2673,14 @@
     }
 
     // Move the keyboard cursor: select the candidate at axis·distance through
-    // the ordinary selectMove path and remember {axis, distance} (selectMove's
-    // own derivation loses the axis memory a hold selection carries). Flashes
-    // and selects nothing when no such candidate exists — never a silent
-    // stage.
+    // the ordinary selectMove path, passing {axis, distance} as the
+    // authoritative nav (a position-derived nav would lose the axis memory a
+    // hold selection carries). Flashes and selects nothing when no such
+    // candidate exists — never a silent stage.
     function setKeyNavSelection(axis, distance) {
       const key = candidateKeyFor(axis, distance);
       if (key == null) { flashUnavailable(); return false; }
-      selectMove(key);
-      if (moveState && moveState.keyNav) {
-        moveState.keyNav.axis = axis;
-        moveState.keyNav.distance = distance;
-      }
+      selectMove(key, { axis, distance });
       return true;
     }
 
@@ -2787,121 +2715,25 @@
       }, 200);
     }
 
-    // Pawn facing in api coords (the wire facing has y growing downward) —
-    // the ENGINE facing is authoritative for pawns, via the one shared
-    // derivation (KeyNavMachine.deriveFacing ignores last-move inputs for
-    // pawns, so UI last-move facing can never diverge from the engine's).
-    function pawnFacingApi(unit) {
-      return KeyNavMachine.deriveFacing(unit, null, null);
-    }
-
-    // The pawn candidate of the wanted flavour on the pawn's own 'left' or
-    // 'right' (counter-clockwise / clockwise of facing — for a pawn facing up
-    // that is also screen-left/right). 'rotate' matches the two side-square
-    // rotation candidates; 'diagonal' the diagonal-forward attack/eat
-    // candidates, which exist only when legal.
-    function pawnCandidateOnSide(unit, side, kindWanted) {
-      const fa = pawnFacingApi(unit);
-      const head = selectedUnitHead();
-      if (!fa || !head || !moveState) return null;
-      for (const m of Object.values(moveState.moves)) {
-        if (!m.position || m.kind === 'stay') continue;
-        const off = { dx: m.position.x - head.x, dy: m.position.y - head.y };
-        const isDiagonal = m.kind === 'move' && Math.abs(off.dx) === 1 && Math.abs(off.dy) === 1;
-        if (kindWanted === 'rotate' ? m.kind !== 'rotate' : !isDiagonal) continue;
-        const cross = fa.dx * off.dy - fa.dy * off.dx;
-        if ((side === 'left' && cross > 0) || (side === 'right' && cross < 0)) return m;
-      }
-      return null;
-    }
-
-    // 4-arrow pad dispatch (see the schema comment above). The transition
-    // itself is KeyNavMachine.arrowStep; snakes ride the same facing-relative
-    // scheme (maxDist 1 on every axis, no hold candidate → Up locks at the
-    // distance-1 facing move and Down flashes).
-    function handleArrowPad(dir) {
+    // ONE dispatch for both key pads and every unit type: resolve the
+    // transition in KeyNavMachine — pawns through their key table
+    // (pawnStep), everything else through arrowStep/numpadStep — and select
+    // the resulting candidate. `key` is an arrow direction ('up' | 'down' |
+    // 'left' | 'right') or a numpad digit (1-9).
+    function handleKeyNav(key) {
       if (!moveState) return;
       const unit = getSelectedSnake();
       if (!unit) return;
-      if (unit.unitType === 'pawn') { handlePawnArrow(dir); return; }
       const nav = keyNavState();
       if (!nav) { flashUnavailable(); return; }
-      const step = KeyNavMachine.arrowStep(nav, dir, keyNavCtx(unit));
+      const ctx = keyNavCtx(unit);
+      const step = unit.unitType === 'pawn'
+        ? KeyNavMachine.pawnStep(nav, key, arrowExtendHeld, ctx)
+        : typeof key === 'number'
+          ? KeyNavMachine.numpadStep(nav, key, ctx)
+          : KeyNavMachine.arrowStep(nav, key, ctx);
       if (!step.ok) { flashUnavailable(); return; }
       setKeyNavSelection(step.axis, step.distance);
-    }
-
-    function handlePawnArrow(dir) {
-      const unit = getSelectedSnake();
-      const nav = keyNavState();
-      if (!nav) return;
-      if (dir === 'left' || dir === 'right') {
-        // Chorded with a held Up: the diagonal-forward candidate on that side
-        // (present only when legal — attack/eat squares). Bare: the rotation.
-        const m = pawnCandidateOnSide(unit, dir, arrowExtendHeld ? 'diagonal' : 'rotate');
-        if (m) selectMove(m.key); else flashUnavailable();
-        return;
-      }
-      if (dir === 'up') {
-        const fa = pawnFacingApi(unit);
-        const fwd = fa ? keyNavCandidateAt(fa) : null;
-        if (fwd) selectMove(fwd.key); else flashUnavailable();
-        return;
-      }
-      // Down → retract to hold (pawns are 1-step; there is nothing between).
-      if (holdCandidate()) setKeyNavSelection(nav.axis, 0);
-      else flashUnavailable();
-    }
-
-    // 9-key numpad dispatch (see the schema comment above). The transition
-    // itself — extend / retract-through-hold with the axis flip / new axis at
-    // distance 1 / 5 = hold at the 12:00 axis — is KeyNavMachine.numpadStep.
-    function handleNumpadSelect(digit) {
-      if (!moveState) return;
-      const unit = getSelectedSnake();
-      if (!unit) return;
-      if (digit !== 5 && unit.unitType === 'pawn') { handlePawnNumpad(digit); return; }
-      const nav = keyNavState();
-      if (!nav) { flashUnavailable(); return; }
-      const step = KeyNavMachine.numpadStep(nav, digit, keyNavCtx(unit));
-      if (!step.ok) { flashUnavailable(); return; }
-      setKeyNavSelection(step.axis, step.distance);
-    }
-
-    // Pawn numpad: facing-relative like the arrow pad — 8 forward, 4/6 the
-    // two rotations, 7/9 the diagonal-forward candidates, 2 retract to hold
-    // (nothing behind a pawn is ever legal), 1/3 unavailable.
-    function handlePawnNumpad(digit) {
-      const unit = getSelectedSnake();
-      const fa = pawnFacingApi(unit);
-      const nav = keyNavState();
-      if (!fa || !nav) { flashUnavailable(); return; }
-      switch (digit) {
-        case 8: {
-          const fwd = keyNavCandidateAt(fa);
-          if (fwd) selectMove(fwd.key); else flashUnavailable();
-          return;
-        }
-        case 2: {
-          if (nav.distance >= 1 && holdCandidate()) setKeyNavSelection(nav.axis, 0);
-          else flashUnavailable();
-          return;
-        }
-        case 4:
-        case 6: {
-          const m = pawnCandidateOnSide(unit, digit === 4 ? 'left' : 'right', 'rotate');
-          if (m) selectMove(m.key); else flashUnavailable();
-          return;
-        }
-        case 7:
-        case 9: {
-          const m = pawnCandidateOnSide(unit, digit === 7 ? 'left' : 'right', 'diagonal');
-          if (m) selectMove(m.key); else flashUnavailable();
-          return;
-        }
-        default:
-          flashUnavailable();
-      }
     }
 
     document.addEventListener('keydown', (e) => {
@@ -2925,6 +2757,9 @@
       if (viewMode === 'historic') {
         if (historicKeyFocus === 'candidates' && historicMoveState) {
           if (e.key === 'Escape') { historicKeyFocus = 'scrubber'; return; }
+          // History replays snake direction candidates only: an arrow key
+          // selects the logged candidate keyed by that literal direction,
+          // and pieces (destination-keyed candidates) take no arrow input.
           const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.key];
           if (dir) {
             if (historicMoveState.moves && historicMoveState.moves[dir]) historicSelectMove(dir);
@@ -2993,40 +2828,40 @@
       // Numpad first: e.code names the physical key regardless of NumLock
       // (NumLock-off numpad presses report ArrowUp/Home/… as e.key, so they
       // must be claimed here before the arrow-pad switch below).
-      if (e.code && NUMPAD_DIGIT_CODES[e.code] != null) {
+      const digit = e.code ? KeyNavMachine.NUMPAD_DIGIT_CODES[e.code] : null;
+      if (digit != null) {
         e.preventDefault();
-        handleNumpadSelect(NUMPAD_DIGIT_CODES[e.code]);
+        handleKeyNav(digit);
         return;
       }
 
       // 4-arrow pad (WASD aliases included): Left/Right rotate the axis,
-      // Up/Down extend/retract — see handleArrowPad.
+      // Up/Down extend/retract — see handleKeyNav.
       switch (e.key) {
         case 'ArrowUp':
         case 'w':
         case 'W':
-          e.preventDefault(); arrowExtendHeld = true; handleArrowPad('up'); break;
+          e.preventDefault(); arrowExtendHeld = true; handleKeyNav('up'); break;
         case 'ArrowDown':
         case 's':
         case 'S':
-          e.preventDefault(); handleArrowPad('down'); break;
+          e.preventDefault(); handleKeyNav('down'); break;
         case 'ArrowLeft':
         case 'a':
         case 'A':
-          e.preventDefault(); handleArrowPad('left'); break;
+          e.preventDefault(); handleKeyNav('left'); break;
         case 'ArrowRight':
         case 'd':
         case 'D':
-          e.preventDefault(); handleArrowPad('right'); break;
+          e.preventDefault(); handleKeyNav('right'); break;
         case ' ':
           e.preventDefault(); stageSelectedMove(); break;
       }
     });
 
     // Pawn diagonal chord bookkeeping: "holding Up while tapping Left/Right
-    // selects the diagonal-forward candidates". The flag is set by the
-    // ArrowUp/W keydown above and cleared on release — and on window blur,
-    // since an Alt+Tab-style focus loss eats the keyup.
+    // selects the diagonal-forward candidates". Cleared on release and on
+    // window blur (a focus loss eats the keyup).
     document.addEventListener('keyup', (e) => {
       if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') arrowExtendHeld = false;
     });
@@ -3256,9 +3091,9 @@
 
     // A snake's log is FINAL (will never grow) once that is PROVABLE. The game
     // merely being over is NOT proof: the server flushes decision rows to the
-    // database asynchronously, and treating game-over as "log complete" is
-    // exactly what used to freeze partial logs — the final turns stayed
-    // unexplorable until a page refresh. Proof is one of:
+    // database asynchronously, so treating game-over as "log complete" would
+    // freeze a partial log — the final turns would stay unexplorable until a
+    // page refresh. Proof is one of:
     //  - the log already covers the end of the game (the last decision is made
     //    one turn before the final board turn), or
     //  - post-game reconciliation finished (historyFetchesFrozen), or
@@ -4105,11 +3940,7 @@
           document.getElementById('snakeInfoList'), boardState, getHistoricSnakeId(),
           { groupByTeam: true, onSelectSnake: switchHistoricSnake,
             selectableSnakeIds: historicSelectableIds(),
-            deadSnakes: deadSnakesFor(boardState),
-            // Facing rotation for the row icons — same derivation inputs as
-            // the historic board render below.
-            previousBoard: prevBoard,
-            lastMoves: boardState.lastMoves || null }
+            deadSnakes: deadSnakesFor(boardState) }
         );
       }
       if (lightweight) return;
@@ -4182,9 +4013,8 @@
     // The marker belongs only on the snake's DEATH turn. When the timeline has
     // the next turn's board, that presence check is exact — a snake still on
     // the next board gets no marker (the last decision row of a game WINNER
-    // has a back-filled server_move too, and used to draw a death marker on
-    // it). Without a next board, fall back to the legacy "last row of the own
-    // log" gate.
+    // has a back-filled server_move too, and must not draw a death marker).
+    // Without a next board, fall back to the "last row of the own log" gate.
     function buildHistoricOurDeaths(turn) {
       const t = turn.game_state?.turn ?? (turn.turn - 1);
       const next = timelineRowAt(t + 1);

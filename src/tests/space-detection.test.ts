@@ -33,6 +33,7 @@ describe('Enhanced Space Detection', () => {
           width: 11,
           height: 11,
           snakes: [{
+            facing: { dx: 0, dy: -1 },
             id: 'our-snake',
             name: 'Test Snake',
             health: 100,
@@ -52,6 +53,7 @@ describe('Enhanced Space Detection', () => {
           hazards: []
         },
         you: {
+          facing: { dx: 0, dy: -1 },
           id: 'our-snake',
           name: 'Test Snake',
           health: 100,
@@ -93,6 +95,7 @@ describe('Enhanced Space Detection', () => {
           width: 11,
           height: 11,
           snakes: [{
+            facing: { dx: 0, dy: -1 },
             id: 'our-snake',
             name: 'Test Snake',
             health: 100,
@@ -120,6 +123,7 @@ describe('Enhanced Space Detection', () => {
           hazards: []
         },
         you: {
+          facing: { dx: 0, dy: -1 },
           id: 'our-snake',
           name: 'Test Snake',
           health: 100,
@@ -172,6 +176,7 @@ describe('Enhanced Space Detection', () => {
           height: 11,
           snakes: [
             {
+              facing: { dx: 0, dy: -1 },
               id: 'our-snake',
               name: 'Our Snake',
               health: 100,
@@ -197,6 +202,7 @@ describe('Enhanced Space Detection', () => {
               customizations: { color: '#00FF00', head: 'default', tail: 'default' }
             },
             {
+              facing: { dx: 0, dy: -1 },
               id: 'enemy-snake',
               name: 'Enemy',
               health: 100,
@@ -218,6 +224,7 @@ describe('Enhanced Space Detection', () => {
           hazards: []
         },
         you: {
+          facing: { dx: 0, dy: -1 },
           id: 'our-snake',
           name: 'Our Snake',
           health: 100,
@@ -273,6 +280,7 @@ describe('Enhanced Space Detection', () => {
           height: 11,
           snakes: [
             {
+              facing: { dx: 0, dy: -1 },
               id: 'our-snake',
               name: 'Our Snake',
               health: 100,
@@ -289,6 +297,7 @@ describe('Enhanced Space Detection', () => {
               customizations: { color: '#00FF00', head: 'default', tail: 'default' }
             },
             {
+              facing: { dx: 0, dy: -1 },
               id: 'ally-snake',
               name: 'Ally',
               health: 100,
@@ -309,6 +318,7 @@ describe('Enhanced Space Detection', () => {
           hazards: []
         },
         you: {
+          facing: { dx: 0, dy: -1 },
           id: 'our-snake',
           name: 'Our Snake',
           health: 100,
@@ -356,6 +366,7 @@ describe('Enhanced Space Detection', () => {
           height: 11,
           snakes: [
             {
+              facing: { dx: 0, dy: -1 },
               id: 'our-snake',
               name: 'Our Snake',
               health: 100,
@@ -376,6 +387,7 @@ describe('Enhanced Space Detection', () => {
           hazards: []
         },
         you: {
+          facing: { dx: 0, dy: -1 },
           id: 'our-snake',
           name: 'Our Snake',
           health: 100,
