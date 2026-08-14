@@ -244,8 +244,12 @@ function buildSnake(
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
   // default is 100 when the map or key is absent.
   snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
-  // Pawn facing rides along verbatim (wire convention, y down — see the Snake
-  // type for the api/canvas mapping).
+  // Facing rides along verbatim for EVERY unit (wire convention, y down —
+  // see the Snake type for the api/canvas mapping): the engine stamps
+  // Turn.unitFacing per turn for all units in piece games (centre-facing at
+  // spawn, moved direction after; holds keep it), and the UI anchors icon
+  // orientation and keyNav movement behaviour on this wire orientation.
+  // Only legacy docs without unitFacing leave it undefined.
   const facing = turn.unitFacing?.[playerID];
   if (facing) snake.facing = { dx: facing.dx, dy: facing.dy };
   const expiry = invulnerabilityExpiryTurn(turn, playerID);

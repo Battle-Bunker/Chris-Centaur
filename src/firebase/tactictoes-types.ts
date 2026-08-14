@@ -72,7 +72,14 @@ export interface TTTurn {
   winners: Array<{ playerID: string; score: number }>;
   // Current type per unit (changes on pawn promotion); absent in snake-only games.
   unitTypes?: Record<string, TTUnitType>;
-  // Pawn facing (full-board convention, y down); updated when a pawn rotates.
+  // Orientation for EVERY unit in piece games, per turn (full-board wire
+  // convention, y down). Spawn: every unit faces toward the board centre
+  // (chosen from its type's legal facing set, ties randomized engine-side),
+  // so turn-0 facing is always present in piece games. After each turn: the
+  // normalized moved direction (knight: the exact L-offset, e.g. {1,-2};
+  // snake: head-neck) — except pawns, whose facing changes ONLY via their
+  // rotation action. Holds KEEP the facing. Absent only in legacy
+  // documents (snake-only or pre-feature games).
   unitFacing?: Record<string, { dx: number; dy: number }>;
   // Squares each chess piece actually traversed this turn (snakes excluded).
   paths?: Record<string, number[]>;

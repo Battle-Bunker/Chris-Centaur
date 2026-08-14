@@ -7,7 +7,10 @@
  *     axis) resets distance to 1;
  *   - the TWELVE ("12:00") hold state and its direction-sensitive arrow
  *     Left/Right first-legal-axis selection;
- *   - numpad 5 resetting the axis to TWELVE;
+ *   - numpad 5 (select hold) resetting the axis to the unit's WIRE
+ *     orientation (ctx.facing — "no change", uniform across unit types,
+ *     pawns included); TWELVE only when the facing is genuinely unknown
+ *     (legacy docs without unitFacing);
  *   - numpad opposite-key retraction flipping the axis to the direction of
  *     travel at the moment hold is reached (the only way to cross hold);
  *   - arrow Down retracting to hold KEEPING the axis, never crossing it,
@@ -17,10 +20,14 @@
  *     pick) — for EVERY unit, snakes included (the owner's universal-facing
  *     redesign: a turn-0 snake's Up selects the board-up move);
  *   - the confirmed knight numpad anchoring map;
- *   - the universal FACING derivation (deriveFacing): last-move axis, 12:00
- *     on turn 0 / hold, engine-facing authority for pawns — and the keyNav
- *     axis seeding priority (seedNav): selected candidate → staged move →
- *     facing → 12:00.
+ *   - the universal FACING derivation (deriveFacing), anchored on the WIRE:
+ *     Snake.facing (engine-stamped for EVERY unit in piece games — centre-
+ *     facing at spawn, moved direction after, holds KEEP it) is
+ *     authoritative whenever present; only legacy docs without unitFacing
+ *     fall back to last-move derivation, and null (the 12:00 state) is the
+ *     legacy fallback for a genuinely unknown facing — and the keyNav axis
+ *     seeding priority (seedNav): selected candidate → staged move →
+ *     facing(wire) → 12:00-fallback.
  */
 const {
   TWELVE,
@@ -42,10 +49,17 @@ type StepResult = { ok: boolean; axis?: Axis | string; distance?: number };
 const akey = (a: Axis) => `${a.dx},${a.dy}`;
 
 // Context builder: per-axis reach comes from `dist` (keyed "dx,dy"), falling
-// back to `defaultDist` (0 = axis illegal).
+// back to `defaultDist` (0 = axis illegal). `facing` is the unit's wire
+// orientation as an api axis (deriveFacing) — null models a legacy unit
+// whose facing is genuinely unknown.
 function makeCtx(
   unitType: string | undefined,
-  opts: { dist?: Record<string, number>; defaultDist?: number; canHold?: boolean } = {}
+  opts: {
+    dist?: Record<string, number>;
+    defaultDist?: number;
+    canHold?: boolean;
+    facing?: Axis | null;
+  } = {}
 ) {
   return {
     ring: ringFor(unitType),
@@ -53,6 +67,7 @@ function makeCtx(
       opts.dist && akey(a) in opts.dist ? opts.dist[akey(a)] : (opts.defaultDist ?? 0),
     canHold: opts.canHold ?? true,
     axisFor: (digit: number) => numpadAxisFor(unitType, digit),
+    facing: opts.facing ?? null,
   };
 }
 
@@ -294,8 +309,35 @@ describe('numpad: extend, retract, and the through-hold axis flip', () => {
   });
 });
 
-describe('numpad 5 (hold)', () => {
-  test('selects hold and RESETS the axis to the 12:00 state', () => {
+describe('numpad 5 (hold): axis resets to the WIRE facing — "no change"', () => {
+  // MODIFIED by the owner's wire-orientation rework: 5 used to reset the
+  // axis to TWELVE (holding implied 12:00). The engine now preserves a held
+  // unit's facing, so 5 resets the keyNav axis to the unit's turn-start
+  // wire orientation instead — identically for every unit type.
+  test('queen: 5 resets the axis to its wire facing, not 12:00', () => {
+    const facing = { dx: -1, dy: -1 };
+    const ctx = makeCtx('queen', { defaultDist: 2, facing });
+    expect(numpadStep(nav({ dx: 1, dy: 1 }, 2), 5, ctx)).toEqual(okStep(facing, 0));
+  });
+
+  test('pawn: 5 resets to its engine facing — the same "no change" as every other piece', () => {
+    // A pawn whose wire facing is left (api {-1, 0}); the user has steered
+    // the cursor elsewhere, then selects hold: the axis snaps back to the
+    // engine facing, which the engine keeps across the hold.
+    const facing = { dx: -1, dy: 0 };
+    const ctx = makeCtx('pawn', { defaultDist: 1, facing });
+    expect(numpadStep(nav({ dx: 0, dy: 1 }, 1), 5, ctx)).toEqual(okStep(facing, 0));
+  });
+
+  test('after a 5-reset, Up extends forward along the wire facing', () => {
+    const facing = { dx: 1, dy: 0 };
+    const ctx = makeCtx('rook', { defaultDist: 3, facing });
+    const held = numpadStep(nav({ dx: 0, dy: 1 }, 2), 5, ctx);
+    expect(held).toEqual(okStep(facing, 0));
+    expect(arrowStep(nav(held.axis as Axis, 0), 'up', ctx)).toEqual(okStep(facing, 1));
+  });
+
+  test('LEGACY (facing unknown): 5 falls back to the TWELVE state', () => {
     const ctx = makeCtx('queen', { defaultDist: 2 });
     expect(numpadStep(nav({ dx: 1, dy: 1 }, 2), 5, ctx)).toEqual(okStep(TWELVE, 0));
   });
@@ -383,16 +425,50 @@ describe('facing-relative snake pad (universal-facing redesign)', () => {
   });
 });
 
-describe('deriveFacing: universal last-move facing', () => {
+describe('deriveFacing: wire orientation first, legacy last-move fallback', () => {
   const boardWith = (...snakes: object[]) => ({ snakes });
 
-  test('snake facing comes from the engine lastMoves direction', () => {
+  // ── WIRE facing (Turn.unitFacing → Snake.facing) is authoritative for
+  // EVERY unit when present — the owner's wire-orientation rework. Wire
+  // convention has y growing DOWNWARD; api flips it.
+  test('any unit with a wire facing anchors on it (queen, rook, snake alike)', () => {
+    const queen = { id: 'q1', unitType: 'queen', head: { x: 4, y: 4 }, facing: { dx: 1, dy: 1 } };
+    expect(deriveFacing(queen, null, null)).toEqual({ dx: 1, dy: -1 });
+    const rook = { id: 'r1', unitType: 'rook', head: { x: 2, y: 2 }, facing: { dx: 0, dy: -1 } };
+    expect(deriveFacing(rook, null, null)).toEqual({ dx: 0, dy: 1 });
+    const snake = { id: 's1', unitType: 'snake', body: [{ x: 4, y: 4 }], facing: { dx: -1, dy: 0 } };
+    expect(deriveFacing(snake, null, null)).toEqual({ dx: -1, dy: 0 });
+  });
+
+  test('a HELD queen keeps its wire facing — hold is not 12:00', () => {
+    // Same head as the previous turn (the unit held); the engine preserved
+    // its facing on the wire, and that is what the UI anchors on.
+    const queen = { id: 'q1', unitType: 'queen', head: { x: 4, y: 4 }, facing: { dx: 1, dy: 0 } };
+    const prev = boardWith({ id: 'q1', unitType: 'queen', head: { x: 4, y: 4 } });
+    expect(deriveFacing(queen, prev, null)).toEqual({ dx: 1, dy: 0 });
+  });
+
+  test('knight wire facing keeps the exact L-offset (api y flipped)', () => {
+    const knight = { id: 'n1', unitType: 'knight', head: { x: 4, y: 4 }, facing: { dx: 1, dy: -2 } };
+    expect(deriveFacing(knight, null, null)).toEqual({ dx: 1, dy: 2 });
+  });
+
+  test('wire facing wins over lastMoves and previous-head derivation', () => {
+    const snake = { id: 's1', body: [{ x: 5, y: 4 }], facing: { dx: 0, dy: -1 } };
+    const prev = boardWith({ id: 's1', body: [{ x: 4, y: 4 }], head: { x: 4, y: 4 } });
+    // lastMoves says right, prev-head says right — the wire (up) wins.
+    expect(deriveFacing(snake, prev, { s1: 'right' })).toEqual({ dx: 0, dy: 1 });
+  });
+
+  // ── LEGACY docs without unitFacing (snake-only / pre-feature games): the
+  // pre-rework last-move derivation still applies, unit by unit.
+  test('LEGACY snake facing comes from the engine lastMoves direction', () => {
     const snake = { id: 's1', body: [{ x: 4, y: 4 }] };
     expect(deriveFacing(snake, null, { s1: 'right' })).toEqual({ dx: 1, dy: 0 });
     expect(deriveFacing(snake, null, { s1: 'down' })).toEqual({ dx: 0, dy: -1 });
   });
 
-  test('pieces derive from previous head → current head, normalized to a unit axis', () => {
+  test('LEGACY pieces derive from previous head → current head, normalized to a unit axis', () => {
     const rook = { id: 'r1', unitType: 'rook', head: { x: 4, y: 7 } };
     const prev = boardWith({ id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } });
     expect(deriveFacing(rook, prev, null)).toEqual({ dx: 0, dy: 1 });
@@ -401,19 +477,21 @@ describe('deriveFacing: universal last-move facing', () => {
     expect(deriveFacing(queen, prevQ, null)).toEqual({ dx: -1, dy: -1 });
   });
 
-  test('knights keep the raw L-offset (their axes ARE the L-offsets)', () => {
+  test('LEGACY knights keep the raw L-offset (their axes ARE the L-offsets)', () => {
     const knight = { id: 'n1', unitType: 'knight', head: { x: 6, y: 5 } };
     const prev = boardWith({ id: 'n1', unitType: 'knight', head: { x: 4, y: 4 } });
     expect(deriveFacing(knight, prev, null)).toEqual({ dx: 2, dy: 1 });
   });
 
-  test('hold (same head as last turn) → null: holding implies 12:00', () => {
+  test('LEGACY hold (same head, NO wire facing) → null: facing genuinely unknown', () => {
+    // Only without a wire facing does a hold land in the 12:00 fallback —
+    // wire-facing games preserve the orientation across holds instead.
     const rook = { id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } };
     const prev = boardWith({ id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } });
     expect(deriveFacing(rook, prev, null)).toBeNull();
   });
 
-  test('turn 0 / no previous board / just spawned → null (12:00)', () => {
+  test('LEGACY turn 0 / no previous board / just spawned → null (12:00 fallback)', () => {
     const snake = { id: 's1', body: [{ x: 4, y: 4 }] };
     expect(deriveFacing(snake, null, null)).toBeNull();
     expect(deriveFacing(snake, boardWith(), null)).toBeNull(); // not on prev board

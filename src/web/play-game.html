@@ -2559,8 +2559,13 @@
     // stats table and Space-staging behave exactly as for a click.
     //
     //   4-arrow pad (FACING-relative, for ALL units, snakes included): the
-    //     axis seeds from the unit's FACING — its last-move direction, 12:00
-    //     on turn 0 or after a hold (KeyNavMachine.deriveFacing/seedNav) —
+    //     axis seeds from the unit's FACING — its WIRE orientation at turn
+    //     start (Snake.facing, engine-stamped for every unit in piece games
+    //     — centre-facing at spawn, so it is always present there — and
+    //     preserved across holds; legacy docs without unitFacing
+    //     (snake-only / pre-feature) fall back to last-move derivation,
+    //     12:00 only when neither exists —
+    //     KeyNavMachine.deriveFacing/seedNav) —
     //     so Up extends FORWARD along the current facing/axis (from
     //     hold/unselected it selects the facing-direction move at distance
     //     1; a turn-0 snake's Up selects the board-up move), and Left/Right
@@ -2583,13 +2588,23 @@
     //     extend one square per press; the OPPOSITE key retracts one per
     //     press, through hold and out into the opposite axis — reaching hold
     //     this way FLIPS the axis to the direction of travel (the only way to
-    //     cross hold). 5 = hold, and resets the axis to the 12:00 state.
-    //   Hold has no well-defined axis: when the cursor initializes on hold
-    //     with no facing (or numpad 5 selects hold — holding implies 12:00
-    //     orientation) the axis is KeyNavMachine.TWELVE — arrow Right then
+    //     cross hold). 5 = hold, and resets the axis to the unit's WIRE
+    //     orientation (turn-start facing) — "no change", the same for pawns
+    //     as for every other piece. Holding does NOT reset orientation to
+    //     12:00: the engine preserves a held unit's facing, and the hold
+    //     state's axis IS that facing (Up extends along it, Left/Right turn
+    //     from it, through-hold flips unchanged).
+    //   The 12:00 state is a LEGACY FALLBACK only — a genuinely unknown
+    //     facing (docs without unitFacing, effectively legacy turn 0),
+    //     never reached in piece games: the axis is KeyNavMachine.TWELVE
+    //     — arrow Right then
     //     picks the first legal axis clockwise of 12:00, arrow Left the
     //     first counter-clockwise, and arrow Up adds one unit straight up
     //     when that axis is legal (else it takes Right's pick — bishop).
+    //     A facing axis that is illegal for the piece this turn (blocked
+    //     ray, or an axis outside the ring) degrades the same way: Up
+    //     flashes and Left/Right sweep to the nearest legal axis per the
+    //     existing ring logic.
     //
     // The pure {axis, distance} transitions live in /keynav-machine.js
     // (KeyNavMachine, unit-tested in src/tests/keynav-machine.test.ts); this
@@ -2647,14 +2662,16 @@
     }
 
     // The unit's live legality context for KeyNavMachine transitions: its
-    // type's axis ring, the candidate-derived per-axis reach, and whether a
-    // hold (stay) candidate exists this turn.
+    // type's axis ring, the candidate-derived per-axis reach, whether a
+    // hold (stay) candidate exists this turn, and its wire orientation
+    // (turn-start engine facing) — numpad 5 resets the axis to it.
     function keyNavCtx(unit) {
       return {
         ring: KeyNavMachine.ringFor(unit?.unitType),
         maxDist: maxDistAlong,
         canHold: !!holdCandidate(),
         axisFor: (digit) => KeyNavMachine.numpadAxisFor(unit?.unitType, digit),
+        facing: unitFacing(unit),
       };
     }
 
@@ -2675,9 +2692,11 @@
     }
 
     // Universal facing for a unit (the shared derivation in KeyNavMachine —
-    // the same one the board icon rotation uses): the axis of its last
-    // actual movement (engine lastMoves, else head-vs-previous-board), the
-    // ENGINE facing for pawns, null = the 12:00 state (turn 0 / held).
+    // the same one the board icon rotation uses): its WIRE orientation
+    // (Snake.facing, engine-stamped for every unit and preserved across
+    // holds); legacy docs without unitFacing fall back to last-move
+    // derivation (engine lastMoves, else head-vs-previous-board); null =
+    // the 12:00 state (facing genuinely unknown — legacy turn 0).
     function unitFacing(unit) {
       return KeyNavMachine.deriveFacing(
         unit,

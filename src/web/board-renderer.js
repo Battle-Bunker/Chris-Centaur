@@ -67,8 +67,13 @@ const BoardRenderer = (function () {
   }
 
   // ── Universal unit facing (owner's universal-facing redesign) ────────────
-  // Every unit faces the direction of its LAST actual movement (12:00 on
-  // turn 0 or when it held; pawns: the ENGINE facing is authoritative). The
+  // Every unit faces its WIRE orientation (Snake.facing — engine-stamped
+  // per turn for all units in piece games, and PRESERVED across holds, so a
+  // held unit keeps its orientation, and spawn stamps a centre-oriented
+  // facing so piece games always carry one); legacy docs without unitFacing
+  // (snake-only / pre-feature) fall back to last-move derivation, and
+  // 12:00 remains only as the legacy fallback for a genuinely unknown
+  // facing (effectively legacy turn 0). The
   // ONE shared derivation lives in KeyNavMachine.deriveFacing
   // (keynav-machine.js) — the same helper that seeds the keyboard-nav axis —
   // so board icons and keyNav can never disagree. play-game.html loads that
@@ -330,12 +335,13 @@ const BoardRenderer = (function () {
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
   // pieces (see UNIT_ICONS) — ROTATED to the unit's facing
-  // (glyphOpts.facing, an api axis from deriveUnitFacing: last-move
-  // direction, 12:00 when it held or on turn 0, engine facing for pawns).
-  // Units that held render at 12:00 orientation even when they cannot move
-  // up (bishop, knight) — holding implies 12:00. The unit's LETTER lives in
-  // its unit tag (renderUnitTags), not on the head. Pieces additionally keep
-  // their facing triangle (pawns — engine-facing, drawn unrotated) and
+  // (glyphOpts.facing, an api axis from deriveUnitFacing: the WIRE
+  // orientation for every unit, which the engine preserves across holds —
+  // a held unit renders at its kept facing, never forced to 12:00; legacy
+  // docs fall back to last-move derivation, and 12:00 means only that the
+  // facing is genuinely unknown). The unit's LETTER lives in
+  // its unit tag (renderUnitTags), not on the head. Pawns additionally keep
+  // their facing triangle (engine-facing, drawn unrotated) and
   // staged-rotation badge; their weight now shows in the unit tag rather
   // than the old corner badge. Only the icon rotates: triangle, badge, tags
   // and health bars stay screen-aligned.
@@ -355,7 +361,10 @@ const BoardRenderer = (function () {
       // Pawn facing: a small triangle hugging the faced cell edge. The wire
       // facing has y growing DOWNWARD (full-board convention), which matches
       // canvas rows exactly, so dx/dy apply to canvas offsets with no flip.
-      if (snake.facing && (snake.facing.dx || snake.facing.dy)) {
+      // PAWN-ONLY: every unit now carries a wire facing, but only the pawn's
+      // gates move legality, so only pawns get the explicit edge marker —
+      // other pieces show orientation through icon rotation alone.
+      if (snake.unitType === "pawn" && snake.facing && (snake.facing.dx || snake.facing.dy)) {
         const fdx = snake.facing.dx;
         const fdy = snake.facing.dy;
         const edgeX = cx + fdx * (cellSize / 2);
@@ -1436,10 +1445,12 @@ const BoardRenderer = (function () {
     // the staged rotation flag (pawn rotation badge) before the arrow block
     // reads the same map.
     const stagedMovesMap = options?.stagedMoves || {};
-    // Facing inputs for the head-icon rotation: the previous board (last
-    // actual movement) and the engine's authoritative lastMoves — the same
-    // inputs live play and the history replay already pass for death
-    // markers, so both render paths get rotated icons for free.
+    // Facing inputs for the head-icon rotation: the WIRE facing on each
+    // snake is authoritative (live AND replay — holds keep it); the
+    // previous board (last actual movement) and the engine's lastMoves are
+    // only the legacy-doc fallback — the same inputs live play and the
+    // history replay already pass for death markers, so both render paths
+    // get rotated icons for free.
     const previousBoardForFacing = options?.previousBoard || null;
     const lastMovesForFacing = options?.lastMoves || gameState?.lastMoves || null;
 
@@ -2349,8 +2360,10 @@ const BoardRenderer = (function () {
     const deadIds = new Set(deadSnakes.map((s) => s.id));
     const allSnakes = snakes.concat(deadSnakes);
     // Facing for the row icons (same shared derivation as the board head
-    // glyphs); callers that pass no previousBoard/lastMoves — or pages
-    // without keynav-machine.js — get unrotated (12:00) icons.
+    // glyphs): the WIRE facing rotates the icon whenever the snake carries
+    // one; previousBoard/lastMoves only feed the legacy fallback, so
+    // callers that omit them — or pages without keynav-machine.js — still
+    // get unrotated (12:00) icons only for facing-less legacy units.
     const previousBoardForFacing = (options && options.previousBoard) || null;
     const lastMovesForFacing =
       (options && options.lastMoves) || gameState.lastMoves || null;

@@ -220,6 +220,33 @@ describe('buildGameState with chess pieces', () => {
     expect(snakeA.facing).toBeUndefined();
   });
 
+  // Owner's wire-orientation rework: the engine stamps Turn.unitFacing for
+  // EVERY unit in piece games (centre-facing at spawn, moved direction
+  // after; holds keep it), and translate forwards it verbatim for all of
+  // them — the UI anchors icon rotation and keyNav on this wire facing.
+  it('populates facing for EVERY unit present in turn.unitFacing, verbatim', () => {
+    const turn = makeTurn({
+      playerPieces: {
+        centA: [idx(1, 1), idx(1, 2)],
+        'centA#2': [idx(5, 4), idx(5, 4), idx(5, 4)],
+        centB: [idx(3, 1)],
+        'centB#2': [idx(2, 4)],
+      },
+      unitFacing: {
+        centA: { dx: 0, dy: -1 }, // snake: head-neck direction
+        'centA#2': { dx: 1, dy: 0 }, // pawn: rotation-controlled
+        centB: { dx: 0, dy: 1 }, // rook: last moved direction
+        'centB#2': { dx: -1, dy: 0 }, // snake
+      },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+    expect(byId.get('centA')!.facing).toEqual({ dx: 0, dy: -1 });
+    expect(byId.get('centA#2')!.facing).toEqual({ dx: 1, dy: 0 });
+    expect(byId.get('centB')!.facing).toEqual({ dx: 0, dy: 1 });
+    expect(byId.get('centB#2')!.facing).toEqual({ dx: -1, dy: 0 });
+  });
+
   it('turn.unitTypes overrides the setup type (pawn promotion mid-game)', () => {
     const turn = makeTurn({
       unitTypes: { 'centA#2': 'queen' },

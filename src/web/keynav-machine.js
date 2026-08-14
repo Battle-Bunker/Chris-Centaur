@@ -12,8 +12,10 @@
  * The cursor state is {axis, distance}:
  *   - axis is a direction vector {dx, dy} in api board coords (y grows
  *     upward) drawn from the unit's axis ring, or the sentinel TWELVE — the
- *     "12:00" hold state, where no directional axis is retained and the
- *     conceptual pointer sits straight up.
+ *     "12:00" state for a unit whose facing is genuinely UNKNOWN (legacy
+ *     turn 0), where no directional axis is retained and the conceptual
+ *     pointer sits straight up. A unit with a known wire facing at hold
+ *     keeps that facing as its axis — hold does not mean 12:00.
  *   - distance 0 means the hold (stay) candidate; >= 1 means axis·distance.
  *
  * Owner-confirmed semantics implemented here:
@@ -23,7 +25,10 @@
  *     STRICTLY clockwise of 12:00, arrow Left the first strictly
  *     counter-clockwise (an axis exactly at 12:00 is a full turn away in
  *     either direction, so it is only chosen when it is the sole legal axis).
- *   - Numpad 5 (hold) resets the axis to TWELVE.
+ *   - Numpad 5 (hold) resets the axis to the unit's WIRE orientation
+ *     (ctx.facing — its turn-start engine facing, which the engine
+ *     preserves across holds): selecting hold means "no change", not a
+ *     snap to 12:00. TWELVE only when the facing is unknown.
  *   - Numpad opposite-key retraction that reaches hold FLIPS the axis to the
  *     direction of travel (the pressed key), so further presses of the same
  *     key extend out the far side. This is the only way to cross hold.
@@ -34,15 +39,26 @@
  *     legal axis clockwise of 12:00 (the same axis Right would pick) — for
  *     EVERY unit, snakes included: a turn-0 snake's Up selects the board-up
  *     move. Snakes still cannot hold, so their Down at distance 1 flashes.
- *   - FACING (owner's universal-facing redesign): every unit has a facing —
- *     the direction of its LAST actual movement, 12:00 on turn 0 or when it
- *     held. Facing and the keyNav current axis are the same concept, so the
- *     axis seeds as: selected candidate → staged move → facing → 12:00
- *     (deriveFacing + seedNav below). Pawns' ENGINE facing (Snake.facing on
- *     the wire) is authoritative — a diagonal step does not change it.
+ *   - FACING (owner's universal-facing redesign, anchored on the WIRE): the
+ *     engine now stamps an orientation for EVERY unit in piece games
+ *     (Turn.unitFacing → Snake.facing): every unit spawns facing toward
+ *     the board centre (chosen from its type's legal facing set, ties
+ *     randomized engine-side — turn-0 wire facing is ALWAYS present);
+ *     after each turn it is the normalized moved direction (knight: the
+ *     exact L-offset; snake: head-neck), pawns turn ONLY via their
+ *     rotation action, and HOLDS KEEP the facing. That wire orientation at
+ *     turn start is what the UI anchors on — icon rotation and the keyNav
+ *     axis alike. Facing and the keyNav current axis are the same concept,
+ *     so the axis seeds as: selected candidate → staged move →
+ *     facing(wire) → 12:00-fallback (deriveFacing + seedNav below). Only
+ *     LEGACY docs lacking unitFacing (snake-only or pre-feature games)
+ *     fall back to last-move derivation; the 12:00/TWELVE state is a
+ *     LEGACY FALLBACK for a genuinely unknown facing, not a gameplay
+ *     state — wire-facing-present units never touch it.
  *
  * Transitions take a context describing the unit's live legality:
- *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null }
+ *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null,
+ *     facing: axis|null (the unit's wire orientation, deriveFacing) }
  * and return { ok: false } (caller flashes "unavailable") or
  * { ok: true, axis, distance } (caller selects the candidate there).
  */
@@ -144,27 +160,48 @@
   const ok = (axis, distance) => ({ ok: true, axis, distance });
   const unavailable = () => ({ ok: false });
 
-  // Universal FACING for a unit, as an api-coord axis from its ring, or null
-  // for the 12:00 state (turn 0 / just spawned / the unit held last turn).
-  // The ONE shared derivation for keyNav axis seeding AND board icon
-  // rotation, live and replay:
-  //   - PAWNS: the ENGINE facing (Snake.facing, wire convention: dy grows
-  //     DOWNWARD) is authoritative for legality and display — a diagonal
-  //     step does not change engine facing, so UI last-move derivation must
-  //     not diverge from it.
-  //   - Everything else: the engine's authoritative lastMoves direction when
-  //     present (snakes), else the direction of last actual movement —
-  //     previous head → current head from the previous board. Knights keep
-  //     the raw L-offset (their axes ARE the L-offsets); sliders normalize
-  //     to a unit axis.
+  // The unit's ENGINE orientation (Snake.facing, wire convention: dy grows
+  // DOWNWARD) as an api-coord axis, or null when the wire carries none
+  // (legacy docs without unitFacing) or it is degenerate. Knights keep the raw
+  // L-offset — their axes ARE the L-offsets; everything else collapses to a
+  // unit axis (the wire is already normalized for them; Math.sign is belt
+  // and braces).
+  function wireFacingToApi(unit) {
+    const f = unit && unit.facing;
+    if (!f || (!f.dx && !f.dy)) return null;
+    if (unit.unitType === 'knight') return { dx: f.dx, dy: -f.dy };
+    // (`f.dy ? … : 0` sidesteps the -0 that -Math.sign(0) would produce.)
+    return { dx: Math.sign(f.dx), dy: f.dy ? -Math.sign(f.dy) : 0 };
+  }
+
+  // Universal FACING for a unit, as an api-coord axis, or null only when the
+  // facing is genuinely unknown (effectively turn 0 of a legacy doc). The
+  // ONE shared derivation for keyNav axis seeding AND board icon rotation,
+  // live and replay:
+  //   - WIRE FIRST: the engine's Snake.facing (Turn.unitFacing, wire
+  //     convention: dy grows DOWNWARD) is authoritative for EVERY unit when
+  //     present — the engine stamps it per turn for all units in piece
+  //     games and PRESERVES it across holds, so a held unit keeps its
+  //     orientation (no forced 12:00). Knights keep the raw L-offset (their
+  //     axes ARE the L-offsets); everything else normalizes to a unit axis.
+  //   - Pawns have no fallback beyond the wire: their facing changes ONLY
+  //     via the rotation action, so last-move derivation must never apply.
+  //   - LEGACY fallback (docs without unitFacing — snake-only or
+  //     pre-feature games): the engine's
+  //     lastMoves direction when present, else the direction of last actual
+  //     movement — previous head → current head from the previous board.
+  //   - null (12:00) only when none of the above exists.
+  // A wire facing outside the unit's ring (a knight's L-offset after
+  // promotion to a slider cannot happen today, but the machine does not
+  // assume it): the axis simply behaves like any not-in-ring axis — arrow
+  // Left/Right sweep from 12:00 to the nearest legal axis (axisFromTwelve,
+  // the same bishop-style clockwise fallback) and Up flashes, so seeding
+  // degrades to the nearest legal axis per the existing ring logic.
   function deriveFacing(unit, previousBoard, lastMoves) {
     if (!unit) return null;
-    if (unit.unitType === 'pawn') {
-      const f = unit.facing;
-      if (!f || (!f.dx && !f.dy)) return null;
-      // Wire facing has y growing downward; api y grows upward.
-      return { dx: Math.sign(f.dx), dy: -Math.sign(f.dy) };
-    }
+    const wire = wireFacingToApi(unit);
+    if (wire) return wire;
+    if (unit.unitType === 'pawn') return null; // engine facing only — never last-move
     const lastMove = lastMoves && unit.id != null ? lastMoves[unit.id] : null;
     if (lastMove && DIRECTION_AXES[lastMove]) return DIRECTION_AXES[lastMove];
     const head = unit.head || (unit.body && unit.body[0]) || null;
@@ -172,10 +209,10 @@
       ? previousBoard.snakes.find((s) => s.id === unit.id)
       : null;
     const prevHead = prev ? prev.head || (prev.body && prev.body[0]) || null : null;
-    if (!head || !prevHead) return null; // turn 0 / just appeared → 12:00
+    if (!head || !prevHead) return null; // legacy turn 0 / just appeared → 12:00
     const dx = head.x - prevHead.x;
     const dy = head.y - prevHead.y;
-    if (!dx && !dy) return null; // held (didn't move) → 12:00
+    if (!dx && !dy) return null; // legacy doc, didn't move → facing unknown
     if (unit.unitType === 'knight') return { dx, dy };
     return { dx: Math.sign(dx), dy: Math.sign(dy) };
   }
@@ -230,7 +267,8 @@
         // the unit; otherwise (e.g. bishop) it falls back to the first
         // legal axis clockwise of 12:00 — the axis Right would pick. The
         // facing-relative pad applies to EVERY unit: a snake at TWELVE
-        // (turn 0, or held facing) gets the board-up move from Up too.
+        // (legacy turn 0 — wire games always carry a facing) gets the
+        // board-up move from Up too.
         const straightUp = ctx.ring.find((a) => a.dx === 0 && a.dy === 1);
         const axis = straightUp && ctx.maxDist(straightUp) >= 1
           ? straightUp
@@ -251,7 +289,11 @@
   function numpadStep(state, digit, ctx) {
     if (digit === 5) {
       if (!ctx.canHold) return unavailable();
-      return ok(TWELVE, 0); // selecting hold resets the axis to 12:00
+      // Selecting hold resets the keyNav axis to the unit's WIRE orientation
+      // (turn-start facing, ctx.facing) — "no change", identical for pawns
+      // and every other piece; holding does NOT reset orientation to 12:00.
+      // TWELVE remains only for a genuinely unknown facing (legacy turn 0).
+      return ok(ctx.facing || TWELVE, 0);
     }
     const axis = ctx.axisFor(digit);
     if (!axis || !ctx.ring.some((a) => axisEq(a, axis))) {
