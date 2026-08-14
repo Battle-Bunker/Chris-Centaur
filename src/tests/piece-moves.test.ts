@@ -18,7 +18,7 @@ const idx = (x: number, y: number) => toIndex(x, y, W);
 // Piece parked mid-board.
 const ORIGIN = idx(6, 6);
 
-// Every plan takes the unit's facing; only the pawn's gates legality, so the
+// Every plan takes the unit's orientation; only the pawn's gates legality, so the
 // non-pawn tests share this one.
 const F = { dx: 1, dy: 0 };
 
@@ -92,51 +92,51 @@ describe('planPieceAction — bishop / queen / knight / king', () => {
   });
 });
 
-describe('planPieceAction — pawn (facing, rotation encoding, diagonal-onto-target)', () => {
-  // Facing right (+x). Wire convention: y grows downward.
-  const facing = { dx: 1, dy: 0 };
+describe('planPieceAction — pawn (orientation, rotation encoding, diagonal-onto-target)', () => {
+  // Orientation right (+x). Wire convention: y grows downward.
+  const orientation = { dx: 1, dy: 0 };
 
   it('steps one square straight forward', () => {
-    expect(planPieceAction('pawn', ORIGIN, idx(7, 6), W, H, facing)).toEqual({
+    expect(planPieceAction('pawn', ORIGIN, idx(7, 6), W, H, orientation)).toEqual({
       kind: 'move',
       path: [idx(7, 6)],
     });
   });
 
   it('encodes a quarter rotation as staging the SIDE square (never a step for a pawn)', () => {
-    // dest below (y+1): dx=0=-facing.dy, dy=1=facing.dx → rotate to face down.
-    expect(planPieceAction('pawn', ORIGIN, idx(6, 7), W, H, facing)).toEqual({
+    // dest below (y+1): dx=0=-orientation.dy, dy=1=orientation.dx → rotate to face down.
+    expect(planPieceAction('pawn', ORIGIN, idx(6, 7), W, H, orientation)).toEqual({
       kind: 'rotate',
-      facing: { dx: 0, dy: 1 },
+      orientation: { dx: 0, dy: 1 },
     });
     // dest above (y-1): the opposite quarter turn.
-    expect(planPieceAction('pawn', ORIGIN, idx(6, 5), W, H, facing)).toEqual({
+    expect(planPieceAction('pawn', ORIGIN, idx(6, 5), W, H, orientation)).toEqual({
       kind: 'rotate',
-      facing: { dx: 0, dy: -1 },
+      orientation: { dx: 0, dy: -1 },
     });
   });
 
   it('never allows the square directly behind', () => {
-    expect(planPieceAction('pawn', ORIGIN, idx(5, 6), W, H, facing)).toBeNull();
+    expect(planPieceAction('pawn', ORIGIN, idx(5, 6), W, H, orientation)).toBeNull();
   });
 
   it('allows diagonal-forward ONLY onto a target square (food or unit)', () => {
     const diagUp = idx(7, 5);
     const diagDown = idx(7, 7);
     // No target set / target set without the square → illegal.
-    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, facing)).toBeNull();
-    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, facing, new Set([idx(9, 9)]))).toBeNull();
+    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, orientation)).toBeNull();
+    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, orientation, new Set([idx(9, 9)]))).toBeNull();
     // Square holds food or a unit at turn start → legal single step.
-    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, facing, new Set([diagUp]))).toEqual({
+    expect(planPieceAction('pawn', ORIGIN, diagUp, W, H, orientation, new Set([diagUp]))).toEqual({
       kind: 'move',
       path: [diagUp],
     });
-    expect(planPieceAction('pawn', ORIGIN, diagDown, W, H, facing, new Set([diagDown]))).toEqual({
+    expect(planPieceAction('pawn', ORIGIN, diagDown, W, H, orientation, new Set([diagDown]))).toEqual({
       kind: 'move',
       path: [diagDown],
     });
     // Diagonal-BACKWARD is never legal, target or not.
-    expect(planPieceAction('pawn', ORIGIN, idx(5, 5), W, H, facing, new Set([idx(5, 5)]))).toBeNull();
+    expect(planPieceAction('pawn', ORIGIN, idx(5, 5), W, H, orientation, new Set([idx(5, 5)]))).toBeNull();
   });
 });
 
@@ -164,12 +164,12 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
 
   it('never diverges from planPieceAction over the whole board (every type)', () => {
     const pawnTargets = new Set([idx(7, 5)]);
-    const facing = { dx: 1, dy: 0 };
+    const orientation = { dx: 1, dy: 0 };
     for (const type of ['rook', 'bishop', 'knight', 'queen', 'king', 'pawn']) {
-      const cands = legalPieceDestinations(type, ORIGIN, W, H, facing, pawnTargets);
+      const cands = legalPieceDestinations(type, ORIGIN, W, H, orientation, pawnTargets);
       const byDest = new Map(cands.map((c) => [c.dest, c.action]));
       for (let dest = 0; dest < W * H; dest++) {
-        const action = planPieceAction(type, ORIGIN, dest, W, H, facing, pawnTargets);
+        const action = planPieceAction(type, ORIGIN, dest, W, H, orientation, pawnTargets);
         expect(byDest.get(dest) ?? null).toEqual(action);
       }
     }
@@ -213,8 +213,8 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
   });
 
   it('pawn: forward + two side-square rotations + stay, diagonal only onto a target', () => {
-    const facing = { dx: 1, dy: 0 };
-    const noTargets = legalPieceDestinations('pawn', ORIGIN, W, H, facing);
+    const orientation = { dx: 1, dy: 0 };
+    const noTargets = legalPieceDestinations('pawn', ORIGIN, W, H, orientation);
     // Forward, two rotations, stay — the empty diagonals are not offered.
     expect(noTargets).toHaveLength(4);
     expect(noTargets.find((c) => c.dest === ORIGIN)!.action).toEqual({ kind: 'stay' });
@@ -224,16 +224,16 @@ describe('legalPieceDestinations — the candidate enumerator', () => {
     });
     expect(noTargets.find((c) => c.dest === idx(6, 7))!.action).toEqual({
       kind: 'rotate',
-      facing: { dx: 0, dy: 1 },
+      orientation: { dx: 0, dy: 1 },
     });
     expect(noTargets.find((c) => c.dest === idx(6, 5))!.action).toEqual({
       kind: 'rotate',
-      facing: { dx: 0, dy: -1 },
+      orientation: { dx: 0, dy: -1 },
     });
 
     // A diagonal-forward target square adds exactly that candidate.
     const diag = idx(7, 5);
-    const withTarget = legalPieceDestinations('pawn', ORIGIN, W, H, facing, new Set([diag]));
+    const withTarget = legalPieceDestinations('pawn', ORIGIN, W, H, orientation, new Set([diag]));
     expect(withTarget).toHaveLength(5);
     expect(withTarget.find((c) => c.dest === diag)!.action).toEqual({
       kind: 'move',

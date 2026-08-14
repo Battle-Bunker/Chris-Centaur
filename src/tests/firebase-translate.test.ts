@@ -53,9 +53,9 @@ function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
       centB: [idx(3, 1)],
       'centB#2': [idx(2, 4)],
     },
-    // Every unit carries a facing (wire coords, y down): head-minus-neck
-    // for the multi-cell snakes, centre-facing for the single-cell units.
-    unitFacing: {
+    // Every unit carries an orientation (wire coords, y down): head-minus-neck
+    // for the multi-cell snakes, pointed at the centre for the single-cell units.
+    orientation: {
       centA: { dx: 0, dy: -1 },
       'centA#2': { dx: 0, dy: 1 },
       centB: { dx: 0, dy: 1 },
@@ -102,10 +102,10 @@ describe('directionToMoveIndex', () => {
 });
 
 describe('continuationDirection', () => {
-  it('matches the engine default: step in the wire facing direction', () => {
+  it('matches the engine default: step along the wire orientation', () => {
     // Wire y grows downward, so wire dy -1 is api 'up'.
     const turn = makeTurn({
-      unitFacing: {
+      orientation: {
         centA: { dx: 0, dy: -1 },
         'centA#2': { dx: 0, dy: 1 },
         centB: { dx: -1, dy: 0 },
@@ -192,7 +192,7 @@ describe('buildGameState with chess pieces', () => {
       ],
     });
 
-  it('collapses a piece weight-stack to a 1-cell body with length = weight, attaching unitType and facing', () => {
+  it('collapses a piece weight-stack to a 1-cell body with length = weight, attaching unitType and orientation', () => {
     const turn = makeTurn({
       playerPieces: {
         centA: [idx(1, 1), idx(1, 2)],
@@ -201,7 +201,7 @@ describe('buildGameState with chess pieces', () => {
         centB: [idx(3, 1)],
         'centB#2': [idx(2, 4)],
       },
-      unitFacing: {
+      orientation: {
         centA: { dx: 0, dy: -1 },
         'centA#2': { dx: -1, dy: 0 },
         centB: { dx: 0, dy: 1 },
@@ -216,14 +216,14 @@ describe('buildGameState with chess pieces', () => {
     expect(pawn.body).toEqual([{ x: 4, y: 0 }]); // stack collapsed to one cell
     expect(pawn.head).toEqual({ x: 4, y: 0 });
     expect(pawn.length).toBe(3); // length = WEIGHT (stack size), not cell count
-    // Facing rides along verbatim (wire convention, y down).
-    expect(pawn.facing).toEqual({ dx: -1, dy: 0 });
+    // Orientation rides along verbatim (wire convention, y down).
+    expect(pawn.orientation).toEqual({ dx: -1, dy: 0 });
 
     const rook = byId.get('centB')!;
     expect(rook.unitType).toBe('rook');
     expect(rook.body).toEqual([{ x: 2, y: 3 }]);
     expect(rook.length).toBe(1);
-    expect(rook.facing).toEqual({ dx: 0, dy: 1 });
+    expect(rook.orientation).toEqual({ dx: 0, dy: 1 });
 
     // Snakes keep their multi-cell body and length = cell count, with the
     // explicit 'snake' unit type attached.
@@ -231,12 +231,12 @@ describe('buildGameState with chess pieces', () => {
     expect(snakeA.unitType).toBe('snake');
     expect(snakeA.body).toEqual([{ x: 0, y: 3 }, { x: 0, y: 2 }]);
     expect(snakeA.length).toBe(2);
-    expect(snakeA.facing).toEqual({ dx: 0, dy: -1 });
+    expect(snakeA.orientation).toEqual({ dx: 0, dy: -1 });
   });
 
-  // Turn.unitFacing carries a facing for EVERY unit; translate forwards it
-  // verbatim — the UI anchors icon rotation and keyNav on this wire facing.
-  it('every unit carries its wire facing verbatim', () => {
+  // Turn.orientation carries an orientation for EVERY unit; translate forwards it
+  // verbatim — the UI anchors icon rotation and keyNav on this wire orientation.
+  it('every unit carries its wire orientation verbatim', () => {
     const turn = makeTurn({
       playerPieces: {
         centA: [idx(1, 1), idx(1, 2)],
@@ -244,7 +244,7 @@ describe('buildGameState with chess pieces', () => {
         centB: [idx(3, 1)],
         'centB#2': [idx(2, 4)],
       },
-      unitFacing: {
+      orientation: {
         centA: { dx: 0, dy: -1 }, // snake: head-neck direction
         'centA#2': { dx: 1, dy: 0 }, // pawn: rotation-controlled
         centB: { dx: 0, dy: 1 }, // rook: last moved direction
@@ -253,10 +253,10 @@ describe('buildGameState with chess pieces', () => {
     });
     const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
     const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
-    expect(byId.get('centA')!.facing).toEqual({ dx: 0, dy: -1 });
-    expect(byId.get('centA#2')!.facing).toEqual({ dx: 1, dy: 0 });
-    expect(byId.get('centB')!.facing).toEqual({ dx: 0, dy: 1 });
-    expect(byId.get('centB#2')!.facing).toEqual({ dx: -1, dy: 0 });
+    expect(byId.get('centA')!.orientation).toEqual({ dx: 0, dy: -1 });
+    expect(byId.get('centA#2')!.orientation).toEqual({ dx: 1, dy: 0 });
+    expect(byId.get('centB')!.orientation).toEqual({ dx: 0, dy: 1 });
+    expect(byId.get('centB#2')!.orientation).toEqual({ dx: -1, dy: 0 });
   });
 
   it('turn.unitTypes overrides the setup type (pawn promotion mid-game)', () => {

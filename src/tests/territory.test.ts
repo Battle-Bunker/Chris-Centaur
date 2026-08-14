@@ -24,7 +24,7 @@ describe('Territory Calculation Tests', () => {
         height: 11,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake1',
             name: 'Snake 1',
             health: 100,
@@ -45,7 +45,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'snake1',
         name: 'Snake 1',
         health: 100,
@@ -110,7 +110,7 @@ describe('Territory Calculation Tests', () => {
         height: 7,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake1',
             name: 'Snake 1',
             health: 100,
@@ -127,7 +127,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#FF0000', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake2',
             name: 'Snake 2',
             health: 100,
@@ -148,7 +148,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'snake1',
         name: 'Snake 1',
         health: 100,
@@ -213,7 +213,7 @@ describe('Territory Calculation Tests', () => {
         height: 11,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'our-snake',
             name: 'Our Snake',
             health: 100,
@@ -230,7 +230,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#FFD700', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'enemy-1',
             name: 'Enemy 1',
             health: 95,
@@ -247,7 +247,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#FF0000', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'enemy-2',
             name: 'Enemy 2',
             health: 90,
@@ -264,7 +264,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#0000FF', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'enemy-3',
             name: 'Enemy 3',
             health: 85,
@@ -285,7 +285,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'our-snake',
         name: 'Our Snake',
         health: 100,
@@ -354,7 +354,7 @@ describe('Territory Calculation Tests', () => {
         height: 7,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake1',
             name: 'Snake 1',
             health: 100,
@@ -371,7 +371,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#FF0000', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake2',
             name: 'Snake 2',
             health: 100,
@@ -396,7 +396,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'snake1',
         name: 'Snake 1',
         health: 100,
@@ -461,7 +461,7 @@ describe('Territory Calculation Tests', () => {
         height: 5,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake1',
             name: 'Snake 1',
             health: 100,
@@ -478,7 +478,7 @@ describe('Territory Calculation Tests', () => {
             customizations: { color: '#FF0000', head: 'default', tail: 'default' }
           },
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake2',
             name: 'Snake 2',
             health: 100,
@@ -499,7 +499,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'snake1',
         name: 'Snake 1',
         health: 100,
@@ -591,7 +591,7 @@ describe('Territory Calculation Tests', () => {
         height: 7,
         snakes: [
           {
-            facing: { dx: 0, dy: -1 },
+            orientation: { dx: 0, dy: -1 },
             id: 'snake1',
             name: 'Snake 1',
             health: 100,
@@ -616,7 +616,7 @@ describe('Territory Calculation Tests', () => {
         hazards: []
       },
       you: {
-        facing: { dx: 0, dy: -1 },
+        orientation: { dx: 0, dy: -1 },
         id: 'snake1',
         name: 'Snake 1',
         health: 100,

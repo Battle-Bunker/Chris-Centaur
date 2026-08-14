@@ -74,12 +74,12 @@ export interface TTTurn {
   unitTypes?: Record<string, TTUnitType>;
   // Orientation for EVERY unit in EVERY game, per turn (full-board wire
   // convention, y down). Spawn: every unit faces toward the board centre
-  // (chosen from its type's legal facing set, ties randomized engine-side).
+  // (chosen from its type's legal orientation set, ties randomized engine-side).
   // After each turn: the normalized moved direction (knight: the exact
-  // L-offset, e.g. {1,-2}; snake: head-neck) — except pawns, whose facing
-  // changes ONLY via their rotation action. Holds KEEP the facing; dead
+  // L-offset, e.g. {1,-2}; snake: head-neck) — except pawns, whose orientation
+  // changes ONLY via their rotation action. Holds KEEP the orientation; dead
   // units drop from the map.
-  unitFacing: Record<string, { dx: number; dy: number }>;
+  orientation: Record<string, { dx: number; dy: number }>;
   // Squares each chess piece actually traversed this turn (snakes excluded).
   paths?: Record<string, number[]>;
   fertileTiles?: number[];

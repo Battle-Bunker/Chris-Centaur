@@ -8,7 +8,7 @@
 // y grows downward — the wire convention). Callers convert from the engine's
 // api coords with the translate helpers (apiCoordToIndex / toApiCoord).
 
-export interface Facing {
+export interface Orientation {
   dx: number;
   dy: number;
 }
@@ -30,19 +30,19 @@ export const toIndex = (x: number, y: number, boardWidth: number): number => y *
 export const isInterior = (x: number, y: number, boardWidth: number, boardHeight: number): boolean =>
   x >= 1 && x <= boardWidth - 2 && y >= 1 && y <= boardHeight - 2;
 
-const ORTHOGONALS: Facing[] = [
+const ORTHOGONALS: Orientation[] = [
   { dx: 1, dy: 0 },
   { dx: -1, dy: 0 },
   { dx: 0, dy: 1 },
   { dx: 0, dy: -1 },
 ];
-const DIAGONALS: Facing[] = [
+const DIAGONALS: Orientation[] = [
   { dx: 1, dy: 1 },
   { dx: 1, dy: -1 },
   { dx: -1, dy: 1 },
   { dx: -1, dy: -1 },
 ];
-const KNIGHT_OFFSETS: Facing[] = [
+const KNIGHT_OFFSETS: Orientation[] = [
   { dx: 1, dy: 2 },
   { dx: 2, dy: 1 },
   { dx: 2, dy: -1 },
@@ -53,13 +53,13 @@ const KNIGHT_OFFSETS: Facing[] = [
   { dx: -1, dy: 2 },
 ];
 
-// The legal facing-direction set per unit type: the directions a unit's
+// The legal orientation set per unit type: the directions a unit's
 // orientation can ever take (snake/rook/pawn: the 4 orthogonals; bishop:
 // the 4 diagonals; queen/king: all 8; knight: its 8 L-offsets). The keyNav
 // axis rings (src/web/keynav-machine.js) are these sets y-flipped to api
 // coords and sorted clockwise from up; keynav-machine.test.ts asserts the
 // parity.
-export const facingDirections = (type: string): Facing[] => {
+export const legalOrientations = (type: string): Orientation[] => {
   switch (type) {
     case 'bishop':
       return DIAGONALS;
@@ -76,7 +76,7 @@ export const facingDirections = (type: string): Facing[] => {
 export type PieceAction =
   | { kind: 'stay' }
   | { kind: 'move'; path: number[] }
-  | { kind: 'rotate'; facing: Facing };
+  | { kind: 'rotate'; orientation: Orientation };
 
 /**
  * Plans a piece's staged destination into an action.
@@ -94,7 +94,7 @@ export const planPieceAction = (
   dest: number,
   boardWidth: number,
   boardHeight: number,
-  facing: Facing,
+  orientation: Orientation,
   pawnTargets?: Set<number>,
 ): PieceAction | null => {
   if (dest === origin) return { kind: 'stay' };
@@ -126,14 +126,14 @@ export const planPieceAction = (
         ? { kind: 'move', path: rayPath(o, d, boardWidth) }
         : null;
     case 'pawn': {
-      if (dx === facing.dx && dy === facing.dy) return { kind: 'move', path: [dest] };
+      if (dx === orientation.dx && dy === orientation.dy) return { kind: 'move', path: [dest] };
       // Side squares: a full-turn quarter rotation toward that side.
-      if ((dx === -facing.dy && dy === facing.dx) || (dx === facing.dy && dy === -facing.dx)) {
-        return { kind: 'rotate', facing: { dx, dy } };
+      if ((dx === -orientation.dy && dy === orientation.dx) || (dx === orientation.dy && dy === -orientation.dx)) {
+        return { kind: 'rotate', orientation: { dx, dy } };
       }
       // Diagonal-forward: attack/eat only.
-      const diag1 = { dx: facing.dx - facing.dy, dy: facing.dy + facing.dx };
-      const diag2 = { dx: facing.dx + facing.dy, dy: facing.dy - facing.dx };
+      const diag1 = { dx: orientation.dx - orientation.dy, dy: orientation.dy + orientation.dx };
+      const diag2 = { dx: orientation.dx + orientation.dy, dy: orientation.dy - orientation.dx };
       if ((dx === diag1.dx && dy === diag1.dy) || (dx === diag2.dx && dy === diag2.dy)) {
         return pawnTargets?.has(dest) ? { kind: 'move', path: [dest] } : null;
       }
@@ -146,7 +146,7 @@ export const planPieceAction = (
 
 // One legal candidate for a piece this turn: the destination's FULL-BOARD
 // index plus the action staging it would plan (stay / move-with-path /
-// rotate-with-facing).
+// rotate-with-orientation).
 export interface PieceCandidate {
   dest: number;
   action: PieceAction;
@@ -166,14 +166,14 @@ export const legalPieceDestinations = (
   origin: number,
   boardWidth: number,
   boardHeight: number,
-  facing: Facing,
+  orientation: Orientation,
   pawnTargets?: Set<number>,
 ): PieceCandidate[] => {
   const candidates: PieceCandidate[] = [];
   for (let y = 1; y <= boardHeight - 2; y++) {
     for (let x = 1; x <= boardWidth - 2; x++) {
       const dest = toIndex(x, y, boardWidth);
-      const action = planPieceAction(type, origin, dest, boardWidth, boardHeight, facing, pawnTargets);
+      const action = planPieceAction(type, origin, dest, boardWidth, boardHeight, orientation, pawnTargets);
       if (action) candidates.push({ dest, action });
     }
   }

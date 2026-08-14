@@ -3,24 +3,27 @@
  * (src/web/keynav-machine.js — shared verbatim with play-game.html).
  *
  * Pins the {axis, distance} semantics:
+ *   - the current axis is always a member of the type's legal axis ring (a
+ *     unit's orientation is always in its type's legal orientation set —
+ *     the engine invariant); ring walks exist only for candidate
+ *     availability, when a ring axis has no board-legal destination;
  *   - switching axis (arrow Left/Right or a numpad key from a different
  *     axis) resets distance to 1;
- *   - arrow Left/Right rotate the type's legal axis ring; an unusable
- *     current axis sweeps to the first legal axis clockwise (Right) /
- *     counter-clockwise (Left) of it;
- *   - arrow Up extends along the current axis (an unusable axis selects the
- *     first legal axis clockwise at distance 1); arrow Down retracts toward
- *     hold, keeping the axis, and never crosses it;
+ *   - arrow Left/Right rotate the type's legal axis ring, skipping
+ *     candidate-less axes;
+ *   - arrow Up extends along the current axis (a candidate-less axis
+ *     selects the first axis clockwise that has one, at distance 1); arrow
+ *     Down retracts toward hold, keeping the axis, and never crosses it;
  *   - numpad keys step a signed distance along the pressed axis — the
  *     opposite key retracts through hold and out the far side, flipping the
  *     axis to the direction of travel at the crossing; 5 selects hold and
- *     resets the axis to the wire facing;
+ *     resets the axis to the wire orientation;
  *   - pawn keys resolve through one table: forward, rotations, diagonal
  *     chords, retract-to-hold;
- *   - the axis rings derive from the same per-type legal facing sets as the
- *     engine (facingDirections in src/logic/piece-moves.ts).
+ *   - the axis rings derive from the same per-type legal orientation sets as the
+ *     engine (legalOrientations in src/logic/piece-moves.ts).
  */
-import { facingDirections } from '../logic/piece-moves';
+import { legalOrientations } from '../logic/piece-moves';
 
 const {
   ORTHO_AXES,
@@ -32,7 +35,7 @@ const {
   numpadStep,
   pawnStep,
   deriveFromOffset,
-  facingOf,
+  orientationOf,
   seedNav,
   ringFor,
   numpadAxisFor,
@@ -45,7 +48,7 @@ type StepResult = { ok: boolean; axis?: Axis; distance?: number };
 const akey = (a: Axis) => `${a.dx},${a.dy}`;
 
 // Context builder: per-axis reach comes from `dist` (keyed "dx,dy"), falling
-// back to `defaultDist` (0 = axis illegal). `facing` is the unit's wire
+// back to `defaultDist` (0 = axis illegal). `orientation` is the unit's wire
 // orientation as an api axis.
 function makeCtx(
   unitType: string | undefined,
@@ -53,7 +56,7 @@ function makeCtx(
     dist?: Record<string, number>;
     defaultDist?: number;
     canHold?: boolean;
-    facing?: Axis;
+    orientation?: Axis;
   } = {}
 ) {
   return {
@@ -62,7 +65,7 @@ function makeCtx(
       opts.dist && akey(a) in opts.dist ? opts.dist[akey(a)] : (opts.defaultDist ?? 0),
     canHold: opts.canHold ?? true,
     axisFor: (digit: number) => numpadAxisFor(unitType, digit),
-    facing: opts.facing ?? { dx: 0, dy: 1 },
+    orientation: opts.orientation ?? { dx: 0, dy: 1 },
   };
 }
 
@@ -73,7 +76,7 @@ const okStep = (axis: Axis, distance: number): StepResult => ({
   distance,
 });
 
-describe('axis rings derive from the engine facing sets', () => {
+describe('axis rings derive from the engine orientation sets', () => {
   // The clockwise-from-up screen order the rings are sorted into.
   const cwFromUp = (a: Axis) => {
     const ang = Math.atan2(a.dx, a.dy);
@@ -88,8 +91,8 @@ describe('axis rings derive from the engine facing sets', () => {
     ['queen', ALL_AXES],
     ['king', ALL_AXES],
     ['knight', KNIGHT_AXES],
-  ])('%s ring = facingDirections y-flipped, sorted clockwise from up', (type, ring) => {
-    const derived = facingDirections(type as string)
+  ])('%s ring = legalOrientations y-flipped, sorted clockwise from up', (type, ring) => {
+    const derived = legalOrientations(type as string)
       .map((f) => ({ dx: f.dx, dy: -f.dy || 0 }))
       .sort((a, b) => cwFromUp(a) - cwFromUp(b));
     expect(ring).toEqual(derived);
@@ -148,15 +151,15 @@ describe('axis rings derive from the engine facing sets', () => {
   });
 });
 
-describe('facingOf: wire facing → api axis', () => {
+describe('orientationOf: wire orientation → api axis', () => {
   test('flips the y axis (wire y grows downward)', () => {
-    expect(facingOf({ unitType: 'queen', facing: { dx: 1, dy: 1 } })).toEqual({ dx: 1, dy: -1 });
-    expect(facingOf({ unitType: 'rook', facing: { dx: 0, dy: -1 } })).toEqual({ dx: 0, dy: 1 });
-    expect(facingOf({ unitType: 'snake', facing: { dx: -1, dy: 0 } })).toEqual({ dx: -1, dy: 0 });
+    expect(orientationOf({ unitType: 'queen', orientation: { dx: 1, dy: 1 } })).toEqual({ dx: 1, dy: -1 });
+    expect(orientationOf({ unitType: 'rook', orientation: { dx: 0, dy: -1 } })).toEqual({ dx: 0, dy: 1 });
+    expect(orientationOf({ unitType: 'snake', orientation: { dx: -1, dy: 0 } })).toEqual({ dx: -1, dy: 0 });
   });
 
-  test('a knight facing keeps the exact L-offset (its axes ARE the L-offsets)', () => {
-    expect(facingOf({ unitType: 'knight', facing: { dx: 1, dy: -2 } })).toEqual({ dx: 1, dy: 2 });
+  test('a knight orientation keeps the exact L-offset (its axes ARE the L-offsets)', () => {
+    expect(orientationOf({ unitType: 'knight', orientation: { dx: 1, dy: -2 } })).toEqual({ dx: 1, dy: 2 });
   });
 });
 
@@ -181,25 +184,25 @@ describe('deriveFromOffset', () => {
   });
 });
 
-describe('seedNav: axis seeding priority (candidate → staged → facing)', () => {
-  const facing = { dx: -1, dy: 0 };
+describe('seedNav: axis seeding priority (candidate → staged → orientation)', () => {
+  const orientation = { dx: -1, dy: 0 };
   const staged = { dx: 0, dy: -1 };
 
-  test('a selected directional candidate wins over staged and facing', () => {
+  test('a selected directional candidate wins over staged and orientation', () => {
     const sel = { axis: { dx: 1, dy: 0 }, distance: 2 };
-    expect(seedNav(sel, staged, facing)).toEqual(sel);
+    expect(seedNav(sel, staged, orientation)).toEqual(sel);
   });
 
   test('a hold selection takes the staged move axis (distance untouched)', () => {
-    expect(seedNav({ axis: null, distance: 0 }, staged, facing)).toEqual({
+    expect(seedNav({ axis: null, distance: 0 }, staged, orientation)).toEqual({
       axis: staged,
       distance: 0,
     });
   });
 
-  test('with no staged axis the wire facing seeds the axis', () => {
-    expect(seedNav({ axis: null, distance: 0 }, null, facing)).toEqual({
-      axis: facing,
+  test('with no staged axis the wire orientation seeds the axis', () => {
+    expect(seedNav({ axis: null, distance: 0 }, null, orientation)).toEqual({
+      axis: orientation,
       distance: 0,
     });
   });
@@ -227,18 +230,12 @@ describe('arrow Left/Right rotate the legal axis ring', () => {
     expect(arrowStep(nav({ dx: 0, dy: 1 }, 0), 'right', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
   });
 
-  test('an unusable current axis sweeps to the first legal axis clockwise of IT', () => {
+  test('a candidate-less current axis rotates to the first legal axis past it', () => {
     // Rook whose current axis (up) is blocked: Right picks screen-right —
-    // the nearest legal axis clockwise of up — and Left picks screen-left.
+    // the next legal axis clockwise of up — and Left picks screen-left.
     const ctx = makeCtx('rook', { defaultDist: 2, dist: { '0,1': 0 } });
     expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
     expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'left', ctx)).toEqual(okStep({ dx: -1, dy: 0 }, 1));
-  });
-
-  test('an off-ring current axis sweeps the same way (bishop on an orthogonal)', () => {
-    const ctx = makeCtx('bishop', { defaultDist: 2 });
-    expect(arrowStep(nav({ dx: 0, dy: 1 }, 0), 'right', ctx)).toEqual(okStep({ dx: 1, dy: 1 }, 1));
-    expect(arrowStep(nav({ dx: 0, dy: 1 }, 0), 'left', ctx)).toEqual(okStep({ dx: -1, dy: 1 }, 1));
   });
 
   test('a sole legal axis is re-selected at distance 1 from either rotation', () => {
@@ -252,6 +249,14 @@ describe('arrow Left/Right rotate the legal axis ring', () => {
   test('no legal axes: unavailable', () => {
     const ctx = makeCtx('rook', { defaultDist: 0 });
     expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx).ok).toBe(false);
+  });
+
+  test('an off-ring current axis is impossible and throws (plain assertion, no recovery)', () => {
+    // Bishop on an orthogonal axis: no code path can produce this state.
+    const ctx = makeCtx('bishop', { defaultDist: 2 });
+    expect(() => arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx)).toThrow(
+      'off the legal axis ring'
+    );
   });
 });
 
@@ -272,13 +277,6 @@ describe('arrow Up/Down extend and retract', () => {
   test('Up on a blocked current axis selects the first legal axis clockwise at 1', () => {
     const ctx = makeCtx('rook', { defaultDist: 2, dist: { '0,1': 0 } });
     expect(arrowStep(nav(up, 0), 'up', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
-  });
-
-  test('Up on an off-ring current axis sweeps clockwise too (bishop)', () => {
-    // The reach is candidate-derived, so an orthogonal axis has none for a
-    // bishop.
-    const ctx = makeCtx('bishop', { defaultDist: 2, dist: { '0,1': 0 } });
-    expect(arrowStep(nav(up, 0), 'up', ctx)).toEqual(okStep({ dx: 1, dy: 1 }, 1));
   });
 
   test('Up with no legal axis at all is unavailable', () => {
@@ -354,19 +352,19 @@ describe('numpad: extend, retract, and the through-hold axis flip', () => {
   });
 });
 
-describe('numpad 5 selects hold and resets the axis to the wire facing', () => {
-  test('queen: 5 resets the axis to its wire facing ("no change")', () => {
-    const facing = { dx: -1, dy: -1 };
-    const ctx = makeCtx('queen', { defaultDist: 2, facing });
-    expect(numpadStep(nav({ dx: 1, dy: 1 }, 2), 5, ctx)).toEqual(okStep(facing, 0));
+describe('numpad 5 selects hold and resets the axis to the wire orientation', () => {
+  test('queen: 5 resets the axis to its wire orientation ("no change")', () => {
+    const orientation = { dx: -1, dy: -1 };
+    const ctx = makeCtx('queen', { defaultDist: 2, orientation });
+    expect(numpadStep(nav({ dx: 1, dy: 1 }, 2), 5, ctx)).toEqual(okStep(orientation, 0));
   });
 
-  test('after a 5-reset, Up extends forward along the wire facing', () => {
-    const facing = { dx: 1, dy: 0 };
-    const ctx = makeCtx('rook', { defaultDist: 3, facing });
+  test('after a 5-reset, Up extends forward along the wire orientation', () => {
+    const orientation = { dx: 1, dy: 0 };
+    const ctx = makeCtx('rook', { defaultDist: 3, orientation });
     const held = numpadStep(nav({ dx: 0, dy: 1 }, 2), 5, ctx);
-    expect(held).toEqual(okStep(facing, 0));
-    expect(arrowStep(nav(held.axis as Axis, 0), 'up', ctx)).toEqual(okStep(facing, 1));
+    expect(held).toEqual(okStep(orientation, 0));
+    expect(arrowStep(nav(held.axis as Axis, 0), 'up', ctx)).toEqual(okStep(orientation, 1));
   });
 
   test('is unavailable for units that cannot hold', () => {
@@ -395,20 +393,20 @@ describe('knight transitions over the L-ring', () => {
 });
 
 describe('snake pad: the invariants fall out of the general rules', () => {
-  // A mid-game snake facing RIGHT: its axis seeds to {1,0} at distance 0
+  // A mid-game snake orientation RIGHT: its axis seeds to {1,0} at distance 0
   // (nothing selected yet), its backward axis (left) has no candidate —
   // snakes cannot reverse — and it cannot hold. There is no snake branch in
   // the machine; everything below is a consequence of canHold:false and
   // maxDist ≤ 1.
   const right = { dx: 1, dy: 0 };
   const facingRightCtx = () =>
-    makeCtx(undefined, { defaultDist: 1, dist: { '-1,0': 0 }, canHold: false, facing: right });
+    makeCtx(undefined, { defaultDist: 1, dist: { '-1,0': 0 }, canHold: false, orientation: right });
 
-  test('Up from the facing seed selects the facing move at distance 1', () => {
+  test('Up from the orientation seed selects the orientation move at distance 1', () => {
     expect(arrowStep(nav(right, 0), 'up', facingRightCtx())).toEqual(okStep(right, 1));
   });
 
-  test('Left turns left from the facing: facing right → the up move', () => {
+  test('Left turns left from the orientation: orientation right → the up move', () => {
     expect(arrowStep(nav(right, 0), 'left', facingRightCtx())).toEqual(
       okStep({ dx: 0, dy: 1 }, 1)
     );
@@ -418,14 +416,14 @@ describe('snake pad: the invariants fall out of the general rules', () => {
     );
   });
 
-  test('Right turns right from the facing: facing right → the down move', () => {
+  test('Right turns right from the orientation: orientation right → the down move', () => {
     expect(arrowStep(nav(right, 0), 'right', facingRightCtx())).toEqual(
       okStep({ dx: 0, dy: -1 }, 1)
     );
   });
 
   test('the backward axis is skipped: two rotations pass over it', () => {
-    // Left twice from the facing lands on the down move — the backward
+    // Left twice from the orientation lands on the down move — the backward
     // (left) axis has no candidate and is skipped by the ring rotation.
     const first = arrowStep(nav(right, 0), 'left', facingRightCtx());
     const second = arrowStep(nav(first.axis as Axis, 1), 'left', facingRightCtx());
@@ -437,20 +435,20 @@ describe('snake pad: the invariants fall out of the general rules', () => {
     expect(arrowStep(nav(right, 0), 'down', facingRightCtx()).ok).toBe(false);
   });
 
-  test('Up at the selected facing move cannot extend further', () => {
+  test('Up at the selected orientation move cannot extend further', () => {
     expect(arrowStep(nav(right, 1), 'up', facingRightCtx()).ok).toBe(false);
   });
 });
 
 describe('pawn key table (pawnStep)', () => {
-  // A pawn facing up (api {0,1}): forward at {0,1}, rotations on the two
+  // A pawn orientation up (api {0,1}): forward at {0,1}, rotations on the two
   // perpendiculars, diagonal-forward candidates at {-1,1}/{1,1} when legal.
   const up = { dx: 0, dy: 1 };
   const pawnCtx = (opts: { dist?: Record<string, number>; canHold?: boolean } = {}) =>
     makeCtx('pawn', {
       dist: opts.dist ?? { '0,1': 1, '-1,0': 1, '1,0': 1 },
       canHold: opts.canHold ?? true,
-      facing: up,
+      orientation: up,
     });
 
   test('Up / numpad 8 select the forward move at distance 1', () => {
@@ -473,13 +471,13 @@ describe('pawn key table (pawnStep)', () => {
     expect(pawnStep(nav(up, 0), 6, false, pawnCtx())).toEqual(okStep({ dx: 1, dy: 0 }, 1));
   });
 
-  test("sides are the PAWN's left/right, not the screen's (facing left)", () => {
-    // Facing left (api {-1,0}): the pawn's left is screen-down, its right
+  test("sides are the PAWN's left/right, not the screen's (orientation left)", () => {
+    // Orientation left (api {-1,0}): the pawn's left is screen-down, its right
     // screen-up.
     const left = { dx: -1, dy: 0 };
     const ctx = makeCtx('pawn', {
       dist: { '-1,0': 1, '0,-1': 1, '0,1': 1 },
-      facing: left,
+      orientation: left,
     });
     expect(pawnStep(nav(left, 0), 'left', false, ctx)).toEqual(okStep({ dx: 0, dy: -1 }, 1));
     expect(pawnStep(nav(left, 0), 'right', false, ctx)).toEqual(okStep({ dx: 0, dy: 1 }, 1));
@@ -508,7 +506,7 @@ describe('pawn key table (pawnStep)', () => {
     expect(pawnStep(nav(up, 0), 2, false, pawnCtx()).ok).toBe(false);
   });
 
-  test('numpad 5 selects hold at the facing axis ("no change")', () => {
+  test('numpad 5 selects hold at the orientation axis ("no change")', () => {
     expect(pawnStep(nav({ dx: 1, dy: 0 }, 1), 5, false, pawnCtx())).toEqual(okStep(up, 0));
   });
 

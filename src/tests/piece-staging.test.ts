@@ -35,7 +35,7 @@ const fullIdx = (api: Coord) => apiCoordToIndex(api, FULL_W, FULL_H);
 function makeUnit(
   id: string,
   head: Coord,
-  opts: { unitType?: string; facing?: { dx: number; dy: number }; length?: number } = {}
+  opts: { unitType?: string; orientation?: { dx: number; dy: number }; length?: number } = {}
 ): Snake {
   const isPiece = !!opts.unitType && opts.unitType !== 'snake';
   const cells = isPiece ? 1 : opts.length ?? 3;
@@ -44,7 +44,7 @@ function makeUnit(
     body.push({ x: head.x, y: head.y - i });
   }
   const snake: Snake = {
-    facing: { dx: 0, dy: -1 },
+    orientation: { dx: 0, dy: -1 },
     id,
     name: id,
     latency: '0',
@@ -58,7 +58,7 @@ function makeUnit(
     customizations: { color: '#ffffff', head: 'default', tail: 'default' },
   };
   if (opts.unitType) snake.unitType = opts.unitType;
-  if (opts.facing) snake.facing = opts.facing;
+  if (opts.orientation) snake.orientation = opts.orientation;
   return snake;
 }
 
@@ -175,9 +175,9 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
 
   test('pawn: forward and diagonal-onto-food are legal; empty diagonal stages stay', () => {
     const gameId = 'g-piece-pawn';
-    // Facing +x on the wire (y down). Diagonal-forward squares in api coords
+    // Orientation +x on the wire (y down). Diagonal-forward squares in api coords
     // are (6,4) and (6,6).
-    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
     const food = [{ x: 6, y: 6 }];
     processPieceTurn(gameId, 'P', [pawn], 0, food);
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
@@ -259,7 +259,7 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
 
   test('pawn promotion refreshes the controlled unit type from the latest board', () => {
     const gameId = 'g-piece-promote';
-    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
     processPieceTurn(gameId, 'P', [pawn], 0);
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
     expect(cs.unitType).toBe('pawn');
@@ -392,9 +392,9 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
 
   test('pawn stub evaluations enumerate forward, rotations, stay, and diagonal-onto-food', () => {
     const gameId = 'g-stub-pawn';
-    // Wire facing +x (y down): forward api (6,5); rotations api (5,4)/(5,6);
+    // Wire orientation +x (y down): forward api (6,5); rotations api (5,4)/(5,6);
     // diagonal-forward api squares are (6,4) and (6,6).
-    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
     processPieceTurn(gameId, 'P', [pawn], 0, [{ x: 6, y: 6 }]);
 
     const evals = mgr.getGame(gameId)!.controlledSnakes.get('P')!.latestTurnData!.moveEvaluations;
@@ -457,7 +457,7 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
 
   test('staging a pawn side square records the rotation and projects it on the staged-move view', () => {
     const gameId = 'g-rotate';
-    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', facing: { dx: 1, dy: 0 } });
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
     processPieceTurn(gameId, 'P', [pawn], 0);
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
     cs.selectedBy = 'u1';
@@ -466,7 +466,7 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const side = fullIdx({ x: 5, y: 4 });
     mgr.setUserSelection(gameId, 'P', side);
     expect(cs.staged).toMatchObject({ turn: 0, move: side, source: 'manual' });
-    expect(cs.staged!.action).toEqual({ kind: 'rotate', facing: { dx: 0, dy: 1 } });
+    expect(cs.staged!.action).toEqual({ kind: 'rotate', orientation: { dx: 0, dy: 1 } });
 
     const view = mgr.getStagedMovesForGame(gameId)['P'];
     expect(view.requestedMove).toBe(side);

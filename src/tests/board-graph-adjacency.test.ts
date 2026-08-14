@@ -9,7 +9,7 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 
 function makeState(snakeBody: Coord[], width = 7, height = 7): GameState {
   const snake: Snake = {
-    facing: { dx: 0, dy: -1 },
+    orientation: { dx: 0, dy: -1 },
     id: 's1',
     name: 's1',
     health: 100,

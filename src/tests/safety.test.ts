@@ -18,7 +18,7 @@ describe('Safety Heuristics Tests', () => {
         width: 11,
         height: 11,
         snakes: [{
-          facing: { dx: 0, dy: -1 },
+          orientation: { dx: 0, dy: -1 },
           id: 'snake1',
           name: 'Edge Snake',
           health: 100,

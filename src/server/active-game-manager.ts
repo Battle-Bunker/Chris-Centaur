@@ -123,8 +123,8 @@ export interface StagedMove {
   // at commit so replays can distinguish a deliberate death from a bot mistake.
   readonly fatalConsented: boolean;
   // Chess pieces only: the PieceAction the staged destination planned to
-  // (stay / move-with-path / rotate-with-facing), captured at bind time — the
-  // only moment origin + facing are guaranteed to match the staged turn. Lets
+  // (stay / move-with-path / rotate-with-orientation), captured at bind time — the
+  // only moment origin + orientation are guaranteed to match the staged turn. Lets
   // the broadcast distinguish a pawn rotation from a one-square move. Absent
   // for snakes.
   readonly action?: PieceAction | null;
@@ -171,7 +171,7 @@ export interface StagedMoveView {
   color: string;
   source: string;
   fatal: boolean;
-  // Pawn rotation: the NEW facing (wire convention, dy grows downward) when
+  // Pawn rotation: the NEW orientation (wire convention, dy grows downward) when
   // the requested move is a side-square rotation; null/absent otherwise. The
   // client renders a rotation symbol on the pawn's cell instead of a
   // destination arrow. Flows to live broadcasts AND the persisted per-turn
@@ -1837,7 +1837,7 @@ export class ActiveGameManager {
   // goto (targets[0]) and manual (numeric destination from the candidate UI)
   // both funnel through here, so legality is decided by exactly one
   // planPieceAction call for every command source:
-  //  - a legal single move (ray/jump/step, pawn facing and
+  //  - a legal single move (ray/jump/step, pawn orientation and
   //    diagonal-only-onto-target rules included; a pawn's side square is the
   //    rotate encoding) → stage that square's index;
   //  - anything else → stage the piece's own square (= stay; the wire accepts
@@ -1882,7 +1882,7 @@ export class ActiveGameManager {
       destIdx,
       fullW,
       fullH,
-      you.facing,
+      you.orientation,
       pawnTargets
     );
     return {
@@ -1971,7 +1971,7 @@ export class ActiveGameManager {
     const fullH = board.height + 2;
     const originIdx = apiCoordToIndex(head, fullW, fullH);
     const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
-    return legalPieceDestinations(unitType, originIdx, fullW, fullH, you.facing, pawnTargets)
+    return legalPieceDestinations(unitType, originIdx, fullW, fullH, you.orientation, pawnTargets)
       .map(({ dest, action }) => ({
         move: dest,
         score: 0,
@@ -2312,9 +2312,9 @@ export class ActiveGameManager {
         source: requested.source,
         fatal,
         // Recorded at bind time (never recomputed here — this projection also
-        // runs after the board advanced, where origin/facing may no longer
+        // runs after the board advanced, where origin/orientation may no longer
         // match the staged turn).
-        rotation: requested.action?.kind === 'rotate' ? requested.action.facing : null,
+        rotation: requested.action?.kind === 'rotate' ? requested.action.orientation : null,
       };
     }
     return staged;

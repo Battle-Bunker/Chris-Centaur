@@ -1384,7 +1384,7 @@ export class TacticToesFirebaseInterface {
     // knowable from Firebase state (never from timers):
     //  - a confirmed staged move → that move;
     //  - provably nothing staged → the engine's deterministic default
-    //    (step in the facing direction). This inference is exact because ONLY
+    //    (step along its orientation). This inference is exact because ONLY
     //    this server can write this snake's privateMoves (Firestore rules):
     //    once the read-back has delivered its state and the manager holds no
     //    unconfirmed request that a retry could still land, no staged write

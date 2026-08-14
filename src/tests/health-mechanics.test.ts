@@ -33,7 +33,7 @@ function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake
     shout: '',
     squad: '',
     customizations: { color: '#FF0000', head: 'default', tail: 'default' },
-    facing: { dx: 0, dy: -1 },
+    orientation: { dx: 0, dy: -1 },
     ...extra
   };
 }

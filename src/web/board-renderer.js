@@ -66,15 +66,15 @@ const BoardRenderer = (function () {
     return dead;
   }
 
-  // ── Unit facing ──────────────────────────────────────────────────────────
-  // Every unit carries its WIRE orientation on Snake.facing (Turn.unitFacing,
-  // verbatim: full-board convention, dy grows DOWNWARD), and icons render
-  // rotated to it, live and replay.
-  // Screen rotation for a wire facing vector: clockwise radians from
+  // ── Unit orientation ─────────────────────────────────────────────────────
+  // Every unit carries its WIRE orientation on Snake.orientation
+  // (Turn.orientation, verbatim: full-board convention, dy grows DOWNWARD),
+  // and icons render rotated to it, live and replay.
+  // Screen rotation for a wire orientation vector: clockwise radians from
   // straight up. Both canvas rotate() (y down) and SVG rotate() treat
   // positive as clockwise on screen, so one formula serves both.
-  function facingRotationRad(facing) {
-    return Math.atan2(facing.dx, -facing.dy);
+  function orientationRad(orientation) {
+    return Math.atan2(orientation.dx, -orientation.dy);
   }
 
   // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
@@ -88,7 +88,7 @@ const BoardRenderer = (function () {
   // base; bishop = tall pointed mitre with a dark slash; rook = square
   // crenellations; king = big cross over a plain body; queen = spiky crown
   // with dots; knight = horse silhouette; snake = S-curve serpent.
-  // ORIENTATION: icons render ROTATED to the unit's facing, so every drawing
+  // ORIENTATION: icons render ROTATED to the unit's orientation, so every drawing
   // carries a discernible "nose" at its TOP — pawn: spiked helmet tip;
   // bishop: pointed mitre + ball; rook: crenellations; knight: upright ears;
   // queen: crown spikes; king: cross; snake: head with an upward forked
@@ -102,7 +102,7 @@ const BoardRenderer = (function () {
     pawn: [
       {
         // Spiked helmet tip (the "nose") over the round head: an upward
-        // point that makes the pawn's facing readable under rotation.
+        // point that makes the pawn's orientation readable under rotation.
         d:
           "M12 0.9 L14.1 4.9 L9.9 4.9 Z " +
           "M12 3.4 a3.2 3.2 0 1 0 0.001 0 Z " +
@@ -186,7 +186,7 @@ const BoardRenderer = (function () {
     ],
     snake: [
       // Head at top CENTER with an upward forked tongue (the "nose"), so the
-      // rotated icon points cleanly along the snake's facing; the S-body
+      // rotated icon points cleanly along the snake's orientation; the S-body
       // trails down to the tail at bottom-left.
       {
         d: "M6.4 20.6 C14 20.6 15.3 17.7 10.3 16.1 C5.9 14.7 6 10.9 10.4 9.8 C12.5 9.3 13.3 8.6 12.7 7.4",
@@ -219,7 +219,7 @@ const BoardRenderer = (function () {
   // Draw a unit icon centred at (cx, cy) with the given pixel size on a canvas.
   // Filled layers stroke their dark outline FIRST so the outline sits behind
   // the fill (bold mark, thin dark rim). `rotation` (clockwise screen
-  // radians, optional) spins the icon about its centre — the unit's facing.
+  // radians, optional) spins the icon about its centre — the unit's orientation.
   function drawUnitIcon(ctx, unitKey, cx, cy, size, rotation) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     ctx.save();
@@ -253,7 +253,7 @@ const BoardRenderer = (function () {
   // order matches drawUnitIcon exactly: the outline is emitted as a separate
   // stroke-only path BEFORE the fill path so it renders behind the fill.
   // `rotationDeg` (clockwise, optional) spins the icon about the viewBox
-  // centre — the same facing rotation the board head glyph gets.
+  // centre — the same orientation rotation the board head glyph gets.
   function unitIconSVG(unitKey, sizePx, rotationDeg) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     const parts = [];
@@ -303,15 +303,15 @@ const BoardRenderer = (function () {
 
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS) — ROTATED to the unit's wire facing
-  // (snake.facing). The unit's LETTER lives in its unit tag
+  // pieces (see UNIT_ICONS) — ROTATED to the unit's wire orientation
+  // (snake.orientation). The unit's LETTER lives in its unit tag
   // (renderUnitTags), not on the head. Pawns additionally carry their
-  // facing triangle (the one facing that gates move legality) and
+  // edge triangle (only the pawn's orientation gates move legality) and
   // staged-rotation badge; their weight shows in the unit tag. Only the
   // icon rotates: triangle, badge, tags and health bars stay
   // screen-aligned.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
-    const iconRotation = facingRotationRad(snake.facing);
+    const iconRotation = orientationRad(snake.orientation);
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
@@ -323,20 +323,21 @@ const BoardRenderer = (function () {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     if (snake.unitType) {
-      // Pawn facing: a small triangle hugging the faced cell edge. The wire
-      // facing has y growing DOWNWARD (full-board convention), which matches
-      // canvas rows exactly, so dx/dy apply to canvas offsets with no flip.
-      // PAWN-ONLY: every unit carries a wire facing, but only the pawn's
+      // Pawn orientation: a small triangle hugging the faced cell edge. The
+      // wire orientation has y growing DOWNWARD (full-board convention),
+      // which matches canvas rows exactly, so dx/dy apply to canvas offsets
+      // with no flip.
+      // PAWN-ONLY: every unit carries a wire orientation, but only the pawn's
       // gates move legality, so only pawns get the explicit edge marker —
       // other pieces show orientation through icon rotation alone.
       if (snake.unitType === "pawn") {
-        const fdx = snake.facing.dx;
-        const fdy = snake.facing.dy;
+        const fdx = snake.orientation.dx;
+        const fdy = snake.orientation.dy;
         const edgeX = cx + fdx * (cellSize / 2);
         const edgeY = cy + fdy * (cellSize / 2);
         const half = cellSize * 0.14; // triangle half-width along the edge
         const depth = cellSize * 0.16; // how far the base sits inside the cell
-        // Perpendicular of the facing vector spans the triangle's base.
+        // Perpendicular of the orientation vector spans the triangle's base.
         const px = -fdy;
         const py = fdx;
         ctx.fillStyle = "#ffffff";
@@ -354,12 +355,12 @@ const BoardRenderer = (function () {
       // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
       // mirror of the bottom-right weight badge) while a side-square rotation
       // is staged — the piece spends the turn turning, so no destination
-      // arrow is drawn. Both facing and the staged rotation use the wire
+      // arrow is drawn. Both orientation and the staged rotation use the wire
       // convention (y grows downward), which matches canvas rows: a positive
       // cross product is a clockwise (screen) quarter turn.
       const stagedRotation = glyphOpts && glyphOpts.stagedRotation;
       if (stagedRotation) {
-        const f = snake.facing;
+        const f = snake.orientation;
         let rotGlyph = "↻"; // ↻ clockwise
         if (f && (f.dx || f.dy)) {
           const cross = f.dx * stagedRotation.dy - f.dy * stagedRotation.dx;
@@ -2281,10 +2282,10 @@ const BoardRenderer = (function () {
     // Unit icon: the SAME drawn icon as the unit's board head glyph
     // (unitIconSVG shares its path data with drawUnitIcon), rendered white on
     // the unit's colour box so the row reads like the board cell — including
-    // the wire-facing rotation (opts.facing). Dead rows carry no facing and
-    // draw unrotated.
-    const facing = (opts && opts.facing) || null;
-    const rotationDeg = facing ? (facingRotationRad(facing) * 180) / Math.PI : 0;
+    // the wire-orientation rotation (opts.orientation). Dead rows carry no
+    // orientation and draw unrotated.
+    const orientation = (opts && opts.orientation) || null;
+    const rotationDeg = orientation ? (orientationRad(orientation) * 180) / Math.PI : 0;
     const unitIcon = unitIconSVG(snake.unitType || "snake", 14, rotationDeg);
     // Weight: the unit-generic size stat — body length for snakes, stack
     // weight for pieces.
@@ -2328,9 +2329,10 @@ const BoardRenderer = (function () {
     );
     const deadIds = new Set(deadSnakes.map((s) => s.id));
     const allSnakes = snakes.concat(deadSnakes);
-    // Facing for the row icons: the unit's wire facing, the same vector that
-    // rotates its board head glyph. Dead units carry no facing.
-    const facingFor = (snake) => (deadIds.has(snake.id) ? null : snake.facing);
+    // Orientation for the row icons: the unit's wire orientation, the same
+    // vector that rotates its board head glyph. Dead units carry no
+    // orientation.
+    const orientationFor = (snake) => (deadIds.has(snake.id) ? null : snake.orientation);
 
     if (!options || !options.groupByTeam) {
       container.innerHTML = allSnakes
@@ -2338,7 +2340,7 @@ const BoardRenderer = (function () {
           renderSnakeInfoItem(
             snake, ourSnakeId,
             { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null,
-              facing: facingFor(snake) },
+              orientation: orientationFor(snake) },
             currentTurn,
           ),
         )
@@ -2393,7 +2395,7 @@ const BoardRenderer = (function () {
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
               owner: ownersMap[snake.id] || null,
-              facing: facingFor(snake),
+              orientation: orientationFor(snake),
             }, currentTurn),
           )
           .join("");

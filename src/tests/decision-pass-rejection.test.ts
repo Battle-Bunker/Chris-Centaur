@@ -46,7 +46,7 @@ function makeTurn(): TTTurn {
       centB: [idx(5, 4), idx(5, 3)],
     },
     // Head-minus-neck for each snake (wire coords, y down).
-    unitFacing: {
+    orientation: {
       centA: { dx: 0, dy: -1 },
       centB: { dx: 0, dy: 1 },
     },

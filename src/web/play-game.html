@@ -1929,7 +1929,7 @@
       if (move == null) return;
 
       // Optimistic rotation flag for the echo: a pawn side-square candidate is
-      // a rotation, whose NEW facing (wire convention, y down) points from the
+      // a rotation, whose NEW orientation (wire convention, y down) points from the
       // pawn toward the side square (api y is flipped).
       let rotation = null;
       if (entry && entry.kind === 'rotate' && entry.position) {
@@ -2547,11 +2547,12 @@
     // stats table and Space-staging behave exactly as for a click.
     //
     //   4-arrow pad (facing-relative, WASD alike, for ALL units): the axis
-    //     seeds from the unit's wire facing (Snake.facing), so Up extends
-    //     FORWARD along the current axis (clamped at the last board-legal
-    //     ray square; an unusable axis sweeps to the first legal axis
-    //     clockwise at distance 1) and Left/Right TURN through the unit's
-    //     legal axis ring — switching axis resets the distance to 1 so the
+    //     seeds from the unit's wire orientation (Snake.orientation), so Up
+    //     extends FORWARD along the current axis (clamped at the last
+    //     board-legal ray square; an axis with no candidate selects the
+    //     first axis clockwise that has one, at distance 1) and Left/Right
+    //     TURN through the unit's legal axis ring — switching axis resets
+    //     the distance to 1 so the
     //     turn is visibly represented. Down retracts toward hold, keeping
     //     the axis, and never crosses it. Snakes cannot hold or reverse, so
     //     their Down flashes and their backward axis is unavailable.
@@ -2561,7 +2562,7 @@
     //     key selects its axis at distance 1 and repeat-extends; the
     //     OPPOSITE key retracts one per press, through hold and out the
     //     other side — crossing hold flips the axis to the direction of
-    //     travel. 5 selects hold AND resets the axis to the wire facing
+    //     travel. 5 selects hold AND resets the axis to the wire orientation
     //     ("no change"). Pawns: 7/9 diagonal-forward, 4/6 rotations, 8
     //     forward, 2 retract-to-hold, 1/3 flash.
     //
@@ -2609,21 +2610,21 @@
     // The unit's live legality context for KeyNavMachine transitions: its
     // type's axis ring, the candidate-derived per-axis reach, whether a
     // hold (stay) candidate exists this turn, and its wire orientation
-    // (turn-start engine facing) — numpad 5 resets the axis to it.
+    // — numpad 5 resets the axis to it.
     function keyNavCtx(unit) {
       return {
         ring: KeyNavMachine.ringFor(unit?.unitType),
         maxDist: maxDistAlong,
         canHold: !!holdCandidate(),
         axisFor: (digit) => KeyNavMachine.numpadAxisFor(unit?.unitType, digit),
-        facing: unitFacing(unit),
+        orientation: unitOrientation(unit),
       };
     }
 
     // {axis, distance} ← a selected candidate, so keyboard steering picks up
     // seamlessly from a click. Stay keeps the previous axis as memory (Up /
     // the same numpad key re-extends along it out of hold); with no memory
-    // seedNav fills in the wire facing.
+    // seedNav fills in the wire orientation.
     function deriveKeyNavFromSelection(move, prev) {
       const unit = getSelectedSnake();
       const head = selectedUnitHead();
@@ -2636,9 +2637,9 @@
       );
     }
 
-    // The unit's wire orientation (Snake.facing) as an api-coord axis.
-    function unitFacing(unit) {
-      return KeyNavMachine.facingOf(unit);
+    // The unit's wire orientation (Snake.orientation) as an api-coord axis.
+    function unitOrientation(unit) {
+      return KeyNavMachine.orientationOf(unit);
     }
 
     function keyNavState() {
@@ -2646,17 +2647,17 @@
       if (!moveState.keyNav) {
         // Initial axis seeding priority (KeyNavMachine.seedNav): the
         // currently SELECTED candidate → the STAGED move → the unit's wire
-        // FACING. The distance always reflects the actual selection — a
-        // hold selection with a directional staged move keeps distance 0
+        // ORIENTATION. The distance always reflects the actual selection —
+        // a hold selection with a directional staged move keeps distance 0
         // and carries the staged move's axis as memory; likewise an
-        // unselected unit starts at distance 0 on its facing axis, so arrow
-        // Up extends straight out along the facing.
+        // unselected unit starts at distance 0 on its orientation axis, so
+        // arrow Up extends straight out along the orientation.
         const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
         const nav = deriveKeyNavFromSelection(sel, null);
         const stagedAxis = selectedSnakeId
           ? deriveKeyNavFromSelection(stagedCandidate(selectedSnakeId), null).axis
           : null;
-        moveState.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitFacing(getSelectedSnake()));
+        moveState.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitOrientation(getSelectedSnake()));
       }
       return moveState.keyNav;
     }

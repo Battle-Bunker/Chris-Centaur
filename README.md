@@ -56,16 +56,16 @@ king) with snakes on the same board. The centaur supports them as a
 pragmatic v1:
 
 - **Rendering.** Every unit — snakes and pieces alike — draws its unit icon
-  rotated to its wire facing (`Turn.unitFacing`), live and in replay; pawns
-  additionally get a facing triangle on the faced cell edge (only the pawn's
-  facing gates move legality). A piece arrives from the wire as a 1-cell
+  rotated to its wire orientation (`Turn.orientation`), live and in replay; pawns
+  additionally get a triangle marker on the faced cell edge (only the pawn's
+  orientation gates move legality). A piece arrives from the wire as a 1-cell
   unit whose `length` is its weight (stack size), shown in its unit tag.
 - **Commanding.** Click a candidate square or steer with the keyboard
   (facing-relative arrows, absolute numpad — see the schema in
   `play-game.html`), then Space to stage; or right-click a destination
   square (the goto waypoint) — that IS the piece's staged move. If the
   target is a legal single move (mirroring the server's `pieceMoves.ts`
-  legality, including pawn facing, the side-square rotation encoding and
+  legality, including pawn orientation, the side-square rotation encoding and
   diagonal-only-onto-target), the destination's full-board index is staged
   and published through the normal requested → confirmed → final pipeline;
   anything illegal stages the piece's own square (= stay). Staging a pawn's

@@ -21,7 +21,7 @@ function makeSnake(id: string, head: Coord, length = 3): Snake {
     body.push({ x: head.x, y: head.y - i });
   }
   return {
-    facing: { dx: 0, dy: -1 },
+    orientation: { dx: 0, dy: -1 },
     id,
     name: id,
     latency: '0',

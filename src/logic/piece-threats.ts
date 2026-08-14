@@ -25,7 +25,7 @@
  *    deliberately NOT capped by the piece's health: a piece can overspend
  *    health on a long move and still kill in-flight before it dies.
  *  - knight: the 8 L-jumps; king: the 8 adjacent steps.
- *  - pawn: the faced square plus BOTH diagonal-forwards (from snake.facing,
+ *  - pawn: the faced square plus BOTH diagonal-forwards (from snake.orientation,
  *    wire convention — api cell of a wire delta d is {x + d.dx, y - d.dy}).
  *    Diagonals threaten regardless of current occupancy: occupancy can change
  *    under the pawn before the turn resolves.
@@ -175,7 +175,7 @@ export function pieceReachableIdx(piece: Snake, board: Board, occupied: Uint8Arr
       for (const [dx, dy] of [...ORTHO, ...DIAG]) push(x + dx, y + dy);
       break;
     case 'pawn': {
-      const f = piece.facing;
+      const f = piece.orientation;
       // Wire deltas (y down); api cell of wire delta d is {x + d.dx, y - d.dy}.
       const deltas = [
         { dx: f.dx, dy: f.dy },                    // forward

@@ -93,12 +93,12 @@ export function moveIndexToDirection(
 
 /**
  * The TacticToes engine's default move for a snake that has nothing staged
- * when its turn resolves: step in its facing direction (turn.unitFacing —
- * present for every living unit; a snake's facing is always one of the four
+ * when its turn resolves: step along its orientation (turn.orientation —
+ * present for every living unit; a snake's orientation is always one of the four
  * orthogonals). Wire y grows downward, so wire dy -1 is api 'up'.
  */
 export function continuationDirection(turn: TTTurn, playerID: string): Direction {
-  const f = turn.unitFacing[playerID];
+  const f = turn.orientation[playerID];
   if (f.dx === 1) return 'right';
   if (f.dx === -1) return 'left';
   return f.dy === -1 ? 'up' : 'down';
@@ -232,10 +232,10 @@ function buildSnake(
       tail: 'default',
     },
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
-    // Facing rides along verbatim for EVERY unit (wire convention, y down —
+    // Orientation rides along verbatim for EVERY unit (wire convention, y down —
     // see the Snake type for the api/canvas mapping): the UI anchors icon
     // orientation and keyNav movement behaviour on this wire orientation.
-    facing: { ...turn.unitFacing[playerID] },
+    orientation: { ...turn.orientation[playerID] },
   };
   if (gamePlayer) snake.letter = gamePlayer.letter;
   snake.unitType = unitType;

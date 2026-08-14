@@ -9,13 +9,13 @@
  *
  * The cursor state is {axis, distance}:
  *   - axis is a direction vector {dx, dy} in api board coords (y grows
- *     upward) — the unit's wire facing on a fresh seed, then whatever the
+ *     upward) — the unit's wire orientation on a fresh seed, then whatever the
  *     last transition selected.
  *   - distance 0 means the hold (stay) candidate; >= 1 means axis·distance.
  *
  * Transitions take a context describing the unit's live legality:
  *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null,
- *     facing: axis (the unit's wire orientation as an api axis, facingOf) }
+ *     orientation: axis (the unit's wire orientation as an api axis, orientationOf) }
  * and return { ok: false } (caller flashes "unavailable") or
  * { ok: true, axis, distance } (caller selects the candidate there).
  */
@@ -33,8 +33,8 @@
     return a < 0 ? a + 2 * Math.PI : a;
   }
 
-  // Per-type legal facing sets in WIRE coords (y grows DOWNWARD), copied
-  // verbatim from facingDirections() in src/logic/piece-moves.ts — the
+  // Per-type legal orientation sets in WIRE coords (y grows DOWNWARD), copied
+  // verbatim from legalOrientations() in src/logic/piece-moves.ts — the
   // lockstep mirror of the engine's pieceMoves.ts. Keep all three in step;
   // src/tests/keynav-machine.test.ts asserts the parity.
   const WIRE_ORTHOGONALS = [
@@ -65,7 +65,7 @@
       case 'bishop': return DIAG_AXES;
       case 'queen':
       case 'king': return ALL_AXES;
-      default: return ORTHO_AXES; // orthogonal-facing types (rook, snake, pawn)
+      default: return ORTHO_AXES; // orthogonally-oriented types (rook, snake, pawn)
     }
   }
 
@@ -88,51 +88,50 @@
     Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
   };
 
-  function legalAxes(ctx) {
-    return ctx.ring.filter((a) => ctx.maxDist(a) >= 1);
-  }
+  // The current axis is always a member of the type's legal axis ring: a
+  // unit's orientation is always in its type's legal orientation set (the
+  // engine invariant), and every transition below only ever selects ring
+  // axes. Ring walks therefore exist only for CANDIDATE availability — a
+  // ring axis can lack a board-legal destination this turn.
 
-  // The first legal axis strictly clockwise (dir 'right') or strictly
-  // counter-clockwise (dir 'left') of `from`, or null when no axis is
-  // legal. An axis at the reference angle is a full turn away in either
-  // direction, so it is picked only when it is the sole legal axis.
-  function nearestLegalAxis(from, dir, ctx) {
-    const TAU = 2 * Math.PI;
-    let best = null;
-    let bestSweep = Infinity;
-    for (const a of legalAxes(ctx)) {
-      const cw = (cwFromUp(a) - cwFromUp(from) + TAU) % TAU;
-      const sweep = cw === 0 ? TAU : dir === 'right' ? cw : TAU - cw;
-      if (sweep < bestSweep) {
-        bestSweep = sweep;
-        best = a;
-      }
+  // The first axis with a board-legal candidate, walking the ring from
+  // `from` in `dir` order ('right' = clockwise) and wrapping; `from` itself
+  // comes up last, so it is re-selected only when it is the sole
+  // candidate-bearing axis. Returns null when no axis has a candidate.
+  function nextLegalAxis(from, dir, ctx) {
+    const n = ctx.ring.length;
+    const idx = ctx.ring.findIndex((a) => axisEq(a, from));
+    if (idx < 0) throw new Error('keyNav axis off the legal axis ring');
+    const dirStep = dir === 'right' ? 1 : -1;
+    for (let i = 1; i <= n; i++) {
+      const a = ctx.ring[(((idx + dirStep * i) % n) + n) % n];
+      if (ctx.maxDist(a) >= 1) return a;
     }
-    return best;
+    return null;
   }
 
   const ok = (axis, distance) => ({ ok: true, axis, distance });
   const unavailable = () => ({ ok: false });
 
-  // A unit's facing as an api-coord axis: the wire facing verbatim, y
-  // flipped (wire y grows downward). A knight's facing is its raw L-offset
+  // A unit's orientation as an api-coord axis: the wire orientation verbatim, y
+  // flipped (wire y grows downward). A knight's orientation is its raw L-offset
   // — its axes ARE the L-offsets; every other type's is a unit vector.
-  function facingOf(unit) {
-    return { dx: unit.facing.dx, dy: -unit.facing.dy || 0 };
+  function orientationOf(unit) {
+    return { dx: unit.orientation.dx, dy: -unit.orientation.dy || 0 };
   }
 
   // KeyNav axis seeding priority: selected candidate → staged move → wire
-  // facing. The later sources fill in the AXIS only when the selection is
+  // orientation. The later sources fill in the AXIS only when the selection is
   // the hold candidate (which has no direction of its own); the distance
   // always reflects the actual selection.
-  function seedNav(selNav, stagedAxis, facing) {
-    return { axis: selNav.axis || stagedAxis || facing, distance: selNav.distance };
+  function seedNav(selNav, stagedAxis, orientation) {
+    return { axis: selNav.axis || stagedAxis || orientation, distance: selNav.distance };
   }
 
   // {axis, distance} ← a candidate offset from the unit's head, so keyboard
   // steering picks up seamlessly from a click. A zero/absent offset is the
   // hold candidate: it keeps prevAxis as memory (seedNav fills in the wire
-  // facing when there is none).
+  // orientation when there is none).
   function deriveFromOffset(unitType, dx, dy, prevAxis) {
     if (!dx && !dy) return { axis: prevAxis || null, distance: 0 };
     if (unitType === 'knight') return { axis: { dx, dy }, distance: 1 };
@@ -167,20 +166,16 @@
   // 4-arrow pad transition. dir: 'left' | 'right' | 'up' | 'down'.
   function arrowStep(state, dir, ctx) {
     if (dir === 'left' || dir === 'right') {
-      const axes = legalAxes(ctx);
-      const idx = axes.findIndex((a) => axisEq(a, state.axis));
-      const axis = idx >= 0
-        ? axes[(idx + (dir === 'right' ? 1 : -1) + axes.length) % axes.length]
-        : nearestLegalAxis(state.axis, dir, ctx);
-      // Switching axis always resets distance to 1.
+      // Rotate the ring, skipping candidate-less axes. Switching axis
+      // always resets distance to 1.
+      const axis = nextLegalAxis(state.axis, dir, ctx);
       return axis ? ok(axis, 1) : unavailable();
     }
     if (dir === 'up') {
       if (ctx.maxDist(state.axis) < 1) {
-        // The current axis is unusable this turn (off the type's ring, or
-        // no legal candidate along it): Up selects the first legal axis
-        // clockwise of it at distance 1.
-        const axis = nearestLegalAxis(state.axis, 'right', ctx);
+        // No board-legal candidate along the current axis this turn: Up
+        // selects the first axis clockwise that has one, at distance 1.
+        const axis = nextLegalAxis(state.axis, 'right', ctx);
         return axis ? ok(axis, 1) : unavailable();
       }
       // Extend one square, clamped at the last board-legal ray square.
@@ -192,10 +187,10 @@
   }
 
   // Numpad transition. digit: 1-9. 5 selects hold AND resets the axis to
-  // the wire facing — "no change".
+  // the wire orientation — "no change".
   function numpadStep(state, digit, ctx) {
     if (digit === 5) {
-      return ctx.canHold ? ok(ctx.facing, 0) : unavailable();
+      return ctx.canHold ? ok(ctx.orientation, 0) : unavailable();
     }
     const axis = ctx.axisFor(digit);
     if (!axis || !ctx.ring.some((a) => axisEq(a, axis))) {
@@ -205,7 +200,7 @@
   }
 
   // Pawn keys resolve to one of five primitives; a side is the pawn's OWN
-  // left/right (counter-clockwise / clockwise of its facing). Arrow
+  // left/right (counter-clockwise / clockwise of its orientation). Arrow
   // Left/Right pick the rotation candidates — or, chorded with a held
   // Up, the diagonal-forward candidates (which exist only when legal:
   // attack/eat squares). Keys with no entry (numpad 1/3 — nothing behind a
@@ -220,14 +215,14 @@
   };
 
   // Pawn transition for both pads. key: an arrow dir or a numpad digit;
-  // `chorded` is true while Up is held. A pawn's facing IS its forward
+  // `chorded` is true while Up is held. A pawn's orientation IS its forward
   // axis, so every primitive is plain axis arithmetic: rotations sit on the
-  // facing's perpendiculars, diagonals on facing + perpendicular.
+  // orientation's perpendiculars, diagonals on orientation + perpendicular.
   function pawnStep(state, key, chorded, ctx) {
     const entry = PAWN_KEYS[key];
     if (!entry) return unavailable();
     const prim = entry[0] === 'side' ? (chorded ? 'diagonal' : 'rotate') : entry[0];
-    const fa = ctx.facing;
+    const fa = ctx.orientation;
     switch (prim) {
       case 'forward':
         return ctx.maxDist(fa) >= 1 ? ok(fa, 1) : unavailable();
@@ -256,7 +251,7 @@
     axisEq,
     ringFor,
     numpadAxisFor,
-    facingOf,
+    orientationOf,
     seedNav,
     deriveFromOffset,
     arrowStep,

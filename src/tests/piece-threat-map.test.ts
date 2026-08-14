@@ -3,7 +3,7 @@
  *
  *  - geometry: slider rays blocked by current occupancy (blocker square
  *    included), knight L-jumps, king steps, pawn forward + both
- *    diagonal-forwards from its facing — board-bounded, health-uncapped;
+ *    diagonal-forwards from its orientation — board-bounded, health-uncapped;
  *  - threat rule: an enemy piece threatens a square iff it would WIN or TIE
  *    the contest there (higher tier, or equal tier and weight >= ours); an
  *    ally piece threatens every square it can reach (we never want the
@@ -38,7 +38,7 @@ function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake
     shout: '',
     squad: '',
     customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    facing: { dx: 0, dy: -1 },
+    orientation: { dx: 0, dy: -1 },
     ...extra,
   };
 }
@@ -129,11 +129,11 @@ describe('piece threat map geometry', () => {
     expect(map2.enemyThreat.reduce((a, b) => a + b, 0)).toBe(2);
   });
 
-  test('king steps and pawn forward + diagonal-forwards by facing (occupancy-independent)', () => {
+  test('king steps and pawn forward + diagonal-forwards by orientation (occupancy-independent)', () => {
     const us = farUs();
     const king = makePiece('k', { x: 9, y: 9 }, 'king', 10);
-    // Wire facing +x (y down): api forward (6,5); diagonal-forwards (6,4), (6,6).
-    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', 10, { facing: { dx: 1, dy: 0 } });
+    // Wire orientation +x (y down): api forward (6,5); diagonal-forwards (6,4), (6,6).
+    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', 10, { orientation: { dx: 1, dy: 0 } });
     const gs = makeGameState([us, king, pawn], 'us');
     const map = computePieceThreatMap(us, gs.board, TURN)!;
 

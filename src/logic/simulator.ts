@@ -352,9 +352,9 @@ export class Simulator {
         // Must survive the copy: the stationary-piece contest in step 3, the
         // BoardGraph piece layers (piece squares as walls, the starvation
         // guard) and the piece threat map all key off the unit's type — and
-        // pawn threat geometry reads its facing.
+        // pawn threat geometry reads its orientation.
         unitType: snake.unitType,
-        facing: { dx: snake.facing.dx, dy: snake.facing.dy },
+        orientation: { dx: snake.orientation.dx, dy: snake.orientation.dy },
         invulnerabilityLevel: snake.invulnerabilityLevel,
         // Must survive the copy: evaluators build a BoardGraph over the
         // simulated board, and BoardGraph reads severability lookahead from
