@@ -14,8 +14,13 @@
  *     with arrow Up re-extending the kept axis to distance 1;
  *   - arrow Up from the TWELVE state selecting straight up at distance 1
  *     when legal, else the first legal axis clockwise of 12:00 (Right's
- *     pick) — with snakes (no hold) unchanged: Up still flashes;
- *   - the confirmed knight numpad anchoring map.
+ *     pick) — for EVERY unit, snakes included (the owner's universal-facing
+ *     redesign: a turn-0 snake's Up selects the board-up move);
+ *   - the confirmed knight numpad anchoring map;
+ *   - the universal FACING derivation (deriveFacing): last-move axis, 12:00
+ *     on turn 0 / hold, engine-facing authority for pawns — and the keyNav
+ *     axis seeding priority (seedNav): selected candidate → staged move →
+ *     facing → 12:00.
  */
 const {
   TWELVE,
@@ -24,6 +29,8 @@ const {
   arrowStep,
   numpadStep,
   deriveFromOffset,
+  deriveFacing,
+  seedNav,
   ringFor,
   numpadAxisFor,
 } = require('../web/keynav-machine.js');
@@ -155,9 +162,19 @@ describe('12:00 state: arrow Left/Right first-legal-axis selection', () => {
     expect(arrowStep(nav(TWELVE, 0), 'up', ctx).ok).toBe(false);
   });
 
-  test('snakes cannot hold: Up at TWELVE remains a no-op flash', () => {
+  // MODIFIED by the owner's universal-facing redesign: Up at TWELVE used to
+  // flash for snakes (they cannot hold, so they were "never legitimately at
+  // hold"). Under the facing-relative pad every unit CAN sit at TWELVE
+  // (turn 0 / held facing), and Up extends forward along it — the owner's
+  // spec makes a turn-0 snake's Up select the board-up move.
+  test('snakes at TWELVE (turn 0): Up selects the board-up move at distance 1', () => {
     const ctx = makeCtx(undefined, { defaultDist: 1, canHold: false });
-    expect(arrowStep(nav(TWELVE, 0), 'up', ctx).ok).toBe(false);
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 0, dy: 1 }, 1));
+  });
+
+  test('snakes at TWELVE with the up move illegal: Up falls back to Right\'s pick', () => {
+    const ctx = makeCtx(undefined, { defaultDist: 1, dist: { '0,1': 0 }, canHold: false });
+    expect(arrowStep(nav(TWELVE, 0), 'up', ctx)).toEqual(okStep({ dx: 1, dy: 0 }, 1));
   });
 
   test('Down at TWELVE is unavailable (Down never crosses hold)', () => {
@@ -316,6 +333,143 @@ describe('knight transitions and anchoring', () => {
     const ctx = makeCtx('knight', { defaultDist: 1 });
     expect(arrowStep(nav(TWELVE, 0), 'right', ctx)).toEqual(okStep({ dx: 1, dy: 2 }, 1));
     expect(arrowStep(nav(TWELVE, 0), 'left', ctx)).toEqual(okStep({ dx: -1, dy: 2 }, 1));
+  });
+});
+
+describe('facing-relative snake pad (universal-facing redesign)', () => {
+  // A mid-game snake facing RIGHT: its axis seeds to {1,0} at distance 0
+  // (nothing selected yet), its backward axis (left) has no candidate —
+  // snakes cannot reverse — and it cannot hold.
+  const right = { dx: 1, dy: 0 };
+  const facingRightCtx = () =>
+    makeCtx(undefined, { defaultDist: 1, dist: { '-1,0': 0 }, canHold: false });
+
+  test('Up extends forward along the facing: selects the right-move at distance 1', () => {
+    expect(arrowStep(nav(right, 0), 'up', facingRightCtx())).toEqual(okStep(right, 1));
+  });
+
+  test('Left turns left from the facing: facing right → the up move', () => {
+    expect(arrowStep(nav(right, 0), 'left', facingRightCtx())).toEqual(
+      okStep({ dx: 0, dy: 1 }, 1)
+    );
+    // From an already-selected forward move the turn behaves identically.
+    expect(arrowStep(nav(right, 1), 'left', facingRightCtx())).toEqual(
+      okStep({ dx: 0, dy: 1 }, 1)
+    );
+  });
+
+  test('Right turns right from the facing: facing right → the down move', () => {
+    expect(arrowStep(nav(right, 0), 'right', facingRightCtx())).toEqual(
+      okStep({ dx: 0, dy: -1 }, 1)
+    );
+  });
+
+  test('Down flashes: snakes cannot hold (retract has nowhere to go)', () => {
+    expect(arrowStep(nav(right, 1), 'down', facingRightCtx()).ok).toBe(false);
+    expect(arrowStep(nav(right, 0), 'down', facingRightCtx()).ok).toBe(false);
+  });
+
+  test('turn-0 snake (TWELVE): the downward move takes exactly two Left/Right presses', () => {
+    // All four orthogonals are legal on turn 0 (no neck yet).
+    const ctx = makeCtx(undefined, { defaultDist: 1, canHold: false });
+    const first = arrowStep(nav(TWELVE, 0), 'right', ctx);
+    expect(first).toEqual(okStep({ dx: 1, dy: 0 }, 1));
+    const second = arrowStep(nav(first.axis as Axis, 1), 'right', ctx);
+    expect(second).toEqual(okStep({ dx: 0, dy: -1 }, 1)); // two presses — intended
+    const firstL = arrowStep(nav(TWELVE, 0), 'left', ctx);
+    expect(firstL).toEqual(okStep({ dx: -1, dy: 0 }, 1));
+    const secondL = arrowStep(nav(firstL.axis as Axis, 1), 'left', ctx);
+    expect(secondL).toEqual(okStep({ dx: 0, dy: -1 }, 1));
+  });
+});
+
+describe('deriveFacing: universal last-move facing', () => {
+  const boardWith = (...snakes: object[]) => ({ snakes });
+
+  test('snake facing comes from the engine lastMoves direction', () => {
+    const snake = { id: 's1', body: [{ x: 4, y: 4 }] };
+    expect(deriveFacing(snake, null, { s1: 'right' })).toEqual({ dx: 1, dy: 0 });
+    expect(deriveFacing(snake, null, { s1: 'down' })).toEqual({ dx: 0, dy: -1 });
+  });
+
+  test('pieces derive from previous head → current head, normalized to a unit axis', () => {
+    const rook = { id: 'r1', unitType: 'rook', head: { x: 4, y: 7 } };
+    const prev = boardWith({ id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } });
+    expect(deriveFacing(rook, prev, null)).toEqual({ dx: 0, dy: 1 });
+    const queen = { id: 'q1', unitType: 'queen', head: { x: 1, y: 1 } };
+    const prevQ = boardWith({ id: 'q1', unitType: 'queen', head: { x: 4, y: 4 } });
+    expect(deriveFacing(queen, prevQ, null)).toEqual({ dx: -1, dy: -1 });
+  });
+
+  test('knights keep the raw L-offset (their axes ARE the L-offsets)', () => {
+    const knight = { id: 'n1', unitType: 'knight', head: { x: 6, y: 5 } };
+    const prev = boardWith({ id: 'n1', unitType: 'knight', head: { x: 4, y: 4 } });
+    expect(deriveFacing(knight, prev, null)).toEqual({ dx: 2, dy: 1 });
+  });
+
+  test('hold (same head as last turn) → null: holding implies 12:00', () => {
+    const rook = { id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } };
+    const prev = boardWith({ id: 'r1', unitType: 'rook', head: { x: 4, y: 4 } });
+    expect(deriveFacing(rook, prev, null)).toBeNull();
+  });
+
+  test('turn 0 / no previous board / just spawned → null (12:00)', () => {
+    const snake = { id: 's1', body: [{ x: 4, y: 4 }] };
+    expect(deriveFacing(snake, null, null)).toBeNull();
+    expect(deriveFacing(snake, boardWith(), null)).toBeNull(); // not on prev board
+  });
+
+  test('PAWNS: the engine facing is authoritative — a diagonal step does not turn them', () => {
+    // Engine facing "up" on the wire is dy:-1 (wire y grows downward);
+    // api facing flips to {0,1}. The pawn just stepped diagonally
+    // (prev (4,4) → (5,5)) but its engine facing must win.
+    const pawn = {
+      id: 'p1', unitType: 'pawn', head: { x: 5, y: 5 }, facing: { dx: 0, dy: -1 },
+    };
+    const prev = boardWith({ id: 'p1', unitType: 'pawn', head: { x: 4, y: 4 } });
+    expect(deriveFacing(pawn, prev, null)).toEqual({ dx: 0, dy: 1 });
+  });
+
+  test('pawn without an engine facing → null (12:00), never last-move derived', () => {
+    const pawn = { id: 'p1', unitType: 'pawn', head: { x: 5, y: 5 } };
+    const prev = boardWith({ id: 'p1', unitType: 'pawn', head: { x: 4, y: 5 } });
+    expect(deriveFacing(pawn, prev, null)).toBeNull();
+  });
+});
+
+describe('seedNav: axis seeding priority (candidate → staged → facing → 12:00)', () => {
+  const facing = { dx: -1, dy: 0 };
+  const staged = { dx: 0, dy: -1 };
+
+  test('a selected directional candidate wins over staged and facing', () => {
+    const sel = { axis: { dx: 1, dy: 0 }, distance: 2 };
+    expect(seedNav(sel, staged, facing)).toEqual(sel);
+  });
+
+  test('a TWELVE selection falls back to the staged move axis', () => {
+    expect(seedNav({ axis: TWELVE, distance: 0 }, staged, facing)).toEqual({
+      axis: staged,
+      distance: 0,
+    });
+  });
+
+  test('with no staged axis the facing seeds the axis (distance untouched)', () => {
+    expect(seedNav({ axis: TWELVE, distance: 0 }, null, facing)).toEqual({
+      axis: facing,
+      distance: 0,
+    });
+    // A TWELVE staged axis (staged hold) is no memory either.
+    expect(seedNav({ axis: TWELVE, distance: 0 }, TWELVE, facing)).toEqual({
+      axis: facing,
+      distance: 0,
+    });
+  });
+
+  test('no candidate, no staged move, no facing (held / turn 0) → 12:00', () => {
+    expect(seedNav({ axis: TWELVE, distance: 0 }, null, null)).toEqual({
+      axis: TWELVE,
+      distance: 0,
+    });
   });
 });
 

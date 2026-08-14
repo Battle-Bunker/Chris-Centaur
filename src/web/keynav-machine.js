@@ -31,9 +31,15 @@
  *     unavailable (Down never crosses hold). Arrow Up from hold with a
  *     retained axis re-extends it to distance 1. Up at TWELVE selects the
  *     STRAIGHT-UP axis at distance 1 when that axis is legal, else the first
- *     legal axis clockwise of 12:00 (the same axis Right would pick); units
- *     that cannot hold are never legitimately at hold, so for them Up at
- *     TWELVE stays unavailable (snakes: no-op flash).
+ *     legal axis clockwise of 12:00 (the same axis Right would pick) — for
+ *     EVERY unit, snakes included: a turn-0 snake's Up selects the board-up
+ *     move. Snakes still cannot hold, so their Down at distance 1 flashes.
+ *   - FACING (owner's universal-facing redesign): every unit has a facing —
+ *     the direction of its LAST actual movement, 12:00 on turn 0 or when it
+ *     held. Facing and the keyNav current axis are the same concept, so the
+ *     axis seeds as: selected candidate → staged move → facing → 12:00
+ *     (deriveFacing + seedNav below). Pawns' ENGINE facing (Snake.facing on
+ *     the wire) is authoritative — a diagonal step does not change it.
  *
  * Transitions take a context describing the unit's live legality:
  *   { ring, maxDist(axis) -> number, canHold, axisFor(digit) -> axis|null }
@@ -67,6 +73,11 @@
     { dx: 1, dy: 2 }, { dx: 2, dy: 1 }, { dx: 2, dy: -1 }, { dx: 1, dy: -2 },
     { dx: -1, dy: -2 }, { dx: -2, dy: -1 }, { dx: -2, dy: 1 }, { dx: -1, dy: 2 },
   ];
+  // Engine lastMoves direction strings → api-coord axes (y grows upward).
+  const DIRECTION_AXES = {
+    up: { dx: 0, dy: 1 }, down: { dx: 0, dy: -1 },
+    left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 },
+  };
   // Numpad digit → api-coord direction, reading the keypad as a compass
   // (8 = up, 9 = up-right, …). 5 is hold, handled inside numpadStep.
   const NUMPAD_AXES = {
@@ -133,6 +144,58 @@
   const ok = (axis, distance) => ({ ok: true, axis, distance });
   const unavailable = () => ({ ok: false });
 
+  // Universal FACING for a unit, as an api-coord axis from its ring, or null
+  // for the 12:00 state (turn 0 / just spawned / the unit held last turn).
+  // The ONE shared derivation for keyNav axis seeding AND board icon
+  // rotation, live and replay:
+  //   - PAWNS: the ENGINE facing (Snake.facing, wire convention: dy grows
+  //     DOWNWARD) is authoritative for legality and display — a diagonal
+  //     step does not change engine facing, so UI last-move derivation must
+  //     not diverge from it.
+  //   - Everything else: the engine's authoritative lastMoves direction when
+  //     present (snakes), else the direction of last actual movement —
+  //     previous head → current head from the previous board. Knights keep
+  //     the raw L-offset (their axes ARE the L-offsets); sliders normalize
+  //     to a unit axis.
+  function deriveFacing(unit, previousBoard, lastMoves) {
+    if (!unit) return null;
+    if (unit.unitType === 'pawn') {
+      const f = unit.facing;
+      if (!f || (!f.dx && !f.dy)) return null;
+      // Wire facing has y growing downward; api y grows upward.
+      return { dx: Math.sign(f.dx), dy: -Math.sign(f.dy) };
+    }
+    const lastMove = lastMoves && unit.id != null ? lastMoves[unit.id] : null;
+    if (lastMove && DIRECTION_AXES[lastMove]) return DIRECTION_AXES[lastMove];
+    const head = unit.head || (unit.body && unit.body[0]) || null;
+    const prev = previousBoard && previousBoard.snakes
+      ? previousBoard.snakes.find((s) => s.id === unit.id)
+      : null;
+    const prevHead = prev ? prev.head || (prev.body && prev.body[0]) || null : null;
+    if (!head || !prevHead) return null; // turn 0 / just appeared → 12:00
+    const dx = head.x - prevHead.x;
+    const dy = head.y - prevHead.y;
+    if (!dx && !dy) return null; // held (didn't move) → 12:00
+    if (unit.unitType === 'knight') return { dx, dy };
+    return { dx: Math.sign(dx), dy: Math.sign(dy) };
+  }
+
+  // KeyNav axis seeding priority: selected candidate → staged move → facing
+  // → 12:00. `selNav` is the {axis, distance} derived from the current
+  // selection (deriveFromOffset); the staged axis and facing fill in the
+  // AXIS only when the earlier sources landed at TWELVE — the distance
+  // always reflects the actual selection.
+  function seedNav(selNav, stagedAxis, facing) {
+    let nav = selNav;
+    if (nav.axis === TWELVE && stagedAxis && stagedAxis !== TWELVE) {
+      nav = { axis: stagedAxis, distance: nav.distance };
+    }
+    if (nav.axis === TWELVE && facing) {
+      nav = { axis: facing, distance: nav.distance };
+    }
+    return nav;
+  }
+
   // {axis, distance} ← a candidate offset from the unit's head, so keyboard
   // steering picks up seamlessly from a click. A zero/absent offset is the
   // hold candidate: it keeps prevAxis as memory, else lands in TWELVE.
@@ -164,11 +227,10 @@
     if (dir === 'up') {
       if (!isVector(state.axis)) {
         // TWELVE: Up adds one unit straight up when that axis is legal for
-        // the piece; otherwise (e.g. bishop) it falls back to the first
-        // legal axis clockwise of 12:00 — the axis Right would pick. Units
-        // that cannot hold (snakes) are never legitimately at hold, so Up
-        // stays unavailable for them.
-        if (!ctx.canHold) return unavailable();
+        // the unit; otherwise (e.g. bishop) it falls back to the first
+        // legal axis clockwise of 12:00 — the axis Right would pick. The
+        // facing-relative pad applies to EVERY unit: a snake at TWELVE
+        // (turn 0, or held facing) gets the board-up move from Up too.
         const straightUp = ctx.ring.find((a) => a.dx === 0 && a.dy === 1);
         const axis = straightUp && ctx.maxDist(straightUp) >= 1
           ? straightUp
@@ -225,6 +287,8 @@
     axisEq,
     ringFor,
     numpadAxisFor,
+    deriveFacing,
+    seedNav,
     deriveFromOffset,
     arrowStep,
     numpadStep,

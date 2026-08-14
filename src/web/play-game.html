@@ -1755,7 +1755,11 @@
       BoardRenderer.renderSnakeInfo(
         document.getElementById('snakeInfoList'), currentGameState, selectedSnakeId,
         { groupByTeam: true, onSelectSnake: selectSnakeForControl, selectableSnakeIds: controlledSnakeIds,
-          owners: owners, deadSnakes: deadSnakesFor(currentGameState) }
+          owners: owners, deadSnakes: deadSnakesFor(currentGameState),
+          // Facing rotation for the row icons — same derivation inputs as
+          // the board head glyphs.
+          previousBoard: previousGameState?.board || null,
+          lastMoves: currentGameState?.lastMoves || null }
       );
     }
 
@@ -2554,17 +2558,26 @@
     // and fed through the ordinary selectMove path, so the purple cursor,
     // stats table and Space-staging behave exactly as for a click.
     //
-    //   4-arrow pad: Left/Right rotate the axis through the unit's legal axis
-    //     ring (rook 4 orthogonals, bishop 4 diagonals, queen/king 8, knight
-    //     its 8 L-directions, snake 4 orthogonals) — switching axis RESETS
-    //     the distance to 1; Up extends along the current axis (clamped at
-    //     the last board-legal ray square — 1-step pieces lock after 1), Down
-    //     retracts through to hold for pieces that may hold, KEEPING the axis
-    //     (Down never crosses hold; a further Down at hold flashes, Up from
-    //     hold re-extends the kept axis to 1). Snakes can neither extend nor
-    //     hold → Up/Down flash.
+    //   4-arrow pad (FACING-relative, for ALL units, snakes included): the
+    //     axis seeds from the unit's FACING — its last-move direction, 12:00
+    //     on turn 0 or after a hold (KeyNavMachine.deriveFacing/seedNav) —
+    //     so Up extends FORWARD along the current facing/axis (from
+    //     hold/unselected it selects the facing-direction move at distance
+    //     1; a turn-0 snake's Up selects the board-up move), and Left/Right
+    //     TURN through the unit's legal axis ring (rook 4 orthogonals,
+    //     bishop 4 diagonals, queen/king 8, knight its 8 L-directions,
+    //     snake 4 orthogonals) — switching axis RESETS the distance to 1 so
+    //     the turn is visibly represented. Up clamps at the last board-legal
+    //     ray square (1-step pieces lock after 1); Down retracts toward
+    //     hold KEEPING the axis (Down never crosses hold; a further Down at
+    //     hold flashes). Snakes cannot hold or reverse, so their Down
+    //     flashes and their backward axis is unavailable mid-game — a
+    //     turn-0 snake reaches the downward move in two Left/Right presses
+    //     (intended). This REPLACES the old absolute snake arrow controls;
+    //     WASD follows the same relative scheme.
     //     Pawns: Left/Right pick the two rotation candidates; with Up HELD,
-    //     Left/Right pick the diagonal-forward candidates (when legal).
+    //     Left/Right pick the diagonal-forward candidates (when legal). The
+    //     ENGINE facing (Snake.facing) stays authoritative for pawns.
     //   9-key numpad (with or without NumLock — e.code is the same): a
     //     direction key selects its axis at distance 1; repeated presses
     //     extend one square per press; the OPPOSITE key retracts one per
@@ -2572,11 +2585,11 @@
     //     this way FLIPS the axis to the direction of travel (the only way to
     //     cross hold). 5 = hold, and resets the axis to the 12:00 state.
     //   Hold has no well-defined axis: when the cursor initializes on hold
-    //     (or numpad 5 selects it) the axis is KeyNavMachine.TWELVE — arrow
-    //     Right then picks the first legal axis clockwise of 12:00, arrow
-    //     Left the first counter-clockwise, and arrow Up adds one unit
-    //     straight up when that axis is legal (else it takes Right's pick;
-    //     snakes cannot hold, so their Up still flashes).
+    //     with no facing (or numpad 5 selects hold — holding implies 12:00
+    //     orientation) the axis is KeyNavMachine.TWELVE — arrow Right then
+    //     picks the first legal axis clockwise of 12:00, arrow Left the
+    //     first counter-clockwise, and arrow Up adds one unit straight up
+    //     when that axis is legal (else it takes Right's pick — bishop).
     //
     // The pure {axis, distance} transitions live in /keynav-machine.js
     // (KeyNavMachine, unit-tested in src/tests/keynav-machine.test.ts); this
@@ -2661,26 +2674,38 @@
       );
     }
 
+    // Universal facing for a unit (the shared derivation in KeyNavMachine —
+    // the same one the board icon rotation uses): the axis of its last
+    // actual movement (engine lastMoves, else head-vs-previous-board), the
+    // ENGINE facing for pawns, null = the 12:00 state (turn 0 / held).
+    function unitFacing(unit) {
+      return KeyNavMachine.deriveFacing(
+        unit,
+        previousGameState?.board || null,
+        currentGameState?.lastMoves || null
+      );
+    }
+
     function keyNavState() {
       if (!moveState) return null;
       if (!moveState.keyNav) {
-        // Initial axis: the currently SELECTED candidate first, else the
-        // STAGED move; when both are hold (or absent) the axis is the 12:00
-        // state (TWELVE). The distance always reflects the actual selection —
-        // a hold selection with a directional staged move keeps distance 0
-        // and carries the staged move's axis as memory.
+        // Initial axis seeding priority (KeyNavMachine.seedNav): the
+        // currently SELECTED candidate → the STAGED move → the unit's
+        // FACING → the 12:00 state (TWELVE). The distance always reflects
+        // the actual selection — a hold selection with a directional staged
+        // move keeps distance 0 and carries the staged move's axis as
+        // memory; likewise an unselected unit starts at distance 0 on its
+        // facing axis, so arrow Up extends straight out along the facing.
         const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
-        let nav = deriveKeyNavFromSelection(sel, null);
-        if (nav.axis === KeyNavMachine.TWELVE && selectedSnakeId) {
+        const nav = deriveKeyNavFromSelection(sel, null);
+        let stagedAxis = null;
+        if (selectedSnakeId) {
           const staged = stagedMoves[selectedSnakeId];
           const stagedMove = staged ? (staged.requestedMove ?? staged.move ?? null) : null;
           const stagedCand = stagedMove != null ? moveState.moves[String(stagedMove)] : null;
-          const fromStaged = deriveKeyNavFromSelection(stagedCand || null, null);
-          if (fromStaged.axis !== KeyNavMachine.TWELVE) {
-            nav = { axis: fromStaged.axis, distance: nav.distance };
-          }
+          stagedAxis = deriveKeyNavFromSelection(stagedCand || null, null).axis;
         }
-        moveState.keyNav = nav;
+        moveState.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitFacing(getSelectedSnake()));
       }
       return moveState.keyNav;
     }
@@ -2743,11 +2768,12 @@
       }, 200);
     }
 
-    // Pawn facing in api coords (the wire facing has y growing downward).
+    // Pawn facing in api coords (the wire facing has y growing downward) —
+    // the ENGINE facing is authoritative for pawns, via the one shared
+    // derivation (KeyNavMachine.deriveFacing ignores last-move inputs for
+    // pawns, so UI last-move facing can never diverge from the engine's).
     function pawnFacingApi(unit) {
-      const f = unit?.facing;
-      if (!f || (!f.dx && !f.dy)) return null;
-      return { dx: f.dx, dy: -f.dy };
+      return KeyNavMachine.deriveFacing(unit, null, null);
     }
 
     // The pawn candidate of the wanted flavour on the pawn's own 'left' or
@@ -2771,8 +2797,9 @@
     }
 
     // 4-arrow pad dispatch (see the schema comment above). The transition
-    // itself is KeyNavMachine.arrowStep; snakes fall out naturally (maxDist 1
-    // on every axis, no hold candidate → Up/Down always unavailable).
+    // itself is KeyNavMachine.arrowStep; snakes ride the same facing-relative
+    // scheme (maxDist 1 on every axis, no hold candidate → Up locks at the
+    // distance-1 facing move and Down flashes).
     function handleArrowPad(dir) {
       if (!moveState) return;
       const unit = getSelectedSnake();
@@ -4059,7 +4086,11 @@
           document.getElementById('snakeInfoList'), boardState, getHistoricSnakeId(),
           { groupByTeam: true, onSelectSnake: switchHistoricSnake,
             selectableSnakeIds: historicSelectableIds(),
-            deadSnakes: deadSnakesFor(boardState) }
+            deadSnakes: deadSnakesFor(boardState),
+            // Facing rotation for the row icons — same derivation inputs as
+            // the historic board render below.
+            previousBoard: prevBoard,
+            lastMoves: boardState.lastMoves || null }
         );
       }
       if (lightweight) return;

@@ -66,6 +66,43 @@ const BoardRenderer = (function () {
     return dead;
   }
 
+  // ── Universal unit facing (owner's universal-facing redesign) ────────────
+  // Every unit faces the direction of its LAST actual movement (12:00 on
+  // turn 0 or when it held; pawns: the ENGINE facing is authoritative). The
+  // ONE shared derivation lives in KeyNavMachine.deriveFacing
+  // (keynav-machine.js) — the same helper that seeds the keyboard-nav axis —
+  // so board icons and keyNav can never disagree. play-game.html loads that
+  // script alongside this one (browser global); under Node/Jest it is
+  // required directly. A page that renders boards without keynav-machine.js
+  // simply draws icons unrotated (12:00).
+  let _keyNavMachine;
+  function keyNavMachineRef() {
+    if (_keyNavMachine !== undefined) return _keyNavMachine;
+    if (typeof KeyNavMachine !== "undefined") {
+      _keyNavMachine = KeyNavMachine;
+    } else if (typeof module !== "undefined" && module.exports) {
+      try {
+        _keyNavMachine = require("./keynav-machine.js");
+      } catch (e) {
+        _keyNavMachine = null;
+      }
+    } else {
+      _keyNavMachine = null;
+    }
+    return _keyNavMachine;
+  }
+  function deriveUnitFacing(unit, previousBoard, lastMoves) {
+    const machine = keyNavMachineRef();
+    return machine ? machine.deriveFacing(unit, previousBoard, lastMoves) : null;
+  }
+  // Screen rotation for a facing axis (api coords, y up): clockwise radians
+  // from 12:00 — 0 when facing is null (the 12:00 hold/turn-0 state). Both
+  // canvas rotate() (y down) and SVG rotate() treat positive as clockwise on
+  // screen, so one formula serves both.
+  function facingRotationRad(facing) {
+    return facing ? Math.atan2(facing.dx, facing.dy) : 0;
+  }
+
   // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
   // distinctive at ~20px, where the old Unicode chess glyphs blurred together.
   // Each icon is an ordered list of layers; a layer is either a filled shape
@@ -77,6 +114,11 @@ const BoardRenderer = (function () {
   // base; bishop = tall pointed mitre with a dark slash; rook = square
   // crenellations; king = big cross over a plain body; queen = spiky crown
   // with dots; knight = horse silhouette; snake = S-curve serpent.
+  // ORIENTATION: icons render ROTATED to the unit's facing, so every drawing
+  // carries a discernible "nose" at its TOP — pawn: spiked helmet tip;
+  // bishop: pointed mitre + ball; rook: crenellations; knight: upright ears;
+  // queen: crown spikes; king: cross; snake: head with an upward forked
+  // tongue. Drawn at 12:00 they look exactly like a unit that held.
   const ICON_COLORS = {
     base: "#ffffff",
     line: "rgba(0, 0, 0, 0.8)",
@@ -85,7 +127,10 @@ const BoardRenderer = (function () {
   const UNIT_ICONS = {
     pawn: [
       {
+        // Spiked helmet tip (the "nose") over the round head: an upward
+        // point that makes the pawn's facing readable under rotation.
         d:
+          "M12 0.9 L14.1 4.9 L9.9 4.9 Z " +
           "M12 3.4 a3.2 3.2 0 1 0 0.001 0 Z " +
           "M10.6 10.4 L9.4 16.2 L5.8 18.3 L5.8 20.8 L18.2 20.8 L18.2 18.3 L14.6 16.2 L13.4 10.4 Z",
         op: "fill",
@@ -166,27 +211,30 @@ const BoardRenderer = (function () {
       },
     ],
     snake: [
+      // Head at top CENTER with an upward forked tongue (the "nose"), so the
+      // rotated icon points cleanly along the snake's facing; the S-body
+      // trails down to the tail at bottom-left.
       {
-        d: "M6 19.6 C13.6 19.6 14.8 16.6 9.8 15 C5.4 13.6 5.5 9.6 9.9 8.5 C12.6 7.8 14.4 7.7 15.9 6.4",
+        d: "M6.4 20.6 C14 20.6 15.3 17.7 10.3 16.1 C5.9 14.7 6 10.9 10.4 9.8 C12.5 9.3 13.3 8.6 12.7 7.4",
         op: "stroke",
         color: "line",
         w: 5.4,
       },
       {
-        d: "M6 19.6 C13.6 19.6 14.8 16.6 9.8 15 C5.4 13.6 5.5 9.6 9.9 8.5 C12.6 7.8 14.4 7.7 15.9 6.4",
+        d: "M6.4 20.6 C14 20.6 15.3 17.7 10.3 16.1 C5.9 14.7 6 10.9 10.4 9.8 C12.5 9.3 13.3 8.6 12.7 7.4",
         op: "stroke",
         color: "base",
         w: 3.2,
       },
       {
-        d: "M16.6 2.9 a2.7 2.7 0 1 0 0.001 0 Z",
+        d: "M12 2.5 a2.6 2.6 0 1 0 0.001 0 Z",
         op: "fill",
         color: "base",
         outline: true,
       },
-      { d: "M17.6 4.2 a0.8 0.8 0 1 0 0.001 0 Z", op: "fill", color: "line" },
+      { d: "M12.9 4.1 a0.8 0.8 0 1 0 0.001 0 Z", op: "fill", color: "line" },
       {
-        d: "M18.9 4.2 L20.7 2.9 M20.7 2.9 L21.6 3.7 M20.7 2.9 L20.1 1.8",
+        d: "M12 2.5 L12 1 M12 1 L11.1 0.3 M12 1 L12.9 0.3",
         op: "stroke",
         color: "accent",
         w: 1.3,
@@ -196,11 +244,14 @@ const BoardRenderer = (function () {
 
   // Draw a unit icon centred at (cx, cy) with the given pixel size on a canvas.
   // Filled layers stroke their dark outline FIRST so the outline sits behind
-  // the fill (bold mark, thin dark rim).
-  function drawUnitIcon(ctx, unitKey, cx, cy, size) {
+  // the fill (bold mark, thin dark rim). `rotation` (clockwise screen
+  // radians, optional) spins the icon about its centre — the unit's facing.
+  function drawUnitIcon(ctx, unitKey, cx, cy, size, rotation) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     ctx.save();
-    ctx.translate(cx - size / 2, cy - size / 2);
+    ctx.translate(cx, cy);
+    if (rotation) ctx.rotate(rotation);
+    ctx.translate(-size / 2, -size / 2);
     ctx.scale(size / 24, size / 24);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -227,7 +278,9 @@ const BoardRenderer = (function () {
   // Same icon as inline SVG markup (for the per-team units table rows). Layer
   // order matches drawUnitIcon exactly: the outline is emitted as a separate
   // stroke-only path BEFORE the fill path so it renders behind the fill.
-  function unitIconSVG(unitKey, sizePx) {
+  // `rotationDeg` (clockwise, optional) spins the icon about the viewBox
+  // centre — the same facing rotation the board head glyph gets.
+  function unitIconSVG(unitKey, sizePx, rotationDeg) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     const parts = [];
     for (const layer of icon) {
@@ -245,7 +298,10 @@ const BoardRenderer = (function () {
         parts.push(`<path d="${layer.d}" fill="${color}"/>`);
       }
     }
-    return `<svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true" style="display:block;">${parts.join("")}</svg>`;
+    const body = rotationDeg
+      ? `<g transform="rotate(${rotationDeg.toFixed(1)} 12 12)">${parts.join("")}</g>`
+      : parts.join("");
+    return `<svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true" style="display:block;">${body}</svg>`;
   }
 
   // The four staged-move direction strings. Chess pieces stage NUMERIC moves
@@ -273,11 +329,18 @@ const BoardRenderer = (function () {
 
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS). The unit's LETTER lives in its unit tag
-  // (renderUnitTags), not on the head. Pieces additionally keep their facing
-  // triangle (pawns) and staged-rotation badge; their weight now shows in
-  // the unit tag rather than the old corner badge.
+  // pieces (see UNIT_ICONS) — ROTATED to the unit's facing
+  // (glyphOpts.facing, an api axis from deriveUnitFacing: last-move
+  // direction, 12:00 when it held or on turn 0, engine facing for pawns).
+  // Units that held render at 12:00 orientation even when they cannot move
+  // up (bishop, knight) — holding implies 12:00. The unit's LETTER lives in
+  // its unit tag (renderUnitTags), not on the head. Pieces additionally keep
+  // their facing triangle (pawns — engine-facing, drawn unrotated) and
+  // staged-rotation badge; their weight now shows in the unit tag rather
+  // than the old corner badge. Only the icon rotates: triangle, badge, tags
+  // and health bars stay screen-aligned.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
+    const iconRotation = facingRotationRad(glyphOpts && glyphOpts.facing);
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
@@ -313,7 +376,7 @@ const BoardRenderer = (function () {
         ctx.fill();
         ctx.stroke();
       }
-      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
+      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12), iconRotation);
       // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
       // mirror of the bottom-right weight badge) while a side-square rotation
       // is staged — the piece spends the turn turning, so no destination
@@ -342,7 +405,7 @@ const BoardRenderer = (function () {
       // Snakes (and any letter/emoji-era historical unit): the uniform drawn
       // snake icon. The identifying letter (or historic emoji) shows in the
       // unit tag instead.
-      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
+      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12), iconRotation);
     }
     ctx.restore();
   }
@@ -1373,6 +1436,12 @@ const BoardRenderer = (function () {
     // the staged rotation flag (pawn rotation badge) before the arrow block
     // reads the same map.
     const stagedMovesMap = options?.stagedMoves || {};
+    // Facing inputs for the head-icon rotation: the previous board (last
+    // actual movement) and the engine's authoritative lastMoves — the same
+    // inputs live play and the history replay already pass for death
+    // markers, so both render paths get rotated icons for free.
+    const previousBoardForFacing = options?.previousBoard || null;
+    const lastMovesForFacing = options?.lastMoves || gameState?.lastMoves || null;
 
     board.snakes.forEach((snake) => {
       const stagedForThisSnake = stagedMovesMap[snake.id];
@@ -1382,6 +1451,7 @@ const BoardRenderer = (function () {
         const hy = (board.height - 1 - head.y) * cellSize;
         drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
           stagedRotation: stagedForThisSnake?.rotation || null,
+          facing: deriveUnitFacing(snake, previousBoardForFacing, lastMovesForFacing),
         });
         // Alive board snakes only — dead snakes render as ghosts/death
         // markers in a separate pass and never reach this loop.
@@ -2231,8 +2301,11 @@ const BoardRenderer = (function () {
     }
     // Unit icon: the SAME drawn icon as the unit's board head glyph
     // (unitIconSVG shares its path data with drawUnitIcon), rendered white on
-    // the unit's colour box so the row reads like the board cell.
-    const unitIcon = unitIconSVG(snake.unitType || "snake", 14);
+    // the unit's colour box so the row reads like the board cell — including
+    // the facing rotation (opts.facing, same derivation as the board).
+    const facing = (opts && opts.facing) || null;
+    const rotationDeg = (facingRotationRad(facing) * 180) / Math.PI;
+    const unitIcon = unitIconSVG(snake.unitType || "snake", 14, rotationDeg);
     // Weight: the unit-generic size stat — body length for snakes, stack
     // weight for pieces.
     const weight = snake.length ?? snake.body.length;
@@ -2275,13 +2348,24 @@ const BoardRenderer = (function () {
     );
     const deadIds = new Set(deadSnakes.map((s) => s.id));
     const allSnakes = snakes.concat(deadSnakes);
+    // Facing for the row icons (same shared derivation as the board head
+    // glyphs); callers that pass no previousBoard/lastMoves — or pages
+    // without keynav-machine.js — get unrotated (12:00) icons.
+    const previousBoardForFacing = (options && options.previousBoard) || null;
+    const lastMovesForFacing =
+      (options && options.lastMoves) || gameState.lastMoves || null;
+    const facingFor = (snake) =>
+      deadIds.has(snake.id)
+        ? null
+        : deriveUnitFacing(snake, previousBoardForFacing, lastMovesForFacing);
 
     if (!options || !options.groupByTeam) {
       container.innerHTML = allSnakes
         .map((snake) =>
           renderSnakeInfoItem(
             snake, ourSnakeId,
-            { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null },
+            { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null,
+              facing: facingFor(snake) },
             currentTurn,
           ),
         )
@@ -2336,6 +2420,7 @@ const BoardRenderer = (function () {
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
               owner: ownersMap[snake.id] || null,
+              facing: facingFor(snake),
             }, currentTurn),
           )
           .join("");
