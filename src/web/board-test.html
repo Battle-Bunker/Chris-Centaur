@@ -18,13 +18,13 @@
   <div class="test-grid" id="testGrid"></div>
   <script src="/board-renderer.js"></script>
   <script>
-    function makeSnake(id, name, color, body, health, invuln) {
+    function makeSnake(id, name, color, body, health, invuln, opts) {
       // Wire orientation (y down) from head minus neck — every unit carries one.
       const [hx, hy] = body[0];
       const [nx, ny] = body[1] || body[0];
       const fdx = Math.sign(hx - nx);
       const fdy = Math.sign(ny - hy);
-      return {
+      const snake = {
         id, name, health: health || 100,
         letter: name[0].toUpperCase(),
         body: body.map(([x,y]) => ({x,y})),
@@ -32,6 +32,49 @@
         customizations: { color },
         invulnerabilityLevel: invuln || 0
       };
+      // Explicit orientation / unit type for the piece fixtures: a piece's
+      // facing is server state, not a body-derived direction.
+      if (opts && opts.orientation) snake.orientation = opts.orientation;
+      if (opts && opts.unitType) snake.unitType = opts.unitType;
+      return snake;
+    }
+
+    // One piece per cell, each facing a different way: the eight compass
+    // directions plus knight L-offsets, which the eye resolves by the
+    // offset's true angle rather than by snapping to a quarter turn.
+    const EYE_FACINGS = [
+      [1, 7, 'pawn',   '#008080', { dx: 0,  dy: -1 }, 'N'],
+      [3, 7, 'bishop', '#f58231', { dx: 1,  dy: -1 }, 'NE'],
+      [5, 7, 'rook',   '#4363d8', { dx: 1,  dy: 0  }, 'E'],
+      [7, 7, 'knight', '#e6194b', { dx: 1,  dy: 1  }, 'SE'],
+      [1, 4, 'queen',  '#3cb44b', { dx: 0,  dy: 1  }, 'S'],
+      [3, 4, 'king',   '#42d4f4', { dx: -1, dy: 1  }, 'SW'],
+      [5, 4, null,     '#9a6324', { dx: -1, dy: 0  }, 'W'],
+      [7, 4, 'pawn',   '#911eb4', { dx: -1, dy: -1 }, 'NW'],
+      [1, 1, 'knight', '#f032e6', { dx: 1,  dy: 2  }, 'L(1,2)'],
+      [3, 1, 'knight', '#008080', { dx: 2,  dy: 1  }, 'L(2,1)'],
+      [5, 1, 'knight', '#911eb4', { dx: -1, dy: 2  }, 'L(-1,2)'],
+      [7, 1, 'knight', '#f58231', { dx: 2,  dy: -1 }, 'L(2,-1)'],
+    ];
+    const eyeSnakes = EYE_FACINGS.map(([x, y, unitType, color, orientation, label], i) =>
+      makeSnake(`e${i}`, label, color, [[x, y]], 100, 0, { orientation, unitType }));
+
+    // Destination-keyed candidates (the chess-piece shape): each evaluation
+    // row IS a candidate, carrying its destination cell and a score, so the
+    // quality tint spans its whole range.
+    function pieceCandidates(head, cells, boardWidth, selectedCell) {
+      const evaluations = cells.map(([x, y], i) => ({
+        move: (y + 1) * (boardWidth + 2) + (x + 1),
+        dest: { x, y },
+        kind: 'move',
+        score: i - (cells.length - 1) / 2,
+      }));
+      const moveState = BoardRenderer.processMoveEvaluations(
+        evaluations, [], { x: head[0], y: head[1] }, null);
+      const selected = moveState.candidatesByPosition.get(
+        `${selectedCell[0]},${selectedCell[1]}`);
+      moveState.selectedMove = selected ? selected.key : null;
+      return moveState;
     }
 
     const tests = [
@@ -105,6 +148,44 @@
           s1: [[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3],[0,4],[1,4],[2,4],[3,4],[0,5],[1,5],[2,5],[3,5],[0,6],[1,6],[2,6],[3,6],[0,7],[1,7],[2,7],[3,7]],
           s2: [[4,0],[5,0],[6,0],[7,0],[4,1],[5,1],[6,1],[7,1],[4,2],[4,3],[4,4],[5,2],[5,3],[5,4],[5,5],[5,6],[6,1],[6,2],[6,3],[6,4],[6,5],[6,6],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6],[7,7],[4,5],[4,6],[4,7]]
         }
+      },
+      {
+        title: "5: Orientation eyes — 8 compass directions + knight L-offsets",
+        width: 9, height: 9,
+        snakes: eyeSnakes,
+        food: [],
+        hazards: [[0,3],[1,3],[2,3]],
+        fertileTiles: [[6,3],[7,3],[8,3],[6,4],[7,4],[8,4],[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
+        potions: [],
+        territory: {},
+        hideTags: true
+      },
+      {
+        title: "6: Candidate moves on a busy board (fertile + hazards + units)",
+        width: 10, height: 10,
+        snakes: [
+          makeSnake("p1", "Rook", "#008080", [[4,5]], 90, 0, {
+            unitType: "rook", orientation: { dx: 1, dy: 0 } }),
+          makeSnake("p2", "Foe", "#911eb4", [[8,8]], 60, 0, {
+            unitType: "queen", orientation: { dx: -1, dy: 1 } }),
+          makeSnake("s3", "Wriggler", "#f58231", [
+            [1,8],[1,7],[2,7],[3,7]
+          ], 45, 1)
+        ],
+        food: [[6,2],[2,4]],
+        hazards: [[7,0],[8,0],[9,0],[7,1],[8,1],[9,1]],
+        fertileTiles: [
+          [2,5],[3,5],[4,5],[5,5],[6,5],[2,6],[3,6],[4,6],[5,6],[6,6],
+          [4,3],[4,4],[4,7],[4,8],[0,5],[1,5],[7,5],[8,5],[9,5],
+          [2,2],[3,2],[5,2],[6,2],[2,3],[3,3],[5,3],[6,3]
+        ],
+        potions: [[9,9]],
+        territory: {},
+        // The rook's legal destinations along its rank and file, plus the
+        // selected one — the affordance has to survive every terrain under it.
+        makeMoveState: () => pieceCandidates([4, 5],
+          [[4,6],[4,7],[4,8],[5,5],[6,5],[7,5],[3,5],[2,5],[4,4],[4,3]], 10, [6,5]),
+        hideTags: true
       }
     ];
 
@@ -136,7 +217,7 @@
         }
       };
 
-      const moveState = {
+      const moveState = test.makeMoveState ? test.makeMoveState() : {
         selectedMove: null,
         moves: {},
         safeMoves: [],
@@ -150,7 +231,12 @@
         });
       }
 
-      BoardRenderer.renderBoard(canvas, gameState, moveState, { snakeId: test.snakes[0]?.id });
+      BoardRenderer.renderBoard(canvas, gameState, moveState, {
+        snakeId: test.snakes[0]?.id,
+        // Fixtures that are about the cells themselves keep the unit tags
+        // out of the way, the same as the live board's hover-only mode.
+        tagsHiddenByDefault: !!test.hideTags,
+      });
     });
   </script>
 </body>

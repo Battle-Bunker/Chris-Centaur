@@ -69,12 +69,67 @@ const BoardRenderer = (function () {
   // ── Unit orientation ─────────────────────────────────────────────────────
   // Every unit carries its WIRE orientation on Snake.orientation
   // (Turn.orientation, verbatim: full-board convention, dy grows DOWNWARD),
-  // and icons render rotated to it, live and replay.
-  // Screen rotation for a wire orientation vector: clockwise radians from
-  // straight up. Both canvas rotate() (y down) and SVG rotate() treat
-  // positive as clockwise on screen, so one formula serves both.
-  function orientationRad(orientation) {
-    return Math.atan2(orientation.dx, -orientation.dy);
+  // which matches canvas rows exactly, so dx/dy apply to canvas offsets with
+  // no flip. Icons always draw UPRIGHT; the facing shows as an eye on the
+  // faced cell edge (drawOrientationEye), live and replay.
+  // The eye takes the orientation's UNIT vector, so an axis step (±1, 0),
+  // a diagonal (±1, ±1) and a knight L-offset (±1, ±2) all resolve to their
+  // true screen angle rather than to one of four quarter turns.
+  function orientationUnitVector(orientation) {
+    if (!orientation) return null;
+    const dx = orientation.dx || 0;
+    const dy = orientation.dy || 0;
+    const len = Math.hypot(dx, dy);
+    if (!len) return null;
+    return { ux: dx / len, uy: dy / len };
+  }
+
+  // Orientation eye: a spartan eye peering out of the unit's cell in the
+  // faced direction — a white almond (two arcs meeting in points, the
+  // eyelids) laid tangent to the faced edge, just inside the cell boundary,
+  // with a dark pupil pushed outward inside it. White fill plus a dark rim
+  // keeps it legible on every team colour and over any icon it overlaps.
+  // Callers skip it for ghosts/corpses (an orientation-less cell draws none).
+  function drawOrientationEye(ctx, orientation, hx, hy, cellSize) {
+    const u = orientationUnitVector(orientation);
+    if (!u) return;
+    const { ux, uy } = u;
+    // Tangent to the faced edge: the orientation vector turned a quarter turn.
+    const tx = -uy;
+    const ty = ux;
+    const cx = hx + cellSize / 2 + ux * cellSize * 0.355;
+    const cy = hy + cellSize / 2 + uy * cellSize * 0.355;
+    const half = cellSize * 0.21; // half the eye's width along the edge
+    const bulge = cellSize * 0.22; // arc control offset — sets the lids' curve
+    const ax = cx + tx * half;
+    const ay = cy + ty * half;
+    const bx = cx - tx * half;
+    const by = cy - ty * half;
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(cx + ux * bulge, cy + uy * bulge, bx, by);
+    ctx.quadraticCurveTo(cx - ux * bulge, cy - uy * bulge, ax, ay);
+    ctx.closePath();
+    ctx.strokeStyle = ICON_COLORS.line;
+    ctx.lineWidth = Math.max(1.2, cellSize * 0.06);
+    ctx.stroke();
+    ctx.fillStyle = ICON_COLORS.base;
+    ctx.fill();
+    // Pupil: offset outward so the eye reads as looking OUT of the cell, and
+    // small enough that the lid still closes around it on the outward side.
+    ctx.beginPath();
+    ctx.arc(
+      cx + ux * cellSize * 0.032,
+      cy + uy * cellSize * 0.032,
+      Math.max(1.2, cellSize * 0.06),
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = ICON_COLORS.line;
+    ctx.fill();
+    ctx.restore();
   }
 
   // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
@@ -88,11 +143,9 @@ const BoardRenderer = (function () {
   // base; bishop = tall pointed mitre with a dark slash; rook = square
   // crenellations; king = big cross over a plain body; queen = spiky crown
   // with dots; knight = horse silhouette; snake = S-curve serpent.
-  // ORIENTATION: icons render ROTATED to the unit's orientation, so every drawing
-  // carries a discernible "nose" at its TOP — pawn: spiked helmet tip;
-  // bishop: pointed mitre + ball; rook: crenellations; knight: upright ears;
-  // queen: crown spikes; king: cross; snake: head with an upward forked
-  // tongue.
+  // ORIENTATION: icons draw UPRIGHT everywhere. Facing is carried by the
+  // orientation eye on the cell edge (drawOrientationEye), which reads as a
+  // direction at a glance where a rotated 2D icon does not.
   const ICON_COLORS = {
     base: "#ffffff",
     line: "rgba(0, 0, 0, 0.8)",
@@ -218,14 +271,11 @@ const BoardRenderer = (function () {
 
   // Draw a unit icon centred at (cx, cy) with the given pixel size on a canvas.
   // Filled layers stroke their dark outline FIRST so the outline sits behind
-  // the fill (bold mark, thin dark rim). `rotation` (clockwise screen
-  // radians, optional) spins the icon about its centre — the unit's orientation.
-  function drawUnitIcon(ctx, unitKey, cx, cy, size, rotation) {
+  // the fill (bold mark, thin dark rim).
+  function drawUnitIcon(ctx, unitKey, cx, cy, size) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     ctx.save();
-    ctx.translate(cx, cy);
-    if (rotation) ctx.rotate(rotation);
-    ctx.translate(-size / 2, -size / 2);
+    ctx.translate(cx - size / 2, cy - size / 2);
     ctx.scale(size / 24, size / 24);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -252,9 +302,7 @@ const BoardRenderer = (function () {
   // Same icon as inline SVG markup (for the per-team units table rows). Layer
   // order matches drawUnitIcon exactly: the outline is emitted as a separate
   // stroke-only path BEFORE the fill path so it renders behind the fill.
-  // `rotationDeg` (clockwise, optional) spins the icon about the viewBox
-  // centre — the same orientation rotation the board head glyph gets.
-  function unitIconSVG(unitKey, sizePx, rotationDeg) {
+  function unitIconSVG(unitKey, sizePx) {
     const icon = UNIT_ICONS[unitKey] || UNIT_ICONS.snake;
     const parts = [];
     for (const layer of icon) {
@@ -272,10 +320,7 @@ const BoardRenderer = (function () {
         parts.push(`<path d="${layer.d}" fill="${color}"/>`);
       }
     }
-    const body = rotationDeg
-      ? `<g transform="rotate(${rotationDeg.toFixed(1)} 12 12)">${parts.join("")}</g>`
-      : parts.join("");
-    return `<svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true" style="display:block;">${body}</svg>`;
+    return `<svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true" style="display:block;">${parts.join("")}</svg>`;
   }
 
   // The four staged-move direction strings. Chess pieces stage NUMERIC moves
@@ -303,15 +348,12 @@ const BoardRenderer = (function () {
 
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS) — ROTATED to the unit's wire orientation
-  // (snake.orientation). The unit's LETTER lives in its unit tag
-  // (renderUnitTags), not on the head. Pawns additionally carry their
-  // edge triangle (only the pawn's orientation gates move legality) and
-  // staged-rotation badge; their weight shows in the unit tag. Only the
-  // icon rotates: triangle, badge, tags and health bars stay
-  // screen-aligned.
+  // pieces (see UNIT_ICONS) — upright, plus the orientation eye on the faced
+  // cell edge. The unit's LETTER lives in its unit tag (renderUnitTags), not
+  // on the head. Pawns additionally carry the staged-rotation badge; their
+  // weight shows in the unit tag. The eye is drawn LAST so it stays readable
+  // over whatever part of the icon it overlaps.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
-    const iconRotation = orientationRad(snake.orientation);
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
     // anchored to the cell's bottom edge (drawHealthBar).
@@ -323,35 +365,7 @@ const BoardRenderer = (function () {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     if (snake.unitType) {
-      // Pawn orientation: a small triangle hugging the faced cell edge. The
-      // wire orientation has y growing DOWNWARD (full-board convention),
-      // which matches canvas rows exactly, so dx/dy apply to canvas offsets
-      // with no flip.
-      // PAWN-ONLY: every unit carries a wire orientation, but only the pawn's
-      // gates move legality, so only pawns get the explicit edge marker —
-      // other pieces show orientation through icon rotation alone.
-      if (snake.unitType === "pawn") {
-        const fdx = snake.orientation.dx;
-        const fdy = snake.orientation.dy;
-        const edgeX = cx + fdx * (cellSize / 2);
-        const edgeY = cy + fdy * (cellSize / 2);
-        const half = cellSize * 0.14; // triangle half-width along the edge
-        const depth = cellSize * 0.16; // how far the base sits inside the cell
-        // Perpendicular of the orientation vector spans the triangle's base.
-        const px = -fdy;
-        const py = fdx;
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
-        ctx.lineWidth = Math.max(1, cellSize * 0.04);
-        ctx.beginPath();
-        ctx.moveTo(edgeX, edgeY); // tip on the faced edge
-        ctx.lineTo(edgeX - fdx * depth + px * half, edgeY - fdy * depth + py * half);
-        ctx.lineTo(edgeX - fdx * depth - px * half, edgeY - fdy * depth - py * half);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12), iconRotation);
+      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
       // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
       // mirror of the bottom-right weight badge) while a side-square rotation
       // is staged — the piece spends the turn turning, so no destination
@@ -380,8 +394,9 @@ const BoardRenderer = (function () {
       // Snakes (and any letter/emoji-era historical unit): the uniform drawn
       // snake icon. The identifying letter (or historic emoji) shows in the
       // unit tag instead.
-      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12), iconRotation);
+      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
+    drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
     ctx.restore();
   }
 
@@ -640,19 +655,82 @@ const BoardRenderer = (function () {
     return "bad";
   }
 
+  // Candidate-tint ramp, worst → middling → best. It runs through a slate
+  // blue rather than through yellow, because fertile ground IS yellow: a
+  // mid-scored candidate must never wear the terrain's colour.
+  const CANDIDATE_TINT_STOPS = [
+    { r: 214, g: 44, b: 60 }, // crimson — worst of the offered moves
+    { r: 78, g: 108, b: 142 }, // slate blue — middling / unranked
+    { r: 40, g: 158, b: 78 }, // green — best of the offered moves
+  ];
+  const CANDIDATE_TINT_ALPHA = 0.52;
+
+  // Tint for a position 0..1 along the ramp, as an rgba() string.
+  function candidateTint(normalized) {
+    const t = Math.max(0, Math.min(1, normalized));
+    const seg = t < 0.5 ? 0 : 1;
+    const f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+    const a = CANDIDATE_TINT_STOPS[seg];
+    const b = CANDIDATE_TINT_STOPS[seg + 1];
+    const mix = (k) => Math.round(a[k] + (b[k] - a[k]) * f);
+    return `rgba(${mix("r")}, ${mix("g")}, ${mix("b")}, ${CANDIDATE_TINT_ALPHA})`;
+  }
+
   function getScoreColor(score, allScores) {
-    if (score == null || allScores.length === 0)
-      return "rgba(100, 100, 100, 0.3)";
+    if (score == null || allScores.length === 0) return candidateTint(0.5);
     const maxScore = Math.max(...allScores);
     const minScore = Math.min(...allScores);
     const range = maxScore - minScore;
     if (range === 0 || allScores.length === 1) {
-      const hue = score > 0 ? 90 : score < 0 ? 0 : 60;
-      return `hsla(${hue}, 70%, 50%, 0.3)`;
+      return candidateTint(score > 0 ? 0.85 : score < 0 ? 0.15 : 0.5);
     }
-    const normalized = (score - minScore) / range;
-    const hue = normalized * 120;
-    return `hsla(${hue}, 70%, 50%, 0.3)`;
+    return candidateTint((score - minScore) / range);
+  }
+
+  // Rounded-rect path, traced by hand so the renderer never depends on
+  // CanvasRenderingContext2D.roundRect being present.
+  function roundedRectPath(ctx, x, y, w, h, r) {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  // Candidate move cell: a pale plate that flattens whatever terrain is
+  // underneath (fertile stripes, hazard red, bare board), the move's quality
+  // tint over it, then an inset ring — a dark halo under a bright inner
+  // stroke — so the affordance reads as a ring on ANY background and never as
+  // "this cell is fertile" or "this cell is a hazard". The selected candidate
+  // swaps the bright stroke for purple and thickens it, keeping the one
+  // selected cell unmistakable among its siblings.
+  function drawCandidateCell(ctx, x, y, cellSize, tint, isSelected) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.fillRect(x, y, cellSize, cellSize);
+    ctx.fillStyle = tint || candidateTint(0.5);
+    ctx.fillRect(x, y, cellSize, cellSize);
+    const inset = cellSize * 0.12;
+    roundedRectPath(
+      ctx,
+      x + inset,
+      y + inset,
+      cellSize - inset * 2,
+      cellSize - inset * 2,
+      cellSize * 0.16,
+    );
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.lineWidth = Math.max(3, cellSize * 0.14);
+    ctx.stroke();
+    ctx.strokeStyle = isSelected ? "#e040fb" : "#ffffff";
+    ctx.lineWidth = isSelected
+      ? Math.max(2.5, cellSize * 0.1)
+      : Math.max(1.5, cellSize * 0.06);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function hexToRgb(hex) {
@@ -1236,7 +1314,7 @@ const BoardRenderer = (function () {
         move.color = getScoreColor(move.displayScore, allScores);
       } else {
         move.quality = "not-evaluated";
-        move.color = "rgba(100, 100, 100, 0.3)";
+        move.color = candidateTint(0.5);
       }
     });
 
@@ -1365,13 +1443,14 @@ const BoardRenderer = (function () {
         if (move.position && (move.isSafe || move.isEvaluated)) {
           const x = move.position.x * cellSize;
           const y = (board.height - 1 - move.position.y) * cellSize;
-          ctx.fillStyle = move.color;
-          ctx.fillRect(x, y, cellSize, cellSize);
-          if (moveState.selectedMove === (move.key ?? move.direction)) {
-            ctx.strokeStyle = "#9C27B0";
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
-          }
+          drawCandidateCell(
+            ctx,
+            x,
+            y,
+            cellSize,
+            move.color,
+            moveState.selectedMove === (move.key ?? move.direction),
+          );
         }
       });
     }
@@ -1448,12 +1527,14 @@ const BoardRenderer = (function () {
       if (head) {
         const hx = head.x * cellSize;
         const hy = (board.height - 1 - head.y) * cellSize;
-        drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
-          stagedRotation: stagedForThisSnake?.rotation || null,
-        });
+        // Health bar first: a south-facing unit's orientation eye lands on
+        // the same bottom edge, and the eye is the one that must stay whole.
         // Alive board snakes only — dead snakes render as ghosts/death
         // markers in a separate pass and never reach this loop.
         drawHealthBar(ctx, snake, hx, hy, cellSize);
+        drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
+          stagedRotation: stagedForThisSnake?.rotation || null,
+        });
       }
 
       if (turn > 0 && snake.body.length > 1) {
@@ -2355,12 +2436,8 @@ const BoardRenderer = (function () {
     }
     // Unit icon: the SAME drawn icon as the unit's board head glyph
     // (unitIconSVG shares its path data with drawUnitIcon), rendered white on
-    // the unit's colour box so the row reads like the board cell — including
-    // the wire-orientation rotation (opts.orientation). Dead rows carry no
-    // orientation and draw unrotated.
-    const orientation = (opts && opts.orientation) || null;
-    const rotationDeg = orientation ? (orientationRad(orientation) * 180) / Math.PI : 0;
-    const unitIcon = unitIconSVG(snake.unitType || "snake", 14, rotationDeg);
+    // the unit's colour box so the row reads like the board cell.
+    const unitIcon = unitIconSVG(snake.unitType || "snake", 14);
     // Weight: the unit-generic size stat — body length for snakes, stack
     // weight for pieces.
     const weight = snake.length ?? snake.body.length;
@@ -2424,10 +2501,6 @@ const BoardRenderer = (function () {
     );
     const deadIds = new Set(deadSnakes.map((s) => s.id));
     const allSnakes = snakes.concat(deadSnakes);
-    // Orientation for the row icons: the unit's wire orientation, the same
-    // vector that rotates its board head glyph. Dead units carry no
-    // orientation.
-    const orientationFor = (snake) => (deadIds.has(snake.id) ? null : snake.orientation);
 
     if (!options || !options.groupByTeam) {
       container.innerHTML =
@@ -2436,8 +2509,7 @@ const BoardRenderer = (function () {
           .map((snake) =>
             renderSnakeInfoItem(
               snake, ourSnakeId,
-              { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null,
-                orientation: orientationFor(snake) },
+              { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null },
               currentTurn,
             ),
           )
@@ -2493,7 +2565,6 @@ const BoardRenderer = (function () {
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
               owner: ownersMap[snake.id] || null,
-              orientation: orientationFor(snake),
             }, currentTurn),
           )
           .join("");
@@ -2543,8 +2614,9 @@ const BoardRenderer = (function () {
               ? "Score: 0.00"
               : "Not evaluated";
 
-        const bgColor = move.color || "rgba(100, 100, 100, 0.3)";
-        const solidColor = bgColor.replace("0.3)", "0.8)");
+        const bgColor = move.color || candidateTint(0.5);
+        // Same hue as the board cell's tint, opaque enough to read as a button.
+        const solidColor = bgColor.replace(/[\d.]+\)$/, "0.8)");
 
         return `
         <button class="${classes.join(" ")}"

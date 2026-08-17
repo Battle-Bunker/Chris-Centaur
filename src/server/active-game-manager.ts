@@ -337,8 +337,11 @@ export interface ActiveGame {
   ourTeam: { id: string; name: string; color: string } | null;
 }
 
+// Player colours. No yellow or yellow-green: fertile ground is drawn in
+// yellow, so a unit in that hue vanishes into the terrain. Blue and crimson
+// hold those two slots instead, keeping the palette nine wide.
 const DISTINCT_COLORS = [
-  '#008080', '#f58231', '#ffe119', '#bfef45',
+  '#008080', '#f58231', '#4363d8', '#e6194b',
   '#3cb44b', '#42d4f4', '#9a6324', '#911eb4',
   '#f032e6',
 ];
