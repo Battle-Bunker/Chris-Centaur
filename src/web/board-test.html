@@ -173,7 +173,10 @@
           ], 45, 1)
         ],
         food: [[6,2],[2,4]],
-        hazards: [[7,0],[8,0],[9,0],[7,1],[8,1],[9,1]],
+        // Hazards under a bare patch, under two of the rook's candidate cells,
+        // and under the enemy queen: the lattice has to stay legible as
+        // terrain without swallowing the candidate ring or the unit on top.
+        hazards: [[7,0],[8,0],[9,0],[7,1],[8,1],[9,1],[4,3],[2,5],[8,8]],
         fertileTiles: [
           [2,5],[3,5],[4,5],[5,5],[6,5],[2,6],[3,6],[4,6],[5,6],[6,6],
           [4,3],[4,4],[4,7],[4,8],[0,5],[1,5],[7,5],[8,5],[9,5],
@@ -190,6 +193,11 @@
     ];
 
     const grid = document.getElementById('testGrid');
+    // Every fixture's draw call, replayed once the page's images are in. The
+    // renderer loads the invulnerability-potion art asynchronously and falls
+    // back to a glyph until it lands, so a one-shot draw at script time would
+    // show the fallback where the live board shows the art.
+    const redraws = [];
 
     tests.forEach(test => {
       const div = document.createElement('div');
@@ -231,13 +239,17 @@
         });
       }
 
-      BoardRenderer.renderBoard(canvas, gameState, moveState, {
+      const draw = () => BoardRenderer.renderBoard(canvas, gameState, moveState, {
         snakeId: test.snakes[0]?.id,
         // Fixtures that are about the cells themselves keep the unit tags
         // out of the way, the same as the live board's hover-only mode.
         tagsHiddenByDefault: !!test.hideTags,
       });
+      redraws.push(draw);
+      draw();
     });
+
+    window.addEventListener('load', () => redraws.forEach(draw => draw()));
   </script>
 </body>
 </html>

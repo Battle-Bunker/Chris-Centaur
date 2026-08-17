@@ -151,15 +151,36 @@ const BoardRenderer = (function () {
     line: "rgba(0, 0, 0, 0.8)",
     accent: "#e53935",
   };
+  // An Archimedean spiral sampled into a polyline, running outward from the
+  // tail at the centre and finishing at `endAngle`. Round joins and caps make
+  // the samples read as one smooth curve. `pitch` is the radius gained per
+  // full turn — keeping it wider than the body stroke is what stops adjacent
+  // coils from fusing into a plain disc.
+  function spiralPath(cx, cy, innerRadius, pitch, turns, endAngle) {
+    const sweep = turns * Math.PI * 2;
+    const steps = Math.max(8, Math.round(turns * 28));
+    const points = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const angle = endAngle - sweep * (1 - t);
+      const radius = innerRadius + pitch * turns * t;
+      points.push(
+        `${(cx + radius * Math.cos(angle)).toFixed(2)} ${(cy + radius * Math.sin(angle)).toFixed(2)}`,
+      );
+    }
+    return `M${points[0]} L${points.slice(1).join(" L")}`;
+  }
+
+  // The snake's body: a coil spiralling out from the tail at its centre to the
+  // top, then a neck rising to the head at the upper right.
+  const SNAKE_COIL = `${spiralPath(9.4, 14.2, 0.2, 3.8, 1.3, -Math.PI / 2)} C10.6 7.6 11.6 6.6 13.4 6.2`;
   const UNIT_ICONS = {
     pawn: [
       {
-        // Spiked helmet tip (the "nose") over the round head: an upward
-        // point that makes the pawn's orientation readable under rotation.
+        // Plain pawn: a round ball head over a flared body on a wide foot.
         d:
-          "M12 0.9 L14.1 4.9 L9.9 4.9 Z " +
-          "M12 3.4 a3.2 3.2 0 1 0 0.001 0 Z " +
-          "M10.6 10.4 L9.4 16.2 L5.8 18.3 L5.8 20.8 L18.2 20.8 L18.2 18.3 L14.6 16.2 L13.4 10.4 Z",
+          "M12 2.3 a3.6 3.6 0 1 0 0.001 0 Z " +
+          "M10.3 8.6 L9.1 16.2 L5.6 18.3 L5.6 20.8 L18.4 20.8 L18.4 18.3 L14.9 16.2 L13.7 8.6 Z",
         op: "fill",
         color: "base",
         outline: true,
@@ -238,34 +259,39 @@ const BoardRenderer = (function () {
       },
     ],
     snake: [
-      // Head at top CENTER with an upward forked tongue (the "nose"), so the
-      // rotated icon points cleanly along the snake's orientation; the S-body
-      // trails down to the tail at bottom-left.
+      // Curled-up snake. The coil is one stroke laid down twice: a wide dark
+      // pass that serves as both outline and the seam between adjacent coils,
+      // then a narrower light core. Head, eye and forked tongue go on top —
+      // they are what carries the read at ~20px, where the coil arms merge.
       {
-        d: "M6.4 20.6 C14 20.6 15.3 17.7 10.3 16.1 C5.9 14.7 6 10.9 10.4 9.8 C12.5 9.3 13.3 8.6 12.7 7.4",
+        d: SNAKE_COIL,
         op: "stroke",
         color: "line",
-        w: 5.4,
+        w: 5,
       },
       {
-        d: "M6.4 20.6 C14 20.6 15.3 17.7 10.3 16.1 C5.9 14.7 6 10.9 10.4 9.8 C12.5 9.3 13.3 8.6 12.7 7.4",
+        d: SNAKE_COIL,
         op: "stroke",
         color: "base",
-        w: 3.2,
+        w: 3,
       },
       {
-        d: "M12 2.5 a2.6 2.6 0 1 0 0.001 0 Z",
+        d: "M19 6.3 L21.2 6.9 M21.2 6.9 L22.5 6.3 M21.2 6.9 L22.3 8",
+        op: "stroke",
+        color: "accent",
+        w: 1.5,
+      },
+      {
+        // Wedge head: broad behind the eye, tapering to a blunt snout, which
+        // is the silhouette that says "snake" once the coil is a thumbnail.
+        d:
+          "M12.2 3.2 C14.6 2.5 17.2 3.4 19 4.9 C19.8 5.5 19.8 6.5 19 7.1 " +
+          "C17.2 8.6 14.6 9.5 12.2 8.8 C10.4 8.3 10.4 3.7 12.2 3.2 Z",
         op: "fill",
         color: "base",
         outline: true,
       },
-      { d: "M12.9 4.1 a0.8 0.8 0 1 0 0.001 0 Z", op: "fill", color: "line" },
-      {
-        d: "M12 2.5 L12 1 M12 1 L11.1 0.3 M12 1 L12.9 0.3",
-        op: "stroke",
-        color: "accent",
-        w: 1.3,
-      },
+      { d: "M15.2 3.95 a1.05 1.05 0 1 0 0.001 0 Z", op: "fill", color: "line" },
     ],
   };
 
@@ -346,13 +372,60 @@ const BoardRenderer = (function () {
     return { x, y };
   }
 
+  // Backplate for the head-cell letter: a dark rounded chip with a light rim,
+  // pinned to the BOTTOM-RIGHT corner of the head cell and stopping just above
+  // the health bar, which owns the cell's bottom edge. The plate is what lets
+  // the letter read on every team colour and over whatever icon is beneath it.
+  // Returns the chip's geometry for drawLetterGlyph, or null for the historic
+  // rows that predate letters — those get no chip at all.
+  function drawLetterPlate(ctx, snake, hx, hy, cellSize) {
+    if (!snake.letter) return null;
+    const size = Math.max(9, cellSize * 0.3);
+    ctx.save();
+    ctx.font = `800 ${size}px sans-serif`;
+    const padX = Math.max(1.2, size * 0.18);
+    const w =
+      Math.max(size * 0.72, ctx.measureText(snake.letter).width) + padX * 2;
+    // The health bar is ~15% of the cell tall with a ~3% inset; 18.5% clears it.
+    const h = size * 1.12;
+    const x = hx + cellSize - w - Math.max(1, cellSize * 0.035);
+    const y = hy + cellSize - h - cellSize * 0.185;
+    roundedRectPath(ctx, x, y, w, h, h * 0.32);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = Math.max(0.8, cellSize * 0.02);
+    ctx.stroke();
+    ctx.restore();
+    return { x, y, w, h, size };
+  }
+
+  // The letter itself, drawn last so nothing can bury it: white with a dark
+  // halo, which keeps it readable both on its own dark chip and on the white
+  // orientation eye that lands on the chip whenever a unit faces its corner.
+  function drawLetterGlyph(ctx, letter, plate) {
+    ctx.save();
+    ctx.font = `800 ${plate.size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const cx = plate.x + plate.w / 2;
+    const cy = plate.y + plate.h / 2 + plate.size * 0.05;
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(1.5, plate.size * 0.3);
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    ctx.strokeText(letter, cx, cy);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(letter, cx, cy);
+    ctx.restore();
+  }
+
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
   // pieces (see UNIT_ICONS) — upright, plus the orientation eye on the faced
-  // cell edge. The unit's LETTER lives in its unit tag (renderUnitTags), not
-  // on the head. Pawns additionally carry the staged-rotation badge; their
-  // weight shows in the unit tag. The eye is drawn LAST so it stays readable
-  // over whatever part of the icon it overlaps.
+  // cell edge and the unit's letter in the bottom-right corner. Pawns
+  // additionally carry the staged-rotation badge; their weight shows in the
+  // unit tag. The eye draws over the icon, and the letter draws last so it
+  // stays readable over whichever of the two it lands on.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
@@ -392,11 +465,15 @@ const BoardRenderer = (function () {
       }
     } else {
       // Snakes (and any letter/emoji-era historical unit): the uniform drawn
-      // snake icon. The identifying letter (or historic emoji) shows in the
-      // unit tag instead.
+      // snake icon.
       drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
+    // The eye is sandwiched between the letter's chip and the letter itself:
+    // the chip never hides a unit's facing, and the letter still wins the
+    // pixels it needs when the two land on the same corner.
+    const letterPlate = drawLetterPlate(ctx, snake, hx, hy, cellSize);
     drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
+    if (letterPlate) drawLetterGlyph(ctx, snake.letter, letterPlate);
     ctx.restore();
   }
 
@@ -454,6 +531,35 @@ const BoardRenderer = (function () {
     if (frac > 0) {
       ctx.fillStyle = healthBarColor(frac);
       ctx.fillRect(bx, by, barW * frac, barH);
+    }
+    ctx.restore();
+  }
+
+  // Hazard cell: a red lattice — a faint wash crossed by bars running both
+  // diagonals — rather than a solid red block. The bars carry the "danger"
+  // read while the gaps between them leave whatever shares the cell visible:
+  // the black grid lines, a unit standing in the hazard, a candidate ring.
+  // The clip is inset by a pixel on every side so the lattice never paints
+  // over the cell's own grid lines.
+  function drawHazardCell(ctx, x, y, cellSize) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+    ctx.clip();
+    ctx.fillStyle = "rgba(220, 30, 30, 0.18)";
+    ctx.fillRect(x, y, cellSize, cellSize);
+    ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
+    ctx.lineWidth = Math.max(1, cellSize / 11);
+    const spacing = Math.max(4, cellSize / 3);
+    for (let offset = -cellSize; offset <= cellSize * 2; offset += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(x + offset, y);
+      ctx.lineTo(x + offset + cellSize, y + cellSize);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + offset, y);
+      ctx.lineTo(x + offset - cellSize, y + cellSize);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1376,10 +1482,7 @@ const BoardRenderer = (function () {
       board.hazards.forEach((hazard) => {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
-        ctx.save();
-        ctx.fillStyle = "#dc1e1e";
-        ctx.fillRect(x, y, cellSize, cellSize);
-        ctx.restore();
+        drawHazardCell(ctx, x, y, cellSize);
       });
     }
 
@@ -3017,10 +3120,7 @@ const BoardRenderer = (function () {
       board.hazards.forEach((hazard) => {
         const x = hazard.x * cellSize;
         const y = (board.height - 1 - hazard.y) * cellSize;
-        ctx.save();
-        ctx.fillStyle = "#dc1e1e";
-        ctx.fillRect(x, y, cellSize, cellSize);
-        ctx.restore();
+        drawHazardCell(ctx, x, y, cellSize);
       });
     }
 
