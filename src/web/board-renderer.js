@@ -385,6 +385,25 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
+  // Stat glyphs shared by the on-board unit tags and the units table, so one
+  // stat always reads as one symbol wherever it appears.
+  const STAT_ICON = {
+    weight: "\u2696\uFE0F", // balance scale
+    health: "\u2665", // heart, tinted by healthBarColor
+    invulnerable: "\u{1F6E1}\uFE0F", // shield (positive level)
+    vulnerable: "\u26A0\uFE0F", // warning (negative level)
+  };
+
+  // Health-bar track: the dark under-layer every health bar draws its fill on
+  // (tag bar, units-table bar, on-cell bar).
+  const HEALTH_BAR_TRACK = "rgba(0, 0, 0, 0.4)";
+
+  // The invulnerability glyph for a level: shield when protected, warning when
+  // the level is negative (extra-vulnerable).
+  function invulnerabilityIcon(level) {
+    return level > 0 ? STAT_ICON.invulnerable : STAT_ICON.vulnerable;
+  }
+
   // Health-bar fill colour by remaining fraction: red when nearly starved,
   // orange when low, green otherwise. Shared by the board bar and the unit
   // info panel so the two readouts always agree.
@@ -415,7 +434,7 @@ const BoardRenderer = (function () {
     const bx = hx + (cellSize - barW) / 2;
     const by = hy + cellSize - barH - inset;
     ctx.save();
-    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+    ctx.fillStyle = HEALTH_BAR_TRACK;
     ctx.fillRect(bx, by, barW, barH);
     if (frac > 0) {
       ctx.fillStyle = healthBarColor(frac);
@@ -1814,46 +1833,61 @@ const BoardRenderer = (function () {
   // Rects are in BOARD-PIXEL space (the canvas's internal coordinate system).
   const _nameTagRects = new WeakMap();
 
+  // THE tag-visibility rule. Two inputs decide what one tag does, and nothing
+  // else does: the global display default (Alt-tap toggle, plumbed through
+  // options.tagsHiddenByDefault) and whether this unit is the hovered one.
+  // Hover strictly REVERSES the default for the hovered unit and leaves every
+  // other tag on the default:
+  //   shown by default, not hovered  → "solid", or "selected" for the unit
+  //                                    under selection (full opacity)
+  //   shown by default, hovered      → "translucent" (reversed toward hidden,
+  //                                    so the board under the tag stays read-
+  //                                    able); hover outranks selection
+  //   hidden by default, hovered     → "solid" (reversed toward shown)
+  //   hidden by default, not hovered → "hidden" (not drawn at all)
+  // Returned as a name rather than a number so callers cannot invent an
+  // in-between state; TAG_ALPHA maps it to the one opacity it draws at.
+  const TAG_ALPHA = { hidden: 0, translucent: 0.3, solid: 0.92, selected: 1 };
+  function unitTagVisibility(tagsHiddenByDefault, hovered, selected) {
+    if (tagsHiddenByDefault) return hovered ? "solid" : "hidden";
+    if (hovered) return "translucent";
+    return selected ? "selected" : "solid";
+  }
+
   // Draw ONE unit tag: a rounded white pill anchored at the unit's head cell,
   // containing (left to right) the unit's LETTER in a team-coloured chip, its
-  // WEIGHT (×N — body length for snakes, stack weight for pieces), its
-  // numeric HEALTH behind a heart tinted by the shared health thresholds, and
-  // the OPERATOR name when the unit is owned. A colour-coded health bar
-  // (healthFraction/healthBarColor — same thresholds as the board bars) sits
-  // directly under the tag.
-  // The whole tag is one atomic unit: the opacity is computed once from the
-  // tag's state and applied to every part inside a single save/restore block,
-  // so no piece can appear/disappear independently and no alpha can leak.
-  // Display model (Alt-tap toggle, plumbed through
-  // options.tagsHiddenByDefault):
-  //   shown-by-default  → every tag renders; hovering a tag/unit fades THAT
-  //                       tag translucent so the board under it stays readable.
-  //   hidden-by-default → tags don't render at all; only the hovered unit's
-  //                       tag is drawn (solid), placed by renderUnitTags so it
-  //                       never covers the hovered cell.
+  // WEIGHT behind the shared scale icon, its numeric HEALTH behind a heart
+  // tinted by the shared health thresholds, its INVULNERABILITY level behind
+  // the shared shield/warning icon, and the OPERATOR name when the unit is
+  // owned — the same icons the units table uses for the same stats. A
+  // colour-coded health bar (healthFraction/healthBarColor — same thresholds
+  // and track as the units-table bar) sits directly under the tag.
+  // The whole tag is one atomic unit: the opacity comes from
+  // unitTagVisibility and is applied to every part inside a single
+  // save/restore block, so no piece can appear/disappear independently and no
+  // alpha can leak.
   function drawUnitTag(ctx, tag, state) {
     const {
       rect,
       fontSize,
       font,
+      letterFont,
       padX,
       gap,
+      iconGap,
       chipW,
       tagH,
       barH,
       letter,
-      weightText,
-      health,
+      stats,
       frac,
       nameText,
       unitColor,
       ownerColor,
     } = tag;
-    const { selected, hovered, hiddenDefault } = state;
-    let alpha;
-    if (hiddenDefault) alpha = 0.95; // the hover-shown tag (others aren't drawn)
-    else if (hovered) alpha = 0.35;
-    else alpha = selected ? 1 : 0.9;
+    const { selected, visibility } = state;
+    const alpha = TAG_ALPHA[visibility];
+    if (!alpha) return;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -1868,44 +1902,40 @@ const BoardRenderer = (function () {
     else ctx.rect(rect.x, rect.y, rect.w, tagH);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.lineWidth = selected ? Math.max(2, fontSize * 0.2) : 1.5;
+    ctx.lineWidth = selected ? Math.max(2.5, fontSize * 0.2) : 1.5;
     ctx.strokeStyle = ownerColor || unitColor;
     ctx.stroke();
 
     const midY = rect.y + tagH / 2 + fontSize * 0.05;
     let x = rect.x + padX;
 
-    // Letter chip in the unit's colour (white bold letter on top).
-    const chipH = tagH - Math.max(2, fontSize * 0.25);
+    // Letter chip in the unit's colour: the tag's primary identifier, drawn
+    // larger and heavier than the stats so it carries at any board scale.
+    const chipH = tagH - Math.max(3, fontSize * 0.22);
     const chipY = rect.y + (tagH - chipH) / 2;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x, chipY, chipW, chipH, chipH * 0.25);
     else ctx.rect(x, chipY, chipW, chipH);
     ctx.fillStyle = unitColor;
     ctx.fill();
-    ctx.font = `700 ${fontSize}px sans-serif`;
+    ctx.font = letterFont;
     ctx.textAlign = "center";
     ctx.fillStyle = "#ffffff";
     ctx.fillText(letter, x + chipW / 2, midY);
-    x += chipW + gap;
+    x += chipW;
 
-    // Weight (×N).
+    // Stat pairs (icon + value), in the units table's icons and order.
     ctx.font = font;
     ctx.textAlign = "left";
-    ctx.fillStyle = "#1a1a1a";
-    ctx.fillText(weightText, x, midY);
-    x += ctx.measureText(weightText).width;
-
-    // Numeric health, heart tinted by the shared health thresholds.
-    if (health != null) {
+    stats.forEach((stat) => {
       x += gap;
-      ctx.fillStyle = healthBarColor(frac);
-      ctx.fillText("\u2665", x, midY);
-      x += ctx.measureText("\u2665").width + fontSize * 0.15;
+      ctx.fillStyle = stat.iconColor || "#1a1a1a";
+      ctx.fillText(stat.icon, x, midY);
+      x += ctx.measureText(stat.icon).width + iconGap;
       ctx.fillStyle = "#1a1a1a";
-      ctx.fillText(String(health), x, midY);
-      x += ctx.measureText(String(health)).width;
-    }
+      ctx.fillText(stat.text, x, midY);
+      x += ctx.measureText(stat.text).width;
+    });
 
     // Operator name when owned.
     if (nameText) {
@@ -1914,11 +1944,11 @@ const BoardRenderer = (function () {
       ctx.fillText(nameText, x, midY);
     }
 
-    // Colour-coded health bar directly under the tag (same thresholds as the
-    // on-cell board bars).
+    // Colour-coded health bar directly under the tag (same thresholds and
+    // track as the units-table and on-cell bars).
     if (barH) {
       const by = rect.y + tagH + 1;
-      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillStyle = HEALTH_BAR_TRACK;
       ctx.fillRect(rect.x, by, rect.w, barH);
       if (frac > 0) {
         ctx.fillStyle = healthBarColor(frac);
@@ -1934,11 +1964,13 @@ const BoardRenderer = (function () {
   // top-left / bottom-right fallbacks) are scored by how many OTHER unit
   // heads and already-placed tags they cover, and the least-overlapping
   // candidate wins. Styling derives reactively from the selections map; the
-  // Alt-tap display default arrives via options.tagsHiddenByDefault.
-  // When tags are hidden by default, ONLY the hovered unit's tag renders,
-  // anchored to a spot adjacent to the head that never covers the hovered
-  // cell (options.hoverCell) — the cell under the cursor must stay fully
-  // visible and clickable for destination selection / inspection.
+  // Alt-tap display default arrives via options.tagsHiddenByDefault and the
+  // hovered unit via options.hoveredUnitId, and unitTagVisibility turns that
+  // pair into the one state each tag draws in.
+  // A tag shown by hover alone (hidden-by-default mode) is anchored to a spot
+  // adjacent to the head that never covers the hovered cell
+  // (options.hoverCell) — the cell under the cursor must stay fully visible
+  // and clickable for destination selection / inspection.
   function renderUnitTags(ctx, canvas, board, cellSize, options) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
@@ -1979,10 +2011,12 @@ const BoardRenderer = (function () {
       const head = snake.body && snake.body[0];
       if (!head) return;
       const hovered = hoveredId === snake.id;
-      // Hidden-by-default: nothing renders except the hovered unit's tag.
-      if (hiddenDefault && !hovered) return;
-      const owner = owners[snake.id] || null;
       const selected = !!selections[snake.id];
+      const visibility = unitTagVisibility(hiddenDefault, hovered, selected);
+      // Hidden tags are not drawn, so they are not placed or hit-tested
+      // either: the rects this render publishes are exactly what is on screen.
+      if (visibility === "hidden") return;
+      const owner = owners[snake.id] || null;
       const unitColor =
         snake.customizations?.color || snake.color || "#888888";
 
@@ -1992,35 +2026,62 @@ const BoardRenderer = (function () {
       const weight = snake.length ?? snake.body.length;
       const health = typeof snake.health === "number" ? snake.health : null;
       const frac = health != null ? healthFraction(snake) : 0;
+      const invulnLevel = snake.invulnerabilityLevel || 0;
 
-      const fontSize = Math.max(9, cellSize * 0.32);
-      const font = `${selected ? "600" : "400"} ${fontSize}px sans-serif`;
-      const padX = fontSize * 0.4;
-      const gap = fontSize * 0.4;
-      const weightText = `\u00d7${weight}`;
+      // Text sizes are floored in PIXELS as well as scaled off the cell, so a
+      // small board shrinks the board, not the readout; the letter runs a step
+      // larger and heavier than the stats because it is what units are called
+      // by out loud.
+      const fontSize = Math.max(12, cellSize * 0.38);
+      const letterSize = Math.max(17, fontSize * 1.25);
+      const font = `${selected ? "600" : "500"} ${fontSize}px sans-serif`;
+      const letterFont = `800 ${letterSize}px sans-serif`;
+      const padX = fontSize * 0.45;
+      const gap = fontSize * 0.45;
+      const iconGap = fontSize * 0.16;
       const nameText = owner && owner.name ? owner.name : null;
+      // Stat pairs, in the units table's icons and order: weight, health,
+      // invulnerability. Only the health icon is tinted (by the shared
+      // thresholds); the rest read as plain glyphs.
+      const stats = [
+        { icon: STAT_ICON.weight, iconColor: null, text: String(weight) },
+      ];
+      if (health != null) {
+        stats.push({
+          icon: STAT_ICON.health,
+          iconColor: healthBarColor(frac),
+          text: String(health),
+        });
+      }
+      if (invulnLevel !== 0) {
+        stats.push({
+          icon: invulnerabilityIcon(invulnLevel),
+          iconColor: null,
+          text: String(invulnLevel),
+        });
+      }
 
       ctx.save();
-      ctx.font = `700 ${fontSize}px sans-serif`;
+      ctx.font = letterFont;
       const chipW = Math.max(
-        fontSize * 1.25,
-        ctx.measureText(letter).width + fontSize * 0.5,
+        letterSize * 1.15,
+        ctx.measureText(letter).width + letterSize * 0.5,
       );
       ctx.font = font;
-      let contentW = chipW + gap + ctx.measureText(weightText).width;
-      if (health != null) {
+      let contentW = chipW;
+      stats.forEach((stat) => {
         contentW +=
           gap +
-          ctx.measureText("\u2665").width +
-          fontSize * 0.15 +
-          ctx.measureText(String(health)).width;
-      }
+          ctx.measureText(stat.icon).width +
+          iconGap +
+          ctx.measureText(stat.text).width;
+      });
       if (nameText) contentW += gap + ctx.measureText(nameText).width;
       ctx.restore();
 
       const tagW = contentW + padX * 2;
-      const tagH = fontSize * 1.5;
-      const barH = health != null ? Math.max(2, fontSize * 0.3) : 0;
+      const tagH = Math.max(fontSize * 1.7, letterSize * 1.5);
+      const barH = health != null ? Math.max(3, fontSize * 0.32) : 0;
       const totalH = tagH + (barH ? barH + 1 : 0);
 
       // Anchor at the head cell's TOP-RIGHT corner, extending up-right with a
@@ -2102,20 +2163,21 @@ const BoardRenderer = (function () {
           rect: best,
           fontSize,
           font,
+          letterFont,
           padX,
           gap,
+          iconGap,
           chipW,
           tagH,
           barH,
           letter,
-          weightText,
-          health,
+          stats,
           frac,
           nameText,
           unitColor,
           ownerColor: owner && owner.color ? owner.color : null,
         },
-        { selected, hovered, hiddenDefault },
+        { selected, visibility },
       );
 
       placed.push(best);
@@ -2142,6 +2204,10 @@ const BoardRenderer = (function () {
     return null;
   }
 
+  // Candidate-move overlay: one transparent button per candidate cell, sized
+  // and positioned in CSS pixels over the canvas. The buttons carry no label
+  // of their own — the on-board unit tags are the board's hover readout, and
+  // a second hover surface over the same cells would fight them.
   function createBoardOverlay(
     overlayEl,
     canvas,
@@ -2188,14 +2254,6 @@ const BoardRenderer = (function () {
       } else {
         button.style.cursor = 'pointer';
       }
-      const scoreText =
-        move.score != null
-          ? move.score.toFixed(2)
-          : move.isSafe
-            ? "0.00"
-            : "N/A";
-      const label = move.label ?? move.direction.toUpperCase();
-      button.title = `${label} - Score: ${scoreText}`;
       overlayEl.appendChild(button);
     });
   }
@@ -2241,7 +2299,7 @@ const BoardRenderer = (function () {
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
     if (invulnLevel !== 0) {
-      const icon = invulnLevel > 0 ? "\u{1F6E1}\uFE0F" : "\u26A0\uFE0F";
+      const icon = invulnerabilityIcon(invulnLevel);
       // Turns remaining (inclusive of the current turn) from the absolute expiry
       // turn supplied by the server. Falls back to just the level when the expiry
       // is missing (older logs) or already passed at the displayed turn.
@@ -2251,7 +2309,8 @@ const BoardRenderer = (function () {
         const remaining = expiry - currentTurn + 1;
         if (remaining >= 1) turnsSuffix = ` \u00B7 ${remaining}t`;
       }
-      invulnDisplay = `<span>${icon} ${invulnLevel}${turnsSuffix}</span>`;
+      invulnDisplay =
+        `<span title="Invulnerability">${icon} ${invulnLevel}${turnsSuffix}</span>`;
     }
     // Historical replays predating letters stored an emoji head glyph; the
     // letter is already the suffix of a current snake's name, so only the
@@ -2277,8 +2336,9 @@ const BoardRenderer = (function () {
     const deadSuffix = isDead
       ? ' <span style="color:#aaa;font-weight:400;">(dead)</span>'
       : "";
-    // Inline health readout: the same red/orange/green bar as the board cell
-    // (fraction of the unit's configured maxHealth) plus the raw number.
+    // Inline health readout: the shared heart icon, the same red/orange/green
+    // bar as the board cell and the unit tag (fraction of the unit's
+    // configured maxHealth, on the shared track), plus the raw number.
     // Skipped for dead rows and for historical rows without a health value.
     let healthDisplay = "";
     if (!isDead && typeof snake.health === "number") {
@@ -2288,8 +2348,9 @@ const BoardRenderer = (function () {
           ? `<span style="display:block;width:${(frac * 100).toFixed(1)}%;height:100%;background:${healthBarColor(frac)};"></span>`
           : "";
       healthDisplay =
-        `<span style="display:inline-flex;align-items:center;gap:4px;">` +
-        `<span style="display:inline-block;width:48px;height:8px;background:rgba(0,0,0,0.35);border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
+        `<span title="Health" style="display:inline-flex;align-items:center;gap:4px;">` +
+        `<span style="color:${healthBarColor(frac)};">${STAT_ICON.health}</span>` +
+        `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
         `${snake.health}</span>`;
     }
     // Unit icon: the SAME drawn icon as the unit's board head glyph
@@ -2308,9 +2369,8 @@ const BoardRenderer = (function () {
           <div class="snake-color-box" style="background-color: ${snakeColor}; display: flex; align-items: center; justify-content: center;">${unitIcon}</div>
           <div class="snake-details">
             <div class="snake-name">${glyphPrefix}${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
-            <div class="snake-id" style="font-size: 0.75em; color: #888; margin-top: 1px;">${snake.id}</div>
             <div class="snake-stats">
-              <span title="Weight">\u2696\uFE0F ${weight}</span>
+              <span title="Weight">${STAT_ICON.weight} ${weight}</span>
               ${healthDisplay}
               ${invulnDisplay}
               ${ownerBadge}
@@ -2318,6 +2378,28 @@ const BoardRenderer = (function () {
           </div>
         </div>
       `;
+  }
+
+  // The (i) affordance pinned to the units table's top-right corner. Rows
+  // carry no internal document id; this reveals the whole id list on hover.
+  function unitIdsAffordanceHTML() {
+    return (
+      `<div style="grid-column:1/-1;text-align:right;line-height:1;">` +
+      `<span data-unit-ids style="display:inline-block;width:16px;height:16px;` +
+      `border:1px solid #555;border-radius:50%;color:#888;font-size:11px;` +
+      `line-height:15px;text-align:center;cursor:help;">i</span></div>`
+    );
+  }
+
+  // Fill the (i) tooltip with one "name - id" line per unit. Written through
+  // the DOM property rather than an attribute, so untrusted unit names cannot
+  // break out of the markup.
+  function fillUnitIdsAffordance(container, snakes) {
+    const el = container.querySelector("[data-unit-ids]");
+    if (!el) return;
+    el.title = ["Unit IDs"]
+      .concat(snakes.map((s) => `${s.name || s.id} \u2014 ${s.id}`))
+      .join("\n");
   }
 
   // Renders the participants list. With options.groupByTeam the snakes are
@@ -2348,16 +2430,19 @@ const BoardRenderer = (function () {
     const orientationFor = (snake) => (deadIds.has(snake.id) ? null : snake.orientation);
 
     if (!options || !options.groupByTeam) {
-      container.innerHTML = allSnakes
-        .map((snake) =>
-          renderSnakeInfoItem(
-            snake, ourSnakeId,
-            { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null,
-              orientation: orientationFor(snake) },
-            currentTurn,
-          ),
-        )
-        .join("");
+      container.innerHTML =
+        unitIdsAffordanceHTML() +
+        allSnakes
+          .map((snake) =>
+            renderSnakeInfoItem(
+              snake, ourSnakeId,
+              { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null,
+                orientation: orientationFor(snake) },
+              currentTurn,
+            ),
+          )
+          .join("");
+      fillUnitIdsAffordance(container, allSnakes);
       return;
     }
 
@@ -2424,7 +2509,8 @@ const BoardRenderer = (function () {
       })
       .join("");
 
-    container.innerHTML = html;
+    container.innerHTML = unitIdsAffordanceHTML() + html;
+    fillUnitIdsAffordance(container, allSnakes);
 
     if (options.onSelectSnake) {
       container.querySelectorAll("[data-select-snake]").forEach((el) => {
@@ -2957,6 +3043,9 @@ const BoardRenderer = (function () {
     drawUnknownDeathMarker,
     getClickedCell,
     getNameTagAt,
+    unitTagVisibility,
+    invulnerabilityIcon,
+    STAT_ICON,
     drawUnitIcon,
     unitIconSVG,
     findSnakeAtCell,

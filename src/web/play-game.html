@@ -802,15 +802,17 @@
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
-    // Unit (tag or body) currently under the mouse. Shown-by-default tags:
-    // hovering a tag/unit fades THAT tag translucent. Hidden-by-default:
-    // hovering a unit shows its tag, placed clear of the hovered cell.
+    // Hover state, derived as a set by syncHover and cleared as a set by
+    // clearHover: the unit (tag or body) under the mouse, the cursor position
+    // it came from, and the board cell under the cursor (a hover-shown tag is
+    // placed clear of it). Hover reverses the display default below for this
+    // one unit and nothing else.
     let hoveredUnitId = null;
-    let lastCanvasMousePos = null; // last {clientX, clientY} over the canvas
+    let lastCanvasMousePos = null; // last {clientX, clientY} over the board
     let hoverBoardCell = null;     // board cell under the cursor, for tag placement
     let nameTagHoverRerenderQueued = false;
-    // Unit-tag display default: false → tags are DISPLAYED by default
-    // (hovering one fades it), true → tags are NOT displayed by default
+    // THE source of truth for whether unit tags are displayed: false → tags
+    // are shown (hovering one fades it translucent), true → tags are hidden
     // (hovering a unit shows its tag). Toggled by a bare Alt TAP
     // (keydown+keyup with no intervening key/mouse — Alt+click cell
     // inspection is untouched) and persisted per-browser.
@@ -1696,8 +1698,8 @@
       }
 
       if (selectedSnakeId && moveState && !moveSubmitted) {
-        // The candidate overlay is PRESENTATIONAL only — it draws the score
-        // labels and hover affordance. It deliberately has no click handler:
+        // The candidate overlay is PRESENTATIONAL only — it draws the
+        // candidate cells' hover affordance. It deliberately has no click handler:
         // all board input is owned by the delegated pointerdown handler on
         // `.canvas-wrapper`, so rebuilding this overlay (which happens on every
         // render) can never swallow an interaction.
@@ -1709,27 +1711,9 @@
         document.getElementById('boardOverlay').innerHTML = '';
       }
 
-      // Hover revalidation: tags and units move as the turns land, so after
-      // each render re-hit-test the last known mouse position against the
-      // fresh tag rects / unit cells. If the cursor is no longer over the
-      // unit it was hovering (or the mouse has left the canvas), clear/update
-      // the hover so no tag can get stuck shown or faded. Schedules at most
-      // one corrective re-render.
-      const freshHit = lastCanvasMousePos && viewMode === 'live'
-        ? unitHoverHit(lastCanvasMousePos)
-        : null;
-      if (viewMode === 'live') hoverBoardCell = hoverCellAt(lastCanvasMousePos);
-      if (freshHit !== hoveredUnitId) {
-        hoveredUnitId = freshHit;
-        if (!nameTagHoverRerenderQueued) {
-          nameTagHoverRerenderQueued = true;
-          requestAnimationFrame(() => {
-            nameTagHoverRerenderQueued = false;
-            scheduleRender();
-          });
-        }
-      }
-    
+      // Re-derive the hover against the fresh tag rects / unit cells.
+      revalidateHoverAfterRender();
+
       // Keep the cell-inspection highlight/popup in sync with the repaint.
       renderCellInspect();
     }
@@ -4127,7 +4111,10 @@
       } else {
         overlayEl.innerHTML = '';
       }
-    
+
+      // Re-derive the hover against the fresh tag rects / unit cells.
+      revalidateHoverAfterRender();
+
       // Keep the cell-inspection highlight/popup in sync with the repaint.
       renderCellInspect();
     }
@@ -4384,17 +4371,17 @@
     })();
 
 
-    // Unit-tag hover. With tags DISPLAYED by default, hovering a tag or a
-    // unit's body fades that unit's tag translucent so the board underneath
-    // stays readable. With tags HIDDEN by default, hovering a unit's body
-    // shows its tag (placed clear of the hovered cell — see renderUnitTags);
-    // tag rects aren't hit-tested in that mode, so the shown tag never pins
-    // itself under the cursor. Re-render only when the hover state actually
-    // changes. The last mouse position is tracked so the hover can be
-    // revalidated against fresh hit rects after every render (tags move as
-    // the units do), and it is cleared on mouseleave so no tag can stay
-    // stuck shown/faded after the cursor leaves the canvas. Applies in BOTH
-    // live and historic view — the tags render through the same shared path.
+    // ── Unit-tag hover ──────────────────────────────────────────────────────
+    // `tagsHiddenByDefault` is the ONE source of truth for "are tags shown?";
+    // the hover state below is the only other input, and BoardRenderer's
+    // unitTagVisibility turns that pair into what each tag draws — hover
+    // strictly reverses the default for the hovered unit and leaves the rest
+    // alone. The whole hover state is (lastCanvasMousePos, hoverBoardCell,
+    // hoveredUnitId), and it is derived from ONE place, syncHover, so no path
+    // can set half of it: every entry (mouse move, render, Alt toggle) calls
+    // syncHover and every exit (leaving the board, losing focus) calls
+    // clearHover. Applies in BOTH live and historic view — the tags render
+    // through the same shared path.
     function repaintForTagChange() {
       if (viewMode === 'historic') renderHistoricBoard();
       else scheduleRender();
@@ -4413,8 +4400,8 @@
       return cell;
     }
     // The hovered unit: a shown tag under the cursor (only while tags are
-    // displayed by default), else the unit whose body occupies the hovered
-    // cell.
+    // displayed by default — a hover-shown tag must never pin itself under the
+    // cursor), else the unit whose body occupies the hovered cell.
     function unitHoverHit(pos) {
       if (!pos) return null;
       if (!tagsHiddenByDefault) {
@@ -4427,30 +4414,55 @@
       const unit = BoardRenderer.findSnakeAtCell(board, cell);
       return unit ? unit.id : null;
     }
-    document.getElementById('gameCanvas').addEventListener('mousemove', (event) => {
-      lastCanvasMousePos = { clientX: event.clientX, clientY: event.clientY };
+    // Recompute the whole hover state from a cursor position (null = no
+    // cursor over the board). Returns whether anything the tags render from
+    // changed, so callers repaint exactly when they must.
+    function syncHover(pos) {
+      const prevUnit = hoveredUnitId;
       const prevCell = hoverBoardCell;
-      hoverBoardCell = hoverCellAt(lastCanvasMousePos);
+      lastCanvasMousePos = pos;
+      hoverBoardCell = hoverCellAt(pos);
+      hoveredUnitId = unitHoverHit(pos);
       const cellChanged =
         !!prevCell !== !!hoverBoardCell ||
-        (prevCell && hoverBoardCell &&
+        !!(prevCell && hoverBoardCell &&
           (prevCell.x !== hoverBoardCell.x || prevCell.y !== hoverBoardCell.y));
-      const hit = unitHoverHit(lastCanvasMousePos);
       // A hover-shown tag is placed relative to the CURSOR CELL, so moving to
-      // a different cell of the same unit still needs a repaint.
-      if (hit !== hoveredUnitId || (hit && tagsHiddenByDefault && cellChanged)) {
-        hoveredUnitId = hit;
+      // a different cell of the same unit still changes the picture.
+      return hoveredUnitId !== prevUnit ||
+        (!!hoveredUnitId && tagsHiddenByDefault && cellChanged);
+    }
+    // Drop the hover entirely. Every exit path funnels through here, so a tag
+    // can never stay stuck shown or translucent once the cursor is gone.
+    function clearHover() {
+      if (syncHover(null)) repaintForTagChange();
+    }
+    // Hover tracking lives on the canvas WRAPPER, not the canvas: the
+    // candidate overlay's cell buttons sit above the canvas and take the
+    // pointer, so a canvas-only listener sees a mouseleave (and loses the
+    // hover) the moment the cursor crosses one of them.
+    const canvasWrapper = document.querySelector('.canvas-wrapper');
+    canvasWrapper.addEventListener('mousemove', (event) => {
+      if (syncHover({ clientX: event.clientX, clientY: event.clientY })) {
         repaintForTagChange();
       }
     });
-    document.getElementById('gameCanvas').addEventListener('mouseleave', () => {
-      lastCanvasMousePos = null;
-      hoverBoardCell = null;
-      if (hoveredUnitId) {
-        hoveredUnitId = null;
+    canvasWrapper.addEventListener('mouseleave', clearHover);
+    // Focus loss (tab switch, Alt+Tab, devtools): no further mouse events
+    // arrive, so the hover is stale the moment it happens.
+    window.addEventListener('blur', clearHover);
+    // Re-derive the hover after a render: tags and units move as the turns
+    // land, so the last cursor position may now be over something else.
+    // Coalesced into at most one corrective repaint per frame.
+    function revalidateHoverAfterRender() {
+      if (!syncHover(lastCanvasMousePos)) return;
+      if (nameTagHoverRerenderQueued) return;
+      nameTagHoverRerenderQueued = true;
+      requestAnimationFrame(() => {
+        nameTagHoverRerenderQueued = false;
         repaintForTagChange();
-      }
-    });
+      });
+    }
 
     // ── Alt tap: toggle whether unit tags are displayed by default ──────────
     // A bare Alt TAP (keydown then keyup with no other key or mouse press in
@@ -4477,6 +4489,10 @@
       try {
         localStorage.setItem(TAG_DISPLAY_PREF_KEY, tagsHiddenByDefault ? '1' : '0');
       } catch (_e) { /* storage unavailable → session-only toggle */ }
+      // Toggling while the cursor sits on the board changes what counts as a
+      // hover hit (tag rects are hit-tested only while tags are displayed), so
+      // the hover is re-derived before the repaint that reads it.
+      syncHover(lastCanvasMousePos);
       repaintForTagChange();
     });
     // Capture phase so overlay handlers that stop propagation can't let a
