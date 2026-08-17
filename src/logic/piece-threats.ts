@@ -14,7 +14,10 @@
  *  - the Simulator's mover-vs-stationary-piece resolution,
  *  - the threat map below (would the unit kill-or-tie US at a square?).
  *
- * PER-KIND REACH (one generator per unit kind):
+ * PER-KIND REACH (one generator per unit kind). This is ATTACK reach, which
+ * is deliberately NOT BoardGraph's movement adjacency (fillUnitNeighbors): a
+ * pawn attacks its diagonals but moves only forward, and a snake's reach here
+ * is unfiltered by legality. Two questions, two generators:
  *  - snake: the head's 4 orthogonal neighbors — deliberately UNfiltered by
  *    occupancy or legality (matching the legacy h2h scan: a snake whose only
  *    adjacent option is its own body still "threatens" the square; we don't

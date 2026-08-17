@@ -221,18 +221,24 @@ describe('MoveAnalyzer: threatened squares are RISKY, never safe', () => {
 });
 
 describe('decide(): the pieceThreat penalty rides the evaluation pipeline', () => {
-  // Us at (5,5) with body left; a hazard at (6,5) makes 'right' certain death
-  // (default hazardDamage 100), leaving exactly two candidates: 'up' (5,6) on
-  // the queen's down-column ray, and 'down' (5,4) shielded by our own head.
-  // Absent the threat, 'up' is the otherwise-better square (more territory
-  // and survival room toward the open center) — pinned by the lighter-queen
-  // case below — so only the threat penalty can flip the choice.
+  // Us on row 1 with body left; a hazard at (6,1) makes 'right' certain death
+  // (default hazardDamage 100), leaving exactly two candidates: 'up' (5,2) on
+  // the queen's down-column ray, and 'down' (5,0) shielded by our own head.
+  // Absent the threat, 'up' is the otherwise-better square — 'down' is the
+  // board edge and takes the edge penalty — pinned by the lighter-queen case
+  // below, so only the threat penalty can flip the choice. The queen claims
+  // nearly every square either way (its Voronoi territory expands along its
+  // rays, one square per MOVE, against our one step per move), which is what
+  // makes the edge penalty rather than territory the tiebreaker here.
   function scenario(queenWeight: number): GameState {
     const gs = makeGameState(
-      [midUs(), makePiece('q', { x: 5, y: 9 }, 'queen', queenWeight)],
+      [
+        makeSnake('us', [{ x: 5, y: 1 }, { x: 4, y: 1 }, { x: 3, y: 1 }]),
+        makePiece('q', { x: 5, y: 5 }, 'queen', queenWeight),
+      ],
       'us'
     );
-    gs.board.hazards = [{ x: 6, y: 5 }];
+    gs.board.hazards = [{ x: 6, y: 1 }];
     return gs;
   }
 
@@ -249,8 +255,8 @@ describe('decide(): the pieceThreat penalty rides the evaluation pipeline', () =
     expect(down.worstEvaluation.stats.enemyPieceThreat).toBe(0);
     expect(down.worstEvaluation.weighted.enemyPieceThreatScore).toBeCloseTo(0, 10);
 
-    // Otherwise-comparable squares ('up' even scores higher on everything
-    // else): the threat penalty flips the choice off the queen's ray.
+    // 'up' scores higher on everything else: the threat penalty flips the
+    // choice off the queen's ray.
     expect(decision.move).toBe('down');
   });
 

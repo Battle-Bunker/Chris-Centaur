@@ -15,6 +15,14 @@
  * BoardGraph has no concept of `you`: every perspective-dependent query takes a
  * subject snake id.
  *
+ * Passability answers "may this square be entered"; ADJACENCY answers "which
+ * squares are one move away", and it is per unit type. `fillUnitNeighbors` is
+ * its single source, keyed by the unit's type and orientation and validated
+ * through the engine-mirroring legality module (piece-moves.ts). Every search
+ * — territory Voronoi, flood fills, goto/waypoint pathing — enumerates through
+ * it, so a knight searches in L-jumps and a rook along rays without a single
+ * call site knowing what a knight is.
+ *
  * Starvation-aware body vacating: health loss is movement-tied (snakes always
  * move, so they lose exactly 1/turn unless they eat), so a snake with health h
  * dies during relative turn h unless it eats by then. If a walls-only BFS
@@ -45,6 +53,7 @@
 
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
 import { isPieceUnit, winsStationaryContest } from './piece-threats';
+import { Orientation, isInterior, legalOrientations, planPieceAction, toIndex } from './piece-moves';
 
 export interface BoardGraphConfig {
   // Maximum turns to look ahead for optimistic passability
@@ -112,6 +121,20 @@ export function fillNeighbors4(idx: number, W: number, N: number, out: Int32Arra
   return count;
 }
 
+/**
+ * What a unit needs to know to enumerate its own graph edges: its type and the
+ * orientation it currently faces (read by the pawn, whose only step is
+ * forward). A `Snake` satisfies this structurally, so callers holding the unit
+ * itself pass it directly.
+ */
+export interface UnitAdjacency {
+  unitType?: string;
+  orientation: Orientation;
+}
+
+/** The adjacency of an ordinary snake — orthogonal steps, orientation unread. */
+export const SNAKE_ADJACENCY: UnitAdjacency = { unitType: 'snake', orientation: { dx: 0, dy: -1 } };
+
 export class BoardGraph {
   private width: number;
   private height: number;
@@ -145,6 +168,10 @@ export class BoardGraph {
   // Contest weight: snake.length. For pieces `length` is the WEIGHT (stack
   // size), which is exactly what stationary-square adjudication compares.
   private snakeWeight: number[] = [];
+  // Per-snake adjacency descriptor (unit type + faced orientation), the input
+  // to fillUnitNeighbors for every search that walks the board on a subject's
+  // behalf.
+  private snakeUnit: UnitAdjacency[] = [];
   // Relative arrival turn from which the snake's whole body counts as vacated
   // because it certainly starves first (Infinity = no certain starvation).
   // Optimistic/physical timing; the conservative layer adds its usual +1.
@@ -201,6 +228,89 @@ export class BoardGraph {
     return this.snakeIndexById.get(id) ?? -1;
   }
 
+  // ── Per-unit adjacency ───────────────────────────────────────────────────
+
+  /**
+   * The adjacency descriptor of a unit known to this graph. Unknown/dead ids
+   * fall back to snake steps, so a caller with a stale id still walks a sane
+   * graph instead of throwing.
+   */
+  unitAdjacencyFor(snakeId: string): UnitAdjacency {
+    const idx = this.snakeIndexById.get(snakeId);
+    return idx === undefined ? SNAKE_ADJACENCY : this.snakeUnit[idx];
+  }
+
+  /** Upper bound on a single unit's neighbor count here (the queen's 8 rays). */
+  neighborCapacity(): number {
+    return 8 * Math.max(this.width, this.height);
+  }
+
+  /** A scratch buffer large enough for any unit's neighbor list on this board. */
+  neighborBuffer(): Int32Array {
+    return new Int32Array(this.neighborCapacity());
+  }
+
+  /**
+   * THE per-unit adjacency: fill `out` with the cells `unit` can reach from
+   * `idx` in ONE move, returning how many were written. Every graph search —
+   * territory Voronoi, food-reach and space flood fills, goto/waypoint pathing
+   * — enumerates neighbors through here, so a knight's searches advance in
+   * L-jumps and a rook's along rays with no unit-type logic at any call site.
+   *
+   * The geometry is NOT re-derived: each candidate square is validated by
+   * `planPieceAction` (the engine-mirroring legality module), so an edge exists
+   * exactly where staging that square would plan a MOVE. Consequences worth
+   * naming: a knight and a king stop after one step in each of their
+   * orientations; sliders extend along theirs; and a pawn contributes only its
+   * forward step, because its side squares plan a ROTATE (a turn spent turning,
+   * not a displacement) and its diagonals need a capture target on the square
+   * that a multi-turn search cannot promise will still be there.
+   *
+   * Snakes are the one unit the legality module does not speak for — it mirrors
+   * the engine's PIECE rules — so they keep the plain orthogonal step.
+   *
+   * `passable` is the caller's own passability layer (optimistic / physical /
+   * conservative, subject-relative or not) and stops rays: a ray extends
+   * through passable squares and ends AT the first impassable one, which is
+   * still offered so the caller's layer decides whether entering it is legal
+   * (a won contest, a capture) without this root duplicating that judgement.
+   */
+  fillUnitNeighbors(
+    unit: UnitAdjacency,
+    idx: number,
+    passable: (cellIdx: number) => boolean,
+    out: Int32Array,
+  ): number {
+    const type = unit.unitType ?? 'snake';
+    if (type === 'snake') return fillNeighbors4(idx, this.width, this.cells, out);
+
+    // Piece geometry is defined in FULL-BOARD coordinates (perimeter wall
+    // included, y growing downward), so the walk runs there and each accepted
+    // square converts back to a graph cell index.
+    const W = this.width;
+    const H = this.height;
+    const fullW = W + 2;
+    const fullH = H + 2;
+    const ox = (idx % W) + 1;
+    const oy = H - Math.floor(idx / W);
+    const origin = toIndex(ox, oy, fullW);
+
+    let count = 0;
+    for (const o of legalOrientations(type)) {
+      for (let step = 1; ; step++) {
+        const fx = ox + o.dx * step;
+        const fy = oy + o.dy * step;
+        if (!isInterior(fx, fy, fullW, fullH)) break;
+        const action = planPieceAction(type, origin, toIndex(fx, fy, fullW), fullW, fullH, unit.orientation);
+        if (!action || action.kind !== 'move') break;
+        const cell = (H - fy) * W + (fx - 1);
+        out[count++] = cell;
+        if (!passable(cell)) break;
+      }
+    }
+    return count;
+  }
+
   /**
    * Build the graph in two phases to break a circular dependency: the optimistic
    * (turn-aware) passability needs each segment's conservativeDisappearTurn,
@@ -248,6 +358,10 @@ export class BoardGraph {
       this.snakeTailIdx.push(this.cellIndexOf(snake.body[snake.body.length - 1]));
       this.snakeWeight.push(snake.length);
       this.snakeStarveVacate.push(Infinity);
+      this.snakeUnit.push({
+        unitType: snake.unitType ?? 'snake',
+        orientation: snake.orientation ?? SNAKE_ADJACENCY.orientation,
+      });
       // A chess piece's square is a wall in the physical layer (it stands
       // still in lookahead); the subjective layer grants passage only on a
       // WON contest — see passabilityIdxFor.
@@ -317,7 +431,6 @@ export class BoardGraph {
    */
   private calculateSnakeFoodReachability(snakes: Snake[], foodMask: Uint8Array): number[][] {
     const reach: number[][] = [];
-    const W = this.width;
 
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
@@ -335,14 +448,17 @@ export class BoardGraph {
       let levelStart = 0;
       let levelEnd = 1;
       this.queue[0] = headIdx;
-      const nbuf = new Int32Array(4);
+      const nbuf = this.neighborBuffer();
+      const unit = this.snakeUnit[snakeIdx];
+      let turn = 1;
+      const rayOpen = (cell: number): boolean => pass.passableIdx(cell, turn);
 
-      for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
+      for (; turn <= this.config.maxLookaheadTurns; turn++) {
         let nextEnd = levelEnd;
         let foodFoundThisTurn = 0;
         for (let q = levelStart; q < levelEnd; q++) {
           const cur = this.queue[q];
-          const nCount = fillNeighbors4(cur, W, this.cells, nbuf);
+          const nCount = this.fillUnitNeighbors(unit, cur, rayOpen, nbuf);
           for (let t = 0; t < nCount; t++) {
             const n = nbuf[t];
             if (this.visitStamp[n] === stamp) continue;
@@ -460,7 +576,7 @@ export class BoardGraph {
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
       const h = snake.health;
       const canEatInTime =
-        foodCount > 0 && this.wallsOnlyFoodWithin(this.snakeHeadIdx[snakeIdx], foodMask, h);
+        foodCount > 0 && this.wallsOnlyFoodWithin(snakeIdx, foodMask, h);
       if (!canEatInTime) {
         this.snakeStarveVacate[snakeIdx] = Math.max(h + 1, 2);
       }
@@ -468,25 +584,28 @@ export class BoardGraph {
   }
 
   /**
-   * Can any food cell be reached from `headIdx` within `maxDepth` BFS steps
-   * over the interior, ignoring everything except walls (board bounds)?
+   * Can any food cell be reached from the snake's head within `maxDepth` moves
+   * of its OWN unit adjacency, ignoring everything except walls (board bounds)?
    * The generous lower bound on a snake's earliest eat used by
    * applyStarvationVacates.
    */
-  private wallsOnlyFoodWithin(headIdx: number, foodMask: Uint8Array, maxDepth: number): boolean {
+  private wallsOnlyFoodWithin(snakeIdx: number, foodMask: Uint8Array, maxDepth: number): boolean {
+    const headIdx = this.snakeHeadIdx[snakeIdx];
     if (foodMask[headIdx] === 1) return true;
-    const W = this.width;
     const stamp = ++this.stamp;
     this.visitStamp[headIdx] = stamp;
     this.queue[0] = headIdx;
     let levelStart = 0;
     let levelEnd = 1;
-    const nbuf = new Int32Array(4);
+    const nbuf = this.neighborBuffer();
+    const unit = this.snakeUnit[snakeIdx];
+    // Walls only: every in-bounds square is open, so rays run to the wall.
+    const rayOpen = (): boolean => true;
 
     for (let depth = 1; depth <= maxDepth; depth++) {
       let nextEnd = levelEnd;
       for (let q = levelStart; q < levelEnd; q++) {
-        const nCount = fillNeighbors4(this.queue[q], W, this.cells, nbuf);
+        const nCount = this.fillUnitNeighbors(unit, this.queue[q], rayOpen, nbuf);
         for (let t = 0; t < nCount; t++) {
           const n = nbuf[t];
           if (this.visitStamp[n] === stamp) continue;
@@ -686,12 +805,13 @@ export class BoardGraph {
     return this.vacateTurnsCache;
   }
 
-  // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
-  // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
+  // Lazily-built static SNAKE-step adjacency in CSR form: adjNeighbors[adjStart[i]
+  // .. adjStart[i+1]) are the statically-passable neighbor cell indices of cell
   // i. A statically-blocked cell has an empty neighbor list (it is not a
   // usable origin). Cached once per graph — a shared resource for heuristics
   // that iterate neighborhoods repeatedly and don't need turn-aware timing;
-  // it costs nothing until first access.
+  // it costs nothing until first access. Cell-keyed, so it holds one unit
+  // type's edges: searches on a piece's behalf take fillUnitNeighbors instead.
   private adjStart: Int32Array | null = null;
   private adjNeighbors: Int32Array | null = null;
 
@@ -705,16 +825,16 @@ export class BoardGraph {
   }
 
   private buildAdjacency(): void {
-    const W = this.width;
     const N = this.cells;
     const start = new Int32Array(N + 1);
     const neighbors = new Int32Array(N * 4);
-    const nbuf = new Int32Array(4);
+    const nbuf = this.neighborBuffer();
+    const staticOpen = (cell: number): boolean => !this.isStaticBlockedIdx(cell);
     let filled = 0;
     for (let idx = 0; idx < N; idx++) {
       start[idx] = filled;
       if (this.isStaticBlockedIdx(idx)) continue;
-      const nCount = fillNeighbors4(idx, W, N, nbuf);
+      const nCount = this.fillUnitNeighbors(SNAKE_ADJACENCY, idx, staticOpen, nbuf);
       for (let t = 0; t < nCount; t++) {
         const n = nbuf[t];
         if (!this.isStaticBlockedIdx(n)) neighbors[filled++] = n;

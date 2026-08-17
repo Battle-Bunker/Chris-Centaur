@@ -7,10 +7,9 @@ import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
   WaypointContext,
+  WaypointCandidateProgress,
   waypointPath,
-  waypointDistance,
-  gotoProgressStat,
-  nearProgressStat,
+  waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
 import { CellOwnership } from '../logic/multi-source-bfs';
 import { DecisionLogger } from '../logic/decision-logger';
@@ -35,6 +34,22 @@ export interface MoveEvaluation {
   // candidates and route pawn arrow keys to the side-square rotations. Absent
   // on snake rows.
   kind?: 'stay' | 'move' | 'rotate';
+}
+
+// One legal chess-piece candidate with the waypoint bias applied: the staged
+// destination it would put on the wire, the action that destination plans, and
+// the score ordering it against the piece's other candidates.
+interface PieceCandidateScore {
+  move: number;
+  action: PieceAction;
+  destCoord: Coord;
+  // Which waypoint produced `stat`, or null when none is active.
+  kind: 'goto' | 'near' | null;
+  weight: number;
+  stat: number;
+  // Moves still to run from this candidate to the target (null = unreachable).
+  dist: number | null;
+  score: number;
 }
 
 export interface TurnData {
@@ -1259,10 +1274,12 @@ export class ActiveGameManager {
     return { ...snapshot, you };
   }
 
-  // Recompute the DERIVED green goto display route for a snake: the snake's
-  // full predicted trajectory through EVERY queued target, chained
+  // Recompute the DERIVED green goto display route for a unit: its full
+  // predicted trajectory through EVERY queued target, chained
   // head → targets[0] → targets[1] → … so the board shows how it gets between
-  // waypoints, not just to the first one.
+  // waypoints, not just to the first one. One route cell per MOVE of that
+  // unit, since `waypointPath` walks its own adjacency — a knight's route is
+  // its L-hops and a rook's is its ray landings, drawn by the same polyline.
   //
   // The first leg encodes the two-path duality the goto feature needs:
   //  - While a move is STAGED for this turn it starts
@@ -1280,14 +1297,6 @@ export class ActiveGameManager {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     if (!game || !controlled) return;
-    // The green route is a SNAKE trajectory (BFS-walked, turn-aware bodies).
-    // A chess piece moves in rays/jumps, not steps, so no route is drawn —
-    // the goto waypoint overlay (green cell) already marks its destination.
-    if (this.isPieceUnit(controlled)) {
-      controlled.gotoRoute = [];
-      controlled.gotoRouteFirstLeg = 0;
-      return;
-    }
     if (controlled.intent.kind !== 'goto' || controlled.intent.targets.length === 0) {
       controlled.gotoRoute = [];
       controlled.gotoRouteFirstLeg = 0;
@@ -1308,20 +1317,24 @@ export class ActiveGameManager {
       // typed-array board per call, and this runs on every stage.
       const graph = new BoardGraph(gs);
       const staged = controlled.staged;
-      // Pieces never reach here (guarded above), so a pending staged move is
-      // always a Direction — the typeof check is the tsc-visible narrowing.
-      const stagedDir: Direction | null =
-        staged && staged.turn === game.boardStateTurn && typeof staged.move === 'string'
-          ? staged.move
-          : null;
+      // Where this turn's staged move leaves the unit, or null when it leaves
+      // it standing: a snake's Direction steps one cell, a piece's numeric
+      // destination IS the square it lands on (its stay/rotate candidates
+      // plan no displacement, so the route starts at the anchor instead).
+      const stagedDest: Coord | null =
+        !staged || staged.turn !== game.boardStateTurn ? null
+          : typeof staged.move === 'string'
+            ? ActiveGameManager.destinationOf(anchor, staged.move)
+            : staged.action?.kind === 'move'
+              ? toApiCoord(staged.move, board.width + 2, board.height + 2)
+              : null;
 
       // Where the path starts, and how many turns from now that cell is
       // occupied — the BFS clock every subsequent leg continues from.
       const route: Coord[] = [];
       let from: Coord;
       let turnCursor: number;
-      if (stagedDir) {
-        const stagedDest = ActiveGameManager.destinationOf(anchor, stagedDir);
+      if (stagedDest) {
         const inBounds = stagedDest.x >= 0 && stagedDest.x < board.width && stagedDest.y >= 0 && stagedDest.y < board.height;
         if (!inBounds) {
           controlled.gotoRoute = [];
@@ -1450,33 +1463,33 @@ export class ActiveGameManager {
       // with the engine's own computation.
       const gs = turnData.gameState;
       const head = gs.you.head;
-      const graph = new BoardGraph(gs);
-      const baseDist = waypointDistance(gs, snakeId, head, wp.target, { graph });
+      // Snake evaluations only carry Directions; the narrowing keeps the
+      // widened MoveEvaluation.move (CentaurMove) out of the direction math.
+      const rows = evaluations.filter(
+        (e): e is MoveEvaluation & { move: Direction } => typeof e.move === 'string'
+      );
+      const progress = waypointProgressByDestination(
+        gs,
+        snakeId,
+        wp,
+        rows.map(e => ActiveGameManager.destinationOf(head, e.move)),
+        { graph: new BoardGraph(gs) }
+      );
 
-      const candidates: Array<{ move: Direction; score: number; trapped: number }> = [];
-      for (const evaluation of evaluations) {
-        // Snake evaluations only carry Directions; the narrowing keeps the
-        // widened MoveEvaluation.move (CentaurMove) out of the direction math.
-        if (typeof evaluation.move !== 'string') continue;
+      return pickBestMove(rows.map((evaluation, i) => {
         const breakdown: any = evaluation.breakdown || {};
         const weighted = breakdown.weighted || {};
         const weights = breakdown.weights || {};
-        const dest = ActiveGameManager.destinationOf(head, evaluation.move);
-        const candDist = waypointDistance(gs, snakeId, dest, wp.target, { graph, startTurn: 1 });
-        const stat = wp.kind === 'goto'
-          ? gotoProgressStat(baseDist, candDist)
-          : nearProgressStat(baseDist, candDist);
         const weight = wp.kind === 'goto'
           ? (weights.gotoProgress ?? DEFAULT_CONFIG.gotoProgress)
           : (weights.nearProgress ?? DEFAULT_CONFIG.nearProgress);
         const recorded = (weighted.gotoProgressScore ?? 0) + (weighted.nearProgressScore ?? 0);
-        candidates.push({
+        return {
           move: evaluation.move,
-          score: evaluation.score - recorded + weight * stat,
+          score: evaluation.score - recorded + weight * progress[i].stat,
           trapped: breakdown.trapped ?? 0,
-        });
-      }
-      return pickBestMove(candidates);
+        };
+      }));
     } catch (e) {
       // Never let waypoint math break staging; fall back to the bot move.
       console.error(`[ActiveGameManager] getWaypointBiasedMove failed for ${gameId}:${snakeId}:`, e);
@@ -1837,17 +1850,24 @@ export class ActiveGameManager {
   }
 
   // The SINGLE resolver for a piece's commanded destination this turn —
-  // goto (targets[0]) and manual (numeric destination from the candidate UI)
-  // both funnel through here, so legality is decided by exactly one
-  // planPieceAction call for every command source:
-  //  - a legal single move (ray/jump/step, pawn orientation and
-  //    diagonal-only-onto-target rules included; a pawn's side square is the
-  //    rotate encoding) → stage that square's index;
-  //  - anything else → stage the piece's own square (= stay; the wire accepts
-  //    any int and the server treats an illegal/own-square move as stay). The
-  //    piece fallback is ALWAYS its own square, never a direction.
-  // The planned PieceAction rides along so staging can record the
-  // stay/move/rotate distinction instead of discarding it.
+  // goto (the queue head, pathfound) and manual (numeric destination from the
+  // candidate UI) both funnel through here.
+  //
+  //  - manual is an explicit human destination, decided by exactly one
+  //    planPieceAction call: a legal single move (ray/jump/step, pawn
+  //    orientation and diagonal-only-onto-target rules included; a pawn's side
+  //    square is the rotate encoding) stages that square's index, anything
+  //    else stages the piece's own square (= stay; the wire accepts any int and
+  //    the server treats an illegal/own-square move as stay);
+  //  - goto is a DESTINATION, not necessarily one move away: the candidate
+  //    carrying the highest waypoint-biased weight wins (computePieceCandidates),
+  //    which is the first hop of a shortest path to the target — the target
+  //    itself whenever it is one move away. With no positive signal (an
+  //    unreachable target) the piece stays.
+  //
+  // The piece fallback is ALWAYS its own square, never a direction. The planned
+  // PieceAction rides along so staging can record the stay/move/rotate
+  // distinction instead of discarding it.
   // Returns null when the piece has no command (or no board yet) — the caller
   // then stages nothing at all and the server defaults to stay.
   private computePieceStagedMove(
@@ -1864,35 +1884,131 @@ export class ActiveGameManager {
 
     const fullW = board.width + 2;
     const fullH = board.height + 2;
-    const intent = controlled.intent;
-    let destIdx: number;
-    let source: IntendedMoveSource;
-    if (intent.kind === 'manual' && typeof intent.move === 'number') {
-      destIdx = intent.move;
-      source = 'manual';
-    } else if (intent.kind === 'goto' && intent.targets.length > 0) {
-      destIdx = apiCoordToIndex(intent.targets[0], fullW, fullH);
-      source = 'waypoint';
-    } else {
-      return null;
-    }
     const originIdx = apiCoordToIndex(head, fullW, fullH);
+    const intent = controlled.intent;
+
+    if (intent.kind === 'goto' && intent.targets.length > 0) {
+      const best = this.bestPieceCandidate(gameId, snakeId);
+      return {
+        move: best?.move ?? originIdx,
+        source: 'waypoint',
+        action: best?.action ?? { kind: 'stay' },
+      };
+    }
+    if (intent.kind !== 'manual' || typeof intent.move !== 'number') return null;
+
     const pawnTargets =
       controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
     const action = planPieceAction(
       controlled.unitType,
       originIdx,
-      destIdx,
+      intent.move,
       fullW,
       fullH,
       you.orientation,
       pawnTargets
     );
     return {
-      move: action ? destIdx : originIdx,
-      source,
+      move: action ? intent.move : originIdx,
+      source: 'manual',
       action: action ?? { kind: 'stay' },
     };
+  }
+
+  // The winning candidate for a piece's active waypoint: the highest score,
+  // ties broken by the shorter remaining distance (so an arrival always beats
+  // a detour of equal stat) and then by enumeration order. Null when no
+  // candidate carries a positive score — an unreachable target pulls nowhere
+  // and the piece stays put.
+  private bestPieceCandidate(gameId: string, snakeId: string): PieceCandidateScore | null {
+    let best: PieceCandidateScore | null = null;
+    for (const candidate of this.computePieceCandidates(gameId, snakeId)) {
+      if (candidate.score <= 0) continue;
+      if (
+        !best ||
+        candidate.score > best.score ||
+        (candidate.score === best.score && (candidate.dist ?? Infinity) < (best.dist ?? Infinity))
+      ) {
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Every legal candidate for a controlled piece this turn, scored as its base
+   * weight PLUS the active waypoint's contribution:
+   *
+   *   score(dest) = base + weight × progressStat(dest)
+   *
+   * ADDITIVE, exactly as getWaypointBiasedMove is for snakes (which subtracts
+   * the contribution already inside the engine score before adding the one for
+   * the target as it is NOW). The bot has no piece evaluator yet, so every
+   * candidate's base weight is 0 and the waypoint stat alone orders them: the
+   * hop that ends nearest the target along a shortest path scores the full
+   * weight, and nothing else competes.
+   *
+   * The stat comes from the shared waypoint pathfinder walking the graph's
+   * per-unit adjacency, so a knight is ordered by knight moves and a rook by
+   * rays — there is nothing type-aware in this layer, and the piece's own
+   * shortest path is what the goto route draws.
+   */
+  private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    const snapshot = game?.boardState;
+    if (!controlled || !snapshot?.board || !this.isPieceUnit(controlled)) return [];
+    const gs = this.viewFor(snapshot, snakeId);
+    const head = gs?.you?.head || gs?.you?.body?.[0];
+    if (!gs || !head) return [];
+
+    const board = gs.board;
+    const fullW = board.width + 2;
+    const fullH = board.height + 2;
+    const unitType = controlled.unitType ?? 'snake';
+    const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+    const legal = legalPieceDestinations(
+      unitType,
+      apiCoordToIndex(head, fullW, fullH),
+      fullW,
+      fullH,
+      gs.you.orientation,
+      pawnTargets
+    );
+    const dests = legal.map(c => toApiCoord(c.dest, fullW, fullH));
+    // Progress is measured where the candidate LEAVES the piece: a rotation
+    // spends the turn turning and a stay spends it standing, so both are
+    // measured from the square the piece already occupies. Only a move
+    // displaces it.
+    const probes = legal.map((c, i) => (c.action.kind === 'move' ? dests[i] : head));
+
+    const waypoint = this.getActiveWaypointTarget(gameId, snakeId);
+    const weight = !waypoint ? 0
+      : waypoint.kind === 'goto' ? DEFAULT_CONFIG.gotoProgress
+      : DEFAULT_CONFIG.nearProgress;
+    let progress: WaypointCandidateProgress[] | null = null;
+    if (waypoint) {
+      try {
+        progress = waypointProgressByDestination(gs, snakeId, waypoint, probes, {
+          graph: new BoardGraph(gs),
+        });
+      } catch (e) {
+        // Waypoint math must never break staging or the candidate broadcast:
+        // without it every candidate keeps its base weight and the piece stays.
+        console.error(`[ActiveGameManager] piece waypoint progress failed for ${gameId}:${snakeId}:`, e);
+      }
+    }
+
+    return legal.map(({ dest, action }, i) => ({
+      move: dest,
+      action,
+      destCoord: dests[i],
+      kind: waypoint?.kind ?? null,
+      weight,
+      stat: progress?.[i].stat ?? 0,
+      dist: progress?.[i].dist ?? null,
+      score: weight * (progress?.[i].stat ?? 0),
+    }));
   }
 
   // The piece analog of stageMove's tail: bind one atomic staged record and
@@ -1924,8 +2040,9 @@ export class ActiveGameManager {
     }
 
     controlled.staged = { snakeId, turn, move, source, fatalConsented: false, action };
-    controlled.gotoRoute = [];
-    controlled.gotoRouteFirstLeg = 0;
+    // Same ordering as stageMove: the drawn route follows the move that will
+    // actually commit, so it is refreshed only once `staged` is final.
+    this.refreshGotoRoute(gameId, snakeId);
     this.ensureStagedPublished(gameId, snakeId);
     this.notifyStagedChange(gameId);
   }
@@ -1951,40 +2068,39 @@ export class ActiveGameManager {
       const stay = this.pieceOwnSquareIndex(gameId, snakeId);
       if (stay !== null && controlled.staged.move !== stay) {
         this.bindStagedPieceMove(gameId, snakeId, stay, 'fallback', { kind: 'stay' });
+        return;
       }
     }
+    // Nothing bound (so bindStagedPieceMove did not refresh): the drawn route
+    // must still track the intent this call resolved.
+    this.refreshGotoRoute(gameId, snakeId);
   }
 
-  // STUB piece evaluator: the same aggregate weight (0) for every legal
-  // candidate, enumerated by legalPieceDestinations so the offered set can
-  // never diverge from what staging would accept. The SAME score→color path
-  // that shades snake candidates turns these uniform (range 0 → neutral
-  // amber). A real piece evaluator replaces only the score/breakdown fill
-  // here — the row shape (move id + dest + kind) is already the full UI
-  // contract.
-  private computePieceMoveEvaluations(gameState: GameState): MoveEvaluation[] {
-    const board = gameState.board;
-    const you = gameState.you;
-    const head = you?.head || you?.body?.[0];
-    const unitType = you?.unitType ?? 'snake';
-    // Snake candidates come from the bot's evaluated-move path (real
-    // heuristic weights); only pieces are enumerated here.
-    if (!board || !head || unitType === 'snake') return [];
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
-    const originIdx = apiCoordToIndex(head, fullW, fullH);
-    const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
-    return legalPieceDestinations(unitType, originIdx, fullW, fullH, you.orientation, pawnTargets)
-      .map(({ dest, action }) => ({
-        move: dest,
-        score: 0,
-        numStates: 0,
+  // The piece candidate rows for the UI, from the SAME scored candidates
+  // staging picks from — so the shading, the arrows and the move that commits
+  // all read one computation. The bot has no piece evaluator yet, so a piece
+  // with no waypoint scores a uniform 0 (the shared score→color path renders
+  // that as neutral amber); an active waypoint is the only contribution, and
+  // it fills the weights/weighted tables the breakdown component renders.
+  // A real piece evaluator adds its base weight in computePieceCandidates —
+  // the row shape (move id + dest + kind) is already the full UI contract.
+  private computePieceMoveEvaluations(gameId: string, snakeId: string): MoveEvaluation[] {
+    return this.computePieceCandidates(gameId, snakeId).map(candidate => ({
+      move: candidate.move,
+      score: candidate.score,
+      numStates: 0,
+      breakdown: candidate.kind
+        ? {
+            [`${candidate.kind}Progress`]: candidate.stat,
+            weights: { [`${candidate.kind}Progress`]: candidate.weight },
+            weighted: { [`${candidate.kind}ProgressScore`]: candidate.score },
+          }
         // Empty weights/weighted tables: the breakdown-table component renders
         // ZERO rows for a breakdown that carries no heuristic keys.
-        breakdown: { weights: {}, weighted: {} },
-        dest: toApiCoord(dest, fullW, fullH),
-        kind: action.kind,
-      }));
+        : { weights: {}, weighted: {} },
+      dest: candidate.destCoord,
+      kind: candidate.action.kind,
+    }));
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of
@@ -2037,11 +2153,11 @@ export class ActiveGameManager {
 
     // Promotion changes the unit type mid-game (pawn → queen).
     controlled.unitType = gameState.you.unitType ?? controlled.unitType;
-    // Candidate turn data: every legal destination as a zero-scored stub
-    // evaluation, through the same TurnData/broadcast contract snakes use.
+    // Candidate turn data: every legal destination scored by the waypoint
+    // bias, through the same TurnData/broadcast contract snakes use.
     controlled.latestTurnData = {
       gameState,
-      moveEvaluations: this.computePieceMoveEvaluations(gameState),
+      moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
       safeMoves: [],
       botRecommendation: null,

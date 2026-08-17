@@ -5,7 +5,7 @@
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
-import { BoardGraph, BoardGraphConfig, ClearanceMode, fillNeighbors4 } from './board-graph';
+import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 import { WaypointProgress } from './waypoint-pathing';
 import {
@@ -390,9 +390,10 @@ export class BoardEvaluator {
   private visitStamp: Int32Array = new Int32Array(0);
   private floodQueue: Int32Array = new Int32Array(0);
   private stamp = 0;
-  // 4-slot scratch for fillNeighbors4 in the region flood (never used while
-  // another fill of the same buffer is in flight).
-  private neighborScratch = new Int32Array(4);
+  // Scratch for the region flood's neighbor fill (never used while another
+  // fill of the same buffer is in flight); grown to whatever the graph's
+  // widest unit needs.
+  private neighborScratch: Int32Array = new Int32Array(0);
 
   private ensureScratch(cells: number): void {
     if (this.scratchCells < cells) {
@@ -401,6 +402,13 @@ export class BoardEvaluator {
       this.floodQueue = new Int32Array(cells);
       this.stamp = 0;
     }
+  }
+
+  private ensureNeighborScratch(graph: BoardGraph): Int32Array {
+    if (this.neighborScratch.length < graph.neighborCapacity()) {
+      this.neighborScratch = graph.neighborBuffer();
+    }
+    return this.neighborScratch;
   }
 
   /**
@@ -441,19 +449,20 @@ export class BoardEvaluator {
     queue[0] = startIdx;
     let levelStart = 0;
     let levelEnd = 1;
-    const nbuf = this.neighborScratch;
+    const nbuf = this.ensureNeighborScratch(graph);
 
     let reachableCount = 1; // head occupies a cell
     let tailReachable = false;
     let white = (snake.head.x + snake.head.y) % 2 === 0 ? 1 : 0;
     let black = 1 - white;
     let arrivalTurn = 1;
+    const rayOpen = (cell: number): boolean => pass.passableIdx(cell, arrivalTurn);
 
     while (levelStart < levelEnd) {
       let nextEnd = levelEnd;
       for (let q = levelStart; q < levelEnd; q++) {
         const cur = queue[q];
-        const nCount = fillNeighbors4(cur, W, N, nbuf);
+        const nCount = graph.fillUnitNeighbors(snake, cur, rayOpen, nbuf);
         for (let t = 0; t < nCount; t++) {
           const n = nbuf[t];
           if (visit[n] === stamp) continue;
@@ -507,25 +516,30 @@ export class BoardEvaluator {
     cap: number
   ): { walkLength: number; tailReached: boolean } {
     const pass = graph.passabilityIdxFor(snake.id, { clearance });
-    const W = graph.boardWidth;
-    const N = graph.cellCount;
-    this.ensureScratch(N);
+    this.ensureScratch(graph.cellCount);
     const visit = this.visitStamp;
     const stamp = ++this.stamp;
 
     // Two DISTINCT scratch buffers: degree counting runs while the candidate
     // buffer is still being iterated.
-    const candBuf = new Int32Array(4);
-    const degBuf = new Int32Array(4);
+    const candBuf = graph.neighborBuffer();
+    const degBuf = graph.neighborBuffer();
 
     let current = graph.cellIndexOf(snake.head);
     visit[current] = stamp;
     let steps = 0;
     let tailReached = false;
+    // The turn the walk arrives at the cell being enumerated, and the turn
+    // after it — read by the two ray-stop tests below.
+    let arrivalTurn = 1;
+    let nextArrival = 2;
+    const rayOpen = (cell: number): boolean => pass.passableIdx(cell, arrivalTurn);
+    const rayOpenNext = (cell: number): boolean => pass.passableIdx(cell, nextArrival);
 
     while (steps < cap) {
-      const arrivalTurn = steps + 1;
-      const nCount = fillNeighbors4(current, W, N, candBuf);
+      arrivalTurn = steps + 1;
+      nextArrival = arrivalTurn + 1;
+      const nCount = graph.fillUnitNeighbors(snake, current, rayOpen, candBuf);
       let candidates = 0;
       for (let i = 0; i < nCount; i++) {
         const n = candBuf[i];
@@ -541,10 +555,9 @@ export class BoardEvaluator {
       // numeric order keeps determinism with a simpler rule.
       let best = -1;
       let bestDegree = Infinity;
-      const nextArrival = arrivalTurn + 1;
       for (let i = 0; i < candidates; i++) {
         const cand = candBuf[i];
-        const dCount = fillNeighbors4(cand, W, N, degBuf);
+        const dCount = graph.fillUnitNeighbors(snake, cand, rayOpenNext, degBuf);
         let degree = 0;
         for (let j = 0; j < dCount; j++) {
           const nn = degBuf[j];

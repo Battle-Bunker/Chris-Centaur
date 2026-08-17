@@ -1,8 +1,10 @@
 /**
  * Chess-piece staging through the ActiveGameManager:
- *  - a piece's goto intent stages its destination as a NUMERIC full-board
- *    index (the wire format) when the target is a legal single move;
- *  - an illegal target stages the piece's own square (= stay);
+ *  - a piece's goto intent stages a NUMERIC full-board index (the wire
+ *    format): the target itself when it is one legal move away, otherwise the
+ *    first hop of the shortest path in the piece's OWN moves, chosen purely by
+ *    the goto weight over the candidate rows;
+ *  - a target the piece cannot reach at all stages its own square (= stay);
  *  - an uncommanded piece stages NOTHING (the server defaults to stay), but
  *    Submit All publishes an explicit stay and commits once confirmed;
  *  - numeric read-back confirmations are accepted by the publish pipeline;
@@ -13,7 +15,8 @@
 
 import { ActiveGameManager } from '../server/active-game-manager';
 import { GameState, Snake, Coord, CentaurMove, Direction } from '../types/battlesnake';
-import { apiCoordToIndex } from '../firebase/translate';
+import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
+import { DEFAULT_CONFIG } from '../config/game-config';
 
 // Piece commands flow through the same command-event log as snake commands;
 // mock the logger so no DB writes leak out of the unit tests (same pattern as
@@ -159,18 +162,41 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     expect(mgr.isStagedMoveFatal(gameId, 'R')).toBe(false);
   });
 
-  test('an illegal target stages the piece own square (= stay on the wire)', () => {
-    const gameId = 'g-piece-illegal';
+  test('a target more than one move away stages the first hop of the shortest ray path', () => {
+    const gameId = 'g-piece-multihop';
     const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
     processPieceTurn(gameId, 'R', [rook], 0);
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
     cs.selectedBy = 'u1';
 
-    // (6,9) is neither on the rook's rank nor file.
+    // (6,9) is neither on the rook's rank nor file: two ray moves away, via
+    // (5,9) or (6,5). Both first hops are equally optimal and score the full
+    // goto weight; the enumerator's board order settles the tie on (5,9).
     expect(mgr.setWaypoint(gameId, 'R', { type: 'green', x: 6, y: 9 }, 'u1')).toBe(true);
+    const firstHop = fullIdx({ x: 5, y: 9 });
+    expect(cs.staged).toMatchObject({ turn: 0, move: firstHop, source: 'waypoint' });
+    expect(publishedFor('R').slice(-1)[0].move).toBe(firstHop);
+
+    // Next turn from the hop, the target IS one ray move away and is staged.
+    const rook1 = makeUnit('R', { x: 5, y: 9 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook1], 1);
+    expect(cs.staged).toMatchObject({ turn: 1, move: fullIdx({ x: 6, y: 9 }), source: 'waypoint' });
+  });
+
+  test('an unreachable target pulls nowhere: the piece stages its own square (= stay)', () => {
+    const gameId = 'g-piece-unreachable';
+    // A pawn only ever steps forward (rotations spend the turn turning), so a
+    // target off its file is unreachable — no candidate carries a positive
+    // goto weight and the piece stays.
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+
+    expect(mgr.setWaypoint(gameId, 'P', { type: 'green', x: 2, y: 9 }, 'u1')).toBe(true);
     const stay = fullIdx({ x: 5, y: 5 });
     expect(cs.staged).toMatchObject({ turn: 0, move: stay, source: 'waypoint' });
-    expect(publishedFor('R').slice(-1)[0].move).toBe(stay);
+    expect(publishedFor('P').slice(-1)[0].move).toBe(stay);
   });
 
   test('pawn: forward and diagonal-onto-food are legal; empty diagonal stages stay', () => {
@@ -255,6 +281,68 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     const rook1 = makeUnit('R', { x: 5, y: 9 }, { unitType: 'rook' });
     processPieceTurn(gameId, 'R', [rook1], 1);
     expect(cs.intent.kind).toBe('heuristic');
+  });
+
+  test('knight: goto stages the first hop of the shortest KNIGHT path and draws it', () => {
+    const gameId = 'g-piece-knight';
+    const knight = makeUnit('N', { x: 0, y: 0 }, { unitType: 'knight' });
+    processPieceTurn(gameId, 'N', [knight], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('N')!;
+    cs.selectedBy = 'u1';
+
+    // (1,1) is one diagonal square away but FOUR knight moves out of the
+    // corner. The goto weight is the only signal ordering the candidates, so
+    // the staged hop is one that starts a 4-move path — never the (unreachable
+    // in one move) target, and never stay.
+    expect(mgr.setWaypoint(gameId, 'N', { type: 'green', x: 1, y: 1 }, 'u1')).toBe(true);
+    expect(cs.staged!.move).toBe(fullIdx({ x: 1, y: 2 }));
+    expect(cs.staged!.source).toBe('waypoint');
+    expect(cs.staged!.action).toEqual({ kind: 'move', path: [fullIdx({ x: 1, y: 2 })] });
+
+    // The drawn route IS the returned path: one cell per knight move, staged
+    // hop first, target last — the arrows follow it with no piece-aware
+    // rendering.
+    expect(cs.gotoRoute).toHaveLength(4);
+    expect(cs.gotoRoute[0]).toEqual({ x: 1, y: 2 });
+    expect(cs.gotoRoute[3]).toEqual({ x: 1, y: 1 });
+    for (let i = 0; i < cs.gotoRoute.length; i++) {
+      const from = i === 0 ? { x: 0, y: 0 } : cs.gotoRoute[i - 1];
+      const d = [Math.abs(cs.gotoRoute[i].x - from.x), Math.abs(cs.gotoRoute[i].y - from.y)].sort();
+      expect(d.join()).toBe('1,2');
+    }
+
+    // Walking it: playing the staged hop each turn re-plans from the new
+    // square (which may pick a different equally-short path) and still lands
+    // on the target in exactly four moves, where the queue empties.
+    let at = { x: 0, y: 0 };
+    for (let turn = 1; turn <= 4; turn++) {
+      at = toApiCoord(cs.staged!.move as number, FULL_W, FULL_H);
+      processPieceTurn(gameId, 'N', [makeUnit('N', at, { unitType: 'knight' })], turn);
+    }
+    expect(at).toEqual({ x: 1, y: 1 });
+    expect(cs.intent.kind).toBe('heuristic');
+  });
+
+  test('the goto weight rides the candidate rows: the on-path hop carries the full weight', () => {
+    const gameId = 'g-piece-weights';
+    const knight = makeUnit('N', { x: 0, y: 0 }, { unitType: 'knight' });
+    processPieceTurn(gameId, 'N', [knight], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('N')!;
+    cs.selectedBy = 'u1';
+    mgr.setWaypoint(gameId, 'N', { type: 'green', x: 1, y: 1 }, 'u1');
+
+    // Candidate rows are recomputed on the next turn intake; the base weight
+    // is 0 for every piece candidate, so score IS the goto contribution.
+    processPieceTurn(gameId, 'N', [knight], 1);
+    const evals = cs.latestTurnData!.moveEvaluations;
+    const byMove = new Map(evals.map((e) => [e.move, e]));
+    const onPath = byMove.get(fullIdx({ x: 1, y: 2 }))!;
+    expect(onPath.score).toBeCloseTo(DEFAULT_CONFIG.gotoProgress, 9);
+    expect(onPath.breakdown.weights.gotoProgress).toBe(DEFAULT_CONFIG.gotoProgress);
+    expect(onPath.breakdown.weighted.gotoProgressScore).toBeCloseTo(DEFAULT_CONFIG.gotoProgress, 9);
+    // Staying is strictly worse than the hop that shortens the path.
+    expect(byMove.get(fullIdx({ x: 0, y: 0 }))!.score).toBeLessThan(onPath.score);
+    for (const e of evals) expect(e.score).toBeLessThanOrEqual(onPath.score);
   });
 
   test('pawn promotion refreshes the controlled unit type from the latest board', () => {

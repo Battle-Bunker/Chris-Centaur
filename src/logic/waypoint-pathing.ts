@@ -22,7 +22,7 @@
  */
 
 import { GameState, Coord, Direction } from '../types/battlesnake';
-import { BoardGraph, fillNeighbors4 } from './board-graph';
+import { BoardGraph } from './board-graph';
 
 // The active waypoint target handed to the decision engine: the current goto
 // target (head of the goto queue) or the near target.
@@ -106,6 +106,10 @@ export function waypointPath(
   const graph = opts?.graph ?? new BoardGraph(gameState);
   const occupied = opts?.occupied;
   const pass = graph.passabilityIdxFor(ourSnakeId, { clearance: 'optimistic' });
+  // The subject's own adjacency: one BFS level is one of ITS moves, so the
+  // path returned for a knight is a knight-move sequence and the one for a
+  // rook is a sequence of ray hops. Nothing here knows which is which.
+  const unit = graph.unitAdjacencyFor(ourSnakeId);
   const W = graph.boardWidth;
   const N = graph.cellCount;
 
@@ -120,14 +124,15 @@ export function waypointPath(
   let levelEnd = 1;
   let turn = opts?.startTurn ?? 0;
   let found = false;
-  const nbuf = new Int32Array(4); // fillNeighbors4 scratch
+  const nbuf = graph.neighborBuffer(); // fillUnitNeighbors scratch
+  const rayOpen = (cell: number): boolean => pass.passableIdx(cell, turn);
 
   while (levelStart < levelEnd && !found) {
     let nextEnd = levelEnd;
     turn++;
     for (let q = levelStart; q < levelEnd && !found; q++) {
       const cur = queue[q];
-      const nCount = fillNeighbors4(cur, W, N, nbuf);
+      const nCount = graph.fillUnitNeighbors(unit, cur, rayOpen, nbuf);
       for (let t = 0; t < nCount; t++) {
         const n = nbuf[t];
         if (visited[n] === 1) continue;
@@ -223,11 +228,48 @@ export function nearProgressStat(baseDist: number | null, candDist: number | nul
   return Math.max(0, Math.min(1, 2 - candDist / best));
 }
 
+// One candidate's measured progress toward the active waypoint: the BFS
+// distance still to run from it (null = unreachable) and the bounded stat the
+// weight multiplies.
+export interface WaypointCandidateProgress {
+  dist: number | null;
+  stat: number;
+}
+
 /**
- * The per-move waypoint progress table for the active goto/near target: BFS
- * shortest-path distance from the current head (baseline) and from each
- * candidate destination cell (startTurn 1 — the probe cell is one move in the
- * future), mapped through the pure progress-stat functions above.
+ * Waypoint progress for arbitrary candidate DESTINATION cells, index-aligned
+ * with `dests`: the baseline BFS distance from `from` (the head unless a
+ * caller anchors elsewhere) and one BFS per candidate with startTurn 1 (the
+ * probe cell is one move in the future), mapped through the pure progress-stat
+ * functions above.
+ *
+ * Destination-keyed because a candidate is a SQUARE: a snake's four steps and a
+ * piece's ray/jump destinations are measured by exactly this code, over the
+ * graph's per-unit adjacency, so no caller re-derives what "one move closer"
+ * means for its unit type.
+ */
+export function waypointProgressByDestination(
+  gameState: GameState,
+  ourSnakeId: string,
+  waypoint: WaypointContext,
+  dests: Coord[],
+  opts?: { graph?: BoardGraph; from?: Coord }
+): WaypointCandidateProgress[] {
+  const graph = opts?.graph ?? new BoardGraph(gameState);
+  const from = opts?.from ?? gameState.you.head;
+  const target = waypoint.target;
+  const baseDist = waypointDistance(gameState, ourSnakeId, from, target, { graph });
+  const statOf = waypoint.kind === 'goto' ? gotoProgressStat : nearProgressStat;
+
+  return dests.map(dest => {
+    const dist = waypointDistance(gameState, ourSnakeId, dest, target, { graph, startTurn: 1 });
+    return { dist, stat: statOf(baseDist, dist) };
+  });
+}
+
+/**
+ * The per-move waypoint progress table for the active goto/near target: the
+ * destination-keyed measurement above, taken at the four step destinations.
  *
  * Computed ONCE per decision from the PRE-move board, then injected into every
  * evaluation of that candidate move — including the simulated look-ahead
@@ -241,23 +283,21 @@ export function computeWaypointProgressByMove(
   opts?: { graph?: BoardGraph }
 ): WaypointProgressByMove | null {
   if (!waypoint) return null;
-  const youId = gameState.you.id;
   const head = gameState.you.head;
-  const target = waypoint.target;
-  const graph = opts?.graph ?? new BoardGraph(gameState);
-  const baseDist = waypointDistance(gameState, youId, head, target, { graph });
+  const progress = waypointProgressByDestination(
+    gameState,
+    gameState.you.id,
+    waypoint,
+    ALL_MOVES.map(move => destinationOf(head, move)),
+    opts
+  );
 
   const result: WaypointProgressByMove = {};
-  for (const move of ALL_MOVES) {
-    const dest = destinationOf(head, move);
-    const candDist = waypointDistance(gameState, youId, dest, target, { graph, startTurn: 1 });
-    const stat = waypoint.kind === 'goto'
-      ? gotoProgressStat(baseDist, candDist)
-      : nearProgressStat(baseDist, candDist);
+  ALL_MOVES.forEach((move, i) => {
     result[move] = {
-      gotoProgress: waypoint.kind === 'goto' ? stat : 0,
-      nearProgress: waypoint.kind === 'near' ? stat : 0,
+      gotoProgress: waypoint.kind === 'goto' ? progress[i].stat : 0,
+      nearProgress: waypoint.kind === 'near' ? progress[i].stat : 0,
     };
-  }
+  });
   return result;
 }

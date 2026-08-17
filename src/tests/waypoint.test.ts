@@ -37,6 +37,14 @@ function makeSnake(id: string, head: Coord, length = 3): Snake {
   };
 }
 
+/** A chess piece: a 1-cell unit whose `length` is its WEIGHT. */
+function makePiece(id: string, square: Coord, unitType: string, orientation = { dx: 0, dy: -1 }): Snake {
+  const piece = makeSnake(id, square, 1);
+  piece.unitType = unitType;
+  piece.orientation = orientation;
+  return piece;
+}
+
 function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
   const you = snakes.find((s) => s.id === youId)!;
   return {
@@ -120,6 +128,48 @@ describe('waypointPath', () => {
     expect(waypointPath(gs, 's', snake.head, { x: 11, y: 5 })).toBeNull();
     expect(waypointPath(gs, 's', snake.head, snake.head)).toEqual([]);
     expect(waypointDistance(gs, 's', snake.head, snake.head)).toBe(0);
+  });
+
+  test('a path is measured in the UNIT own moves: knight L-hops, rook ray landings', () => {
+    const knight = makePiece('k', { x: 0, y: 0 }, 'knight');
+    const gs = makeGameState('g', 1, [knight], 'k');
+    // (1,1) is one square diagonally away and FOUR knight moves out of the
+    // corner — the classic case a step-based BFS would call distance 2.
+    const path = waypointPath(gs, 'k', knight.head, { x: 1, y: 1 })!;
+    expect(path).not.toBeNull();
+    expect(path.length).toBe(4);
+    expect(path[path.length - 1]).toEqual({ x: 1, y: 1 });
+    // Every hop is a legal L-jump.
+    let from = knight.head;
+    for (const hop of path) {
+      const [dx, dy] = [Math.abs(hop.x - from.x), Math.abs(hop.y - from.y)];
+      expect([dx, dy].sort().join()).toBe('1,2');
+      from = hop;
+    }
+
+    // A rook crosses the whole board in two ray moves.
+    const rook = makePiece('r', { x: 0, y: 0 }, 'rook');
+    const rookGs = makeGameState('g', 1, [rook], 'r');
+    expect(waypointDistance(rookGs, 'r', rook.head, { x: 10, y: 10 })).toBe(2);
+    expect(waypointDistance(rookGs, 'r', rook.head, { x: 0, y: 7 })).toBe(1);
+  });
+
+  test('a slider ray stops at a blocked square, so the path goes around', () => {
+    // A hazard wall across row 5 leaves one opening, at x=10. The rook's ray
+    // straight up its own file dies on the wall, so the shortest path is the
+    // three-move detour through the opening.
+    const rook = makePiece('r', { x: 0, y: 0 }, 'rook');
+    const gs = makeGameState('g', 1, [rook], 'r');
+    for (let x = 0; x <= 9; x++) gs.board.hazards.push({ x, y: 5 });
+
+    expect(waypointPath(gs, 'r', rook.head, { x: 0, y: 10 })).toEqual([
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ]);
+    // Beyond the wall on its own file is unreachable in one move, but the
+    // squares up to it are not.
+    expect(waypointDistance(gs, 'r', rook.head, { x: 0, y: 4 })).toBe(1);
   });
 });
 
@@ -306,6 +356,29 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.gotoRoute.length).toBe(3);
     // A single target is all committed leg — nothing to fade.
     expect(cs.gotoRouteFirstLeg).toBe(cs.gotoRoute.length);
+  });
+
+  test('regression: a snake still navigates in single orthogonal steps', () => {
+    const gameId = 'g-goto-snake-steps';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    // A target four cells away on the diagonal is four steps of route, one
+    // cell per move — a snake reads the same per-unit adjacency every piece
+    // does and gets exactly the step graph it always had. Both 'up' and
+    // 'right' start a shortest path and take the same goto weight, so the raw
+    // bot scores still settle it: the weight is added to them, not a path
+    // override.
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 7, y: 7 }, userId)).toBe(true);
+
+    expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.source).toBe('waypoint');
+    expect(cs.gotoRoute).toHaveLength(4);
+    for (let i = 0; i < cs.gotoRoute.length; i++) {
+      const from = i === 0 ? { x: 5, y: 5 } : cs.gotoRoute[i - 1];
+      expect(Math.abs(cs.gotoRoute[i].x - from.x) + Math.abs(cs.gotoRoute[i].y - from.y)).toBe(1);
+    }
+    expect(cs.gotoRoute[cs.gotoRoute.length - 1]).toEqual({ x: 7, y: 7 });
   });
 
   test('the drawn route follows the move that will actually commit, not the one the target wanted', () => {

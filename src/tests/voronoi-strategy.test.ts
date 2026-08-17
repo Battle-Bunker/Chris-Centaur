@@ -1,10 +1,12 @@
 /**
  * Golden-master tests for VoronoiStrategy.getBestMoveIterative — the full
  * strategy stack (config -> team detection -> iterative engine -> debug
- * payload assembly) pinned on three fixed boards:
+ * payload assembly) pinned on four fixed boards:
  *   1. open board         — territory-maximizing move on an empty midfield;
  *   2. contested corridor — refuses the one-cell channel an enemy contests;
- *   3. near-trapped pocket — picks the exit that preserves reachable space.
+ *   3. near-trapped pocket — picks the exit that preserves reachable space;
+ *   4. knight on the board — territory claimed per unit type, in the claimant's
+ *      own moves rather than in snake steps.
  *
  * Deterministic by construction: inline worker pool (DECISION_POOL_SIZE=0,
  * chunks run on this thread), default config (ConfigStore mocked to empty),
@@ -245,5 +247,47 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     const down = evalFor(result, 'down');
     expect(down.breakdown.myTerritory).toBe(29);
     expect(down.breakdown.selfSpace).toBeCloseTo(1.8371173070873836, 9);
+  });
+
+  test('knight on the board: territory is claimed in L-jumps, not in snake steps', async () => {
+    // Same lone-enemy-in-the-corner geometry as the open board, with the enemy
+    // replaced by a knight of equal weight. A knight covers ground far faster
+    // than a snake walking one cell per turn: from its corner it reaches 8
+    // squares in one move and most of the board within a few, so the split is
+    // nothing like the 101/14 an orthogonal-step expansion produces for the
+    // same two positions — that number is exactly what per-unit adjacency
+    // fixes.
+    const us = makeSnake('us', '#111111', [
+      { x: 5, y: 5 },
+      { x: 5, y: 4 },
+      { x: 5, y: 3 },
+    ]);
+    const knight = makeSnake('knight', '#222222', [{ x: 0, y: 10 }]);
+    knight.unitType = 'knight';
+    const gameState = makeGameState('gm-knight', [us, knight], 'us', [{ x: 8, y: 5 }]);
+
+    const result = await run(gameState);
+
+    // The knight out-claims our snake outright: 61 cells from the corner,
+    // where the step-walking enemy of the open-board fixture managed 14.
+    expect(result.territoryCells['knight']).toHaveLength(61);
+    expect(result.territoryCells['us']).toHaveLength(45);
+
+    // The claimed distances ARE knight moves. Its two nearest in-board jumps
+    // land at distance 1, while the squares physically ADJACENT to it cost
+    // three jumps — the exact inversion a step metric can never produce.
+    const { sources, owner, distance } = result.cellOwnership;
+    const knightIdx = sources.indexOf('knight');
+    const at = (x: number, y: number) => y * 11 + x;
+    for (const [x, y, d] of [[2, 9, 1], [1, 8, 1], [0, 9, 3], [1, 10, 3]]) {
+      expect(owner[at(x, y)]).toBe(knightIdx);
+      expect(distance[at(x, y)]).toBe(d);
+    }
+
+    // Our own move still comes from the same matrix over the new territory:
+    // 'right' now, away from the side the knight sweeps.
+    expect(result.move).toBe('right');
+    expect(result.scores.get('right')).toBeCloseTo(525.9696919601035, 6);
+    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(29);
   });
 });

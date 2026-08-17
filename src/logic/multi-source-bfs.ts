@@ -4,6 +4,11 @@
  * Processes cells level-by-level to properly detect ties.
  * Supports optimistic passability for body segments.
  *
+ * Each source expands by ITS OWN unit adjacency (BoardGraph.fillUnitNeighbors),
+ * so a distance level is one MOVE of that unit — a knight's territory grows in
+ * L-jumps, a rook's along rays — and the tie/contest rules apply to those
+ * arrivals unchanged.
+ *
  * The BFS is integer-indexed typed arrays throughout (see BoardGraph):
  * ownership and distance live in flat Int16Arrays and per-level tie detection
  * uses 32-bit source masks. The per-snake territory coordinate lists (UI /
@@ -14,7 +19,7 @@
  */
 
 import { Coord } from '../types/battlesnake';
-import { BoardGraph, fillNeighbors4 } from './board-graph';
+import { BoardGraph } from './board-graph';
 
 export interface BFSSource {
   id: string;
@@ -159,6 +164,12 @@ export class MultiSourceBFS {
     const sourceIndexOf = new Map<string, number>();
     for (let i = 0; i < nSources; i++) sourceIndexOf.set(sources[i].id, i);
 
+    // Each source claims territory by ITS OWN movement: the graph's per-unit
+    // adjacency expands a knight in L-jumps and a rook along rays, while a
+    // snake still steps one cell. Only the expansion metric is per-unit — the
+    // level-by-level arrival, tie and contest semantics below are untouched.
+    const unitOf = sources.map(s => graph.unitAdjacencyFor(s.id));
+
     // Frontier as parallel arrays of (cellIdx, sourceIdx).
     let curCell: number[] = [];
     let curSrc: number[] = [];
@@ -186,7 +197,13 @@ export class MultiSourceBFS {
 
     let currentDistance = 0;
     const touched: number[] = []; // cells whose per-level masks need resetting
-    const nbuf = new Int32Array(4); // fillNeighbors4 scratch
+    const nbuf = graph.neighborBuffer(); // fillUnitNeighbors scratch
+    // Arrival turn of the level being expanded, read by the passability test
+    // below and by the ray-stop test inside the adjacency enumeration.
+    let arrivalTurn = 1;
+    const passableAt = (cell: number): boolean => useOptimistic
+      ? graph.isPassableAtTurnIdx(cell, arrivalTurn)
+      : graph.isPassableStaticIdx(cell);
 
     while (curCell.length > 0 || pendingDelayed > 0) {
       // Inject delayed sources that start at this distance level.
@@ -257,23 +274,20 @@ export class MultiSourceBFS {
 
       // Third pass: expand next level from cells owned by the arriving source.
       // Dedup (neighbor, source) enqueues with per-level masks.
-      const arrivalTurn = currentDistance + 1;
+      arrivalTurn = currentDistance + 1;
       const enqueueTouched: number[] = [];
       for (let q = 0; q < curCell.length; q++) {
         const cell = curCell[q];
         const srcIdx = curSrc[q];
         if (owner[cell] !== srcIdx) continue; // neutral or claimed by another source
 
-        const nCount = fillNeighbors4(cell, W, N, nbuf);
+        const nCount = graph.fillUnitNeighbors(unitOf[srcIdx], cell, passableAt, nbuf);
         for (let t = 0; t < nCount; t++) {
           const n = nbuf[t];
           if (owner[n] !== OWNER_UNREACHED) continue;
           const bit = 1 << srcIdx;
           if ((enqueuedMask[n] & bit) !== 0) continue;
-          const passable = useOptimistic
-            ? graph.isPassableAtTurnIdx(n, arrivalTurn)
-            : graph.isPassableStaticIdx(n);
-          if (!passable) continue;
+          if (!passableAt(n)) continue;
           if (enqueuedMask[n] === 0) enqueueTouched.push(n);
           enqueuedMask[n] |= bit;
           nextCell.push(n);
