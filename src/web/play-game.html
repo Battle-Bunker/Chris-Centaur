@@ -1644,13 +1644,16 @@
       // human-staged ones in the controller's color, and committed ones as a
       // double arrow (see board-renderer). The client renders the broadcast
       // stagedMoves snapshot directly — no local synthesis.
-      // Death markers are derived uniformly for every snake (ours and enemies)
-      // by the renderer's disappearance path: a snake present last turn but gone
-      // this turn gets a solid marker from currentGameState.lastMoves (the move
-      // that killed it) and — for snakes we controlled — a ghost marker from the
-      // move we committed (lastCommittedMoves), drawn only when it differs. This
-      // naturally shows only on the death turn: next turn the snake is already
-      // absent from previousBoard, so no marker is drawn.
+      // Death markers are derived uniformly for every unit (ours and enemies)
+      // by the renderer's disappearance path: a unit present last turn but gone
+      // this turn gets a solid marker on its authoritative death cell —
+      // currentGameState.deathCells for pieces (the exact cell the engine
+      // recorded, mid-path deaths included), currentGameState.lastMoves for
+      // snakes (the move that killed them) — and, for snakes we controlled, a
+      // ghost marker from the move we committed (lastCommittedMoves), drawn
+      // only when it differs. This naturally shows only on the death turn:
+      // next turn the unit is already absent from previousBoard, so no marker
+      // is drawn.
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
@@ -1669,6 +1672,9 @@
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
         lastMoves: currentGameState?.lastMoves || null,
+        // Authoritative per-piece death cells → solid death heads for pieces
+        // (mid-path deaths land on the exact cell the engine recorded).
+        deathCells: currentGameState?.deathCells || null,
         // The moves we committed → ghost (intended) death heads for our snakes.
         submittedMoves: lastCommittedMoves,
       });
@@ -4054,8 +4060,9 @@
       const turn = ctx.boardRow;
       const own = ctx.ownRow; // inspected snake's decision, null after its death
       // The prior logged turn's board (from the SAME log the board row came
-      // from) lets the renderer detect snakes that vanished this turn;
-      // lastMoves (on game_state) then marks their true death cell.
+      // from) lets the renderer detect units that vanished this turn;
+      // deathCells (pieces) and lastMoves (snakes), both on game_state, then
+      // mark their true death cell.
       const prevTurn = ctx.prevRow;
       // The primary arrow shows the move that was actually SUBMITTED to the
       // game server for this turn (ground truth). Rows without submitted_move
@@ -4082,6 +4089,7 @@
         previousBoard: prevTurn?.game_state?.board || null,
         ourDeaths: own ? buildHistoricOurDeaths(own) : [],
         lastMoves: turn.game_state?.lastMoves || null,
+        deathCells: turn.game_state?.deathCells || null,
         fatalConsented: !!(own && own.fatal_consent),
         stagedMoves: cmd ? cmd.stagedMoves : null,
         owners: cmd ? cmd.owners : null,

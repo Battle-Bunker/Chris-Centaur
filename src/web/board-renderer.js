@@ -1681,17 +1681,20 @@ const BoardRenderer = (function () {
     // (staged) cell the same way for every consumer:
     //   - `actual` (solid marker): the server-decided final cell. Taken from an
     //     explicit actualHead (history: last-known head stepped by server_move)
-    //     when present, else derived from the engine's authoritative `lastMoves`
-    //     map (last-known head stepped one cell in the recorded direction). Same
-    //     source for our snakes and enemies.
+    //     when present, else the engine's authoritative `deathCells` map
+    //     (pieces: the exact cell the unit died on — mid-path for a slider
+    //     stopped in flight), else derived from the authoritative `lastMoves`
+    //     map (snakes: last-known head stepped one cell in the recorded
+    //     direction). Same sources for our units and enemies.
     //   - `intended` (shadow marker): the move we actually submitted. Taken from
     //     an explicit intendedHead (history: last-known head stepped by
     //     submitted_move) when present, else the `submittedMoves` map (live:
     //     client-tracked committed move), else the staged-move map. Only drawn
     //     when it differs from the server-decided cell.
-    //   - When neither an explicit actualHead nor `lastMoves` is available
-    //     (older logs, or the game's terminal move with no following state),
-    //     fall back to the "unknown ?" marker at the last-known head.
+    //   - The "unknown ?" marker at the last-known head is the degenerate
+    //     case: it draws only when the unit is genuinely absent from every
+    //     authoritative source (no actualHead, no deathCells entry, no
+    //     lastMoves entry) — i.e. the wire carries no final position at all.
     const ourDeaths = options?.ourDeaths || [];
     const excludeIds = new Set(
       ourDeaths.map((d) => d.id).filter((id) => id != null),
@@ -1708,6 +1711,11 @@ const BoardRenderer = (function () {
     // logged inside game_state JSONB, so historic scrubbing and /history get it
     // for free); an explicit option can override it.
     const lastMoves = options?.lastMoves || gameState?.lastMoves || null;
+    // Dead pieces' authoritative death cells, keyed by unit id. Like lastMoves
+    // it rides on the rendered game state (logged inside game_state JSONB, so
+    // historic scrubbing and /history get it for free); an explicit option can
+    // override it.
+    const deathCells = options?.deathCells || gameState?.deathCells || null;
     const stagedMovesForDeaths = options?.stagedMoves || null;
     // Live: the client tracks the move it actually committed per snake ({id: move}).
     // A dead snake is gone from the server's staged-move broadcast, so this map is
@@ -1749,8 +1757,12 @@ const BoardRenderer = (function () {
           { ghost: true },
         );
 
-      // Authoritative final cell: explicit override first, else lastMoves.
+      // Authoritative final cell: explicit override first, else the engine's
+      // per-piece death cell, else lastMoves (snakes).
       let actual = d.actualHead || null;
+      if (!actual && deathCells && d.id != null && deathCells[d.id]) {
+        actual = deathCells[d.id];
+      }
       if (!actual && lastMoves && d.id != null && d.lastHead) {
         actual = applyDirection(d.lastHead, lastMoves[d.id]);
       }
@@ -1782,7 +1794,8 @@ const BoardRenderer = (function () {
         // Authoritative final head → solid marker.
         drawDeathMarker(ctx, actual, board.height, cellSize, d.color, false);
       } else {
-        // No authoritative final position (older logs / no lastMoves) → "?"
+        // Degenerate case: the unit is absent from every authoritative source
+        // (no explicit head, no deathCells entry, no lastMoves entry) → "?"
         // marker at the last-known head.
         drawUnknownDeathMarker(
           ctx,

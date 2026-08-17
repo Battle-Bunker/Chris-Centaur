@@ -86,6 +86,12 @@ export interface GameState {
   // guessing. Optional for backward compatibility with engines/logs that
   // predate it.
   lastMoves?: Record<string, Direction>;
+  // Authoritative map of unitId -> the board cell a chess piece died on
+  // during the transition into this turn, read from the wire turn's `moves`
+  // map (which records a dead piece's actual death square — mid-path for a
+  // slider stopped in flight). Pieces only: a dead snake's cell derives from
+  // `lastMoves`. Present only on turns where a piece died.
+  deathCells?: Record<string, Coord>;
 }
 
 // A board-only view of a game with NO `you`. The centaur server controls many

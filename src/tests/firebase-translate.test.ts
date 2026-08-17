@@ -5,6 +5,7 @@ import {
   buildGameState,
   continuationDirection,
   controlledSnakeIDs,
+  deriveDeathCells,
   directionToMoveIndex,
   parseLatestTurn,
   parseTurn,
@@ -353,6 +354,27 @@ describe('parseTurn', () => {
     expect(pt.alive('nobody')).toBe(false);
   });
 
+  it('appliedMoveIndex()/piecePath() read the authoritative moves/paths maps', () => {
+    // A rook that died mid-ray: the wire records its death square in `moves`
+    // and a path that ends on that square.
+    const deathSquare = idx(3, 1);
+    const turn = makeTurn({
+      moves: { centB: deathSquare },
+      paths: { centB: [idx(2, 1), deathSquare] },
+    });
+    const pt = parseLatestTurn(makeDoc([turn]))!;
+    expect(pt.appliedMoveIndex('centB')).toBe(deathSquare);
+    expect(pt.piecePath('centB')).toEqual([idx(2, 1), deathSquare]);
+    expect(pt.appliedMoveIndex('ghost')).toBeUndefined();
+    expect(pt.piecePath('centA')).toBeUndefined(); // snakes carry no paths entry
+    // Malformed doc without moves/paths maps: undefined, never a throw.
+    const malformed = parseLatestTurn(
+      makeDoc([makeTurn({ moves: undefined as any, paths: undefined })])
+    )!;
+    expect(malformed.appliedMoveIndex('centA')).toBeUndefined();
+    expect(malformed.piecePath('centA')).toBeUndefined();
+  });
+
   it('pieces()/headIndex() read playerPieces, tolerating absent snakes', () => {
     const pt = parseLatestTurn(makeDoc([makeTurn()]))!;
     expect(pt.pieces('centA')).toEqual([idx(1, 1), idx(1, 2)]);
@@ -380,5 +402,61 @@ describe('parseTurn', () => {
       const soon = Date.now() + 10_000;
       expect(pt.endTimeMs(soon)).toBe(soon);
     });
+  });
+});
+
+describe('deriveDeathCells', () => {
+  // centB is a rook; everyone else is a snake.
+  const pieceSetup = () =>
+    makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+    });
+  const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: pieceSetup(), turns });
+
+  it('maps a piece that died mid-path to the api cell of its wire death square', () => {
+    // Rook at (3,1) slides toward (5,1) and dies mid-ray on (4,1): the next
+    // turn drops it from playerPieces, records the death square in `moves`,
+    // and its `paths` entry ends there.
+    const deathSquare = idx(4, 1);
+    const prev = makeTurn();
+    const curr = makeTurn({
+      alivePlayers: ['centA', 'centA#2', 'centB#2'],
+      playerPieces: {
+        centA: [idx(1, 2), idx(1, 1)],
+        'centA#2': [idx(5, 3), idx(5, 4)],
+        'centB#2': [idx(2, 3)],
+      },
+      moves: {
+        centA: idx(1, 2),
+        'centA#2': idx(5, 3),
+        centB: deathSquare,
+        'centB#2': idx(2, 3),
+      },
+      paths: { centB: [deathSquare] },
+    });
+    const doc = makeDoc([prev, curr]);
+    const cells = deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!);
+    expect(cells).toEqual({ centB: toApiCoord(deathSquare, W, H) });
+  });
+
+  it('excludes snakes, surviving pieces, and pieces absent from the wire moves map', () => {
+    const prev = makeTurn();
+    // centA (snake) and centB (rook) both died; centB has NO moves entry
+    // (genuinely absent wire data), so neither produces a death cell.
+    const curr = makeTurn({
+      alivePlayers: ['centA#2', 'centB#2'],
+      playerPieces: {
+        'centA#2': [idx(5, 3), idx(5, 4)],
+        'centB#2': [idx(2, 3)],
+      },
+      moves: { centA: idx(1, 2), 'centA#2': idx(5, 3), 'centB#2': idx(2, 3) },
+    });
+    const doc = makeDoc([prev, curr]);
+    expect(deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!)).toEqual({});
   });
 });

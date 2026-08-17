@@ -67,7 +67,10 @@ export interface TTTurn {
   // weight-stack: N copies of its single square (weight = array length).
   playerPieces: Record<string, number[]>;
   // The move index the server actually applied for EVERY player alive at turn
-  // start — staged or engine-defaulted alike. Authoritative and complete.
+  // start — staged or engine-defaulted alike. Authoritative and complete,
+  // including for units that died this turn: a dead piece records the square
+  // it actually died on (mid-path for a slider stopped in flight — never its
+  // origin or staged destination); a dead snake its attempted head square.
   moves: Record<string, number>;
   winners: Array<{ playerID: string; score: number }>;
   // Current type per unit (changes on pawn promotion); absent in snake-only games.
@@ -81,6 +84,7 @@ export interface TTTurn {
   // units drop from the map.
   orientation: Record<string, { dx: number; dy: number }>;
   // Squares each chess piece actually traversed this turn (snakes excluded).
+  // A dead piece's path ends at the square it died on.
   paths?: Record<string, number[]>;
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];

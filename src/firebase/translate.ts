@@ -131,6 +131,20 @@ export interface ParsedTurn {
   /** Full-board head index for `id`, or undefined when absent/empty. */
   headIndex(id: string): number | undefined;
   /**
+   * Full-board square the server's applied move for `id` resolved to, from
+   * the turn's authoritative `moves` map. For a unit that died this turn this
+   * is the square it actually died on (a piece stopped in flight records its
+   * mid-path death square; a snake its attempted head square). Undefined only
+   * when the wire carries no entry for `id` at all.
+   */
+  appliedMoveIndex(id: string): number | undefined;
+  /**
+   * Full-board squares the piece `id` actually traversed this turn, ending at
+   * its stop square — for a dead piece, the square it died on. Undefined for
+   * snakes and for pieces that did not move.
+   */
+  piecePath(id: string): number[] | undefined;
+  /**
    * The turn's resolution deadline in epoch ms. The server always stamps
    * endTime; `fallbackMs` is what a caller banks on when it is missing or
    * malformed. Call sites deliberately differ — 0 ("no deadline known") for
@@ -154,6 +168,8 @@ export function parseTurn(doc: TTGameStateDoc, turnNumber: number): ParsedTurn |
     alive: (id) => turn.alivePlayers.includes(id),
     pieces: (id) => turn.playerPieces?.[id],
     headIndex: (id) => turn.playerPieces?.[id]?.[0],
+    appliedMoveIndex: (id) => turn.moves?.[id],
+    piecePath: (id) => turn.paths?.[id],
     endTimeMs: (fallbackMs) =>
       turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : fallbackMs,
   };
@@ -162,6 +178,32 @@ export function parseTurn(doc: TTGameStateDoc, turnNumber: number): ParsedTurn |
 /** Parsed view over the doc's latest turn, or null when it has no turns. */
 export function parseLatestTurn(doc: TTGameStateDoc): ParsedTurn | null {
   return parseTurn(doc, (doc.turns?.length ?? 0) - 1);
+}
+
+/**
+ * Death cells for the transition prev → curr: for every chess piece present
+ * on `prev`'s board but gone from `curr`'s, the api-coordinate cell it died
+ * on, read from `curr`'s authoritative `moves` map (the wire records a dead
+ * piece's actual death square — mid-path for a slider stopped in flight,
+ * never its origin or staged destination). Snakes are excluded: a dead
+ * snake's cell derives from the direction-based `lastMoves` map instead.
+ * A piece absent from `moves` entirely (genuinely missing wire data) gets no
+ * entry; the renderer then falls back to its unknown-death marker.
+ */
+export function deriveDeathCells(
+  setup: TTGameSetup,
+  prev: ParsedTurn,
+  curr: ParsedTurn
+): Record<string, Coord> {
+  const result: Record<string, Coord> = {};
+  for (const unitId of Object.keys(prev.turn.playerPieces)) {
+    if (unitTypeFor(setup, prev.turn, unitId) === 'snake') continue;
+    if (curr.pieces(unitId)) continue; // still on the board — did not die
+    const deathSquare = curr.appliedMoveIndex(unitId);
+    if (deathSquare === undefined) continue;
+    result[unitId] = toApiCoord(deathSquare, curr.boardWidth, curr.boardHeight);
+  }
+  return result;
 }
 
 

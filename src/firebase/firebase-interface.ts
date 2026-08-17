@@ -76,6 +76,7 @@ import {
   buildBoardState,
   continuationDirection,
   controlledSnakeIDs,
+  deriveDeathCells,
   directionToMoveIndex,
   moveIndexToDirection,
   parseLatestTurn,
@@ -1099,6 +1100,12 @@ export class TacticToesFirebaseInterface {
       const prevPt = parseTurn(data, turnNumber - 1)!;
       const lastMoves = this.deriveLastMoves(data.setup, prevPt, pt);
       canonical.lastMoves = lastMoves;
+      // Pieces that died this turn: their authoritative death cell (from the
+      // wire's `moves` map) rides on the canonical state so the renderer can
+      // mark the actual square — mid-path deaths included — live and in the
+      // logged replay.
+      const deathCells = deriveDeathCells(data.setup, prevPt, pt);
+      if (Object.keys(deathCells).length > 0) canonical.deathCells = deathCells;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
         for (const snakeId of ourSnakes) {
@@ -1522,8 +1529,9 @@ export class TacticToesFirebaseInterface {
       // Chess pieces are skipped outright: their applied move is positional
       // (any square, own square = stay), so there is no direction bookkeeping —
       // and an adjacent piece step (king/pawn) must not masquerade as one.
-      // This keeps applyResolvedMoves, decision logs and death markers
-      // snake-only by construction.
+      // This keeps applyResolvedMoves and decision-log server_moves snake-only
+      // by construction; a dead piece's cell reaches the renderer through
+      // deriveDeathCells instead.
       if (unitTypeFor(setup, prev.turn, snakeId) !== 'snake') continue;
       const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
