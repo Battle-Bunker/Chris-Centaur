@@ -7,6 +7,7 @@
 import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
 import { WaypointProgress } from './waypoint-pathing';
 import {
   HEURISTIC_KEYS,
@@ -146,7 +147,10 @@ export class BoardEvaluator {
         id: s.id,
         position: s.head,
         isTeam: teamSnakeIds.has(s.id),
-        startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0
+        startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0,
+        // Sources arriving on the same level contest the cell; tier (projected
+        // onto the turn of arrival) then weight decide who ends up holding it.
+        ...unitContestData(s, gameState.turn)
       }));
     
     // Run the single-pass BFS with optimistic passability

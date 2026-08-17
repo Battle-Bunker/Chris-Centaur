@@ -12,7 +12,9 @@
  * `winsStationaryContest` is the ONE encoding of that rule, shared by:
  *  - BoardGraph's subjective passability (may WE walk onto a piece square?),
  *  - the Simulator's mover-vs-stationary-piece resolution,
- *  - the threat map below (would the unit kill-or-tie US at a square?).
+ *  - the threat map below (would the unit kill-or-tie US at a square?),
+ *  - the Voronoi BFS, via `stationaryContestWinner` — the same rule read as
+ *    "who, if anyone, survives a multi-way race to one square?".
  *
  * PER-KIND REACH (one generator per unit kind). This is ATTACK reach, which
  * is deliberately NOT BoardGraph's movement adjacency (fillUnitNeighbors): a
@@ -75,6 +77,65 @@ export function winsStationaryContest(
   if (theirTier < ourTier) return true;
   if (theirTier > ourTier) return false;
   return ourWeight > theirWeight;
+}
+
+/**
+ * The same rule applied to MANY contenders at once: given the first `count`
+ * entries of parallel tier/weight arrays, which one — if any — walks off the
+ * square alive? Tier first, weight second, ties kill all, so the answer is the
+ * contender that WINS against every other one. Returns its index, or -1 when
+ * nobody does (top tier shared by contenders whose heaviest weight is not
+ * unique). Parallel arrays rather than objects so hot callers (the Voronoi
+ * BFS) can reuse scratch buffers instead of allocating per contested square.
+ */
+export function stationaryContestWinner(
+  tiers: ArrayLike<number>,
+  weights: ArrayLike<number>,
+  count: number
+): number {
+  if (count <= 0) return -1;
+  // Best-so-far, then verify it beats everyone: a contender that fails to win
+  // any single pairing does not survive, and no other can (it did not beat the
+  // best), so the square has no survivor.
+  let best = 0;
+  for (let i = 1; i < count; i++) {
+    if (winsStationaryContest(tiers[i], weights[i], tiers[best], weights[best])) best = i;
+  }
+  for (let i = 0; i < count; i++) {
+    if (i === best) continue;
+    if (!winsStationaryContest(tiers[best], weights[best], tiers[i], weights[i])) return -1;
+  }
+  return best;
+}
+
+/**
+ * The unit's invulnerability tier as projected onto `arrivalTurn` — a level
+ * counts iff the arrival turn is still within its expiry, with a missing
+ * expiry schedule assumed to cover it (see TIER TIMING in the module doc).
+ * The one place that projection is written; every consumer of arrival-turn
+ * tiers reads it from here.
+ */
+export function tierAtTurn(unit: Snake, arrivalTurn: number): number {
+  return arrivalTurn <= (unit.invulnerabilityExpiryTurn ?? arrivalTurn)
+    ? (unit.invulnerabilityLevel ?? 0)
+    : 0;
+}
+
+/**
+ * Everything a contest needs to know about one unit, as of `baseTurn`: its
+ * WEIGHT (`length` — stack size for pieces, body length for snakes) plus the
+ * arrival-turn tier projection expressed against a number of turns from
+ * `baseTurn`. Shaped to drop straight into a BFS source, which is why it
+ * carries no game-state types outward.
+ */
+export function unitContestData(unit: Snake, baseTurn: number): {
+  weight: number;
+  tierAtDistance: (distance: number) => number;
+} {
+  return {
+    weight: unit.length,
+    tierAtDistance: (distance: number) => tierAtTurn(unit, baseTurn + distance),
+  };
 }
 
 export const isPieceUnit = (s: Snake): boolean => (s.unitType ?? 'snake') !== 'snake';
@@ -235,10 +296,7 @@ export function computeUnitThreatMap(
   // projection, with a missing expiry schedule assumed to still cover the
   // arrival turn.
   const arrivalTurn = currentTurn + 1;
-  const tierOf = (s: Snake): number =>
-    arrivalTurn <= (s.invulnerabilityExpiryTurn ?? arrivalTurn)
-      ? (s.invulnerabilityLevel ?? 0)
-      : 0;
+  const tierOf = (s: Snake): number => tierAtTurn(s, arrivalTurn);
 
   const entriesByCell: Array<UnitThreatEntry[] | undefined> = new Array(cells);
 

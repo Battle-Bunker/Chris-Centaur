@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { HEURISTIC_KEYS, HeuristicWeights } from '../config/heuristics';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
 
 // The debug/UI payload every strategy decision resolves to.
 export interface StrategyResult {
@@ -157,7 +158,10 @@ export class VoronoiStrategy {
         // Team flags only feed aggregate sums this consumer never reads;
         // owner/distance/territory are team-independent, which is what makes
         // the result shareable across snakes on different teams.
-        isTeam: false
+        isTeam: false,
+        // Same-level arrivals are contests: tier (projected onto the arriving
+        // turn) then weight decide who holds the cell.
+        ...unitContestData(s, gameState.turn)
       }));
     // Turn-aware clearance (same physical vacate timing the evaluation BFS
     // uses): body cells count as territory for whoever arrives first AFTER

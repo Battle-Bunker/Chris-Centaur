@@ -8,6 +8,7 @@ import { MoveAnalyzer, H2HRiskInfo, PieceThreatInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, HeuristicWeights } from './board-evaluator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
 import { ChunkJob, ChunkResult, evaluateChunk } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
@@ -388,7 +389,10 @@ export class DecisionEngine {
         id: snake.id,
         position: snake.head,
         isTeam: teamSnakeIds.has(snake.id),
-        startDelay: 0
+        startDelay: 0,
+        // Contest data for same-level arrivals (tier at the arriving turn,
+        // then weight) — identical to what the evaluation BFS feeds.
+        ...unitContestData(snake, gameState.turn)
       });
     }
 
@@ -404,7 +408,8 @@ export class DecisionEngine {
           id: gameState.you.id,
           position: candidatePos,
           isTeam: true,
-          startDelay: 1
+          startDelay: 1,
+          ...unitContestData(gameState.you, gameState.turn)
         },
         ...otherSources
       ];

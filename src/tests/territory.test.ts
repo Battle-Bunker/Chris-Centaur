@@ -3,9 +3,10 @@
  * These tests verify the core BFS and Voronoi territory logic.
  */
 
-import { GameState } from '../types/battlesnake';
+import { Coord, GameState, Snake } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { MultiSourceBFS, OWNER_NEUTRAL } from '../logic/multi-source-bfs';
+import { BFSSource, MultiSourceBFS, OWNER_NEUTRAL, OWNER_UNREACHED } from '../logic/multi-source-bfs';
+import { stationaryContestWinner, unitContestData } from '../logic/piece-threats';
 
 describe('Territory Calculation Tests', () => {
   
@@ -650,6 +651,198 @@ describe('Territory Calculation Tests', () => {
     
     // Nearest reachable food should be at (3,0) which is 3 steps away
     expect(distance).toBe(3);
+  });
+});
+
+/**
+ * The Voronoi tie rule: a cell several sources reach on the SAME level is a
+ * race that ends in a collision, so the engine's stationary contest (tier
+ * first — projected onto the turn of arrival — then unique heaviest weight)
+ * decides it. The unique survivor OWNS the cell and expands from it; with no
+ * unique survivor the cell stays neutral and nobody expands through it.
+ *
+ * The fixture is one 7x7 board throughout: two wall snakes seal row y=3 into a
+ * solid barrier except for a single door at (3,3), so the top chamber
+ * (y >= 4, 21 cells) is reachable ONLY through that door. Both contenders sit
+ * in the bottom corners, 6 steps from the door on symmetric routes, so the
+ * door — and the whole chamber behind it — hangs on the tie rule alone.
+ */
+describe('Same-level arrival contests (Voronoi tie rule)', () => {
+  const DOOR = { x: 3, y: 3 };
+
+  function snakeAt(id: string, body: Coord[], length: number, extra: Partial<Snake> = {}): Snake {
+    return {
+      orientation: { dx: 0, dy: -1 },
+      id,
+      name: id,
+      health: 100,
+      body,
+      head: body[0],
+      length,
+      latency: '0',
+      shout: '',
+      squad: '',
+      customizations: { color: '#123456', head: 'default', tail: 'default' },
+      ...extra,
+    };
+  }
+
+  // Wall snakes: head and tail sit OFF the barrier row (only interior segments
+  // block), so y=3 is solid apart from the door at (3,3).
+  const wallLeft = snakeAt('wall-left',
+    [{ x: 0, y: 4 }, { x: 0, y: 3 }, { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 2, y: 4 }], 5);
+  const wallRight = snakeAt('wall-right',
+    [{ x: 6, y: 4 }, { x: 6, y: 3 }, { x: 5, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }], 5);
+
+  // Bottom-left contender, weight 5 (a 5-cell body coiled into its corner).
+  const heavy = snakeAt('heavy',
+    [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }], 5);
+  // Bottom-right contender, weight 3. `extra` gives it invulnerability in the
+  // tier cases; its geometry never changes.
+  const lightAt = (id: string, extra: Partial<Snake> = {}): Snake =>
+    snakeAt(id, [{ x: 6, y: 0 }, { x: 6, y: 1 }, { x: 6, y: 2 }], 3, extra);
+
+  // Board turn 10 throughout, so a cell reached at BFS distance d is entered
+  // on turn 10 + d — the turn the contest there resolves on.
+  const BASE_TURN = 10;
+
+  function runContest(contenders: Snake[], opts?: { isTeam?: boolean; withContestData?: boolean }) {
+    const snakes = [...contenders, wallLeft, wallRight];
+    const gameState: GameState = {
+      game: { id: 'test-contest', ruleset: { name: 'standard', version: '1.0.0', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
+      turn: BASE_TURN,
+      board: { width: 7, height: 7, snakes, food: [], hazards: [] },
+      you: contenders[0],
+    };
+    const graph = new BoardGraph(gameState);
+    const sources: BFSSource[] = contenders.map(s => ({
+      id: s.id,
+      position: s.head,
+      isTeam: opts?.isTeam ?? false,
+      ...(opts?.withContestData === false ? {} : unitContestData(s, gameState.turn)),
+    }));
+    const result = new MultiSourceBFS(graph).compute(sources, []);
+    return {
+      graph,
+      result,
+      ownerAt: (x: number, y: number) => result.ownerIndex[graph.cellIndex(x, y)],
+      distanceAt: (x: number, y: number) => result.distanceIndex[graph.cellIndex(x, y)],
+      territoryOf: (id: string) => result.territoryCounts.get(id) ?? 0,
+    };
+  }
+
+  describe('stationaryContestWinner: the shared rule read for many contenders', () => {
+    test('the unique heaviest of the TOP tier wins, however heavy the tiers below are', () => {
+      // Slot 2 is heaviest overall but a tier below the contest's top tier.
+      expect(stationaryContestWinner([1, 1, 0], [4, 7, 99], 3)).toBe(1);
+    });
+
+    test('nobody wins when the top tier\'s heaviest weight is shared', () => {
+      expect(stationaryContestWinner([1, 1, 0], [7, 7, 99], 3)).toBe(-1);
+    });
+
+    test('a lone contender wins by default', () => {
+      expect(stationaryContestWinner([0], [1], 1)).toBe(0);
+    });
+  });
+
+  test('equal tier: the unique heavier source takes the contested cell', () => {
+    const light = lightAt('light');
+    const { ownerAt, distanceAt } = runContest([heavy, light]);
+
+    // Both arrive at the door on the same level; weight 5 beats weight 3.
+    expect(distanceAt(DOOR.x, DOOR.y)).toBe(6);
+    expect(ownerAt(DOOR.x, DOOR.y)).toBe(0);
+    // Same rule all the way down the contested column, not just at the door.
+    expect(ownerAt(3, 0)).toBe(0);
+    expect(ownerAt(3, 1)).toBe(0);
+    expect(ownerAt(3, 2)).toBe(0);
+  });
+
+  test('the winner EXPANDS from the cell it won: the chamber behind the door is its territory', () => {
+    const light = lightAt('light');
+    const { ownerAt, distanceAt, territoryOf } = runContest([heavy, light]);
+
+    // Every cell of the top chamber is the winner's, at distances that only a
+    // walk THROUGH the won door can produce (door 6, then 7, 8, ...).
+    for (let y = 4; y <= 6; y++) {
+      for (let x = 0; x < 7; x++) {
+        expect(ownerAt(x, y)).toBe(0);
+        expect(distanceAt(x, y)).toBeGreaterThan(6);
+      }
+    }
+    expect(distanceAt(3, 4)).toBe(7);
+    expect(territoryOf('heavy')).toBe(31); // 9 in the bottom chamber + the door + the 21 behind it
+    expect(territoryOf('light')).toBe(8);
+  });
+
+  test('a tie is won by the higher tier, not by the greater weight', () => {
+    // The lighter snake is invulnerable well past every arrival turn here:
+    // tier outranks weight, so it takes the door and the chamber outright.
+    const invuln = lightAt('invuln', { invulnerabilityLevel: 1, invulnerabilityExpiryTurn: 30 });
+    const { ownerAt, territoryOf } = runContest([heavy, invuln]);
+
+    expect(ownerAt(DOOR.x, DOOR.y)).toBe(1);
+    expect(ownerAt(3, 5)).toBe(1);
+    expect(territoryOf('invuln')).toBe(33);
+    expect(territoryOf('heavy')).toBe(6);
+  });
+
+  test('the tier is the one PROJECTED onto the arrival turn: an expiring buff wins only the cells reached in time', () => {
+    // Invulnerable through turn 13 only. (3,0) is reached at distance 3 — turn
+    // 13, still buffed, so the lighter snake wins it — while (3,1) is reached
+    // at distance 4 (turn 14), where the buff is gone and weight decides. Same
+    // pair of snakes, same board, opposite outcomes one cell apart.
+    const expiring = lightAt('expiring', { invulnerabilityLevel: 1, invulnerabilityExpiryTurn: 13 });
+    const { ownerAt, distanceAt } = runContest([heavy, expiring]);
+
+    expect(distanceAt(3, 0)).toBe(3);
+    expect(ownerAt(3, 0)).toBe(1);
+    expect(distanceAt(3, 1)).toBe(4);
+    expect(ownerAt(3, 1)).toBe(0);
+    // The door (turn 16) is long past the expiry: the heavier snake takes it
+    // and the chamber behind it.
+    expect(ownerAt(DOOR.x, DOOR.y)).toBe(0);
+    expect(ownerAt(3, 5)).toBe(0);
+  });
+
+  test('equal tier and equal weight: the cell is neutral and nothing expands through it', () => {
+    const lightLeft = snakeAt('light-left', [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }], 3);
+    const { ownerAt, territoryOf } = runContest([lightLeft, lightAt('light-right')]);
+
+    // The whole contested column is neutral...
+    expect(ownerAt(3, 0)).toBe(OWNER_NEUTRAL);
+    expect(ownerAt(3, 1)).toBe(OWNER_NEUTRAL);
+    expect(ownerAt(3, 2)).toBe(OWNER_NEUTRAL);
+    // ...so neither source ever gets through it: the door and the whole
+    // chamber behind it stay unreached.
+    expect(ownerAt(DOOR.x, DOOR.y)).toBe(OWNER_UNREACHED);
+    for (let y = 4; y <= 6; y++) {
+      for (let x = 0; x < 7; x++) expect(ownerAt(x, y)).toBe(OWNER_UNREACHED);
+    }
+    expect(territoryOf('light-left')).toBe(8);
+    expect(territoryOf('light-right')).toBe(8);
+  });
+
+  test('allies are adjudicated by the same rule (this engine has no friendly exemption)', () => {
+    const light = lightAt('light');
+    const allied = runContest([heavy, light], { isTeam: true });
+    const enemies = runContest([heavy, light]);
+
+    expect(allied.ownerAt(DOOR.x, DOOR.y)).toBe(0);
+    expect(allied.territoryOf('heavy')).toBe(enemies.territoryOf('heavy'));
+    expect(allied.territoryOf('light')).toBe(enemies.territoryOf('light'));
+  });
+
+  test('sources that carry no contest data tie into neutral (the pre-contest shape)', () => {
+    // Weight defaults to 0 at tier 0, so even the 5-vs-3 pairing has no unique
+    // winner — the behavior every caller gets until it supplies contest data.
+    const { ownerAt, territoryOf } = runContest([heavy, lightAt('light')], { withContestData: false });
+
+    expect(ownerAt(3, 0)).toBe(OWNER_NEUTRAL);
+    expect(ownerAt(DOOR.x, DOOR.y)).toBe(OWNER_UNREACHED);
+    expect(territoryOf('heavy')).toBe(6);
+    expect(territoryOf('light')).toBe(8);
   });
 });
 

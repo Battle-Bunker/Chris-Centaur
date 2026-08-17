@@ -1,11 +1,13 @@
 /**
  * Golden-master tests for VoronoiStrategy.getBestMoveIterative — the full
  * strategy stack (config -> team detection -> iterative engine -> debug
- * payload assembly) pinned on four fixed boards:
+ * payload assembly) pinned on five fixed boards:
  *   1. open board         — territory-maximizing move on an empty midfield;
  *   2. contested corridor — refuses the one-cell channel an enemy contests;
  *   3. near-trapped pocket — picks the exit that preserves reachable space;
- *   4. knight on the board — territory claimed per unit type, in the claimant's
+ *   4. contested midline  — same-turn arrivals go to the heavier snake, so no
+ *      neutral seam survives between snakes of different length;
+ *   5. knight on the board — territory claimed per unit type, in the claimant's
  *      own moves rather than in snake steps.
  *
  * Deterministic by construction: inline worker pool (DECISION_POOL_SIZE=0,
@@ -152,6 +154,13 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     // approaches head-on from the right, 4 cells away (inside the nearby
     // radius -> 3 enemy replies per candidate). Entering the corridor
     // (right) collapses our space and territory; the engine turns away.
+    //
+    // The two wall snakes are length 5 to our 3, so under the tie rule they
+    // WIN the cells they reach on the same turn we do — which is what the
+    // second food at (2,7) now discriminates: going up we get there first and
+    // own it, going down we arrive level with the heavier wall snake and lose
+    // it (its earlier home at (2,8) is a cell that wall reaches level with us
+    // from EITHER candidate, leaving up and down indistinguishable).
     const us = makeSnake('us', '#111111', [
       { x: 3, y: 5 },
       { x: 2, y: 5 },
@@ -174,28 +183,32 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     // strictly best, not a tie resolved by enumeration order.
     const gameState = makeGameState('gm-corridor', [us, enemy, wall, wall2], 'us', [
       { x: 5, y: 5 },
-      { x: 2, y: 8 },
+      { x: 2, y: 7 },
     ]);
 
     const result = await run(gameState);
 
     expect(result.move).toBe('up');
     expect(result.safeMoves).toEqual(['up', 'down', 'right']);
-    expect(result.scores.get('up')).toBeCloseTo(432.3083391459327, 6);
-    expect(result.scores.get('down')).toBeCloseTo(408.49015732775086, 6);
+    expect(result.scores.get('up')).toBeCloseTo(375.6917936636112, 6);
+    expect(result.scores.get('down')).toBeCloseTo(347.3281572999748, 6);
     expect(result.scores.get('right')).toBeCloseTo(185.191123211846, 6);
 
     const up = evalFor(result, 'up');
     expect(up.numStates).toBe(3);
-    expect(up.breakdown.myTerritory).toBe(24);
-    expect(up.breakdown.selfSpace).toBeCloseTo(2.6457513110645907, 9);
+    expect(up.breakdown.myTerritory).toBe(18);
+    expect(up.breakdown.foodDistance).toBe(3);
+    expect(up.breakdown.selfSpace).toBeCloseTo(2.23606797749979, 9);
     expect(up.breakdown.deaths).toBe(0);
     expect(up.breakdown.trapped).toBe(0);
 
     const down = evalFor(result, 'down');
     expect(down.numStates).toBe(3);
-    expect(down.breakdown.myTerritory).toBe(23);
-    expect(down.breakdown.selfSpace).toBeCloseTo(2.6457513110645907, 9);
+    expect(down.breakdown.myTerritory).toBe(17);
+    // The heavier wall snake reaches (2,7) on the same turn we would from
+    // here, so the food is not ours to count.
+    expect(down.breakdown.foodDistance).toBe(1000);
+    expect(down.breakdown.selfSpace).toBeCloseTo(2.23606797749979, 9);
 
     // Worst case inside the corridor: squeezed to a sliver of space.
     const right = evalFor(result, 'right');
@@ -208,6 +221,9 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
   test('near-trapped pocket: picks the exit that preserves space', async () => {
     // Our snake has coiled a pocket against the left wall; right leads back
     // toward the open board, down turns into the pocket's dead space.
+    // Our 8-long body outweighs the 3-long enemy, so every cell of the
+    // midfield we reach on the same turn it does is ours under the tie rule —
+    // which lifts all three candidates' territory without reordering them.
     const us = makeSnake('us', '#111111', [
       { x: 1, y: 1 },
       { x: 0, y: 1 },
@@ -229,24 +245,59 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
 
     expect(result.move).toBe('right');
     expect(result.safeMoves).toEqual(['up', 'down', 'right']);
-    expect(result.scores.get('right')).toBeCloseTo(485.0697580112788, 6);
-    expect(result.scores.get('up')).toBeCloseTo(464.7211521390788, 6);
-    expect(result.scores.get('down')).toBeCloseTo(373.45407685048605, 6);
+    expect(result.scores.get('right')).toBeCloseTo(547.98484809835, 6);
+    expect(result.scores.get('up')).toBeCloseTo(527.6049894151541, 6);
+    expect(result.scores.get('down')).toBeCloseTo(433.0697580112788, 6);
 
     const right = evalFor(result, 'right');
     expect(right.numStates).toBe(1);
-    expect(right.breakdown.myTerritory).toBe(41);
-    expect(right.breakdown.selfSpace).toBeCloseTo(2.1505813167606567, 9);
+    expect(right.breakdown.myTerritory).toBe(53);
+    expect(right.breakdown.selfSpace).toBeCloseTo(2.4748737341529163, 9);
     expect(right.breakdown.deaths).toBe(0);
     expect(right.breakdown.trapped).toBe(0);
 
     const up = evalFor(result, 'up');
-    expect(up.breakdown.myTerritory).toBe(38);
-    expect(up.breakdown.selfSpace).toBeCloseTo(2.03100960115899, 9);
+    expect(up.breakdown.myTerritory).toBe(49);
+    expect(up.breakdown.selfSpace).toBeCloseTo(2.3717082451262845, 9);
 
     const down = evalFor(result, 'down');
-    expect(down.breakdown.myTerritory).toBe(29);
-    expect(down.breakdown.selfSpace).toBeCloseTo(1.8371173070873836, 9);
+    expect(down.breakdown.myTerritory).toBe(40);
+    expect(down.breakdown.selfSpace).toBeCloseTo(2.1505813167606567, 9);
+  });
+
+  test('snake vs snake: the heavier snake takes the contested midline (ties are no longer neutral)', async () => {
+    // Two snakes facing each other across an empty board, five cells apart, so
+    // the whole column x=5 (and every other equidistant cell) is reached by
+    // both on the same turn. That used to leave a neutral seam nobody owned or
+    // expanded through; the tie rule hands each of those cells to whoever wins
+    // the collision, and with equal tiers that is the longer snake — so the
+    // seam disappears and the board splits with no neutral cell anywhere.
+    const us = makeSnake('us', '#111111', [
+      { x: 3, y: 5 },
+      { x: 2, y: 5 },
+      { x: 1, y: 5 },
+      { x: 0, y: 5 },
+      { x: 0, y: 4 },
+    ]);
+    const enemy = makeSnake('enemy', '#222222', [
+      { x: 7, y: 5 },
+      { x: 8, y: 5 },
+      { x: 9, y: 5 },
+    ]);
+    const gameState = makeGameState('gm-midline', [us, enemy], 'us', []);
+
+    const result = await run(gameState);
+
+    const { sources, owner } = result.cellOwnership;
+    const usIdx = sources.indexOf('us');
+    const at = (x: number, y: number) => y * 11 + x;
+
+    // The contested midline is ours, top to bottom.
+    for (let y = 0; y < 11; y++) expect(owner[at(5, y)]).toBe(usIdx);
+    // And with the weights unequal, no cell on the board stays neutral.
+    expect(owner.filter((o) => o === -1)).toHaveLength(0);
+    expect(result.territoryCells['us']).toHaveLength(66);
+    expect(result.territoryCells['enemy']).toHaveLength(55);
   });
 
   test('knight on the board: territory is claimed in L-jumps, not in snake steps', async () => {
@@ -264,6 +315,11 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     ]);
     const knight = makeSnake('knight', '#222222', [{ x: 0, y: 10 }]);
     knight.unitType = 'knight';
+    // A piece's `length` is its stack WEIGHT, not a body cell count: pin it at
+    // our own 3 so this golden keeps measuring adjacency alone — with weights
+    // level and no invulnerability, every same-turn arrival stays neutral and
+    // the tie rule contributes nothing to the split below.
+    knight.length = 3;
     const gameState = makeGameState('gm-knight', [us, knight], 'us', [{ x: 8, y: 5 }]);
 
     const result = await run(gameState);

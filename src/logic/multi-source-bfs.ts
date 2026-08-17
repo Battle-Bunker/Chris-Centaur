@@ -6,8 +6,26 @@
  *
  * Each source expands by ITS OWN unit adjacency (BoardGraph.fillUnitNeighbors),
  * so a distance level is one MOVE of that unit — a knight's territory grows in
- * L-jumps, a rook's along rays — and the tie/contest rules apply to those
+ * L-jumps, a rook's along rays — and the ownership rules below apply to those
  * arrivals unchanged.
+ *
+ * OWNERSHIP RULE. A cell reached STRICTLY first by one source is that source's,
+ * whatever its tier or weight — first arrival is uncontested. A cell reached by
+ * several sources on the SAME level is a race that resolves into a collision,
+ * so the engine's collision adjudication settles it: `stationaryContestWinner`
+ * (piece-threats — tier FIRST, projected onto the arrival turn, then unique
+ * heaviest weight among the top tier). The unique survivor OWNS the cell and
+ * expands from it exactly like a first-arrival owner; when the contest has no
+ * unique survivor — top tier shared, heaviest weight not unique — the cell is
+ * OWNER_NEUTRAL and nobody expands through it. The rule is uniform: allied and
+ * enemy sources are adjudicated alike, this engine having no friendly exemption
+ * anywhere.
+ *
+ * The contest data travels on the sources (`weight`, `tierAtDistance`), never
+ * as game-state objects: the BFS stays a graph algorithm over integers, and
+ * the callers that own snakes/pieces supply their tier and weight (see
+ * `unitContestData`). Sources without contest data carry weight 0 at tier 0,
+ * so their same-level ties stay neutral.
  *
  * The BFS is integer-indexed typed arrays throughout (see BoardGraph):
  * ownership and distance live in flat Int16Arrays and per-level tie detection
@@ -20,18 +38,32 @@
 
 import { Coord } from '../types/battlesnake';
 import { BoardGraph } from './board-graph';
+import { stationaryContestWinner } from './piece-threats';
 
 export interface BFSSource {
   id: string;
   position: Coord;
   isTeam: boolean;
   startDelay?: number;
+  /**
+   * This source's contest WEIGHT (a unit's `length`: body length for snakes,
+   * stack size for pieces), consulted only when sources arrive on the same
+   * level. Omitted = 0, which makes such ties unresolvable and so neutral.
+   */
+  weight?: number;
+  /**
+   * This source's invulnerability tier PROJECTED onto the turn it arrives,
+   * `distance` levels from the start of the search — the caller knows which
+   * turn that is (see `unitContestData`). Consulted only for same-level
+   * arrivals; omitted = tier 0.
+   */
+  tierAtDistance?: (distance: number) => number;
 }
 
 // Ownership sentinels for BFSResult.ownerIndex. Every consumer comparing
 // against ownerIndex must use these names, never raw literals.
 export const OWNER_UNREACHED = -2;  // no source reaches this cell
-export const OWNER_NEUTRAL = -1;    // tied arrival — nobody owns or expands from it
+export const OWNER_NEUTRAL = -1;    // same-level arrival with no contest winner — nobody owns or expands from it
 
 // A JSON-serializable snapshot of a Voronoi result for UI / log consumers:
 // per-cell owner (index into `sources`, or OWNER_NEUTRAL / OWNER_UNREACHED)
@@ -195,6 +227,25 @@ export class MultiSourceBFS {
       if (nearestFood[srcIdx] === -1 || d < nearestFood[srcIdx]) nearestFood[srcIdx] = d;
     };
 
+    // A source takes a cell it reached at `d` — whether it got there alone or
+    // won the contest for it. One bookkeeping path, so a contested cell counts
+    // toward territory and food exactly like an uncontested one.
+    const claimCell = (cell: number, srcIdx: number, d: number): void => {
+      owner[cell] = srcIdx;
+      dist[cell] = d;
+      territoryCount[srcIdx]++;
+      if (foodMask[cell] === 1) {
+        foodCount[srcIdx]++;
+        updateNearestFood(srcIdx, d);
+      }
+      if (fertileMask[cell] === 1) fertileCount[srcIdx]++;
+    };
+
+    // Contest scratch, reused across contested cells (at most 32 sources).
+    const contestSrc = new Int32Array(32);
+    const contestTier = new Int32Array(32);
+    const contestWeight = new Float64Array(32);
+
     let currentDistance = 0;
     const touched: number[] = []; // cells whose per-level masks need resetting
     const nbuf = graph.neighborBuffer(); // fillUnitNeighbors scratch
@@ -247,26 +298,35 @@ export class MultiSourceBFS {
         if (mask === 0) continue;
         if ((mask & (mask - 1)) === 0) {
           // Exactly one source reaches this cell — it owns it.
-          const srcIdx = 31 - Math.clz32(mask);
-          owner[cell] = srcIdx;
-          dist[cell] = currentDistance;
-          territoryCount[srcIdx]++;
-          if (foodMask[cell] === 1) {
-            foodCount[srcIdx]++;
-            updateNearestFood(srcIdx, currentDistance);
-          }
-          if (fertileMask[cell] === 1) fertileCount[srcIdx]++;
+          claimCell(cell, 31 - Math.clz32(mask), currentDistance);
         } else {
-          // Multiple sources tie — neutral cell; nobody expands from it, but
-          // food here still counts toward every reaching source's nearest-food.
-          owner[cell] = OWNER_NEUTRAL;
-          dist[cell] = currentDistance;
-          if (foodMask[cell] === 1) {
-            let m = mask;
-            while (m !== 0) {
-              const srcIdx = 31 - Math.clz32(m);
-              updateNearestFood(srcIdx, currentDistance);
-              m &= ~(1 << srcIdx);
+          // Several sources arrive together: the race ends in a collision, so
+          // the engine's contest rule adjudicates it on tiers projected to THIS
+          // arrival level and on weights.
+          let n = 0;
+          let m = mask;
+          while (m !== 0) {
+            const srcIdx = 31 - Math.clz32(m);
+            const source = sources[srcIdx];
+            contestSrc[n] = srcIdx;
+            contestTier[n] = source.tierAtDistance?.(currentDistance) ?? 0;
+            contestWeight[n] = source.weight ?? 0;
+            n++;
+            m &= ~(1 << srcIdx);
+          }
+          const winner = stationaryContestWinner(contestTier, contestWeight, n);
+          if (winner >= 0) {
+            // The survivor holds the cell and expands from it (third pass), the
+            // losers gaining nothing there — same as arriving a level late.
+            claimCell(cell, contestSrc[winner], currentDistance);
+          } else {
+            // Nobody survives the collision — neutral cell; nobody expands from
+            // it, but food here still counts toward every arriving source's
+            // nearest-food.
+            owner[cell] = OWNER_NEUTRAL;
+            dist[cell] = currentDistance;
+            if (foodMask[cell] === 1) {
+              for (let i = 0; i < n; i++) updateNearestFood(contestSrc[i], currentDistance);
             }
           }
         }
