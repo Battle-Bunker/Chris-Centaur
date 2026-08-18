@@ -2842,6 +2842,7 @@ const BoardRenderer = (function () {
         nearProgressScore: 0,
         aggressionScore: 0,
         trappedScore: 0,
+        healthLossScore: 0,
         fertileScore: 0,
       };
 
@@ -3057,6 +3058,13 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.trapped ?? 0,
         weightedScore: breakdown.weighted?.trappedScore ?? 0,
         averageWeighted: averageWeighted.trappedScore ?? 0,
+      },
+      {
+        name: "Health Loss",
+        value: breakdown.healthLoss ?? 0,
+        weight: breakdown.weights?.healthLoss ?? 0,
+        weightedScore: breakdown.weighted?.healthLossScore ?? 0,
+        averageWeighted: averageWeighted.healthLossScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [
