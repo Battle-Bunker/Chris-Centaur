@@ -14,6 +14,7 @@ import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
 import { WaypointContext, computeWaypointProgressByMove } from './waypoint-pathing';
 import { transientInterval, transientTimeout } from '../server/activity-controller';
+import { projectedHealthCost } from './simulator';
 
 // Re-exported for consumers that take a waypoint alongside a DecisionConfig.
 export { WaypointContext } from './waypoint-pathing';
@@ -159,6 +160,7 @@ export class DecisionEngine {
       // Only one move available - still evaluate it properly
       const h2hRisk = moveAnalysis.h2hRiskByMove.get(ourMoves[0]);
       const pieceThreat = moveAnalysis.pieceThreatByMove.get(ourMoves[0]);
+      const healthCost = this.healthCostContexts(gameState, ourMoves).get(ourMoves[0]);
       const evaluation = this.boardEvaluator.evaluateBoard(
         gameState,
         gameState.you.id,
@@ -172,7 +174,8 @@ export class DecisionEngine {
             enemyPieceThreat: pieceThreat?.hasEnemyThreat ? 1 : 0,
             allyPieceThreat: pieceThreat?.hasAllyThreat ? 1 : 0
           },
-          waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null
+          waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null,
+          healthCost
         }
       );
 
@@ -199,6 +202,7 @@ export class DecisionEngine {
     const { simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
     const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
+    const healthCostByMove = this.healthCostContexts(gameState, ourMoves);
 
     // Evaluate through the SAME evaluateChunk unit the workers run, inline,
     // in chunk-sized ROUND-ROBIN order across candidate moves under a hard
@@ -228,7 +232,8 @@ export class DecisionEngine {
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
           pieceThreat: pieceThreatCtxByMove.get(move)!,
-          waypointProgress: waypointProgressByMove?.[move] ?? null
+          waypointProgress: waypointProgressByMove?.[move] ?? null,
+          healthCost: healthCostByMove.get(move)!
         });
         const acc = worstByMove.get(move)!;
         if (result.statesEvaluated > 0) {
@@ -256,7 +261,8 @@ export class DecisionEngine {
             {
               h2hRisk: h2hCtxByMove.get(move)!,
               pieceThreat: pieceThreatCtxByMove.get(move)!,
-              waypointProgress: waypointProgressByMove?.[move] ?? null
+              waypointProgress: waypointProgressByMove?.[move] ?? null,
+              healthCost: healthCostByMove.get(move)!
             }
           )
         };
@@ -350,6 +356,24 @@ export class DecisionEngine {
       });
     }
     return ctxByMove;
+  }
+
+  /**
+   * Per-move projected health cost, the health-loss counterpart of
+   * h2hContexts/pieceThreatContexts: computed once per decision from the
+   * PRE-move board via the ONE shared cost projection (simulator.ts's
+   * projectedHealthCost — the same function ActiveGameManager's piece
+   * candidate scoring uses), then injected unchanged into every evaluation
+   * of that move. A snake's candidate path is always its single landing
+   * square.
+   */
+  private healthCostContexts(gameState: GameState, ourMoves: Direction[]): Map<Direction, number> {
+    const costByMove = new Map<Direction, number>();
+    for (const move of ourMoves) {
+      const dest = this.getMovePosition(gameState.you.head, move);
+      costByMove.set(move, projectedHealthCost(gameState.board, [dest]));
+    }
+    return costByMove;
   }
 
   // Select the best move with a candidate-level fatal-pocket veto.
@@ -506,6 +530,7 @@ export class DecisionEngine {
     const { nearbySnakes, simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
     const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
+    const healthCostByMove = this.healthCostContexts(gameState, ourMoves);
 
     // Chunk the combination space per candidate move, then interleave chunks
     // ROUND-ROBIN across moves so partial results cover every move instead of
@@ -528,7 +553,8 @@ export class DecisionEngine {
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
           pieceThreat: pieceThreatCtxByMove.get(move)!,
-          waypointProgress: waypointProgressByMove?.[move] ?? null
+          waypointProgress: waypointProgressByMove?.[move] ?? null,
+          healthCost: healthCostByMove.get(move)!
         });
       }
       chunksByMove.set(move, chunks);
@@ -562,7 +588,8 @@ export class DecisionEngine {
           {
             h2hRisk: h2hCtxByMove.get(move)!,
             pieceThreat: pieceThreatCtxByMove.get(move)!,
-            waypointProgress: waypointProgressByMove?.[move] ?? null
+            waypointProgress: waypointProgressByMove?.[move] ?? null,
+            healthCost: healthCostByMove.get(move)!
           }
         );
         fallbackEvalByMove.set(move, cached);

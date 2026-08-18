@@ -1,6 +1,6 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { healthAfterEntering } from '../logic/simulator';
+import { healthAfterEntering, projectedHealthCost } from '../logic/simulator';
 import { planPieceAction, legalPieceDestinations, PieceAction } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
@@ -49,6 +49,10 @@ interface PieceCandidateScore {
   stat: number;
   // Moves still to run from this candidate to the target (null = unreachable).
   dist: number | null;
+  // Projected health cost of this candidate's path (simulator.ts's
+  // projectedHealthCost — the SAME cost projection the snake health-loss
+  // heuristic uses), folded additively into `score` at DEFAULT_CONFIG.healthLoss.
+  healthCost: number;
   score: number;
 }
 
@@ -1937,16 +1941,22 @@ export class ActiveGameManager {
 
   /**
    * Every legal candidate for a controlled piece this turn, scored as its base
-   * weight PLUS the active waypoint's contribution:
+   * weight PLUS the active waypoint's contribution MINUS the projected health
+   * cost of getting there:
    *
-   *   score(dest) = base + weight × progressStat(dest)
+   *   score(dest) = base + weight × progressStat(dest) + healthLossWeight × cost(dest)
    *
    * ADDITIVE, exactly as getWaypointBiasedMove is for snakes (which subtracts
    * the contribution already inside the engine score before adding the one for
    * the target as it is NOW). The bot has no piece evaluator yet, so every
-   * candidate's base weight is 0 and the waypoint stat alone orders them: the
-   * hop that ends nearest the target along a shortest path scores the full
-   * weight, and nothing else competes.
+   * candidate's base weight is 0 and the waypoint stat is the only POSITIVE
+   * signal ordering them: the hop that ends nearest the target along a
+   * shortest path scores the full weight, and nothing else competes for the
+   * lead. Health cost only ever pulls a candidate DOWN — the same shared
+   * projection the snake health-loss heuristic uses (simulator.ts's
+   * projectedHealthCost, over the candidate's own traversed path), so a
+   * cheaper hop wins a tie and a hazard-crossing ray is decisively outweighed
+   * by a same-progress detour around it, with no piece-specific hazard rule.
    *
    * The stat comes from the shared waypoint pathfinder walking the graph's
    * per-unit adjacency, so a knight is ordered by knight moves and a rook by
@@ -1999,16 +2009,26 @@ export class ActiveGameManager {
       }
     }
 
-    return legal.map(({ dest, action }, i) => ({
-      move: dest,
-      action,
-      destCoord: dests[i],
-      kind: waypoint?.kind ?? null,
-      weight,
-      stat: progress?.[i].stat ?? 0,
-      dist: progress?.[i].dist ?? null,
-      score: weight * (progress?.[i].stat ?? 0),
-    }));
+    return legal.map(({ dest, action }, i) => {
+      const stat = progress?.[i].stat ?? 0;
+      // Health cost of THIS candidate's own traversed path: a move's full
+      // ray/jump (converted from full-board indices to the api coords the
+      // cost function reads food/hazards in), stay/rotate always 0.
+      const healthCost = action.kind === 'move'
+        ? projectedHealthCost(board, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
+        : 0;
+      return {
+        move: dest,
+        action,
+        destCoord: dests[i],
+        kind: waypoint?.kind ?? null,
+        weight,
+        stat,
+        dist: progress?.[i].dist ?? null,
+        healthCost,
+        score: weight * stat + DEFAULT_CONFIG.healthLoss * healthCost,
+      };
+    });
   }
 
   // The piece analog of stageMove's tail: bind one atomic staged record and
@@ -2079,28 +2099,37 @@ export class ActiveGameManager {
   // The piece candidate rows for the UI, from the SAME scored candidates
   // staging picks from — so the shading, the arrows and the move that commits
   // all read one computation. The bot has no piece evaluator yet, so a piece
-  // with no waypoint scores a uniform 0 (the shared score→color path renders
-  // that as neutral amber); an active waypoint is the only contribution, and
-  // it fills the weights/weighted tables the breakdown component renders.
+  // with no waypoint scores only its health cost (the goto/near contribution
+  // is the only POSITIVE signal); an active waypoint adds its contribution on
+  // top. Both fill the weights/weighted tables the breakdown component
+  // renders, keyed exactly like the registry (healthLoss/healthLossScore) so
+  // a stay/rotate candidate (cost 0) still reports it, just at zero.
   // A real piece evaluator adds its base weight in computePieceCandidates —
   // the row shape (move id + dest + kind) is already the full UI contract.
   private computePieceMoveEvaluations(gameId: string, snakeId: string): MoveEvaluation[] {
-    return this.computePieceCandidates(gameId, snakeId).map(candidate => ({
-      move: candidate.move,
-      score: candidate.score,
-      numStates: 0,
-      breakdown: candidate.kind
-        ? {
-            [`${candidate.kind}Progress`]: candidate.stat,
-            weights: { [`${candidate.kind}Progress`]: candidate.weight },
-            weighted: { [`${candidate.kind}ProgressScore`]: candidate.score },
-          }
-        // Empty weights/weighted tables: the breakdown-table component renders
-        // ZERO rows for a breakdown that carries no heuristic keys.
-        : { weights: {}, weighted: {} },
-      dest: candidate.destCoord,
-      kind: candidate.action.kind,
-    }));
+    return this.computePieceCandidates(gameId, snakeId).map(candidate => {
+      const progressScore = candidate.weight * candidate.stat;
+      const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
+      return {
+        move: candidate.move,
+        score: candidate.score,
+        numStates: 0,
+        breakdown: {
+          healthLoss: candidate.healthCost,
+          weights: {
+            healthLoss: DEFAULT_CONFIG.healthLoss,
+            ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
+          },
+          weighted: {
+            healthLossScore,
+            ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
+          },
+          ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),
+        },
+        dest: candidate.destCoord,
+        kind: candidate.action.kind,
+      };
+    });
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of

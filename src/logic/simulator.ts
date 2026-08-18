@@ -27,6 +27,45 @@ export function healthAfterEntering(snake: Snake, board: Board, dest: Coord): nu
   return health;
 }
 
+/**
+ * Projected health COST of moving along `path` — the ordered list of squares
+ * ENTERED this move, excluding the origin — the single cost projection
+ * shared by the health-loss heuristic (BoardEvaluator) and chess-piece
+ * candidate scoring (ActiveGameManager.computePieceCandidates): one snake
+ * step is a one-cell path, a piece's whole ray/jump is its full traversed
+ * path, and a stay/rotate action passes an empty path.
+ *
+ * Movement costs 1 per square traversed — UNLESS the move eats at its final
+ * square, which restores health to the type max and so cancels the
+ * movement cost entirely (mirrors healthAfterEntering: eating overrides the
+ * -1 decay rather than adding to it). Hazard damage is charged per hazard
+ * square ENTERED along the path — mid-flight hazard squares on a slider ray
+ * cost too — independent of eating: it lands AFTER the eat/step update,
+ * same ordering as the single-step rule.
+ *
+ * This is a projection for SCORING, not a health-after-move computation: it
+ * never restores toward maxHealth (the mover's identity never enters the
+ * formula — eating always cancels the movement term, whatever the type max
+ * is), so `cost` alone (not `health - cost`) is what a caller compares
+ * against the mover's current health to test fatality.
+ *
+ * Call with a board whose food/hazards have not yet been spliced for this
+ * move.
+ */
+export function projectedHealthCost(board: Board, path: Coord[]): number {
+  if (path.length === 0) return 0;
+  const dest = path[path.length - 1];
+  const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
+  const movementCost = eats ? 0 : path.length;
+  const hazardDamage = board.hazardDamage ?? 100;
+  const hazards = board.hazards ?? [];
+  let hazardSquares = 0;
+  for (const sq of path) {
+    if (hazards.some(h => h.x === sq.x && h.y === sq.y)) hazardSquares++;
+  }
+  return movementCost + hazardDamage * hazardSquares;
+}
+
 export interface SimulatedBoardState {
   board: Board;
   deadSnakeIds: Set<string>;

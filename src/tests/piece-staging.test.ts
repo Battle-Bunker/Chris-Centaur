@@ -70,13 +70,14 @@ function makeGameState(
   turn: number,
   snakes: Snake[],
   youId: string,
-  food: Coord[] = []
+  food: Coord[] = [],
+  hazards: Coord[] = []
 ): GameState {
   const you = snakes.find((s) => s.id === youId)!;
   return {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
     turn,
-    board: { width: 11, height: 11, food, hazards: [], snakes },
+    board: { width: 11, height: 11, food, hazards, snakes },
     you,
   };
 }
@@ -126,9 +127,10 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     unitId: string,
     snakes: Snake[],
     turn: number,
-    food: Coord[] = []
+    food: Coord[] = [],
+    hazards: Coord[] = []
   ) {
-    const gs = makeGameState(gameId, turn, snakes, unitId, food);
+    const gs = makeGameState(gameId, turn, snakes, unitId, food, hazards);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(unitId)) {
       mgr.registerGame(gs, unitId);
@@ -162,7 +164,7 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     expect(mgr.isStagedMoveFatal(gameId, 'R')).toBe(false);
   });
 
-  test('a target more than one move away stages the first hop of the shortest ray path', () => {
+  test('a target more than one move away stages the first hop of the cheaper ray path', () => {
     const gameId = 'g-piece-multihop';
     const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
     processPieceTurn(gameId, 'R', [rook], 0);
@@ -170,17 +172,40 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     cs.selectedBy = 'u1';
 
     // (6,9) is neither on the rook's rank nor file: two ray moves away, via
-    // (5,9) or (6,5). Both first hops are equally optimal and score the full
-    // goto weight; the enumerator's board order settles the tie on (5,9).
+    // (5,9) [4 squares up the file] or (6,5) [1 square along the rank].
+    // Both first hops close the same one-PIECE-MOVE distance to the target,
+    // so the goto progress stat ties them at the full weight — the health
+    // cost of THIS move (its own projected squares traversed) breaks the
+    // tie in favor of the physically SHORTER, cheaper hop. This is the same
+    // mechanism that steers a slider around a hazard: prefer the cheaper
+    // path when progress alone does not distinguish the candidates.
+    expect(mgr.setWaypoint(gameId, 'R', { type: 'green', x: 6, y: 9 }, 'u1')).toBe(true);
+    const firstHop = fullIdx({ x: 6, y: 5 });
+    expect(cs.staged).toMatchObject({ turn: 0, move: firstHop, source: 'waypoint' });
+    expect(publishedFor('R').slice(-1)[0].move).toBe(firstHop);
+
+    // Next turn from the cheaper hop, the target IS one ray move away and is staged.
+    const rook1 = makeUnit('R', { x: 6, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook1], 1);
+    expect(cs.staged).toMatchObject({ turn: 1, move: fullIdx({ x: 6, y: 9 }), source: 'waypoint' });
+  });
+
+  test('a hazard on the cheaper ray sends the rook the longer, hazard-free way instead', () => {
+    const gameId = 'g-piece-hazard-detour';
+    const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    // Same geometry as the cheaper-ray test above, but a hazard now sits on
+    // the otherwise-cheaper 1-square rank hop (6,5). hazardDamage (default
+    // 100) swamps the four extra plain squares of the other ray, so the
+    // health-loss heuristic sends the rook the LONGER way instead — no
+    // hazard-specific rule anywhere, just the same shared cost projection.
+    processPieceTurn(gameId, 'R', [rook], 0, [], [{ x: 6, y: 5 }]);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    cs.selectedBy = 'u1';
+
     expect(mgr.setWaypoint(gameId, 'R', { type: 'green', x: 6, y: 9 }, 'u1')).toBe(true);
     const firstHop = fullIdx({ x: 5, y: 9 });
     expect(cs.staged).toMatchObject({ turn: 0, move: firstHop, source: 'waypoint' });
     expect(publishedFor('R').slice(-1)[0].move).toBe(firstHop);
-
-    // Next turn from the hop, the target IS one ray move away and is staged.
-    const rook1 = makeUnit('R', { x: 5, y: 9 }, { unitType: 'rook' });
-    processPieceTurn(gameId, 'R', [rook1], 1);
-    expect(cs.staged).toMatchObject({ turn: 1, move: fullIdx({ x: 6, y: 9 }), source: 'waypoint' });
   });
 
   test('an unreachable target pulls nowhere: the piece stages its own square (= stay)', () => {
@@ -332,14 +357,18 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     mgr.setWaypoint(gameId, 'N', { type: 'green', x: 1, y: 1 }, 'u1');
 
     // Candidate rows are recomputed on the next turn intake; the base weight
-    // is 0 for every piece candidate, so score IS the goto contribution.
+    // is 0 for every piece candidate, so score is the goto contribution
+    // PLUS the health cost of the move (every knight jump is exactly one
+    // square, so every 'move' candidate pays the same -healthLoss offset).
     processPieceTurn(gameId, 'N', [knight], 1);
     const evals = cs.latestTurnData!.moveEvaluations;
     const byMove = new Map(evals.map((e) => [e.move, e]));
     const onPath = byMove.get(fullIdx({ x: 1, y: 2 }))!;
-    expect(onPath.score).toBeCloseTo(DEFAULT_CONFIG.gotoProgress, 9);
     expect(onPath.breakdown.weights.gotoProgress).toBe(DEFAULT_CONFIG.gotoProgress);
     expect(onPath.breakdown.weighted.gotoProgressScore).toBeCloseTo(DEFAULT_CONFIG.gotoProgress, 9);
+    expect(onPath.breakdown.healthLoss).toBe(1); // one square traversed
+    expect(onPath.breakdown.weighted.healthLossScore).toBeCloseTo(DEFAULT_CONFIG.healthLoss, 9);
+    expect(onPath.score).toBeCloseTo(DEFAULT_CONFIG.gotoProgress + DEFAULT_CONFIG.healthLoss, 9);
     // Staying is strictly worse than the hop that shortens the path.
     expect(byMove.get(fullIdx({ x: 0, y: 0 }))!.score).toBeLessThan(onPath.score);
     for (const e of evals) expect(e.score).toBeLessThanOrEqual(onPath.score);
@@ -435,9 +464,10 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     unitId: string,
     snakes: Snake[],
     turn: number,
-    food: Coord[] = []
+    food: Coord[] = [],
+    hazards: Coord[] = []
   ) {
-    const gs = makeGameState(gameId, turn, snakes, unitId, food);
+    const gs = makeGameState(gameId, turn, snakes, unitId, food, hazards);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(unitId)) {
       mgr.registerGame(gs, unitId);
@@ -447,7 +477,7 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
   }
 
-  test('updatePieceTurn fills turn data with a zero-scored stub evaluation per legal candidate and broadcasts it', () => {
+  test('updatePieceTurn fills turn data with a health-cost-only stub evaluation per legal candidate and broadcasts it', () => {
     const gameId = 'g-stub-eval';
     const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
     processPieceTurn(gameId, 'R', [rook], 0);
@@ -459,11 +489,18 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const stay = fullIdx({ x: 5, y: 5 });
     for (const e of evals) {
       expect(typeof e.move).toBe('number');
-      expect(e.score).toBe(0);
       expect(e.numStates).toBe(0);
-      expect(e.breakdown).toEqual({ weights: {}, weighted: {} });
       expect(e.dest).toBeDefined();
       expect(e.kind).toBe(e.move === stay ? 'stay' : 'move');
+      // No waypoint is active, so the projected health cost — squares
+      // traversed to reach `dest`, negatively weighted — is the ONLY
+      // signal: stay costs nothing (empty path), a ray move costs its own
+      // length (no food or hazard on this board).
+      const dist = e.dest!.x === 5 ? Math.abs(e.dest!.y - 5) : Math.abs(e.dest!.x - 5);
+      expect(e.breakdown.healthLoss).toBe(dist);
+      expect(e.breakdown.weights).toEqual({ healthLoss: DEFAULT_CONFIG.healthLoss });
+      expect(e.breakdown.weighted.healthLossScore).toBeCloseTo(dist * DEFAULT_CONFIG.healthLoss, 9);
+      expect(e.score).toBeCloseTo(e.breakdown.weighted.healthLossScore, 9);
     }
     // The stay candidate maps back to the piece's own api square.
     const stayEval = evals.find((e) => e.move === stay)!;

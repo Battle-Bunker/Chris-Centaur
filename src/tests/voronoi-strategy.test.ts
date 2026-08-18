@@ -112,9 +112,9 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
 
     expect(result.move).toBe('up');
     expect(result.safeMoves).toEqual(['up', 'left', 'right']);
-    expect(result.scores.get('up')).toBeCloseTo(974.6216116420064, 6);
-    expect(result.scores.get('left')).toBeCloseTo(925.878112807455, 6);
-    expect(result.scores.get('right')).toBeCloseTo(940.9690218983641, 6);
+    expect(result.scores.get('up')).toBeCloseTo(969.6216116420064, 6);
+    expect(result.scores.get('left')).toBeCloseTo(920.878112807455, 6);
+    expect(result.scores.get('right')).toBeCloseTo(935.9690218983641, 6);
 
     const up = evalFor(result, 'up');
     expect(up.numStates).toBe(1);
@@ -190,9 +190,9 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
 
     expect(result.move).toBe('up');
     expect(result.safeMoves).toEqual(['up', 'down', 'right']);
-    expect(result.scores.get('up')).toBeCloseTo(375.6917936636112, 6);
-    expect(result.scores.get('down')).toBeCloseTo(347.3281572999748, 6);
-    expect(result.scores.get('right')).toBeCloseTo(185.191123211846, 6);
+    expect(result.scores.get('up')).toBeCloseTo(370.6917936636112, 6);
+    expect(result.scores.get('down')).toBeCloseTo(342.3281572999748, 6);
+    expect(result.scores.get('right')).toBeCloseTo(180.191123211846, 6);
 
     const up = evalFor(result, 'up');
     expect(up.numStates).toBe(3);
@@ -245,9 +245,9 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
 
     expect(result.move).toBe('right');
     expect(result.safeMoves).toEqual(['up', 'down', 'right']);
-    expect(result.scores.get('right')).toBeCloseTo(547.98484809835, 6);
-    expect(result.scores.get('up')).toBeCloseTo(527.6049894151541, 6);
-    expect(result.scores.get('down')).toBeCloseTo(433.0697580112788, 6);
+    expect(result.scores.get('right')).toBeCloseTo(542.98484809835, 6);
+    expect(result.scores.get('up')).toBeCloseTo(522.6049894151541, 6);
+    expect(result.scores.get('down')).toBeCloseTo(428.0697580112788, 6);
 
     const right = evalFor(result, 'right');
     expect(right.numStates).toBe(1);
@@ -343,7 +343,7 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     // Our own move still comes from the same matrix over the new territory:
     // 'right' now, away from the side the knight sweeps.
     expect(result.move).toBe('right');
-    expect(result.scores.get('right')).toBeCloseTo(525.9696919601035, 6);
+    expect(result.scores.get('right')).toBeCloseTo(520.9696919601035, 6);
     expect(evalFor(result, 'right').breakdown.myTerritory).toBe(29);
   });
 });

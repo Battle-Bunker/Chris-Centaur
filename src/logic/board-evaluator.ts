@@ -69,6 +69,13 @@ export interface EvaluationContext {
   // injection pattern as h2hRisk, and for the same reason: it is a property of
   // the move under consideration, not of the board being scored.
   waypointProgress?: WaypointProgress | null;
+  // Projected health cost of the candidate MOVE (movement + hazard damage —
+  // simulator.ts's projectedHealthCost), computed once per decision from the
+  // PRE-move board and injected here — same per-move-constant pattern as
+  // h2hRisk/pieceThreat/waypointProgress, and for the same reason: the cost
+  // describes the move, not the simulated board. Undefined/0 for states that
+  // never had it computed (e.g. direct board-evaluator tests).
+  healthCost?: number;
   // Materialize per-snake territory cell lists (UI/visualization). Defaults to
   // true; the chunked minimax evaluation passes false — it reads only scores
   // and stats, and building coord arrays per state was measurable GC churn.
@@ -295,7 +302,8 @@ export class BoardEvaluator {
         gotoProgress,
         nearProgress,
         aggression,
-        trapped
+        trapped,
+        healthLoss: ctx?.healthCost ?? 0,  // Projected health cost of this move; from context
       },
       territoryCells: bfsResult.territoryCells
     };

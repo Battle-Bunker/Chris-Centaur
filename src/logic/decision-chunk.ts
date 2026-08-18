@@ -41,6 +41,14 @@ export interface ChunkJob {
    * into every state this chunk evaluates.
    */
   waypointProgress: WaypointProgress | null;
+  /**
+   * Projected health cost of THIS chunk's candidate move (movement + hazard
+   * damage — simulator.ts's projectedHealthCost), computed once per decision
+   * on the main thread from the pre-move board. Same per-move-constant
+   * contract as h2hRisk/pieceThreat/waypointProgress. Optional so callers
+   * that construct a ChunkJob directly (tests) default to no cost.
+   */
+  healthCost?: number;
 }
 
 export interface ChunkResult {
@@ -89,6 +97,7 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
       pieceThreat: job.pieceThreat,
       simulatedSnakeIds: simulatedSet,
       waypointProgress: job.waypointProgress ?? null,
+      healthCost: job.healthCost ?? 0,
       // Chunk evaluations feed only the minimax score aggregation — per-state
       // territory cell lists are never shipped back (see the strip below), so
       // don't build them at all.
