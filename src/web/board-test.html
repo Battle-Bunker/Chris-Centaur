@@ -189,6 +189,31 @@
         makeMoveState: () => pieceCandidates([4, 5],
           [[4,6],[4,7],[4,8],[5,5],[6,5],[7,5],[3,5],[2,5],[4,4],[4,3]], 10, [6,5]),
         hideTags: true
+      },
+      {
+        title: "7: Tag anchoring + hover states (A hovered, B pointer-on-tag)",
+        width: 9, height: 9,
+        // A is hovered by the CELL → its tag is called up. B's tag is the one
+        // the pointer is latched onto → it steps aside entirely, leaving the
+        // board under it readable. C is on the default (shown) state and sits
+        // at the board's right edge, so its tag extends leftward and the letter
+        // square moves to the tag's right end, still anchored on the cell
+        // diagonally above-right of the unit.
+        snakes: [
+          makeSnake("a", "Alpha", "#4363d8", [[2,6]], 88, 0, {
+            unitType: "rook", orientation: { dx: 0, dy: -1 } }),
+          makeSnake("b", "Bravo", "#e6194b", [[2,2]], 55, 2, {
+            unitType: "knight", orientation: { dx: 1, dy: 0 } }),
+          makeSnake("c", "Charlie", "#3cb44b", [[8,4]], 30, 0, {
+            unitType: "queen", orientation: { dx: -1, dy: 1 } })
+        ],
+        food: [],
+        hazards: [],
+        fertileTiles: [],
+        potions: [],
+        territory: {},
+        hoveredUnitId: "a",
+        tagHoverUnitId: "b"
       }
     ];
 
@@ -244,6 +269,10 @@
         // Fixtures that are about the cells themselves keep the unit tags
         // out of the way, the same as the live board's hover-only mode.
         tagsHiddenByDefault: !!test.hideTags,
+        // The two hover inputs the live page derives from the pointer: the
+        // unit under the cursor, and the tag the cursor is latched onto.
+        hoveredUnitId: test.hoveredUnitId || null,
+        tagHoverUnitId: test.tagHoverUnitId || null,
       });
       redraws.push(draw);
       draw();

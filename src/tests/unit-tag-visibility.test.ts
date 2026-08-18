@@ -3,68 +3,161 @@
  * (src/web/board-renderer.js — shared verbatim with the browser pages).
  *
  * Pins the tag-visibility state machine (the global Alt-tap default crossed
- * with the per-unit hover) and the stat icons the on-board tags share with the
- * units table.
+ * with where the pointer is on a unit) and the stat icons the on-board tags
+ * share with the units table.
  */
 const BoardRenderer = require('../web/board-renderer.js');
 
 const SHOWN = false; // tagsHiddenByDefault
 const HIDDEN = true;
+const { none: NONE, unit: ON_UNIT, tag: ON_TAG } = BoardRenderer.TAG_HOVER;
 
 describe('unitTagVisibility', () => {
   const vis = BoardRenderer.unitTagVisibility;
 
   test('tags shown by default: every un-hovered tag is drawn', () => {
-    expect(vis(SHOWN, false, false)).toBe('solid');
-    expect(vis(SHOWN, false, true)).toBe('selected');
+    expect(vis(SHOWN, NONE, false)).toBe('solid');
+    expect(vis(SHOWN, NONE, true)).toBe('selected');
   });
 
   test('tags hidden by default: nothing is drawn without a hover', () => {
-    expect(vis(HIDDEN, false, false)).toBe('hidden');
-    expect(vis(HIDDEN, false, true)).toBe('hidden');
+    expect(vis(HIDDEN, NONE, false)).toBe('hidden');
+    expect(vis(HIDDEN, NONE, true)).toBe('hidden');
   });
 
-  test('hover reverses the default for the hovered unit', () => {
-    // Shown → faded so the board under the tag stays readable.
-    expect(vis(SHOWN, true, false)).toBe('translucent');
-    // Hidden → drawn.
-    expect(vis(HIDDEN, true, false)).toBe('solid');
+  test('hovering a unit calls its tag up, whatever the default says', () => {
+    expect(vis(SHOWN, ON_UNIT, false)).toBe('solid');
+    expect(vis(HIDDEN, ON_UNIT, false)).toBe('solid');
+    // Hover outranks selection: one hovered tag, one appearance.
+    expect(vis(SHOWN, ON_UNIT, true)).toBe('solid');
+    expect(vis(HIDDEN, ON_UNIT, true)).toBe('solid');
   });
 
-  test('a hovered tag never keeps its selected emphasis', () => {
-    expect(vis(SHOWN, true, true)).toBe('translucent');
-    expect(vis(HIDDEN, true, true)).toBe('solid');
+  test('the pointer on a tag hides that tag, so what it covers can be read', () => {
+    for (const hidden of [SHOWN, HIDDEN]) {
+      for (const selected of [false, true]) {
+        expect(vis(hidden, ON_TAG, selected)).toBe('hidden');
+      }
+    }
   });
 
-  test('only the four named states are reachable', () => {
+  test('only the three named states are reachable', () => {
     const states = new Set<string>();
     for (const hidden of [SHOWN, HIDDEN]) {
-      for (const hovered of [false, true]) {
+      for (const hover of [NONE, ON_UNIT, ON_TAG]) {
         for (const selected of [false, true]) {
-          states.add(vis(hidden, hovered, selected));
+          states.add(vis(hidden, hover, selected));
         }
       }
     }
-    expect([...states].sort()).toEqual(['hidden', 'selected', 'solid', 'translucent']);
+    expect([...states].sort()).toEqual(['hidden', 'selected', 'solid']);
   });
 
   test('clearing the hover restores the default state exactly', () => {
     for (const hidden of [SHOWN, HIDDEN]) {
       for (const selected of [false, true]) {
-        expect(vis(hidden, false, selected)).toBe(vis(hidden, false, selected));
-        // No lingering translucency once the hover is gone.
-        expect(vis(hidden, false, selected)).not.toBe('translucent');
+        // Whatever the pointer did on the way through, letting go of it lands
+        // back on the state the default alone dictates.
+        const dflt = hidden ? 'hidden' : selected ? 'selected' : 'solid';
+        expect(vis(hidden, NONE, selected)).toBe(dflt);
+        vis(hidden, ON_UNIT, selected);
+        vis(hidden, ON_TAG, selected);
+        expect(vis(hidden, NONE, selected)).toBe(dflt);
       }
+    }
+  });
+
+  test('an unknown hover value is treated as no hover, never as a new state', () => {
+    expect(vis(SHOWN, 'wat', false)).toBe('solid');
+    expect(vis(HIDDEN, 'wat', false)).toBe('hidden');
+  });
+});
+
+// The pure rule above can flip a tag hidden the moment the pointer touches it,
+// which moves the pointer off a tag that is no longer drawn. The caller's LATCH
+// (play-game.html syncHover, modelled here) is what makes that settle instead
+// of oscillating: "pointer on tag" is held until the pointer leaves BOTH the
+// tag and the unit's cells.
+describe('hover latch (the caller\'s half of the rule)', () => {
+  const vis = BoardRenderer.unitTagVisibility;
+
+  function makeHover() {
+    let latched: string | null = null;
+    return {
+      // overTag/overCell: the unit under the pointer's tag rect / cells.
+      move(overTag: string | null, overCell: string | null) {
+        if (latched && latched !== overTag && latched !== overCell) latched = null;
+        if (overTag) latched = overTag;
+        return { latched, overCell };
+      },
+    };
+  }
+  function state(step: { latched: string | null; overCell: string | null }, id: string) {
+    const hover = step.latched === id ? ON_TAG : step.overCell === id ? ON_UNIT : NONE;
+    return vis(HIDDEN, hover, false);
+  }
+
+  test('unit → tag → unit: the tag hides once and stays hidden, no flicker', () => {
+    const h = makeHover();
+    // Pointer on the unit's cell: the tag appears.
+    expect(state(h.move(null, 'a'), 'a')).toBe('solid');
+    // Pointer moves onto that tag: it hides. Its rect keeps being published
+    // while hidden, so the next move still reports the pointer on it.
+    expect(state(h.move('a', null), 'a')).toBe('hidden');
+    expect(state(h.move('a', null), 'a')).toBe('hidden');
+    // Back onto the unit's own cell: the pointer has left neither the tag nor
+    // the unit, so the tag stays out of the way instead of re-appearing.
+    expect(state(h.move(null, 'a'), 'a')).toBe('hidden');
+    expect(state(h.move(null, 'a'), 'a')).toBe('hidden');
+  });
+
+  test('leaving both the tag and the unit releases the latch', () => {
+    const h = makeHover();
+    h.move(null, 'a');
+    h.move('a', null);
+    // Onto a different unit: 'a' is released and back on the default, and the
+    // newly hovered unit shows its own tag.
+    const step = h.move(null, 'b');
+    expect(state(step, 'a')).toBe('hidden'); // hidden by default, not latched
+    expect(state(step, 'b')).toBe('solid');
+    // Returning to 'a' shows it again — the latch is genuinely gone.
+    expect(state(h.move(null, 'a'), 'a')).toBe('solid');
+  });
+
+  test('one unit\'s latched tag never suppresses another unit\'s', () => {
+    const h = makeHover();
+    const step = h.move('a', 'b');
+    expect(state(step, 'a')).toBe('hidden');
+    expect(state(step, 'b')).toBe('solid');
+  });
+
+  test('the state settles: replaying the same pointer position never changes it', () => {
+    const h = makeHover();
+    h.move(null, 'a');
+    // The pointer sits still on the tag; every redraw must land on the same
+    // state, which is what "no flicker" means in practice.
+    const first = state(h.move('a', 'a'), 'a');
+    expect(first).toBe('hidden');
+    for (let i = 0; i < 5; i++) {
+      expect(state(h.move('a', 'a'), 'a')).toBe(first);
     }
   });
 });
 
 describe('stat icons', () => {
   test('one glyph per stat, shared by the tags and the units table', () => {
-    expect(BoardRenderer.STAT_ICON.weight).toBe('⚖️');
     expect(BoardRenderer.STAT_ICON.health).toBe('♥');
     expect(BoardRenderer.STAT_ICON.invulnerable).toBe('\u{1F6E1}️');
     expect(BoardRenderer.STAT_ICON.vulnerable).toBe('⚠️');
+  });
+
+  test('weight is a drawn silver anvil, not a character', () => {
+    // No emoji entry to drift: the tags draw the path, the table inlines it.
+    expect(BoardRenderer.STAT_ICON.weight).toBeUndefined();
+    const svg = BoardRenderer.anvilIconSVG(13);
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('height="13"');
+    expect(svg.toLowerCase()).toContain('#c2c7cd'); // silver
   });
 
   test('invulnerability icon: shield when protected, warning when negative', () => {
@@ -101,7 +194,8 @@ describe('units table', () => {
     const { html } = render();
     expect(html).toContain(snake.name);
     expect(html).not.toContain(snake.id);
-    expect(html).toContain(BoardRenderer.STAT_ICON.weight);
+    // Weight rides the same anvil path the on-board tags draw.
+    expect(html).toContain(BoardRenderer.anvilIconSVG(13));
     expect(html).toContain(BoardRenderer.STAT_ICON.health);
     expect(html).toContain(BoardRenderer.STAT_ICON.invulnerable);
   });

@@ -84,12 +84,23 @@ const BoardRenderer = (function () {
     return { ux: dx / len, uy: dy / len };
   }
 
-  // Orientation eye: a spartan eye peering out of the unit's cell in the
-  // faced direction — a white almond (two arcs meeting in points, the
-  // eyelids) laid tangent to the faced edge, just inside the cell boundary,
-  // with a dark pupil pushed outward inside it. White fill plus a dark rim
-  // keeps it legible on every team colour and over any icon it overlaps.
+  // Orientation eye: an OPEN CAVE mouth seen from above, sitting on the faced
+  // cell edge — as wide as the cell, its back wall a concave arc that opens
+  // outward, with the pupil at the centre back of the cave looking out through
+  // the mouth. The whole mark is translucent SKY BLUE: no white fill and no
+  // dark rim, because every other mark in the cell (unit icons, food, potions)
+  // is white with a black outline — the blue wash is a channel of its own, so
+  // facing reads without competing with the glyph it lies over.
   // Callers skip it for ghosts/corpses (an orientation-less cell draws none).
+  const EYE_COLORS = {
+    // Cave floor: sky blue, light enough to keep the icon beneath it legible
+    // and bright enough to hold its hue over a dark team colour.
+    cave: "rgba(125, 211, 255, 0.52)",
+    // Cave walls: the same hue held denser, so the mouth's outline reads.
+    wall: "rgba(3, 155, 229, 0.85)",
+    // Pupil: the hue driven near-black, the one high-contrast note.
+    pupil: "rgba(2, 34, 72, 0.95)",
+  };
   function drawOrientationEye(ctx, orientation, hx, hy, cellSize) {
     const u = orientationUnitVector(orientation);
     if (!u) return;
@@ -97,37 +108,48 @@ const BoardRenderer = (function () {
     // Tangent to the faced edge: the orientation vector turned a quarter turn.
     const tx = -uy;
     const ty = ux;
-    const cx = hx + cellSize / 2 + ux * cellSize * 0.355;
-    const cy = hy + cellSize / 2 + uy * cellSize * 0.355;
-    const half = cellSize * 0.21; // half the eye's width along the edge
-    const bulge = cellSize * 0.22; // arc control offset — sets the lids' curve
-    const ax = cx + tx * half;
-    const ay = cy + ty * half;
-    const bx = cx - tx * half;
-    const by = cy - ty * half;
+    const cx = hx + cellSize / 2;
+    const cy = hy + cellSize / 2;
+    // Cell centre → the point where the facing ray LEAVES the cell: half a
+    // cell for an axis facing, the corner itself for a 45° diagonal. Measuring
+    // to the boundary rather than to a fixed radius is what keeps a diagonal
+    // cave's mouth on the corner it faces instead of floating inside the cell.
+    const reach = cellSize / 2 / Math.max(Math.abs(ux), Math.abs(uy));
+    const half = cellSize / 2; // the mouth spans the WHOLE cell width
+    const depth = cellSize * 0.44; // how far the cave bites into the cell
+    // Mouth corners on the faced edge, and the control point that puts the
+    // arc's deepest point exactly `depth` inside it (a quadratic passes
+    // halfway to its control point at its midpoint, hence the doubling).
+    const ax = cx + ux * reach + tx * half;
+    const ay = cy + uy * reach + ty * half;
+    const bx = cx + ux * reach - tx * half;
+    const by = cy + uy * reach - ty * half;
+    const qx = cx + ux * (reach - depth * 2);
+    const qy = cy + uy * (reach - depth * 2);
     ctx.save();
-    ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(ax, ay);
-    ctx.quadraticCurveTo(cx + ux * bulge, cy + uy * bulge, bx, by);
-    ctx.quadraticCurveTo(cx - ux * bulge, cy - uy * bulge, ax, ay);
-    ctx.closePath();
-    ctx.strokeStyle = ICON_COLORS.line;
-    ctx.lineWidth = Math.max(1.2, cellSize * 0.06);
-    ctx.stroke();
-    ctx.fillStyle = ICON_COLORS.base;
+    ctx.quadraticCurveTo(qx, qy, bx, by);
+    ctx.closePath(); // the mouth itself: the straight run along the cell edge
+    ctx.fillStyle = EYE_COLORS.cave;
     ctx.fill();
-    // Pupil: offset outward so the eye reads as looking OUT of the cell, and
-    // small enough that the lid still closes around it on the outward side.
+    // Walls: stroking the same path leaves the mouth's straight edge on the
+    // cell boundary, where the caller's cell clip trims it to a hairline, so
+    // what shows is the curved back wall — the cave reads as open.
+    ctx.strokeStyle = EYE_COLORS.wall;
+    ctx.lineWidth = Math.max(1.5, cellSize * 0.075);
+    ctx.stroke();
+    // Pupil at the centre BACK of the cave, tucked just inside the arc so it
+    // reads as looking out through the mouth.
     ctx.beginPath();
     ctx.arc(
-      cx + ux * cellSize * 0.032,
-      cy + uy * cellSize * 0.032,
-      Math.max(1.2, cellSize * 0.06),
+      cx + ux * (reach - depth * 0.72),
+      cy + uy * (reach - depth * 0.72),
+      Math.max(1.6, cellSize * 0.085),
       0,
       Math.PI * 2,
     );
-    ctx.fillStyle = ICON_COLORS.line;
+    ctx.fillStyle = EYE_COLORS.pupil;
     ctx.fill();
     ctx.restore();
   }
@@ -372,60 +394,14 @@ const BoardRenderer = (function () {
     return { x, y };
   }
 
-  // Backplate for the head-cell letter: a dark rounded chip with a light rim,
-  // pinned to the BOTTOM-RIGHT corner of the head cell and stopping just above
-  // the health bar, which owns the cell's bottom edge. The plate is what lets
-  // the letter read on every team colour and over whatever icon is beneath it.
-  // Returns the chip's geometry for drawLetterGlyph, or null for the historic
-  // rows that predate letters — those get no chip at all.
-  function drawLetterPlate(ctx, snake, hx, hy, cellSize) {
-    if (!snake.letter) return null;
-    const size = Math.max(9, cellSize * 0.3);
-    ctx.save();
-    ctx.font = `800 ${size}px sans-serif`;
-    const padX = Math.max(1.2, size * 0.18);
-    const w =
-      Math.max(size * 0.72, ctx.measureText(snake.letter).width) + padX * 2;
-    // The health bar is ~15% of the cell tall with a ~3% inset; 18.5% clears it.
-    const h = size * 1.12;
-    const x = hx + cellSize - w - Math.max(1, cellSize * 0.035);
-    const y = hy + cellSize - h - cellSize * 0.185;
-    roundedRectPath(ctx, x, y, w, h, h * 0.32);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.lineWidth = Math.max(0.8, cellSize * 0.02);
-    ctx.stroke();
-    ctx.restore();
-    return { x, y, w, h, size };
-  }
-
-  // The letter itself, drawn last so nothing can bury it: white with a dark
-  // halo, which keeps it readable both on its own dark chip and on the white
-  // orientation eye that lands on the chip whenever a unit faces its corner.
-  function drawLetterGlyph(ctx, letter, plate) {
-    ctx.save();
-    ctx.font = `800 ${plate.size}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const cx = plate.x + plate.w / 2;
-    const cy = plate.y + plate.h / 2 + plate.size * 0.05;
-    ctx.lineJoin = "round";
-    ctx.lineWidth = Math.max(1.5, plate.size * 0.3);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
-    ctx.strokeText(letter, cx, cy);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(letter, cx, cy);
-    ctx.restore();
-  }
-
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
   // pieces (see UNIT_ICONS) — upright, plus the orientation eye on the faced
-  // cell edge and the unit's letter in the bottom-right corner. Pawns
-  // additionally carry the staged-rotation badge; their weight shows in the
-  // unit tag. The eye draws over the icon, and the letter draws last so it
-  // stays readable over whichever of the two it lands on.
+  // cell edge. Pawns additionally carry the staged-rotation badge; their
+  // weight shows in the unit tag. The cell carries NO letter: the unit tag's
+  // letter square is the letter's home, and it anchors itself on the cell
+  // diagonally adjacent to this one (renderUnitTags). The eye draws over the
+  // icon and under the tags, so facing is never buried and never buries.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
@@ -468,27 +444,75 @@ const BoardRenderer = (function () {
       // snake icon.
       drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
-    // The eye is sandwiched between the letter's chip and the letter itself:
-    // the chip never hides a unit's facing, and the letter still wins the
-    // pixels it needs when the two land on the same corner.
-    const letterPlate = drawLetterPlate(ctx, snake, hx, hy, cellSize);
     drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
-    if (letterPlate) drawLetterGlyph(ctx, snake.letter, letterPlate);
     ctx.restore();
   }
 
+  // Weight icon: a silver ANVIL, drawn from one path so the on-board tags and
+  // the units table show the same mark. No anvil EMOJI renders reliably (the
+  // codepoint is young and most platforms fall back to a coloured stand-in or
+  // tofu), and weight wants a heavy, monochrome silhouette rather than a
+  // colour picture — hence the hand-drawn path. `w`/`h` are its box, so both
+  // surfaces can scale it to a text line without guessing its aspect.
+  const ANVIL_ICON = {
+    w: 24,
+    h: 20,
+    // Pointed horn on the left, long flat face across the top overhanging a
+    // waisted body, splayed foot: the silhouette that says "anvil" and nothing
+    // else at a dozen pixels.
+    d:
+      "M0.5 7 L7 3 L23 3 L23 7 L16.5 8.6 L15 13.4 L20 17 L20 19.5 " +
+      "L4 19.5 L4 17 L9 13.4 L7.5 8.6 L3 7.8 Z",
+  };
+  const ANVIL_COLORS = {
+    fill: "#c2c7cd", // silver
+    line: "rgba(20, 24, 30, 0.75)", // the rim that keeps it legible on white
+  };
+
+  // The anvil on a canvas, left-aligned at `x` and vertically centred on
+  // `midY` at the given line height (the tag's stat row).
+  function drawAnvilIcon(ctx, x, midY, height) {
+    const scale = height / ANVIL_ICON.h;
+    ctx.save();
+    ctx.translate(x, midY - height / 2);
+    ctx.scale(scale, scale);
+    const p = new Path2D(ANVIL_ICON.d);
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = ANVIL_COLORS.line;
+    ctx.lineWidth = 1.8;
+    ctx.stroke(p);
+    ctx.fillStyle = ANVIL_COLORS.fill;
+    ctx.fill(p);
+    ctx.restore();
+  }
+
+  // The same anvil as inline SVG, for the units table's weight column.
+  function anvilIconSVG(heightPx) {
+    const w = (heightPx * ANVIL_ICON.w) / ANVIL_ICON.h;
+    return (
+      `<svg viewBox="0 0 ${ANVIL_ICON.w} ${ANVIL_ICON.h}" width="${w.toFixed(1)}" height="${heightPx}" ` +
+      `aria-hidden="true" style="vertical-align:-2px;">` +
+      `<path d="${ANVIL_ICON.d}" fill="${ANVIL_COLORS.fill}" stroke="${ANVIL_COLORS.line}" ` +
+      `stroke-width="1.8" stroke-linejoin="round"/></svg>`
+    );
+  }
+
   // Stat glyphs shared by the on-board unit tags and the units table, so one
-  // stat always reads as one symbol wherever it appears.
+  // stat always reads as one symbol wherever it appears. Weight is the drawn
+  // anvil above rather than a character, so it carries no entry here.
   const STAT_ICON = {
-    weight: "\u2696\uFE0F", // balance scale
     health: "\u2665", // heart, tinted by healthBarColor
     invulnerable: "\u{1F6E1}\uFE0F", // shield (positive level)
     vulnerable: "\u26A0\uFE0F", // warning (negative level)
   };
 
-  // Health-bar track: the dark under-layer every health bar draws its fill on
-  // (tag bar, units-table bar, on-cell bar).
+  // Health-bar track: the dark under-layer the units-table health bar draws
+  // its fill on. The on-cell bar uses HEALTH_BAR_CELL_TRACK instead.
   const HEALTH_BAR_TRACK = "rgba(0, 0, 0, 0.4)";
+  // The on-cell bar's track is SOLID BLACK: it sits on the unit's own body
+  // colour, and only an opaque track keeps the empty part of the bar reading
+  // as "missing health" rather than as a tint of the team colour.
+  const HEALTH_BAR_CELL_TRACK = "#000000";
 
   // The invulnerability glyph for a level: shield when protected, warning when
   // the level is negative (extra-vulnerable).
@@ -514,9 +538,9 @@ const BoardRenderer = (function () {
   }
 
   // Prominent per-unit health bar on the unit's key cell (snake head cell /
-  // piece cell): bottom-anchored, ~90% of the cell wide, ~15% tall, a dark
-  // translucent track under a red/orange/green fill. Callers skip ghost/dead
-  // snakes — a corpse has no health to read.
+  // piece cell): bottom-anchored, ~90% of the cell wide, ~15% tall, a BLACK
+  // track under a red/orange/green fill. Callers skip ghost/dead snakes — a
+  // corpse has no health to read.
   function drawHealthBar(ctx, snake, hx, hy, cellSize) {
     if (typeof snake.health !== "number") return; // pre-health historical rows
     const frac = healthFraction(snake);
@@ -526,7 +550,7 @@ const BoardRenderer = (function () {
     const bx = hx + (cellSize - barW) / 2;
     const by = hy + cellSize - barH - inset;
     ctx.save();
-    ctx.fillStyle = HEALTH_BAR_TRACK;
+    ctx.fillStyle = HEALTH_BAR_CELL_TRACK;
     ctx.fillRect(bx, by, barW, barH);
     if (frac > 0) {
       ctx.fillStyle = healthBarColor(frac);
@@ -535,12 +559,14 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
-  // Hazard cell: a red lattice — a faint wash crossed by bars running both
-  // diagonals — rather than a solid red block. The bars carry the "danger"
-  // read while the gaps between them leave whatever shares the cell visible:
-  // the black grid lines, a unit standing in the hazard, a candidate ring.
-  // The clip is inset by a pixel on every side so the lattice never paints
-  // over the cell's own grid lines.
+  // Hazard cell: a red lattice — a faint wash crossed by GRID-ALIGNED bars,
+  // horizontal and vertical — rather than a solid red block. The bars carry
+  // the "danger" read while the gaps between them leave whatever shares the
+  // cell visible: the black grid lines, a unit standing in the hazard, a
+  // candidate ring. Running the bars square to the board rather than on the
+  // diagonals keeps them from reading as the diagonal hatch the fertile tiles
+  // already own. The clip is inset by a pixel on every side so the lattice
+  // never paints over the cell's own grid lines.
   function drawHazardCell(ctx, x, y, cellSize) {
     ctx.save();
     ctx.beginPath();
@@ -551,14 +577,16 @@ const BoardRenderer = (function () {
     ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
     ctx.lineWidth = Math.max(1, cellSize / 11);
     const spacing = Math.max(4, cellSize / 3);
-    for (let offset = -cellSize; offset <= cellSize * 2; offset += spacing) {
+    // Half a spacing in from the edges, so the pattern is centred in the cell
+    // and no bar lands exactly on a grid line the clip is protecting.
+    for (let offset = spacing / 2; offset < cellSize; offset += spacing) {
       ctx.beginPath();
-      ctx.moveTo(x + offset, y);
-      ctx.lineTo(x + offset + cellSize, y + cellSize);
+      ctx.moveTo(x, y + offset);
+      ctx.lineTo(x + cellSize, y + offset);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(x + offset, y);
-      ctx.lineTo(x + offset - cellSize, y + cellSize);
+      ctx.lineTo(x + offset, y + cellSize);
       ctx.stroke();
     }
     ctx.restore();
@@ -1871,10 +1899,10 @@ const BoardRenderer = (function () {
       }
     });
 
-    // Unit tags: a compact tag anchored at each unit's head cell (top-right)
-    // carrying the unit's letter, weight, health, and operator name when
-    // owned, with a colour-coded health bar underneath. Placement + hover
-    // hit-testing live in renderUnitTags / getNameTagAt.
+    // Unit tags: a compact tag whose letter square sits on a cell diagonally
+    // adjacent to each unit's head, carrying the unit's letter, weight,
+    // health, and operator name when owned. Placement + hover hit-testing live
+    // in renderUnitTags / getNameTagAt.
     renderUnitTags(ctx, canvas, board, cellSize, options);
 
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
@@ -2017,35 +2045,57 @@ const BoardRenderer = (function () {
   // Rects are in BOARD-PIXEL space (the canvas's internal coordinate system).
   const _nameTagRects = new WeakMap();
 
+  // Where the pointer is with respect to ONE unit: on nothing of its own, on
+  // one of the unit's CELLS, or on the unit's own TAG. The three are ordered
+  // by precedence — "tag" outranks "unit", because a pointer resting on a tag
+  // is asking to see what the tag covers.
+  const TAG_HOVER = { none: "none", unit: "unit", tag: "tag" };
+
   // THE tag-visibility rule. Two inputs decide what one tag does, and nothing
   // else does: the global display default (Alt-tap toggle, plumbed through
-  // options.tagsHiddenByDefault) and whether this unit is the hovered one.
-  // Hover strictly REVERSES the default for the hovered unit and leaves every
-  // other tag on the default:
-  //   shown by default, not hovered  → "solid", or "selected" for the unit
-  //                                    under selection (full opacity)
-  //   shown by default, hovered      → "translucent" (reversed toward hidden,
-  //                                    so the board under the tag stays read-
-  //                                    able); hover outranks selection
-  //   hidden by default, hovered     → "solid" (reversed toward shown)
-  //   hidden by default, not hovered → "hidden" (not drawn at all)
+  // options.tagsHiddenByDefault) and where the pointer is on this unit.
+  //   pointer on the unit's cell → "solid": hovering a unit CALLS UP its tag,
+  //                                whatever the default says
+  //   pointer on the unit's tag  → "hidden": the tag steps aside so the board
+  //                                under it can be read
+  //   pointer elsewhere          → the default: "hidden" while tags are off,
+  //                                else "solid" / "selected" under selection
+  // The two hover states are opposites on purpose, and that is exactly what
+  // would oscillate if the pointer's position alone decided them — a tag that
+  // hides moves the pointer off itself. The caller LATCHES the "tag" state
+  // until the pointer leaves both the tag and the unit's cells (see
+  // options.tagHoverUnitId), so this function stays a pure lookup with no
+  // history of its own.
   // Returned as a name rather than a number so callers cannot invent an
   // in-between state; TAG_ALPHA maps it to the one opacity it draws at.
-  const TAG_ALPHA = { hidden: 0, translucent: 0.3, solid: 0.92, selected: 1 };
-  function unitTagVisibility(tagsHiddenByDefault, hovered, selected) {
-    if (tagsHiddenByDefault) return hovered ? "solid" : "hidden";
-    if (hovered) return "translucent";
+  const TAG_ALPHA = { hidden: 0, solid: 0.92, selected: 1 };
+  function unitTagVisibility(tagsHiddenByDefault, hover, selected) {
+    if (hover === TAG_HOVER.tag) return "hidden";
+    if (hover === TAG_HOVER.unit) return "solid";
+    if (tagsHiddenByDefault) return "hidden";
     return selected ? "selected" : "solid";
   }
 
-  // Draw ONE unit tag: a rounded white pill anchored at the unit's head cell,
-  // containing (left to right) the unit's LETTER in a team-coloured chip, its
-  // WEIGHT behind the shared scale icon, its numeric HEALTH behind a heart
-  // tinted by the shared health thresholds, its INVULNERABILITY level behind
-  // the shared shield/warning icon, and the OPERATOR name when the unit is
-  // owned — the same icons the units table uses for the same stats. A
-  // colour-coded health bar (healthFraction/healthBarColor — same thresholds
-  // and track as the units-table bar) sits directly under the tag.
+  // Width of one stat's icon inside a tag. The anvil is a drawn path with a
+  // fixed aspect; every other stat icon is a text glyph the canvas measures.
+  // Both the layout pass and the draw pass go through here, so a tag can never
+  // be measured one way and painted another.
+  function statIconWidth(ctx, stat, iconH) {
+    if (stat.anvil) return (iconH * ANVIL_ICON.w) / ANVIL_ICON.h;
+    return ctx.measureText(stat.icon).width;
+  }
+
+  // Draw ONE unit tag: a rounded white pill whose LETTER SQUARE is its anchor,
+  // sitting on the cell diagonally adjacent to the unit's head. The body
+  // carries the unit's WEIGHT behind the silver anvil, its numeric HEALTH
+  // behind a heart tinted by the shared health thresholds, its INVULNERABILITY
+  // level behind the shared shield/warning icon, and the OPERATOR name when
+  // the unit is owned — the same icons the units table uses for the same
+  // stats. The tag carries no health BAR: the numeric heart says it, and the
+  // unit's own cell already wears the bar.
+  // `letterAtEnd` flips the body's reading order: the square stays on the
+  // anchor cell while the stats run to its LEFT, which is what lets a tag near
+  // the board's right edge extend inward without losing its anchor.
   // The whole tag is one atomic unit: the opacity comes from
   // unitTagVisibility and is applied to every part inside a single
   // save/restore block, so no piece can appear/disappear independently and no
@@ -2061,10 +2111,9 @@ const BoardRenderer = (function () {
       iconGap,
       chipW,
       tagH,
-      barH,
+      letterAtEnd,
       letter,
       stats,
-      frac,
       nameText,
       unitColor,
       ownerColor,
@@ -2091,88 +2140,81 @@ const BoardRenderer = (function () {
     ctx.stroke();
 
     const midY = rect.y + tagH / 2 + fontSize * 0.05;
-    let x = rect.x + padX;
 
-    // Letter chip in the unit's colour: the tag's primary identifier, drawn
-    // larger and heavier than the stats so it carries at any board scale.
+    // Letter square in the unit's colour: the tag's anchor and its primary
+    // identifier, drawn larger and heavier than the stats so it carries at any
+    // board scale. It takes the anchor end of the pill; the stats take what is
+    // left.
     const chipH = tagH - Math.max(3, fontSize * 0.22);
     const chipY = rect.y + (tagH - chipH) / 2;
+    const chipX = letterAtEnd
+      ? rect.x + rect.w - padX - chipW
+      : rect.x + padX;
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x, chipY, chipW, chipH, chipH * 0.25);
-    else ctx.rect(x, chipY, chipW, chipH);
+    if (ctx.roundRect) ctx.roundRect(chipX, chipY, chipW, chipH, chipH * 0.25);
+    else ctx.rect(chipX, chipY, chipW, chipH);
     ctx.fillStyle = unitColor;
     ctx.fill();
     ctx.font = letterFont;
     ctx.textAlign = "center";
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(letter, x + chipW / 2, midY);
-    x += chipW;
+    ctx.fillText(letter, chipX + chipW / 2, midY);
 
-    // Stat pairs (icon + value), in the units table's icons and order.
+    // Stat pairs (icon + value), in the units table's icons and order, laid
+    // out from whichever end the letter square did not take.
+    let x = letterAtEnd ? rect.x + padX : chipX + chipW;
+    const iconH = fontSize * 0.92;
     ctx.font = font;
     ctx.textAlign = "left";
     stats.forEach((stat) => {
-      x += gap;
-      ctx.fillStyle = stat.iconColor || "#1a1a1a";
-      ctx.fillText(stat.icon, x, midY);
-      x += ctx.measureText(stat.icon).width + iconGap;
+      if (!letterAtEnd) x += gap;
+      if (stat.anvil) {
+        drawAnvilIcon(ctx, x, midY, iconH);
+      } else {
+        ctx.fillStyle = stat.iconColor || "#1a1a1a";
+        ctx.fillText(stat.icon, x, midY);
+      }
+      x += statIconWidth(ctx, stat, iconH) + iconGap;
       ctx.fillStyle = "#1a1a1a";
       ctx.fillText(stat.text, x, midY);
       x += ctx.measureText(stat.text).width;
+      if (letterAtEnd) x += gap;
     });
 
     // Operator name when owned.
     if (nameText) {
-      x += gap;
+      if (!letterAtEnd) x += gap;
       ctx.fillStyle = "#1a1a1a";
       ctx.fillText(nameText, x, midY);
-    }
-
-    // Colour-coded health bar directly under the tag (same thresholds and
-    // track as the units-table and on-cell bars).
-    if (barH) {
-      const by = rect.y + tagH + 1;
-      ctx.fillStyle = HEALTH_BAR_TRACK;
-      ctx.fillRect(rect.x, by, rect.w, barH);
-      if (frac > 0) {
-        ctx.fillStyle = healthBarColor(frac);
-        ctx.fillRect(rect.x, by, rect.w * frac, barH);
-      }
     }
     ctx.restore();
   }
 
   // One tag per unit head cell, for EVERY unit on the board (owned or not) —
-  // the generalization of the old owner name tags. Anchored at the head
-  // cell's TOP-RIGHT corner; candidate placements (top-right primary, then
-  // top-left / bottom-right fallbacks) are scored by how many OTHER unit
-  // heads and already-placed tags they cover, and the least-overlapping
-  // candidate wins. Styling derives reactively from the selections map; the
-  // Alt-tap display default arrives via options.tagsHiddenByDefault and the
-  // hovered unit via options.hoveredUnitId, and unitTagVisibility turns that
-  // pair into the one state each tag draws in.
-  // A tag shown by hover alone (hidden-by-default mode) is anchored to a spot
-  // adjacent to the head that never covers the hovered cell
-  // (options.hoverCell) — the cell under the cursor must stay fully visible
-  // and clickable for destination selection / inspection.
+  // the generalization of the old owner name tags. The tag's LETTER SQUARE is
+  // its anchor and it sits on a cell DIAGONALLY adjacent to the unit's head
+  // (top-right preferred, then top-left / bottom-right / bottom-left), so the
+  // tag never covers its own unit's head cell and the letter always names the
+  // unit one step away from it. Among the diagonals that keep the tag on the
+  // board, the one covering the fewest other unit heads and already-placed
+  // tags wins. The body extends rightward from the square; where the right
+  // edge is too close it extends leftward instead and the letter moves to the
+  // tag's right end, so the square keeps the anchor cell either way.
+  // Styling derives reactively from the selections map; the Alt-tap display
+  // default arrives via options.tagsHiddenByDefault and the pointer's position
+  // via options.hoveredUnitId (pointer on the unit's cells) and
+  // options.tagHoverUnitId (pointer latched onto the unit's own tag), and
+  // unitTagVisibility turns those into the one state each tag draws in.
+  // The tag the pointer is latched onto still PUBLISHES its rect while hidden:
+  // that rect is how the caller sees the pointer leave it and un-latch.
   function renderUnitTags(ctx, canvas, board, cellSize, options) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
     const owners = options?.owners || {};
     const selections = options?.selections || {};
     const hoveredId = options?.hoveredUnitId || null;
+    const tagHoverId = options?.tagHoverUnitId || null;
     const hiddenDefault = !!options?.tagsHiddenByDefault;
-    // The board cell under the cursor, as a board-pixel rect: hover-shown
-    // tags must never intersect it.
-    const hoverCell = options?.hoverCell || null;
-    const cursorRect = hoverCell
-      ? {
-          x: hoverCell.x * cellSize,
-          y: (board.height - 1 - hoverCell.y) * cellSize,
-          w: cellSize,
-          h: cellSize,
-        }
-      : null;
 
     // Other units' head cells (board-pixel rects) for overlap avoidance.
     const headRects = {};
@@ -2194,12 +2236,22 @@ const BoardRenderer = (function () {
     board.snakes.forEach((snake) => {
       const head = snake.body && snake.body[0];
       if (!head) return;
-      const hovered = hoveredId === snake.id;
+      // Pointer-on-tag outranks pointer-on-cell: the latched tag hides so the
+      // board under it can be read, even while the pointer is also over one of
+      // the unit's cells.
+      const hover =
+        tagHoverId === snake.id
+          ? TAG_HOVER.tag
+          : hoveredId === snake.id
+            ? TAG_HOVER.unit
+            : TAG_HOVER.none;
       const selected = !!selections[snake.id];
-      const visibility = unitTagVisibility(hiddenDefault, hovered, selected);
+      const visibility = unitTagVisibility(hiddenDefault, hover, selected);
       // Hidden tags are not drawn, so they are not placed or hit-tested
-      // either: the rects this render publishes are exactly what is on screen.
-      if (visibility === "hidden") return;
+      // either — with ONE exception: the tag the pointer is latched onto is
+      // still placed and published, because its rect is what tells the caller
+      // the pointer has left it.
+      if (visibility === "hidden" && hover !== TAG_HOVER.tag) return;
       const owner = owners[snake.id] || null;
       const unitColor =
         snake.customizations?.color || snake.color || "#888888";
@@ -2225,11 +2277,10 @@ const BoardRenderer = (function () {
       const iconGap = fontSize * 0.16;
       const nameText = owner && owner.name ? owner.name : null;
       // Stat pairs, in the units table's icons and order: weight, health,
-      // invulnerability. Only the health icon is tinted (by the shared
-      // thresholds); the rest read as plain glyphs.
-      const stats = [
-        { icon: STAT_ICON.weight, iconColor: null, text: String(weight) },
-      ];
+      // invulnerability. Weight rides the drawn silver anvil; only the health
+      // icon is tinted (by the shared thresholds); the rest read as plain
+      // glyphs.
+      const stats = [{ anvil: true, iconColor: null, text: String(weight) }];
       if (health != null) {
         stats.push({
           icon: STAT_ICON.health,
@@ -2245,76 +2296,86 @@ const BoardRenderer = (function () {
         });
       }
 
+      // The letter square is SQUARE by construction — it is the anchor that
+      // lands on a board cell — and widens only for a historic emoji glyph
+      // that would not otherwise fit.
+      const tagH = Math.max(fontSize * 1.7, letterSize * 1.5);
+      const chipH = tagH - Math.max(3, fontSize * 0.22);
+      const iconH = fontSize * 0.92;
       ctx.save();
       ctx.font = letterFont;
       const chipW = Math.max(
-        letterSize * 1.15,
-        ctx.measureText(letter).width + letterSize * 0.5,
+        chipH,
+        ctx.measureText(letter).width + letterSize * 0.4,
       );
       ctx.font = font;
       let contentW = chipW;
       stats.forEach((stat) => {
         contentW +=
           gap +
-          ctx.measureText(stat.icon).width +
+          statIconWidth(ctx, stat, iconH) +
           iconGap +
           ctx.measureText(stat.text).width;
       });
       if (nameText) contentW += gap + ctx.measureText(nameText).width;
       ctx.restore();
-
       const tagW = contentW + padX * 2;
-      const tagH = Math.max(fontSize * 1.7, letterSize * 1.5);
-      const barH = health != null ? Math.max(3, fontSize * 0.32) : 0;
-      const totalH = tagH + (barH ? barH + 1 : 0);
-
-      // Anchor at the head cell's TOP-RIGHT corner, extending up-right with a
-      // slight overlap into the cell so the association stays unambiguous.
-      const hxLeft = head.x * cellSize;
-      const hyTop = (board.height - 1 - head.y) * cellSize;
-      const hxRight = hxLeft + cellSize;
-      const overlap = cellSize * 0.18;
-      // A hover-shown tag (hidden-by-default mode) must never cover the cell
-      // the mouse is on: use anchors fully OUTSIDE the head cell, ringed
-      // around it, and hard-filter any placement that intersects the cursor
-      // cell below. The shown-by-default tags keep the head-overlapping
-      // anchors (association reads better and hover already fades them).
-      const avoidCursor = hiddenDefault && hovered && !!cursorRect;
-      const pad = Math.max(2, cellSize * 0.06);
-      const candidates = avoidCursor
-        ? [
-            { x: hxRight + pad, y: hyTop - totalH - pad }, // outside top-right
-            { x: hxLeft - tagW - pad, y: hyTop - totalH - pad }, // outside top-left
-            { x: hxLeft + (cellSize - tagW) / 2, y: hyTop - totalH - pad }, // above
-            { x: hxRight + pad, y: hyTop + (cellSize - totalH) / 2 }, // right
-            { x: hxLeft - tagW - pad, y: hyTop + (cellSize - totalH) / 2 }, // left
-            { x: hxRight + pad, y: hyTop + cellSize + pad }, // outside bottom-right
-            { x: hxLeft - tagW - pad, y: hyTop + cellSize + pad }, // outside bottom-left
-            { x: hxLeft + (cellSize - tagW) / 2, y: hyTop + cellSize + pad }, // below
-          ]
-        : [
-            { x: hxRight - overlap, y: hyTop - totalH + overlap }, // top-right
-            { x: hxLeft - tagW + overlap, y: hyTop - totalH + overlap }, // top-left
-            { x: hxRight - overlap, y: hyTop + cellSize - overlap }, // bottom-right
-          ];
 
       const boardW = board.width * cellSize;
       const boardH = board.height * cellSize;
+      const headRow = board.height - 1 - head.y;
+      const headTop = headRow * cellSize;
+      const ownHeadRect = headRects[snake.id];
+      // The four diagonally adjacent cells the letter square can take, in
+      // preference order — top-right first, as the tag reads best above and to
+      // the right of the unit it names. Steps are in CANVAS space, where rows
+      // grow downward.
+      const diagonals = [
+        { dx: 1, dy: -1 },
+        { dx: -1, dy: -1 },
+        { dx: 1, dy: 1 },
+        { dx: -1, dy: 1 },
+      ];
       let best = null;
       let bestScore = Infinity;
-      // Last resort when EVERY candidate would touch the cursor cell (tiny
-      // boards): the least-overlapping placement, cursor be damned — a tag
-      // still beats no tag.
-      let fallback = null;
-      let fallbackScore = Infinity;
-      for (const c of candidates) {
-        const rect = {
-          x: Math.max(1, Math.min(c.x, boardW - tagW - 1)),
-          y: Math.max(1, Math.min(c.y, boardH - totalH - 1)),
-          w: tagW,
-          h: totalH,
-        };
-        let score = 0;
+      for (const d of diagonals) {
+        const col = head.x + d.dx;
+        const row = headRow + d.dy;
+        // The anchor cell must BE a cell: a diagonal off the board would
+        // strand the letter square outside the grid.
+        if (col < 0 || col >= board.width) continue;
+        if (row < 0 || row >= board.height) continue;
+        // Letter square centred on the anchor cell, then pushed clear of the
+        // head cell's row — on a cramped board the pill stands taller than a
+        // cell, and it must never cover the unit it names.
+        const chipX = col * cellSize + (cellSize - chipW) / 2;
+        let y = row * cellSize + (cellSize - tagH) / 2;
+        y =
+          d.dy < 0
+            ? Math.min(y, headTop - tagH)
+            : Math.max(y, headTop + cellSize);
+        // The body extends RIGHTWARD from the square. Where that would run
+        // past the board's right edge it extends leftward instead and the
+        // square moves to the tag's right end, so the anchor cell keeps the
+        // letter either way.
+        let letterAtEnd = false;
+        let x = chipX - padX;
+        if (x + tagW > boardW - 1) {
+          const leftwardX = chipX + chipW + padX - tagW;
+          if (leftwardX >= 1) {
+            x = leftwardX;
+            letterAtEnd = true;
+          }
+        }
+        // A tag wider or taller than the board itself: clamp it into view and
+        // let the score below prefer a diagonal that keeps the head clear.
+        x = Math.max(1, Math.min(x, Math.max(1, boardW - tagW - 1)));
+        y = Math.max(1, Math.min(y, Math.max(1, boardH - tagH - 1)));
+        const rect = { x, y, w: tagW, h: tagH, letterAtEnd };
+        // Covering the unit's OWN head defeats the anchor, so it outweighs any
+        // amount of ordinary crowding; other heads and already-placed tags
+        // each count one.
+        let score = ownHeadRect && intersects(rect, ownHeadRect) ? 100 : 0;
         for (const [sid, hr] of Object.entries(headRects)) {
           if (sid === snake.id) continue;
           if (intersects(rect, hr)) score++;
@@ -2322,23 +2383,13 @@ const BoardRenderer = (function () {
         for (const pr of placed) {
           if (intersects(rect, pr)) score++;
         }
-        // The cursor-cell constraint is HARD for hover-shown tags: the board
-        // clamp above can push an outside anchor back over the hovered cell,
-        // so it must be re-checked on the final rect, not the raw anchor.
-        if (avoidCursor && intersects(rect, cursorRect)) {
-          if (score < fallbackScore) {
-            fallbackScore = score;
-            fallback = rect;
-          }
-          continue;
-        }
         if (score < bestScore) {
           bestScore = score;
           best = rect;
         }
         if (score === 0) break;
       }
-      if (!best) best = fallback;
+      // No diagonal cell exists at all (a 1×1 board): nothing to anchor to.
       if (!best) return;
 
       drawUnitTag(
@@ -2353,10 +2404,9 @@ const BoardRenderer = (function () {
           iconGap,
           chipW,
           tagH,
-          barH,
+          letterAtEnd: best.letterAtEnd,
           letter,
           stats,
-          frac,
           nameText,
           unitColor,
           ownerColor: owner && owner.color ? owner.color : null,
@@ -2550,7 +2600,7 @@ const BoardRenderer = (function () {
           <div class="snake-details">
             <div class="snake-name">${glyphPrefix}${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
             <div class="snake-stats">
-              <span title="Weight">${STAT_ICON.weight} ${weight}</span>
+              <span title="Weight" style="display:inline-flex;align-items:center;gap:4px;">${anvilIconSVG(13)} ${weight}</span>
               ${healthDisplay}
               ${invulnDisplay}
               ${ownerBadge}
@@ -3216,10 +3266,12 @@ const BoardRenderer = (function () {
     getClickedCell,
     getNameTagAt,
     unitTagVisibility,
+    TAG_HOVER,
     invulnerabilityIcon,
     STAT_ICON,
     drawUnitIcon,
     unitIconSVG,
+    anvilIconSVG,
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
     _moveClickHandler: null,
