@@ -238,6 +238,9 @@ export class GameWebSocketServer {
         waypoints: this.gameManager.getWaypointsForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
+        // Board-level, so it rides the board frame too: a client that joins
+        // mid-turn gets the partition without waiting for a unit's decision.
+        boardTerritory: this.gameManager.getBoardTerritory(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -252,8 +255,11 @@ export class GameWebSocketServer {
         snakeId,
         turn: turnData.gameState.turn,
         moveEvaluations: turnData.moveEvaluations,
-        territoryCells: turnData.territoryCells,
-        cellOwnership: turnData.cellOwnership || null,
+        // The Voronoi partition is a property of the BOARD, so it is sent from
+        // the game's own snapshot rather than from this unit's decision — a
+        // chess piece, which has no engine pass of its own, carries exactly the
+        // same grids as a snake.
+        boardTerritory: this.gameManager.getBoardTerritory(gameId),
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
         timeout: turnData.gameState.game.timeout || 500,
@@ -425,6 +431,7 @@ export class GameWebSocketServer {
               type: 'snake-selected',
               snakeId,
               turnData: controlled.latestTurnData,
+              boardTerritory: this.gameManager.getBoardTerritory(client.gameId),
               botRecommendation: controlled.botRecommendation,
               stagedMove: controlled.intent.kind === 'manual' ? controlled.intent.move : null,
             });

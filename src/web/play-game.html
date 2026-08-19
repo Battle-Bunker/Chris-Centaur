@@ -643,8 +643,28 @@
     const CELL_OWNER_NEUTRAL = -1;
     const CELL_OWNER_UNREACHED = -2;
     let selectedCell = null;          // {x, y} | null
-    let liveCellOwnership = null;     // { turn, data: CellOwnership } from snake-turn-update
+    // The board-wide Voronoi partition for one live turn, broadcast per GAME
+    // (see BoardTerritory on the server): { turn, territoryCells, cellOwnership }.
+    // It describes the whole board, so every selection-driven view — the
+    // territory overlay, this inspector — reads it from here regardless of
+    // which unit is selected, and a chess piece (which has no engine decision
+    // of its own to carry grids on) sees exactly what a snake sees.
+    let liveBoardTerritory = null;
     let historicCellOwnership = null; // CellOwnership | null for the rendered historic turn
+
+    // Apply a broadcast board-territory snapshot; newest turn wins.
+    function applyBoardTerritory(snapshot) {
+      if (!snapshot || typeof snapshot.turn !== 'number') return;
+      if (liveBoardTerritory && liveBoardTerritory.turn > snapshot.turn) return;
+      liveBoardTerritory = snapshot;
+    }
+
+    // The partition for the board currently on screen, or null. A grid from an
+    // earlier turn would misattribute cells, so the turn must match exactly.
+    function liveTerritoryForCurrentTurn() {
+      if (!liveBoardTerritory || !currentGameState) return null;
+      return liveBoardTerritory.turn === currentGameState.turn ? liveBoardTerritory : null;
+    }
 
     function repaintBoard() {
       if (viewMode === 'historic') renderHistoricBoard();
@@ -662,13 +682,23 @@
       repaintBoard();
     }
 
+    // THE board the history view is showing. The rendered context is the
+    // authority; before the first historic paint — or after a render that found
+    // no data for the turn — the cached timeline row for the viewed turn stands
+    // in, so inspecting a unit never depends on a paint having happened first.
+    function historicBoard() {
+      return historicRenderCtx?.boardRow?.game_state?.board
+        || timelineFloorRow(historicTurnNumber)?.game_state?.board
+        || null;
+    }
+
     // The board + ownership snapshot the inspector should describe. When a
     // candidate move is selected, the board overlay shows that move's
     // PROJECTED territory, so the inspector switches to the matching
     // projected ownership grid (hypothetical: our head on the candidate cell).
     function cellInspectContext() {
       if (viewMode === 'historic') {
-        const board = historicRenderCtx?.boardRow?.game_state?.board || null;
+        const board = historicBoard();
         const sel = historicMoveState?.selectedMove;
         const projected = sel ? historicMoveState.moves[sel]?.projectedCellOwnership : null;
         return projected
@@ -681,9 +711,8 @@
       if (projected) return { board, ownership: projected, hypotheticalMove: sel };
       // Ownership must describe the board being shown; a stale grid from the
       // previous turn would misattribute cells.
-      const ownership = (board && liveCellOwnership && liveCellOwnership.turn === currentGameState.turn)
-        ? liveCellOwnership.data : null;
-      return { board, ownership, hypotheticalMove: null };
+      const territory = board ? liveTerritoryForCurrentTurn() : null;
+      return { board, ownership: territory?.cellOwnership || null, hypotheticalMove: null };
     }
 
     // Draw the yellow inspection border on the canvas — the same rect the
@@ -1046,6 +1075,7 @@
             currentGameState = msg.boardState;
             seedTimelineFromLive(currentGameState);
           }
+          applyBoardTerritory(msg.boardTerritory);
           if (msg.controlledSnakes) {
             controlledSnakeIds = new Set(msg.controlledSnakes.map(s => s.id));
             for (const cs of msg.controlledSnakes) {
@@ -1098,6 +1128,7 @@
           }
           currentGameState = msg.gameState;
           seedTimelineFromLive(currentGameState);
+          applyBoardTerritory(msg.boardTerritory);
           turnExpiryTime = msg.turnExpiryTime || null;
           if (msg.selections) {
             selections = msg.selections;
@@ -1149,7 +1180,6 @@
           controlledSnakeTurnData[snakeId] = {
             turnData: {
               moveEvaluations: msg.moveEvaluations,
-              territoryCells: msg.territoryCells,
               safeMoves: msg.safeMoves,
               botRecommendation: msg.botRecommendation,
               timestamp: msg.timestamp,
@@ -1157,11 +1187,10 @@
             moveCommitted: msg.moveCommitted,
             committedMove: msg.committedMove,
           };
-          // Any snake's full-pass ownership grid describes the whole board.
+          // The Voronoi partition rides the frame as a BOARD-level snapshot,
+          // identical whichever unit's turn data this is.
           // (renderGameBoard below refreshes the inspection popup with it.)
-          if (msg.cellOwnership) {
-            liveCellOwnership = { turn: msg.turn, data: msg.cellOwnership };
-          }
+          applyBoardTerritory(msg.boardTerritory);
 
           // This is the only per-snake update that always fires when a snake's
           // path is recomputed, so refresh the live goto route + active mode
@@ -1196,6 +1225,7 @@
               // (de)selection.
             }
             selectedSnakeId = msg.snakeId;
+            applyBoardTerritory(msg.boardTerritory);
             if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
                 turnData: msg.turnData,
@@ -1478,12 +1508,20 @@
       }
 
       const head = snake.head || snake.body[0];
+      // Candidates come from the UNIT's own turn data; the territory grid comes
+      // from the BOARD's snapshot. Keeping the two apart is what makes the
+      // overlay unit-agnostic: a chess piece has candidates but no engine pass
+      // of its own, and reading its (empty) grid off its turn data is exactly
+      // what used to leave pieces with no territory overlay at all.
       const evalData = {
         evaluations: td.moveEvaluations || [],
-        territoryCells: td.territoryCells || {}
+        territoryCells: liveTerritoryForCurrentTurn()?.territoryCells || {}
       };
 
       moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
+      // The selected unit's own territory is the one drawn brightest — the same
+      // emphasis the replay gives the inspected unit.
+      moveState.selectedSnake = snakeId;
 
       if (csData.moveCommitted && csData.committedMove) {
         // After the move is committed, candidates for "what next" come from
@@ -2255,10 +2293,9 @@
     // share the snake candidate UI (candidate cells, keyboard destination
     // selection, Space-staging) but differ in what the keys mean — see the
     // keyboard schema above handleKeyNav — and can also be commanded by
-    // right-clicking a destination (goto).
-    function unitIsPiece(snake) {
-      return !!(snake && snake.unitType && snake.unitType !== 'snake');
-    }
+    // right-clicking a destination (goto). Delegated to the renderer so the
+    // page and the board can never disagree about what a piece is.
+    const unitIsPiece = BoardRenderer.isPieceUnit;
 
     function selectedUnitIsPiece() {
       return unitIsPiece(getSelectedSnake());
@@ -2333,6 +2370,10 @@
       return {
         head: proj, moves, selectedMove: null, postCommit: true,
         candidatesByPosition, holdCandidate: null,
+        // Same board-level grid every other moveState carries, so this
+        // synthetic one is not a second shape for consumers to special-case.
+        territoryCells: liveTerritoryForCurrentTurn()?.territoryCells || {},
+        selectedSnake: snakeId,
       };
     }
 
@@ -2497,14 +2538,31 @@
       contestedSnakeId = null;
     });
 
-    // Tab: cycle the selection through the snakes this player OWNS (every
-    // snake they've selected this game), in stable board order.
+    // Tab: cycle the selection through the units this player OWNS (every unit
+    // they've selected this game), in the SAME order the units table lists
+    // them — team groups with ours first, and letter rank (A, B, C…) within
+    // each group. Tab and the table therefore always agree on "the next unit",
+    // and the order is the one players use out loud.
     function cycleOwnedSnakes() {
       if (!currentGameState || !ws || ws.readyState !== WebSocket.OPEN) return;
-      const mine = (currentGameState.board?.snakes || [])
-        .filter(s => owners[s.id] && owners[s.id].userId === userId)
+      const owned = (currentGameState.board?.snakes || [])
+        .filter(s => owners[s.id] && owners[s.id].userId === userId);
+      if (owned.length === 0) return;
+      const selected = owned.find(s => s.id === selectedSnakeId);
+      const ourTeamKey = BoardRenderer.getTeamKey(selected || owned[0]);
+      const mine = owned
+        .slice()
+        .sort((a, b) => {
+          const ka = BoardRenderer.getTeamKey(a);
+          const kb = BoardRenderer.getTeamKey(b);
+          if (ka !== kb) {
+            if (ka === ourTeamKey) return -1;
+            if (kb === ourTeamKey) return 1;
+            return ka < kb ? -1 : 1;
+          }
+          return BoardRenderer.compareUnitsByLetter(a, b);
+        })
         .map(s => s.id);
-      if (mine.length === 0) return;
       const idx = mine.indexOf(selectedSnakeId);
       const next = mine[(idx + 1) % mine.length];
       if (next && next !== selectedSnakeId) {
@@ -2563,8 +2621,35 @@
 
     let arrowExtendHeld = false; // ArrowUp/W held — the pawn diagonal chord
 
+    // THE inspection context: the unit the user is currently looking at, the
+    // board it stands on, its candidate set, and how selecting one of those
+    // candidates is applied. Every selection-driven feature resolves through
+    // this ONE accessor, which is why they behave the same for a snake and a
+    // chess piece, and the same live and while scrubbing history — the only
+    // things that vary are mechanics the units genuinely differ on.
+    function inspectionContext() {
+      if (viewMode === 'historic') {
+        const board = historicBoard();
+        const unitId = getHistoricSnakeId();
+        return {
+          board,
+          unitId,
+          unit: (board?.snakes || []).find(s => s.id === unitId) || null,
+          moveState: historicMoveState,
+          select: historicSelectMove,
+        };
+      }
+      return {
+        board: currentGameState?.board || null,
+        unitId: selectedSnakeId,
+        unit: getSelectedSnake(),
+        moveState,
+        select: selectMove,
+      };
+    }
+
     function selectedUnitHead() {
-      const unit = getSelectedSnake();
+      const unit = inspectionContext().unit;
       return (unit && (unit.head || unit.body?.[0])) || null;
     }
 
@@ -2574,12 +2659,13 @@
     // the moveState's position→candidate index.
     function keyNavCandidateAt(off) {
       const head = selectedUnitHead();
-      if (!head || !moveState || !moveState.candidatesByPosition) return null;
-      return moveState.candidatesByPosition.get(`${head.x + off.dx},${head.y + off.dy}`) || null;
+      const ms = inspectionContext().moveState;
+      if (!head || !ms || !ms.candidatesByPosition) return null;
+      return ms.candidatesByPosition.get(`${head.x + off.dx},${head.y + off.dy}`) || null;
     }
 
     function holdCandidate() {
-      return (moveState && moveState.holdCandidate) || null;
+      return inspectionContext().moveState?.holdCandidate || null;
     }
 
     // Largest distance with a board-legal candidate along the axis: the full
@@ -2587,7 +2673,7 @@
     // knight's axis·2 is never a candidate).
     function maxDistAlong(axis) {
       if (!axis) return 0;
-      const board = currentGameState?.board;
+      const board = inspectionContext().board;
       const limit = board ? Math.max(board.width, board.height) : 32;
       let d = 0;
       while (d < limit && keyNavCandidateAt({ dx: axis.dx * (d + 1), dy: axis.dy * (d + 1) })) {
@@ -2615,7 +2701,7 @@
     // the same numpad key re-extends along it out of hold); with no memory
     // seedNav fills in the wire orientation.
     function deriveKeyNavFromSelection(move, prev) {
-      const unit = getSelectedSnake();
+      const unit = inspectionContext().unit;
       const head = selectedUnitHead();
       const hasOffset = move && head && move.kind !== 'stay' && move.position;
       return KeyNavMachine.deriveFromOffset(
@@ -2632,8 +2718,9 @@
     }
 
     function keyNavState() {
-      if (!moveState) return null;
-      if (!moveState.keyNav) {
+      const ms = inspectionContext().moveState;
+      if (!ms) return null;
+      if (!ms.keyNav) {
         // Initial axis seeding priority (KeyNavMachine.seedNav): the
         // currently SELECTED candidate → the STAGED move → the unit's wire
         // ORIENTATION. The distance always reflects the actual selection —
@@ -2641,18 +2728,20 @@
         // and carries the staged move's axis as memory; likewise an
         // unselected unit starts at distance 0 on its orientation axis, so
         // arrow Up extends straight out along the orientation.
-        const sel = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
+        const sel = ms.selectedMove ? ms.moves[ms.selectedMove] : null;
         const nav = deriveKeyNavFromSelection(sel, null);
-        const stagedAxis = selectedSnakeId
+        // A staged move exists only in live play; the replay seeds from the
+        // logged selection and the unit's orientation alone.
+        const stagedAxis = (viewMode !== 'historic' && selectedSnakeId)
           ? deriveKeyNavFromSelection(stagedCandidate(selectedSnakeId), null).axis
           : null;
-        moveState.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitOrientation(getSelectedSnake()));
+        ms.keyNav = KeyNavMachine.seedNav(nav, stagedAxis, unitOrientation(inspectionContext().unit));
       }
-      return moveState.keyNav;
+      return ms.keyNav;
     }
 
     function candidateKeyFor(axis, distance) {
-      if (!moveState) return null;
+      if (!inspectionContext().moveState) return null;
       if (distance === 0) {
         const stay = holdCandidate();
         return stay ? stay.key : null;
@@ -2670,7 +2759,7 @@
     function setKeyNavSelection(axis, distance) {
       const key = candidateKeyFor(axis, distance);
       if (key == null) { flashUnavailable(); return false; }
-      selectMove(key, { axis, distance });
+      inspectionContext().select(key, { axis, distance });
       return true;
     }
 
@@ -2680,7 +2769,7 @@
     let keyNavFlashTimer = null;
     function flashUnavailable() {
       const canvas = document.getElementById('gameCanvas');
-      const board = currentGameState?.board;
+      const board = inspectionContext().board;
       const head = selectedUnitHead();
       if (!canvas || !board || !head) return;
       let el = document.getElementById('keyNavFlash');
@@ -2711,8 +2800,9 @@
     // the resulting candidate. `key` is an arrow direction ('up' | 'down' |
     // 'left' | 'right') or a numpad digit (1-9).
     function handleKeyNav(key) {
-      if (!moveState) return;
-      const unit = getSelectedSnake();
+      const ctxUnit = inspectionContext();
+      if (!ctxUnit.moveState) return;
+      const unit = ctxUnit.unit;
       if (!unit) return;
       const nav = keyNavState();
       if (!nav) { flashUnavailable(); return; }
@@ -2745,15 +2835,26 @@
       // move selector after selecting a snake/candidate, otherwise the scrubber.
       // All live-control keys stay inert so nothing gets staged/committed.
       if (viewMode === 'historic') {
-        if (historicKeyFocus === 'candidates' && historicMoveState) {
+        // Only claim the arrows when the inspected unit actually HAS candidates
+        // to steer through; otherwise they stay with the scrubber.
+        if (historicKeyFocus === 'candidates' &&
+            historicMoveState && Object.keys(historicMoveState.moves).length > 0) {
           if (e.key === 'Escape') { historicKeyFocus = 'scrubber'; return; }
-          // History replays snake direction candidates only: an arrow key
-          // selects the logged candidate keyed by that literal direction,
-          // and pieces (destination-keyed candidates) take no arrow input.
+          // The SAME keyboard schema live play uses (handleKeyNav): candidates
+          // are picked by POSITION, so a replayed chess piece steers exactly
+          // like a replayed snake — the old literal-direction lookup only ever
+          // matched snake candidates and left pieces with dead arrow keys.
+          const histDigit = e.code ? KeyNavMachine.NUMPAD_DIGIT_CODES[e.code] : null;
+          if (histDigit != null) {
+            e.preventDefault();
+            handleKeyNav(histDigit);
+            return;
+          }
           const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.key];
           if (dir) {
-            if (historicMoveState.moves && historicMoveState.moves[dir]) historicSelectMove(dir);
-            return;
+            e.preventDefault();
+            arrowExtendHeld = arrowExtendHeld || dir === 'up';
+            handleKeyNav(dir);
           }
           return;
         }
@@ -2859,17 +2960,39 @@
 
     // ── Turn scrubbing implementation ───────────────────────────────────────
 
-    // The set of snakes selectable/inspectable in history mode: everything with
-    // logged decisions (historyLoggedSnakeIds) UNIONED with the live controlled
-    // set — a currently-live snake may not yet appear in the games metadata
-    // until its logs land, and a since-dead snake only appears in the logged
-    // set. Live control gating (selectSnakeForControl etc.) intentionally keeps
-    // using controlledSnakeIds alone.
+    // The set of units selectable/inspectable in history mode.
+    //
+    // Inspecting a unit while scrubbing is a READ of the board on screen, so
+    // the set is derived from that board first: every unit standing on the
+    // rendered turn is inspectable, full stop. Having a decision log is NOT a
+    // precondition — chess pieces never produce one (they get no engine pass)
+    // and a snake's log stops at its death, yet both remain perfectly
+    // inspectable; the logged breakdown is an EXTRA panel that degrades to
+    // "no data" on its own. Neither is being controlled live: a reloaded
+    // finished game has no live state at all.
+    //
+    // The roster and logged/controlled ids are folded in on top so units
+    // already gone from the displayed board (dead earlier in the game) stay
+    // clickable in the units list.
     function historicSelectableIds() {
-      if (historyLoggedSnakeIds.size === 0) return controlledSnakeIds;
-      const union = new Set(historyLoggedSnakeIds);
-      for (const id of controlledSnakeIds) union.add(id);
-      return union;
+      const board = historicBoard();
+      const extra = [];
+      for (const id of historyLoggedSnakeIds) extra.push(id);
+      for (const id of controlledSnakeIds) extra.push(id);
+      for (const rec of snakeLastSeen.values()) extra.push(rec.snake.id);
+      return BoardRenderer.inspectableUnitIds(board, extra);
+    }
+
+    // The units whose DECISION LOGS are worth fetching: the bot-logged ones,
+    // plus anything we control live (its logs may not be in the games metadata
+    // yet). Strictly narrower than the inspectable set above — inspection is
+    // about the board, log loading is about what the database actually holds,
+    // and conflating the two is what used to make an un-logged unit
+    // un-inspectable.
+    function historicLoggedIds() {
+      const ids = new Set(historyLoggedSnakeIds);
+      for (const id of controlledSnakeIds) ids.add(id);
+      return ids;
     }
 
     // Lazily discover which snakes have logged decisions in this game (same
@@ -2898,10 +3021,11 @@
       return historyLoggedFetch;
     }
 
-    // Pick which snake's logged decisions to render in history mode. Prefer the
-    // snake already being inspected, else the currently selected snake, else
-    // the first selectable one. These are the bot-logged snakes, so /api/logs
-    // has their per-turn evaluations.
+    // The unit being inspected in history mode. Prefer the one the user
+    // explicitly picked, else the live selection, else a bot-logged unit (the
+    // default perspective actually has a breakdown to show). The user's own
+    // pick is honoured whether or not it has logs — inspection is a read of
+    // the board; the breakdown panel is what degrades.
     function getHistoricSnakeId() {
       const selectable = historicSelectableIds();
       if (historicSnakeId && selectable.has(historicSnakeId)) {
@@ -2910,6 +3034,10 @@
       if (selectedSnakeId && selectable.has(selectedSnakeId)) {
         return selectedSnakeId;
       }
+      // Prefer a unit the database actually logged, so the default
+      // perspective arrives with a breakdown rather than an empty one.
+      for (const id of historyLoggedSnakeIds) return id;
+      for (const id of historicLoggedIds()) return id;
       const first = selectable.values().next();
       return first.done ? null : first.value;
     }
@@ -3120,6 +3248,15 @@
       return false;
     }
 
+    // Point the loaded-decisions view at one unit's cached log, synchronously.
+    // An un-logged unit (every chess piece) simply gets an empty log, which the
+    // breakdown panel renders as "no data" — never a blocked inspection.
+    function adoptHistoricDecisions(snakeId) {
+      const entry = historicCache.get(snakeId);
+      historicDecisions = entry ? entry.decisions : [];
+      historicTurnToIndex = entry ? entry.turnToIndex : {};
+    }
+
     async function ensureHistoricDecisions(targetTurn, opts) {
       const snakeId = getHistoricSnakeId();
       if (!snakeId) return false;
@@ -3128,6 +3265,7 @@
         entry = await loadSnakeDecisions(snakeId, targetTurn, opts);
       } catch (err) {
         console.error('Failed to load historic turns:', err);
+        adoptHistoricDecisions(snakeId);
         return false;
       }
       historicDecisions = entry.decisions;
@@ -3265,7 +3403,7 @@
     // grow.
     function recomputeHistoryMaxTurn() {
       let m = timelineMaxTurn > 0 ? timelineMaxTurn : 0;
-      for (const sid of historicSelectableIds()) {
+      for (const sid of historicLoggedIds()) {
         const e = historicCache.get(sid);
         if (e && e.maxTurn > m) m = e.maxTurn;
       }
@@ -3307,7 +3445,7 @@
         let stagnantRounds = 0;
         for (let round = 0; round < 6; round++) {
           if (round > 0) await sleep(500 * Math.pow(1.6, round));
-          const targets = Array.from(historicSelectableIds()).filter((sid) => {
+          const targets = Array.from(historicLoggedIds()).filter((sid) => {
             const e = historicCache.get(sid);
             return !e || !snakeLogIsFinal(sid, e);
           });
@@ -3321,7 +3459,7 @@
           const finalT = knownFinalTurn ?? timelineFinalTurn;
           const decisionsDone =
             finalT != null &&
-            Array.from(historicSelectableIds()).some((sid) => {
+            Array.from(historicLoggedIds()).some((sid) => {
               const e = historicCache.get(sid);
               return e && e.maxTurn >= finalT - 1;
             });
@@ -3332,7 +3470,7 @@
           // known final turn gets one extra quiet round of patience before
           // giving up on reaching it.
           let total = turnTimeline.size;
-          for (const sid of historicSelectableIds()) {
+          for (const sid of historicLoggedIds()) {
             const e = historicCache.get(sid);
             if (e) total += e.decisions.length;
           }
@@ -3349,7 +3487,7 @@
     // switching perspective (list click or board click) is instant instead of
     // paying a network round-trip per selection.
     function prefetchHistoricTeam() {
-      for (const sid of historicSelectableIds()) {
+      for (const sid of historicLoggedIds()) {
         if (historicCache.has(sid) || historicInflight.has(sid)) continue;
         // When a teammate's log lands while we're viewing history, re-render:
         // it may extend the board coverage past the inspected snake's death.
@@ -3363,23 +3501,32 @@
       }
     }
 
-    // Switch the inspected snake perspective while scrubbing. Loads that snake's
-    // logged decisions (only controlled/bot-logged snakes have logs) and re-renders
-    // the same turn so the user keeps their place on the slider.
+    // Switch the inspected unit while scrubbing, and re-render the same turn so
+    // the user keeps their place on the slider.
+    //
+    // The switch itself NEVER depends on the log fetch: the perspective moves
+    // and the board repaints immediately, so inspecting a unit works for chess
+    // pieces (which have no decision logs at all), for turns after a snake's
+    // death, and while the fetch is still in flight. Logged decisions, when
+    // this unit has any, only fill in the breakdown panel — and the render
+    // repeats when they land.
     async function switchHistoricSnake(snakeId) {
       if (!snakeId) return;
-      // Selecting a snake hands the arrow keys to the candidate selector.
+      // Selecting a unit hands the arrow keys to the candidate selector.
       historicKeyFocus = 'candidates';
       const sliderEl = document.getElementById('playTurnSlider');
       if (sliderEl && document.activeElement === sliderEl) sliderEl.blur();
       if (snakeId === getHistoricSnakeId()) return;
       historicSnakeId = snakeId;
+      // The loaded decisions belong to the PREVIOUS perspective — swap in the
+      // new unit's cached log (or nothing) before painting, or the breakdown
+      // would briefly describe the unit the user just navigated away from.
+      adoptHistoricDecisions(snakeId);
       const turnToShow = historicTurnNumber;
+      renderHistoricAtTurn(turnToShow);
+      updateTurnControls();
       const ok = await ensureHistoricDecisions(turnToShow);
-      if (!ok) {
-        showBannerNotice('No history recorded for that snake');
-        return;
-      }
+      if (!ok || viewMode !== 'historic' || historicSnakeId !== snakeId) return;
       renderHistoricAtTurn(turnToShow);
       updateTurnControls();
     }
@@ -3419,7 +3566,7 @@
     // rows carry no board and are never board sources.
     function resolveBoardRow(turnNumber) {
       let best = null;
-      for (const sid of historicSelectableIds()) {
+      for (const sid of historicLoggedIds()) {
         const entry = historicCache.get(sid);
         if (!entry) continue;
         const i = indexForTurnInEntry(entry, turnNumber);
@@ -3549,11 +3696,11 @@
         if (group.final_turn != null) knownFinalTurn = group.final_turn;
         // Keep the perspective the user was already inspecting (live selection
         // or prior scrub) when it has logs; otherwise the game's default.
-        if (historicSnakeId && !historicSelectableIds().has(historicSnakeId)) {
+        if (historicSnakeId && !historicLoggedIds().has(historicSnakeId)) {
           historicSnakeId = null;
         }
         if (!historicSnakeId &&
-            !(selectedSnakeId && historicSelectableIds().has(selectedSnakeId))) {
+            !(selectedSnakeId && historicLoggedIds().has(selectedSnakeId))) {
           historicSnakeId = group.default_snake_id;
         }
 
@@ -3809,6 +3956,24 @@
       updateNavButtons(displayTurn);
     }
 
+    // A candidate-less moveState that carries nothing but the board's shared
+    // territory grid, so the overlay (and its click-to-highlight) work for a
+    // unit with no logged evaluations. Same shape every other moveState has —
+    // consumers see one contract, not a second special case. Null when the
+    // turn has no grid to show.
+    function sharedTerritoryMoveState(territoryCells, unitId) {
+      if (!territoryCells || Object.keys(territoryCells).length === 0) return null;
+      return {
+        selectedMove: null,
+        moves: {},
+        safeMoves: [],
+        territoryCells,
+        selectedSnake: unitId || null,
+        candidatesByPosition: new Map(),
+        holdCandidate: null,
+      };
+    }
+
     // Mirrors the Game History viewer's per-turn render: same BoardRenderer
     // entry points, just with interactivity off. The BOARD comes from the
     // per-game timeline (with the legacy any-team-log resolution as fallback),
@@ -3895,9 +4060,15 @@
           evalInput, evalRow.safe_moves, head, evalRow.bot_recommendation
         );
         historicMoveState.selectedMove = null;
-        historicMoveState.selectedSnake = null;
+        historicMoveState.selectedSnake = evalRow.snake_id;
       } else {
-        historicMoveState = null;
+        // No decision log for the inspected unit at this turn — a chess piece
+        // (which never logs one) or a snake after its death. There are no
+        // candidates to draw, but the turn's territory grid belongs to the
+        // BOARD, not to that unit, so the overlay still renders.
+        historicMoveState = sharedTerritoryMoveState(
+          timelineRow?.territory, getHistoricSnakeId()
+        );
       }
       // The cell inspector reads whichever era captured the ownership grid:
       // the eval blob (old rows) or the turn row (modern rows). Set per
@@ -4118,35 +4289,35 @@
       renderCellInspect();
     }
 
-    // Read-only candidate selection: clicking a candidate cell / move button
-    // shows that move's heuristic breakdown, exactly like the history viewer.
-    function historicSelectMove(direction) {
-      if (!historicMoveState) return;
+    // Read-only candidate selection: clicking a candidate cell / move button —
+    // or steering with the keyboard — shows that move's heuristic breakdown.
+    // The replay's counterpart of selectMove, down to keeping the keyboard
+    // cursor ({axis, distance}) in step with every selection source.
+    function historicSelectMove(moveKey, nav) {
+      const ms = historicMoveState;
+      if (!ms || !ms.moves[moveKey]) return;
       historicKeyFocus = 'candidates';
-      historicMoveState.selectedMove = direction;
+      ms.selectedMove = moveKey;
+      ms.keyNav = nav || deriveKeyNavFromSelection(ms.moves[moveKey], ms.keyNav);
       BoardRenderer.renderMoveButtons(
-        document.getElementById('moveButtons'), historicMoveState, historicSelectMove
+        document.getElementById('moveButtons'), ms, historicSelectMove
       );
       renderHistoricBoard();
-      const move = historicMoveState.moves[direction];
-      if (move) {
-        BoardRenderer.updateStatsTable(
-          document.getElementById('statsTableBody'), move, historicMoveState
-        );
-      }
+      BoardRenderer.updateStatsTable(
+        document.getElementById('statsTableBody'), ms.moves[moveKey], ms
+      );
     }
 
     function handleHistoricCanvasClick(event) {
-      const ctx = historicRenderCtx;
-      if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
+      const board = historicBoard();
+      if (!board) return;
       const canvas = document.getElementById('gameCanvas');
-      const board = ctx.boardRow.game_state.board;
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
       if (!cell) return;
 
-      // Clicking a *different* controlled snake's body switches the inspected
-      // perspective (loads its logged decisions for this same turn). Only
-      // controlled (bot-logged) snakes have decision logs to inspect.
+      // Clicking a *different* unit's body switches the inspected perspective.
+      // Every unit on the displayed board qualifies — inspection is a read of
+      // that board, not a claim that the unit logged decisions.
       const currentView = getHistoricSnakeId();
       const selectable = historicSelectableIds();
       const target = BoardRenderer.findSnakeAtCell(board, cell,
@@ -4299,17 +4470,21 @@
       if (submitSection) submitSection.style.display = 'none';
 
       const boardState = historicRenderCtx?.boardRow?.game_state;
-      const onBoard = !!boardState?.board?.snakes?.some(s => s.id === snakeId);
+      const unit = boardState?.board?.snakes?.find(s => s.id === snakeId) || null;
       const finalT = knownFinalTurn ?? timelineFinalTurn;
       const isFinalBoard = finalT != null && (boardState?.turn ?? -1) >= finalT;
       const reason = isFinalBoard
         ? 'the game ended on this board; no decision is made on the final turn.'
-        : onBoard
-          ? 'not loaded yet for this turn.'
-          : 'it is dead at this turn.';
+        : BoardRenderer.isPieceUnit(unit)
+          // Pieces are inspectable like any other unit; they simply never
+          // produce a decision log, so say so rather than promising a load.
+          ? 'chess pieces are steered by command, not by the decision engine.'
+          : unit
+            ? 'not loaded yet for this turn.'
+            : 'it is dead at this turn.';
       document.getElementById('moveButtons').innerHTML =
         '<div style="grid-column: 1 / -1; color: #888; text-align: center; padding: 12px;">' +
-        `No decision data for this snake \u2014 ${escapeHtml(reason)}</div>`;
+        `No decision data for this unit \u2014 ${escapeHtml(reason)}</div>`;
       document.getElementById('statsTableBody').innerHTML =
         '<tr><td colspan="5" style="text-align: center; color: #888;">' +
         `No decision data \u2014 ${escapeHtml(reason)}</td></tr>`;

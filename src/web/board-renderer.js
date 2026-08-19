@@ -70,8 +70,9 @@ const BoardRenderer = (function () {
   // Every unit carries its WIRE orientation on Snake.orientation
   // (Turn.orientation, verbatim: full-board convention, dy grows DOWNWARD),
   // which matches canvas rows exactly, so dx/dy apply to canvas offsets with
-  // no flip. Icons always draw UPRIGHT; the facing shows as an eye on the
-  // faced cell edge (drawOrientationEye), live and replay.
+  // no flip. Icons always draw UPRIGHT; a PIECE's facing shows as an eye on
+  // the faced cell edge (drawOrientationEye), live and replay. Snakes carry
+  // their facing in the head/neck geometry and draw no eye.
   // The eye takes the orientation's UNIT vector, so an axis step (±1, 0),
   // a diagonal (±1, ±1) and a knight L-offset (±1, ±2) all resolve to their
   // true screen angle rather than to one of four quarter turns.
@@ -82,6 +83,24 @@ const BoardRenderer = (function () {
     const len = Math.hypot(dx, dy);
     if (!len) return null;
     return { ux: dx / len, uy: dy / len };
+  }
+
+  // A unit is a chess PIECE when it carries a unitType other than "snake".
+  // Everything else — a plain snake, and every letter/emoji-era historical
+  // unit that predates unitType — is a snake. THE one definition of the
+  // snake/piece split: every caller that genuinely needs it (here and in
+  // play-game.html) reads this, so no surface can invent its own answer.
+  function isPieceUnit(unit) {
+    return !!(unit && unit.unitType && unit.unitType !== "snake");
+  }
+
+  // Does this unit's head cell carry the orientation eye? A snake's facing is
+  // already legible in the geometry of its head and neck, so the eye only adds
+  // noise there; a piece occupies a single cell and has no such cue, so the
+  // mark is the only thing that says which way it points. An orientation-less
+  // unit (ghost, corpse) draws none either way.
+  function unitDrawsOrientationEye(unit) {
+    return isPieceUnit(unit) && !!orientationUnitVector(unit.orientation);
   }
 
   // Orientation eye: a stroke-only mark in a single translucent sky blue —
@@ -394,9 +413,9 @@ const BoardRenderer = (function () {
 
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS) — upright, plus the orientation eye on the faced
-  // cell edge. Pawns additionally carry the staged-rotation badge; their
-  // weight shows in the unit tag. The cell carries NO letter: the unit tag's
+  // pieces (see UNIT_ICONS) — upright, plus, for PIECES only, the orientation
+  // eye on the faced cell edge. Pawns additionally carry the staged-rotation
+  // badge; their weight shows in the unit tag. The cell carries NO letter: the unit tag's
   // letter square is the letter's home, and it anchors itself on the cell
   // diagonally adjacent to this one (renderUnitTags). The eye draws over the
   // icon and under the tags, so facing is never buried and never buries.
@@ -411,7 +430,7 @@ const BoardRenderer = (function () {
     ctx.clip();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (snake.unitType) {
+    if (isPieceUnit(snake)) {
       drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
       // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
       // mirror of the bottom-right weight badge) while a side-square rotation
@@ -443,8 +462,11 @@ const BoardRenderer = (function () {
       drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
     ctx.restore();
-    // Outside the cell clip: the eye deliberately overhangs the cell.
-    drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
+    // Outside the cell clip: the eye deliberately overhangs the cell. Pieces
+    // only — a snake's head/neck already says where it faces.
+    if (unitDrawsOrientationEye(snake)) {
+      drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
+    }
   }
 
   // Weight icon: a silver ANVIL, drawn from one path so the on-board tags and
@@ -2498,6 +2520,44 @@ const BoardRenderer = (function () {
     return snake.teamID || snake.squad || snake.customizations?.color || snake.color || snake.id;
   }
 
+  // THE unit ordering: by letter rank (A, B, C…), which is how players name
+  // their units out loud. Letterless units (historic emoji-era rows) sort
+  // after every lettered one, by name then id, so the order is total and
+  // stable. Shared by the units table and Tab cycling so the two can never
+  // disagree about "the next unit".
+  function compareUnitsByLetter(a, b) {
+    const la = (a && a.letter) || "";
+    const lb = (b && b.letter) || "";
+    if (la !== lb) {
+      if (!la) return 1;
+      if (!lb) return -1;
+      return la < lb ? -1 : 1;
+    }
+    const na = (a && a.name) || "";
+    const nb = (b && b.name) || "";
+    if (na !== nb) return na < nb ? -1 : 1;
+    const ia = (a && a.id) || "";
+    const ib = (b && b.id) || "";
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  }
+
+  // Every unit that can be selected/inspected against a given board: the units
+  // standing on it, plus any extra ids the caller already knows about (roster
+  // entries for units that have since died, logged perspectives). Inspection
+  // is a READ of the board being displayed, so this deliberately depends on
+  // nothing else — not on who controls what, not on which units a bot logged
+  // decisions for, not on whether a live game is even running.
+  function inspectableUnitIds(board, extraIds) {
+    const ids = new Set();
+    for (const snake of (board && board.snakes) || []) {
+      if (snake && snake.id) ids.add(snake.id);
+    }
+    for (const id of extraIds || []) {
+      if (id) ids.add(id);
+    }
+    return ids;
+  }
+
   // Turns a raw game-server team id like "team_red" into a friendly label
   // ("Team Red"). Returns null when there's nothing usable.
   function prettifyTeamName(teamId) {
@@ -2631,14 +2691,52 @@ const BoardRenderer = (function () {
       .join("\n");
   }
 
+  // The markup last written into each units-table container. A units table is
+  // rebuilt on every board/selection broadcast, but its CONTENT changes far
+  // less often; comparing first means the common repaint touches no DOM at all,
+  // so nothing the user is pointing at is torn out from under them.
+  const _unitTableHTML = new WeakMap();
+  // Containers already carrying the delegated selection handler. The handler is
+  // registered ONCE per container and survives every innerHTML rebuild.
+  const _unitTableDelegated = new WeakSet();
+
+  // Wire (once) the units table's selection input. This mirrors the board's
+  // delegated `pointerdown` handler, and for the same reason: a `click` only
+  // fires when press and release land on the SAME element, so a per-row click
+  // listener silently drops any selection whose row is replaced between the
+  // two — and rows are replaced by every board update, every selection
+  // broadcast and every scrub frame. Registering on the container (which
+  // outlives the rows) and resolving the row from the event target means a
+  // rebuild mid-press can never swallow the interaction, and one listener
+  // serves N rows instead of N listeners re-attached per render.
+  function delegateUnitSelection(container, options) {
+    container._onSelectSnake = options.onSelectSnake;
+    if (_unitTableDelegated.has(container)) return;
+    _unitTableDelegated.add(container);
+    container.addEventListener("pointerdown", (event) => {
+      const handler = container._onSelectSnake;
+      if (!handler) return;
+      const row =
+        event.target && event.target.closest
+          ? event.target.closest("[data-select-snake]")
+          : null;
+      if (!row) return;
+      handler(row.getAttribute("data-select-snake"));
+    });
+  }
+
   // Renders the participants list. With options.groupByTeam the snakes are
-  // grouped by team (our team first and visually distinguished), and our team's
-  // snakes are made selectable via options.onSelectSnake so the history viewer
-  // can switch perspective. Without options it falls back to the flat list used
-  // by the live play page.
+  // grouped by team (our team first and visually distinguished) and ordered by
+  // letter rank within each team, and rows are made selectable via
+  // options.onSelectSnake so a click switches the inspected unit. When the
+  // caller supplies options.selectableSnakeIds that set is honoured VERBATIM —
+  // the caller owns the selection policy (live control gates on the units we
+  // command; history gates on nothing but the board on screen). Without options
+  // it falls back to the flat list used by the live play page.
   function renderSnakeInfo(container, gameState, ourSnakeId, options) {
     if (!gameState || !gameState.board) {
       container.innerHTML = "";
+      _unitTableHTML.set(container, "");
       return;
     }
     // Snake ownership map ({snakeId: {userId, name, color}}) for owner badges.
@@ -2655,7 +2753,7 @@ const BoardRenderer = (function () {
     const allSnakes = snakes.concat(deadSnakes);
 
     if (!options || !options.groupByTeam) {
-      container.innerHTML =
+      const flat =
         unitIdsAffordanceHTML() +
         allSnakes
           .map((snake) =>
@@ -2666,17 +2764,20 @@ const BoardRenderer = (function () {
             ),
           )
           .join("");
+      container.innerHTML = flat;
+      _unitTableHTML.set(container, flat);
       fillUnitIdsAffordance(container, allSnakes);
       return;
     }
 
-    // Group snakes by team key.
+    // Group snakes by team key, each group in letter rank order (A, B, C…).
     const teams = new Map();
     for (const snake of allSnakes) {
       const key = getTeamKey(snake);
       if (!teams.has(key)) teams.set(key, []);
       teams.get(key).push(snake);
     }
+    for (const group of teams.values()) group.sort(compareUnitsByLetter);
 
     const selectableIds = options.selectableSnakeIds || null;
     const canSelect = !!options.onSelectSnake;
@@ -2710,10 +2811,13 @@ const BoardRenderer = (function () {
         const items = teamSnakes
           .map((snake) =>
             renderSnakeInfoItem(snake, ourSnakeId, {
+              // An explicit selectable set is the caller's policy, applied as
+              // given; without one the default stays "our living team".
               selectable:
                 canSelect &&
-                isOurTeam &&
-                (selectableIds ? selectableIds.has(snake.id) : !deadIds.has(snake.id)),
+                (selectableIds
+                  ? selectableIds.has(snake.id)
+                  : isOurTeam && !deadIds.has(snake.id)),
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
               owner: ownersMap[snake.id] || null,
@@ -2732,16 +2836,16 @@ const BoardRenderer = (function () {
       })
       .join("");
 
-    container.innerHTML = unitIdsAffordanceHTML() + html;
-    fillUnitIdsAffordance(container, allSnakes);
+    // The selection handler goes on FIRST and only once, so it is live even
+    // for the very first pointerdown after this render.
+    if (options.onSelectSnake) delegateUnitSelection(container, options);
 
-    if (options.onSelectSnake) {
-      container.querySelectorAll("[data-select-snake]").forEach((el) => {
-        el.addEventListener("click", () => {
-          options.onSelectSnake(el.getAttribute("data-select-snake"));
-        });
-      });
+    const markup = unitIdsAffordanceHTML() + html;
+    if (_unitTableHTML.get(container) !== markup) {
+      _unitTableHTML.set(container, markup);
+      container.innerHTML = markup;
     }
+    fillUnitIdsAffordance(container, allSnakes);
   }
 
   function renderMoveButtons(container, moveState, onMoveClick) {
@@ -3281,6 +3385,10 @@ const BoardRenderer = (function () {
     anvilIconSVG,
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
+    isPieceUnit,
+    unitDrawsOrientationEye,
+    compareUnitsByLetter,
+    inspectableUnitIds,
     _moveClickHandler: null,
   };
 })();

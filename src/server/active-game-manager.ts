@@ -68,6 +68,22 @@ export interface TurnData {
   cellOwnership?: CellOwnership;
 }
 
+// The Voronoi partition of the WHOLE board for one turn: which unit owns each
+// cell and how far its head is from it. This is a property of the BOARD, not
+// of any one unit — every unit on it, snake or chess piece, is a source of the
+// same BFS and every unit's territory is in the same grid.
+//
+// It only happens to be COMPUTED inside a snake's engine decision (pieces get
+// no engine pass at all), so it arrives on that snake's TurnData; the manager
+// lifts it straight onto the game the moment it lands. Selection-driven views
+// — the territory overlay, the cell inspector — read it from here, per game
+// per turn, so they behave identically whichever unit the user has selected.
+export interface BoardTerritory {
+  turn: number;
+  territoryCells: { [snakeId: string]: { x: number; y: number }[] };
+  cellOwnership: CellOwnership | null;
+}
+
 // The write-through publisher for staged moves. Firestore is the single
 // source of truth for what is staged: EVERY staging action (bot
 // recommendation, manual selection, queue step, waypoint step, revert to
@@ -354,6 +370,9 @@ export interface ActiveGame {
   // configured centaur id). Set by the Firebase interface at registration;
   // null when unknown (e.g. legacy games).
   ourTeam: { id: string; name: string; color: string } | null;
+  // The board-wide Voronoi partition for the most recent turn that produced
+  // one (see BoardTerritory). Null until the first full decision pass lands.
+  boardTerritory: BoardTerritory | null;
 }
 
 // Player colours. No yellow or yellow-green: fertile ground is drawn in
@@ -612,6 +631,7 @@ export class ActiveGameManager {
         turnExpiryTime: null,
         currentTurn: canonical.turn || 0,
         ourTeam: ourTeam ?? null,
+        boardTerritory: null,
       };
       this.games.set(gameId, game);
     }
@@ -1107,6 +1127,7 @@ export class ActiveGameManager {
     waypoints: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } };
     gameTimeout: number;
     turnExpiryTime: number | null;
+    boardTerritory: BoardTerritory | null;
   } | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -1148,6 +1169,7 @@ export class ActiveGameManager {
       waypoints: this.getWaypointsForGame(gameId),
       gameTimeout: game.gameTimeout,
       turnExpiryTime: game.turnExpiryTime,
+      boardTerritory: game.boardTerritory,
     };
   }
 
@@ -2547,6 +2569,32 @@ export class ActiveGameManager {
   // (shift on arrival). Clients never advance the queue themselves; they
   // render the broadcast snapshot.
   // ────────────────────────────────────────────────────────────────────────
+  // Promote a decision's board-wide Voronoi grids to the game, newest turn
+  // wins. Interim recommendations and the quick staging pass carry EMPTY
+  // grids; those are not a partition and must never blank out a real one, so
+  // each half is written only when this decision actually carries it — a
+  // same-turn decision that computed only one of the two keeps the other.
+  private recordBoardTerritory(game: ActiveGame, turnData: TurnData): void {
+    const cells = turnData.territoryCells;
+    const hasCells = !!cells && Object.keys(cells).length > 0;
+    if (!hasCells && !turnData.cellOwnership) return;
+    const turn = turnData.gameState.turn;
+    const prev = game.boardTerritory;
+    if (prev && prev.turn > turn) return;
+    const sameTurn = prev && prev.turn === turn ? prev : null;
+    game.boardTerritory = {
+      turn,
+      territoryCells: hasCells ? cells : (sameTurn?.territoryCells ?? {}),
+      cellOwnership: turnData.cellOwnership ?? sameTurn?.cellOwnership ?? null,
+    };
+  }
+
+  // The board-wide Voronoi partition for this game's most recent computed
+  // turn, or null. Unit-agnostic by construction — the caller passes no unit.
+  getBoardTerritory(gameId: string): BoardTerritory | null {
+    return this.games.get(gameId)?.boardTerritory ?? null;
+  }
+
   setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
     const game = this.games.get(gameId);
     if (!game) return;
@@ -2605,6 +2653,9 @@ export class ActiveGameManager {
 
     controlled.latestTurnData = turnData;
     controlled.botRecommendation = move;
+    // Lift the board-wide Voronoi grids off this snake's decision onto the
+    // GAME, where every unit's views can read them.
+    this.recordBoardTerritory(game, turnData);
     // The green goto route is NOT refreshed here: it is derived from the move
     // that will actually commit, so it is recomputed inside stageMove once
     // `staged` is final (the re-stage below). Recomputing it now — before
