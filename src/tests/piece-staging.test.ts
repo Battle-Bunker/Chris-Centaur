@@ -210,11 +210,12 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
 
   test('an unreachable target pulls nowhere: the piece stages its own square (= stay)', () => {
     const gameId = 'g-piece-unreachable';
-    // A pawn only ever steps forward (rotations spend the turn turning), so a
-    // target off its file is unreachable — no candidate carries a positive
-    // goto weight and the piece stays.
+    // A pawn walled in by hazards on all four sides can step nowhere in ANY
+    // orientation, so no rotation buys it progress either — no candidate
+    // carries a positive goto weight and the piece stays.
     const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 1, dy: 0 } });
-    processPieceTurn(gameId, 'P', [pawn], 0);
+    const walls = [{ x: 4, y: 5 }, { x: 6, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 6 }];
+    processPieceTurn(gameId, 'P', [pawn], 0, [], walls);
     const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
     cs.selectedBy = 'u1';
 
@@ -242,9 +243,111 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     expect(mgr.setWaypoint(gameId, 'P', { type: 'green', x: 6, y: 6 }, 'u1')).toBe(true);
     expect(cs.staged!.move).toBe(fullIdx({ x: 6, y: 6 }));
 
-    // The empty diagonal-forward: illegal → stay.
+    // The empty diagonal-forward is not a legal single move, so goto plans a
+    // legal ROUTE to it instead of giving up: forward to (6,5), then a quarter
+    // turn, then one step. Staging picks the plan's first action.
     expect(mgr.setWaypoint(gameId, 'P', { type: 'green', x: 6, y: 4 }, 'u1')).toBe(true);
-    expect(cs.staged!.move).toBe(fullIdx({ x: 5, y: 5 }));
+    expect(cs.staged!.move).toBe(fullIdx({ x: 6, y: 5 }));
+  });
+
+  test('pawn goto: a target off the ray stages the ROTATION toward it, then walks it out', () => {
+    const gameId = 'g-piece-pawn-rotate';
+    // Wire orientation dy -1 faces api +y; the target is three squares to the
+    // api +x side, so the shortest plan is one quarter turn then three steps.
+    // Staging picks the plan's first action — the side-square rotation, which
+    // goes on the wire as that square's index.
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 0, dy: -1 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+
+    expect(mgr.setWaypoint(gameId, 'P', { type: 'green', x: 8, y: 5 }, 'u1')).toBe(true);
+    expect(cs.staged!.move).toBe(fullIdx({ x: 6, y: 5 }));
+    expect(cs.staged!.source).toBe('waypoint');
+    expect(cs.staged!.action).toEqual({ kind: 'rotate', orientation: { dx: 1, dy: 0 } });
+    // The staged rotation reaches the client as a rotation, not an arrow.
+    expect(mgr.getStagedMovesForGame(gameId)['P'].rotation).toEqual({ dx: 1, dy: 0 });
+  });
+
+  test('pawn goto: a target BEHIND the pawn is reachable — two quarter turns then the steps', () => {
+    const gameId = 'g-piece-pawn-behind';
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 0, dy: -1 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+
+    expect(mgr.setWaypoint(gameId, 'P', { type: 'green', x: 5, y: 3 }, 'u1')).toBe(true);
+    // Four turns: turn, turn, step, step. The first is what gets staged — a
+    // quarter turn to either side, since both reach the target in four.
+    const staged = cs.staged!.action as { kind: string; orientation: { dx: number; dy: number } };
+    expect(staged.kind).toBe('rotate');
+    expect([{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }]).toContainEqual(staged.orientation);
+    expect(cs.gotoRoute).toEqual([
+      { x: 5, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 3 },
+    ]);
+    // The drawn route follows the move that will actually commit: its first
+    // step IS the staged rotation, and the second completes the about-face.
+    expect(cs.gotoRouteRotations[0]).toEqual(staged.orientation);
+    expect(cs.gotoRouteRotations[1]).toEqual({ dx: 0, dy: 1 });
+    expect(cs.gotoRouteRotations.slice(2)).toEqual([null, null]);
+  });
+
+  test('the route serializes rotations alongside its cells, index-aligned, for the display', () => {
+    const gameId = 'g-piece-pawn-route';
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 0, dy: -1 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+
+    // (7,7): two steps the way it already faces, one quarter turn, two more.
+    mgr.setWaypoint(gameId, 'P', { type: 'green', x: 7, y: 7 }, 'u1');
+    const route = mgr.getRoutesForGame(gameId)['P'];
+    expect(route.cells).toEqual([
+      { x: 5, y: 6 }, { x: 5, y: 7 }, { x: 5, y: 7 }, { x: 6, y: 7 }, { x: 7, y: 7 },
+    ]);
+    expect(route.rotations).toHaveLength(route.cells.length);
+    expect(route.rotations).toEqual([null, null, { dx: 1, dy: 0 }, null, null]);
+    // The rotation repeats the square it is spent on, so cells and rotations
+    // stay index-aligned and the badge lands where the turn happens.
+    expect(route.cells[2]).toEqual(route.cells[1]);
+    expect(cs.gotoRouteFirstLeg).toBe(route.cells.length);
+  });
+
+  test('regression: a unit that cannot rotate puts no rotations on the wire at all', () => {
+    const gameId = 'g-piece-norotate';
+    const rook = makeUnit('R', { x: 5, y: 5 }, { unitType: 'rook' });
+    processPieceTurn(gameId, 'R', [rook], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('R')!;
+    cs.selectedBy = 'u1';
+
+    mgr.setWaypoint(gameId, 'R', { type: 'green', x: 6, y: 9 }, 'u1');
+    const route = mgr.getRoutesForGame(gameId)['R'];
+    expect(route.cells.length).toBeGreaterThan(0);
+    expect(route.rotations).toBeUndefined();
+    expect(cs.gotoRouteRotations.every(r => r === null)).toBe(true);
+  });
+
+  test("a dead piece's goto command and route are cleared, so nothing lingers on the board", () => {
+    const gameId = 'g-piece-death';
+    const pawn = makeUnit('P', { x: 5, y: 5 }, { unitType: 'pawn', orientation: { dx: 0, dy: -1 } });
+    processPieceTurn(gameId, 'P', [pawn], 0);
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('P')!;
+    cs.selectedBy = 'u1';
+    mgr.setWaypoint(gameId, 'P', { type: 'green', x: 5, y: 9 }, 'u1');
+    mgr.setWaypoint(gameId, 'P', { type: 'green', x: 8, y: 9 }, 'u1', true);
+    expect(mgr.getWaypointsForGame(gameId)['P'].cells).toHaveLength(2);
+    expect(cs.gotoRoute.length).toBeGreaterThan(0);
+
+    // The pawn is captured: the next canonical board simply has no P on it.
+    const gone = makeGameState(gameId, 1, [pawn], 'P');
+    gone.board.snakes = [];
+    mgr.updateBoard(gameId, gone);
+
+    expect(cs.intent.kind).toBe('heuristic');
+    expect(cs.gotoRoute).toEqual([]);
+    expect(cs.gotoRouteRotations).toEqual([]);
+    expect(mgr.getWaypointsForGame(gameId)['P']).toBeUndefined();
+    expect(mgr.getRoutesForGame(gameId)['P']).toBeUndefined();
   });
 
   test('numeric read-back confirmation settles the publish pipeline (no republish)', () => {

@@ -21,7 +21,10 @@
  * through the engine-mirroring legality module (piece-moves.ts). Every search
  * — territory Voronoi, flood fills, goto/waypoint pathing — enumerates through
  * it, so a knight searches in L-jumps and a rook along rays without a single
- * call site knowing what a knight is.
+ * call site knowing what a knight is. `searchSpaceFor` lifts that same root to
+ * (cell, orientation) NODES for the multi-turn searches, which is how a pawn —
+ * the one unit whose reachability depends on which way it faces — plans its
+ * quarter turns as ordinary edges, again with no call site knowing it is a pawn.
  *
  * Starvation-aware body vacating: health loss is movement-tied (snakes always
  * move, so they lose exactly 1/turn unless they eat), so a snake with health h
@@ -134,6 +137,68 @@ export interface UnitAdjacency {
 
 /** The adjacency of an ordinary snake — orthogonal steps, orientation unread. */
 export const SNAKE_ADJACENCY: UnitAdjacency = { unitType: 'snake', orientation: { dx: 0, dy: -1 } };
+
+/**
+ * Units whose edge set depends on which way they FACE, so "where can it get to"
+ * is a property of (square, orientation) rather than of the square alone.
+ *
+ * Only the pawn: its single step is forward and a quarter turn costs a whole
+ * turn, so a pawn standing still facing the wrong way is one turn — not zero —
+ * from the squares beside it. Every other unit's edges are the same whichever
+ * way it faces (a rook's rays, a knight's jumps, a snake's four steps), so its
+ * search collapses to one orientation state and behaves exactly as before.
+ */
+export const isOrientationStateful = (unitType?: string): boolean =>
+  (unitType ?? 'snake') === 'pawn';
+
+const sameOrientation = (a: Orientation, b: Orientation): boolean => a.dx === b.dx && a.dy === b.dy;
+
+// Negating a zero component yields -0, which compares equal to 0 but reads as
+// "-0" everywhere an orientation is printed or diffed. Normalize it away.
+const axis = (n: number): number => (n === 0 ? 0 : n);
+
+/**
+ * The two orientations one quarter turn away from `o` — the pawn's side
+ * squares in `planPieceAction`, which is exactly what staging a rotation
+ * encodes. Derived from the perpendicular, never re-tabulated.
+ */
+export const quarterTurnsFrom = (o: Orientation): Orientation[] => [
+  { dx: axis(-o.dy), dy: axis(o.dx) },
+  { dx: axis(o.dy), dy: axis(-o.dx) },
+];
+
+/**
+ * ONE unit's search space: the node set every multi-turn search over that
+ * unit's own moves walks, and the single place a node's cell and orientation
+ * are decoded.
+ *
+ * A node is a (cell, orientation-state) pair packed into one integer, so the
+ * searches keep their flat typed-array visited/parent arrays and their one BFS
+ * loop. For the orientation-invariant units there is exactly ONE state, the
+ * node IS the cell index, and nothing about the search changes; for the pawn
+ * the space is layered once per orientation and turning is an ordinary edge.
+ *
+ * This is why nothing above the graph has pawn-specific code: a caller asks for
+ * the space, walks it, and reads back which of its steps were turns.
+ */
+export interface UnitSearchSpace {
+  /** Nodes in the space: cells × orientation states. */
+  readonly nodeCount: number;
+  /** Upper bound on one `fillNeighbors` result. */
+  readonly neighborCapacity: number;
+  /** The node for a unit on `cell` facing the orientation the space started from. */
+  startNode(cell: number): number;
+  /** The board cell a node stands on. */
+  cellOf(node: number): number;
+  /** The orientation a node faces. */
+  orientationOf(node: number): Orientation;
+  /**
+   * Fill `out` with the nodes reachable from `node` in ONE turn, returning how
+   * many were written. `passable` is the caller's own passability layer, used
+   * to stop rays exactly as `fillUnitNeighbors` does.
+   */
+  fillNeighbors(node: number, passable: (cellIdx: number) => boolean, out: Int32Array): number;
+}
 
 export class BoardGraph {
   private width: number;
@@ -309,6 +374,71 @@ export class BoardGraph {
       }
     }
     return count;
+  }
+
+  /**
+   * THE search space of a unit: `fillUnitNeighbors` lifted to (cell,
+   * orientation) nodes so a multi-turn search can plan through TURNING as well
+   * as through moving.
+   *
+   * The orientation-invariant units get a one-state space whose nodes are their
+   * cell indices verbatim, so their searches are byte-for-byte what they were.
+   * A pawn gets one node layer per orientation, ordered with its CURRENT
+   * orientation first (making `startNode` the plain cell index there too), and
+   * two extra edges per node: the quarter turns, which cost one turn each and
+   * land on the same square. Its forward step is whatever `fillUnitNeighbors`
+   * offers for the orientation of the layer, so the single legality module
+   * still speaks for the geometry.
+   *
+   * `unit.orientation` is the orientation the search STARTS from — callers
+   * probing "what if it were facing that way" pass an override.
+   */
+  searchSpaceFor(unit: UnitAdjacency): UnitSearchSpace {
+    const cells = this.cells;
+    const type = unit.unitType ?? 'snake';
+    if (!isOrientationStateful(type)) {
+      const orientation = unit.orientation;
+      return {
+        nodeCount: cells,
+        neighborCapacity: this.neighborCapacity(),
+        startNode: (cell) => cell,
+        cellOf: (node) => node,
+        orientationOf: () => orientation,
+        fillNeighbors: (node, passable, out) => this.fillUnitNeighbors(unit, node, passable, out),
+      };
+    }
+
+    // Current orientation first, so state 0 is always where the unit stands.
+    const states: Orientation[] = [
+      unit.orientation,
+      ...legalOrientations(type).filter(o => !sameOrientation(o, unit.orientation)),
+    ];
+    const stateOf = (o: Orientation): number => states.findIndex(s => sameOrientation(s, o));
+    // The per-state adjacency descriptors, built once: fillUnitNeighbors reads
+    // only type + orientation, so one object per layer is all it ever needs.
+    const layers: UnitAdjacency[] = states.map(orientation => ({ unitType: type, orientation }));
+    // Quarter-turn targets per layer, resolved to state indices once.
+    const turns: number[][] = states.map(o => quarterTurnsFrom(o).map(stateOf).filter(s => s >= 0));
+
+    return {
+      nodeCount: cells * states.length,
+      // Its own steps plus the two quarter turns.
+      neighborCapacity: this.neighborCapacity() + 2,
+      startNode: (cell) => cell,
+      cellOf: (node) => node % cells,
+      orientationOf: (node) => states[Math.floor(node / cells)],
+      fillNeighbors: (node, passable, out) => {
+        const cell = node % cells;
+        const state = Math.floor(node / cells);
+        // Moves first, turns after: among plans of equal length the one that
+        // starts by actually going somewhere is the one BFS keeps.
+        let count = this.fillUnitNeighbors(layers[state], cell, passable, out);
+        const base = state * cells;
+        for (let i = 0; i < count; i++) out[i] += base;
+        for (const turned of turns[state]) out[count++] = turned * cells + cell;
+        return count;
+      },
+    };
   }
 
   /**

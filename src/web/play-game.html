@@ -1843,9 +1843,14 @@
         drawRouteOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
       }
 
-      // Render every snake's waypoint cells (green goto queue in order, or the
-      // single blue near target) so observers can see the controller's plan.
+      // Render every LIVING snake's waypoint cells (green goto queue in order,
+      // or the single blue near target) so observers can see the controller's
+      // plan. A unit that is no longer on the board has no plan — the server
+      // clears its command the moment it dies, and this mirrors that so a
+      // frame that arrives mid-teardown can never leave orphaned target badges
+      // behind (the route loop above is board-driven for the same reason).
       for (const snakeId in waypoints) {
+        if (!currentGameState.board.snakes.some(s => s.id === snakeId)) continue;
         drawWaypointOverlay(canvas, waypoints[snakeId], currentGameState.board, cellSize);
       }
 
@@ -2528,6 +2533,12 @@
     // Cells are marked with plain dots, deliberately NOT numbered: the route
     // can span many legs, and per-cell numbers would compete with the queue
     // ordinals drawn on the target cells themselves.
+    //
+    // A route entry is one TURN, so a turn the unit spends TURNING repeats the
+    // square it was spent on and carries the new orientation in
+    // `route.rotations[i]`. Those cells get the shared ↻/↺ rotation badge —
+    // the same mark the pawn's staged rotation draws — so a planned route
+    // reads "step, step, turn, step" in one glance.
     // `headOverride` anchors the polyline explicitly — the history replay
     // passes the historic board's head, since getProjectedHead reads the LIVE
     // game state (absent or ahead of the replayed turn).
@@ -2537,6 +2548,7 @@
       const ctx = canvas.getContext('2d');
       const head = headOverride || getProjectedHead(snake.id) || snake.head || snake.body[0];
       const firstLeg = Math.max(0, Math.min(cells.length, route.firstLeg ?? cells.length));
+      const rotations = route.rotations || [];
 
       const toPx = (cell) => ({
         x: cell.x * cellSize + cellSize / 2,
@@ -2586,6 +2598,21 @@
         ctx.stroke();
       }
       ctx.restore();
+
+      // Planned rotations, drawn over the dots. `facing` walks the plan so each
+      // badge's ↻/↺ sense is measured from the orientation the unit actually
+      // holds at that point, not from the one it has now.
+      let facing = snake.orientation;
+      for (let i = 0; i < cells.length; i++) {
+        const turned = rotations[i];
+        if (!turned) continue;
+        const p = toPx(cells[i]);
+        BoardRenderer.drawRotationBadge(
+          ctx, facing, turned, p.x, p.y, Math.max(cellSize * 0.42, 9),
+          { alpha: i < firstLeg ? 0.95 : 0.4 },
+        );
+        facing = turned;
+      }
     }
 
     document.getElementById('confirmTakeoverBtn').addEventListener('click', () => {

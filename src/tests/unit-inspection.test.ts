@@ -169,6 +169,20 @@ describe('orientation eye', () => {
     expect(BoardRenderer.isPieceUnit({})).toBe(false);
     expect(BoardRenderer.isPieceUnit(null)).toBe(false);
   });
+
+  // ONE rotation indicator: the pawn's staged-rotation badge and every planned
+  // rotation drawn along a goto route read the same glyph from this function,
+  // so the two can never drift into different visual languages.
+  test('the rotation indicator has ONE definition, in the wire convention', () => {
+    const up = { dx: 0, dy: -1 };   // wire dy grows downward = api +y
+    // Cross product > 0 is a clockwise quarter turn on screen.
+    expect(BoardRenderer.rotationGlyph(up, { dx: 1, dy: 0 })).toBe('↻');
+    expect(BoardRenderer.rotationGlyph(up, { dx: -1, dy: 0 })).toBe('↺');
+    expect(BoardRenderer.rotationGlyph({ dx: 1, dy: 0 }, { dx: 0, dy: 1 })).toBe('↻');
+    // No usable "from" still marks the cell rather than drawing nothing.
+    expect(BoardRenderer.rotationGlyph(null, { dx: 1, dy: 0 })).toBe('↻');
+    expect(BoardRenderer.rotationGlyph({ dx: 0, dy: 0 }, { dx: 1, dy: 0 })).toBe('↻');
+  });
 });
 
 // ── Letter-rank ordering ───────────────────────────────────────────────────

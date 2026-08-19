@@ -411,6 +411,36 @@ const BoardRenderer = (function () {
     return { x, y };
   }
 
+  // The quarter-turn glyph for turning `from` → `to`. Both orientations use the
+  // wire convention (y grows downward), which matches canvas rows: a positive
+  // cross product is a clockwise (screen) quarter turn. An unknown `from`
+  // reads as clockwise rather than drawing nothing.
+  function rotationGlyph(from, to) {
+    if (from && to && (from.dx || from.dy) && from.dx * to.dy - from.dy * to.dx < 0) {
+      return "↺"; // ↺ counter-clockwise
+    }
+    return "↻"; // ↻ clockwise
+  }
+
+  // THE rotation indicator: one turn spent turning, drawn as ↻/↺ centred on
+  // (x, y) at `size` px. One drawing for both places a rotation is shown — the
+  // pawn's staged-rotation badge on its own cell, and each PLANNED rotation
+  // along a goto route — so the two always speak the same visual language.
+  function drawRotationBadge(ctx, from, to, x, y, size, opts) {
+    const glyph = rotationGlyph(from, to);
+    ctx.save();
+    ctx.font = `bold ${size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.globalAlpha = (opts && opts.alpha) != null ? opts.alpha : 1;
+    ctx.lineWidth = Math.max(size * 0.18, 1.5);
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.strokeText(glyph, x, y);
+    ctx.fillStyle = (opts && opts.color) || "#80d8ff";
+    ctx.fillText(glyph, x, y);
+    ctx.restore();
+  }
+
   // Head glyph: every unit's head cell draws its unit ICON — the shared
   // drawn snake icon for snakes, the custom-drawn piece marks for chess
   // pieces (see UNIT_ICONS) — upright, plus, for PIECES only, the orientation
@@ -432,29 +462,17 @@ const BoardRenderer = (function () {
     ctx.textBaseline = "middle";
     if (isPieceUnit(snake)) {
       drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
-      // Staged-rotation badge (pawns): a ↻/↺ in the top-left corner (the
-      // mirror of the bottom-right weight badge) while a side-square rotation
-      // is staged — the piece spends the turn turning, so no destination
-      // arrow is drawn. Both orientation and the staged rotation use the wire
-      // convention (y grows downward), which matches canvas rows: a positive
-      // cross product is a clockwise (screen) quarter turn.
+      // Staged-rotation badge (pawns): the shared ↻/↺ mark in the top-left
+      // corner (the mirror of the bottom-right weight badge) while a
+      // side-square rotation is staged — the piece spends the turn turning, so
+      // no destination arrow is drawn.
       const stagedRotation = glyphOpts && glyphOpts.stagedRotation;
       if (stagedRotation) {
-        const f = snake.orientation;
-        let rotGlyph = "↻"; // ↻ clockwise
-        if (f && (f.dx || f.dy)) {
-          const cross = f.dx * stagedRotation.dy - f.dy * stagedRotation.dx;
-          if (cross < 0) rotGlyph = "↺"; // ↺ counter-clockwise
-        }
-        const rotSize = Math.max(cellSize * 0.34, 8);
-        ctx.font = `bold ${rotSize}px sans-serif`;
-        const rx = hx + cellSize * 0.2;
-        const ry = hy + cellSize * 0.3;
-        ctx.lineWidth = Math.max(cellSize * 0.06, 1.5);
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
-        ctx.strokeText(rotGlyph, rx, ry);
-        ctx.fillStyle = "#80d8ff";
-        ctx.fillText(rotGlyph, rx, ry);
+        drawRotationBadge(
+          ctx, snake.orientation, stagedRotation,
+          hx + cellSize * 0.2, hy + cellSize * 0.3,
+          Math.max(cellSize * 0.34, 8),
+        );
       }
     } else {
       // Snakes (and any letter/emoji-era historical unit): the uniform drawn
@@ -3345,6 +3363,8 @@ const BoardRenderer = (function () {
     invulnerabilityIcon,
     STAT_ICON,
     drawUnitIcon,
+    rotationGlyph,
+    drawRotationBadge,
     unitIconSVG,
     anvilIconSVG,
     findSnakeAtCell,

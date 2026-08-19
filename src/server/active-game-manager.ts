@@ -1,14 +1,16 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
 import { healthAfterEntering, projectedHealthCost } from '../logic/simulator';
-import { planPieceAction, legalPieceDestinations, PieceAction } from '../logic/piece-moves';
+import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
   WaypointContext,
   WaypointCandidateProgress,
-  waypointPath,
+  WaypointProbe,
+  RouteStep,
+  waypointRoute,
   waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
 import { CellOwnership } from '../logic/multi-source-bfs';
@@ -214,6 +216,19 @@ export interface StagedMoveView {
   rotation?: { dx: number; dy: number } | null;
 }
 
+// A unit's drawn goto route: one cell per TURN of its predicted trajectory,
+// the count of leading cells belonging to this turn's committed leg, and — only
+// for a plan that contains a turn spent TURNING — the new orientation at each
+// such cell, index-aligned with `cells` (null on ordinary steps). `rotations`
+// is omitted entirely when the plan has none, so every unit that cannot rotate
+// puts exactly the bytes on the wire it always did, and a replayed snapshot
+// from before rotations existed reads as "no rotations".
+export interface RouteView {
+  cells: Coord[];
+  firstLeg: number;
+  rotations?: ({ dx: number; dy: number } | null)[];
+}
+
 // Everything a client (live or replay) needs to render the command state of a
 // game's snakes, in exactly the shape the live WebSocket broadcast uses. The
 // command logger persists one of these per (game, turn) when the turn
@@ -222,7 +237,7 @@ export interface StagedMoveView {
 export interface CommandTurnState {
   stagedMoves: { [snakeId: string]: StagedMoveView };
   waypoints: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } };
-  routes: { [snakeId: string]: { cells: Coord[]; firstLeg: number } };
+  routes: { [snakeId: string]: RouteView };
   activeIntentModes: { [snakeId: string]: IntentMode };
   owners: { [snakeId: string]: { userId: string; name: string; color: string } | null };
   // The operator whose command produced each snake's ACTIVE intent (null for
@@ -283,6 +298,11 @@ export interface ControlledSnake {
   // prediction that assumes each earlier target is reached, so the client draws
   // it faded. 0 when there is no route.
   gotoRouteFirstLeg: number;
+  // Index-aligned with `gotoRoute`: the orientation the unit faces after a step
+  // that was spent TURNING rather than moving (null on an ordinary step). Only
+  // ever non-null for units whose plan can include a rotation — a pawn — and
+  // the client draws the ↻/↺ badge on those cells.
+  gotoRouteRotations: (Orientation | null)[];
   // The snake's REQUESTED move — the last move the active intent resolved to,
   // bound to its (snakeId, turn). Written only by `stageMove`, which starts
   // the publish-until-confirmed pipeline (`ensureStagedPublished`) so the
@@ -666,6 +686,7 @@ export class ActiveGameManager {
         intentBy: null,
         gotoRoute: [],
         gotoRouteFirstLeg: 0,
+        gotoRouteRotations: [],
         staged: null,
         confirmedStaged: null,
         finalMove: null,
@@ -1325,12 +1346,21 @@ export class ActiveGameManager {
     return { ...snapshot, you };
   }
 
+  // Wipe the derived route cache. One place, because every early-out and the
+  // catch-all below must leave the three projections consistent.
+  private static clearGotoRoute(controlled: ControlledSnake): void {
+    controlled.gotoRoute = [];
+    controlled.gotoRouteFirstLeg = 0;
+    controlled.gotoRouteRotations = [];
+  }
+
   // Recompute the DERIVED green goto display route for a unit: its full
   // predicted trajectory through EVERY queued target, chained
   // head → targets[0] → targets[1] → … so the board shows how it gets between
-  // waypoints, not just to the first one. One route cell per MOVE of that
-  // unit, since `waypointPath` walks its own adjacency — a knight's route is
-  // its L-hops and a rook's is its ray landings, drawn by the same polyline.
+  // waypoints, not just to the first one. One route entry per TURN of that
+  // unit, since `waypointRoute` walks its own search space — a knight's route
+  // is its L-hops, a rook's is its ray landings, and a pawn's interleaves the
+  // quarter turns it spends facing the right way, drawn by the same polyline.
   //
   // The first leg encodes the two-path duality the goto feature needs:
   //  - While a move is STAGED for this turn it starts
@@ -1341,16 +1371,15 @@ export class ActiveGameManager {
   //  - With nothing staged for this turn it starts at the projected head —
   //    the "immediately optimal" path for the next decision.
   //
-  // Uses the SAME `waypointPath` the evaluator's stat and the staging re-bias
+  // Uses the SAME `waypointRoute` the evaluator's stat and the staging re-bias
   // use, so the number scored, the path drawn, and the move committed cannot
-  // disagree. Exception-safe and side-effect-free beyond writing `gotoRoute`.
+  // disagree. Exception-safe and side-effect-free beyond writing the cache.
   private refreshGotoRoute(gameId: string, snakeId: string): void {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     if (!game || !controlled) return;
     if (controlled.intent.kind !== 'goto' || controlled.intent.targets.length === 0) {
-      controlled.gotoRoute = [];
-      controlled.gotoRouteFirstLeg = 0;
+      ActiveGameManager.clearGotoRoute(controlled);
       return;
     }
     try {
@@ -1359,44 +1388,56 @@ export class ActiveGameManager {
       const gs = boardState ? this.viewFor(boardState, snakeId) : null;
       const anchor = this.getProjectedHead(gameId, snakeId);
       if (!gs || !anchor) {
-        controlled.gotoRoute = [];
-        controlled.gotoRouteFirstLeg = 0;
+        ActiveGameManager.clearGotoRoute(controlled);
         return;
       }
       const board = gs.board;
-      // One graph for every leg: waypointPath would otherwise rebuild the whole
+      // One graph for every leg: waypointRoute would otherwise rebuild the whole
       // typed-array board per call, and this runs on every stage.
       const graph = new BoardGraph(gs);
-      const staged = controlled.staged;
-      // Where this turn's staged move leaves the unit, or null when it leaves
-      // it standing: a snake's Direction steps one cell, a piece's numeric
-      // destination IS the square it lands on (its stay/rotate candidates
-      // plan no displacement, so the route starts at the anchor instead).
+      // The move staged for THIS turn, if any — a record bound to an earlier
+      // turn says nothing about where the unit is heading now.
+      const staged = controlled.staged?.turn === game.boardStateTurn ? controlled.staged : null;
+      // Where that move leaves the unit, or null when it leaves it standing: a
+      // snake's Direction steps one cell, a piece's numeric destination IS the
+      // square it lands on (its stay/rotate candidates plan no displacement, so
+      // the route starts at the anchor instead).
       const stagedDest: Coord | null =
-        !staged || staged.turn !== game.boardStateTurn ? null
+        !staged ? null
           : typeof staged.move === 'string'
             ? ActiveGameManager.destinationOf(anchor, staged.move)
             : staged.action?.kind === 'move'
               ? toApiCoord(staged.move, board.width + 2, board.height + 2)
               : null;
+      // A staged QUARTER TURN spends the turn without moving, so it is the
+      // route's first step on the unit's own square and every leg after it is
+      // planned from the orientation it leaves behind.
+      const stagedRotation: Orientation | null =
+        staged?.action?.kind === 'rotate' ? staged.action.orientation : null;
 
-      // Where the path starts, and how many turns from now that cell is
-      // occupied — the BFS clock every subsequent leg continues from.
-      const route: Coord[] = [];
+      // Where the path starts, which way the unit faces there, and how many
+      // turns from now that cell is occupied — the BFS clock every subsequent
+      // leg continues from.
+      const route: RouteStep[] = [];
       let from: Coord;
       let turnCursor: number;
+      let facing: Orientation | undefined;
       if (stagedDest) {
         const inBounds = stagedDest.x >= 0 && stagedDest.x < board.width && stagedDest.y >= 0 && stagedDest.y < board.height;
         if (!inBounds) {
-          controlled.gotoRoute = [];
-          controlled.gotoRouteFirstLeg = 0;
+          ActiveGameManager.clearGotoRoute(controlled);
           return;
         }
         // The staged cell is reached one move in the future, so the rest of the
         // route is pathed with the clock already advanced by one.
-        route.push(stagedDest);
+        route.push({ cell: stagedDest });
         from = stagedDest;
         turnCursor = 1;
+      } else if (stagedRotation) {
+        route.push({ cell: anchor, rotation: stagedRotation });
+        from = anchor;
+        turnCursor = 1;
+        facing = stagedRotation;
       } else {
         from = anchor;
         turnCursor = 0;
@@ -1433,9 +1474,9 @@ export class ActiveGameManager {
       // makes the prediction slightly optimistic rather than wrong-shaped.
       const bodyLength = Math.max(1, gs.you.body?.length ?? gs.you.length ?? 1);
       const occupancyByCell = new Map<number, number[]>();
-      const noteOccupied = (cells: Coord[], firstRouteIndex: number) => {
-        cells.forEach((c, n) => {
-          const idx = graph.cellIndexOf(c);
+      const noteOccupied = (steps: RouteStep[], firstRouteIndex: number) => {
+        steps.forEach((step, n) => {
+          const idx = graph.cellIndexOf(step.cell);
           const at = occupancyByCell.get(idx);
           if (at) at.push(firstRouteIndex + n);
           else occupancyByCell.set(idx, [firstRouteIndex + n]);
@@ -1454,7 +1495,12 @@ export class ActiveGameManager {
       let firstLeg = 0;
       for (const target of targets) {
         const legStartIndex = route.length;
-        const leg = waypointPath(gs, snakeId, from, target, { graph, startTurn: turnCursor, occupied });
+        const leg = waypointRoute(gs, snakeId, from, target, {
+          graph,
+          startTurn: turnCursor,
+          occupied,
+          orientation: facing,
+        });
         // Unreachable leg: stop at the last target we can actually get to
         // rather than drawing a path that skips a gap. With nothing reachable
         // at all this leaves just the staged step (or an empty route), so the
@@ -1464,17 +1510,23 @@ export class ActiveGameManager {
         noteOccupied(leg, legStartIndex);
         turnCursor += leg.length;
         from = target;
+        // The next leg starts facing whatever the last planned turn left the
+        // unit facing — otherwise a chained leg would re-plan from the
+        // orientation the unit has NOW and under-count its rotations.
+        for (let i = leg.length - 1; i >= 0; i--) {
+          if (leg[i].rotation) { facing = leg[i].rotation; break; }
+        }
         // The first completed leg is the only part conditioned on the move
         // actually staged this turn; the client fades everything after it.
         if (firstLeg === 0) firstLeg = route.length;
       }
-      controlled.gotoRoute = route;
+      controlled.gotoRoute = route.map(step => step.cell);
       controlled.gotoRouteFirstLeg = firstLeg > 0 ? firstLeg : route.length;
+      controlled.gotoRouteRotations = route.map(step => step.rotation ?? null);
     } catch (e) {
       // A display cache must never break staging/commit paths.
       console.error(`[ActiveGameManager] refreshGotoRoute failed for ${gameId}:${snakeId}:`, e);
-      controlled.gotoRoute = [];
-      controlled.gotoRouteFirstLeg = 0;
+      ActiveGameManager.clearGotoRoute(controlled);
     }
   }
 
@@ -1523,7 +1575,7 @@ export class ActiveGameManager {
         gs,
         snakeId,
         wp,
-        rows.map(e => ActiveGameManager.destinationOf(head, e.move)),
+        rows.map(e => ({ cell: ActiveGameManager.destinationOf(head, e.move) })),
         { graph: new BoardGraph(gs) }
       );
 
@@ -2033,11 +2085,17 @@ export class ActiveGameManager {
       pawnTargets
     );
     const dests = legal.map(c => toApiCoord(c.dest, fullW, fullH));
-    // Progress is measured where the candidate LEAVES the piece: a rotation
-    // spends the turn turning and a stay spends it standing, so both are
-    // measured from the square the piece already occupies. Only a move
-    // displaces it.
-    const probes = legal.map((c, i) => (c.action.kind === 'move' ? dests[i] : head));
+    // Progress is measured in the STATE the candidate leaves the piece in: a
+    // move displaces it (facing unchanged), a stay spends the turn standing,
+    // and a rotation spends it turning — same square, new orientation. That
+    // last one is why a rotation can score: the search plans from the way the
+    // piece WOULD face, so turning toward the target measures closer than
+    // standing still, and staging picks it as the first action of the plan.
+    const probes: WaypointProbe[] = legal.map((c, i) =>
+      c.action.kind === 'move' ? { cell: dests[i] }
+        : c.action.kind === 'rotate' ? { cell: head, orientation: c.action.orientation }
+          : { cell: head }
+    );
 
     const waypoint = this.getActiveWaypointTarget(gameId, snakeId);
     const weight = !waypoint ? 0
@@ -2555,13 +2613,16 @@ export class ActiveGameManager {
   // Client projection: the predicted trajectory per snake. `firstLeg` is how
   // many leading cells are the committed-this-turn leg (head → targets[0]);
   // the client renders the remainder faded because it is a prediction.
-  getRoutesForGame(gameId: string): { [snakeId: string]: { cells: Coord[]; firstLeg: number } } {
+  getRoutesForGame(gameId: string): { [snakeId: string]: RouteView } {
     const game = this.games.get(gameId);
     if (!game) return {};
-    const result: { [snakeId: string]: { cells: Coord[]; firstLeg: number } } = {};
+    const result: { [snakeId: string]: RouteView } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
       if (cs.intent.kind === 'goto' && cs.gotoRoute.length > 0) {
-        result[snakeId] = { cells: cs.gotoRoute, firstLeg: cs.gotoRouteFirstLeg };
+        const view: RouteView = { cells: cs.gotoRoute, firstLeg: cs.gotoRouteFirstLeg };
+        // Only a plan that actually turns carries the array — see RouteView.
+        if (cs.gotoRouteRotations.some(r => r !== null)) view.rotations = cs.gotoRouteRotations;
+        result[snakeId] = view;
       }
     }
     return result;
@@ -2828,6 +2889,9 @@ export class ActiveGameManager {
         // Keep the unit kind fresh: pawn promotion changes pawn → queen mid-game.
         controlled.unitType = ourSnake.unitType ?? controlled.unitType;
       }
+      // A dead unit's command dies with it — checked BEFORE arrival, since a
+      // unit that is gone can neither arrive nor be commanded further.
+      if (this.clearCommandOnDeath(gameId, snakeId, controlled, ourSnake)) continue;
       this.checkGotoArrival(gameId, snakeId, controlled, ourSnake);
     }
 
@@ -2838,6 +2902,39 @@ export class ActiveGameManager {
       game.currentTurn = Math.max(game.currentTurn, incomingTurn);
       this.notifyBoardUpdate(gameId, canonical);
     }
+  }
+
+  // THE death hook of the command lifecycle. A unit that is gone from the
+  // canonical board — captured, starved, eliminated — no longer holds a plan,
+  // so its intent reverts to heuristic and its derived route is wiped. Returns
+  // true when the unit is dead, so the caller skips every live-unit step.
+  //
+  // This is what keeps the display honest: every client-facing projection
+  // (waypoints, routes, activeIntentModes) is DERIVED from the intent, so
+  // clearing it here clears the queue's numbered target badges and the green
+  // route in one move rather than each renderer needing its own liveness test.
+  //
+  // Deliberately NOT routed through `setIntent`: that re-stages a move, and a
+  // dead unit must never publish one. The state is written directly and the
+  // change is announced so every viewer's overlay drops with it.
+  private clearCommandOnDeath(
+    gameId: string,
+    snakeId: string,
+    controlled: ControlledSnake,
+    ourSnake: { health?: number } | undefined,
+  ): boolean {
+    if (ourSnake && (ourSnake.health ?? 1) > 0) return false;
+    const had = controlled.intent.kind !== 'heuristic' || controlled.gotoRoute.length > 0;
+    if (!had) return true;
+    console.log(`[ActiveGameManager] ${gameId}:${snakeId} is gone — clearing its ${controlled.intent.kind} command and route`);
+    this.logCommandEvent(gameId, snakeId, 'command-cleared-on-death', null, {
+      cleared: controlled.intent.kind,
+    });
+    controlled.intent = { kind: 'heuristic' };
+    controlled.intentBy = null;
+    ActiveGameManager.clearGotoRoute(controlled);
+    this.notifyStagedChange(gameId);
+    return true;
   }
 
   // Arrival SHIFTS the goto queue: reaching targets[0] promotes the next

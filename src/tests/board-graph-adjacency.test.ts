@@ -6,10 +6,13 @@
  *  - `fillUnitNeighbors`, the per-unit adjacency root every search enumerates
  *    through: snake steps, knight L-jumps, king steps, slider rays that stop
  *    at the first impassable square (which is still offered), and the pawn's
- *    forward-only step.
+ *    forward-only step;
+ *  - `searchSpaceFor`, that root lifted to (cell, orientation) nodes: a
+ *    degenerate one-state passthrough for every orientation-invariant unit,
+ *    and a layered space with quarter-turn edges for the pawn.
  */
 
-import { BoardGraph, SNAKE_ADJACENCY, UnitAdjacency } from '../logic/board-graph';
+import { BoardGraph, SNAKE_ADJACENCY, UnitAdjacency, isOrientationStateful, quarterTurnsFrom } from '../logic/board-graph';
 import { GameState, Snake, Coord } from '../types/battlesnake';
 
 function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
@@ -209,5 +212,75 @@ describe('BoardGraph per-unit adjacency (fillUnitNeighbors)', () => {
     const graph = new BoardGraph(pieceState(piece('n', HERE, 'knight')));
     expect(graph.unitAdjacencyFor('nobody')).toBe(SNAKE_ADJACENCY);
     expect(neighbors(graph, graph.unitAdjacencyFor('nobody'), HERE)).toHaveLength(4);
+  });
+
+  describe('BoardGraph per-unit search space', () => {
+    const HERE = { x: 5, y: 5 };
+
+    /** Every node `unit` reaches in one TURN from `from`, as (cell, orientation). */
+    function nodes(graph: BoardGraph, unit: UnitAdjacency, from: Coord) {
+      const space = graph.searchSpaceFor(unit);
+      const buf = new Int32Array(space.neighborCapacity);
+      const n = space.fillNeighbors(space.startNode(graph.cellIndexOf(from)), () => true, buf);
+      return Array.from(buf.subarray(0, n)).map(node => {
+        const cell = space.cellOf(node);
+        return { x: graph.xOf(cell), y: graph.yOf(cell), orientation: space.orientationOf(node) };
+      });
+    }
+
+    test('only the pawn is orientation-stateful; everything else collapses to one state', () => {
+      expect(isOrientationStateful('pawn')).toBe(true);
+      for (const type of ['snake', 'rook', 'bishop', 'queen', 'king', 'knight', undefined]) {
+        expect(isOrientationStateful(type)).toBe(false);
+      }
+    });
+
+    test('an orientation-invariant unit gets a one-state space whose nodes ARE its cells', () => {
+      const graph = new BoardGraph(pieceState(piece('r', HERE, 'rook')));
+      const space = graph.searchSpaceFor(graph.unitAdjacencyFor('r'));
+      expect(space.nodeCount).toBe(graph.cellCount);
+      const cell = graph.cellIndexOf(HERE);
+      expect(space.startNode(cell)).toBe(cell);
+      expect(space.cellOf(cell)).toBe(cell);
+      // Identical edges to fillUnitNeighbors — the passthrough changes nothing.
+      expect(
+        nodes(graph, graph.unitAdjacencyFor('r'), HERE)
+          .map(n => ({ x: n.x, y: n.y }))
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+      ).toEqual(neighbors(graph, graph.unitAdjacencyFor('r'), HERE));
+    });
+
+    test('a pawn gets one layer per orientation, with quarter turns as ordinary edges', () => {
+      // Wire dy -1 faces api +y; its quarter turns are api +x and api -x.
+      const graph = new BoardGraph(pieceState(piece('p', HERE, 'pawn', { dx: 0, dy: -1 })));
+      const space = graph.searchSpaceFor(graph.unitAdjacencyFor('p'));
+      expect(space.nodeCount).toBe(graph.cellCount * 4);
+      // The unit's CURRENT orientation is state 0, so its start node is the cell.
+      expect(space.startNode(graph.cellIndexOf(HERE))).toBe(graph.cellIndexOf(HERE));
+
+      const reach = nodes(graph, graph.unitAdjacencyFor('p'), HERE);
+      // One forward step, then the two quarter turns — same square, new facing.
+      expect(reach).toEqual([
+        { x: 5, y: 6, orientation: { dx: 0, dy: -1 } },
+        { x: 5, y: 5, orientation: { dx: 1, dy: 0 } },
+        { x: 5, y: 5, orientation: { dx: -1, dy: 0 } },
+      ]);
+      expect(quarterTurnsFrom({ dx: 0, dy: -1 })).toEqual([{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }]);
+    });
+
+    test('a pawn layer steps the way that layer faces, not the way the unit does now', () => {
+      const graph = new BoardGraph(pieceState(piece('p', HERE, 'pawn', { dx: 0, dy: -1 })));
+      const space = graph.searchSpaceFor(graph.unitAdjacencyFor('p'));
+      const buf = new Int32Array(space.neighborCapacity);
+      // Take the api +x layer (a quarter turn from the start) and step from it.
+      const turned = Array.from(
+        buf.subarray(0, space.fillNeighbors(space.startNode(graph.cellIndexOf(HERE)), () => true, buf))
+      ).find(node => space.orientationOf(node).dx === 1)!;
+      const n = space.fillNeighbors(turned, () => true, buf);
+      const stepped = Array.from(buf.subarray(0, n)).filter(node => space.cellOf(node) !== space.cellOf(turned));
+      expect(stepped).toHaveLength(1);
+      expect(graph.xOf(space.cellOf(stepped[0]))).toBe(6);
+      expect(graph.yOf(space.cellOf(stepped[0]))).toBe(5);
+    });
   });
 });
