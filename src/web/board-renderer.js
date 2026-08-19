@@ -536,13 +536,76 @@ const BoardRenderer = (function () {
     );
   }
 
+  // Hazard mark: a RED warning triangle with an exclamation, drawn from one
+  // path so the on-board tags and the units table show the same mark. The
+  // warning EMOJI it replaces arrives in each platform's own colour (amber on
+  // most, and a picture rather than a symbol), which reads as decoration next
+  // to the board's red hazard lattice instead of as the same danger. One path,
+  // one red, every surface. `w`/`h` are its box, so both surfaces can scale it
+  // to a text line without guessing its aspect.
+  const HAZARD_ICON = {
+    w: 24,
+    h: 21,
+    // ONE path: the rounded triangle, then the exclamation's bar and dot as
+    // further sub-paths wound the SAME way as the triangle. Filled nonzero the
+    // path is a solid triangle (the white backing); filled even-odd the bar
+    // and dot become holes, so the exclamation is the backing showing through
+    // rather than a second shape that could drift out of register. The bar and
+    // dot are cut FAT — at a dozen pixels a fine exclamation closes up and the
+    // mark reads as a plain red triangle.
+    d:
+      "M13.34 3.62 L21.76 17.58 Q23.1 19.8 20.5 19.8 L3.5 19.8 " +
+      "Q0.9 19.8 2.24 17.58 L10.66 3.62 Q12 1.4 13.34 3.62 Z " +
+      "M9.8 6.6 L14.2 6.6 L13.7 13.4 L10.3 13.4 Z " +
+      "M10.15 15.2 L13.85 15.2 L13.85 18.6 L10.15 18.6 Z",
+  };
+  const HAZARD_COLORS = {
+    fill: "#d81b1b", // the hazard lattice's red, at full strength
+    inner: "#ffffff", // the exclamation, backing the even-odd holes
+  };
+
+  // The hazard mark on a canvas, left-aligned at `x` and vertically centred on
+  // `midY` at the given line height (the tag's stat row).
+  function drawHazardIcon(ctx, x, midY, height) {
+    const scale = height / HAZARD_ICON.h;
+    ctx.save();
+    ctx.translate(x, midY - height / 2);
+    ctx.scale(scale, scale);
+    const p = new Path2D(HAZARD_ICON.d);
+    ctx.fillStyle = HAZARD_COLORS.inner;
+    ctx.fill(p, "nonzero");
+    ctx.fillStyle = HAZARD_COLORS.fill;
+    ctx.fill(p, "evenodd");
+    ctx.restore();
+  }
+
+  // The same hazard mark as inline SVG, for the units table's invulnerability
+  // column. Two elements, one `d`: the nonzero backing under the even-odd red.
+  function hazardIconSVG(heightPx) {
+    const w = (heightPx * HAZARD_ICON.w) / HAZARD_ICON.h;
+    return (
+      `<svg viewBox="0 0 ${HAZARD_ICON.w} ${HAZARD_ICON.h}" width="${w.toFixed(1)}" height="${heightPx}" ` +
+      `aria-hidden="true" style="vertical-align:-2px;">` +
+      `<path d="${HAZARD_ICON.d}" fill="${HAZARD_COLORS.inner}" fill-rule="nonzero"/>` +
+      `<path d="${HAZARD_ICON.d}" fill="${HAZARD_COLORS.fill}" fill-rule="evenodd"/></svg>`
+    );
+  }
+
   // Stat glyphs shared by the on-board unit tags and the units table, so one
-  // stat always reads as one symbol wherever it appears. Weight is the drawn
-  // anvil above rather than a character, so it carries no entry here.
+  // stat always reads as one symbol wherever it appears. Weight (the anvil)
+  // and extra-vulnerability (the hazard triangle) are drawn paths rather than
+  // characters, so neither carries an entry here.
   const STAT_ICON = {
     health: "\u2665", // heart, tinted by healthBarColor
     invulnerable: "\u{1F6E1}\uFE0F", // shield (positive level)
-    vulnerable: "\u26A0\uFE0F", // warning (negative level)
+  };
+
+  // The drawn stat marks, keyed by the name a stat carries in `stat.mark`.
+  // Both the layout pass and the draw pass look a mark up here, so a mark can
+  // never be measured from one path and painted from another.
+  const STAT_MARK = {
+    anvil: { icon: ANVIL_ICON, draw: drawAnvilIcon },
+    hazard: { icon: HAZARD_ICON, draw: drawHazardIcon },
   };
 
   // Health-bar track: the dark under-layer the units-table health bar draws
@@ -553,10 +616,12 @@ const BoardRenderer = (function () {
   // as "missing health" rather than as a tint of the team colour.
   const HEALTH_BAR_CELL_TRACK = "#000000";
 
-  // The invulnerability glyph for a level: shield when protected, warning when
-  // the level is negative (extra-vulnerable).
-  function invulnerabilityIcon(level) {
-    return level > 0 ? STAT_ICON.invulnerable : STAT_ICON.vulnerable;
+  // The invulnerability mark for a level, as a stat descriptor: the shield
+  // GLYPH when protected, the drawn red hazard MARK when the level is negative
+  // (extra-vulnerable). Both surfaces ask here, so one level can never wear
+  // two different marks.
+  function invulnerabilityMark(level) {
+    return level > 0 ? { icon: STAT_ICON.invulnerable } : { mark: "hazard" };
   }
 
   // Health-bar fill colour by remaining fraction: red when nearly starved,
@@ -2090,42 +2155,72 @@ const BoardRenderer = (function () {
   const _nameTagRects = new WeakMap();
 
   // Where the pointer is with respect to ONE unit: on nothing of its own, on
-  // one of the unit's CELLS, or on the unit's own TAG. The three are ordered
-  // by precedence — "tag" outranks "unit", because a pointer resting on a tag
-  // is asking to see what the tag covers.
+  // one of the unit's BODY CELLS, or on the unit's own TAG.
   const TAG_HOVER = { none: "none", unit: "unit", tag: "tag" };
+
+  // Which hover input a tag reads, given the display default. The two display
+  // modes take DIFFERENT inputs, and that — not a latch — is what keeps the
+  // rule from fighting itself:
+  //   default OFF: the unit's BODY is the switch. A hidden tag's would-be rect
+  //                says nothing, because a tag drawn over its own unit's body
+  //                would otherwise switch itself straight back off the instant
+  //                it appeared (the tag-over-body bug).
+  //   default ON:  the TAG is the switch. Body hover says nothing — the tag is
+  //                already up, and the only gesture left to make is asking it
+  //                to step aside.
+  // Callers therefore only need to track the input their current mode reads;
+  // passing both is safe, since this picks the one the mode owns.
+  function tagHoverState(tagsHiddenByDefault, onUnitBody, onTag) {
+    if (tagsHiddenByDefault) return onUnitBody ? TAG_HOVER.unit : TAG_HOVER.none;
+    return onTag ? TAG_HOVER.tag : TAG_HOVER.none;
+  }
+
+  // Tag outline: the band that carries OWNERSHIP across a whole board at a
+  // glance, so it is drawn heavy — heavy enough to read colour at arm's
+  // length — and heavier still under selection. Both weights scale with the
+  // tag's own text size and are floored in pixels, so a small board keeps a
+  // band it can be read by. `unowned` is the grey worn by every unit that is
+  // not ours to command: a foreign team's unit, or one of our own team's that
+  // no operator has taken. Colour is then only ever "someone owns this, on our
+  // side" — which is exactly what the eye should find first.
+  const TAG_OUTLINE = {
+    unowned: "#8d949c",
+    width(fontSize, selected) {
+      return selected
+        ? Math.max(5, fontSize * 0.36)
+        : Math.max(2.5, fontSize * 0.16);
+    },
+  };
 
   // THE tag-visibility rule. Two inputs decide what one tag does, and nothing
   // else does: the global display default (Alt-tap toggle, plumbed through
-  // options.tagsHiddenByDefault) and where the pointer is on this unit.
-  //   pointer on the unit's cell → "solid": hovering a unit CALLS UP its tag,
-  //                                whatever the default says
+  // options.tagsHiddenByDefault) and the hover state tagHoverState resolved
+  // for this unit.
+  //   pointer on the unit's body → "solid": hovering a unit CALLS UP its tag
+  //                                (default-off mode)
   //   pointer on the unit's tag  → "hidden": the tag steps aside so the board
-  //                                under it can be read
+  //                                under it can be read (default-on mode)
   //   pointer elsewhere          → the default: "hidden" while tags are off,
   //                                else "solid" / "selected" under selection
-  // The two hover states are opposites on purpose, and that is exactly what
-  // would oscillate if the pointer's position alone decided them — a tag that
-  // hides moves the pointer off itself. The caller LATCHES the "tag" state
-  // until the pointer leaves both the tag and the unit's cells (see
-  // options.tagHoverUnitId), so this function stays a pure lookup with no
-  // history of its own.
+  // A pure lookup with no history of its own: the mode gate above is what
+  // makes each state reachable from one input only.
   // Returned as a name rather than a number so callers cannot invent an
   // in-between state; TAG_ALPHA maps it to the one opacity it draws at.
   const TAG_ALPHA = { hidden: 0, solid: 0.92, selected: 1 };
   function unitTagVisibility(tagsHiddenByDefault, hover, selected) {
-    if (hover === TAG_HOVER.tag) return "hidden";
     if (hover === TAG_HOVER.unit) return "solid";
+    if (hover === TAG_HOVER.tag) return "hidden";
     if (tagsHiddenByDefault) return "hidden";
     return selected ? "selected" : "solid";
   }
 
-  // Width of one stat's icon inside a tag. The anvil is a drawn path with a
-  // fixed aspect; every other stat icon is a text glyph the canvas measures.
-  // Both the layout pass and the draw pass go through here, so a tag can never
-  // be measured one way and painted another.
+  // Width of one stat's icon inside a tag. A drawn mark has a fixed aspect
+  // taken from its own box; every other stat icon is a text glyph the canvas
+  // measures. Both the layout pass and the draw pass go through here, so a tag
+  // can never be measured one way and painted another.
   function statIconWidth(ctx, stat, iconH) {
-    if (stat.anvil) return (iconH * ANVIL_ICON.w) / ANVIL_ICON.h;
+    const mark = STAT_MARK[stat.mark];
+    if (mark) return (iconH * mark.icon.w) / mark.icon.h;
     return ctx.measureText(stat.icon).width;
   }
 
@@ -2161,6 +2256,7 @@ const BoardRenderer = (function () {
       nameText,
       unitColor,
       ownerColor,
+      outlineColor,
     } = tag;
     const { selected, visibility } = state;
     const alpha = TAG_ALPHA[visibility];
@@ -2170,17 +2266,17 @@ const BoardRenderer = (function () {
     ctx.globalAlpha = alpha;
     ctx.textBaseline = "middle";
 
-    // Tag body: white background, outlined in the owning player's colour
-    // when owned, else the unit's own colour; the selected unit gets a
-    // thicker outline.
+    // Tag body: white background under the ownership outline (the owning
+    // player's colour for a unit of ours, grey for anything we cannot
+    // command); the selected unit gets a fatter band of the same colour.
     const r = tagH * 0.3;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, tagH, r);
     else ctx.rect(rect.x, rect.y, rect.w, tagH);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.lineWidth = selected ? Math.max(2.5, fontSize * 0.2) : 1.5;
-    ctx.strokeStyle = ownerColor || unitColor;
+    ctx.lineWidth = TAG_OUTLINE.width(fontSize, selected);
+    ctx.strokeStyle = outlineColor || unitColor;
     ctx.stroke();
 
     const midY = rect.y + tagH / 2 + fontSize * 0.05;
@@ -2212,8 +2308,9 @@ const BoardRenderer = (function () {
     ctx.textAlign = "left";
     stats.forEach((stat) => {
       if (!letterAtEnd) x += gap;
-      if (stat.anvil) {
-        drawAnvilIcon(ctx, x, midY, iconH);
+      const mark = STAT_MARK[stat.mark];
+      if (mark) {
+        mark.draw(ctx, x, midY, iconH);
       } else {
         ctx.fillStyle = stat.iconColor || "#1a1a1a";
         ctx.fillText(stat.icon, x, midY);
@@ -2225,10 +2322,12 @@ const BoardRenderer = (function () {
       if (letterAtEnd) x += gap;
     });
 
-    // Operator name when owned.
+    // Operator name when owned, in that operator's own player colour — the
+    // same colour the board gives them everywhere else — so the tag says WHO
+    // holds the unit without the reader tracing the outline back to a legend.
     if (nameText) {
       if (!letterAtEnd) x += gap;
-      ctx.fillStyle = "#1a1a1a";
+      ctx.fillStyle = ownerColor || "#1a1a1a";
       ctx.fillText(nameText, x, midY);
     }
     ctx.restore();
@@ -2260,6 +2359,16 @@ const BoardRenderer = (function () {
     const tagHoverId = options?.tagHoverUnitId || null;
     const hiddenDefault = !!options?.tagsHiddenByDefault;
 
+    // OUR side, by the same team rule the rest of the client uses: the teams
+    // the units we control belong to. A unit outside those teams is foreign
+    // however it is owned, and wears the grey outline.
+    const controlled = options?.controlledSnakeIds;
+    const isControlled = (id) =>
+      !controlled ? false : controlled.has ? controlled.has(id) : !!controlled[id];
+    const ourTeamKeys = new Set(
+      board.snakes.filter((s) => isControlled(s.id)).map(getTeamKey),
+    );
+
     // Other units' head cells (board-pixel rects) for overlap avoidance.
     const headRects = {};
     board.snakes.forEach((s) => {
@@ -2280,25 +2389,29 @@ const BoardRenderer = (function () {
     board.snakes.forEach((snake) => {
       const head = snake.body && snake.body[0];
       if (!head) return;
-      // Pointer-on-tag outranks pointer-on-cell: the latched tag hides so the
-      // board under it can be read, even while the pointer is also over one of
-      // the unit's cells.
-      const hover =
-        tagHoverId === snake.id
-          ? TAG_HOVER.tag
-          : hoveredId === snake.id
-            ? TAG_HOVER.unit
-            : TAG_HOVER.none;
+      // The display mode picks which pointer input this tag reads, so a tag
+      // sitting over its own unit's body cannot suppress itself.
+      const hover = tagHoverState(
+        hiddenDefault,
+        hoveredId === snake.id,
+        tagHoverId === snake.id,
+      );
       const selected = !!selections[snake.id];
       const visibility = unitTagVisibility(hiddenDefault, hover, selected);
       // Hidden tags are not drawn, so they are not placed or hit-tested
-      // either — with ONE exception: the tag the pointer is latched onto is
-      // still placed and published, because its rect is what tells the caller
-      // the pointer has left it.
+      // either — with ONE exception: a tag that has stepped aside under the
+      // pointer is still placed and published, because its rect is what tells
+      // the caller the pointer has left it.
       if (visibility === "hidden" && hover !== TAG_HOVER.tag) return;
       const owner = owners[snake.id] || null;
       const unitColor =
         snake.customizations?.color || snake.color || "#888888";
+      // Ownership salience: only a unit on OUR side that an operator holds
+      // gets a coloured outline. Everything else — every foreign team's unit,
+      // and every unclaimed unit of our own — is grey.
+      const ours = ourTeamKeys.has(getTeamKey(snake));
+      const outlineColor =
+        ours && owner ? owner.color || unitColor : TAG_OUTLINE.unowned;
 
       // Letter for verbal reference; historic pre-letter units fall back to
       // their emoji, then "?".
@@ -2321,10 +2434,10 @@ const BoardRenderer = (function () {
       const iconGap = fontSize * 0.16;
       const nameText = owner && owner.name ? owner.name : null;
       // Stat pairs, in the units table's icons and order: weight, health,
-      // invulnerability. Weight rides the drawn silver anvil; only the health
-      // icon is tinted (by the shared thresholds); the rest read as plain
-      // glyphs.
-      const stats = [{ anvil: true, iconColor: null, text: String(weight) }];
+      // invulnerability. Weight rides the drawn silver anvil and a negative
+      // invulnerability the drawn red hazard mark; the health heart is the one
+      // tinted glyph (by the shared thresholds), the shield a plain one.
+      const stats = [{ mark: "anvil", iconColor: null, text: String(weight) }];
       if (health != null) {
         stats.push({
           icon: STAT_ICON.health,
@@ -2334,7 +2447,7 @@ const BoardRenderer = (function () {
       }
       if (invulnLevel !== 0) {
         stats.push({
-          icon: invulnerabilityIcon(invulnLevel),
+          ...invulnerabilityMark(invulnLevel),
           iconColor: null,
           text: String(invulnLevel),
         });
@@ -2454,6 +2567,7 @@ const BoardRenderer = (function () {
           nameText,
           unitColor,
           ownerColor: owner && owner.color ? owner.color : null,
+          outlineColor,
         },
         { selected, visibility },
       );
@@ -2615,7 +2729,10 @@ const BoardRenderer = (function () {
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
     if (invulnLevel !== 0) {
-      const icon = invulnerabilityIcon(invulnLevel);
+      // The shield stays a glyph; the extra-vulnerable end of the scale is the
+      // drawn hazard mark, inlined at the row's text height.
+      const invulnMark = invulnerabilityMark(invulnLevel);
+      const icon = invulnMark.mark ? hazardIconSVG(13) : invulnMark.icon;
       // Turns remaining (inclusive of the current turn) from the absolute expiry
       // turn supplied by the server. Falls back to just the level when the expiry
       // is missing (older logs) or already passed at the displayed turn.
@@ -3359,14 +3476,17 @@ const BoardRenderer = (function () {
     getClickedCell,
     getNameTagAt,
     unitTagVisibility,
+    tagHoverState,
     TAG_HOVER,
-    invulnerabilityIcon,
+    invulnerabilityMark,
     STAT_ICON,
+    TAG_OUTLINE,
     drawUnitIcon,
     rotationGlyph,
     drawRotationBadge,
     unitIconSVG,
     anvilIconSVG,
+    hazardIconSVG,
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
     isPieceUnit,

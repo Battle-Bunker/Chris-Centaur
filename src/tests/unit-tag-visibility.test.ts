@@ -3,7 +3,8 @@
  * (src/web/board-renderer.js — shared verbatim with the browser pages).
  *
  * Pins the tag-visibility state machine (the global Alt-tap default crossed
- * with where the pointer is on a unit) and the stat icons the on-board tags
+ * with where the pointer is on a unit), the mode gate that decides WHICH
+ * pointer input that default reads, and the stat icons the on-board tags
  * share with the units table.
  */
 const BoardRenderer = require('../web/board-renderer.js');
@@ -73,74 +74,91 @@ describe('unitTagVisibility', () => {
   });
 });
 
-// The pure rule above can flip a tag hidden the moment the pointer touches it,
-// which moves the pointer off a tag that is no longer drawn. The caller's LATCH
-// (play-game.html syncHover, modelled here) is what makes that settle instead
-// of oscillating: "pointer on tag" is held until the pointer leaves BOTH the
-// tag and the unit's cells.
-describe('hover latch (the caller\'s half of the rule)', () => {
+// Which pointer input a tag reads depends on the display default, and that
+// mode gate — not a latch — is what keeps the rule from fighting itself. The
+// caller (play-game.html syncHover) tracks only the input its current mode
+// reads; the model below is that caller, and the assertions are the owner's
+// spec for the two modes.
+describe('tagHoverState + syncHover (the caller\'s half of the rule)', () => {
+  const gate = BoardRenderer.tagHoverState;
   const vis = BoardRenderer.unitTagVisibility;
 
-  function makeHover() {
-    let latched: string | null = null;
+  // The caller: one pointer position in (the unit whose BODY it is over, and
+  // the unit whose TAG rect it is over), the two tracked ids out.
+  function syncHover(hiddenDefault: boolean, overBody: string | null, overTag: string | null) {
     return {
-      // overTag/overCell: the unit under the pointer's tag rect / cells.
-      move(overTag: string | null, overCell: string | null) {
-        if (latched && latched !== overTag && latched !== overCell) latched = null;
-        if (overTag) latched = overTag;
-        return { latched, overCell };
-      },
+      hoveredUnitId: hiddenDefault ? overBody : null,
+      tagHoverUnitId: hiddenDefault ? null : overTag,
     };
   }
-  function state(step: { latched: string | null; overCell: string | null }, id: string) {
-    const hover = step.latched === id ? ON_TAG : step.overCell === id ? ON_UNIT : NONE;
-    return vis(HIDDEN, hover, false);
+  function state(
+    hiddenDefault: boolean,
+    hover: { hoveredUnitId: string | null; tagHoverUnitId: string | null },
+    id: string,
+    selected = false,
+  ) {
+    return vis(
+      hiddenDefault,
+      gate(hiddenDefault, hover.hoveredUnitId === id, hover.tagHoverUnitId === id),
+      selected,
+    );
   }
 
-  test('unit → tag → unit: the tag hides once and stays hidden, no flicker', () => {
-    const h = makeHover();
-    // Pointer on the unit's cell: the tag appears.
-    expect(state(h.move(null, 'a'), 'a')).toBe('solid');
-    // Pointer moves onto that tag: it hides. Its rect keeps being published
-    // while hidden, so the next move still reports the pointer on it.
-    expect(state(h.move('a', null), 'a')).toBe('hidden');
-    expect(state(h.move('a', null), 'a')).toBe('hidden');
-    // Back onto the unit's own cell: the pointer has left neither the tag nor
-    // the unit, so the tag stays out of the way instead of re-appearing.
-    expect(state(h.move(null, 'a'), 'a')).toBe('hidden');
-    expect(state(h.move(null, 'a'), 'a')).toBe('hidden');
+  test('default OFF: hovering any body cell shows the tag, leaving hides it', () => {
+    expect(state(HIDDEN, syncHover(HIDDEN, null, null), 'a')).toBe('hidden');
+    // Body cell — head or any other segment, the caller reports the same id.
+    expect(state(HIDDEN, syncHover(HIDDEN, 'a', null), 'a')).toBe('solid');
+    // Pointer off the unit again.
+    expect(state(HIDDEN, syncHover(HIDDEN, null, null), 'a')).toBe('hidden');
   });
 
-  test('leaving both the tag and the unit releases the latch', () => {
-    const h = makeHover();
-    h.move(null, 'a');
-    h.move('a', null);
-    // Onto a different unit: 'a' is released and back on the default, and the
-    // newly hovered unit shows its own tag.
-    const step = h.move(null, 'b');
-    expect(state(step, 'a')).toBe('hidden'); // hidden by default, not latched
-    expect(state(step, 'b')).toBe('solid');
-    // Returning to 'a' shows it again — the latch is genuinely gone.
-    expect(state(h.move(null, 'a'), 'a')).toBe('solid');
-  });
-
-  test('one unit\'s latched tag never suppresses another unit\'s', () => {
-    const h = makeHover();
-    const step = h.move('a', 'b');
-    expect(state(step, 'a')).toBe('hidden');
-    expect(state(step, 'b')).toBe('solid');
-  });
-
-  test('the state settles: replaying the same pointer position never changes it', () => {
-    const h = makeHover();
-    h.move(null, 'a');
-    // The pointer sits still on the tag; every redraw must land on the same
-    // state, which is what "no flicker" means in practice.
-    const first = state(h.move('a', 'a'), 'a');
-    expect(first).toBe('hidden');
+  test('default OFF: a tag drawn over its own unit\'s body cannot hide itself', () => {
+    // THE BUG: the tag lands on cells the unit's body occupies, so the pointer
+    // is on the body AND inside the tag's published rect at the same time. In
+    // this mode the rect says nothing, so the tag stays up instead of
+    // switching itself off the frame after it appeared.
+    const hover = syncHover(HIDDEN, 'a', 'a');
+    expect(hover.tagHoverUnitId).toBeNull();
+    expect(state(HIDDEN, hover, 'a')).toBe('solid');
+    // And it settles: replaying the same position never changes the state.
     for (let i = 0; i < 5; i++) {
-      expect(state(h.move('a', 'a'), 'a')).toBe(first);
+      expect(state(HIDDEN, syncHover(HIDDEN, 'a', 'a'), 'a')).toBe('solid');
     }
+  });
+
+  test('default OFF: only the hovered unit\'s tag comes up', () => {
+    const hover = syncHover(HIDDEN, 'a', null);
+    expect(state(HIDDEN, hover, 'a')).toBe('solid');
+    expect(state(HIDDEN, hover, 'b')).toBe('hidden');
+  });
+
+  test('default ON: body hover is not tracked at all', () => {
+    const hover = syncHover(SHOWN, 'a', null);
+    expect(hover.hoveredUnitId).toBeNull();
+    expect(state(SHOWN, hover, 'a')).toBe('solid'); // the default, not a hover
+    expect(state(SHOWN, hover, 'a', true)).toBe('selected');
+  });
+
+  test('default ON: resting on a tag steps it aside, leaving it brings it back', () => {
+    expect(state(SHOWN, syncHover(SHOWN, null, 'a'), 'a')).toBe('hidden');
+    // The rect keeps being published while hidden, so a still pointer settles.
+    for (let i = 0; i < 5; i++) {
+      expect(state(SHOWN, syncHover(SHOWN, null, 'a'), 'a')).toBe('hidden');
+    }
+    expect(state(SHOWN, syncHover(SHOWN, null, null), 'a')).toBe('solid');
+  });
+
+  test('default ON: one unit\'s stepped-aside tag never suppresses another\'s', () => {
+    const hover = syncHover(SHOWN, 'b', 'a');
+    expect(state(SHOWN, hover, 'a')).toBe('hidden');
+    expect(state(SHOWN, hover, 'b')).toBe('solid');
+  });
+
+  test('the gate never reports the input its mode does not own', () => {
+    expect(gate(HIDDEN, false, true)).toBe(NONE);
+    expect(gate(HIDDEN, true, true)).toBe(ON_UNIT);
+    expect(gate(SHOWN, true, false)).toBe(NONE);
+    expect(gate(SHOWN, true, true)).toBe(ON_TAG);
   });
 });
 
@@ -148,7 +166,6 @@ describe('stat icons', () => {
   test('one glyph per stat, shared by the tags and the units table', () => {
     expect(BoardRenderer.STAT_ICON.health).toBe('♥');
     expect(BoardRenderer.STAT_ICON.invulnerable).toBe('\u{1F6E1}️');
-    expect(BoardRenderer.STAT_ICON.vulnerable).toBe('⚠️');
   });
 
   test('weight is a drawn silver anvil, not a character', () => {
@@ -160,9 +177,47 @@ describe('stat icons', () => {
     expect(svg.toLowerCase()).toContain('#c2c7cd'); // silver
   });
 
-  test('invulnerability icon: shield when protected, warning when negative', () => {
-    expect(BoardRenderer.invulnerabilityIcon(2)).toBe(BoardRenderer.STAT_ICON.invulnerable);
-    expect(BoardRenderer.invulnerabilityIcon(-1)).toBe(BoardRenderer.STAT_ICON.vulnerable);
+  test('extra-vulnerability is a drawn RED hazard mark, not a character', () => {
+    // The warning emoji is gone: it arrived in the platform's own amber and
+    // read as decoration next to the board's red hazard lattice.
+    expect(BoardRenderer.STAT_ICON.vulnerable).toBeUndefined();
+    const svg = BoardRenderer.hazardIconSVG(13);
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('height="13"');
+    expect(svg.toLowerCase()).toContain('#d81b1b'); // red
+    // ONE path definition, inlined twice: the nonzero backing under the
+    // even-odd fill that punches the exclamation out of it.
+    const paths = svg.match(/ d="([^"]+)"/g) || [];
+    expect(paths).toHaveLength(2);
+    expect(paths[0]).toBe(paths[1]);
+    expect(svg).toContain('fill-rule="nonzero"');
+    expect(svg).toContain('fill-rule="evenodd"');
+  });
+
+  test('invulnerability mark: shield glyph when protected, hazard path when negative', () => {
+    expect(BoardRenderer.invulnerabilityMark(2)).toEqual({
+      icon: BoardRenderer.STAT_ICON.invulnerable,
+    });
+    expect(BoardRenderer.invulnerabilityMark(-1)).toEqual({ mark: 'hazard' });
+  });
+});
+
+describe('tag outline', () => {
+  const { TAG_OUTLINE } = BoardRenderer;
+
+  test('both weights are fat, and the selected one is fatter still', () => {
+    for (const fontSize of [12, 14, 20, 30]) {
+      const plain = TAG_OUTLINE.width(fontSize, false);
+      const selected = TAG_OUTLINE.width(fontSize, true);
+      // Fatter than the hairline this replaced, at every size.
+      expect(plain).toBeGreaterThan(1.5);
+      expect(selected).toBeGreaterThan(plain);
+    }
+  });
+
+  test('the unowned outline is a desaturated grey, so colour only means ownership', () => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(TAG_OUTLINE.unowned.slice(i, i + 2), 16));
+    expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(16);
   });
 });
 
@@ -198,6 +253,19 @@ describe('units table', () => {
     expect(html).toContain(BoardRenderer.anvilIconSVG(13));
     expect(html).toContain(BoardRenderer.STAT_ICON.health);
     expect(html).toContain(BoardRenderer.STAT_ICON.invulnerable);
+  });
+
+  test('a negative invulnerability level wears the drawn hazard mark', () => {
+    const idsEl: Record<string, unknown> = {};
+    const container = {
+      innerHTML: '',
+      querySelector: (sel: string) => (sel === '[data-unit-ids]' ? idsEl : null),
+    };
+    const vulnerable = { ...snake, invulnerabilityLevel: -2 };
+    BoardRenderer.renderSnakeInfo(
+      container, { turn: 7, board: { snakes: [vulnerable] } }, vulnerable.id);
+    expect(container.innerHTML).toContain(BoardRenderer.hazardIconSVG(13));
+    expect(container.innerHTML).not.toContain(BoardRenderer.STAT_ICON.invulnerable);
   });
 
   test('the (i) affordance reveals every unit id on hover', () => {

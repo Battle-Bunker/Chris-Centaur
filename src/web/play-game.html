@@ -4719,9 +4719,10 @@
     // ── Unit-tag hover ──────────────────────────────────────────────────────
     // `tagsHiddenByDefault` is the ONE source of truth for "are tags shown?";
     // the hover state below is the only other input, and BoardRenderer's
-    // unitTagVisibility turns that pair into what each tag draws: hovering a
-    // unit's CELL calls its tag up, and moving onto that TAG makes it step
-    // aside so whatever it covers can be read. The whole hover state is
+    // tagHoverState + unitTagVisibility turn that pair into what each tag
+    // draws: with tags off, hovering any of a unit's BODY cells calls its tag
+    // up; with tags on, resting on a TAG makes it step aside so whatever it
+    // covers can be read. The whole hover state is
     // (lastCanvasMousePos, hoveredUnitId, tagHoverUnitId), and it is derived
     // from ONE place, syncHover, so no path can set half of it: every
     // entry (mouse move, render, Alt toggle) calls syncHover and every
@@ -4753,8 +4754,8 @@
       return unit ? unit.id : null;
     }
     // The unit whose TAG the cursor is on, or null. The renderer keeps
-    // publishing the rect of the tag the pointer is latched onto even while it
-    // is hidden, which is what lets this see the pointer leave it.
+    // publishing the rect of a tag that has stepped aside even while it is
+    // hidden, which is what lets this see the pointer leave it.
     function tagUnitHit(pos) {
       if (!pos) return null;
       return BoardRenderer.getNameTagAt(document.getElementById('gameCanvas'), pos);
@@ -4762,22 +4763,20 @@
     // Recompute the whole hover state from a cursor position (null = no
     // cursor over the board). Returns whether anything the tags render from
     // changed, so callers repaint exactly when they must.
-    // The LATCH is here: a tag hides the moment the pointer touches it, which
-    // moves the pointer off a tag that is no longer drawn — so "pointer on
-    // tag" is remembered until the pointer leaves BOTH that tag's rect and its
-    // unit's cells. Without it the tag would hide, immediately re-satisfy
-    // "unit hovered → show", and flicker at frame rate.
+    // The DISPLAY MODE picks which pointer input is tracked at all, matching
+    // BoardRenderer.tagHoverState: with tags default-OFF the unit's body is
+    // the switch and a tag's own rect is not tracked (a tag that lands over
+    // its unit's body would otherwise hide itself the frame after it
+    // appeared); with tags default-ON only the tag's rect is tracked, so
+    // resting on a tag steps it aside and leaving the rect brings it back.
+    // Tracking one input per mode is what removes the old latch: the two
+    // inputs can no longer fight, so there is nothing to hold steady.
     function syncHover(pos) {
       const prevUnit = hoveredUnitId;
       const prevTagUnit = tagHoverUnitId;
       lastCanvasMousePos = pos;
-      const overCell = cellUnitHit(pos);
-      const overTag = tagUnitHit(pos);
-      if (tagHoverUnitId && tagHoverUnitId !== overTag && tagHoverUnitId !== overCell) {
-        tagHoverUnitId = null; // pointer left both the tag and its unit
-      }
-      if (overTag) tagHoverUnitId = overTag;
-      hoveredUnitId = overCell;
+      hoveredUnitId = tagsHiddenByDefault ? cellUnitHit(pos) : null;
+      tagHoverUnitId = tagsHiddenByDefault ? null : tagUnitHit(pos);
       return hoveredUnitId !== prevUnit || tagHoverUnitId !== prevTagUnit;
     }
     // Drop the hover entirely. Every exit path funnels through here, so a tag

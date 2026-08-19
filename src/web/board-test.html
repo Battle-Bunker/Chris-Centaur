@@ -191,14 +191,14 @@
         hideTags: true
       },
       {
-        title: "7: Tag anchoring + hover states (A hovered, B pointer-on-tag)",
+        title: "7: Tags default ON — B's tag steps aside under the pointer",
         width: 9, height: 9,
-        // A is hovered by the CELL → its tag is called up. B's tag is the one
-        // the pointer is latched onto → it steps aside entirely, leaving the
-        // board under it readable. C is on the default (shown) state and sits
-        // at the board's right edge, so its tag extends leftward and the letter
-        // square moves to the tag's right end, still anchored on the cell
-        // diagonally above-right of the unit.
+        // With tags shown by default the TAG is the only switch: B's tag is
+        // the one the pointer rests on, so it steps aside entirely, leaving
+        // the board under it readable. Body hover is not tracked in this mode,
+        // so A stays on the default. C sits at the board's right edge, so its
+        // tag extends leftward and the letter square moves to the tag's right
+        // end, still anchored on the cell diagonally above-right of the unit.
         snakes: [
           makeSnake("a", "Alpha", "#4363d8", [[2,6]], 88, 0, {
             unitType: "rook", orientation: { dx: 0, dy: -1 } }),
@@ -214,6 +214,65 @@
         territory: {},
         hoveredUnitId: "a",
         tagHoverUnitId: "b"
+      },
+      {
+        title: "8: Tags default OFF — body hover under the tag still shows it",
+        width: 9, height: 9,
+        // The regression this fixture exists for: Long's body runs straight
+        // through the cells its own tag lands on. With tags off, hovering ANY
+        // body cell shows the tag, and the tag's own rect must not switch it
+        // back off — so it stays up even though it now covers the hovered
+        // body. Short is not hovered, so its tag stays hidden.
+        snakes: [
+          makeSnake("long", "Long", "#4363d8", [
+            [3,3],[3,4],[4,4],[5,4],[6,4],[6,5]
+          ], 74, -2),
+          makeSnake("short", "Short", "#f58231", [[7,2]], 61, 0, {
+            unitType: "bishop", orientation: { dx: -1, dy: 1 } })
+        ],
+        food: [],
+        hazards: [],
+        fertileTiles: [],
+        potions: [],
+        territory: {},
+        hideTags: true,
+        hoveredUnitId: "long",
+        tagHoverUnitId: "long"
+      },
+      {
+        title: "9: Tag outlines — ours+owned coloured, everything else grey",
+        width: 10, height: 10,
+        // Ownership at a glance. Ada and Bo are on OUR team (we control Ada)
+        // and owned, so their tags wear their operators' colours and their
+        // names are written in them; Cy is ours but unclaimed, and Dot and Eve
+        // are a foreign team — all three wear the grey outline. Bo is
+        // selected, so its band is the fatter of the two weights.
+        snakes: [
+          makeSnake("ada", "Ada", "#4363d8", [[1,7]], 92, 0, {
+            unitType: "rook", orientation: { dx: 0, dy: -1 } }),
+          makeSnake("bo", "Bo", "#4363d8", [[4,4]], 66, 2, {
+            unitType: "knight", orientation: { dx: 1, dy: 0 } }),
+          makeSnake("cy", "Cy", "#4363d8", [[1,1]], 41, 0, {
+            unitType: "pawn", orientation: { dx: 0, dy: 1 } }),
+          makeSnake("dot", "Dot", "#e6194b", [[7,7]], 88, -1, {
+            unitType: "queen", orientation: { dx: -1, dy: 1 } }),
+          makeSnake("eve", "Eve", "#e6194b", [[6,1]], 55, 0, {
+            unitType: "bishop", orientation: { dx: 1, dy: 1 } })
+        ],
+        food: [],
+        hazards: [],
+        fertileTiles: [],
+        potions: [],
+        territory: {},
+        // teamID is the client's team rule; ours is the team we control into.
+        teams: { ada: "blue", bo: "blue", cy: "blue", dot: "red", eve: "red" },
+        controlled: ["ada"],
+        owners: {
+          ada: { name: "Ada", color: "#7b4fd8" },
+          bo: { name: "Bo", color: "#00897b" },
+          dot: { name: "Dot", color: "#c62828" }
+        },
+        selections: { bo: { color: "#00897b" } }
       }
     ];
 
@@ -236,6 +295,12 @@
       canvas.height = 400;
       div.appendChild(canvas);
       grid.appendChild(div);
+
+      // Team membership is per-fixture, so the ownership fixture can put units
+      // of one colour on two different teams.
+      if (test.teams) {
+        test.snakes.forEach((s) => { s.teamID = test.teams[s.id] || s.teamID; });
+      }
 
       const gameState = {
         turn: 25,
@@ -273,6 +338,11 @@
         // unit under the cursor, and the tag the cursor is latched onto.
         hoveredUnitId: test.hoveredUnitId || null,
         tagHoverUnitId: test.tagHoverUnitId || null,
+        // Ownership inputs the live page broadcasts: who operates each unit,
+        // and which units we control (which is what makes a team OURS).
+        owners: test.owners || {},
+        controlledSnakeIds: new Set(test.controlled || []),
+        selections: test.selections || {},
       });
       redraws.push(draw);
       draw();
