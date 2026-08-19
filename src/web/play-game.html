@@ -1115,6 +1115,11 @@
     // board under it can be read), and the cursor position both came from.
     let hoveredUnitId = null;
     let tagHoverUnitId = null;     // unit whose tag the pointer is latched onto
+    // The CLASH cell the pointer is over, or null. Same derivation, same
+    // syncHover: it decides the canvas cursor (a clash cell is clickable) and
+    // lights the affordance under the pointer, so the board answers the mouse
+    // before it is clicked.
+    let clashHoverCell = null;
     let lastCanvasMousePos = null; // last {clientX, clientY} over the board
     let nameTagHoverRerenderQueued = false;
     // THE source of truth for which unit tags are displayed: one of
@@ -2002,6 +2007,9 @@
         hoveredUnitId: hoveredUnitId,
         tagHoverUnitId: tagHoverUnitId,
         tagMode: tagDisplayMode,
+        // The clash cell under the cursor, so the affordance lights up under
+        // the same pointer the cursor shape is already answering.
+        clashHoverCell: clashHoverCell,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
@@ -4649,6 +4657,9 @@
         hoveredUnitId: hoveredUnitId,
         tagHoverUnitId: tagHoverUnitId,
         tagMode: tagDisplayMode,
+        // Clash hover too: a historic clash cell is inspectable exactly as a
+        // live one is, so it lights up under the cursor the same way.
+        clashHoverCell: clashHoverCell,
         // Which units are OURS is what the "our team's tags" mode reads, and a
         // replayed unit is ours by exactly the same test as a live one.
         controlledSnakeIds: controlledSnakeIds,
@@ -4991,9 +5002,19 @@
       if (!pos) return null;
       return BoardRenderer.getNameTagAt(document.getElementById('gameCanvas'), pos);
     }
+    // The CLASH cell the cursor is on, or null. Reuses the same cell hit-test
+    // the unit hover runs, so there is one pointer path over the board and no
+    // second listener to keep in step.
+    function clashCellHit(pos) {
+      const board = activeBoard();
+      const cell = hoverCellAt(pos);
+      if (!board || !cell) return null;
+      return BoardRenderer.hasClashAt(board, cell) ? cell : null;
+    }
     // Recompute the whole hover state from a cursor position (null = no
-    // cursor over the board). Returns whether anything the tags render from
-    // changed, so callers repaint exactly when they must.
+    // cursor over the board). Returns whether anything the board renders from
+    // the hover changed — the tags’ two inputs, or the clash cell under the
+    // pointer — so callers repaint exactly when they must.
     // BOTH pointer inputs are tracked and BoardRenderer.tagHoverState picks
     // the one each unit's own default owns: where a tag is down the unit's
     // BODY is the switch and the tag's own rect says nothing (a tag that lands
@@ -5006,10 +5027,27 @@
     function syncHover(pos) {
       const prevUnit = hoveredUnitId;
       const prevTagUnit = tagHoverUnitId;
+      const prevClash = clashHoverCell;
       lastCanvasMousePos = pos;
       hoveredUnitId = cellUnitHit(pos);
       tagHoverUnitId = tagUnitHit(pos);
-      return hoveredUnitId !== prevUnit || tagHoverUnitId !== prevTagUnit;
+      clashHoverCell = clashCellHit(pos);
+      // The cursor is the plainest statement that what is under it answers a
+      // click, and it comes off the SAME hit-test the affordance's highlight
+      // does — one pointer path over the board, both answers.
+      // It is `help`, not `pointer`: the whole canvas is already
+      // cursor: pointer (every square on this board takes a click — select a
+      // unit, pick a candidate, set a target), so a pointer here would say
+      // nothing at all. `help` is the cursor for "this one has an explanation
+      // behind it", which is exactly what a clash square offers, and it is the
+      // only square on the board that changes the cursor.
+      const canvasEl = document.getElementById('gameCanvas');
+      if (canvasEl) canvasEl.style.cursor = clashHoverCell ? 'help' : '';
+      return hoveredUnitId !== prevUnit ||
+        tagHoverUnitId !== prevTagUnit ||
+        !!clashHoverCell !== !!prevClash ||
+        (!!clashHoverCell && !!prevClash &&
+          (clashHoverCell.x !== prevClash.x || clashHoverCell.y !== prevClash.y));
     }
     // Drop the hover entirely. Every exit path funnels through here, so a tag
     // can never stay stuck shown or hidden once the cursor is gone.

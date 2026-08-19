@@ -1397,28 +1397,134 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
+  // ── The clash affordance ─────────────────────────────────────────────────
   // The mark that says "something collided here, and the board can tell you
-  // what". Drawn on every cell the turn's clash records name — including the
-  // ones a SURVIVOR is standing on, which is exactly when the explanation is
-  // worth reading and exactly where no death marker is drawn. Deliberately
-  // quiet (a thin dashed ring inside the cell): it is an affordance, not a
-  // second death marker competing with the real one.
-  function drawClashMarker(ctx, cell, boardHeight, cellSize) {
+  // what". It is drawn on every cell the turn's clash records name — including
+  // the ones a SURVIVOR is standing on, which is exactly when the explanation
+  // is worth reading and exactly where no death marker is drawn.
+  //
+  // It draws in TWO passes, and the split is the whole design:
+  //
+  //   • the GROUND (drawClashCellMark) — a scorch tint over the cell and a
+  //     frame hugging the cell's edge — goes down BEFORE the units, so a
+  //     survivor, its body plates, its icon and its tag all paint straight
+  //     over it. The living unit always wins the middle of its own cell.
+  //   • the HANDLE (drawClashCellHandle) — four bright corner ticks on that
+  //     same frame line — goes down AFTER the units, and is confined to the
+  //     one part of a cell no unit ink can reach: a body is inset by
+  //     getSnakeGap() (15% of the cell) on every side and only reaches an edge
+  //     along the middle band of a connection, so the cell's four corner
+  //     squares stay clear whatever stands here. That is what keeps the
+  //     affordance visible under a selection glow, which is blurred wide
+  //     enough to swallow anything drawn beneath a unit. Only the tags and the
+  //     death markers go above it: a tag is a readout that belongs on top of
+  //     everything, and a death marker is the middle of its own cell.
+  //
+  // Shape carries the meaning: corner ticks on a frame are a viewfinder's
+  // focus marks, the shape a screen uses for "this one is selectable" — and
+  // the page backs the reading by giving these cells, and only these cells,
+  // their own cursor. It reads as a control, not as a second death marker, and
+  // it collides with nothing already on the board: the hazard lattice is a red
+  // grid of bars filling its cell, a candidate is a filled plate with an INSET
+  // ring, a controlled unit wears thin gold DASHES on its own body outline,
+  // and the clash frame is a solid amber line on the cell's own edge, outside
+  // all of them.
+  const CLASH_INK = "#FF8F00";
+  // The same ink, lit, for the cell the pointer is resting on.
+  const CLASH_INK_HOT = "#FFC107";
+  const CLASH_HALO = "rgba(0, 0, 0, 0.5)";
+
+  // How far the frame sits in from the cell's edge. Kept well inside the
+  // body's own inset (getSnakeGap) so the frame lives in the margin a unit
+  // never occupies, and off the grid line so it never reads as one.
+  function clashFrameInset(cellSize) {
+    return Math.max(1.5, cellSize * 0.055);
+  }
+
+  // The GROUND pass: scorch + frame, under the units. `hot` is the pointer
+  // resting on this cell — the affordance answering the cursor, which is the
+  // other half of reading as a control.
+  function drawClashCellMark(ctx, cell, boardHeight, cellSize, hot) {
     if (!cell) return;
-    const cx = cell.x * cellSize + cellSize / 2;
-    const cy = (boardHeight - 1 - cell.y) * cellSize + cellSize / 2;
-    const r = cellSize * 0.44;
+    const x = cell.x * cellSize;
+    const y = (boardHeight - 1 - cell.y) * cellSize;
     ctx.save();
-    ctx.globalAlpha = 0.75;
-    ctx.setLineDash([
-      Math.max(2, cellSize * 0.12),
-      Math.max(2, cellSize * 0.1),
-    ]);
-    ctx.lineWidth = Math.max(1, cellSize * 0.05);
-    ctx.strokeStyle = "#FFD54F";
+    // Clipped a pixel inside the cell so neither the scorch nor the frame's
+    // halo bleeds onto a neighbour or over the grid line.
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+    ctx.clip();
+    ctx.fillStyle = hot ? "rgba(255, 143, 0, 0.3)" : "rgba(255, 143, 0, 0.16)";
+    ctx.fillRect(x, y, cellSize, cellSize);
+
+    const inset = clashFrameInset(cellSize);
+    const width = Math.max(1.5, cellSize * (hot ? 0.075 : 0.055));
+    const radius = cellSize * 0.09;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = CLASH_HALO;
+    ctx.lineWidth = width + Math.max(1.5, cellSize * 0.03);
+    roundedRectPath(
+      ctx,
+      x + inset,
+      y + inset,
+      cellSize - inset * 2,
+      cellSize - inset * 2,
+      radius,
+    );
     ctx.stroke();
+    ctx.strokeStyle = hot ? CLASH_INK_HOT : CLASH_INK;
+    ctx.lineWidth = width;
+    roundedRectPath(
+      ctx,
+      x + inset,
+      y + inset,
+      cellSize - inset * 2,
+      cellSize - inset * 2,
+      radius,
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // The HANDLE pass: the frame's four corners, redrawn brighter and on top of
+  // the units. The arms stop short of getSnakeGap() by construction, so the
+  // ticks land only where no body, plate or icon can be — they never obscure
+  // the survivor they are pointing at.
+  function drawClashCellHandle(ctx, cell, boardHeight, cellSize, hot) {
+    if (!cell) return;
+    const x = cell.x * cellSize;
+    const y = (boardHeight - 1 - cell.y) * cellSize;
+    const inset = clashFrameInset(cellSize);
+    // Never past the body's own inset: the corner square is the whole budget.
+    const arm = Math.max(2, Math.min(cellSize * 0.14, getSnakeGap(cellSize) - inset));
+    const width = Math.max(2, cellSize * (hot ? 0.105 : 0.07));
+    const left = x + inset;
+    const right = x + cellSize - inset;
+    const top = y + inset;
+    const bottom = y + cellSize - inset;
+    const corners = [
+      [left, top, 1, 1],
+      [right, top, -1, 1],
+      [left, bottom, 1, -1],
+      [right, bottom, -1, -1],
+    ];
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const pass of [
+      { color: CLASH_HALO, width: width + Math.max(1.5, cellSize * 0.03) },
+      { color: hot ? CLASH_INK_HOT : CLASH_INK, width },
+    ]) {
+      ctx.strokeStyle = pass.color;
+      ctx.lineWidth = pass.width;
+      for (const [cx, cy, sx, sy] of corners) {
+        ctx.beginPath();
+        ctx.moveTo(cx + sx * arm, cy);
+        ctx.lineTo(cx, cy);
+        ctx.lineTo(cx, cy + sy * arm);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 
@@ -2311,6 +2417,26 @@ const BoardRenderer = (function () {
       });
     }
 
+    // Clash affordance, GROUND pass: every cell this turn's clash records
+    // name, scorched and framed. It goes down here — after the candidate
+    // plates that would otherwise cover it, and before the units — so that a
+    // SURVIVOR standing on a clash cell paints over the mark instead of the
+    // mark painting over the survivor. The frame lives in the cell's own
+    // margin, which is why it still reads with a unit standing inside it; the
+    // HANDLE pass below puts the corner ticks back on top of the units for
+    // the cases (a selection glow, most of all) where even the margin is
+    // painted over. Clash records ride on the board, so this one path
+    // serves live play, historic scrubbing and /history alike.
+    for (const cell of clashCells(board)) {
+      drawClashCellMark(
+        ctx,
+        cell,
+        board.height,
+        cellSize,
+        isSameCell(cell, options?.clashHoverCell),
+      );
+    }
+
     board.food.forEach((food) => {
       const x = food.x * cellSize;
       const y = (board.height - 1 - food.y) * cellSize;
@@ -2617,26 +2743,30 @@ const BoardRenderer = (function () {
       }
     });
 
+    // Clash affordance, HANDLE pass: the frame's four corners again, now OVER
+    // the units — over the bodies, the body plates, the unit icons and the
+    // selection glow that is blurred wide enough to swallow anything drawn
+    // beneath a unit. The arms stop inside the cell's corner squares, the one
+    // region no unit ink reaches, so the affordance stays legible on an
+    // occupied cell without covering a pixel of the unit standing there. It
+    // goes down BEFORE the tags and the death markers, which are the two
+    // things entitled to sit above it.
+    for (const cell of clashCells(board)) {
+      drawClashCellHandle(
+        ctx,
+        cell,
+        board.height,
+        cellSize,
+        isSameCell(cell, options?.clashHoverCell),
+      );
+    }
+
     // Unit tags: the FALLBACK readout, for the units whose own body could not
     // hold everything (`bodyPlans` says which). A compact tag whose letter
     // square sits on a cell diagonally adjacent to the unit's head, carrying
     // its letter, weight, health, buff, and operator name when owned.
     // Placement + hover hit-testing live in renderUnitTags / getNameTagAt.
     renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans, turn);
-
-    // Clash rings: every cell this turn's clash records name, marked as
-    // inspectable BEFORE the death markers go down so a death marker always
-    // wins the middle of its cell. Clash records ride on the board, so this
-    // one path serves live play, historic scrubbing and /history alike.
-    for (const key of clashCellKeys(board)) {
-      const [cx, cy] = key.split(",");
-      drawClashMarker(
-        ctx,
-        { x: Number(cx), y: Number(cy) },
-        board.height,
-        cellSize,
-      );
-    }
 
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
@@ -3767,6 +3897,37 @@ const BoardRenderer = (function () {
     return keys;
   }
 
+  // The same set as cells, deduplicated, in the order the records name them —
+  // what the two clash drawing passes walk. Both passes walk THIS, so the
+  // ground and the handle can never disagree about which cells are marked.
+  function clashCells(board) {
+    const seen = new Set();
+    const cells = [];
+    for (const clash of boardClashes(board)) {
+      if (!clash || !clash.cell) continue;
+      const key = `${clash.cell.x},${clash.cell.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cells.push({ x: clash.cell.x, y: clash.cell.y });
+    }
+    return cells;
+  }
+
+  // Is this the cell the caller is pointing at? Tolerates a null/absent
+  // pointer cell, which is the usual case.
+  function isSameCell(a, b) {
+    return !!a && !!b && a.x === b.x && a.y === b.y;
+  }
+
+  // Does this cell carry a clash record? The page asks this on every pointer
+  // move to decide the cursor, so it answers without building anything.
+  function hasClashAt(board, cell) {
+    if (!cell) return false;
+    return boardClashes(board).some(
+      (clash) => clash && clash.cell && clash.cell.x === cell.x && clash.cell.y === cell.y,
+    );
+  }
+
   // Escapes text the game server wrote (clash reasons, team names) for use in
   // the panel's markup.
   function escapeHTML(text) {
@@ -4545,8 +4706,11 @@ const BoardRenderer = (function () {
     clashesAtCell,
     distinctClashes,
     clashCellKeys,
+    clashCells,
+    hasClashAt,
     renderClashDetails,
-    drawClashMarker,
+    drawClashCellMark,
+    drawClashCellHandle,
   };
 })();
 

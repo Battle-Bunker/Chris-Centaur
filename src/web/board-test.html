@@ -97,6 +97,9 @@
         customizations: { color },
         invulnerabilityLevel: invuln || 0
       };
+      // Every unit on the wire carries its head as well as its body; the death
+      // path reads it as the last-known head of a unit the board has dropped.
+      snake.head = snake.body[0];
       // Explicit orientation / unit type for the piece fixtures: a piece's
       // facing is server state, not a body-derived direction.
       if (opts && opts.orientation) snake.orientation = opts.orientation;
@@ -549,6 +552,9 @@
             reason: "Collided with wall", subStep: 1 },
         ],
         clashPanelAt: { x: 4, y: 4 },
+        // Where the engine says Chris C died \u2014 its solid death marker, on
+        // the clash cell the panel is explaining.
+        deathCells: { cc: { x: 4, y: 4 } },
         food: [],
         hazards: [],
         fertileTiles: [],
@@ -558,6 +564,64 @@
         controlled: ["ca"],
         showTable: true,
         tableOptions: { groupByTeam: true }
+      },
+      {
+        title: "20: Clash affordance \u2014 the survivor draws on top",
+        // The clash mark has to answer two cases at once, and this fixture
+        // puts both on one board:
+        //   \u2022 (5,1): a clash NOBODY walked away from. The death marker
+        //     stands alone in the middle of a scorched, framed cell.
+        //   \u2022 (2,4), (2,3), (6,5), (4,2): clashes a unit SURVIVED, and is
+        //     still standing on. The unit \u2014 body, plates, icon, tag \u2014 draws
+        //     over the scorch and the frame; only the corner ticks come back
+        //     on top, in the corner squares no unit ink can reach. Long unit,
+        //     mid-body cell, a selection-glowing unit and a controlled unit
+        //     with its own gold dashes are all covered, because those are the
+        //     four ways a cell's ink could have swallowed the mark.
+        // (2,4) is drawn HOT: the pointer resting on it, which is what the
+        // live page's pointer cursor is answering at the same moment.
+        width: 8, height: 8,
+        snakes: [
+          makeSnake("keep", "Keeper", "#1565c0",
+            [[2,4],[2,3],[2,2],[3,2]], 74, 0, { weight: 4, letter: "K" }),
+          makeSnake("glow", "Glower", "#6a1b9a", [[6,5]], 100, 0,
+            { unitType: "queen", weight: 8, letter: "G", orientation: { dx: 0, dy: 1 } }),
+          makeSnake("mine", "Miner", "#2e7d32", [[4,2]], 61, 1,
+            { unitType: "rook", weight: 5, letter: "M", expiry: 28,
+              orientation: { dx: 1, dy: 0 } }),
+        ],
+        deadSnakes: [
+          makeSnake("gone", "Goner", "#c62828", [[5,1]], 0, 0,
+            { unitType: "pawn", weight: 1, letter: "N", orientation: { dx: 0, dy: 1 } }),
+        ],
+        clashes: [
+          { cell: { x: 2, y: 4 }, playerIDs: ["keep", "gone"],
+            reason: "Head-on collision (lighter unit(s) died)", subStep: 2 },
+          { cell: { x: 2, y: 3 }, playerIDs: ["keep", "gone"],
+            reason: "Ran into a heavier unit's body", subStep: 2 },
+          { cell: { x: 6, y: 5 }, playerIDs: ["glow", "gone"],
+            reason: "Head-on collision (lighter unit(s) died)", subStep: 1 },
+          { cell: { x: 4, y: 2 }, playerIDs: ["mine", "gone"],
+            reason: "Ran into a protected unit", subStep: 3 },
+          { cell: { x: 5, y: 1 }, playerIDs: ["gone"],
+            reason: "Collided with wall", subStep: 3 },
+        ],
+        teams: { keep: "TEAMBLUE00000000000C", glow: "TEAMBLUE00000000000C",
+                 mine: "TEAMBLUE00000000000C", gone: "TEAMRED000000000000D" },
+        teamNames: { keep: "Blue", glow: "Blue", mine: "Blue", gone: "Red" },
+        clashHoverCell: { x: 2, y: 4 },
+        deathCells: { gone: { x: 5, y: 1 } },
+        selectionGlows: { glow: "#e040fb" },
+        selections: { glow: true },
+        clashPanelAt: { x: 2, y: 4 },
+        food: [],
+        hazards: [[1,1]],
+        fertileTiles: [],
+        potions: [],
+        territory: {},
+        owners: {},
+        controlled: ["mine"],
+        tagMode: "never"
       },
     ];
 
@@ -679,9 +743,21 @@
         owners: test.owners || {},
         controlledSnakeIds: new Set(test.controlled || []),
         selections: test.selections || {},
+        // The glow the live page puts under a selected unit \u2014 the widest
+        // thing that can be painted around a unit, and so the case the clash
+        // affordance's on-top corner ticks exist for.
+        selectionGlows: test.selectionGlows || {},
+        // The clash cell under the pointer: the affordance's own hover state,
+        // drawn hot. The live page derives it from the same pointer move that
+        // sets the canvas cursor to a pointer.
+        clashHoverCell: test.clashHoverCell || null,
         // Units the board has dropped, so their death markers draw over the
         // clash cells they died on.
         deadSnakes: test.deadSnakes || null,
+        // The engine's authoritative death cells, keyed by unit id — what
+        // turns a dropped unit's ghost into a solid death marker on the exact
+        // cell it died on, exactly as live play and the replay show it.
+        deathCells: test.deathCells || null,
       });
       redraws.push(draw);
       draw();
