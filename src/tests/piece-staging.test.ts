@@ -598,11 +598,17 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
       // No waypoint is active, so the projected health cost — squares
       // traversed to reach `dest`, negatively weighted — is the ONLY
       // signal: stay costs nothing (empty path), a ray move costs its own
-      // length (no food or hazard on this board).
+      // length (no food or hazard on this board). Nothing on this board is
+      // fatal, so the deaths term reports zero on every row.
       const dist = e.dest!.x === 5 ? Math.abs(e.dest!.y - 5) : Math.abs(e.dest!.x - 5);
       expect(e.breakdown.healthLoss).toBe(dist);
-      expect(e.breakdown.weights).toEqual({ healthLoss: DEFAULT_CONFIG.healthLoss });
+      expect(e.breakdown.deaths).toBe(0);
+      expect(e.breakdown.weights).toEqual({
+        healthLoss: DEFAULT_CONFIG.healthLoss,
+        deaths: DEFAULT_CONFIG.deaths,
+      });
       expect(e.breakdown.weighted.healthLossScore).toBeCloseTo(dist * DEFAULT_CONFIG.healthLoss, 9);
+      expect(e.breakdown.weighted.deathsScore).toBe(0);
       expect(e.score).toBeCloseTo(e.breakdown.weighted.healthLossScore, 9);
     }
     // The stay candidate maps back to the piece's own api square.

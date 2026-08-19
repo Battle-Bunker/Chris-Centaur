@@ -136,18 +136,18 @@ describe('hazard damage (no longer instant death)', () => {
   describe('projectedHealthCost — the one shared cost projection for snakes and pieces', () => {
     test('a plain single-square step costs 1 (the ordinary movement decay)', () => {
       const gs = hazardScenario(50, 30);
-      expect(projectedHealthCost(gs.board, [{ x: 4, y: 5 }])).toBe(1);
+      expect(projectedHealthCost(gs, [{ x: 4, y: 5 }])).toBe(1);
     });
 
     test('eating at the destination cancels the movement cost — it is not charged as loss', () => {
       const gs = hazardScenario(50, 30);
       gs.board.food = [{ x: 5, y: 6 }];
-      expect(projectedHealthCost(gs.board, [{ x: 5, y: 6 }])).toBe(0);
+      expect(projectedHealthCost(gs, [{ x: 5, y: 6 }])).toBe(0);
     });
 
     test('a hazard entry costs movement PLUS hazardDamage, matching healthAfterEntering exactly', () => {
       const gs = hazardScenario(50, 30);
-      const cost = projectedHealthCost(gs.board, [{ x: 6, y: 5 }]);
+      const cost = projectedHealthCost(gs, [{ x: 6, y: 5 }]);
       expect(cost).toBe(31); // 1 movement + 30 hazard
       // The cost is exactly the health healthAfterEntering deducts when the
       // move does not eat: current health minus cost equals the after-health.
@@ -157,19 +157,19 @@ describe('hazard damage (no longer instant death)', () => {
     test('eating on a hazard square still charges the hazard damage (only movement is cancelled)', () => {
       const gs = hazardScenario(50, 30);
       gs.board.food = [{ x: 6, y: 5 }]; // food sits ON the hazard cell
-      expect(projectedHealthCost(gs.board, [{ x: 6, y: 5 }])).toBe(30); // 0 movement + 30 hazard
+      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(30); // 0 movement + 30 hazard
     });
 
     test('a stay/rotate action (empty path) costs nothing', () => {
       const gs = hazardScenario(50, 30);
-      expect(projectedHealthCost(gs.board, [])).toBe(0);
+      expect(projectedHealthCost(gs, [])).toBe(0);
     });
 
     test('a multi-square piece ray costs 1 per square traversed, no hazards', () => {
       const gs = hazardScenario(100, 30);
       // A 3-square rook-style ray, none of them the hazard cell.
       const path = [{ x: 5, y: 6 }, { x: 5, y: 7 }, { x: 5, y: 8 }];
-      expect(projectedHealthCost(gs.board, path)).toBe(3);
+      expect(projectedHealthCost(gs, path)).toBe(3);
     });
 
     test('a ray crossing N hazard squares (mid-flight included) costs N full hazard doses', () => {
@@ -178,12 +178,12 @@ describe('hazard damage (no longer instant death)', () => {
       // A 4-square ray that passes through all three hazard cells mid-flight
       // before landing on a clear square.
       const path = [{ x: 6, y: 5 }, { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 }];
-      expect(projectedHealthCost(gs.board, path)).toBe(4 + 3 * 30); // 4 movement + 3 hazard doses
+      expect(projectedHealthCost(gs, path)).toBe(4 + 3 * 30); // 4 movement + 3 hazard doses
     });
 
     test('hazardDamage defaults to 100 when unset on the board', () => {
       const gs = hazardScenario(200); // no hazardDamage override
-      expect(projectedHealthCost(gs.board, [{ x: 6, y: 5 }])).toBe(101); // 1 + 100
+      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(101); // 1 + 100
     });
   });
 

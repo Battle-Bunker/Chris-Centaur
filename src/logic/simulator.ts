@@ -28,42 +28,223 @@ export function healthAfterEntering(snake: Snake, board: Board, dest: Coord): nu
 }
 
 /**
- * Projected health COST of moving along `path` — the ordered list of squares
- * ENTERED this move, excluding the origin — the single cost projection
- * shared by the health-loss heuristic (BoardEvaluator) and chess-piece
- * candidate scoring (ActiveGameManager.computePieceCandidates): one snake
- * step is a one-cell path, a piece's whole ray/jump is its full traversed
- * path, and a stay/rotate action passes an empty path.
+ * The invulnerability tier a unit carries into the resolution of THIS turn's
+ * moves (the arrival turn, currentTurn + 1). A level governs that resolution
+ * only while the arrival turn is still within its server-provided expiry;
+ * absent an expiry the level is assumed to apply to the CURRENT turn only, so
+ * it does not govern the arrival — the own-capability-conservative fallback
+ * BoardGraph's severability uses, applied symmetrically to every unit so the
+ * simulator, the passability layer and the path projection below agree on
+ * what a move can do.
+ */
+export function tierAtArrival(unit: Snake, currentTurn: number): number {
+  const expiry = unit.invulnerabilityExpiryTurn ?? currentTurn;
+  return currentTurn + 1 <= expiry ? (unit.invulnerabilityLevel ?? 0) : 0;
+}
+
+/**
+ * How a projected traversal ends. `path` is the squares the mover ACTUALLY
+ * enters (the engine's Turn.paths semantics: a truncated slider's list ends
+ * on the square it stopped or died on, never its staged destination), so a
+ * caller must never assume the staged destination was reached.
+ */
+export interface ProjectedPath {
+  /** Squares actually entered, truncated at a death or a capture-stop. */
+  path: Coord[];
+  /**
+   * Health points the traversal costs. When `fatal`, it is at least the
+   * mover's current health, so the projected health lands at zero or below.
+   */
+  cost: number;
+  /** The mover does not survive the traversal (projected health 0). */
+  fatal: boolean;
+  /** The mover severed a body / killed a piece and stopped there. */
+  captureStopped: boolean;
+  /** The mover reached the staged destination alive AND it holds food. */
+  eats: boolean;
+}
+
+/**
+ * Projected outcome of moving `state.you` along `path` — the ordered list of
+ * squares it would ENTER this move, excluding the origin — the single
+ * projection shared by the health-loss heuristic (BoardEvaluator, via
+ * DecisionEngine's per-move context) and chess-piece candidate scoring
+ * (ActiveGameManager.computePieceCandidates): one snake step is a one-cell
+ * path, a piece's whole ray/jump is its full traversed path, and a
+ * stay/rotate action passes an empty path.
  *
- * Movement costs 1 per square traversed — UNLESS the move eats at its final
- * square, which restores health to the type max and so cancels the
- * movement cost entirely (mirrors healthAfterEntering: eating overrides the
- * -1 decay rather than adding to it). Hazard damage is charged per hazard
- * square ENTERED along the path — mid-flight hazard squares on a slider ray
- * cost too — independent of eating: it lands AFTER the eat/step update,
- * same ordering as the single-step rule.
+ * A slider genuinely ARRIVES on every square of its ray (the engine advances
+ * it one square per sub-step and contests wherever it lands), so every square
+ * is adjudicated here in the engine's own within-square order — walls, then
+ * the hazard dose, then the occupancy contest:
  *
- * This is a projection for SCORING, not a health-after-move computation: it
- * never restores toward maxHealth (the mover's identity never enters the
- * formula — eating always cancels the movement term, whatever the type max
- * is), so `cost` alone (not `health - cost`) is what a caller compares
- * against the mover's current health to test fatality.
+ *  - WALL / off-board: death on that square.
+ *  - HAZARD: board.hazardDamage on ENTRY, mid-flight squares included. Only
+ *    hazard damage is charged DURING flight (the engine settles movement cost
+ *    in the food phase afterwards), so a mover dies mid-path exactly when the
+ *    hazard doses so far exhaust its health — and the traversal stops there
+ *    rather than accruing further doses.
+ *  - A SNAKE BODY SEGMENT is an absolute wall, with NO friendly exemption:
+ *    the engine compares tiers and weights and never teams, so an ally's body
+ *    kills exactly like an enemy's. Equal-or-lower tier than the owner ⇒
+ *    death on that square; strictly higher ⇒ the mover severs the body and
+ *    CAPTURE-STOPS there (a piece's move ends early — it never reaches the
+ *    staged destination).
+ *  - A STATIONARY PIECE's square is the same tier-then-weight contest
+ *    (`winsStationaryContest`, the one shared encoding): losing or tying is
+ *    death, winning kills the piece and capture-stops the mover.
+ *  - The mover's OWN body is a wall with no tier exemption (a snake cannot
+ *    sever itself).
+ *
+ * Movement costs 1 per square ACTUALLY entered — UNLESS the mover reaches the
+ * staged destination alive and it holds food, which restores health to the
+ * type max and so cancels the movement cost entirely (mirrors
+ * healthAfterEntering). A death or a capture-stop credits NO meal: the engine
+ * removes a dead mover before the food phase, and a truncated slider never
+ * gets to the far end.
+ *
+ * SIMULTANEITY — what this projection deliberately cannot see. The engine
+ * resolves every snake's whole move in sub-step 1, so a slider contests each
+ * snake's POST-move body. From the pre-move board the client can see exactly
+ * one square of that shift: the tail always vacates (the engine pops it before
+ * any collision, eating or not — a stacked tail's duplicate at the
+ * second-to-last index still blocks, so skipping only the last index is
+ * exact). Every other current segment — index 0 included, because the pre-move
+ * head becomes a body segment once the snake steps forward — is treated as
+ * still occupied, and the square a snake's head moves INTO is not modelled at
+ * all (that is the unit threat map's job). Both choices are conservative in
+ * the same direction: we may call a traversal fatal that the real
+ * simultaneous resolution would have let through, and we never bank on a body
+ * clearing out of our way.
  *
  * Call with a board whose food/hazards have not yet been spliced for this
  * move.
  */
-export function projectedHealthCost(board: Board, path: Coord[]): number {
-  if (path.length === 0) return 0;
-  const dest = path[path.length - 1];
-  const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
-  const movementCost = eats ? 0 : path.length;
+export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
+  const board = state.board;
+  const mover = state.you;
+  const health = mover.health;
+  if (path.length === 0) {
+    return { path: [], cost: 0, fatal: false, captureStopped: false, eats: false };
+  }
+
   const hazardDamage = board.hazardDamage ?? 100;
   const hazards = board.hazards ?? [];
-  let hazardSquares = 0;
+  const moverTier = tierAtArrival(mover, state.turn);
+  const moverIsPiece = isPieceUnit(mover);
+
+  const entered: Coord[] = [];
+  let hazardAccrued = 0;
+  let died = false;
+  let captureStopped = false;
+
   for (const sq of path) {
-    if (hazards.some(h => h.x === sq.x && h.y === sq.y)) hazardSquares++;
+    // The killing/stopping square is always part of the traversal: the engine
+    // records a dead mover's path as ending ON the square it died on.
+    entered.push(sq);
+
+    // 1. Walls / off the board.
+    if (sq.x < 0 || sq.x >= board.width || sq.y < 0 || sq.y >= board.height) {
+      died = true;
+      break;
+    }
+
+    // 2. Hazard dose on entry — the only cost charged DURING flight.
+    if (hazards.some(h => h.x === sq.x && h.y === sq.y)) {
+      hazardAccrued += hazardDamage;
+      if (health - hazardAccrued <= 0) {
+        died = true;
+        break;
+      }
+    }
+
+    // 3. Occupancy: bodies and stationary pieces.
+    const outcome = resolveTraversedSquare(board, mover, moverTier, state.turn, sq);
+    if (outcome === 'death') {
+      died = true;
+      break;
+    }
+    if (outcome === 'sever') {
+      // Only a PIECE capture-stops; a snake severs through and keeps its
+      // (single-square) move.
+      if (moverIsPiece) {
+        captureStopped = true;
+        break;
+      }
+    }
   }
-  return movementCost + hazardDamage * hazardSquares;
+
+  const reachedDestination = !died && !captureStopped;
+  const dest = entered[entered.length - 1];
+  const eats =
+    reachedDestination && (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
+  const movementCost = eats ? 0 : entered.length;
+  let cost = movementCost + hazardAccrued;
+  // Fatality is one condition: the projected health lands at or below zero,
+  // whether from a wall/body/contest death mid-path or from the cost simply
+  // outrunning the mover's health. Either way the projection reports a cost
+  // that ZEROES the health, which is what makes the health-loss heuristic
+  // sensitive to it.
+  const fatal = died || cost >= health;
+  if (fatal) cost = Math.max(cost, health);
+
+  return { path: entered, cost, fatal, captureStopped, eats };
+}
+
+/**
+ * The occupancy verdict for one traversed square, in the engine's order:
+ * 'continue' (nothing there, or the segment has already vacated), 'sever'
+ * (the mover strictly out-tiers the owner — a piece capture-stops here) or
+ * 'death'. Bodies are compared with NO team check, exactly like the engine.
+ */
+function resolveTraversedSquare(
+  board: Board,
+  mover: Snake,
+  moverTier: number,
+  currentTurn: number,
+  sq: Coord
+): 'continue' | 'sever' | 'death' {
+  for (const owner of board.snakes) {
+    if (owner.health <= 0) continue;
+    const isSelf = owner.id === mover.id;
+
+    if (isPieceUnit(owner)) {
+      // A piece is a 1-cell stack; its own square is the mover's origin.
+      if (isSelf) continue;
+      const seat = owner.body[0] ?? owner.head;
+      if (!seat || seat.x !== sq.x || seat.y !== sq.y) continue;
+      return winsStationaryContest(moverTier, mover.length, tierAtArrival(owner, currentTurn), owner.length)
+        ? 'sever'
+        : 'death';
+    }
+
+    for (let i = 0; i < owner.body.length; i++) {
+      // The tail always vacates before collisions are resolved (see the
+      // SIMULTANEITY note above).
+      if (i === owner.body.length - 1 && owner.body.length > 1) continue;
+      const seg = owner.body[i];
+      if (seg.x !== sq.x || seg.y !== sq.y) continue;
+      // Our own body is a wall with no tier exemption — nothing severs itself.
+      if (isSelf) return 'death';
+      return moverTier > tierAtArrival(owner, currentTurn) ? 'sever' : 'death';
+    }
+  }
+  return 'continue';
+}
+
+/**
+ * The projected health COST of `path` — `projectPath(...).cost`, kept as the
+ * name every scoring caller reads.
+ *
+ * This is a projection for SCORING, not a health-after-move computation: it
+ * never restores toward maxHealth (the mover's identity never enters the
+ * formula beyond its health/weight/tier — eating always cancels the movement
+ * term, whatever the type max is), so `cost` alone (not `health - cost`) is
+ * what a caller compares against the mover's current health to test fatality
+ * — and a fatal traversal reports a cost that zeroes that health exactly.
+ */
+export function projectedHealthCost(state: GameState, path: Coord[]): number {
+  return projectPath(state, path).cost;
 }
 
 export interface SimulatedBoardState {
@@ -84,16 +265,13 @@ export class Simulator {
     const newBoard = this.deepCopyBoard(gameState.board);
     const deadSnakeIds = new Set<string>();
 
-    // Invulnerability projected to the turn the simulated moves resolve on
-    // (gameState.turn + 1). A level only governs a collision while the arrival
-    // turn is <= its server-provided expiry; absent an expiry the level is
-    // assumed to apply this turn only — the same convention as BoardGraph, so
-    // the simulator and the passability layer agree on what a move can do.
-    const arrivalTurn = gameState.turn + 1;
+    // Invulnerability projected to the turn the simulated moves resolve on —
+    // the ONE arrival-tier projection (tierAtArrival above), shared with the
+    // path projection and matching BoardGraph's convention, so the simulator
+    // and the passability layer agree on what a move can do.
     const invulnAtArrival = new Map<string, number>();
     for (const snake of newBoard.snakes) {
-      const expiry = snake.invulnerabilityExpiryTurn ?? gameState.turn;
-      invulnAtArrival.set(snake.id, arrivalTurn <= expiry ? (snake.invulnerabilityLevel ?? 0) : 0);
+      invulnAtArrival.set(snake.id, tierAtArrival(snake, gameState.turn));
     }
     const invulnOf = (id: string): number => invulnAtArrival.get(id) ?? 0;
 

@@ -1,6 +1,6 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { healthAfterEntering, projectedHealthCost } from '../logic/simulator';
+import { healthAfterEntering, projectPath } from '../logic/simulator';
 import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
@@ -53,9 +53,16 @@ interface PieceCandidateScore {
   // Moves still to run from this candidate to the target (null = unreachable).
   dist: number | null;
   // Projected health cost of this candidate's path (simulator.ts's
-  // projectedHealthCost — the SAME cost projection the snake health-loss
+  // projectPath — the SAME cost projection the snake health-loss
   // heuristic uses), folded additively into `score` at DEFAULT_CONFIG.healthLoss.
   healthCost: number;
+  // The projection resolved this candidate as DEATH (projected health 0): the
+  // ray enters a square the piece cannot survive — a snake body segment at or
+  // above its tier (ally bodies included; the engine never teams), a piece
+  // contest it loses or ties, a wall, or hazard doses that exhaust it.
+  // Charged as DEFAULT_CONFIG.deaths in `score`, exactly like a snake's
+  // `deaths` stat, AND vetoed outright in bestPieceCandidate.
+  fatal: boolean;
   score: number;
 }
 
@@ -2017,8 +2024,20 @@ export class ActiveGameManager {
   // candidate carries a positive score — an unreachable target pulls nowhere
   // and the piece stays put.
   private bestPieceCandidate(gameId: string, snakeId: string): PieceCandidateScore | null {
+    // Candidate-level FATAL veto, the piece counterpart of pickBestMove's
+    // fatal-pocket veto for snakes: a candidate whose projected traversal
+    // kills the piece (projected health 0) is never chosen while a survivable
+    // candidate exists — the hard guarantee on top of the strongly-negative
+    // deaths weight already inside `score`, which a large enough waypoint
+    // bonus could otherwise outbid on a low-health piece. If EVERY candidate
+    // is fatal we score among all of them (least-bad death). Enumeration is
+    // untouched: fatal candidates still reach the UI, so a human commander can
+    // still stage a sacrifice.
+    const all = this.computePieceCandidates(gameId, snakeId);
+    const survivable = all.filter(c => !c.fatal);
+    const pool = survivable.length > 0 ? survivable : all;
     let best: PieceCandidateScore | null = null;
-    for (const candidate of this.computePieceCandidates(gameId, snakeId)) {
+    for (const candidate of pool) {
       if (candidate.score <= 0) continue;
       if (
         !best ||
@@ -2036,7 +2055,9 @@ export class ActiveGameManager {
    * weight PLUS the active waypoint's contribution MINUS the projected health
    * cost of getting there:
    *
-   *   score(dest) = base + weight × progressStat(dest) + healthLossWeight × cost(dest)
+   *   score(dest) = base + weight × progressStat(dest)
+   *                        + healthLossWeight × cost(dest)
+   *                        + deathsWeight × fatal(dest)
    *
    * ADDITIVE, exactly as getWaypointBiasedMove is for snakes (which subtracts
    * the contribution already inside the engine score before adding the one for
@@ -2049,6 +2070,12 @@ export class ActiveGameManager {
    * projectedHealthCost, over the candidate's own traversed path), so a
    * cheaper hop wins a tie and a hazard-crossing ray is decisively outweighed
    * by a same-progress detour around it, with no piece-specific hazard rule.
+   * A ray the projection resolves as DEATH — it crosses a snake body segment
+   * (ally or enemy: the engine never teams) at or above the piece's tier, or
+   * loses a piece contest, or exhausts its health — reports a cost that zeroes
+   * the piece's health AND sets `fatal`, which charges DEFAULT_CONFIG.deaths
+   * on top, the same way a snake's death enters its score. bestPieceCandidate
+   * then vetoes it outright.
    *
    * The stat comes from the shared waypoint pathfinder walking the graph's
    * per-unit adjacency, so a knight is ordered by knight moves and a rook by
@@ -2109,12 +2136,17 @@ export class ActiveGameManager {
 
     return legal.map(({ dest, action }, i) => {
       const stat = progress?.[i].stat ?? 0;
-      // Health cost of THIS candidate's own traversed path: a move's full
-      // ray/jump (converted from full-board indices to the api coords the
-      // cost function reads food/hazards in), stay/rotate always 0.
-      const healthCost = action.kind === 'move'
-        ? projectedHealthCost(board, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
-        : 0;
+      // Projected outcome of THIS candidate's own traversed path: a move's
+      // full ray/jump (converted from full-board indices to the api coords the
+      // projection reads food/hazards/bodies in), stay/rotate always free. The
+      // projection truncates the path at a death or a capture-stop, so a ray
+      // that never reaches the staged destination is neither credited with the
+      // meal there nor charged for the squares beyond.
+      const projected = action.kind === 'move'
+        ? projectPath(gs, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
+        : null;
+      const healthCost = projected?.cost ?? 0;
+      const fatal = projected?.fatal ?? false;
       return {
         move: dest,
         action,
@@ -2124,7 +2156,10 @@ export class ActiveGameManager {
         stat,
         dist: progress?.[i].dist ?? null,
         healthCost,
-        score: weight * stat + DEFAULT_CONFIG.healthLoss * healthCost,
+        fatal,
+        score: weight * stat
+          + DEFAULT_CONFIG.healthLoss * healthCost
+          + DEFAULT_CONFIG.deaths * (fatal ? 1 : 0),
       };
     });
   }
@@ -2208,18 +2243,22 @@ export class ActiveGameManager {
     return this.computePieceCandidates(gameId, snakeId).map(candidate => {
       const progressScore = candidate.weight * candidate.stat;
       const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
+      const deaths = candidate.fatal ? 1 : 0;
       return {
         move: candidate.move,
         score: candidate.score,
         numStates: 0,
         breakdown: {
           healthLoss: candidate.healthCost,
+          deaths,
           weights: {
             healthLoss: DEFAULT_CONFIG.healthLoss,
+            deaths: DEFAULT_CONFIG.deaths,
             ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
           },
           weighted: {
             healthLossScore,
+            deathsScore: deaths === 1 ? DEFAULT_CONFIG.deaths : 0,
             ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
           },
           ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),

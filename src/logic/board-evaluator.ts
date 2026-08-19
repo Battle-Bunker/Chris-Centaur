@@ -69,7 +69,8 @@ export interface EvaluationContext {
   // injection pattern as h2hRisk, and for the same reason: it is a property of
   // the move under consideration, not of the board being scored.
   waypointProgress?: WaypointProgress | null;
-  // Projected health cost of the candidate MOVE (movement + hazard damage —
+  // Projected health cost of the candidate MOVE (movement + hazard damage, or
+  // the mover's whole health when the projection resolves the move as DEATH —
   // simulator.ts's projectedHealthCost), computed once per decision from the
   // PRE-move board and injected here — same per-move-constant pattern as
   // h2hRisk/pieceThreat/waypointProgress, and for the same reason: the cost

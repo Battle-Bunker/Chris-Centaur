@@ -365,13 +365,16 @@ export class DecisionEngine {
    * projectedHealthCost — the same function ActiveGameManager's piece
    * candidate scoring uses), then injected unchanged into every evaluation
    * of that move. A snake's candidate path is always its single landing
-   * square.
+   * square. A cost that equals (or exceeds) our current health means the
+   * projection resolved the move as DEATH — a wall, a body segment we cannot
+   * survive entering, or hazard/movement cost that outruns our health — and
+   * the health-loss weight then charges the full-health penalty for it.
    */
   private healthCostContexts(gameState: GameState, ourMoves: Direction[]): Map<Direction, number> {
     const costByMove = new Map<Direction, number>();
     for (const move of ourMoves) {
       const dest = this.getMovePosition(gameState.you.head, move);
-      costByMove.set(move, projectedHealthCost(gameState.board, [dest]));
+      costByMove.set(move, projectedHealthCost(gameState, [dest]));
     }
     return costByMove;
   }

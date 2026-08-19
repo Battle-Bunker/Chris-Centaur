@@ -138,14 +138,22 @@ export const HEURISTICS = {
   // ── Health loss (drives NATURAL hazard avoidance — no hazard-specific
   // heuristic exists anywhere else). The stat is the shared projected health
   // COST of the candidate move (movementCost + hazardDamage × hazard squares
-  // entered — see simulator.ts's projectedHealthCost), so it is usually just
+  // entered — see simulator.ts's projectPath), so it is usually just
   // 1 (the ordinary per-move decay) and jumps by hazardDamage (default 100)
   // whenever the move enters a hazard square; eating cancels the movement
   // term. At the default weight, an ordinary move costs a negligible -5,
   // while one hazard square costs -505 — comparable to deaths (-500) and
   // trapped (-600), so a survivable-but-costly hazard entry is decisively
   // outweighed by any non-fatal alternative without hard-coding "hazard" as
-  // a concept anywhere in the scoring. ────────────────────────────────────
+  // a concept anywhere in the scoring.
+  //
+  // The projection also resolves DEATH along the path — a wall, a snake body
+  // segment the mover cannot survive entering (ally bodies included), a lost
+  // piece contest, or hazard doses that exhaust it — as a cost that takes the
+  // projected health to zero. A full-health unit therefore reports 100, and
+  // this weight charges -500 for it: the same magnitude as the deaths weight,
+  // which is exactly the owner's point that the health heuristic should be
+  // the thing that notices. ─────────────────────────────────────────────────
   healthLoss: {
     default: -5,
     uiRange: { min: -50, max: 0, step: 1 },
