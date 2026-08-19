@@ -155,8 +155,9 @@ export class BoardEvaluator {
         position: s.head,
         isTeam: teamSnakeIds.has(s.id),
         startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0,
-        // Sources arriving on the same level contest the cell; tier (projected
-        // onto the turn of arrival) then weight decide who ends up holding it.
+        // Contest data: tier (projected onto the turn a cell is decided) then
+        // weight, settling both same-level snake arrivals and whether a piece
+        // can take a cell off the snake that claimed it.
         ...unitContestData(s, gameState.turn)
       }));
     
@@ -221,17 +222,20 @@ export class BoardEvaluator {
 
     // Ally / opponent "has enough space" derived from the Voronoi result we
     // already computed, instead of a whole-board flood fill per snake (which
-    // was 54% of every evaluation for a ±1 signal). Won territory is a LOWER
-    // bound on a snake's reachable space — the cells it gets to before anyone
-    // else — so `territory >= max(3, length/2)` is a conservative "has room"
-    // proxy mirroring the old tail-chase threshold. Our own survival tier
-    // below keeps the full flood-fill treatment.
+    // was 54% of every evaluation for a ±1 signal). Held territory is a LOWER
+    // bound on a snake's reachable space — the cells it gets to before every
+    // other snake and that no piece could take off it — so
+    // `territory >= max(3, length/2)` is a conservative "has room" proxy
+    // mirroring the old tail-chase threshold. It is only tightened by the
+    // piece layer, never loosened, so it stays a lower bound. Our own survival
+    // tier below keeps the full flood-fill treatment.
     const spaceScores = this.spaceScoresFromTerritory(bfsResult, board.snakes, ourSnakeId, teamSnakeIds);
 
     // SURVIVAL TIER (contest-aware, conservative clearance): flood only the cells
-    // we win the Voronoi arrival race for, from our post-move head, under
+    // we HOLD in the Voronoi division, from our post-move head, under
     // conservative body-clearance timing. This is what we bank our survival on —
-    // it refuses to count room an enemy will reach first.
+    // it refuses to count room another snake will reach first, and (since the
+    // territory rule made pieces displacers) room a piece would take off us.
     // Our snake is always a live BFS source here (the dead case returned above).
     const ourSourceIdx = bfsResult.sourceIndexOf.get(ourSnakeId)!;
     const contestRegion = this.computeContestAwareRegion(graph, ourSnake, bfsResult.ownerIndex, ourSourceIdx);
@@ -595,10 +599,11 @@ export class BoardEvaluator {
   /**
    * Contest-aware survival region. Flood-fills from our snake's (post-move) head
    * under CONSERVATIVE body-segment clearance, but restricted to the set of cells
-   * we actually win the Voronoi arrival race for (the multi-source BFS owner
-   * array). This is the survival room we can bank on: it refuses to count
-   * space an opponent would reach first, and it refuses to bank on bodies vacating
-   * on optimistic timing.
+   * we actually HOLD in the Voronoi division (the multi-source BFS owner array):
+   * ground we reach before every other snake and that no piece could take off us.
+   * This is the survival room we can bank on: it refuses to count space an
+   * opponent would reach first or would win off us, and it refuses to bank on
+   * bodies vacating on optimistic timing.
    *
    * The head cell is always included as the flood origin, and the tail cell is
    * allowed even when not won (tail-chase survival).

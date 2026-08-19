@@ -159,8 +159,9 @@ export class VoronoiStrategy {
         // owner/distance/territory are team-independent, which is what makes
         // the result shareable across snakes on different teams.
         isTeam: false,
-        // Same-level arrivals are contests: tier (projected onto the arriving
-        // turn) then weight decide who holds the cell.
+        // Contest data: tier (projected onto the turn a cell is decided) then
+        // weight, settling both same-level snake arrivals and whether a piece
+        // can take a cell off the snake that claimed it.
         ...unitContestData(s, gameState.turn)
       }));
     // Turn-aware clearance (same physical vacate timing the evaluation BFS

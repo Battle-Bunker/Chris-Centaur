@@ -53,7 +53,7 @@ export const HEURISTICS = {
     default: 1.0,
     uiRange: { min: 0, max: 100, step: 0.5 },
     label: 'My Territory Weight',
-    description: 'Value of controlled Voronoi territory',
+    description: 'Value of held Voronoi territory: ground you reach before every other snake and that no chess piece could take off you',
     section: 'snake',
   },
   myControlledFood: {

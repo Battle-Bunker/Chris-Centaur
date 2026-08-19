@@ -846,6 +846,237 @@ describe('Same-level arrival contests (Voronoi tie rule)', () => {
   });
 });
 
+/**
+ * SNAKES HOLD GROUND, PIECES DISPLACE BY WEIGHT.
+ *
+ * The snakes alone divide the board (the contests above, unchanged) and each
+ * cell's claim fixes the turn D its ownership is settled. A piece challenges a
+ * cell only when it could be STANDING there by D and would win the stationary
+ * contest against that claim; the earliest challenger takes it, equal-arrival
+ * challengers are separated by the same contest, and challengers that kill each
+ * other displace nobody. Cells no snake reaches are decided among pieces alone.
+ *
+ * Every fixture here is an 11x11 board whose snakes are 2 cells long, so their
+ * tails vacate immediately and no cell is a permanent wall — which lets the
+ * suite assert exact UNREACHED counts instead of counting body cells.
+ */
+describe('Snake-primary territory with piece displacement', () => {
+  function unit(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
+    return {
+      orientation: { dx: 0, dy: -1 },
+      id,
+      name: id,
+      health: 100,
+      body,
+      head: body[0],
+      length: body.length,
+      latency: '0',
+      shout: '',
+      squad: '',
+      customizations: { color: '#123456', head: 'default', tail: 'default' },
+      ...extra,
+    };
+  }
+
+  /** A chess piece: one square, `length` = its contest WEIGHT (stack size). */
+  const pieceAt = (id: string, square: Coord, unitType: string, weight: number, extra: Partial<Snake> = {}): Snake =>
+    unit(id, [square], { length: weight, unitType, ...extra });
+
+  const BASE_TURN = 10;
+
+  function divide(units: Snake[], food: Coord[] = []) {
+    const gameState: GameState = {
+      game: { id: 'test-primacy', ruleset: { name: 'standard', version: '1.0.0', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
+      turn: BASE_TURN,
+      board: { width: 11, height: 11, snakes: units, food, hazards: [] },
+      you: units[0],
+    };
+    const graph = new BoardGraph(gameState);
+    const sources: BFSSource[] = units.map(u => ({
+      id: u.id,
+      position: u.head,
+      isTeam: false,
+      ...unitContestData(u, gameState.turn),
+    }));
+    const result = new MultiSourceBFS(graph).compute(sources, food);
+    const indexOf = (id: string) => units.findIndex(u => u.id === id);
+    const count = (sentinel: number) => Array.from(result.ownerIndex).filter(o => o === sentinel).length;
+    return {
+      result,
+      indexOf,
+      ownerAt: (x: number, y: number) => result.ownerIndex[graph.cellIndex(x, y)],
+      distanceAt: (x: number, y: number) => result.distanceIndex[graph.cellIndex(x, y)],
+      territoryOf: (id: string) => result.territoryCounts.get(id) ?? 0,
+      unreached: () => count(OWNER_UNREACHED),
+      neutral: () => count(OWNER_NEUTRAL),
+    };
+  }
+
+  // Two snakes in opposite corners plus four equal-weight rooks on a symmetric
+  // lattice — the shape that produced the reported "Unreached" boards. Every
+  // rook sweeps a whole row and column in ONE move, so under the old per-unit
+  // Voronoi they all arrived together on those lines, every arrival tied into a
+  // neutral cell nobody expanded through, and the 5x5 interior those lines
+  // enclose was reported as "no snake can get here".
+  const unreachedBugBoard = (): Snake[] => [
+    unit('snake-sw', [{ x: 0, y: 0 }, { x: 0, y: 1 }]),
+    unit('snake-ne', [{ x: 10, y: 10 }, { x: 10, y: 9 }]),
+    pieceAt('rook-a', { x: 2, y: 2 }, 'rook', 4),
+    pieceAt('rook-b', { x: 8, y: 2 }, 'rook', 4),
+    pieceAt('rook-c', { x: 2, y: 8 }, 'rook', 4),
+    pieceAt('rook-d', { x: 8, y: 8 }, 'rook', 4),
+  ];
+
+  test('REGRESSION: the equal-slider lattice no longer walls off the interior — nothing is UNREACHED', () => {
+    const { ownerAt, unreached } = divide(unreachedBugBoard());
+
+    // The interior the four rooks used to enclose: 25 cells that every unit on
+    // the board plainly reaches, and that the old rule reported unreachable.
+    for (let y = 3; y <= 7; y++) {
+      for (let x = 3; x <= 7; x++) expect(ownerAt(x, y)).not.toBe(OWNER_UNREACHED);
+    }
+    // Nothing anywhere is unreachable: no body is a permanent wall here, and no
+    // piece can wall a region off any more because piece reach is geometric.
+    expect(unreached()).toBe(0);
+  });
+
+  test('the interior of that board goes to the SNAKES: rooks that would annihilate each other take nothing', () => {
+    const { ownerAt, indexOf, territoryOf } = divide(unreachedBugBoard());
+    const sw = indexOf('snake-sw');
+    const ne = indexOf('snake-ne');
+
+    // Interior cells sit on two rooks' lines at once (or on all four at two
+    // moves), so no rook is a unique surviving challenger and the snakes' own
+    // diagonal split stands.
+    expect(ownerAt(4, 4)).toBe(sw);
+    expect(ownerAt(6, 6)).toBe(ne);
+    // Each rook still holds the stretches of its own row and column that no
+    // equal rook reaches as fast (its side of the two blocking rook squares).
+    expect(ownerAt(0, 2)).toBe(indexOf('rook-a'));
+    expect(ownerAt(2, 0)).toBe(indexOf('rook-a'));
+    expect(ownerAt(10, 8)).toBe(indexOf('rook-d'));
+    expect(territoryOf('snake-sw') + territoryOf('snake-ne')).toBeGreaterThan(80);
+  });
+
+  test('a heavier piece takes the first snake\'s cell and KEEPS it: later snakes never re-open the question', () => {
+    // (5,5) is claimed first by the light snake at distance 2. The rook can be
+    // there in one move and outweighs it, so the rook displaces it. The heavy
+    // snake would crush the rook — but it arrives later (distance 5), and a
+    // displaced cell is never re-adjudicated.
+    const light = unit('light-snake', [{ x: 3, y: 5 }, { x: 2, y: 5 }]);        // weight 2, distance 2
+    const heavy = unit('heavy-snake', [{ x: 10, y: 5 }, { x: 10, y: 4 }], { length: 30 });
+    const rook = pieceAt('rook', { x: 5, y: 0 }, 'rook', 10);
+    const { ownerAt, distanceAt, indexOf } = divide([light, heavy, rook]);
+
+    expect(ownerAt(5, 5)).toBe(indexOf('rook'));
+    expect(distanceAt(5, 5)).toBe(1);            // the ROOK's own arrival, not the snake's
+    // Its whole column is taken the same way, wherever the rook beats the first
+    // claimant and can be there in time.
+    expect(ownerAt(5, 7)).toBe(indexOf('rook'));
+    // The heavy snake keeps everything it reaches first.
+    expect(ownerAt(10, 6)).toBe(indexOf('heavy-snake'));
+  });
+
+  test('a piece must WIN the claim, not tie it: an equal-weight piece holds only the square it stands on', () => {
+    // Equal tier, equal weight — the piece could not hold the cell against the
+    // snake (a tie kills both), so it displaces nothing anywhere.
+    const snake = unit('snake', [{ x: 0, y: 5 }, { x: 0, y: 4 }], { length: 4 });
+    const rook = pieceAt('rook', { x: 5, y: 5 }, 'rook', 4);
+    const { ownerAt, territoryOf, indexOf, neutral } = divide([snake, rook]);
+
+    expect(territoryOf('rook')).toBe(1);
+    expect(ownerAt(5, 5)).toBe(indexOf('rook'));   // its own square, which no snake can enter
+    expect(ownerAt(5, 7)).toBe(indexOf('snake'));
+    expect(territoryOf('snake')).toBe(120);
+    expect(neutral()).toBe(0);
+  });
+
+  test('reach alone buys nothing: a piece that cannot be there by the first snake\'s turn is no challenger', () => {
+    // A queen that outweighs everything, parked so far away that the snake is
+    // standing on its own doorstep cells long before the queen could arrive.
+    // Without this arrival gate a queen would own every square it can see.
+    const snake = unit('snake', [{ x: 1, y: 5 }, { x: 0, y: 5 }]);
+    const queen = pieceAt('queen', { x: 10, y: 10 }, 'queen', 40);
+    const { ownerAt, distanceAt, indexOf } = divide([snake, queen]);
+
+    // Distance 1 from the snake's head: the queen needs 2 moves to get there
+    // (it is neither on that rank, file nor diagonal), so it never contests it.
+    expect(distanceAt(1, 6)).toBe(1);
+    expect(ownerAt(1, 6)).toBe(indexOf('snake'));
+    // Cells the snake only gets to slowly ARE the queen's — one move, and it
+    // wins the contest that would happen there.
+    expect(ownerAt(10, 3)).toBe(indexOf('queen'));
+    expect(distanceAt(10, 3)).toBe(1);
+  });
+
+  test('challengers that would annihilate each other displace nobody: the snake keeps the ground', () => {
+    // Two equally heavy rooks reach (5,5) on the same move and both outweigh
+    // the snake. Neither survives the square, so the displacement fails and the
+    // cell stays exactly where the snake plane put it — not neutral: a piece
+    // layer can change who holds ground, never vacate it.
+    const snake = unit('snake', [{ x: 0, y: 0 }, { x: 0, y: 1 }]);
+    const rookA = pieceAt('rook-a', { x: 5, y: 0 }, 'rook', 9);
+    const rookB = pieceAt('rook-b', { x: 0, y: 5 }, 'rook', 9);
+    const tie = divide([snake, rookA, rookB]);
+
+    expect(tie.ownerAt(5, 5)).toBe(tie.indexOf('snake'));
+    expect(tie.ownerAt(5, 5)).not.toBe(OWNER_NEUTRAL);
+
+    // Break the tie by one unit of weight and the survivor takes the cell.
+    const broken = divide([snake, pieceAt('rook-a', { x: 5, y: 0 }, 'rook', 10), rookB]);
+    expect(broken.ownerAt(5, 5)).toBe(broken.indexOf('rook-a'));
+  });
+
+  test('ground no snake can reach is divided among the pieces by first arrival, ties going neutral', () => {
+    // A snake-free board: with no claim to beat, every piece that reaches a
+    // square is a challenger and the earliest one holds it.
+    const near = pieceAt('near-rook', { x: 5, y: 5 }, 'rook', 3);
+    const far = pieceAt('far-rook', { x: 5, y: 9 }, 'rook', 3, { orientation: { dx: 0, dy: -1 } });
+    const { ownerAt, indexOf, unreached } = divide([near, far]);
+
+    // Row 5 is one move for the near rook and two for the far one.
+    expect(ownerAt(0, 5)).toBe(indexOf('near-rook'));
+    expect(ownerAt(0, 9)).toBe(indexOf('far-rook'));
+    // Column 5 between them: both arrive in one move and are equally heavy, so
+    // with no snake claim underneath, the square really is held by nobody.
+    expect(ownerAt(5, 7)).toBe(OWNER_NEUTRAL);
+    // Two rooks between them still cover the whole board.
+    expect(unreached()).toBe(0);
+  });
+
+  test('a lone bishop\'s wrong-colour squares are honestly UNREACHED — and vanish the moment a snake is present', () => {
+    // Colour parity is a real fact about a bishop, not a bug: half the board is
+    // forever out of its reach. Alone, that half is unreachable outright.
+    const alone = divide([pieceAt('bishop', { x: 5, y: 5 }, 'bishop', 3)]);
+    expect(alone.ownerAt(5, 5)).toBe(0);
+    expect(alone.ownerAt(6, 5)).toBe(OWNER_UNREACHED);
+    expect(alone.unreached()).toBe(60);
+
+    // Add a snake and the board is whole again: snakes divide every square, and
+    // the bishop only takes the ones it can both reach and hold.
+    const withSnake = divide([
+      unit('snake', [{ x: 0, y: 0 }, { x: 0, y: 1 }]),
+      pieceAt('bishop', { x: 5, y: 5 }, 'bishop', 9),
+    ]);
+    expect(withSnake.unreached()).toBe(0);
+    expect(withSnake.ownerAt(6, 5)).toBe(withSnake.indexOf('snake'));
+    expect(withSnake.ownerAt(8, 8)).toBe(withSnake.indexOf('bishop'));
+  });
+
+  test('food follows ownership: a displaced cell\'s food counts for the piece, not the snake it took it from', () => {
+    const snake = unit('snake', [{ x: 3, y: 5 }, { x: 2, y: 5 }]);
+    const rook = pieceAt('rook', { x: 5, y: 0 }, 'rook', 10);
+    const food = [{ x: 5, y: 5 }];
+    const { result, ownerAt, indexOf } = divide([snake, rook], food);
+
+    expect(ownerAt(5, 5)).toBe(indexOf('rook'));
+    expect(result.controlledFood.get('rook')).toBe(1);
+    expect(result.controlledFood.get('snake')).toBe(0);
+    expect(result.nearestFoodDistance.get('rook')).toBe(1);
+    expect(result.nearestFoodDistance.get('snake')).toBe(1000);
+  });
+});
+
 // Run the tests
 if (require.main === module) {
   // Simple test runner for quick verification

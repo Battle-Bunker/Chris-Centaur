@@ -880,9 +880,9 @@
       } else {
         const owner = ownership.owner[idx];
         if (owner === CELL_OWNER_UNREACHED) {
-          body += `<div>Unreached — no snake can get here</div>`;
+          body += `<div>Unreached — no unit can get here</div>`;
         } else if (owner === CELL_OWNER_NEUTRAL) {
-          body += `<div>Neutral — tied arrival at distance ${ownership.distance[idx]}</div>`;
+          body += `<div>Neutral — contested at distance ${ownership.distance[idx]}, no survivor</div>`;
         } else {
           const ownerId = ownership.sources[owner];
           const snake = board.snakes.find(s => s.id === ownerId);

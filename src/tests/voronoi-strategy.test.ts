@@ -1,14 +1,15 @@
 /**
  * Golden-master tests for VoronoiStrategy.getBestMoveIterative — the full
  * strategy stack (config -> team detection -> iterative engine -> debug
- * payload assembly) pinned on five fixed boards:
+ * payload assembly) pinned on six fixed boards:
  *   1. open board         — territory-maximizing move on an empty midfield;
  *   2. contested corridor — refuses the one-cell channel an enemy contests;
  *   3. near-trapped pocket — picks the exit that preserves reachable space;
  *   4. contested midline  — same-turn arrivals go to the heavier snake, so no
  *      neutral seam survives between snakes of different length;
- *   5. knight on the board — territory claimed per unit type, in the claimant's
- *      own moves rather than in snake steps.
+ *   5-6. knight on the board, at both sides of the displacement threshold —
+ *      a piece takes ground off a snake only by out-weighing the claim it made,
+ *      and then claims it in the piece's own moves (L-jumps, not snake steps).
  *
  * Deterministic by construction: inline worker pool (DECISION_POOL_SIZE=0,
  * chunks run on this thread), default config (ConfigStore mocked to empty),
@@ -300,14 +301,11 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     expect(result.territoryCells['enemy']).toHaveLength(55);
   });
 
-  test('knight on the board: territory is claimed in L-jumps, not in snake steps', async () => {
-    // Same lone-enemy-in-the-corner geometry as the open board, with the enemy
-    // replaced by a knight of equal weight. A knight covers ground far faster
-    // than a snake walking one cell per turn: from its corner it reaches 8
-    // squares in one move and most of the board within a few, so the split is
-    // nothing like the 101/14 an orthogonal-step expansion produces for the
-    // same two positions — that number is exactly what per-unit adjacency
-    // fixes.
+  // Both knight goldens share the open-board geometry, with the corner enemy
+  // replaced by a knight. Reach is no longer what divides the board — snakes
+  // divide it and a piece takes squares only by out-weighing the snake that
+  // claimed them — so the pair is pinned at the two sides of that threshold.
+  function knightBoard(gameId: string, knightWeight: number): GameState {
     const us = makeSnake('us', '#111111', [
       { x: 5, y: 5 },
       { x: 5, y: 4 },
@@ -315,19 +313,44 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     ]);
     const knight = makeSnake('knight', '#222222', [{ x: 0, y: 10 }]);
     knight.unitType = 'knight';
-    // A piece's `length` is its stack WEIGHT, not a body cell count: pin it at
-    // our own 3 so this golden keeps measuring adjacency alone — with weights
-    // level and no invulnerability, every same-turn arrival stays neutral and
-    // the tie rule contributes nothing to the split below.
-    knight.length = 3;
-    const gameState = makeGameState('gm-knight', [us, knight], 'us', [{ x: 8, y: 5 }]);
+    // A piece's `length` is its stack WEIGHT, not a body cell count.
+    knight.length = knightWeight;
+    return makeGameState(gameId, [us, knight], 'us', [{ x: 8, y: 5 }]);
+  }
 
-    const result = await run(gameState);
+  test('knight of our own weight: reach buys it nothing, because it could not HOLD a square against us', async () => {
+    // Equal tier, equal weight: every contest with our snake is a mutual kill,
+    // which is not holding the square, so the knight displaces nothing. It
+    // keeps the one square it stands on — a physical wall no snake can enter —
+    // and we own the whole rest of the board. That the knight sweeps most of
+    // the board in three jumps is now beside the point.
+    const result = await run(knightBoard('gm-knight-even', 3));
 
-    // The knight out-claims our snake outright: 61 cells from the corner,
-    // where the step-walking enemy of the open-board fixture managed 14.
-    expect(result.territoryCells['knight']).toHaveLength(61);
-    expect(result.territoryCells['us']).toHaveLength(45);
+    expect(result.territoryCells['knight']).toEqual([{ x: 0, y: 10 }]);
+    expect(result.territoryCells['us']).toHaveLength(120);
+    expect(result.cellOwnership.owner.filter((o) => o === -1)).toHaveLength(0); // no neutral
+
+    // With every candidate owning the same 120 cells, territory says nothing
+    // and the food pull decides — where the open-board fixture's step-walking
+    // enemy did dent our territory enough for 'up' to win.
+    expect(result.move).toBe('right');
+    expect(evalFor(result, 'up').breakdown.myTerritory).toBe(120);
+    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(120);
+    expect(evalFor(result, 'right').breakdown.foodDistance).toBe(3);
+    expect(result.scores.get('right')).toBeCloseTo(1122.1413814712837, 6);
+  });
+
+  test('heavier knight: it displaces us wherever it can be there in time, and its claim distances are L-jumps', async () => {
+    // Weight 6 to our 3, so the knight wins every contest it can reach in
+    // time — "in time" being the turn OUR snake would first be standing there.
+    // Near its corner that gate is wide open and the knight takes the ground;
+    // around our head the snake is there first and keeps it.
+    const result = await run(knightBoard('gm-knight-heavy', 6));
+
+    expect(result.territoryCells['knight']).toHaveLength(100);
+    // What is left to us is the compact blob where our step count still beats
+    // the knight's jump count — the only ground it cannot be standing on first.
+    expect(result.territoryCells['us']).toHaveLength(21);
 
     // The claimed distances ARE knight moves. Its two nearest in-board jumps
     // land at distance 1, while the squares physically ADJACENT to it cost
@@ -339,11 +362,19 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
       expect(owner[at(x, y)]).toBe(knightIdx);
       expect(distance[at(x, y)]).toBe(d);
     }
+    // Our own doorstep is ours: the knight needs two jumps to reach it and we
+    // are standing there on turn one.
+    expect(owner[at(5, 6)]).toBe(sources.indexOf('us'));
+    expect(distance[at(5, 6)]).toBe(1);
 
     // Our own move still comes from the same matrix over the new territory:
-    // 'right' now, away from the side the knight sweeps.
+    // 'right', the one candidate that keeps the food inside what is left to us.
     expect(result.move).toBe('right');
-    expect(result.scores.get('right')).toBeCloseTo(520.9696919601035, 6);
-    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(29);
+    expect(result.scores.get('right')).toBeCloseTo(374.1635562995723, 6);
+    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(14);
+    expect(evalFor(result, 'right').breakdown.foodDistance).toBe(3);
+    // From 'up' the knight holds the food square, so no food is ours at all.
+    expect(evalFor(result, 'up').breakdown.myTerritory).toBe(8);
+    expect(evalFor(result, 'up').breakdown.foodDistance).toBe(1000);
   });
 });

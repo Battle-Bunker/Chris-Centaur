@@ -13,8 +13,10 @@
  *  - BoardGraph's subjective passability (may WE walk onto a piece square?),
  *  - the Simulator's mover-vs-stationary-piece resolution,
  *  - the threat map below (would the unit kill-or-tie US at a square?),
- *  - the Voronoi BFS, via `stationaryContestWinner` — the same rule read as
- *    "who, if anyone, survives a multi-way race to one square?".
+ *  - the Voronoi BFS, twice over: `stationaryContestWinner` read as "who, if
+ *    anyone, survives a multi-way race to one square?" for same-turn snake
+ *    arrivals, and `winsStationaryContest` read as "could this piece hold that
+ *    square against the snake that claimed it?" for piece displacement.
  *
  * PER-KIND REACH (one generator per unit kind). This is ATTACK reach, which
  * is deliberately NOT BoardGraph's movement adjacency (fillUnitNeighbors): a

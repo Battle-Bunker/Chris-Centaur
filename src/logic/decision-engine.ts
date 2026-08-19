@@ -414,8 +414,8 @@ export class DecisionEngine {
         position: snake.head,
         isTeam: teamSnakeIds.has(snake.id),
         startDelay: 0,
-        // Contest data for same-level arrivals (tier at the arriving turn,
-        // then weight) — identical to what the evaluation BFS feeds.
+        // Contest data (tier at the turn a cell is decided, then weight) —
+        // identical to what the evaluation BFS feeds.
         ...unitContestData(snake, gameState.turn)
       });
     }
