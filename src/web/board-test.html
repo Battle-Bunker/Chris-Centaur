@@ -36,6 +36,11 @@
       // facing is server state, not a body-derived direction.
       if (opts && opts.orientation) snake.orientation = opts.orientation;
       if (opts && opts.unitType) snake.unitType = opts.unitType;
+      // Weight is the unit-generic size stat, and it is NOT the body's cell
+      // count once a tail is carrying stacked parts — the body fixtures set it
+      // explicitly. The buff's expiry is what turns a level into a countdown.
+      if (opts && opts.weight != null) snake.length = opts.weight;
+      if (opts && opts.expiry != null) snake.invulnerabilityExpiryTurn = opts.expiry;
       return snake;
     }
 
@@ -75,6 +80,115 @@
         `${selectedCell[0]},${selectedCell[1]}`);
       moveState.selectedMove = selected ? selected.key : null;
       return moveState;
+    }
+
+    // ── Body-information fixtures ────────────────────────────────────────────
+    // The ladder the spec describes, one snake per rung, so every "too short
+    // to carry it" boundary is on screen at once:
+    //   A  1 cell            letter only; weight + health dropped   → tag
+    //   B  2 cells           letter, weight; health dropped         → tag
+    //   C  3 cells, no buff  letter, weight, health — complete      → NO tag
+    //   D  4 cells, buff     + invulnerability with its countdown   → NO tag
+    //   E  5 cells, buff, tail stacked ×2 (the tail's cell reserved
+    //      first, the flow still fits in what is left)              → NO tag
+    //   F  4 cells, buff, tail stacked ×3 — the reserved tail pushes
+    //      the buff off the body                                    → tag
+    //   G  4 cells, NEGATIVE buff (the drawn red hazard mark)       → NO tag
+    // Unowned units (C, E) fill their letter square with their own body
+    // colour; owned ones (A, B, D, F, G) fill it with their operator's.
+    const BODY_LADDER_SNAKES = () => [
+      makeSnake("bl-a", "Ada", "#156cdd", [[1,10]], 96, 0, { weight: 1 }),
+      makeSnake("bl-b", "Bea", "#ff4d6d", [[5,10],[5,9]], 71, 0, { weight: 2 }),
+      makeSnake("bl-c", "Cid", "#0a7e3a", [[9,10],[9,9],[9,8]], 8, 0, { weight: 3 }),
+      makeSnake("bl-d", "Dov", "#8629c0", [[1,6],[1,5],[1,4],[1,3]], 100, 2,
+        { weight: 4, expiry: 28 }),
+      makeSnake("bl-e", "Eli", "#119ba7",
+        [[4,6],[4,5],[5,5],[6,5],[7,5],[7,5]], 64, 1, { weight: 6, expiry: 31 }),
+      makeSnake("bl-f", "Fay", "#88411a",
+        [[10,6],[10,5],[10,4],[10,3],[10,3],[10,3]], 23, 3, { weight: 6, expiry: 26 }),
+      makeSnake("bl-g", "Gus", "#c70389", [[2,1],[3,1],[4,1],[5,1]], 47, -2,
+        { weight: 4, expiry: 29 }),
+    ];
+    const BODY_LADDER_OWNERS = {
+      "bl-a": { name: "ada", color: "#7b4fd8" },
+      "bl-b": { name: "bo", color: "#00897b" },
+      "bl-d": { name: "cass", color: "#c62828" },
+      "bl-f": { name: "dee", color: "#1565c0" },
+      "bl-g": { name: "eve", color: "#ef6c00" },
+    };
+    // Terrain under the bodies: the information has to read on fertile hatch
+    // and on hazard marks alike, and the hazard mark under a body has to stay
+    // the terrain rather than become one of the unit's own numbers.
+    const BODY_LADDER_TERRAIN = {
+      hazards: [[5,9],[9,9],[1,5],[1,4],[5,5],[7,5],[10,4],[3,1],[4,1],[0,0],[11,11]],
+      fertileTiles: [[9,8],[1,3],[4,5],[6,5],[10,3],[2,1],[5,1],[0,11],[11,0],[7,8],[8,8]],
+    };
+    function bodyLadderFixture(title, boardPx) {
+      return {
+        title, width: 12, height: 12, boardPx,
+        snakes: BODY_LADDER_SNAKES(),
+        food: [], potions: [], territory: {},
+        hazards: BODY_LADDER_TERRAIN.hazards,
+        fertileTiles: BODY_LADDER_TERRAIN.fertileTiles,
+        owners: BODY_LADDER_OWNERS,
+      };
+    }
+
+    // Every operator colour on one board, three cells each: the letter square
+    // wears the OWNER's colour and the plaques sit on the unit's, so both
+    // halves of that pairing have to stay readable across the whole palette.
+    const OPERATOR_PALETTE = [
+      '#156cdd','#ff4d6d','#0a7e3a','#8629c0','#119ba7','#c70389',
+      '#88411a','#12cdae','#9b84ff','#05556f','#8e0746','#06726e',
+    ];
+    function paletteFixture(title, boardPx) {
+      const snakes = [];
+      const owners = {};
+      OPERATOR_PALETTE.forEach((color, i) => {
+        const id = `pal${i}`;
+        const x = (i % 4) * 3 + 1;
+        const y = 10 - Math.floor(i / 4) * 4;
+        snakes.push(makeSnake(id, String.fromCharCode(65 + i) + "x", color,
+          [[x, y], [x, y - 1], [x, y - 2]], 20 + i * 7, 0, { weight: 3 }));
+        owners[id] = { name: "op", color: OPERATOR_PALETTE[(i + 6) % 12] };
+      });
+      const hazards = [];
+      const fertileTiles = [];
+      for (let x = 0; x < 12; x++) {
+        for (let y = 0; y < 12; y++) {
+          if ((x + y) % 5 === 0) hazards.push([x, y]);
+          else if ((x * 2 + y) % 7 === 0) fertileTiles.push([x, y]);
+        }
+      }
+      return {
+        title, width: 12, height: 12, boardPx, snakes, owners,
+        food: [], potions: [], territory: {}, hazards, fertileTiles,
+      };
+    }
+
+    // The tag-mode cycle, on one board seen three times. Two teams: ours
+    // (blue, we control Ivy) and theirs (red). Only the SHORT units warrant a
+    // tag at all — the long ones carry everything on their bodies and so show
+    // none in any mode, which is the rule the three fixtures put side by side.
+    function tagModeFixture(title, tagMode) {
+      return {
+        title, width: 10, height: 10, boardPx: 400, tagMode,
+        snakes: [
+          makeSnake("ivy", "Ivy", "#156cdd", [[1,8],[1,7]], 82, 0, { weight: 2 }),
+          makeSnake("jon", "Jon", "#156cdd", [[4,8],[4,7],[4,6],[4,5]], 55, 1,
+            { weight: 4, expiry: 27 }),
+          makeSnake("kit", "Kit", "#ff4d6d", [[7,8],[7,7]], 39, 0, { weight: 2 }),
+          makeSnake("lex", "Lex", "#ff4d6d", [[1,3],[2,3],[3,3]], 91, 0, { weight: 3 }),
+          makeSnake("moe", "Moe", "#ff4d6d", [[6,2]], 12, 0, { weight: 1 }),
+        ],
+        food: [], potions: [], territory: {}, hazards: [], fertileTiles: [],
+        teams: { ivy: "blue", jon: "blue", kit: "red", lex: "red", moe: "red" },
+        controlled: ["ivy", "jon"],
+        owners: {
+          ivy: { name: "you", color: "#7b4fd8" },
+          kit: { name: "rex", color: "#c62828" },
+        },
+      };
     }
 
     const tests = [
@@ -158,7 +272,7 @@
         fertileTiles: [[6,3],[7,3],[8,3],[6,4],[7,4],[8,4],[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
         potions: [],
         territory: {},
-        hideTags: true
+        tagMode: 'never'
       },
       {
         title: "6: Candidate moves on a busy board (fertile + hazards + units)",
@@ -188,10 +302,10 @@
         // selected one — the affordance has to survive every terrain under it.
         makeMoveState: () => pieceCandidates([4, 5],
           [[4,6],[4,7],[4,8],[5,5],[6,5],[7,5],[3,5],[2,5],[4,4],[4,3]], 10, [6,5]),
-        hideTags: true
+        tagMode: 'never'
       },
       {
-        title: "7: Tags default ON — B's tag steps aside under the pointer",
+        title: "7: Tag mode 'always' — B's tag steps aside under the pointer",
         width: 9, height: 9,
         // With tags shown by default the TAG is the only switch: B's tag is
         // the one the pointer rests on, so it steps aside entirely, leaving
@@ -216,17 +330,20 @@
         tagHoverUnitId: "b"
       },
       {
-        title: "8: Tags default OFF — body hover under the tag still shows it",
+        title: "8: Tag mode 'never' — body hover under the tag still shows it",
         width: 9, height: 9,
         // The regression this fixture exists for: Long's body runs straight
         // through the cells its own tag lands on. With tags off, hovering ANY
         // body cell shows the tag, and the tag's own rect must not switch it
         // back off — so it stays up even though it now covers the hovered
         // body. Short is not hovered, so its tag stays hidden.
+        // Long has to WARRANT a tag to have one at all: its tail carries three
+        // stacked parts, and the reserved tail cell pushes its buff off the
+        // body — the one item it cannot spell out for itself.
         snakes: [
           makeSnake("long", "Long", "#4363d8", [
-            [3,3],[3,4],[4,4],[5,4],[6,4],[6,5]
-          ], 74, -2),
+            [3,3],[3,4],[4,4],[5,4],[5,4],[5,4]
+          ], 74, -2, { weight: 6 }),
           makeSnake("short", "Short", "#f58231", [[7,2]], 61, 0, {
             unitType: "bishop", orientation: { dx: -1, dy: 1 } })
         ],
@@ -235,7 +352,7 @@
         fertileTiles: [],
         potions: [],
         territory: {},
-        hideTags: true,
+        tagMode: 'never',
         hoveredUnitId: "long",
         tagHoverUnitId: "long"
       },
@@ -273,7 +390,18 @@
           dot: { name: "Dot", color: "#c62828" }
         },
         selections: { bo: { color: "#00897b" } }
-      }
+      },
+      bodyLadderFixture(
+        "10: Body information head\u2192tail \u2014 50px cells", 600),
+      bodyLadderFixture(
+        "11: The same ladder at 28px cells (legibility floor)", 336),
+      paletteFixture(
+        "12: Every operator colour, over fertile + hazard \u2014 50px cells", 600),
+      paletteFixture(
+        "13: The same palette sweep at 28px cells", 336),
+      tagModeFixture("14: Tag mode \u2014 always (only short units tag at all)", "always"),
+      tagModeFixture("15: Tag mode \u2014 our team's tags only", "ours"),
+      tagModeFixture("16: Tag mode \u2014 none by default", "never")
     ];
 
     const grid = document.getElementById('testGrid');
@@ -298,8 +426,11 @@
       // without it the element would take its size from the (now larger)
       // width/height attributes.
       const canvas = document.createElement('canvas');
-      canvas.style.width = FIXTURE_BOARD_PX + 'px';
-      canvas.style.height = FIXTURE_BOARD_PX + 'px';
+      // Cell size — not board size — is what body information has to stay
+      // legible at, so a fixture that is about legibility names its own box.
+      const boardPx = test.boardPx || FIXTURE_BOARD_PX;
+      canvas.style.width = boardPx + 'px';
+      canvas.style.height = boardPx + 'px';
       div.appendChild(canvas);
       grid.appendChild(div);
 
@@ -338,9 +469,10 @@
 
       const draw = () => BoardRenderer.renderBoard(canvas, gameState, moveState, {
         snakeId: test.snakes[0]?.id,
-        // Fixtures that are about the cells themselves keep the unit tags
-        // out of the way, the same as the live board's hover-only mode.
-        tagsHiddenByDefault: !!test.hideTags,
+        // The Alt-tap display cycle: 'always' | 'ours' | 'never'. Fixtures
+        // that are about the cells themselves park it on 'never', the same as
+        // the live board's hover-only mode.
+        tagMode: test.tagMode || 'always',
         // The two hover inputs the live page derives from the pointer: the
         // unit under the cursor, and the tag the cursor is latched onto.
         hoveredUnitId: test.hoveredUnitId || null,

@@ -390,10 +390,10 @@
                 <label class="board-toggle" title="Draw the board-wide Voronoi territory overlay (each unit's reachable region, outlined in its colour). Off skips the whole overlay — the client stops building territory grids and the server stops sending them.">
                   <input type="checkbox" id="territoryOverlayToggle"> Voronoi
                 </label>
-                <button type="button" class="shortcuts-hint" id="shortcutsHintBtn" title="Keyboard shortcuts">Ctrl&nbsp;+&nbsp;/</button>
+                <button type="button" class="shortcuts-hint" id="shortcutsHintBtn" title="Keyboard shortcuts">Help:&nbsp;Ctrl&nbsp;+&nbsp;/</button>
               </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
-              <button id="submitAllBtn" onclick="submitAll()" title="Commit all our snakes for this turn. Commitment is binding: each snake's confirmed staged move is frozen (Firebase rejects further staging) and the turn can end early once every player has committed. Snakes whose requested move is still confirming commit automatically the moment it confirms. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
+              <button id="submitAllBtn" onclick="submitAll()" title="Commit all our snakes for this turn (Ctrl+Enter). Commitment is binding: each snake's confirmed staged move is frozen (Firebase rejects further staging) and the turn can end early once every player has committed. Snakes whose requested move is still confirming commit automatically the moment it confirms. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the game engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
@@ -538,7 +538,7 @@
         <div class="shortcuts-group">
           <h3>The turn</h3>
           <dl>
-            <dt><kbd>Enter</kbd></dt>
+            <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt>
             <dd><b>Submit All</b> &mdash; mark every unit you control done for this turn. Binding: confirmed staged moves freeze and the turn can end early.</dd>
             <dt><kbd>Enter</kbd> / <kbd>Esc</kbd></dt>
             <dd>Confirm / cancel an open dialog (take-over, certain-death confirmation). Dialogs take these keys first.</dd>
@@ -551,7 +551,7 @@
             <dt><kbd>Alt</kbd>+click</dt>
             <dd>Inspect a cell: which unit&rsquo;s Voronoi territory owns it and at what distance. Works on any cell, bodies included; with a candidate selected it describes that move&rsquo;s hypothetical board.</dd>
             <dt><kbd>Alt</kbd> tap</dt>
-            <dd>Tap Alt on its own to toggle whether unit name tags are shown by default. Hovering a unit always calls its tag up. Persisted per browser.</dd>
+            <dd>Tap Alt on its own to cycle which unit tags are shown by default: <b>all</b> &rarr; <b>our team&rsquo;s</b> &rarr; <b>none</b>. Hovering a unit whose tag is down calls it up; resting on a tag that is up makes it step aside. Persisted per browser. <b>Now:</b> <span id="tagModeReadout">all tags shown</span>.</dd>
             <dt>click</dt>
             <dd>A plain left click on empty board clears the inspection.</dd>
           </dl>
@@ -574,6 +574,8 @@
           <dl>
             <dt><kbd>Ctrl</kbd> + <kbd>/</kbd></dt>
             <dd>Open or close this pane, anywhere on the page.</dd>
+            <dt>unit tags</dt>
+            <dd>A unit&rsquo;s numbers ride on its OWN body &mdash; letter on the head, then weight, health, and any buff with the turns it has left, and the tail&rsquo;s stacked-part count on the tail. A tag appears only for a unit too short to carry all of them (a piece always is), and then obeys the <kbd>Alt</kbd>-tap mode above. A long enough snake never shows one.</dd>
             <dt>Voronoi</dt>
             <dd>The checkbox above the board toggles the territory overlay, live and in history alike. Switching it off skips the overlay&rsquo;s work entirely &mdash; no grids built, drawn, or even sent &mdash; not just its paint. Persisted per browser.</dd>
           </dl>
@@ -984,19 +986,29 @@
     let tagHoverUnitId = null;     // unit whose tag the pointer is latched onto
     let lastCanvasMousePos = null; // last {clientX, clientY} over the board
     let nameTagHoverRerenderQueued = false;
-    // THE source of truth for whether unit tags are displayed: false → tags
-    // are shown, true → tags are hidden until a unit is hovered. Either way,
-    // hovering a unit shows its tag and hovering that tag hides it again.
-    // Toggled by a bare Alt TAP (keydown+keyup with no intervening key/mouse —
-    // Alt+click cell inspection is untouched) and persisted per-browser.
-    const TAG_DISPLAY_PREF_KEY = 'unitTagsHiddenByDefault';
-    let tagsHiddenByDefault = false;
+    // THE source of truth for which unit tags are displayed: one of
+    // BoardRenderer.TAG_MODE — 'always' (every warranted tag drawn), 'ours'
+    // (only our team's drawn by default), 'never' (none drawn by default).
+    // Whichever mode is active, hovering a unit whose tag is down calls it up
+    // and hovering a tag that is up makes it step aside. Cycled by a bare Alt
+    // TAP (keydown+keyup with no intervening key/mouse — Alt+click cell
+    // inspection is untouched) and persisted per-browser.
+    const TAG_DISPLAY_PREF_KEY = 'unitTagDisplayMode';
+    let tagDisplayMode = BoardRenderer.TAG_MODE.always;
     try {
-      // Migrate from the pre-rename translucency preference: a translucent
-      // default is the nearest ancestor of "not displayed by default".
-      const stored = localStorage.getItem(TAG_DISPLAY_PREF_KEY)
-        ?? localStorage.getItem('unitTagsTranslucentDefault');
-      tagsHiddenByDefault = stored === '1';
+      const stored = localStorage.getItem(TAG_DISPLAY_PREF_KEY);
+      if (stored) {
+        tagDisplayMode = BoardRenderer.normalizeTagMode(stored);
+      } else {
+        // Migrate from the two-state preferences this cycle replaces: a
+        // hidden (or, before that, translucent) default is the nearest
+        // ancestor of "no tags by default".
+        const legacy = localStorage.getItem('unitTagsHiddenByDefault')
+          ?? localStorage.getItem('unitTagsTranslucentDefault');
+        tagDisplayMode = legacy === '1'
+          ? BoardRenderer.TAG_MODE.never
+          : BoardRenderer.TAG_MODE.always;
+      }
     } catch (_e) { /* storage unavailable → session-only default */ }
     let stagedMoves = {};
 
@@ -1852,13 +1864,13 @@
         selectionGlows: selectionGlows,
         // Unit tags: styling derives reactively from the selections map
         // (single selection property) inside the renderer; the Alt-tap
-        // display default rides along, plus both hover inputs — the unit
-        // under the cursor and the tag the cursor is latched onto.
+        // display mode rides along, plus both hover inputs — the unit under
+        // the cursor and the tag the cursor is latched onto.
         owners: owners,
         selections: selections,
         hoveredUnitId: hoveredUnitId,
         tagHoverUnitId: tagHoverUnitId,
-        tagsHiddenByDefault: tagsHiddenByDefault,
+        tagMode: tagDisplayMode,
         stagedMoves: stagedMoves,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
@@ -2965,6 +2977,15 @@
       setShortcutsPane(!shortcutsPaneOpen());
     }
 
+    // The shortcuts pane names the tag display mode that is actually active,
+    // so the Alt tap's cycle can be read rather than remembered. Called at
+    // startup and on every cycle — the mode variable is the only source.
+    function updateTagModeReadout() {
+      const el = document.getElementById('tagModeReadout');
+      if (el) el.textContent = BoardRenderer.TAG_MODE_LABEL[tagDisplayMode];
+    }
+    updateTagModeReadout();
+
     // Ctrl+/ (Cmd+/ on a Mac). Matched on e.code too, because a layout where
     // '/' needs a modifier reports a different e.key for the same physical key.
     function isShortcutsPaneChord(e) {
@@ -3094,10 +3115,12 @@
         return;
       }
 
-      if (e.key === 'Enter') {
-        // Submit All (mark our snakes done this turn). The confirm/takeover
-        // dialog branches above intercept Enter and return first, so this
-        // never fires while a dialog is open.
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        // Submit All (mark our snakes done this turn). Binding the whole turn
+        // away costs a modifier deliberately: a bare Enter is one stray
+        // keystroke from freezing every unit's move. The confirm/takeover
+        // dialog branches above intercept Enter — with or without the modifier
+        // — and return first, so this never fires while a dialog is open.
         e.preventDefault();
         submitAll();
         return;
@@ -4467,10 +4490,13 @@
         stagedMoves: cmd ? cmd.stagedMoves : null,
         owners: cmd ? cmd.owners : null,
         // Unit tags render here through the same shared path as live play;
-        // both hover inputs + the Alt-tap display default apply identically.
+        // both hover inputs + the Alt-tap display mode apply identically.
         hoveredUnitId: hoveredUnitId,
         tagHoverUnitId: tagHoverUnitId,
-        tagsHiddenByDefault: tagsHiddenByDefault,
+        tagMode: tagDisplayMode,
+        // Which units are OURS is what the "our team's tags" mode reads, and a
+        // replayed unit is ours by exactly the same test as a live one.
+        controlledSnakeIds: controlledSnakeIds,
       });
       if (cmd) {
         const board = turn.game_state.board;
@@ -4758,15 +4784,15 @@
 
 
     // ── Unit-tag hover ──────────────────────────────────────────────────────
-    // `tagsHiddenByDefault` is the ONE source of truth for "are tags shown?";
+    // `tagDisplayMode` is the ONE source of truth for which tags are shown;
     // the hover state below is the only other input, and BoardRenderer's
     // tagHoverState + unitTagVisibility turn that pair into what each tag
-    // draws: with tags off, hovering any of a unit's BODY cells calls its tag
-    // up; with tags on, resting on a TAG makes it step aside so whatever it
-    // covers can be read. The whole hover state is
+    // draws: where a unit's tag is down, hovering any of its BODY cells calls
+    // it up; where it is already up, resting on the TAG makes it step aside so
+    // whatever it covers can be read. The whole hover state is
     // (lastCanvasMousePos, hoveredUnitId, tagHoverUnitId), and it is derived
     // from ONE place, syncHover, so no path can set half of it: every
-    // entry (mouse move, render, Alt toggle) calls syncHover and every
+    // entry (mouse move, render, Alt cycle) calls syncHover and every
     // exit (leaving the board, losing focus) calls clearHover. Applies in BOTH
     // live and historic view — the tags render through the same shared path.
     function repaintForTagChange() {
@@ -4804,20 +4830,21 @@
     // Recompute the whole hover state from a cursor position (null = no
     // cursor over the board). Returns whether anything the tags render from
     // changed, so callers repaint exactly when they must.
-    // The DISPLAY MODE picks which pointer input is tracked at all, matching
-    // BoardRenderer.tagHoverState: with tags default-OFF the unit's body is
-    // the switch and a tag's own rect is not tracked (a tag that lands over
-    // its unit's body would otherwise hide itself the frame after it
-    // appeared); with tags default-ON only the tag's rect is tracked, so
-    // resting on a tag steps it aside and leaving the rect brings it back.
-    // Tracking one input per mode is what removes the old latch: the two
-    // inputs can no longer fight, so there is nothing to hold steady.
+    // BOTH pointer inputs are tracked and BoardRenderer.tagHoverState picks
+    // the one each unit's own default owns: where a tag is down the unit's
+    // BODY is the switch and the tag's own rect says nothing (a tag that lands
+    // over its unit's body would otherwise hide itself the frame after it
+    // appeared); where a tag is up only its RECT is the switch, so resting on
+    // it steps it aside and leaving brings it back. Per-unit is the only place
+    // that choice can be made, because in "our team's tags" mode both defaults
+    // are live on one board at once — and it is what removes the old latch:
+    // the two inputs can no longer fight, so there is nothing to hold steady.
     function syncHover(pos) {
       const prevUnit = hoveredUnitId;
       const prevTagUnit = tagHoverUnitId;
       lastCanvasMousePos = pos;
-      hoveredUnitId = tagsHiddenByDefault ? cellUnitHit(pos) : null;
-      tagHoverUnitId = tagsHiddenByDefault ? null : tagUnitHit(pos);
+      hoveredUnitId = cellUnitHit(pos);
+      tagHoverUnitId = tagUnitHit(pos);
       return hoveredUnitId !== prevUnit || tagHoverUnitId !== prevTagUnit;
     }
     // Drop the hover entirely. Every exit path funnels through here, so a tag
@@ -4852,14 +4879,14 @@
       });
     }
 
-    // ── Alt tap: toggle whether unit tags are displayed by default ──────────
+    // ── Alt tap: cycle which unit tags are displayed by default ────────────
     // A bare Alt TAP (keydown then keyup with no other key or mouse press in
-    // between) flips the DEFAULT state between tags-displayed and tags-hidden
-    // (hover a unit to see its tag either way); the preference persists in
-    // localStorage. Any intervening key or pointer press cancels the pending
-    // tap, so Alt+click cell inspection (and every other Alt chord) never
-    // toggles. Auto-repeat keydowns of Alt itself do NOT cancel — a slow
-    // press-and-release still counts as a tap.
+    // between) steps the display mode through the cycle — all tags → our
+    // team's only → none (hover a unit to see its tag in any of them); the
+    // preference persists in localStorage. Any intervening key or pointer
+    // press cancels the pending tap, so Alt+click cell inspection (and every
+    // other Alt chord) never cycles. Auto-repeat keydowns of Alt itself do NOT
+    // cancel — a slow press-and-release still counts as a tap.
     let altTapPending = false;
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Alt') {
@@ -4876,11 +4903,13 @@
       if (!altTapPending) return;
       altTapPending = false;
       e.preventDefault(); // keep the browser from focusing its menu bar
-      tagsHiddenByDefault = !tagsHiddenByDefault;
+      tagDisplayMode = BoardRenderer.nextTagMode(tagDisplayMode);
       try {
-        localStorage.setItem(TAG_DISPLAY_PREF_KEY, tagsHiddenByDefault ? '1' : '0');
-      } catch (_e) { /* storage unavailable → session-only toggle */ }
-      // Toggling while the cursor sits on the board changes which tags are on
+        localStorage.setItem(TAG_DISPLAY_PREF_KEY, tagDisplayMode);
+      } catch (_e) { /* storage unavailable → session-only cycle */ }
+      updateTagModeReadout();
+      showBannerNotice('Unit tags: ' + BoardRenderer.TAG_MODE_LABEL[tagDisplayMode]);
+      // Cycling while the cursor sits on the board changes which tags are on
       // screen, and so which rects the pointer can be over: the hover is
       // re-derived before the repaint that reads it.
       syncHover(lastCanvasMousePos);

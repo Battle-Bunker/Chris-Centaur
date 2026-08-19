@@ -578,14 +578,15 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
-  // Head glyph: every unit's head cell draws its unit ICON — the shared
-  // drawn snake icon for snakes, the custom-drawn piece marks for chess
-  // pieces (see UNIT_ICONS) — upright, plus, for PIECES only, the orientation
-  // eye on the faced cell edge. Pawns additionally carry the staged-rotation
-  // badge; their weight shows in the unit tag. The cell carries NO letter: the unit tag's
-  // letter square is the letter's home, and it anchors itself on the cell
-  // diagonally adjacent to this one (renderUnitTags). The eye draws over the
-  // icon and under the tags, so facing is never buried and never buries.
+  // Head glyph: a PIECE's single cell draws its unit ICON — the custom-drawn
+  // piece marks (see UNIT_ICONS) — upright, plus the orientation eye on the
+  // faced cell edge; pawns additionally carry the staged-rotation badge. The
+  // cell carries no letter: a piece has no body to write on, so its tag's
+  // letter square is the letter's home, anchored on the cell diagonally
+  // adjacent to this one (renderUnitTags). Snakes take the other path — their
+  // head cell carries the letter itself, at the head of the information their
+  // body spells out (unitBodyInfoPlan). The eye draws over the icon and under
+  // the tags, so facing is never buried and never buries.
   function drawHeadGlyph(ctx, snake, hx, hy, cellSize, glyphOpts) {
     const cx = hx + cellSize / 2;
     // Nudged slightly above center so the glyph clears the health bar
@@ -597,28 +598,21 @@ const BoardRenderer = (function () {
     ctx.clip();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    if (isPieceUnit(snake)) {
-      drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
-      // Staged-rotation badge (pawns): the shared ↻/↺ mark in the top-left
-      // corner (the mirror of the bottom-right weight badge) while a
-      // side-square rotation is staged — the piece spends the turn turning, so
-      // no destination arrow is drawn.
-      const stagedRotation = glyphOpts && glyphOpts.stagedRotation;
-      if (stagedRotation) {
-        drawRotationBadge(
-          ctx, snake.orientation, stagedRotation,
-          hx + cellSize * 0.2, hy + cellSize * 0.3,
-          Math.max(cellSize * 0.34, 8),
-        );
-      }
-    } else {
-      // Snakes (and any letter/emoji-era historical unit): the uniform drawn
-      // snake icon.
-      drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
+    drawUnitIcon(ctx, snake.unitType, cx, cy, Math.max(cellSize * 0.78, 12));
+    // Staged-rotation badge (pawns): the shared ↻/↺ mark in the top-left
+    // corner (the mirror of the bottom-right weight badge) while a side-square
+    // rotation is staged — the piece spends the turn turning, so no
+    // destination arrow is drawn.
+    const stagedRotation = glyphOpts && glyphOpts.stagedRotation;
+    if (stagedRotation) {
+      drawRotationBadge(
+        ctx, snake.orientation, stagedRotation,
+        hx + cellSize * 0.2, hy + cellSize * 0.3,
+        Math.max(cellSize * 0.34, 8),
+      );
     }
     ctx.restore();
-    // Outside the cell clip: the eye deliberately overhangs the cell. Pieces
-    // only — a snake's head/neck already says where it faces.
+    // Outside the cell clip: the eye deliberately overhangs the cell.
     if (unitDrawsOrientationEye(snake)) {
       drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
     }
@@ -761,6 +755,21 @@ const BoardRenderer = (function () {
     return level > 0 ? { icon: STAT_ICON.invulnerable } : { mark: "hazard" };
   }
 
+  // Turns of invulnerability left, INCLUSIVE of the turn being displayed,
+  // derived from the absolute expiry turn the game server supplies. Returns
+  // null when the wire carries no expiry (older logs), when the caller has no
+  // turn to measure against, or when the level has already lapsed at that
+  // turn — every surface that shows a countdown asks here, so the board and
+  // the units table can never disagree about how long a buff has to run.
+  function invulnerabilityTurnsRemaining(snake, currentTurn) {
+    const expiry = snake && snake.invulnerabilityExpiryTurn;
+    if (typeof expiry !== "number" || typeof currentTurn !== "number") {
+      return null;
+    }
+    const remaining = expiry - currentTurn + 1;
+    return remaining >= 1 ? remaining : null;
+  }
+
   // Health-bar fill colour by remaining fraction: red when nearly starved,
   // orange when low, green otherwise. Shared by the board bar and the unit
   // info panel so the two readouts always agree.
@@ -800,37 +809,365 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
-  // Hazard cell: a red lattice — a faint wash crossed by GRID-ALIGNED bars,
-  // horizontal and vertical — rather than a solid red block. The bars carry
-  // the "danger" read while the gaps between them leave whatever shares the
-  // cell visible: the black grid lines, a unit standing in the hazard, a
-  // candidate ring. Running the bars square to the board rather than on the
-  // diagonals keeps them from reading as the diagonal hatch the fertile tiles
-  // already own. The clip is inset by a pixel on every side so the lattice
-  // never paints over the cell's own grid lines.
+  // Hazard cell: the RED HAZARD MARK itself, centred in the cell — the same
+  // vector symbol the unit tags and the units table wear for danger, so one
+  // meaning keeps one shape wherever it appears. It replaces the red lattice
+  // this cell used to be hatched with: a texture says "something is different
+  // here" and leaves the reader to remember what, while the symbol says
+  // "hazard" outright, and it stops competing with the fertile tiles' diagonal
+  // hatch for the same visual channel. The clip is inset by a pixel on every
+  // side so the mark never paints over the cell's own grid lines, and the mark
+  // is sized to leave the cell's borders — and whatever else shares the cell —
+  // visible around it.
   function drawHazardCell(ctx, x, y, cellSize) {
+    const height = Math.max(6, cellSize * 0.66);
+    const width = (height * HAZARD_ICON.w) / HAZARD_ICON.h;
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    ctx.fillStyle = "rgba(220, 30, 30, 0.18)";
-    ctx.fillRect(x, y, cellSize, cellSize);
-    ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
-    ctx.lineWidth = Math.max(1, cellSize / 11);
-    const spacing = Math.max(4, cellSize / 3);
-    // Half a spacing in from the edges, so the pattern is centred in the cell
-    // and no bar lands exactly on a grid line the clip is protecting.
-    for (let offset = spacing / 2; offset < cellSize; offset += spacing) {
-      ctx.beginPath();
-      ctx.moveTo(x, y + offset);
-      ctx.lineTo(x + cellSize, y + offset);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x + offset, y);
-      ctx.lineTo(x + offset, y + cellSize);
-      ctx.stroke();
-    }
+    drawHazardIcon(ctx, x + (cellSize - width) / 2, y + cellSize / 2, height);
     ctx.restore();
+  }
+
+  // ── A snake's body as information real estate ────────────────────────────
+  // A snake is several cells long, and every cell behind its head is canvas
+  // the unit's own numbers can live on — which is where they belong, because
+  // a number ON the unit needs no line traced back to it. Walking head → tail,
+  // each DISTINCT body cell carries exactly one item:
+  //   head        the unit's LETTER on a rounded square filled with the owning
+  //               player's colour (its own body colour when nobody holds it)
+  //   neck        weight, behind the silver anvil
+  //   2nd cell    health, behind the heart tinted by the shared thresholds
+  //   3rd cell    invulnerability, behind the shield / hazard mark, carrying
+  //               the turns it still has to run — only when there is a level
+  //   tail        how many body parts are STACKED on the tail cell — only when
+  //               more than one is
+  // The tail's stack count OUTRANKS the flow items: it is the one number
+  // nothing else on the board says, so its cell is reserved before the rest
+  // are dealt out. Anything that finds no cell — or no cell big enough to be
+  // read in — is dropped, and a dropped item is precisely what makes this
+  // unit's TAG worth drawing (renderUnitTags asks this plan, and nothing else).
+
+  // The smallest text a body item may shrink to. Below this a number stops
+  // being read and starts being texture, so the item is dropped instead and
+  // the tag carries it.
+  const BODY_ITEM_MIN_FONT = 9;
+  // The plaque a stat item is drawn on: near-white, so a tinted heart, a
+  // silver anvil and a dark number keep the same contrast on EVERY team
+  // colour and over every terrain a body can lie on.
+  const BODY_ITEM_PLAQUE = "rgba(255, 255, 255, 0.94)";
+  const BODY_ITEM_TEXT = "#14181e";
+
+  // The body cells an item can be placed on: the DISTINCT coordinates the
+  // body occupies, head → tail. A snake that doubles back over itself — a
+  // stacked tail, a coiled body — shows one cell per coordinate on screen, so
+  // it carries one item there too. Same walk renderSnakeUnified fills from,
+  // so an item can never land on a cell the body did not draw.
+  function distinctBodyCells(body) {
+    const seen = new Set();
+    const cells = [];
+    for (const seg of body) {
+      const key = `${seg.x},${seg.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cells.push(seg);
+    }
+    return cells;
+  }
+
+  // How many body parts sit stacked on the tail cell — the trailing run of
+  // segments sharing the last one's coordinate, which is what a snake carries
+  // while it is still growing into the length it has eaten.
+  function tailStackCount(body) {
+    if (!body || body.length === 0) return 0;
+    const tail = body[body.length - 1];
+    let n = 0;
+    for (let i = body.length - 1; i >= 0; i--) {
+      if (body[i].x !== tail.x || body[i].y !== tail.y) break;
+      n++;
+    }
+    return n;
+  }
+
+  // A board cell as a canvas rect, inset on every side. Both item boxes below
+  // are this with their own inset, so a cell can never be located two ways.
+  function cellBox(cell, boardHeight, cellSize, inset) {
+    return {
+      x: cell.x * cellSize + inset,
+      y: (boardHeight - 1 - cell.y) * cellSize + inset,
+      w: cellSize - inset * 2,
+      h: cellSize - inset * 2,
+    };
+  }
+
+  // The drawable box for a STAT item: the cell itself, barely inset. A stat
+  // reads as a horizontal BAND whose height comes from its text and never from
+  // the box, so it can spend the cell's full width — which is what lets a
+  // three-digit health sit beside its heart — while still never overhanging
+  // the body cells above and below it.
+  function bodyItemBox(cell, boardHeight, cellSize) {
+    return cellBox(cell, boardHeight, cellSize, Math.max(1.5, cellSize * 0.06));
+  }
+
+  // The head cell's LETTER SQUARE is a square, not a band, so it keeps to the
+  // body's own inner area — a square spilling into the gap would overhang the
+  // shape it sits on. The head cell also wears the unit's health BAR along its
+  // bottom edge (drawHealthBar), so the square gives that strip back rather
+  // than sitting under it.
+  function headItemBox(cell, boardHeight, cellSize) {
+    const box = cellBox(
+      cell, boardHeight, cellSize,
+      getSnakeGap(cellSize) + Math.max(0.5, cellSize * 0.02),
+    );
+    const barTop =
+      (boardHeight - 1 - cell.y) * cellSize +
+      cellSize -
+      Math.max(2, cellSize * 0.15) -
+      Math.max(1, cellSize * 0.03);
+    box.h = Math.max(0, Math.min(box.y + box.h, barTop - 1) - box.y);
+    return box;
+  }
+
+  // Fit a STAT item into one cell's band. Text width scales exactly with font
+  // size, so the size that fits is solved for rather than searched: measure
+  // once at the preferred size, scale down to the width available, and accept
+  // the result only while it stays above the size a number can still be read
+  // at. Readings are then tried in the order that keeps the most MEANING:
+  //   icon + full text → full text → icon + short text → short text
+  // The icon is given up BEFORE the buff's countdown because the body already
+  // says which buff it is — a protected snake wears a blue outline, an
+  // extra-vulnerable one a red — while nothing else on the board says how many
+  // turns are left. Position along the body (weight, then health, then buff)
+  // is what still names a bare number. `null` means even the shortest reading
+  // cannot be read here, and the caller drops the item.
+  function fitBodyStat(ctx, item, box, cellSize) {
+    // The band's ceiling is the body's own thickness, not the cell's.
+    const bodyH = cellSize - getSnakeGap(cellSize) * 2;
+    const pref = Math.min(
+      Math.max(BODY_ITEM_MIN_FONT, cellSize * 0.34),
+      bodyH * 0.62,
+    );
+    if (pref < BODY_ITEM_MIN_FONT) return null;
+    const minFont = Math.max(BODY_ITEM_MIN_FONT, pref * 0.7);
+    const avail = box.w * 0.94;
+    // The tail's stack count is a bare number by design — the tail's own
+    // position is what names it — so it simply has no icon reading to try.
+    const hasIcon = !!(item.mark || item.icon);
+    const texts = [item.text];
+    if (item.shortText && item.shortText !== item.text) texts.push(item.shortText);
+    const readings = [];
+    for (const text of texts) {
+      if (hasIcon) readings.push({ withIcon: true, text });
+      readings.push({ withIcon: false, text });
+    }
+    ctx.save();
+    ctx.font = `700 ${pref}px sans-serif`;
+    try {
+      for (const reading of readings) {
+        const iconH = pref * 0.95;
+        const iconGap = pref * 0.14;
+        const atPref =
+          (reading.withIcon ? statIconWidth(ctx, item, iconH) + iconGap : 0) +
+          ctx.measureText(reading.text).width;
+        if (atPref <= 0) continue;
+        const fontSize = Math.min(pref, (pref * avail) / atPref);
+        if (fontSize < minFont) continue;
+        const scale = fontSize / pref;
+        return {
+          font: `700 ${fontSize}px sans-serif`,
+          fontSize,
+          bodyH,
+          iconH: fontSize * 0.95,
+          iconGap: fontSize * 0.14,
+          withIcon: reading.withIcon,
+          text: reading.text,
+          width: atPref * scale,
+        };
+      }
+    } finally {
+      ctx.restore();
+    }
+    return null;
+  }
+
+  // Fit the LETTER square into the head cell. The letter is the unit's name
+  // out loud, so it takes the whole box and only the box's size can turn it
+  // away.
+  function fitBodyLetter(ctx, item, box) {
+    const side = Math.min(box.w, box.h);
+    if (side < BODY_ITEM_MIN_FONT) return null;
+    const fontSize = Math.max(BODY_ITEM_MIN_FONT, side * 0.74);
+    ctx.save();
+    ctx.font = `800 ${fontSize}px sans-serif`;
+    const width = ctx.measureText(item.text).width;
+    ctx.restore();
+    // A historic multi-character glyph that cannot fit the square is not a
+    // letter any more; the tag's own square is wide enough for it.
+    if (width > box.w * 0.92) return null;
+    return { font: `800 ${fontSize}px sans-serif`, fontSize, width };
+  }
+
+  // Draw one stat item: its plaque, then icon + number centred on it.
+  function drawBodyStatItem(ctx, item, box, fit) {
+    const midY = box.y + box.h / 2;
+    const plaqueH = Math.min(fit.bodyH, fit.fontSize * 1.46);
+    const plaqueW = Math.min(box.w, fit.width + fit.fontSize * 0.44);
+    const px = box.x + (box.w - plaqueW) / 2;
+    const py = midY - plaqueH / 2;
+    ctx.save();
+    ctx.beginPath();
+    const r = Math.min(plaqueH, plaqueW) * 0.26;
+    if (ctx.roundRect) ctx.roundRect(px, py, plaqueW, plaqueH, r);
+    else ctx.rect(px, py, plaqueW, plaqueH);
+    ctx.fillStyle = BODY_ITEM_PLAQUE;
+    ctx.fill();
+    ctx.font = fit.font;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    let x = px + (plaqueW - fit.width) / 2;
+    if (fit.withIcon) {
+      const mark = STAT_MARK[item.mark];
+      if (mark) {
+        mark.draw(ctx, x, midY, fit.iconH);
+      } else {
+        ctx.fillStyle = item.iconColor || BODY_ITEM_TEXT;
+        ctx.fillText(item.icon, x, midY);
+      }
+      x += statIconWidth(ctx, item, fit.iconH) + fit.iconGap;
+    }
+    ctx.fillStyle = BODY_ITEM_TEXT;
+    ctx.fillText(fit.text, x, midY);
+    ctx.restore();
+  }
+
+  // Draw the head's letter square: the owning player's colour behind a white
+  // letter, rimmed in white so the square still reads when its fill IS the
+  // body colour around it (an unowned unit), and the letter carries a dark
+  // halo so it survives a light owner colour.
+  function drawBodyLetter(ctx, item, box, fit) {
+    ctx.save();
+    ctx.beginPath();
+    const r = Math.min(box.w, box.h) * 0.26;
+    if (ctx.roundRect) ctx.roundRect(box.x, box.y, box.w, box.h, r);
+    else ctx.rect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = item.fill;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, fit.fontSize * 0.11);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.stroke();
+    ctx.font = fit.font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(1.5, fit.fontSize * 0.16);
+    ctx.strokeStyle = "rgba(12, 16, 22, 0.72)";
+    ctx.strokeText(item.text, box.x + box.w / 2, box.y + box.h / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(item.text, box.x + box.w / 2, box.y + box.h / 2);
+    ctx.restore();
+  }
+
+  // THE body-information plan for one unit: which item each body cell carries
+  // at this cell size, and whether anything was dropped — which is the whole
+  // of the tag rule. Built once per unit per frame and read by BOTH the body
+  // pass (which draws it) and the tag pass (which asks only `tagWarranted`),
+  // so the board and its tags can never disagree.
+  // `opts.owner` is the operator holding the unit (its colour fills the letter
+  // square), `opts.turn` the turn being displayed (the buff's countdown).
+  function unitBodyInfoPlan(ctx, snake, boardHeight, cellSize, opts) {
+    const plan = { placements: [], tagWarranted: true };
+    const body = snake && snake.body;
+    if (!body || body.length === 0) return plan;
+    // A piece is ONE cell: it has no body to write on, so it keeps the unit
+    // icon on that cell and the tag it has always had.
+    if (isPieceUnit(snake)) return plan;
+
+    const cells = distinctBodyCells(body);
+    const owner = opts && opts.owner;
+    const unitColor = snake.customizations?.color || snake.color || "#888888";
+    const letterItem = {
+      key: "letter",
+      chip: true,
+      text: snake.letter || snake.emoji || "?",
+      fill: (owner && owner.color) || unitColor,
+    };
+
+    // Flow items, head → tail, in the units table's order.
+    const flow = [
+      { key: "weight", mark: "anvil", text: String(snake.length ?? body.length) },
+    ];
+    if (typeof snake.health === "number") {
+      flow.push({
+        key: "health",
+        icon: STAT_ICON.health,
+        iconColor: healthBarColor(healthFraction(snake)),
+        text: String(snake.health),
+      });
+    }
+    const invulnLevel = snake.invulnerabilityLevel || 0;
+    if (invulnLevel !== 0) {
+      const remaining = invulnerabilityTurnsRemaining(snake, opts && opts.turn);
+      const level = String(invulnLevel);
+      flow.push({
+        ...invulnerabilityMark(invulnLevel),
+        key: "invulnerable",
+        // The level is the stat; the turns are how long it lasts, and they are
+        // the first thing given up when the cell cannot hold both.
+        text: remaining != null ? `${level}·${remaining}t` : level,
+        shortText: level,
+      });
+    }
+
+    const tailIndex = cells.length - 1;
+    const stacked = tailStackCount(body);
+    // A stack on a cell that IS the head is not a tail the eye can find, and
+    // the letter never gives its square up, so there is nothing to reserve.
+    const tailItem =
+      stacked > 1 && tailIndex > 0 ? { key: "stack", text: `×${stacked}` } : null;
+
+    let dropped = 0;
+    const place = (item, cell, isHead) => {
+      const box = isHead
+        ? headItemBox(cell, boardHeight, cellSize)
+        : bodyItemBox(cell, boardHeight, cellSize);
+      const fit = item.chip
+        ? fitBodyLetter(ctx, item, box)
+        : fitBodyStat(ctx, item, box, cellSize);
+      if (!fit) {
+        dropped++;
+        return;
+      }
+      plan.placements.push({ item, box, fit });
+    };
+
+    place(letterItem, cells[0], true);
+    // The tail's cell is reserved first — it outranks the flow — so the flow
+    // stops one cell short whenever a stack has to be shown.
+    const lastFlowIndex = tailItem ? tailIndex - 1 : tailIndex;
+    let slot = 1;
+    for (const item of flow) {
+      if (slot > lastFlowIndex) {
+        dropped++;
+        continue;
+      }
+      place(item, cells[slot], false);
+      slot++;
+    }
+    if (tailItem) place(tailItem, cells[tailIndex], false);
+
+    plan.tagWarranted = dropped > 0;
+    return plan;
+  }
+
+  // Paint a body-information plan onto the board. One plan in, one drawing
+  // out — the tag pass reads the very same object.
+  function drawUnitBodyInfo(ctx, plan) {
+    if (!plan) return;
+    for (const { item, box, fit } of plan.placements) {
+      if (item.chip) drawBodyLetter(ctx, item, box, fit);
+      else drawBodyStatItem(ctx, item, box, fit);
+    }
   }
 
   // Move a board cell one step in a Battlesnake direction. Returns null for
@@ -1903,6 +2240,21 @@ const BoardRenderer = (function () {
     // reads the same map.
     const stagedMovesMap = options?.stagedMoves || {};
 
+    // ONE body-information plan per unit, built before anything is written on
+    // a body: the pass below paints it, and the tag pass asks the same object
+    // whether anything was dropped. Two readers, one plan, no drift.
+    const owners = options?.owners || {};
+    const bodyPlans = new Map();
+    board.snakes.forEach((snake) => {
+      bodyPlans.set(
+        snake.id,
+        unitBodyInfoPlan(ctx, snake, board.height, cellSize, {
+          owner: owners[snake.id] || null,
+          turn,
+        }),
+      );
+    });
+
     board.snakes.forEach((snake) => {
       const stagedForThisSnake = stagedMovesMap[snake.id];
       const head = snake.body[0];
@@ -1914,41 +2266,19 @@ const BoardRenderer = (function () {
         // Alive board snakes only — dead snakes render as ghosts/death
         // markers in a separate pass and never reach this loop.
         drawHealthBar(ctx, snake, hx, hy, cellSize);
-        drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
-          stagedRotation: stagedForThisSnake?.rotation || null,
-        });
-      }
-
-      if (turn > 0 && snake.body.length > 1) {
-        const labelSize = Math.max(cellSize * 0.55, 10);
-
-        const neck = snake.body[1];
-        if (neck) {
-          const nx = neck.x * cellSize + cellSize / 2;
-          const ny = (board.height - 1 - neck.y) * cellSize + cellSize / 2;
-          ctx.font = `${labelSize}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = "#000000";
-          ctx.fillText(String(snake.body.length), nx, ny);
-        }
-
-        const willGrow =
-          snake.body[snake.body.length - 1].x ===
-            snake.body[snake.body.length - 2].x &&
-          snake.body[snake.body.length - 1].y ===
-            snake.body[snake.body.length - 2].y;
-        if (willGrow) {
-          const tail = snake.body[snake.body.length - 1];
-          const tx = tail.x * cellSize + cellSize / 2;
-          const ty = (board.height - 1 - tail.y) * cellSize + cellSize / 2;
-          ctx.font = `${labelSize}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = "#000000";
-          ctx.fillText("2", tx, ty);
+        // A piece is one cell and keeps its icon (and its eye, and its
+        // rotation badge) there; a snake's head cell carries its LETTER
+        // instead, drawn with the rest of its body information below.
+        if (isPieceUnit(snake)) {
+          drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
+            stagedRotation: stagedForThisSnake?.rotation || null,
+          });
         }
       }
+
+      // The unit's own numbers, along its own body — letter, weight, health,
+      // buff, tail stack — in whatever of them this cell size can hold.
+      drawUnitBodyInfo(ctx, bodyPlans.get(snake.id));
 
       let arrowMove = null;
       let arrowColor = "#4CAF50";
@@ -2150,11 +2480,12 @@ const BoardRenderer = (function () {
       }
     });
 
-    // Unit tags: a compact tag whose letter square sits on a cell diagonally
-    // adjacent to each unit's head, carrying the unit's letter, weight,
-    // health, and operator name when owned. Placement + hover hit-testing live
-    // in renderUnitTags / getNameTagAt.
-    renderUnitTags(ctx, canvas, board, cellSize, options);
+    // Unit tags: the FALLBACK readout, for the units whose own body could not
+    // hold everything (`bodyPlans` says which). A compact tag whose letter
+    // square sits on a cell diagonally adjacent to the unit's head, carrying
+    // its letter, weight, health, buff, and operator name when owned.
+    // Placement + hover hit-testing live in renderUnitTags / getNameTagAt.
+    renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans);
 
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
@@ -2301,9 +2632,57 @@ const BoardRenderer = (function () {
   // one of the unit's BODY CELLS, or on the unit's own TAG.
   const TAG_HOVER = { none: "none", unit: "unit", tag: "tag" };
 
-  // Which hover input a tag reads, given the display default. The two display
-  // modes take DIFFERENT inputs, and that — not a latch — is what keeps the
-  // rule from fighting itself:
+  // The three tag display modes an Alt tap cycles through, in cycle order:
+  //   always  every warranted tag is drawn
+  //   ours    only OUR TEAM's are drawn by default; everyone else's wait for
+  //           a hover — the working mode, where our own units read at a glance
+  //           and a crowded enemy line stays quiet until asked
+  //   never   none are drawn by default
+  // The mode is a global display preference; whether one unit's tag is up by
+  // default is that mode crossed with whose unit it is, which is all
+  // tagsHiddenFor answers.
+  const TAG_MODE = { always: "always", ours: "ours", never: "never" };
+  const TAG_MODE_ORDER = [TAG_MODE.always, TAG_MODE.ours, TAG_MODE.never];
+  // How each mode says its name — on the shortcuts pane, and anywhere else a
+  // surface has to tell the reader which one is active.
+  const TAG_MODE_LABEL = {
+    [TAG_MODE.always]: "all tags shown",
+    [TAG_MODE.ours]: "our team's tags shown",
+    [TAG_MODE.never]: "tags hidden",
+  };
+
+  // Any stored/passed value resolved to a mode. Anything unrecognised — a
+  // stale preference, a caller that never set one — reads as "always", the
+  // mode that hides nothing.
+  function normalizeTagMode(mode) {
+    return TAG_MODE_ORDER.includes(mode) ? mode : TAG_MODE.always;
+  }
+
+  // The next mode in the cycle, wrapping. One definition, so the Alt tap and
+  // any other control that offers the cycle step through the same order.
+  function nextTagMode(mode) {
+    const i = TAG_MODE_ORDER.indexOf(normalizeTagMode(mode));
+    return TAG_MODE_ORDER[(i + 1) % TAG_MODE_ORDER.length];
+  }
+
+  // Is THIS unit's tag hidden until hovered, under this mode? The one place
+  // the three-mode cycle becomes the two-state per-unit default the hover
+  // rules below are written against. `ours` is the caller's team test — a
+  // unit on a team we control into.
+  function tagsHiddenFor(mode, ours) {
+    switch (normalizeTagMode(mode)) {
+      case TAG_MODE.never:
+        return true;
+      case TAG_MODE.ours:
+        return !ours;
+      default:
+        return false;
+    }
+  }
+
+  // Which hover input a tag reads, given the mode and whose unit it is. The
+  // two per-unit defaults take DIFFERENT inputs, and that — not a latch — is
+  // what keeps the rule from fighting itself:
   //   default OFF: the unit's BODY is the switch. A hidden tag's would-be rect
   //                says nothing, because a tag drawn over its own unit's body
   //                would otherwise switch itself straight back off the instant
@@ -2311,10 +2690,13 @@ const BoardRenderer = (function () {
   //   default ON:  the TAG is the switch. Body hover says nothing — the tag is
   //                already up, and the only gesture left to make is asking it
   //                to step aside.
-  // Callers therefore only need to track the input their current mode reads;
-  // passing both is safe, since this picks the one the mode owns.
-  function tagHoverState(tagsHiddenByDefault, onUnitBody, onTag) {
-    if (tagsHiddenByDefault) return onUnitBody ? TAG_HOVER.unit : TAG_HOVER.none;
+  // Callers therefore track BOTH pointer inputs and let this pick the one the
+  // unit's own default owns; in "ours" mode the two live side by side on one
+  // board, which is exactly why the choice is made per unit rather than once.
+  function tagHoverState(mode, ours, onUnitBody, onTag) {
+    if (tagsHiddenFor(mode, ours)) {
+      return onUnitBody ? TAG_HOVER.unit : TAG_HOVER.none;
+    }
     return onTag ? TAG_HOVER.tag : TAG_HOVER.none;
   }
 
@@ -2335,25 +2717,29 @@ const BoardRenderer = (function () {
     },
   };
 
-  // THE tag-visibility rule. Two inputs decide what one tag does, and nothing
-  // else does: the global display default (Alt-tap toggle, plumbed through
-  // options.tagsHiddenByDefault) and the hover state tagHoverState resolved
-  // for this unit.
+  // THE tag-visibility rule. Three inputs decide what one tag does, and
+  // nothing else does: the display MODE (the Alt-tap cycle, plumbed through
+  // options.tagMode), whether the unit is OURS (which is all the middle mode
+  // asks), and the hover state tagHoverState resolved for this unit.
   //   pointer on the unit's body → "solid": hovering a unit CALLS UP its tag
   //                                (default-off mode)
   //   pointer on the unit's tag  → "hidden": the tag steps aside so the board
   //                                under it can be read (default-on mode)
-  //   pointer elsewhere          → the default: "hidden" while tags are off,
-  //                                else "solid" / "selected" under selection
+  //   pointer elsewhere          → the default: "hidden" while this unit's
+  //                                tags are off, else "solid" / "selected"
+  //                                under selection
   // A pure lookup with no history of its own: the mode gate above is what
   // makes each state reachable from one input only.
   // Returned as a name rather than a number so callers cannot invent an
   // in-between state; TAG_ALPHA maps it to the one opacity it draws at.
+  // Whether a tag is drawn AT ALL is a separate question the body-information
+  // plan answers first (renderUnitTags): a snake carrying every applicable
+  // item on its own body never reaches here, in any mode.
   const TAG_ALPHA = { hidden: 0, solid: 0.92, selected: 1 };
-  function unitTagVisibility(tagsHiddenByDefault, hover, selected) {
+  function unitTagVisibility(mode, ours, hover, selected) {
     if (hover === TAG_HOVER.unit) return "solid";
     if (hover === TAG_HOVER.tag) return "hidden";
-    if (tagsHiddenByDefault) return "hidden";
+    if (tagsHiddenFor(mode, ours)) return "hidden";
     return selected ? "selected" : "solid";
   }
 
@@ -2486,21 +2872,26 @@ const BoardRenderer = (function () {
   // tags wins. The body extends rightward from the square; where the right
   // edge is too close it extends leftward instead and the letter moves to the
   // tag's right end, so the square keeps the anchor cell either way.
+  // A tag is the FALLBACK, not the default: a unit gets one only when it
+  // cannot carry all of its applicable information on its own body, which is
+  // the single question `bodyPlans` answers (unitBodyInfoPlan). A snake long
+  // enough to spell everything out never wears a tag in ANY mode; a piece,
+  // having no body to write on, always warrants one.
   // Styling derives reactively from the selections map; the Alt-tap display
-  // default arrives via options.tagsHiddenByDefault and the pointer's position
-  // via options.hoveredUnitId (pointer on the unit's cells) and
+  // cycle arrives via options.tagMode and the pointer's position via
+  // options.hoveredUnitId (pointer on the unit's cells) and
   // options.tagHoverUnitId (pointer latched onto the unit's own tag), and
   // unitTagVisibility turns those into the one state each tag draws in.
   // The tag the pointer is latched onto still PUBLISHES its rect while hidden:
   // that rect is how the caller sees the pointer leave it and un-latch.
-  function renderUnitTags(ctx, canvas, board, cellSize, options) {
+  function renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
     const owners = options?.owners || {};
     const selections = options?.selections || {};
     const hoveredId = options?.hoveredUnitId || null;
     const tagHoverId = options?.tagHoverUnitId || null;
-    const hiddenDefault = !!options?.tagsHiddenByDefault;
+    const mode = normalizeTagMode(options?.tagMode);
 
     // OUR side, by the same team rule the rest of the client uses: the teams
     // the units we control belong to. A unit outside those teams is foreign
@@ -2532,15 +2923,26 @@ const BoardRenderer = (function () {
     board.snakes.forEach((snake) => {
       const head = snake.body && snake.body[0];
       if (!head) return;
-      // The display mode picks which pointer input this tag reads, so a tag
-      // sitting over its own unit's body cannot suppress itself.
+      // Ownership salience: only a unit on OUR side that an operator holds
+      // gets a coloured outline. Everything else — every foreign team's unit,
+      // and every unclaimed unit of our own — is grey. The same team test is
+      // what the "our team's tags" mode reads.
+      const ours = ourTeamKeys.has(getTeamKey(snake));
+      // The tag is warranted only when the unit's own body could not carry
+      // everything. This outranks the display mode entirely: a long-enough
+      // snake shows no tag even in "always".
+      const plan = bodyPlans && bodyPlans.get(snake.id);
+      if (plan && !plan.tagWarranted) return;
+      // The unit's own default picks which pointer input this tag reads, so a
+      // tag sitting over its own unit's body cannot suppress itself.
       const hover = tagHoverState(
-        hiddenDefault,
+        mode,
+        ours,
         hoveredId === snake.id,
         tagHoverId === snake.id,
       );
       const selected = !!selections[snake.id];
-      const visibility = unitTagVisibility(hiddenDefault, hover, selected);
+      const visibility = unitTagVisibility(mode, ours, hover, selected);
       // Hidden tags are not drawn, so they are not placed or hit-tested
       // either — with ONE exception: a tag that has stepped aside under the
       // pointer is still placed and published, because its rect is what tells
@@ -2549,10 +2951,6 @@ const BoardRenderer = (function () {
       const owner = owners[snake.id] || null;
       const unitColor =
         snake.customizations?.color || snake.color || "#888888";
-      // Ownership salience: only a unit on OUR side that an operator holds
-      // gets a coloured outline. Everything else — every foreign team's unit,
-      // and every unclaimed unit of our own — is grey.
-      const ours = ourTeamKeys.has(getTeamKey(snake));
       const outlineColor =
         ours && owner ? owner.color || unitColor : TAG_OUTLINE.unowned;
 
@@ -2878,15 +3276,11 @@ const BoardRenderer = (function () {
       // drawn hazard mark, inlined at the row's text height.
       const invulnMark = invulnerabilityMark(invulnLevel);
       const icon = invulnMark.mark ? hazardIconSVG(13) : invulnMark.icon;
-      // Turns remaining (inclusive of the current turn) from the absolute expiry
-      // turn supplied by the server. Falls back to just the level when the expiry
-      // is missing (older logs) or already passed at the displayed turn.
-      const expiry = snake.invulnerabilityExpiryTurn;
-      let turnsSuffix = "";
-      if (typeof expiry === "number" && typeof currentTurn === "number") {
-        const remaining = expiry - currentTurn + 1;
-        if (remaining >= 1) turnsSuffix = ` \u00B7 ${remaining}t`;
-      }
+      // Turns remaining (inclusive of the current turn) from the shared
+      // countdown. Falls back to just the level when the expiry is missing
+      // (older logs) or already passed at the displayed turn.
+      const remaining = invulnerabilityTurnsRemaining(snake, currentTurn);
+      const turnsSuffix = remaining != null ? ` \u00B7 ${remaining}t` : "";
       invulnDisplay =
         `<span title="Invulnerability">${icon} ${invulnLevel}${turnsSuffix}</span>`;
     }
@@ -3688,7 +4082,17 @@ const BoardRenderer = (function () {
     getNameTagAt,
     unitTagVisibility,
     tagHoverState,
+    tagsHiddenFor,
+    normalizeTagMode,
+    nextTagMode,
     TAG_HOVER,
+    TAG_MODE,
+    TAG_MODE_ORDER,
+    TAG_MODE_LABEL,
+    unitBodyInfoPlan,
+    tailStackCount,
+    distinctBodyCells,
+    invulnerabilityTurnsRemaining,
     invulnerabilityMark,
     STAT_ICON,
     TAG_OUTLINE,
