@@ -96,18 +96,23 @@
     //   G  4 cells, NEGATIVE buff (the drawn red hazard mark)       → NO tag
     // Unowned units (C, E) fill their letter square with their own body
     // colour; owned ones (A, B, D, F, G) fill it with their operator's.
+    // Every stat plate carries its SYMBOL over its number, and the number is
+    // what changes width — so the ladder spends 1-, 2- and 3-digit values on
+    // each of them (D's weight and health are both three digits, G's buff
+    // counts down from a two-digit turn), which is the widest each plate ever
+    // has to hold.
     const BODY_LADDER_SNAKES = () => [
       makeSnake("bl-a", "Ada", "#156cdd", [[1,10]], 96, 0, { weight: 1 }),
       makeSnake("bl-b", "Bea", "#ff4d6d", [[5,10],[5,9]], 71, 0, { weight: 2 }),
-      makeSnake("bl-c", "Cid", "#0a7e3a", [[9,10],[9,9],[9,8]], 8, 0, { weight: 3 }),
+      makeSnake("bl-c", "Cid", "#0a7e3a", [[9,10],[9,9],[9,8]], 8, 0, { weight: 47 }),
       makeSnake("bl-d", "Dov", "#8629c0", [[1,6],[1,5],[1,4],[1,3]], 100, 2,
-        { weight: 4, expiry: 28 }),
+        { weight: 128, expiry: 28 }),
       makeSnake("bl-e", "Eli", "#119ba7",
         [[4,6],[4,5],[5,5],[6,5],[7,5],[7,5]], 64, 1, { weight: 6, expiry: 31 }),
       makeSnake("bl-f", "Fay", "#88411a",
-        [[10,6],[10,5],[10,4],[10,3],[10,3],[10,3]], 23, 3, { weight: 6, expiry: 26 }),
+        [[10,6],[10,5],[10,4],[10,3],[10,3],[10,3]], 23, 3, { weight: 106, expiry: 26 }),
       makeSnake("bl-g", "Gus", "#c70389", [[2,1],[3,1],[4,1],[5,1]], 47, -2,
-        { weight: 4, expiry: 29 }),
+        { weight: 4, expiry: 36 }),
     ];
     const BODY_LADDER_OWNERS = {
       "bl-a": { name: "ada", color: "#7b4fd8" },
@@ -401,7 +406,14 @@
         "13: The same palette sweep at 28px cells", 336),
       tagModeFixture("14: Tag mode \u2014 always (only short units tag at all)", "always"),
       tagModeFixture("15: Tag mode \u2014 our team's tags only", "ours"),
-      tagModeFixture("16: Tag mode \u2014 none by default", "never")
+      tagModeFixture("16: Tag mode \u2014 none by default", "never"),
+      // Right at the floor: a plate this small still holds a symbol over a
+      // 1- or 2-digit number, and a 3-digit one (D's weight and health, F's
+      // weight) no longer fits — so those items DROP, whole, and their units
+      // wear the tag that carries them. No plate ever shows a number with no
+      // symbol over it: an unlabelled number is not a reading this offers.
+      bodyLadderFixture(
+        "17: The ladder at 25px cells \u2014 what will not fit drops whole", 300),
     ];
 
     const grid = document.getElementById('testGrid');

@@ -253,14 +253,26 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
 
   // A canvas context stub good enough to measure with: text width is
   // proportional to the font size the caller set, which is the only property
-  // the fit maths depends on.
+  // the fit maths depends on. The ratios are the ones Chromium reports for
+  // bold sans — a digit is 0.556 of its font size across, the heart 0.594,
+  // the shield emoji 1.25 — so a fit that clears the floor here clears it on
+  // a real canvas too.
+  const GLYPH_WIDTH: Record<string, number> = {
+    [BoardRenderer.STAT_ICON.health]: 0.594,
+    [BoardRenderer.STAT_ICON.invulnerable]: 1.25,
+  };
   function ctxStub() {
     return {
       font: '',
       measureText(text: string) {
         const m = /(\d+(?:\.\d+)?)px/.exec(this.font as string);
         const size = m ? parseFloat(m[1]) : 10;
-        return { width: String(text).length * size * 0.56 };
+        const glyph = GLYPH_WIDTH[String(text)];
+        return {
+          width: glyph != null
+            ? glyph * size
+            : [...String(text)].length * size * 0.556,
+        };
       },
       save() {}, restore() {},
     };
@@ -403,6 +415,79 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
       expect(((box.y % CELL) + CELL) % CELL).toBeCloseTo((CELL - box.h) / 2, 6);
       expect(box.w).toBeLessThan(CELL - BoardRenderer.getSnakeGap(CELL) * 2);
     }
+  });
+
+  // The plate is a square — as tall as it is wide — so a symbol set BESIDE
+  // its number spends the width twice over and the height not at all, and the
+  // anvil was what fell off the weight plate at ordinary board sizes. Stacked,
+  // the symbol has a row of its own and the pair arrives together or not at
+  // all.
+  test('a stat plate stacks its symbol OVER its number, and keeps both', () => {
+    const wide = snake({
+      body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
+      length: 128, // three digits of weight, and of health
+      health: 100,
+      invulnerabilityLevel: 1,
+      invulnerabilityExpiryTurn: 36, // two digits of countdown
+    });
+    for (const cell of [60, 50, 40, 32, 28]) {
+      const p = plan(ctxStub(), wide, HEIGHT, cell, { turn: 25 });
+      expect(keysOf(p)).toEqual(['letter', 'weight', 'health', 'invulnerable']);
+      expect(p.tagWarranted).toBe(false);
+      for (const pl of p.placements.slice(1)) {
+        // Symbol AND number, at every size the board is played at.
+        expect(pl.fit.symbol).toBeTruthy();
+        expect(pl.fit.symbol.inkH).toBeGreaterThanOrEqual(6);
+        expect(pl.fit.fontSize).toBeGreaterThanOrEqual(9);
+        // Two rows: the block is taller than the number's own ink, and the
+        // symbol never overruns the plate it stands on.
+        expect(pl.fit.blockH).toBeGreaterThan(pl.fit.textInk + pl.fit.rowGap);
+        expect(pl.fit.blockH).toBeLessThanOrEqual(pl.box.h);
+        expect(pl.fit.symbol.inkW).toBeLessThanOrEqual(pl.box.w);
+      }
+    }
+  });
+
+  test('a plate too small for both rows drops the item, never its symbol', () => {
+    // At 25px cells a three-digit number would still fit on its own — and a
+    // number with nothing to name it is exactly what this refuses to draw, so
+    // weight and health leave the body whole and the tag carries them. The
+    // one-digit countdown still fits, symbol and all.
+    const cramped = snake({
+      body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
+      length: 128,
+      health: 100,
+      invulnerabilityLevel: 1,
+      invulnerabilityExpiryTurn: 28,
+    });
+    const tight = plan(ctxStub(), cramped, HEIGHT, 25, { turn: 25 });
+    expect(keysOf(tight)).toEqual(['letter', 'invulnerable']);
+    expect(tight.tagWarranted).toBe(true);
+    for (const pl of tight.placements.slice(1)) {
+      expect(pl.fit.symbol).toBeTruthy();
+    }
+    // Three more pixels of cell, and the same unit carries the lot.
+    const roomy = plan(ctxStub(), cramped, HEIGHT, 28, { turn: 25 });
+    expect(keysOf(roomy)).toEqual(['letter', 'weight', 'health', 'invulnerable']);
+    expect(roomy.tagWarranted).toBe(false);
+  });
+
+  test('the tail count is the one number that stands alone', () => {
+    // Nothing names a bare number except where it sits — and the TAIL names
+    // its own count, so that plate has no symbol row to stack or to lose.
+    const p = run(
+      snake({
+        body: [
+          { x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 },
+          { x: 1, y: 6 }, { x: 1, y: 6 },
+        ],
+        length: 5,
+      }),
+    );
+    const stack = p.placements[p.placements.length - 1];
+    expect(stack.item.key).toBe('stack');
+    expect(stack.fit.symbol).toBeNull();
+    expect(stack.fit.blockH).toBeCloseTo(stack.fit.textInk, 6);
   });
 
   test('overlapping body cells count once — one cell, one item', () => {

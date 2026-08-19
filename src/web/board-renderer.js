@@ -633,6 +633,10 @@ const BoardRenderer = (function () {
     d:
       "M0.5 7 L7 3 L23 3 L23 7 L16.5 8.6 L15 13.4 L20 17 L20 19.5 " +
       "L4 19.5 L4 17 L9 13.4 L7.5 8.6 L3 7.8 Z",
+    // Where the path's INK sits inside that box (see STAT_MARK): the anvil
+    // leaves air above and below, and a symbol stacked over a number only
+    // reads as its equal if it is sized and centred by the ink the eye sees.
+    ink: { x: 0.5, y: 3, w: 22.5, h: 16.5 },
   };
   const ANVIL_COLORS = {
     fill: "#c2c7cd", // silver
@@ -689,6 +693,8 @@ const BoardRenderer = (function () {
       "Q0.9 19.8 2.24 17.58 L10.66 3.62 Q12 1.4 13.34 3.62 Z " +
       "M9.8 6.6 L14.2 6.6 L13.7 13.4 L10.3 13.4 Z " +
       "M10.15 15.2 L13.85 15.2 L13.85 18.6 L10.15 18.6 Z",
+    // The triangle's own extent inside that box, apex to base (see ANVIL_ICON).
+    ink: { x: 0.9, y: 1.4, w: 22.2, h: 18.4 },
   };
   const HAZARD_COLORS = {
     fill: "#d81b1b", // the hazard lattice's red, at full strength
@@ -738,6 +744,26 @@ const BoardRenderer = (function () {
     anvil: { icon: ANVIL_ICON, draw: drawAnvilIcon },
     hazard: { icon: HAZARD_ICON, draw: drawHazardIcon },
   };
+
+  // The INK of the glyph stat symbols, per unit of font size: how tall it
+  // stands, and how far its centre sits above the alphabetic baseline. A glyph
+  // fills its em box neither fully nor symmetrically — a heart is barely more
+  // than half its font size tall and rides high, the shield emoji overflows
+  // the em in both directions — so a symbol stacked over a number can only be
+  // sized and centred against numbers if it is measured by its ink. Taken from
+  // Chromium's canvas text metrics (actualBoundingBox, bold sans).
+  const STAT_GLYPH_INK = {
+    [STAT_ICON.health]: { h: 0.58, mid: 0.27 },
+    [STAT_ICON.invulnerable]: { h: 1.18, mid: 0.34 },
+  };
+  // A glyph nobody has measured: assume it behaves like a capital letter. The
+  // fit still measures its WIDTH for real, so the worst case is a symbol drawn
+  // a little small rather than one that overruns its plate.
+  const STAT_GLYPH_INK_DEFAULT = { h: 0.7, mid: 0.35 };
+  // The ink height of a bold sans DIGIT, per unit of font size, from the same
+  // metrics: digits sit on the baseline and stand 0.70 of their size tall, so
+  // a number's row height and its baseline both follow from its font size.
+  const DIGIT_INK_HEIGHT = 0.7;
 
   // Health-bar track: the dark under-layer the units-table health bar draws
   // its fill on. The on-cell bar uses HEALTH_BAR_CELL_TRACK instead.
@@ -838,22 +864,34 @@ const BoardRenderer = (function () {
   //   head        the unit's LETTER, on the same plate every stat behind it
   //               uses, filled with the owning player's colour (its own body
   //               colour when nobody holds it)
-  //   neck        weight, behind the silver anvil
-  //   2nd cell    health, behind the heart tinted by the shared thresholds
-  //   3rd cell    the TURNS of invulnerability still to run, behind the
+  //   neck        weight, under the silver anvil
+  //   2nd cell    health, under the heart tinted by the shared thresholds
+  //   3rd cell    the TURNS of invulnerability still to run, under the
   //               shield / hazard mark — only while a level is running
   //   tail        how many body parts are STACKED on the tail cell — only when
   //               more than one is
+  // Every stat is SYMBOL OVER NUMBER, two rows on one square plate: the symbol
+  // is what names the number, so the two arrive together or not at all.
   // The tail's stack count OUTRANKS the flow items: it is the one number
   // nothing else on the board says, so its cell is reserved before the rest
-  // are dealt out. Anything that finds no cell — or no cell big enough to be
-  // read in — is dropped, and a dropped item is precisely what makes this
+  // are dealt out. Anything that finds no cell — or no cell that can hold both
+  // its rows — is dropped, and a dropped item is precisely what makes this
   // unit's TAG worth drawing (renderUnitTags asks this plan, and nothing else).
 
   // The smallest text a body item may shrink to. Below this a number stops
   // being read and starts being texture, so the item is dropped instead and
   // the tag carries it.
   const BODY_ITEM_MIN_FONT = 9;
+  // The smallest a stat's SYMBOL may be drawn, measured across its ink. Below
+  // this an anvil, a heart and a shield all collapse into the same small dark
+  // blob, and a symbol that cannot be told apart names nothing — so the item
+  // is dropped whole rather than drawn as a number nobody can label.
+  const BODY_ITEM_MIN_SYMBOL = 6;
+  // The share of a plate's inner column the SYMBOL is guaranteed before the
+  // number may take any of it, and the air between the two rows as a share of
+  // that column.
+  const BODY_STACK_SYMBOL = 0.44;
+  const BODY_STACK_GAP = 0.07;
   // The plaque a stat item is drawn on: near-white, so a tinted heart, a
   // silver anvil and a dark number keep the same contrast on EVERY team
   // colour and over every terrain a body can lie on.
@@ -868,8 +906,9 @@ const BoardRenderer = (function () {
   // at every cell size — and what keeps the head's plate clear of the health
   // BAR along that cell's bottom edge (drawHealthBar).
   const BODY_PLATE_SIDE = 0.86;
-  // How much of the plate's width its content may spend; the rest is the
-  // margin that keeps a number off the plate's rounded corners.
+  // How much of the plate its content may spend, in BOTH directions; the rest
+  // is the margin that keeps a number, and the symbol stacked over it, off the
+  // plate's rounded corners.
   const BODY_PLATE_INNER = 0.9;
   // The corner radius as a fraction of the side — one value, so the letter
   // square and the stat plates round identically.
@@ -920,16 +959,54 @@ const BoardRenderer = (function () {
     };
   }
 
-  // Fit a STAT item INSIDE the plate. Text width scales exactly with font
-  // size, so the size that fits is solved for rather than searched: measure
-  // once at the preferred size, scale down to the plate's inner width, and
-  // accept the result only while it stays above the size a number can still be
-  // read at. Two readings are tried, in the order that keeps the most MEANING:
-  //   icon + number → number
-  // The icon is what is given up, because position along the body (weight,
-  // then health, then the buff) still names a bare number while nothing names
-  // a bare icon. `null` means even the bare number cannot be read here, and
-  // the caller drops the item — which is precisely what warrants a tag.
+  // One stat SYMBOL solved to a given ink height: what it measures across, and
+  // everything the draw pass needs to land that ink on a point. A drawn mark
+  // and a glyph answer here alike — the mark by scaling its path box until the
+  // ink inside it stands `inkH` tall, the glyph by choosing the font size
+  // whose ink does — so the layout pass and the draw pass can never size or
+  // place a symbol two different ways. Leaves the measuring font on `ctx`.
+  function statSymbolFit(ctx, item, inkH) {
+    const mark = STAT_MARK[item.mark];
+    if (mark) {
+      const { w, h, ink } = mark.icon;
+      const scale = inkH / ink.h;
+      return {
+        inkH,
+        inkW: ink.w * scale,
+        // What the mark drawer is given: the height of the whole path box, and
+        // where that box's centre lies relative to the ink's (the drawer
+        // centres the BOX on the y it is handed, and starts it at the x).
+        boxH: h * scale,
+        boxDX: -ink.x * scale,
+        boxDY: (h / 2 - (ink.y + ink.h / 2)) * scale,
+      };
+    }
+    const glyph = STAT_GLYPH_INK[item.icon] || STAT_GLYPH_INK_DEFAULT;
+    const fontSize = inkH / glyph.h;
+    ctx.font = `700 ${fontSize}px sans-serif`;
+    return {
+      inkH,
+      inkW: ctx.measureText(item.icon).width,
+      font: ctx.font,
+      // The baseline to draw on, measured down from the ink's centre.
+      baselineDY: glyph.mid * fontSize,
+    };
+  }
+
+  // Fit a STAT item INSIDE the plate, SYMBOL OVER NUMBER. The plate is a
+  // square — as tall as it is wide — so a symbol set BESIDE its number spends
+  // the width twice over and the height not at all, which is exactly how an
+  // anvil came to be dropped from a plate with room to spare above the number.
+  // Stacked, each row gets the plate's full width and its own share of the
+  // height, and both are solved against that one inner box.
+  // Text width scales exactly with font size, so the size that fits is solved
+  // for rather than searched: measure once at the preferred size, then take
+  // the smallest of what the width allows, what the preferred size allows, and
+  // what leaves the SYMBOL its guaranteed share of the column. The symbol then
+  // takes every pixel of column the number did not, capped by the plate's
+  // width. `null` means the two cannot both be read here — and then the caller
+  // drops the item whole, because a number with no symbol over it names
+  // nothing, and the unit's tag says it properly instead.
   function fitBodyStat(ctx, item, box, cellSize) {
     // The text's ceiling is the body's own thickness, not the cell's.
     const bodyH = cellSize - getSnakeGap(cellSize) * 2;
@@ -938,39 +1015,50 @@ const BoardRenderer = (function () {
       bodyH * 0.62,
     );
     if (pref < BODY_ITEM_MIN_FONT) return null;
-    const minFont = Math.max(BODY_ITEM_MIN_FONT, pref * 0.7);
-    const avail = box.w * BODY_PLATE_INNER;
+    const innerW = box.w * BODY_PLATE_INNER;
+    const innerH = box.h * BODY_PLATE_INNER;
     // The tail's stack count is a bare number by design — the tail's own
-    // position is what names it — so it simply has no icon reading to try.
-    const hasIcon = !!(item.mark || item.icon);
-    const readings = hasIcon ? [true, false] : [false];
+    // position is what names it — so it has no second row, and no air to
+    // leave for one.
+    const hasSymbol = !!(item.mark || item.icon);
+    const rowGap = hasSymbol ? innerH * BODY_STACK_GAP : 0;
+    const column = innerH - rowGap;
+    const reserved = hasSymbol
+      ? Math.max(BODY_ITEM_MIN_SYMBOL, column * BODY_STACK_SYMBOL)
+      : 0;
     ctx.save();
-    ctx.font = `700 ${pref}px sans-serif`;
     try {
-      for (const withIcon of readings) {
-        const iconH = pref * 0.95;
-        const iconGap = pref * 0.14;
-        const atPref =
-          (withIcon ? statIconWidth(ctx, item, iconH) + iconGap : 0) +
-          ctx.measureText(item.text).width;
-        if (atPref <= 0) continue;
-        const fontSize = Math.min(pref, (pref * avail) / atPref);
-        if (fontSize < minFont) continue;
-        const scale = fontSize / pref;
-        return {
-          font: `700 ${fontSize}px sans-serif`,
-          fontSize,
-          iconH: fontSize * 0.95,
-          iconGap: fontSize * 0.14,
-          withIcon,
-          text: item.text,
-          width: atPref * scale,
-        };
+      ctx.font = `700 ${pref}px sans-serif`;
+      const widthPerPx = ctx.measureText(item.text).width / pref;
+      if (!(widthPerPx > 0)) return null;
+      const fontSize = Math.min(
+        pref,
+        innerW / widthPerPx,
+        (column - reserved) / DIGIT_INK_HEIGHT,
+      );
+      if (fontSize < BODY_ITEM_MIN_FONT) return null;
+      const textInk = fontSize * DIGIT_INK_HEIGHT;
+      const fit = {
+        font: `700 ${fontSize}px sans-serif`,
+        fontSize,
+        text: item.text,
+        textInk,
+        rowGap,
+        symbol: null,
+        blockH: textInk,
+      };
+      if (!hasSymbol) return fit;
+      let symbol = statSymbolFit(ctx, item, column - textInk);
+      if (symbol.inkW > innerW) {
+        symbol = statSymbolFit(ctx, item, (symbol.inkH * innerW) / symbol.inkW);
       }
+      if (symbol.inkH < BODY_ITEM_MIN_SYMBOL) return null;
+      fit.symbol = symbol;
+      fit.blockH = symbol.inkH + rowGap + textInk;
+      return fit;
     } finally {
       ctx.restore();
     }
-    return null;
   }
 
   // Fit the LETTER into the same plate, solved against the same inner width:
@@ -1019,27 +1107,39 @@ const BoardRenderer = (function () {
     ctx.stroke();
   }
 
-  // Draw one stat item: its plate, then icon + number centred on it.
+  // Draw one stat item: its plate, then the symbol over the number, the two
+  // rows centred on the plate as one block. Everything is placed by INK — the
+  // symbol's centre and the number's baseline — so the pair sits optically
+  // centred whatever shape the symbol is.
   function drawBodyStatItem(ctx, item, box, fit) {
-    const midY = box.y + box.h / 2;
+    const cx = box.x + box.w / 2;
+    const top = box.y + (box.h - fit.blockH) / 2;
     ctx.save();
     drawBodyPlate(ctx, box, BODY_ITEM_PLAQUE);
-    ctx.font = fit.font;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    let x = box.x + (box.w - fit.width) / 2;
-    if (fit.withIcon) {
+    const symbol = fit.symbol;
+    if (symbol) {
+      const symMidY = top + symbol.inkH / 2;
       const mark = STAT_MARK[item.mark];
       if (mark) {
-        mark.draw(ctx, x, midY, fit.iconH);
+        mark.draw(
+          ctx,
+          cx - symbol.inkW / 2 + symbol.boxDX,
+          symMidY + symbol.boxDY,
+          symbol.boxH,
+        );
       } else {
+        ctx.font = symbol.font;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
         ctx.fillStyle = item.iconColor || BODY_ITEM_TEXT;
-        ctx.fillText(item.icon, x, midY);
+        ctx.fillText(item.icon, cx, symMidY + symbol.baselineDY);
       }
-      x += statIconWidth(ctx, item, fit.iconH) + fit.iconGap;
     }
+    ctx.font = fit.font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = BODY_ITEM_TEXT;
-    ctx.fillText(fit.text, x, midY);
+    ctx.fillText(fit.text, cx, top + fit.blockH);
     ctx.restore();
   }
 
