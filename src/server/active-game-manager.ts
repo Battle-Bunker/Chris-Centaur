@@ -18,6 +18,7 @@ import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
+import { colorForArrivalIndex } from '../shared/player-palette';
 
 export interface MoveEvaluation {
   // The candidate id: a Direction for snakes (byte-identical to the historic
@@ -360,6 +361,11 @@ interface PlayerEnrolment {
   userId: string;
   name: string;
   color: string;
+  // 0-based ARRIVAL ORDER: the position of this enrolment in the game's
+  // enrolment sequence, which is the server's authoritative "when did this
+  // player join" signal (see colorForArrival). Recorded explicitly rather
+  // than re-derived, so it cannot drift if the map is ever pruned.
+  arrivalIndex: number;
 }
 
 export type EnrolResult =
@@ -394,15 +400,6 @@ export interface ActiveGame {
   // one (see BoardTerritory). Null until the first full decision pass lands.
   boardTerritory: BoardTerritory | null;
 }
-
-// Player colours. No yellow or yellow-green: fertile ground is drawn in
-// yellow, so a unit in that hue vanishes into the terrain. Blue and crimson
-// hold those two slots instead, keeping the palette nine wide.
-const DISTINCT_COLORS = [
-  '#008080', '#f58231', '#4363d8', '#e6194b',
-  '#3cb44b', '#42d4f4', '#9a6324', '#911eb4',
-  '#f032e6',
-];
 
 // Fallback network-latency allowance when a turn arrives WITHOUT the server's
 // own expiry timestamp (see recordTurnArrival — every live caller passes it).
@@ -1017,11 +1014,7 @@ export class ActiveGameManager {
     // re-subscribed after picking a new name), keep the old enrolment parked —
     // enrolments are game-lifetime — but the connected user reflects the name
     // used now.
-    const enrolment: PlayerEnrolment = existing || {
-      userId,
-      name: trimmed,
-      color: this.colorForName(game, trimmed),
-    };
+    const enrolment: PlayerEnrolment = existing || this.enrol(game, userId, trimmed);
     game.playerNames.set(key, enrolment);
 
     const prior = game.connectedUsers.get(userId);
@@ -1051,25 +1044,25 @@ export class ActiveGameManager {
       .map((e) => e.name);
   }
 
-  // Deterministic name-keyed colour: hash the lowercased name into the
-  // distinct-colour set, then linearly probe past colours already held by
-  // OTHER enrolled names so concurrent players stay visually distinct while
-  // the same name always re-derives the same starting point. Once assigned,
-  // the colour is stored on the enrolment and never changes for the game.
-  private colorForName(game: ActiveGame, name: string): string {
-    const key = name.toLowerCase();
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
-    }
-    const used = new Set(Array.from(game.playerNames.values()).map((e) => e.color));
-    const n = DISTINCT_COLORS.length;
-    for (let i = 0; i < n; i++) {
-      const candidate = DISTINCT_COLORS[(hash + i) % n];
-      if (!used.has(candidate)) return candidate;
-    }
-    // All colours taken — accept the hash slot (collision unavoidable).
-    return DISTINCT_COLORS[hash % n];
+  // Build a brand-new enrolment, stamping it with the next ARRIVAL INDEX and
+  // the palette colour that index owns.
+  //
+  // Arrival order is the enrolment sequence itself: `game.playerNames` is a
+  // Map written in first-subscribe order and never pruned (enrolments outlive
+  // disconnects, see removeConnectedUser), so its size at creation time IS
+  // "how many players arrived before this one". That makes the first player
+  // to join a game always PLAYER_PALETTE[0], the second always [1], and so on
+  // — the same order gives the same colours in every game, and a reconnect
+  // (or a turn passing, or the socket dropping) re-reads the stored enrolment
+  // rather than re-deriving anything.
+  //
+  // The colour is no longer a function of the NAME. A name hash could seat
+  // two players on the palette's two closest entries as easily as its two
+  // furthest; walking the ordered list from 0 guarantees the small games that
+  // actually happen use the deliberately-furthest-apart prefix.
+  private enrol(game: ActiveGame, userId: string, name: string): PlayerEnrolment {
+    const arrivalIndex = game.playerNames.size;
+    return { userId, name, color: colorForArrivalIndex(arrivalIndex), arrivalIndex };
   }
 
   removeConnectedUser(gameId: string, userId: string): void {
