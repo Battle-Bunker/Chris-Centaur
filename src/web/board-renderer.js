@@ -1397,6 +1397,31 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
+  // The mark that says "something collided here, and the board can tell you
+  // what". Drawn on every cell the turn's clash records name — including the
+  // ones a SURVIVOR is standing on, which is exactly when the explanation is
+  // worth reading and exactly where no death marker is drawn. Deliberately
+  // quiet (a thin dashed ring inside the cell): it is an affordance, not a
+  // second death marker competing with the real one.
+  function drawClashMarker(ctx, cell, boardHeight, cellSize) {
+    if (!cell) return;
+    const cx = cell.x * cellSize + cellSize / 2;
+    const cy = (boardHeight - 1 - cell.y) * cellSize + cellSize / 2;
+    const r = cellSize * 0.44;
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.setLineDash([
+      Math.max(2, cellSize * 0.12),
+      Math.max(2, cellSize * 0.1),
+    ]);
+    ctx.lineWidth = Math.max(1, cellSize * 0.05);
+    ctx.strokeStyle = "#FFD54F";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Drawn at a snake's LAST-KNOWN head when we have no authoritative final
   // resting position from the server. A "?" inside a disc with arrows pointing
   // outward in all four directions: it could have ended up anywhere from here.
@@ -2599,6 +2624,20 @@ const BoardRenderer = (function () {
     // Placement + hover hit-testing live in renderUnitTags / getNameTagAt.
     renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans, turn);
 
+    // Clash rings: every cell this turn's clash records name, marked as
+    // inspectable BEFORE the death markers go down so a death marker always
+    // wins the middle of its cell. Clash records ride on the board, so this
+    // one path serves live play, historic scrubbing and /history alike.
+    for (const key of clashCellKeys(board)) {
+      const [cx, cy] = key.split(",");
+      drawClashMarker(
+        ctx,
+        { x: Number(cx), y: Number(cy) },
+        board.height,
+        cellSize,
+      );
+    }
+
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
     // historic scrubbing, and /history. We build one unified list of death
@@ -3379,16 +3418,71 @@ const BoardRenderer = (function () {
       .join(" ");
   }
 
-  // Friendly display name for a team given one of its snakes: game-server team
-  // name first, then squad, then color, then a generic fallback.
+  // How long a raw identifier may be before the scoreboard shortens it. A
+  // centaur document id is a 20-character opaque token; printing it whole
+  // pushes the score off the header and tells the reader nothing.
+  const MAX_RAW_TEAM_ID_CHARS = 14;
+
+  // A raw id, shortened to something a header can hold. Only ever reached when
+  // no real name is available anywhere.
+  function shortenTeamId(id) {
+    const text = String(id);
+    if (text.length <= MAX_RAW_TEAM_ID_CHARS) return text;
+    return text.slice(0, 10) + "\u2026";
+  }
+
+  // The team name hiding inside a unit's own display name. Units are named
+  // `${teamName} ${letter}` by the game server, so dropping the trailing
+  // letter recovers the team's name for every wire and every log — including
+  // the historical ones written before units carried `teamName` themselves.
+  function teamNameFromUnitName(snake) {
+    const name = snake && snake.name ? String(snake.name).trim() : "";
+    const letter = snake && snake.letter ? String(snake.letter).trim() : "";
+    if (!name || !letter) return null;
+    const suffix = " " + letter;
+    if (!name.endsWith(suffix)) return null;
+    const prefix = name.slice(0, -suffix.length).trim();
+    return prefix || null;
+  }
+
+  // The team's HUMAN display name: the name the game server put on the team
+  // (the controlling centaur's), else the name carried inside the unit's own
+  // label, else the descriptive fallbacks a fixture or an old log leaves us,
+  // else a shortened raw id. Never the full opaque team id — that is a
+  // document key, not a name.
   function teamDisplayName(snake) {
+    if (snake?.teamName) return String(snake.teamName);
+    const fromUnit = teamNameFromUnitName(snake);
+    if (fromUnit) return fromUnit;
+    const pretty = prettifyTeamName(snake?.teamID);
+    if (pretty) return shortenTeamId(pretty);
     return (
-      prettifyTeamName(snake?.teamID) ||
       snake?.squad ||
       snake?.customizations?.color ||
       snake?.color ||
       "Team"
     );
+  }
+
+  // A unit's WEIGHT: the unit-generic size stat the game scores on — body
+  // length for a snake, stack weight for a chess piece.
+  function unitWeight(snake) {
+    if (!snake) return 0;
+    return snake.length ?? (snake.body ? snake.body.length : 0);
+  }
+
+  // A team's SCORE, computed exactly as the game engine computes it: the
+  // summed weight of the team's LIVING units. A dead unit contributes nothing,
+  // which is why the caller passes the set of ids it knows to be dead — the
+  // roster keeps dead units listed (struck through) long after the board has
+  // dropped them, and they must not keep scoring.
+  function teamScore(teamSnakes, deadIds) {
+    let total = 0;
+    for (const snake of teamSnakes || []) {
+      if (deadIds && deadIds.has(snake.id)) continue;
+      total += unitWeight(snake);
+    }
+    return total;
   }
 
   // Builds the HTML for one snake row. `opts` controls history-viewer extras:
@@ -3422,6 +3516,16 @@ const BoardRenderer = (function () {
     // letter is already the suffix of a current snake's name, so only the
     // emoji era needs a prefix.
     const glyphPrefix = !snake.letter && snake.emoji ? `${snake.emoji} ` : "";
+    // Inside a team group the team's name is already the group's heading, so
+    // repeating it on every row ("Chris A", "Chris B") says the same thing
+    // three times. The row carries the unit's LETTER — the handle players use
+    // out loud — and falls back to the full name when there is no letter
+    // (emoji-era logs). Ungrouped (flat) rendering has no heading to lean on,
+    // so it keeps the full name.
+    const label =
+      opts && opts.labelMode === "letter" && snake.letter
+        ? snake.letter
+        : `${glyphPrefix}${snake.name}`;
     // Owner badge: shown for owned snakes in the owning player's colour.
     const owner = opts && opts.owner;
     const ownerBadge = owner
@@ -3464,13 +3568,14 @@ const BoardRenderer = (function () {
     // the unit's colour box so the row reads like the board cell.
     const unitIcon = unitIconSVG(snake.unitType || "snake", 14);
     // Weight: the unit-generic size stat — body length for snakes, stack
-    // weight for pieces.
-    const weight = snake.length ?? snake.body.length;
+    // weight for pieces. It is also this unit's contribution to its team's
+    // score, which is why the two are computed from one helper.
+    const weight = unitWeight(snake);
     return `
         <div class="${itemClass}"${clickAttr}>
           <div class="snake-color-box" style="background-color: ${snakeColor}; display: flex; align-items: center; justify-content: center;">${unitIcon}</div>
           <div class="snake-details">
-            <div class="snake-name">${glyphPrefix}${snake.name}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
+            <div class="snake-name"${isDead ? ' style="text-decoration:line-through;"' : ""}>${label}${isOurSnake ? " (You)" : ""}${deadSuffix}</div>
             <div class="snake-stats">
               <span title="Weight" style="display:inline-flex;align-items:center;gap:4px;">${anvilIconSVG(13)} ${weight}</span>
               ${healthDisplay}
@@ -3607,6 +3712,145 @@ const BoardRenderer = (function () {
     });
   }
 
+  // ── Clash inspection ──────────────────────────────────────────────────
+  //
+  // A clash is the game server's own record of a collision it resolved:
+  // WHERE it happened, WHO took part, WHY someone died, and — in piece games,
+  // which resolve a turn in several sub-steps as sliders walk their paths —
+  // WHICH sub-step it happened on. It rides on the board (`board.clashes`,
+  // api coords), so it reads identically on the live board and on a scrubbed
+  // historic one, and it says nothing about control or ownership: a neutral
+  // spectator reads a clash exactly as a player does.
+
+  // Every clash record the board carries. Defensive about boards from older
+  // wires and logs, which carry none.
+  function boardClashes(board) {
+    return (board && Array.isArray(board.clashes) && board.clashes) || [];
+  }
+
+  // The clash records marking one cell. The server writes one record per body
+  // cell of each unit that died, so a single collision can mark several cells
+  // and one cell can carry several records (two units dying in one contest).
+  function clashesAtCell(board, cell) {
+    if (!cell) return [];
+    return boardClashes(board).filter(
+      (c) => c && c.cell && c.cell.x === cell.x && c.cell.y === cell.y,
+    );
+  }
+
+  // The distinct COLLISIONS among a set of records: records differing only in
+  // which body cell they mark describe one event and are folded together.
+  function distinctClashes(clashes) {
+    const seen = new Set();
+    const out = [];
+    for (const clash of clashes || []) {
+      if (!clash) continue;
+      const key = [
+        clash.reason || "",
+        clash.subStep == null ? "" : clash.subStep,
+        (clash.playerIDs || []).join(","),
+      ].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clash);
+    }
+    return out;
+  }
+
+  // The cells any clash marks, as a "x,y" key set — what a renderer needs to
+  // decide which cells are worth marking as inspectable.
+  function clashCellKeys(board) {
+    const keys = new Set();
+    for (const clash of boardClashes(board)) {
+      if (clash && clash.cell) keys.add(`${clash.cell.x},${clash.cell.y}`);
+    }
+    return keys;
+  }
+
+  // Escapes text the game server wrote (clash reasons, team names) for use in
+  // the panel's markup.
+  function escapeHTML(text) {
+    return String(text == null ? "" : text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // One participant's line in the clash panel: its team colour, its team name
+  // and letter, and whether it walked away. Survival is READ OFF THE BOARD —
+  // the clash record names participants, not victims — so a participant that
+  // is no longer among `board.snakes` did not survive the collision.
+  function clashParticipantHTML(id, lookup, aliveIds) {
+    const snake = lookup(id);
+    const color =
+      (snake && (snake.customizations?.color || snake.color)) || "#888888";
+    const team = snake ? teamDisplayName(snake) : "";
+    const letter = snake && snake.letter ? snake.letter : "";
+    const label = snake
+      ? escapeHTML([team, letter].filter(Boolean).join(" ") || snake.name || id)
+      : escapeHTML(id);
+    const survived = aliveIds.has(id);
+    const outcome = survived
+      ? '<span class="clash-outcome survived">survived</span>'
+      : '<span class="clash-outcome died">died</span>';
+    return (
+      `<li class="clash-participant">` +
+      `<span class="clash-swatch" style="background-color:${color};"></span>` +
+      `<span class="clash-unit"${survived ? "" : ' style="text-decoration:line-through;"'}>${label}</span>` +
+      outcome +
+      `</li>`
+    );
+  }
+
+  /**
+   * The clash inspector's content for one cell, as HTML. Returns "" when
+   * nothing collided there, which is how a caller decides whether to show the
+   * panel at all.
+   *
+   * `options.knownSnakes` is any iterable of unit objects the caller can still
+   * name — the roster's memory of units the board has since dropped. Without
+   * it a dead participant is named by its id, which is correct but terse.
+   */
+  function renderClashDetails(board, cell, options) {
+    const clashes = distinctClashes(clashesAtCell(board, cell));
+    if (clashes.length === 0) return "";
+    const alive = (board && board.snakes) || [];
+    const aliveIds = new Set(alive.map((s) => s.id));
+    const byId = new Map();
+    for (const snake of (options && options.knownSnakes) || []) {
+      if (snake && snake.id) byId.set(snake.id, snake);
+    }
+    for (const snake of alive) byId.set(snake.id, snake);
+    const lookup = (id) => byId.get(id) || null;
+
+    const events = clashes
+      .map((clash) => {
+        // The sub-step dates a mid-flight collision inside its turn: a slider
+        // that died on its third square did not die where it was aiming, and
+        // the number is the only thing on the wire that says so.
+        const step =
+          clash.subStep == null
+            ? ""
+            : `<span class="clash-substep" title="Within-turn sub-step: pieces resolve a turn one square of their path at a time">sub-step ${escapeHTML(clash.subStep)}</span>`;
+        const participants = (clash.playerIDs || [])
+          .map((id) => clashParticipantHTML(id, lookup, aliveIds))
+          .join("");
+        return (
+          `<div class="clash-event">` +
+          `<div class="clash-reason">${escapeHTML(clash.reason || "Collision")}${step}</div>` +
+          `<ul class="clash-participants">${participants}</ul>` +
+          `</div>`
+        );
+      })
+      .join("");
+
+    return (
+      `<div class="clash-panel-title">Clash at (${cell.x}, ${cell.y})</div>` +
+      events
+    );
+  }
+
   // Renders the participants list. With options.groupByTeam the snakes are
   // grouped by team (our team first and visually distinguished) and ordered by
   // letter rank within each team, and rows are made selectable via
@@ -3683,8 +3927,21 @@ const BoardRenderer = (function () {
           teamSnakes[0].customizations?.color ||
           teamSnakes[0].color ||
           "#888888";
-        const name = teamDisplayName(teamSnakes[0]);
-        const label = isOurTeam ? `${name} (Our Team)` : name;
+        // The team's HUMAN name, never its document id. "(our team)" is a
+        // separate marker rather than part of the name so a neutral spectator's
+        // scoreboard is the same scoreboard with that one span absent.
+        // The name is server-written text landing in both an attribute and
+        // the header's body, so it is escaped at the point of use.
+        const name = escapeHTML(teamDisplayName(teamSnakes[0]));
+        const oursMark = isOurTeam
+          ? '<span class="team-group-ours">(our team)</span>'
+          : "";
+        // The team's live score: the summed weight of its LIVING units,
+        // exactly as the game engine scores it. This is the scoreboard's
+        // headline number, so it sits at the header's end where the eye
+        // reaches it after the name — the column position it occupies in the
+        // compact table this replaces.
+        const score = teamScore(teamSnakes, deadIds);
         const headerClass = isOurTeam
           ? "team-group-header our-team"
           : "team-group-header enemy-team";
@@ -3701,6 +3958,8 @@ const BoardRenderer = (function () {
               active: snake.id === ourSnakeId,
               dead: deadIds.has(snake.id),
               owner: ownersMap[snake.id] || null,
+              // The heading already names the team; the rows name the units.
+              labelMode: "letter",
             }, currentTurn),
           )
           .join("");
@@ -3708,7 +3967,9 @@ const BoardRenderer = (function () {
         <div class="team-group ${isOurTeam ? "our-team" : "enemy-team"}">
           <div class="${headerClass}">
             <span class="team-group-swatch" style="background-color:${teamColor};"></span>
-            <span>${label}</span>
+            <span class="team-group-name" title="${name}">${name}</span>
+            ${oursMark}
+            <span class="team-group-score" title="Team score: total weight of this team's living units" data-team-score="${score}">${score}</span>
           </div>
           ${items}
         </div>
@@ -4277,6 +4538,15 @@ const BoardRenderer = (function () {
     unitDrawsOrientationEye,
     compareUnitsByLetter,
     inspectableUnitIds,
+    teamDisplayName,
+    unitWeight,
+    teamScore,
+    boardClashes,
+    clashesAtCell,
+    distinctClashes,
+    clashCellKeys,
+    renderClashDetails,
+    drawClashMarker,
   };
 })();
 

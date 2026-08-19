@@ -28,6 +28,11 @@ export interface Snake {
   // by the game server; when absent the level is assumed to apply this turn only.
   invulnerabilityExpiryTurn?: number;
   teamID?: string;
+  // The team's human display NAME (the controlling centaur's name, snapshotted
+  // into the game setup). `teamID` is an opaque document id and is not fit to
+  // show a reader; this is. Absent on historical logs predating the field —
+  // readers fall back to the name prefix of `name` ("Chris A" -> "Chris").
+  teamName?: string;
   // Chess-piece support: the unit's current type ("pawn" | "knight" | "bishop" |
   // "rook" | "queen" | "king"), absent or "snake" for ordinary snakes. Pieces
   // arrive as 1-cell units whose `length` is their WEIGHT (stack size), not
@@ -72,8 +77,31 @@ export interface Board {
   // resolved against a unit's CURRENT type.
   maxHealthPerUnit?: Partial<Record<string, number>>;
   snakes: Snake[];
+  // Collisions the game server resolved while producing THIS board, in api
+  // coords. One record per body cell of each unit that died, so a clash can
+  // appear several times over one snake's length and two units dying in the
+  // same contest produce two records naming the same participants. Present
+  // only on turns where something collided.
+  clashes?: Clash[];
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];
+}
+
+/**
+ * One collision the game server resolved, in the renderer's coordinate space.
+ * Purely descriptive: it names WHERE, WHO took part and WHY, and says nothing
+ * about who controls what — a neutral spectator reads it exactly as a player
+ * does. Which participants died is derived from the resulting board (a
+ * participant absent from `board.snakes` did not survive), never from this
+ * record.
+ */
+export interface Clash {
+  cell: Coord;
+  playerIDs: string[];
+  reason: string;
+  // The within-turn sub-step the collision happened on (piece games resolve a
+  // turn in several sub-steps as sliders walk their paths). Absent for snakes.
+  subStep?: number;
 }
 
 export interface Game {

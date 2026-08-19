@@ -26,6 +26,56 @@
     .units-table-fixture .snake-stats {
       display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; margin-top: 2px;
     }
+    /* Scoreboard heading: name, "(our team)" marker, and the team's score
+       pinned to the far end. Same shape as the live page's stylesheet. */
+    .units-table-fixture .team-group-header {
+      display: flex; align-items: center; gap: 8px; font-weight: 700;
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
+      margin: 10px 0 4px; padding-bottom: 4px; border-bottom: 1px solid #444;
+    }
+    .units-table-fixture .team-group-header.our-team { color: #4CAF50; }
+    .units-table-fixture .team-group-header.enemy-team { color: #e57373; }
+    .units-table-fixture .team-group-swatch {
+      display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+      border: 1px solid #555; flex-shrink: 0;
+    }
+    .units-table-fixture .team-group-ours {
+      font-weight: 600; font-size: 10px; letter-spacing: 0.04em;
+      text-transform: none; opacity: 0.75;
+    }
+    .units-table-fixture .team-group-score {
+      margin-left: auto; font-size: 16px; font-weight: 800; letter-spacing: 0;
+      color: #fff; background: rgba(255,255,255,0.08); border-radius: 5px;
+      padding: 1px 8px; font-variant-numeric: tabular-nums;
+    }
+    /* Clash inspector content, as the live page and the replay show it. */
+    .clash-panel-fixture {
+      margin-top: 12px; width: 280px; font-size: 12px; line-height: 1.45;
+      background: rgba(20,24,28,0.97); border: 1px solid #FFD54F;
+      border-radius: 6px; padding: 8px 10px;
+    }
+    .clash-panel-title {
+      font-weight: 700; font-size: 12px; color: #FFD54F;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .clash-event { margin-top: 6px; }
+    .clash-event + .clash-event { border-top: 1px solid #444; padding-top: 6px; }
+    .clash-reason { color: #ddd; }
+    .clash-substep {
+      margin-left: 6px; font-size: 10px; color: #FFD54F;
+      border: 1px solid #6d5b1f; border-radius: 8px; padding: 0 5px;
+      white-space: nowrap;
+    }
+    .clash-participants { list-style: none; margin: 4px 0 0; padding: 0; }
+    .clash-participant { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+    .clash-swatch {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      border: 1px solid #555; flex-shrink: 0;
+    }
+    .clash-unit { flex: 1; min-width: 0; }
+    .clash-outcome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .clash-outcome.died { color: #e57373; }
+    .clash-outcome.survived { color: #4CAF50; }
   </style>
 </head>
 <body>
@@ -56,6 +106,10 @@
       // explicitly. The buff's expiry is what turns a level into a countdown.
       if (opts && opts.weight != null) snake.length = opts.weight;
       if (opts && opts.expiry != null) snake.invulnerabilityExpiryTurn = opts.expiry;
+      // The unit's letter within its team. Defaults to the first letter of the
+      // fixture's display name, which is only right when the name IS the unit
+      // ("Buffy" -> B); a unit named "<team> <letter>" has to say so.
+      if (opts && opts.letter) snake.letter = opts.letter;
       return snake;
     }
 
@@ -454,6 +508,57 @@
         controlled: [],
         showTable: true
       },
+      {
+        title: "19: Scoreboard \u2014 team names, team scores, dead units, clash inspection",
+        width: 9, height: 9,
+        // Two teams named the way the game server names teams (the centaur's
+        // display name, not its document id), each unit named "<team>
+        // <letter>". The scoreboard below reads the team NAME in the heading,
+        // the team's SCORE (summed weight of its LIVING units) at the
+        // heading's end, and the units by LETTER alone. Chris C is dead: it
+        // stays listed, struck through, and scores nothing.
+        snakes: [
+          makeSnake("ca", "Chris A", "#4CAF50", [[2,6]], 100, 0,
+            { unitType: "rook", weight: 5, letter: "A", orientation: { dx: 0, dy: -1 } }),
+          makeSnake("cb", "Chris B", "#4CAF50", [[3,3]], 46, 2,
+            { unitType: "knight", weight: 3, expiry: 27, letter: "B", orientation: { dx: 1, dy: 2 } }),
+          makeSnake("aa", "Alice A", "#e57373", [[6,6]], 88, 0,
+            { unitType: "queen", weight: 8, letter: "A", orientation: { dx: 0, dy: 1 } }),
+          makeSnake("ab", "Alice B", "#e57373", [[6,2]], 100, 0,
+            { unitType: "pawn", weight: 1, letter: "B", orientation: { dx: 0, dy: 1 } }),
+        ],
+        teams: { ca: "TEAMCHRIS0000000000A", cb: "TEAMCHRIS0000000000A",
+                 cc: "TEAMCHRIS0000000000A",
+                 aa: "TEAMALICE0000000000B", ab: "TEAMALICE0000000000B" },
+        teamNames: { ca: "Chris", cb: "Chris", cc: "Chris",
+                     aa: "Alice", ab: "Alice" },
+        // Chris C died on (4,4) in a contest with Alice A; the board no longer
+        // carries it, but the roster still names it.
+        deadSnakes: [
+          makeSnake("cc", "Chris C", "#4CAF50", [[4,4]], 0, 0,
+            { unitType: "bishop", weight: 9, letter: "C", orientation: { dx: 1, dy: -1 } }),
+        ],
+        // Clash rings mark every recorded collision cell — including (6,6),
+        // where the SURVIVOR is standing and no death marker is drawn.
+        clashes: [
+          { cell: { x: 4, y: 4 }, playerIDs: ["cc", "aa"],
+            reason: "Head-on collision (lighter unit(s) died)", subStep: 3 },
+          { cell: { x: 6, y: 6 }, playerIDs: ["cc", "aa"],
+            reason: "Head-on collision (lighter unit(s) died)", subStep: 3 },
+          { cell: { x: 1, y: 1 }, playerIDs: ["cb"],
+            reason: "Collided with wall", subStep: 1 },
+        ],
+        clashPanelAt: { x: 4, y: 4 },
+        food: [],
+        hazards: [],
+        fertileTiles: [],
+        potions: [],
+        territory: {},
+        owners: {},
+        controlled: ["ca"],
+        showTable: true,
+        tableOptions: { groupByTeam: true }
+      },
     ];
 
     const grid = document.getElementById('testGrid');
@@ -501,6 +606,16 @@
       if (test.teams) {
         test.snakes.forEach((s) => { s.teamID = test.teams[s.id] || s.teamID; });
       }
+      // The team's HUMAN name, exactly as the wire carries it on every unit.
+      if (test.teamNames) {
+        const named = test.snakes.concat(test.deadSnakes || []);
+        named.forEach((s) => {
+          if (test.teamNames[s.id]) s.teamName = test.teamNames[s.id];
+        });
+      }
+      if (test.teams && test.deadSnakes) {
+        test.deadSnakes.forEach((s) => { s.teamID = test.teams[s.id] || s.teamID; });
+      }
 
       const gameState = {
         turn: 25,
@@ -511,12 +626,28 @@
           hazards: (test.hazards || []).map(([x,y]) => ({x,y})),
           fertileTiles: (test.fertileTiles || []).map(([x,y]) => ({x,y})),
           invulnerabilityPotions: (test.potions || []).map(([x,y]) => ({x,y})),
-          snakes: test.snakes
+          snakes: test.snakes,
+          // Clash records ride on the board, in api coords, exactly as the
+          // wire delivers them.
+          clashes: test.clashes
         }
       };
 
       if (tableEl) {
-        BoardRenderer.renderSnakeInfo(tableEl, gameState, test.snakes[0]?.id, {});
+        BoardRenderer.renderSnakeInfo(tableEl, gameState, test.snakes[0]?.id,
+          Object.assign({ deadSnakes: test.deadSnakes || [] }, test.tableOptions || {}));
+      }
+
+      // The clash inspector's own content, rendered from the same helper the
+      // live page and the replay call.
+      if (test.clashPanelAt) {
+        const panel = document.createElement('div');
+        panel.className = 'clash-panel-fixture';
+        panel.innerHTML = BoardRenderer.renderClashDetails(
+          gameState.board, test.clashPanelAt,
+          { knownSnakes: (test.deadSnakes || []).concat(test.snakes) }
+        );
+        div.appendChild(panel);
       }
 
       const moveState = test.makeMoveState ? test.makeMoveState() : {
@@ -548,6 +679,9 @@
         owners: test.owners || {},
         controlledSnakeIds: new Set(test.controlled || []),
         selections: test.selections || {},
+        // Units the board has dropped, so their death markers draw over the
+        // clash cells they died on.
+        deadSnakes: test.deadSnakes || null,
       });
       redraws.push(draw);
       draw();

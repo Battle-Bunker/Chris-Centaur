@@ -93,6 +93,34 @@ export interface TTTurn {
   // aggregate level above is the SUM of these; each expires independently, so
   // this is what tells us how long the current level will hold.
   activeEffects?: TTActiveEffect[];
+  // Collisions the server resolved while producing THIS turn's board (mirrors
+  // shared/types/Game.ts Turn.clashes). One record per body cell of each unit
+  // that died, so a multi-cell snake contributes several records sharing one
+  // reason. Absent on turns where nothing collided.
+  clashes?: TTClash[];
+  // NOTE: the wire also carries a per-team `teamScores` map. It is
+  // deliberately NOT typed here, because nothing reads it: the scoreboard
+  // derives each team's score from the board it is rendering (the summed
+  // weight of the team's living units — the engine's own rule), which is the
+  // only way a historic log or a mid-game reconnect can score at all.
+}
+
+/**
+ * One collision the server resolved, verbatim from the TacticToes wire
+ * (shared/types/Game.ts Clash).
+ */
+export interface TTClash {
+  // FULL-board index (perimeter included) of the cell the clash marks.
+  index: number;
+  // Every unit that took part in the contest — survivors included. Which of
+  // them died is read off the resulting board, not off this list.
+  playerIDs: string[];
+  // Human-readable cause, written by the game processor.
+  reason: string;
+  // Which within-turn sub-step the collision happened on. Piece games resolve
+  // a turn in several sub-steps (a slider walks its path one square at a
+  // time), so a mid-flight collision is dated by this. Absent for snake games.
+  subStep?: number;
 }
 
 export interface TTActiveEffect {

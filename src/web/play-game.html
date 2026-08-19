@@ -107,6 +107,20 @@
       display: inline-block; width: 12px; height: 12px; border-radius: 3px;
       border: 1px solid #555; flex-shrink: 0;
     }
+    /* The team's human name takes the room it needs and no more; the score is
+       the header's headline number and is pinned to the far end so the eye
+       finds every team's score in one column. */
+    .team-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .team-group-ours {
+      font-weight: 600; font-size: 10px; letter-spacing: 0.04em;
+      text-transform: none; opacity: 0.75; flex-shrink: 0;
+    }
+    .team-group-score {
+      margin-left: auto; flex-shrink: 0;
+      font-size: 16px; font-weight: 800; letter-spacing: 0; color: #fff;
+      background: rgba(255,255,255,0.08); border-radius: 5px;
+      padding: 1px 8px; font-variant-numeric: tabular-nums;
+    }
     .team-group .snake-info-item { margin-bottom: 6px; }
     .snake-info-item.selectable { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
     .snake-info-item.selectable:hover { background: #333; }
@@ -134,6 +148,43 @@
     .unit-id-copy:hover { color: #ddd; border-color: #888; }
     .unit-id-copy.copied { color: #4CAF50; border-color: #4CAF50; }
     .unit-id-copy.copy-failed { color: #e57373; border-color: #e57373; }
+    /* Clash inspector: the game server's own account of a collision — reason,
+       sub-step, participants and who walked away. */
+    #clashInspectPopup {
+      display: none; position: absolute; z-index: 26; max-width: 260px;
+      background: rgba(20,24,28,0.97); color: #eee; border: 1px solid #FFD54F;
+      border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.7);
+    }
+    .clash-panel-title {
+      font-weight: 700; font-size: 12px; color: #FFD54F;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+      padding-right: 16px;
+    }
+    .clash-panel-close {
+      position: absolute; top: 4px; right: 6px; background: transparent;
+      border: none; color: #888; font-size: 14px; line-height: 1;
+      cursor: pointer; padding: 2px 4px; font-family: inherit;
+    }
+    .clash-panel-close:hover { color: #eee; }
+    .clash-event { margin-top: 6px; }
+    .clash-event + .clash-event { border-top: 1px solid #444; padding-top: 6px; }
+    .clash-reason { color: #ddd; }
+    .clash-substep {
+      margin-left: 6px; font-size: 10px; color: #FFD54F;
+      border: 1px solid #6d5b1f; border-radius: 8px; padding: 0 5px;
+      white-space: nowrap;
+    }
+    .clash-participants { list-style: none; margin: 4px 0 0; padding: 0; }
+    .clash-participant { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+    .clash-swatch {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      border: 1px solid #555; flex-shrink: 0;
+    }
+    .clash-unit { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .clash-outcome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+    .clash-outcome.died { color: #e57373; }
+    .clash-outcome.survived { color: #4CAF50; }
     .selected-snake-panel {
       background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
       border: 2px solid #555;
@@ -417,6 +468,7 @@
             <canvas id="gameCanvas" width="550" height="550"></canvas>
             <div id="boardOverlay"></div>
             <div id="cellInspectPopup" style="display:none; position:absolute; pointer-events:none; z-index:25; background:rgba(20,24,28,0.94); color:#eee; border:1px solid #555; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.5; white-space:nowrap; box-shadow: 0 2px 10px rgba(0,0,0,0.6);"></div>
+            <div id="clashInspectPopup"></div>
             <div id="boardResizeHandle" class="board-resize-handle" title="Drag to resize the board"></div>
           </div>
         </div>
@@ -732,6 +784,11 @@
     const CELL_OWNER_NEUTRAL = -1;
     const CELL_OWNER_UNREACHED = -2;
     let selectedCell = null;          // {x, y} | null
+    // The cell whose CLASH the inspector is explaining, or null. Independent
+    // of `selectedCell` on purpose: cell inspection answers "whose territory
+    // is this", clash inspection answers "what happened here", and the two are
+    // opened by different gestures and cleared by different things.
+    let clashInspectCell = null;      // {x, y} | null
     // The board-wide Voronoi partition for one live turn, broadcast per GAME
     // (see BoardTerritory on the server): { turn, territoryCells, cellOwnership }.
     // It describes the whole board, so every selection-driven view — the
@@ -824,6 +881,64 @@
       if (!selectedCell) return;
       selectedCell = null;
       repaintBoard();
+    }
+
+    // Open (or close) the clash inspector on a cell. A cell with no clash
+    // record closes the panel, which is what makes "click somewhere else"
+    // dismiss it without a dedicated gesture.
+    function setClashInspectCell(cell) {
+      const same = !!clashInspectCell && !!cell &&
+        clashInspectCell.x === cell.x && clashInspectCell.y === cell.y;
+      if (!cell && !clashInspectCell) return;
+      if (same) return;
+      clashInspectCell = cell ? { x: cell.x, y: cell.y } : null;
+      repaintBoard();
+    }
+
+    // Every unit this page can still NAME, board-resident or long dead. The
+    // clash inspector needs it: a clash names its participants by id, and the
+    // ones that died are exactly the ones the board no longer carries.
+    function knownSnakesForNaming() {
+      const out = [];
+      for (const rec of snakeLastSeen.values()) out.push(rec.snake);
+      return out;
+    }
+
+    // The clash inspector: the game server's own account of what collided on
+    // the inspected cell — reason, within-turn sub-step, participants and who
+    // walked away. Content comes from the shared renderer (one implementation
+    // for live and history, and portable to any other client), positioning
+    // from the same cell geometry the cell-inspect popup uses.
+    function renderClashInspect() {
+      const popup = document.getElementById('clashInspectPopup');
+      if (!popup) return;
+      const { board } = cellInspectContext();
+      if (!clashInspectCell || !board) { popup.style.display = 'none'; return; }
+      const html = BoardRenderer.renderClashDetails(board, clashInspectCell, {
+        knownSnakes: knownSnakesForNaming(),
+      });
+      if (!html) { popup.style.display = 'none'; return; }
+      popup.innerHTML =
+        '<button type="button" class="clash-panel-close" id="clashInspectClose"' +
+        ' title="Close" aria-label="Close clash details">\u2715</button>' + html;
+      popup.style.display = 'block';
+
+      const canvas = document.getElementById('gameCanvas');
+      const cellSize = BoardRenderer.boardCellSize(canvas, board);
+      const px = canvas.offsetLeft + canvas.clientLeft + clashInspectCell.x * cellSize;
+      const py = canvas.offsetTop + canvas.clientTop +
+        (board.height - 1 - clashInspectCell.y) * cellSize;
+      const wrapperWidth = canvas.offsetLeft + canvas.clientWidth;
+      const popupWidth = popup.offsetWidth || 220;
+      const popupHeight = popup.offsetHeight || 80;
+      // Beside the cell it explains — to its right by default, flipped to its
+      // left when the right side has no room, so the panel never sits on top
+      // of the square the reader is looking at.
+      const right = px + cellSize + 6;
+      const left = px - popupWidth - 6;
+      const useLeft = right + popupWidth > wrapperWidth && left >= 0;
+      popup.style.left = Math.max(0, useLeft ? left : Math.min(right, wrapperWidth - popupWidth)) + 'px';
+      popup.style.top = Math.max(0, py + cellSize / 2 - popupHeight / 2) + 'px';
     }
 
     // THE board the history view is showing. The rendered context is the
@@ -964,9 +1079,25 @@
     // An UNMODIFIED left click anywhere clears the cell inspection. Alt+Left is
     // what SETS it, so it must not immediately clear itself, and the other
     // modified combos are board controls that should leave inspection alone.
+    // The clash panel is deliberately NOT cleared here: it is opened by a plain
+    // left click, so clearing it on the same gesture would close it instantly.
+    // It closes on its own control, on Escape, and on a plain click that lands
+    // on a board cell with no clash.
     document.addEventListener('click', (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       clearCellSelection();
+    });
+
+    // The clash panel's own close control. Delegated on the popup (which
+    // outlives its contents) and taken on pointerdown, for the same reason the
+    // board and the units table are: a repaint between press and release must
+    // not swallow the interaction.
+    document.getElementById('clashInspectPopup').addEventListener('pointerdown', (e) => {
+      if (!e.target || !e.target.closest) return;
+      if (!e.target.closest('.clash-panel-close')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setClashInspectCell(null);
     });
     let myColor = '#888888';
     let controlledSnakeIds = new Set();
@@ -1922,6 +2053,9 @@
 
       // Keep the cell-inspection highlight/popup in sync with the repaint.
       renderCellInspect();
+      // Same for the clash inspector, so scrubbing to another turn re-reads
+      // that turn's clash records (or closes the panel when it has none).
+      renderClashInspect();
     }
 
     // Record every snake present in a game state so the roster remembers dead
@@ -2377,8 +2511,9 @@
         return;
       }
 
-      // ── Plain left: pick a candidate move, else select a snake ────────
-      if (!inBounds) return;
+      // ── Plain left: pick a candidate move, else select a snake — and
+      //    either way, explain any clash on the cell ───────────────────────
+      if (!inBounds) { setClashInspectCell(null); return; }
       if (selectedSnakeId && moveState && !moveSubmitted) {
         for (const move of Object.values(moveState.moves)) {
           const pos = move.position;
@@ -2390,6 +2525,14 @@
           }
         }
       }
+      // Clash inspection EXPLAINS a cell, it does not command one, so it is
+      // resolved alongside whatever else the press means rather than instead
+      // of it — a clash square stays inspectable even when one of our own
+      // units is standing on it and the press also selects that unit.
+      // (Picking a candidate move is the one exception above: that is a
+      // command mid-plan, and a panel popping over the board would be in the
+      // way of the next one.)
+      inspectClashAt(board, cell);
       for (const snake of board.snakes) {
         if (!controlledSnakeIds.has(snake.id)) continue;
         for (const segment of snake.body) {
@@ -2404,6 +2547,17 @@
           }
         }
       }
+    }
+
+    // Open the clash inspector on a cell that carries a clash record, and
+    // close it on one that does not. A clash cell stays inspectable whether or
+    // not a death marker is drawn on it — a SURVIVOR standing on the square is
+    // exactly when the explanation is worth reading, and is exactly the case
+    // where no death marker is drawn.
+    function inspectClashAt(board, cell) {
+      const clashes = BoardRenderer.clashesAtCell(board, cell);
+      setClashInspectCell(clashes.length > 0 ? cell : null);
+      return clashes.length > 0;
     }
 
     function getSelectedSnake() {
@@ -3053,9 +3207,10 @@
         if (e.key === 'Escape' || e.key === 'Enter') active.blur();
         return;
       }
-      // Escape always clears the cell-inspection selection (then falls through
-      // to whatever other Escape behavior the current mode has).
-      if (e.key === 'Escape') clearCellSelection();
+      // Escape always clears the cell-inspection selection and the clash
+      // inspector (then falls through to whatever other Escape behavior the
+      // current mode has).
+      if (e.key === 'Escape') { clearCellSelection(); setClashInspectCell(null); }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
       }
@@ -4532,6 +4687,9 @@
 
       // Keep the cell-inspection highlight/popup in sync with the repaint.
       renderCellInspect();
+      // Same for the clash inspector, so scrubbing to another turn re-reads
+      // that turn's clash records (or closes the panel when it has none).
+      renderClashInspect();
     }
 
     // Read-only candidate selection: clicking a candidate cell / move button —
@@ -4556,6 +4714,12 @@
       const canvas = document.getElementById('gameCanvas');
       const cell = BoardRenderer.getClickedCell(canvas, board, event);
       if (!cell) return;
+
+      // A collision the server recorded on this square, explained. Resolved
+      // BEFORE the replay's other meanings and without consuming the press, so
+      // a clash square is inspectable even when a survivor is standing on it
+      // (which also switches the inspected perspective, as it always has).
+      inspectClashAt(board, cell);
 
       // Clicking a *different* unit's body switches the inspected perspective.
       // Every unit on the displayed board qualifies — inspection is a read of

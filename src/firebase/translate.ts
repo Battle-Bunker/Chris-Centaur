@@ -17,8 +17,8 @@
 // the server expects in privateMoves.move.
 
 import { Timestamp } from 'firebase/firestore';
-import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tactictoes-types';
+import { BoardSnapshot, Clash, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { TTClash, TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tactictoes-types';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
@@ -106,6 +106,24 @@ export function continuationDirection(turn: TTTurn, playerID: string): Direction
 
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
   return (indices || []).map((i) => toApiCoord(i, w, h));
+}
+
+/**
+ * Wire clashes → renderer clashes: the full-board index becomes an api cell,
+ * everything else rides verbatim. Deliberately lossless — the UI shows the
+ * server's own wording, and the sub-step is what dates a mid-flight piece
+ * collision within its turn.
+ */
+function mapClashes(clashes: TTClash[], w: number, h: number): Clash[] {
+  return clashes.map((c) => {
+    const mapped: Clash = {
+      cell: toApiCoord(c.index, w, h),
+      playerIDs: [...c.playerIDs],
+      reason: c.reason,
+    };
+    if (c.subStep !== undefined) mapped.subStep = c.subStep;
+    return mapped;
+  });
 }
 
 /**
@@ -288,6 +306,9 @@ function buildSnake(
   const expiry = invulnerabilityExpiryTurn(turn, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
+  // The team's human name (the controlling centaur's, snapshotted into the
+  // setup) rides on every unit so the UI never has to show the opaque team id.
+  if (team?.name) snake.teamName = team.name;
   return snake;
 }
 
@@ -346,6 +367,10 @@ export function buildBoardState(
   // lookahead; readers default an absent field to the engine's values.
   if (setup.pawnPromotionWeight !== undefined) board.pawnPromotionWeight = setup.pawnPromotionWeight;
   if (setup.maxHealthPerUnit !== undefined) board.maxHealthPerUnit = setup.maxHealthPerUnit;
+  // Collisions resolved into this board, mapped into api coords like every
+  // other positional field. They ride on the board (not on a per-snake view)
+  // because a clash is a fact about the board, readable by any spectator.
+  if (turn.clashes?.length) board.clashes = mapClashes(turn.clashes, w, h);
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);

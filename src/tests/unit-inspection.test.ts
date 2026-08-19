@@ -314,8 +314,11 @@ describe('units table selection', () => {
     const c = makeContainer();
     BoardRenderer.renderSnakeInfo(c, gameState, 'S', { groupByTeam: true });
     // P is letter A, S is letter B: the piece comes first despite the board
-    // order, and Tab cycles the same way.
-    expect(c.innerHTML.indexOf('P unit')).toBeLessThan(c.innerHTML.indexOf('S unit'));
+    // order, and Tab cycles the same way. Grouped rows are labelled by LETTER
+    // (the team's name is already the group's heading), so the row's identity
+    // is read off its own id control.
+    expect(c.innerHTML.indexOf('data-copy-id="P"'))
+      .toBeLessThan(c.innerHTML.indexOf('data-copy-id="S"'));
   });
 
   test('an explicit selectable set is honoured verbatim — pieces and enemies included', () => {
