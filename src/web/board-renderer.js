@@ -84,23 +84,16 @@ const BoardRenderer = (function () {
     return { ux: dx / len, uy: dy / len };
   }
 
-  // Orientation eye: an OPEN CAVE mouth seen from above, sitting on the faced
-  // cell edge — as wide as the cell, its back wall a concave arc that opens
-  // outward, with the pupil at the centre back of the cave looking out through
-  // the mouth. The whole mark is translucent SKY BLUE: no white fill and no
-  // dark rim, because every other mark in the cell (unit icons, food, potions)
-  // is white with a black outline — the blue wash is a channel of its own, so
-  // facing reads without competing with the glyph it lies over.
+  // Orientation eye: a stroke-only mark in a single translucent sky blue —
+  // no fill, so it never competes with the white/black icon language beneath
+  // it. Two strokes: a long FLAT brow arc spanning slightly beyond the cell,
+  // bowing gently out of the faced edge, and a small lens (the pupil) nested
+  // against the arc's back. The lens's anchor sits between the unit icon's
+  // edge and the cell boundary along the facing ray, so the mark reads as an
+  // eye surfacing at the faced edge. Drawn OUTSIDE the head-cell clip: the
+  // brow's tips and apex deliberately overhang the cell by a few percent.
   // Callers skip it for ghosts/corpses (an orientation-less cell draws none).
-  const EYE_COLORS = {
-    // Cave floor: sky blue, light enough to keep the icon beneath it legible
-    // and bright enough to hold its hue over a dark team colour.
-    cave: "rgba(125, 211, 255, 0.52)",
-    // Cave walls: the same hue held denser, so the mouth's outline reads.
-    wall: "rgba(3, 155, 229, 0.85)",
-    // Pupil: the hue driven near-black, the one high-contrast note.
-    pupil: "rgba(2, 34, 72, 0.95)",
-  };
+  const EYE_STROKE = "rgba(56, 174, 255, 0.8)";
   function drawOrientationEye(ctx, orientation, hx, hy, cellSize) {
     const u = orientationUnitVector(orientation);
     if (!u) return;
@@ -110,47 +103,52 @@ const BoardRenderer = (function () {
     const ty = ux;
     const cx = hx + cellSize / 2;
     const cy = hy + cellSize / 2;
-    // Cell centre → the point where the facing ray LEAVES the cell: half a
-    // cell for an axis facing, the corner itself for a 45° diagonal. Measuring
-    // to the boundary rather than to a fixed radius is what keeps a diagonal
-    // cave's mouth on the corner it faces instead of floating inside the cell.
+    // Cell centre -> the point where the facing ray LEAVES the cell: half a
+    // cell for an axis facing, the corner itself for a 45 degree diagonal, so
+    // a diagonal eye surfaces at the corner it faces.
     const reach = cellSize / 2 / Math.max(Math.abs(ux), Math.abs(uy));
-    const half = cellSize / 2; // the mouth spans the WHOLE cell width
-    const depth = cellSize * 0.44; // how far the cave bites into the cell
-    // Mouth corners on the faced edge, and the control point that puts the
-    // arc's deepest point exactly `depth` inside it (a quadratic passes
-    // halfway to its control point at its midpoint, hence the doubling).
-    const ax = cx + ux * reach + tx * half;
-    const ay = cy + uy * reach + ty * half;
-    const bx = cx + ux * reach - tx * half;
-    const by = cy + uy * reach - ty * half;
-    const qx = cx + ux * (reach - depth * 2);
-    const qy = cy + uy * (reach - depth * 2);
+    const at = (d, s) => [cx + ux * d + tx * s, cy + uy * d + ty * s];
+
     ctx.save();
+    ctx.strokeStyle = EYE_STROKE;
+    ctx.lineWidth = Math.max(1.6, cellSize * 0.055);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // Depths along the facing ray are measured from the point where the ray
+    // leaves the cell (`reach`) in CELL units, not in fractions of `reach`:
+    // that keeps the brow's overhang and the lens's thickness identical for
+    // axis, diagonal and knight facings, where `reach` itself differs by up
+    // to 1.4x. A quadratic's apex sits halfway between its control point and
+    // the chord, so each control is placed at twice the wanted bulge.
+    // Brow: a long flat arc, tips a whisker past the cell's sides, apex
+    // clearing the faced edge by ~24% of a cell.
+    const browEnd = reach * 0.6;
+    const browApex = reach + cellSize * 0.24;
+    const half = cellSize * 0.62;
+    const [ax, ay] = at(browEnd, half);
+    const [bx, by] = at(browEnd, -half);
+    const [qx, qy] = at(2 * browApex - browEnd, 0);
     ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.quadraticCurveTo(qx, qy, bx, by);
-    ctx.closePath(); // the mouth itself: the straight run along the cell edge
-    ctx.fillStyle = EYE_COLORS.cave;
-    ctx.fill();
-    // Walls: stroking the same path leaves the mouth's straight edge on the
-    // cell boundary, where the caller's cell clip trims it to a hairline, so
-    // what shows is the curved back wall — the cave reads as open.
-    ctx.strokeStyle = EYE_COLORS.wall;
-    ctx.lineWidth = Math.max(1.5, cellSize * 0.075);
     ctx.stroke();
-    // Pupil at the centre BACK of the cave, tucked just inside the arc so it
-    // reads as looking out through the mouth.
+
+    // Lens (the pupil): a slim almond nested against the brow's back, its
+    // chord anchored between the icon's edge and the cell boundary, with a
+    // clear gap of ~1/5 cell between its front and the brow's apex.
+    const lensHalf = cellSize * 0.22;
+    const lensMid = reach - cellSize * 0.06;
+    const lensDepth = cellSize * 0.1;
+    const [s1x, s1y] = at(lensMid, lensHalf);
+    const [s2x, s2y] = at(lensMid, -lensHalf);
+    const [fx, fy] = at(lensMid + 2 * lensDepth, 0); // front (toward the brow)
+    const [kx, ky] = at(lensMid - 2 * lensDepth, 0); // back (toward the icon)
     ctx.beginPath();
-    ctx.arc(
-      cx + ux * (reach - depth * 0.72),
-      cy + uy * (reach - depth * 0.72),
-      Math.max(1.6, cellSize * 0.085),
-      0,
-      Math.PI * 2,
-    );
-    ctx.fillStyle = EYE_COLORS.pupil;
-    ctx.fill();
+    ctx.moveTo(s1x, s1y);
+    ctx.quadraticCurveTo(fx, fy, s2x, s2y);
+    ctx.quadraticCurveTo(kx, ky, s1x, s1y);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -444,8 +442,9 @@ const BoardRenderer = (function () {
       // snake icon.
       drawUnitIcon(ctx, "snake", cx, cy, Math.max(cellSize * 0.8, 12));
     }
-    drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
     ctx.restore();
+    // Outside the cell clip: the eye deliberately overhangs the cell.
+    drawOrientationEye(ctx, snake.orientation, hx, hy, cellSize);
   }
 
   // Weight icon: a silver ANVIL, drawn from one path so the on-board tags and
