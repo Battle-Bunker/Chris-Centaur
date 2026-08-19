@@ -851,12 +851,11 @@ const BoardRenderer = (function () {
     const snakeId = options?.snakeId || null;
     const chosenMove = options?.chosenMove || null;
     const showChosenArrow = options?.showChosenArrow !== false;
-    // Interactive (live) vs read-only (historic) rendering. Defaults to true so
-    // existing callers are unchanged. When false, control-only overlays such as
-    // server-staged move arrows are suppressed — the historic/readonly play view
-    // and the Game History viewer render the board, candidate cells, and the
-    // logged chosen-move arrow, but never live staging affordances.
-    const interactive = options?.interactive !== false;
+    // Staged-move arrows draw whenever the caller supplies options.stagedMoves
+    // — live play passes the broadcast map, and the history replay passes the
+    // recorded per-turn command-state snapshot (same shape), so both render
+    // through this one path. Read-only callers that want no staging
+    // affordances simply pass none.
 
     if (!gameState || !gameState.board) return;
 
@@ -1107,7 +1106,7 @@ const BoardRenderer = (function () {
           arrowDashed = true;
         }
         secondaryMove = options?.secondaryMove || null;
-      } else if (interactive && stagedForThisSnake) {
+      } else if (stagedForThisSnake) {
         // `move` is the confirmed staged move (null until Firebase's first
         // confirmation for the turn lands); `requestedMove` is what was asked
         // for most recently.
@@ -1607,10 +1606,10 @@ const BoardRenderer = (function () {
   }
 
   // Single source of truth for team identity on the client, mirroring the
-  // server-side TeamDetector rule: squad → color → snake id.
+  // server-side TeamDetector rule: teamID → squad → color → snake id.
   function getTeamKey(snake) {
     if (!snake) return "";
-    return snake.squad || snake.customizations?.color || snake.color || snake.id;
+    return snake.teamID || snake.squad || snake.customizations?.color || snake.color || snake.id;
   }
 
   // Turns a raw game-server team id like "team_red" into a friendly label

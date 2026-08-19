@@ -236,7 +236,7 @@
     <div class="container">
         <div class="header">
             <h1>🐍 Team Snek Bot Configuration</h1>
-            <p>Fine-tune your Battlesnake AI's decision-making heuristics</p>
+            <p>Fine-tune the centaur's decision-making heuristics</p>
         </div>
         
         <div class="content">
@@ -248,306 +248,11 @@
             </div>
             
             <div id="configContainer" style="display: none;">
-                <div class="config-grid">
-                    <!-- Snake Heuristics -->
-                    <div class="config-section">
-                        <h3><span>🐍</span>Snake Heuristics</h3>
-                        
-                        <div class="config-item">
-                            <label for="myLength">My Length Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="myLength_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="myLength" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Value of your snake's length (survival priority)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="myTerritory">My Territory Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="myTerritory_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="myTerritory" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Value of controlled Voronoi territory</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="myControlledFood">My Controlled Food Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="myControlledFood_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="myControlledFood" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Value of food within your territory</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="myControlledFertile">My Controlled Fertile Ground Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="myControlledFertile_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="myControlledFertile" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Value of fertile tiles within your territory</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Team Heuristics -->
-                    <div class="config-section">
-                        <h3><span>👥</span>Team Heuristics</h3>
-                        
-                        <div class="config-item">
-                            <label for="teamLength">Team Length Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="teamLength_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="teamLength" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Combined team survival value</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="teamTerritory">Team Territory Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="teamTerritory_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="teamTerritory" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Total team-controlled territory</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="teamControlledFood">Team Controlled Food Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="teamControlledFood_slider" min="0" max="100" step="0.5">
-                                <input type="number" id="teamControlledFood" min="0" max="100" step="0.5">
-                            </div>
-                            <div class="description">Food controlled by teammates</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Combat Heuristics -->
-                    <div class="config-section">
-                        <h3><span>⚔️</span>Combat Heuristics</h3>
-                        
-                        <div class="config-item">
-                            <label for="kills">Kills Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="kills_slider" min="0" max="500" step="10">
-                                <input type="number" id="kills" min="0" max="500" step="10">
-                            </div>
-                            <div class="description">Reward for eliminating opponents</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="deaths">Deaths Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="deaths_slider" min="-1000" max="0" step="10">
-                                <input type="number" id="deaths" min="-1000" max="0" step="10">
-                            </div>
-                            <div class="description">Penalty for your snake dying (negative)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="enemyLength">Enemy Length Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="enemyLength_slider" min="-100" max="100" step="1">
-                                <input type="number" id="enemyLength" min="-100" max="100" step="1">
-                            </div>
-                            <div class="description">Value of enemy snake lengths</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="enemyTerritory">Enemy Territory Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="enemyTerritory_slider" min="-100" max="100" step="1">
-                                <input type="number" id="enemyTerritory" min="-100" max="100" step="1">
-                            </div>
-                            <div class="description">Value of enemy-controlled territory</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="enemyH2HRisk">Enemy H2H Risk Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="enemyH2HRisk_slider" min="-500" max="0" step="5">
-                                <input type="number" id="enemyH2HRisk" min="-500" max="0" step="5">
-                            </div>
-                            <div class="description">Penalty for head-to-head collision risk with enemies (negative)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="allyH2HRisk">Ally H2H Risk Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="allyH2HRisk_slider" min="-500" max="0" step="5">
-                                <input type="number" id="allyH2HRisk" min="-500" max="0" step="5">
-                            </div>
-                            <div class="description">Penalty for head-to-head collision risk with allies (negative)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="gotoProgress">Goto Progress Weight (green)</label>
-                            <div class="input-group">
-                                <input type="range" id="gotoProgress_slider" min="0" max="1000" step="10">
-                                <input type="number" id="gotoProgress" min="0" max="1000" step="10">
-                            </div>
-                            <div class="description">Alt-click target. The stat is a bounded [0,1] ramp that equals 1 for the optimal next step, so this weight IS the bonus that step gets — not a multiplier on a gradient. Keep it below the death (-500) and trapped (-600) penalties or the snake will start dying for targets. Default 300.</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="nearProgress">Near Progress Weight (blue)</label>
-                            <div class="input-group">
-                                <input type="range" id="nearProgress_slider" min="0" max="1000" step="10">
-                                <input type="number" id="nearProgress" min="0" max="1000" step="10">
-                            </div>
-                            <div class="description">Shift-click target — approach without ever arriving (the bonus peaks one square away and is zero on the target). Same bounded ramp as Goto; default 250, slightly weaker.</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Food & Proximity -->
-                    <div class="config-section">
-                        <h3><span>🍎</span>Food & Proximity</h3>
-                        
-                        <div class="config-item">
-                            <label for="foodProximity">Food Proximity Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="foodProximity_slider" min="0" max="200" step="1">
-                                <input type="number" id="foodProximity" min="0" max="200" step="1">
-                            </div>
-                            <div class="description">Attraction to nearby food (normalized [0,1], zeroed when eating)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="foodEaten">Food Eaten Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="foodEaten_slider" min="0" max="500" step="10">
-                                <input type="number" id="foodEaten" min="0" max="500" step="10">
-                            </div>
-                            <div class="description">Direct reward for actually eating food (overrides proximity)</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Safety Heuristics -->
-                    <div class="config-section">
-                        <h3><span>🛡️</span>Safety Heuristics</h3>
-                        
-                        <div class="config-item">
-                            <label for="edgePenalty">Edge Penalty Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="edgePenalty_slider" min="0" max="200" step="5">
-                                <input type="number" id="edgePenalty" min="0" max="200" step="5">
-                            </div>
-                            <div class="description">Penalty for being on board edges</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Enhanced Space Detection -->
-                    <div class="config-section">
-                        <h3><span>🎯</span>Enhanced Space Detection</h3>
-                        
-                        <div class="config-item">
-                            <label for="selfSpace">Self Space Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="selfSpace_slider" min="-200" max="200" step="1">
-                                <input type="number" id="selfSpace" min="-200" max="200" step="1">
-                            </div>
-                            <div class="description">Continuous survival room from the contest-aware conservative region (cells we win the Voronoi race for). sqrt-scaled and length-normalised: room equal to our body length scores 1.0, 4× → 2.0, ¼ → 0.5.</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="alliesEnoughSpace">Allies Enough Space Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="alliesEnoughSpace_slider" min="-50" max="50" step="1">
-                                <input type="number" id="alliesEnoughSpace" min="-50" max="50" step="1">
-                            </div>
-                            <div class="description">Allies having space (positive = good teamwork)</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="opponentsEnoughSpace">Opponents Enough Space Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="opponentsEnoughSpace_slider" min="-50" max="50" step="1">
-                                <input type="number" id="opponentsEnoughSpace" min="-50" max="50" step="1">
-                            </div>
-                            <div class="description">Opponents having space (negative = encourage trapping)</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Offensive Aggression -->
-                    <div class="config-section">
-                        <h3><span>⚔️</span>Offensive Aggression</h3>
-                        
-                        <div class="config-item">
-                            <label for="aggression">Aggression Weight</label>
-                            <div class="input-group">
-                                <input type="range" id="aggression_slider" min="0" max="200" step="1">
-                                <input type="number" id="aggression" min="0" max="200" step="1">
-                            </div>
-                            <div class="description">Reward for hunting enemies we strictly out-invulnerate — closing in on or landing on their head/body. Kept conservative so survival always dominates.</div>
-                        </div>
-
-                        <div class="config-item">
-                            <label for="trapped">Trapped Penalty</label>
-                            <div class="input-group">
-                                <input type="range" id="trapped_slider" min="-2000" max="0" step="10">
-                                <input type="number" id="trapped" min="-2000" max="0" step="10">
-                            </div>
-                            <div class="description">Strongly-negative penalty for moving into a clearly-fatal dead-end pocket — one where we can neither chase our own tail nor fit our length. A hard candidate-level veto also blocks such moves whenever a safe alternative exists.</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Centaur Play Mode -->
-                    <div class="config-section">
-                        <h3><span>🎮</span>Centaur Play Mode</h3>
-                        
-                        <div class="config-item">
-                            <label for="autoFirstMove">First Move Behavior</label>
-                            <div class="input-group" style="justify-content: flex-start;">
-                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 1rem; color: #333;">
-                                    <input type="checkbox" id="autoFirstMove" style="width: 20px; height: 20px; cursor: pointer;">
-                                    <span>Fully automatic from first move</span>
-                                </label>
-                            </div>
-                            <div class="description">When OFF, bots wait for human input on the first turn. When ON, bots play automatically from the very first move (pure bot mode).</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="idleTimeoutMinutes">Idle Timeout (minutes)</label>
-                            <div class="input-group">
-                                <input type="range" id="idleTimeoutMinutes_slider" min="1" max="120" step="1">
-                                <input type="number" id="idleTimeoutMinutes" min="1" max="120" step="1">
-                            </div>
-                            <div class="description">Minutes without user activity before live pages disconnect and the server is allowed to scale to zero. Server picks up changes within ~1 minute; pages read it on load.</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Simulation Parameters -->
-                    <div class="config-section">
-                        <h3><span>⚙️</span>Simulation Parameters</h3>
-                        
-                        <div class="config-item">
-                            <label for="maxSimulationDepth">Max Simulation Depth</label>
-                            <div class="input-group">
-                                <input type="range" id="maxSimulationDepth_slider" min="1" max="10" step="1">
-                                <input type="number" id="maxSimulationDepth" min="1" max="10" step="1">
-                            </div>
-                            <div class="description">Turns to look ahead in simulation</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="timeoutMs">Timeout (ms)</label>
-                            <div class="input-group">
-                                <input type="range" id="timeoutMs_slider" min="100" max="490" step="10">
-                                <input type="number" id="timeoutMs" min="100" max="490" step="10">
-                            </div>
-                            <div class="description">Max time for move calculation</div>
-                        </div>
-                        
-                        <div class="config-item">
-                            <label for="nearbyDistance">Nearby Distance</label>
-                            <div class="input-group">
-                                <input type="range" id="nearbyDistance_slider" min="1" max="20" step="1">
-                                <input type="number" id="nearbyDistance" min="1" max="20" step="1">
-                            </div>
-                            <div class="description">Distance to consider snakes "nearby"</div>
-                        </div>
-                    </div>
-                </div>
+                <!-- Sections and sliders are generated from the /api/config
+                     response's `ui` metadata (see renderConfigUi below): the
+                     server's heuristic registry is the single source of truth
+                     for keys, ranges and copy. -->
+                <div class="config-grid" id="configGrid"></div>
             </div>
         </div>
         
@@ -561,51 +266,118 @@
     <script>
         let currentConfig = {};
         let defaults = {};
-        
-        // List of all numeric configuration keys
-        const configKeys = [
-            'myLength', 'myTerritory', 'myControlledFood', 'myControlledFertile',
-            'teamLength', 'teamTerritory', 'teamControlledFood',
-            'foodProximity', 'foodEaten',
-            'enemyTerritory', 'enemyLength',
-            'edgePenalty',
-            'selfSpace', 'alliesEnoughSpace', 'opponentsEnoughSpace',
-            'kills', 'deaths',
-            'enemyH2HRisk', 'allyH2HRisk',
-            'gotoProgress', 'nearProgress',
-            'aggression', 'trapped',
-            'maxSimulationDepth', 'timeoutMs', 'nearbyDistance',
-            'idleTimeoutMinutes'
-        ];
-        
-        const booleanConfigKeys = ['autoFirstMove'];
-        
+
+        // Config keys by kind, learned from the server's `ui` metadata when the
+        // sections are rendered — nothing here hand-lists heuristic names.
+        let numericKeys = [];
+        let booleanKeys = [];
+
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            setupInputBindings();
             loadConfig();
         });
-        
-        // Setup two-way binding between sliders and number inputs
-        function setupInputBindings() {
-            configKeys.forEach(key => {
-                const slider = document.getElementById(`${key}_slider`);
-                const input = document.getElementById(key);
-                
-                if (slider && input) {
-                    // Sync slider to input
-                    slider.addEventListener('input', (e) => {
-                        input.value = e.target.value;
-                    });
-                    
-                    // Sync input to slider
-                    input.addEventListener('input', (e) => {
-                        slider.value = e.target.value;
-                    });
+
+        // Build the section cards and their controls from the server-provided
+        // UI metadata (the heuristic registry + the non-heuristic settings).
+        function renderConfigUi(sections) {
+            const grid = document.getElementById('configGrid');
+            grid.innerHTML = '';
+            numericKeys = [];
+            booleanKeys = [];
+
+            for (const section of sections) {
+                const sectionEl = document.createElement('div');
+                sectionEl.className = 'config-section';
+
+                const heading = document.createElement('h3');
+                const emoji = document.createElement('span');
+                emoji.textContent = section.emoji;
+                heading.appendChild(emoji);
+                heading.appendChild(document.createTextNode(section.title));
+                sectionEl.appendChild(heading);
+
+                for (const item of section.items) {
+                    if (item.type === 'boolean') {
+                        booleanKeys.push(item.key);
+                        sectionEl.appendChild(renderBooleanItem(item));
+                    } else {
+                        numericKeys.push(item.key);
+                        sectionEl.appendChild(renderNumberItem(item));
+                    }
                 }
-            });
+                grid.appendChild(sectionEl);
+            }
         }
-        
+
+        // One slider + number input pair with two-way binding.
+        function renderNumberItem(item) {
+            const wrap = document.createElement('div');
+            wrap.className = 'config-item';
+
+            const label = document.createElement('label');
+            label.htmlFor = item.key;
+            label.textContent = item.label;
+            wrap.appendChild(label);
+
+            const group = document.createElement('div');
+            group.className = 'input-group';
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.id = `${item.key}_slider`;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = item.key;
+            for (const el of [slider, input]) {
+                el.min = item.range.min;
+                el.max = item.range.max;
+                el.step = item.range.step;
+            }
+            slider.addEventListener('input', () => { input.value = slider.value; });
+            input.addEventListener('input', () => { slider.value = input.value; });
+            group.appendChild(slider);
+            group.appendChild(input);
+            wrap.appendChild(group);
+
+            const desc = document.createElement('div');
+            desc.className = 'description';
+            desc.textContent = item.description;
+            wrap.appendChild(desc);
+            return wrap;
+        }
+
+        // A single checkbox row (e.g. autoFirstMove).
+        function renderBooleanItem(item) {
+            const wrap = document.createElement('div');
+            wrap.className = 'config-item';
+
+            const label = document.createElement('label');
+            label.htmlFor = item.key;
+            label.textContent = item.label;
+            wrap.appendChild(label);
+
+            const group = document.createElement('div');
+            group.className = 'input-group';
+            group.style.justifyContent = 'flex-start';
+            const boxLabel = document.createElement('label');
+            boxLabel.style.cssText = 'display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 1rem; color: #333;';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = item.key;
+            checkbox.style.cssText = 'width: 20px; height: 20px; cursor: pointer;';
+            const span = document.createElement('span');
+            span.textContent = item.checkboxLabel || item.label;
+            boxLabel.appendChild(checkbox);
+            boxLabel.appendChild(span);
+            group.appendChild(boxLabel);
+            wrap.appendChild(group);
+
+            const desc = document.createElement('div');
+            desc.className = 'description';
+            desc.textContent = item.description;
+            wrap.appendChild(desc);
+            return wrap;
+        }
+
         // Load configuration from API
         async function loadConfig() {
             try {
@@ -621,60 +393,28 @@
                 
                 currentConfig = data.config;
                 defaults = data.defaults;
-                
-                // Update all inputs with loaded values
-                configKeys.forEach(key => {
+
+                // (Re)build the sections/sliders from the server's registry-
+                // derived UI metadata (ranges included), then fill in values.
+                renderConfigUi(data.ui || []);
+
+                numericKeys.forEach(key => {
                     const value = currentConfig[key];
                     const slider = document.getElementById(`${key}_slider`);
                     const input = document.getElementById(key);
-                    
                     if (slider && input && value !== undefined) {
                         slider.value = value;
                         input.value = value;
-                        
-                        // Set appropriate ranges for sliders
-                        if (key === 'deaths') {
-                            slider.min = -1000;
-                            slider.max = 0;
-                        } else if (key === 'enemyH2HRisk' || key === 'allyH2HRisk') {
-                            slider.min = -500;
-                            slider.max = 0;
-                        } else if (key === 'aggression') {
-                            slider.min = 0;
-                            slider.max = 200;
-                        } else if (key === 'trapped') {
-                            slider.min = -2000;
-                            slider.max = 0;
-                            slider.step = 10;
-                        } else if (key === 'selfSpace') {
-                            slider.min = -200;
-                            slider.max = 200;
-                        } else if (key === 'kills' || key === 'foodEaten') {
-                            slider.max = 500;
-                        } else if (key === 'gotoProgress' || key === 'nearProgress') {
-                            slider.min = 0;
-                            slider.max = 1000;
-                            slider.step = 10;
-                        } else if (key === 'foodProximity' || key === 'edgePenalty') {
-                            slider.max = 200;
-                        } else if (key === 'timeoutMs') {
-                            slider.min = 100;
-                            slider.max = 490;
-                        } else if (key === 'maxSimulationDepth') {
-                            slider.max = 10;
-                        } else if (key === 'nearbyDistance') {
-                            slider.max = 20;
-                        }
                     }
                 });
-                
-                booleanConfigKeys.forEach(key => {
+
+                booleanKeys.forEach(key => {
                     const checkbox = document.getElementById(key);
                     if (checkbox && currentConfig[key] !== undefined) {
                         checkbox.checked = currentConfig[key];
                     }
                 });
-                
+
                 document.getElementById('configContainer').style.display = 'block';
                 showAlert('Configuration loaded successfully', 'info');
             } catch (error) {
@@ -693,13 +433,13 @@
                 
                 // Collect all values
                 const updates = {};
-                configKeys.forEach(key => {
+                numericKeys.forEach(key => {
                     const input = document.getElementById(key);
                     if (input) {
                         updates[key] = parseFloat(input.value);
                     }
                 });
-                booleanConfigKeys.forEach(key => {
+                booleanKeys.forEach(key => {
                     const checkbox = document.getElementById(key);
                     if (checkbox) {
                         updates[key] = checkbox.checked;

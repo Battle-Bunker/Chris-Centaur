@@ -72,6 +72,7 @@ jest.mock('../database/db', () => {
         return chain;
       },
     },
+    dbConfigured: true,
   };
 });
 

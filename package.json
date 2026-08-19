@@ -11,7 +11,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint \"src/**/*.ts\"",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
@@ -24,6 +24,7 @@
   "license": "ISC",
   "description": "TypeScript Battlesnake AI using Voronoi territory maximization",
   "dependencies": {
+    "compression": "^1.8.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
@@ -34,9 +35,11 @@
   "overrides": {
     "glob": "^11.1.0",
     "minimatch": "^10.2.1",
-    "jws": "3.2.3"
+    "jws": "3.2.3",
+    "test-exclude": "^7.0.1"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.1",

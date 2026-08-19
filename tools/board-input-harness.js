@@ -65,11 +65,38 @@ function historicDecisions() {
   return rows;
 }
 
+// The board timeline the replay now prefers. Native rows for the same turns
+// the decision stub covers, plus the final board (turn 9) that only the
+// timeline can have. `--no-turns` 404s the endpoint so the legacy
+// per-snake-log fallback path gets exercised instead.
+const NO_TURNS = process.argv.includes('--no-turns');
+function timelineTurnsPayload() {
+  const rows = historicDecisions().map((d) => ({
+    turn: d.game_state.turn,
+    game_state: { ...d.game_state, you: undefined },
+    territory: d.move_evaluations.territoryCells,
+    cell_ownership: null,
+    native: true,
+  }));
+  const finalBoard = JSON.parse(JSON.stringify(rows[rows.length - 1].game_state));
+  finalBoard.turn = 9;
+  finalBoard.board.snakes = []; // everyone died on the final board
+  finalBoard.lastMoves = { A: 'up' };
+  rows.push({ turn: 9, game_state: finalBoard, territory: null, cell_ownership: null, native: true });
+  return { turns: rows, finalTurn: 9, hasNative: true };
+}
+
 const server = http.createServer((req, res) => {
   let p = req.url.split('?')[0];
   if (p === '/api/logs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ decisions: historicDecisions() }));
+    return;
+  }
+  if (p === '/api/games/g1/turns') {
+    if (NO_TURNS) { res.writeHead(404); res.end('nope'); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(timelineTurnsPayload()));
     return;
   }
   const pre = API_PREFIX.find(([k]) => p === k);
@@ -304,8 +331,20 @@ const moveEvaluations = ['up','left','right'].map(m => ({
   console.log('\n--- historic mode ---');
   const entered = await page.evaluate(async () => {
     if (typeof enterFinishedMode === 'function') { await enterFinishedMode(); }
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 500));
+    // State at the opening position (the last explorable turn).
+    const atEnd = {
+      liveMaxTurn: typeof liveMaxTurn !== 'undefined' ? liveMaxTurn : -1,
+      header: document.getElementById('currentTurn').textContent,
+      hasMoveState: !!(typeof historicMoveState !== 'undefined' && historicMoveState),
+      panel: document.getElementById('moveButtons').textContent.trim().slice(0, 70),
+    };
+    // Scrub back to a turn with decision data.
+    await enterHistoric(7);
+    await new Promise(r => setTimeout(r, 300));
     return { viewMode: typeof viewMode !== 'undefined' ? viewMode : '?',
+             atEnd,
+             headerAt7: document.getElementById('currentTurn').textContent,
              hasHistoricMoveState: !!(typeof historicMoveState !== 'undefined' && historicMoveState) };
   }).catch(e => ({ error: String(e.message || e) }));
   console.log('entered:', JSON.stringify(entered));

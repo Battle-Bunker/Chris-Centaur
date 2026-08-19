@@ -83,8 +83,5 @@ export interface TeamInfo {
 
 export interface SimulationConfig {
   maxDistance: number;
-  numRandomMoves: number;
-  maxSimulations: number;
   maxEvaluationTimeMs: number;
-  tailSafetyRule?: 'official' | 'custom'; // 'official': tail stays when eating, 'custom': grows next turn
 }

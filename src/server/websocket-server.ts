@@ -1,18 +1,19 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
 import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ActiveGameManager, TurnData } from './active-game-manager';
+import { ActiveGameManager } from './active-game-manager';
 import { Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
+import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
   SERVER_IDLE_SWEEP_INTERVAL_MS,
-  WS_KEEPALIVE_INTERVAL_MS,
+  SOCKET_KEEPALIVE_INTERVAL_MS,
 } from '../shared/idle-policy';
 
 interface WSClient {
@@ -25,11 +26,13 @@ interface WSClient {
   userAgent: string;
   connectedAt: number;
   lastActivityAt: number;
-  // Liveness flag for the keepalive ping/pong loop. Set true on every pong (and
-  // on any inbound frame); the keepalive sweep sets it false right before
-  // pinging, so a socket that misses a full interval's pong is treated as dead
-  // and terminated. NOTE: this is connection liveness, NOT user activity — it
-  // must never bump lastActivityAt or the 30-minute idle sweep would never fire.
+  // Socket-aliveness flag for the SOCKET-KEEPALIVE ping/pong loop (nothing to
+  // do with the DB liveness heartbeat or the human activity heartbeat). Set
+  // true on every pong (and on any inbound frame); the socket-keepalive sweep
+  // sets it false right before pinging, so a socket that misses a full
+  // interval's pong is treated as dead and terminated. NOTE: this is
+  // connection aliveness, NOT user activity — it must never bump
+  // lastActivityAt or the 30-minute idle sweep would never fire.
   isAlive: boolean;
 }
 
@@ -41,6 +44,7 @@ const USER_INTENT_TYPES = new Set([
   'select-snake',
   'deselect',
   'suicide-all',
+  'commit-all-staged',
   'select-move',
   'confirm-fatal-move',
   'set-waypoint',
@@ -57,8 +61,15 @@ export class GameWebSocketServer {
   private clients: Set<WSClient> = new Set();
   private gameManager: ActiveGameManager;
   private connLogger: ConnectionLogger;
-  private idleSweepInterval: NodeJS.Timeout | null = null;
-  private keepaliveInterval: NodeJS.Timeout | null = null;
+  // Managed by the ActivityController with scope 'always', NOT 'while-active':
+  // under the amended awake rule the instance can be IDLE while untouched tabs
+  // are still connected, and these two loops are precisely what digests such
+  // tabs — the socket keepalive stops the proxy dropping them into a reconnect
+  // churn, and the idle sweep is the only mechanism that eventually closes
+  // them (4001). Both are already free at zero clients (no traffic, sweep
+  // skips its DB read), so running through idle costs nothing.
+  private idleSweepInterval: ManagedTimerHandle | null = null;
+  private socketKeepaliveInterval: ManagedTimerHandle | null = null;
   // Last REAL user activity per userId, persisted across reconnects. Without
   // this, every proxy-drop → auto-reconnect cycle produced a brand-new client
   // whose lastActivityAt reset to "now" (and `subscribe-game` counted as
@@ -74,15 +85,6 @@ export class GameWebSocketServer {
   // and re-broadcast on change (drives the red error banner in the web UI).
   private latestFirebaseStatus: unknown = null;
 
-  // Notified with the active client count on every connect/disconnect; used
-  // to suspend/resume the Firebase transport as web operators come and go.
-  private presenceListener: ((count: number) => void) | null = null;
-
-  onPresenceChange(listener: (count: number) => void): void {
-    this.presenceListener = listener;
-    listener(this.clients.size);
-  }
-
   broadcastFirebaseStatus(status: unknown): void {
     this.latestFirebaseStatus = status;
     for (const client of this.clients) {
@@ -96,7 +98,7 @@ export class GameWebSocketServer {
 
     this.wss = new WebSocketServer({ server, path: '/ws' });
     this.startIdleSweep();
-    this.startKeepalive();
+    this.startSocketKeepalive();
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       const ip =
@@ -153,6 +155,13 @@ export class GameWebSocketServer {
             if (client.userId) {
               this.userActivity.set(client.userId, client.lastActivityAt);
             }
+            // Every USER_INTENT message is a VERIFIABLE human action for the
+            // instance-level awake rule: state-mutating commands, and the
+            // 'activity' heartbeat, which the client only sends after real
+            // local input (key/click/touch/mouse) since its last beat. Socket
+            // keepalives, pings and auto-resubscribes never reach this branch,
+            // so a connected-but-untouched tab counts as nothing.
+            ActivityController.getInstance().recordHumanAction();
             // Real state-mutating intent — this (not mere connections or
             // presence heartbeats) marks the server "active" on the
             // /activity timeline. The 'activity' heartbeat fires on any
@@ -223,7 +232,6 @@ export class GameWebSocketServer {
         turn: gameState.turn,
         gameState: gameState,
         turnExpiryTime: game?.turnExpiryTime || null,
-        measuredPing: this.gameManager.getMeasuredPing(),
         selections: this.getSelectionsForGame(gameId),
         owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
@@ -444,7 +452,7 @@ export class GameWebSocketServer {
         // current turn, so the game server can resolve the turn early once
         // every player has committed. Staged moves are untouched.
         if (!client.gameId || !client.userId) break;
-        this.gameManager.commitAllStaged(client.gameId);
+        this.gameManager.commitAllStaged(client.gameId, client.userId);
         this.broadcastSelectionsUpdate(client.gameId);
         break;
       }
@@ -461,7 +469,7 @@ export class GameWebSocketServer {
           this.send(client.ws, { type: 'suicide-result', success: false, error: 'Invalid password' });
           break;
         }
-        const result = this.gameManager.suicideAllSnakes(client.gameId);
+        const result = this.gameManager.suicideAllSnakes(client.gameId, client.userId);
         this.send(client.ws, { type: 'suicide-result', success: true, affected: result.affected });
         this.broadcastSelectionsUpdate(client.gameId);
         break;
@@ -545,36 +553,50 @@ export class GameWebSocketServer {
       }
 
       case 'activity': {
-        // Heartbeat from IdleWatcher signalling the user has been active.
-        // lastActivityAt was already bumped above by the USER_INTENT_TYPES
-        // check; nothing more to do here. Don't reply — a silent ack keeps
-        // this off the wire when the tab is idle.
+        // ACTIVITY HEARTBEAT from IdleWatcher: sent only when the user has
+        // produced real local input (key/click/touch/mouse) since the last
+        // beat, so it is a verifiable human signal. lastActivityAt (and the
+        // controller's human-action clock) were already bumped above by the
+        // USER_INTENT_TYPES check; nothing more to do here. Don't reply — a
+        // silent ack keeps this off the wire when the tab is idle.
         break;
       }
 
       case 'keepalive': {
-        // Unconditional connection keepalive from the client. Deliberately NOT
-        // in USER_INTENT_TYPES, so it keeps the socket warm (and proxy idle
-        // timer reset) without resetting the 30-minute user-idle window. The
-        // inbound frame already marked isAlive above; nothing else to do.
+        // SOCKET KEEPALIVE from the client (unconditional, input-independent).
+        // Deliberately NOT in USER_INTENT_TYPES, so it keeps the socket warm
+        // (and proxy idle timer reset) without resetting the 30-minute
+        // user-idle window or the instance awake clock. The inbound frame
+        // already marked isAlive above; nothing else to do.
         break;
       }
     }
   }
 
   /**
-   * Protocol-level keepalive. Every interval, terminate any socket that didn't
-   * answer the previous ping (genuinely dead/zombie), then ping the rest. We
-   * also send a lightweight application-level `keepalive` frame on the same
-   * cadence: the platform proxy is known to forward application data frames
-   * (board updates flow through it), but may not forward low-level ping frames,
-   * so the app-level frame guarantees server→client traffic keeps the idle-but-
-   * open socket from being dropped (~5-minute proxy window).
+   * SOCKET KEEPALIVE — one of the three deliberately distinct "heartbeat-like"
+   * mechanisms in this codebase (never conflate their names):
+   *   1. liveness heartbeat  — ServerEventLogger's server_liveness DB upsert
+   *      (death-watch; no websocket involved; runs in every state).
+   *   2. socket keepalive    — THIS: the 25s WS protocol ping + app-level
+   *      `keepalive` frame that stops proxies dropping connected sockets.
+   *      Exists only while clients are connected; says NOTHING about humans.
+   *   3. activity heartbeat  — the client's input-gated `activity` message
+   *      proving a real human recently interacted (IdleWatcher).
+   *
+   * Every interval, terminate any socket that didn't answer the previous ping
+   * (genuinely dead/zombie), then ping the rest. We also send a lightweight
+   * application-level `keepalive` frame (wire type unchanged for client
+   * compat) on the same cadence: the platform proxy is known to forward
+   * application data frames (board updates flow through it), but may not
+   * forward low-level ping frames, so the app-level frame guarantees
+   * server→client traffic keeps the idle-but-open socket from being dropped
+   * (~5-minute proxy window).
    */
-  private startKeepalive(): void {
-    if (this.keepaliveInterval) return;
+  private startSocketKeepalive(): void {
+    if (this.socketKeepaliveInterval) return;
     const keepaliveData = JSON.stringify({ type: 'keepalive', ts: 0 });
-    this.keepaliveInterval = setInterval(() => {
+    this.socketKeepaliveInterval = ActivityController.getInstance().managedInterval('ws-socket-keepalive', () => {
       for (const client of this.clients) {
         if (client.ws.readyState !== WebSocket.OPEN) continue;
         if (!client.isAlive) {
@@ -603,28 +625,76 @@ export class GameWebSocketServer {
         // App-level keepalive as the proxy-forwarding fallback.
         try { client.ws.send(keepaliveData); } catch { /* best-effort */ }
       }
-    }, WS_KEEPALIVE_INTERVAL_MS);
-    // Don't keep the event loop alive solely for the keepalive timer.
-    if (typeof this.keepaliveInterval.unref === 'function') {
-      this.keepaliveInterval.unref();
-    }
+    }, SOCKET_KEEPALIVE_INTERVAL_MS, { scope: 'always' });
   }
 
-  /** Stop background timers so the process can shut down cleanly. */
-  shutdown(): void {
+  /**
+   * Real server close for graceful shutdown: stop the background timers,
+   * close every client socket with 1001 (going away), then close the
+   * WebSocketServer itself — all BEFORE httpServer.close(). Previously only
+   * the timers were cleared and the client sockets stayed open, so with any
+   * client attached the HTTP server's close callback never fired and
+   * process.exit(0) was unreachable. Sockets that don't complete the close
+   * handshake within a short bound are terminated so shutdown can never hang
+   * on a dead client.
+   */
+  async shutdown(): Promise<void> {
     if (this.idleSweepInterval) {
-      clearInterval(this.idleSweepInterval);
+      this.idleSweepInterval.clear();
       this.idleSweepInterval = null;
     }
-    if (this.keepaliveInterval) {
-      clearInterval(this.keepaliveInterval);
-      this.keepaliveInterval = null;
+    if (this.socketKeepaliveInterval) {
+      this.socketKeepaliveInterval.clear();
+      this.socketKeepaliveInterval = null;
     }
+
+    const sockets = [...this.clients].map((client) => client.ws);
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let remaining = sockets.length;
+      let terminateBound: NodeJS.Timeout | null = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (terminateBound) clearTimeout(terminateBound);
+        // Stops the server accepting new connections. In server-attached mode
+        // this does NOT close client sockets — that's what the loop above is
+        // for — so it completes promptly once the clients are gone.
+        this.wss.close(() => resolve());
+      };
+      if (remaining === 0) {
+        finish();
+        return;
+      }
+      const oneClosed = () => {
+        remaining--;
+        if (remaining === 0) finish();
+      };
+      // Backstop: a client that never answers the close handshake would hold
+      // its TCP socket (and therefore httpServer.close()) open indefinitely.
+      terminateBound = transientTimeout(() => {
+        for (const ws of sockets) {
+          try { ws.terminate(); } catch { /* already down */ }
+        }
+      }, SHUTDOWN_CLOSE_BOUND_MS);
+      for (const ws of sockets) {
+        if (ws.readyState === WebSocket.CLOSED) {
+          oneClosed();
+          continue;
+        }
+        ws.once('close', oneClosed);
+        try {
+          ws.close(SHUTDOWN_CLOSE_CODE, SHUTDOWN_CLOSE_REASON);
+        } catch {
+          try { ws.terminate(); } catch { /* already down */ }
+        }
+      }
+    });
   }
 
   private startIdleSweep(): void {
     if (this.idleSweepInterval) return;
-    this.idleSweepInterval = setInterval(async () => {
+    this.idleSweepInterval = ActivityController.getInstance().managedInterval('ws-idle-sweep', async () => {
       // With zero clients there is nothing to sweep — skip entirely (including
       // the config read) so an idle server generates no background database
       // traffic that could keep the autoscale instance from draining to zero.
@@ -672,7 +742,7 @@ export class GameWebSocketServer {
           });
           try {
             client.ws.close(IDLE_CLOSE_CODE, IDLE_CLOSE_REASON);
-          } catch (e) {
+          } catch {
             // best-effort: socket may already be tearing down
           }
         }
@@ -684,11 +754,7 @@ export class GameWebSocketServer {
       for (const [userId, ts] of this.userActivity) {
         if (ts < pruneCutoff) this.userActivity.delete(userId);
       }
-    }, SERVER_IDLE_SWEEP_INTERVAL_MS);
-    // Don't keep the event loop alive solely for the sweep timer.
-    if (typeof this.idleSweepInterval.unref === 'function') {
-      this.idleSweepInterval.unref();
-    }
+    }, SERVER_IDLE_SWEEP_INTERVAL_MS, { scope: 'always' });
   }
 
   /** Emit a single line whenever the active-connection count changes. Called
@@ -700,9 +766,10 @@ export class GameWebSocketServer {
     );
     // Feed every connection-count change into the activity tracker so 0↔1
     // transitions emit went-idle / woke server events (includes idle-sweep
-    // closes — they arrive here via the socket's close handler).
+    // closes — they arrive here via the socket's close handler). NOTE: a
+    // connection is deliberately NOT a human action for the awake rule — a
+    // connected-but-untouched (auto-reconnecting) tab counts as nothing.
     ServerEventLogger.getInstance().setConnectionCount(this.clients.size);
-    this.presenceListener?.(this.clients.size);
   }
 
   private handleDisconnect(client: WSClient): void {
@@ -731,56 +798,12 @@ export class GameWebSocketServer {
     return selections;
   }
 
-  // Staged moves drive the arrow render on every client. Three layers per
-  // snake, all pure reads of the manager's mirrors of Firebase state:
-  //  - `requestedMove`: the last move the user/bot requested (ghost arrow
-  //    whenever it differs from the confirmed move — optimistic state).
-  //  - `move`: the CONFIRMED staged move from the Firebase read-back (solid
-  //    arrow — what the game server will play if the turn ends now). Null
-  //    until the first confirmation for the turn lands.
-  //  - `committed`: true once Firebase finalized the turn's move (deadline
-  //    passed or all players committed) — the double arrow; `move` then
-  //    carries the final selection.
-  // Color/source are derived from the requested record's source: heuristic =
-  // grey/'bot' (bot-seeded), any human method (manual/queue/waypoint) = the
-  // controlling user's color.
-  //
-  // Every controlled snake gets an entry, gated only on having a `staged`
-  // record. The client only draws arrows for snakes present on the board, so
-  // eliminated snakes are naturally skipped there.
+  // Staged moves drive the arrow render on every client. The projection lives
+  // in the manager (getStagedMovesForGame) because the per-turn command-state
+  // snapshot persists the identical shape — live play and the history replay
+  // must render from the same data.
   private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } {
-    const game = this.gameManager.getGame(gameId);
-    if (!game) return {};
-
-    const BOT_COLOR = '#888888';
-    const staged: { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } = {};
-    for (const [snakeId, cs] of game.controlledSnakes) {
-      if (!cs.staged) continue;
-      const requested = cs.staged;
-      const userColor = cs.selectedBy
-        ? game.connectedUsers.get(cs.selectedBy)?.color || '#4CAF50'
-        : '#4CAF50';
-      // Colour/source reflect the TRUE origin of the requested move, NOT the
-      // nominal activeIntentMode. A waypoint/queue that fell back to the bot's
-      // move this turn has source 'bot'/'fallback' and renders grey — so a
-      // user-coloured arrow always guarantees the user's own requested move.
-      const isBot = requested.source === 'bot' || requested.source === 'fallback';
-      const color = isBot ? BOT_COLOR : userColor;
-      // `fatal` flags a certain-death requested move so the client can warn
-      // the human; it NEVER changes what is staged.
-      const fatal = this.gameManager.isStagedMoveFatal(gameId, snakeId);
-      const confirmed = cs.confirmedStaged?.turn === requested.turn ? cs.confirmedStaged.move : null;
-      const final = cs.finalMove?.turn === requested.turn ? cs.finalMove.move : null;
-      staged[snakeId] = {
-        move: final ?? confirmed,
-        requestedMove: requested.move,
-        committed: final !== null,
-        color,
-        source: requested.source,
-        fatal,
-      };
-    }
-    return staged;
+    return this.gameManager.getStagedMovesForGame(gameId);
   }
 
   private broadcastSelectionsUpdate(gameId: string): void {
@@ -931,6 +954,13 @@ export class GameWebSocketServer {
     ws.send(data);
   }
 }
+
+// Graceful-shutdown close: 1001 "going away", the standard server-restart code.
+const SHUTDOWN_CLOSE_CODE = 1001;
+const SHUTDOWN_CLOSE_REASON = 'server-shutdown';
+// How long shutdown waits for clients to answer the close handshake before
+// terminating the stragglers outright.
+const SHUTDOWN_CLOSE_BOUND_MS = 2000;
 
 // 1 MB — drop superseded updates (next turn replaces them anyway) beyond this.
 const BACKPRESSURE_DROP_BYTES = 1024 * 1024;

@@ -206,3 +206,91 @@ describe('severing in simulated board states', () => {
     expect(pass.passableIdx(graph.cellIndex(6, 6), 1)).toBe(true);
   });
 });
+
+/**
+ * Engine-aligned movement physics: the game engine pops every snake's tail
+ * BEFORE resolving collisions (eating or not) and grows by duplicating the
+ * NEW tail — so "ate last turn" is visible as a stacked tail. These pin the
+ * simulator to those semantics (mirrored by regression tests on the server's
+ * SnekProcessor in the TacticToes repo).
+ */
+describe('engine-aligned tail and eating physics', () => {
+  const simulator = new Simulator();
+
+  test('moving into own tail cell while eating survives (tail pops before food)', () => {
+    // 2x2 coil: head (2,1), body (1,1), (1,2), tail (2,2). Food on the tail
+    // cell. Moving down onto the tail is legal because the tail pops first;
+    // the eat then duplicates the NEW tail.
+    const us = makeSnake('us', [
+      { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }, { x: 2, y: 1 }
+    ]);
+    const gs = makeGameState([us], us);
+    gs.board.food = [{ x: 2, y: 1 }];
+
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'down']]));
+
+    expect(result.deadSnakeIds.has('us')).toBe(false);
+    const sim = result.board.snakes.find(s => s.id === 'us')!;
+    expect(sim.body).toEqual([
+      { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }, { x: 1, y: 1 }
+    ]);
+    expect(sim.health).toBe(100);
+    expect(result.board.food).toEqual([]);
+  });
+
+  test('moving into own STACKED tail cell dies (ate last turn, one pop is not enough)', () => {
+    const us = makeSnake('us', [
+      { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 1 }
+    ]);
+    const gs = makeGameState([us], us);
+
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'down']]));
+
+    expect(result.deadSnakeIds.has('us')).toBe(true);
+  });
+
+  test("an enemy's tail vacates even when that enemy eats this turn", () => {
+    // Enemy head (8,8) moving onto food at (8,9); its tail (8,5) still pops —
+    // eating no longer blocks tail vacation. We step onto the vacated cell.
+    const us = makeSnake('us', [
+      { x: 8, y: 4 }, { x: 7, y: 4 }, { x: 6, y: 4 }
+    ]);
+    const enemy = makeSnake('enemy', [
+      { x: 8, y: 8 }, { x: 8, y: 7 }, { x: 8, y: 6 }, { x: 8, y: 5 }
+    ], { customizations: { color: '#00FF00', head: 'default', tail: 'default' } });
+    const gs = makeGameState([us, enemy], us);
+    gs.board.food = [{ x: 8, y: 9 }];
+
+    const result = simulator.simulateNextBoardState(
+      gs, moves([['us', 'up'], ['enemy', 'up']])
+    );
+
+    expect(result.deadSnakeIds.has('us')).toBe(false);
+    expect(result.deadSnakeIds.has('enemy')).toBe(false);
+    const simEnemy = result.board.snakes.find(s => s.id === 'enemy')!;
+    // Enemy grew by duplicating its new tail; the old tail cell (8,5) is ours.
+    expect(simEnemy.body).toEqual([
+      { x: 8, y: 9 }, { x: 8, y: 8 }, { x: 8, y: 7 }, { x: 8, y: 6 }, { x: 8, y: 6 }
+    ]);
+    const simUs = result.board.snakes.find(s => s.id === 'us')!;
+    expect(simUs.head).toEqual({ x: 8, y: 5 });
+  });
+
+  test("an enemy's STACKED tail does not vacate this turn", () => {
+    // Enemy ate last turn: tail duplicated at (8,5). One pop leaves a copy,
+    // so stepping onto (8,5) is fatal.
+    const us = makeSnake('us', [
+      { x: 8, y: 4 }, { x: 7, y: 4 }, { x: 6, y: 4 }
+    ]);
+    const enemy = makeSnake('enemy', [
+      { x: 8, y: 8 }, { x: 8, y: 7 }, { x: 8, y: 6 }, { x: 8, y: 5 }, { x: 8, y: 5 }
+    ], { customizations: { color: '#00FF00', head: 'default', tail: 'default' } });
+    const gs = makeGameState([us, enemy], us);
+
+    const result = simulator.simulateNextBoardState(
+      gs, moves([['us', 'up'], ['enemy', 'up']])
+    );
+
+    expect(result.deadSnakeIds.has('us')).toBe(true);
+  });
+});

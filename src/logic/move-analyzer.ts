@@ -4,7 +4,6 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { TurnStateManager } from './turn-state';
 import { BoardGraph } from './board-graph';
 
 export interface H2HRiskInfo {
@@ -21,24 +20,12 @@ export interface MoveAnalysis {
 }
 
 export class MoveAnalyzer {
-  private tailSafetyRule: 'official' | 'custom';
-  
-  constructor(tailSafetyRule: 'official' | 'custom' = 'custom') {
-    this.tailSafetyRule = tailSafetyRule;
-  }
   /**
    * Analyzes available moves for a snake and categorizes them as safe or risky.
    * This is the single source of truth for move safety in the entire codebase.
    * Uses BoardGraph as the single source of truth for passability.
    */
   public analyzeMoves(snake: Snake, gameState: GameState, graph: BoardGraph, teamSnakeIds?: Set<string>): MoveAnalysis {
-    // Update turn state to track which snakes ate food
-    const turnStateManager = TurnStateManager.getInstance();
-    turnStateManager.updateState(
-      gameState.game.id, 
-      gameState.turn, 
-      gameState.board.snakes.map(s => ({id: s.id, length: s.length}))
-    );
     const head = snake.head;
     const allDirections: Direction[] = ['up', 'down', 'left', 'right'];
     const safe: Direction[] = [];

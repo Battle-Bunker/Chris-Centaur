@@ -24,11 +24,6 @@
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
 
 export interface BoardGraphConfig {
-  // Tail growth variant:
-  // 'grow-same-turn' - snake grows immediately when eating (tail doesn't move)
-  // 'grow-next-turn' - snake grows on turn after eating (tail moves when eating)
-  tailGrowthTiming: 'grow-same-turn' | 'grow-next-turn';
-
   // Maximum turns to look ahead for optimistic passability
   maxLookaheadTurns: number;
 }
@@ -61,6 +56,29 @@ export interface PassabilityOptions {
 }
 
 const NO_SNAKE = -1;
+
+/**
+ * Fill `out` with the in-bounds orthogonal neighbor cell indices of `idx` on a
+ * W-wide grid of N cells, returning how many were written (2-4). THE one
+ * implementation of the n0..n3 neighbor arithmetic — every grid walker
+ * (evaluation flood fills, the multi-source BFS, waypoint pathing, adjacency
+ * builds) calls this instead of re-deriving it inline.
+ *
+ * Scratch-array form rather than a callback: these are the measured hot loops
+ * and the fill compiles to straight-line stores with no closure allocation.
+ * Callers own their scratch buffer, so nested use (e.g. the Warnsdorff walk's
+ * candidate + degree buffers) stays safe. Order (+W, -W, -1, +1) is the
+ * historical enumeration order — BFS parent/first-visit choices depend on it.
+ */
+export function fillNeighbors4(idx: number, W: number, N: number, out: Int32Array): number {
+  const x = idx % W;
+  let count = 0;
+  if (idx + W < N) out[count++] = idx + W;
+  if (idx - W >= 0) out[count++] = idx - W;
+  if (x > 0) out[count++] = idx - 1;
+  if (x < W - 1) out[count++] = idx + 1;
+  return count;
+}
 
 export class BoardGraph {
   private width: number;
@@ -96,7 +114,6 @@ export class BoardGraph {
     this.height = state.board.height;
     this.cells = this.width * this.height;
     this.config = {
-      tailGrowthTiming: 'grow-next-turn',
       maxLookaheadTurns: 5,
       ...config
     };
@@ -147,7 +164,7 @@ export class BoardGraph {
   private buildGraph(state: BoardSnapshot): void {
     const { board } = state;
 
-    // Food mask, used for justAte checks and the food-reach BFS.
+    // Food mask, used for the food-reach BFS.
     const foodMask = new Uint8Array(this.cells);
     for (const f of board.food) foodMask[this.cellIndexOf(f)] = 1;
 
@@ -156,7 +173,7 @@ export class BoardGraph {
 
     // Phase 1: segments + hazards + static blocked layer. After this,
     // passabilityIdxFor({ clearance: 'static' }) is fully functional.
-    this.buildSegments(board.snakes, foodMask, board.hazards);
+    this.buildSegments(board.snakes, board.hazards);
 
     // Phase 2: food reach via the static predicate, then fill in each segment's
     // optimistic + conservative disappear turns. After this, the turn-aware
@@ -180,31 +197,39 @@ export class BoardGraph {
     }
   }
 
-  private buildSegments(snakes: Snake[], foodMask: Uint8Array, hazards: Coord[]): void {
+  private buildSegments(snakes: Snake[], hazards: Coord[]): void {
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
-      const justAte = foodMask[this.cellIndexOf(snake.head)] === 1;
 
-      // Body segments, excluding the head at index 0. Later snakes overwrite
-      // overlapping cells (same last-writer-wins as the old Map-based build).
+      // Body segments, excluding the head at index 0. The engine may stack
+      // several segments on one cell (a snake that ate last turn carries a
+      // duplicated tail; spawns start fully stacked), so treat each run of
+      // consecutive duplicates as ONE cell whose vacate turn counts from the
+      // run's FIRST index — the cell only frees once its last copy pops.
+      // Later snakes overwrite overlapping cells (same last-writer-wins as
+      // the old Map-based build).
       for (let i = 1; i < snake.body.length; i++) {
         const idx = this.cellIndexOf(snake.body[i]);
-        const isTail = i === snake.body.length - 1;
-        const turnsFromTail = snake.body.length - i;
+        let last = i;
+        while (last + 1 < snake.body.length &&
+               this.cellIndexOf(snake.body[last + 1]) === idx) last++;
+        // A run that also covers the HEAD cell (spawn stacks [H,H,H]; the
+        // two-copy stack [H,H] right after a sever) really starts at index 0:
+        // once the head moves, its copy is just another body copy the tail
+        // still has to pop through, so the engine-truth vacate turn is
+        // body.length − 0. A NON-stacked head stays a non-segment (this loop
+        // never visits index 0 alone), so other subjects still read a normal
+        // head cell as empty.
+        const runStart = i === 1 && this.cellIndexOf(snake.body[0]) === idx ? 0 : i;
+        const isTail = last === snake.body.length - 1;
+        const stacked = last > runStart;
+        const turnsFromTail = snake.body.length - runStart;
 
-        let staticBlocked = true;
-        if (isTail) {
-          if (justAte) {
-            // Head on food => snake grows => tail does NOT vacate next turn.
-            staticBlocked = true;
-          } else if (this.config.tailGrowthTiming === 'grow-same-turn') {
-            staticBlocked = false; // tail moves this turn
-          } else {
-            // grow-next-turn: tail moves unless it's the only segment after head.
-            staticBlocked = snake.body.length === 2;
-          }
-        }
+        // The engine pops tails before resolving collisions, eating or not —
+        // so the tail cell vacates on the very next move unless it is
+        // stacked, in which case one pop still leaves a copy behind.
+        const staticBlocked = isTail ? stacked : true;
 
         // Both disappear turns start at the pure-geometry base (turnsFromTail)
         // and are pushed out by fillDisappearTurns once food reach is known.
@@ -214,6 +239,7 @@ export class BoardGraph {
         this.optimisticDisappear[idx] = turnsFromTail;
         this.physicalDisappear[idx] = turnsFromTail;
         this.conservativeDisappear[idx] = turnsFromTail;
+        i = last;
       }
     }
 
@@ -247,20 +273,17 @@ export class BoardGraph {
       let levelStart = 0;
       let levelEnd = 1;
       this.queue[0] = headIdx;
+      const nbuf = new Int32Array(4);
 
       for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
         let nextEnd = levelEnd;
         let foodFoundThisTurn = 0;
         for (let q = levelStart; q < levelEnd; q++) {
           const cur = this.queue[q];
-          const x = cur % W;
-          // Orthogonal neighbors via index arithmetic; -1 marks out-of-bounds.
-          const n0 = cur + W < this.cells ? cur + W : -1;
-          const n1 = cur - W >= 0 ? cur - W : -1;
-          const n2 = x > 0 ? cur - 1 : -1;
-          const n3 = x < W - 1 ? cur + 1 : -1;
-          for (const n of [n0, n1, n2, n3]) {
-            if (n < 0 || this.visitStamp[n] === stamp) continue;
+          const nCount = fillNeighbors4(cur, W, this.cells, nbuf);
+          for (let t = 0; t < nCount; t++) {
+            const n = nbuf[t];
+            if (this.visitStamp[n] === stamp) continue;
             if (!pass.passableIdx(n, turn)) continue;
             this.visitStamp[n] = stamp;
             this.queue[nextEnd++] = n;
@@ -285,15 +308,14 @@ export class BoardGraph {
    *
    * Eat accounting is PER SEGMENT: an eat at turn t only delays segments whose
    * (current, already-delayed) vacate turn comes after the eat takes effect.
-   * Under 'grow-next-turn' timing an eat at turn t delays only segments whose
-   * vacate turn is STRICTLY greater than t (the tail vacating at turn t itself
-   * has already moved when the eat lands). Under 'grow-same-turn' the tail
-   * stays put on the eating turn itself, so an eat at turn t delays segments
-   * whose vacate turn is >= t. Turn-0 "eats" (head already on food — justAte)
-   * delay everything, matching the static-layer blocked tail.
+   * The engine pops the tail BEFORE food is processed, so an eat at turn t
+   * adds a body copy that delays only segments whose vacate turn is STRICTLY
+   * greater than t (the tail vacating at turn t itself has already moved when
+   * the eat lands). A snake that ate LAST turn needs no eat accounting here:
+   * its duplicated tail is plain geometry, handled in buildSegments.
    *
-   *  - optimistic  = base + only the eats we can CONFIRM: turn 0 (head on
-   *    food) and turn 1 (food one step away), applied per segment.
+   *  - optimistic  = base + only the eats we can CONFIRM: a food cell one
+   *    step from the owner's head (it can eat this turn), applied per segment.
    *  - physical    = base + every food the owner could reach in time to still
    *    be growing when the segment would vacate, applied per segment with NO
    *    safety buffer. Used by the subject-agnostic Voronoi layer.
@@ -306,33 +328,36 @@ export class BoardGraph {
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
       const foodByTurn = foodReach[snakeIdx] || [];
 
-      // Does an eat at turn t delay a segment currently vacating at `vacate`?
-      const growSame = this.config.tailGrowthTiming === 'grow-same-turn';
-
-      // Apply eats (count per turn) to a segment's base vacate turn.
+      // Apply eats (count per turn) to a segment's base vacate turn. An eat
+      // at turn t delays only segments vacating STRICTLY after t (the engine
+      // pops tails before food is processed).
       const applyEats = (base: number, eatsAtTurn: (t: number) => number, maxTurn: number): number => {
         let vacate = base;
         for (let t = 0; t <= maxTurn; t++) {
           const eats = eatsAtTurn(t);
-          if (eats > 0 && (growSame ? vacate >= t : vacate > t)) vacate += eats;
+          if (eats > 0 && vacate > t) vacate += eats;
         }
         return vacate;
       };
 
-      // Confirmed eats only: turn 0 = head already on food (justAte); turn 1 =
-      // a food cell reachable in a single move this turn.
-      const justAte = (foodByTurn[0] ?? 0) > 0 ? 1 : 0;
+      // Confirmed eats only: a food cell reachable in a single move this turn.
       const canEatThisTurn = (foodByTurn[1] ?? 0) > 0 ? 1 : 0;
-      const confirmedEats = (t: number): number =>
-        t === 0 ? justAte : t === 1 ? Math.min(canEatThisTurn, 1) : 0;
+      const confirmedEats = (t: number): number => (t === 1 ? canEatThisTurn : 0);
       const potentialEats = (t: number): number => foodByTurn[t] ?? 0;
 
       for (let i = 1; i < snake.body.length; i++) {
         const idx = this.cellIndexOf(snake.body[i]);
+        // Consume a run of consecutive duplicates as one cell, counting the
+        // vacate turn from the run's FIRST index (same as buildSegments).
+        let last = i;
+        while (last + 1 < snake.body.length &&
+               this.cellIndexOf(snake.body[last + 1]) === idx) last++;
         // Skip cells overwritten by another snake's overlapping segment.
-        if (this.segOwner[idx] !== snakeIdx) continue;
+        if (this.segOwner[idx] !== snakeIdx) { i = last; continue; }
 
-        const base = snake.body.length - i; // pure-geometry disappear turn (turnsFromTail)
+        // Head-overlapping run counts from index 0 (same as buildSegments).
+        const runStart = i === 1 && this.cellIndexOf(snake.body[0]) === idx ? 0 : i;
+        const base = snake.body.length - runStart; // pure-geometry disappear turn (turnsFromTail)
 
         this.optimisticDisappear[idx] = applyEats(base, confirmedEats, 1);
 
@@ -342,6 +367,7 @@ export class BoardGraph {
           this.physicalDisappear[idx] = base;
         }
         this.conservativeDisappear[idx] = this.physicalDisappear[idx] + 1;
+        i = last;
       }
     }
   }
@@ -447,6 +473,25 @@ export class BoardGraph {
     return this.segOwner[idx] === NO_SNAKE ? 0 : this.physicalDisappear[idx];
   }
 
+  // Memoized whole-board physicalVacateTurn snapshot (below).
+  private vacateTurnsCache: number[] | null = null;
+
+  /**
+   * The physicalVacateTurn of EVERY cell as a JSON-ready array, built once
+   * per graph and shared: the per-candidate cell-ownership payloads all
+   * describe the same graph, so each used to rebuild an identical array per
+   * call. Treat as READ-ONLY — the same instance is embedded in every
+   * CellOwnership snapshot for this graph (consumers only serialize it).
+   */
+  physicalVacateTurns(): number[] {
+    if (!this.vacateTurnsCache) {
+      const arr = new Array<number>(this.cells);
+      for (let idx = 0; idx < this.cells; idx++) arr[idx] = this.physicalVacateTurn(idx);
+      this.vacateTurnsCache = arr;
+    }
+    return this.vacateTurnsCache;
+  }
+
   // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
   // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
   // i. A statically-blocked cell has an empty neighbor list (it is not a
@@ -470,18 +515,15 @@ export class BoardGraph {
     const N = this.cells;
     const start = new Int32Array(N + 1);
     const neighbors = new Int32Array(N * 4);
+    const nbuf = new Int32Array(4);
     let filled = 0;
     for (let idx = 0; idx < N; idx++) {
       start[idx] = filled;
       if (this.isStaticBlockedIdx(idx)) continue;
-      const x = idx % W;
-      const n0 = idx + W < N ? idx + W : -1;
-      const n1 = idx - W >= 0 ? idx - W : -1;
-      const n2 = x > 0 ? idx - 1 : -1;
-      const n3 = x < W - 1 ? idx + 1 : -1;
-      for (let t = 0; t < 4; t++) {
-        const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
-        if (n >= 0 && !this.isStaticBlockedIdx(n)) neighbors[filled++] = n;
+      const nCount = fillNeighbors4(idx, W, N, nbuf);
+      for (let t = 0; t < nCount; t++) {
+        const n = nbuf[t];
+        if (!this.isStaticBlockedIdx(n)) neighbors[filled++] = n;
       }
     }
     start[N] = filled;

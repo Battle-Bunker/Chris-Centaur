@@ -101,18 +101,54 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     return published.filter((p) => p.snakeId === snakeId);
   }
 
-  // Drives the transport side of one snake's turn intake (register + turn data
-  // + bot recommendation), the way the Firebase interface feeds the manager.
+  // Drives the transport side of one snake's turn intake (register + canonical
+  // board + bot recommendation), the way the Firebase interface feeds the
+  // manager: the board is fed once per turn via updateBoard (idempotent for
+  // re-delivery of the same turn), decisions per snake.
   function processTurn(gameId: string, snakeId: string, snakes: Snake[], turn: number, botMove: Direction) {
     const gs = makeGameState(gameId, turn, snakes, snakeId);
     const existing = mgr.getGame(gameId);
     if (!existing || !existing.controlledSnakes.has(snakeId)) {
-      mgr.registerGame(gs);
+      mgr.registerGame(gs, snakeId);
     }
-    mgr.updateGameState(gameId, snakeId, gs);
     mgr.recordTurnArrival(gameId, Date.now(), 500, Date.now() + 1_000_000);
+    mgr.updateBoard(gameId, gs);
     mgr.setBotRecommendation(gameId, snakeId, botMove, makeTurnData(gs, botMove));
   }
+
+  test('early-resolution race: a recommendation computed for a previous board is dropped', () => {
+    const gameId = 'g-stale-reco';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+
+    // Turn 5 processed normally, then the turn resolves EARLY and turn 6
+    // arrives while turn 5's full decision pass is still running.
+    processTurn(gameId, 'A', snakes, 5, 'right');
+    processTurn(gameId, 'A', snakes, 6, 'left');
+    const cs = mgr.getGame(gameId)!.controlledSnakes.get('A')!;
+    expect(cs.staged?.move).toBe('left');
+    expect(cs.staged?.turn).toBe(6);
+
+    // The straggler lands: a turn-5 recommendation after the board moved on.
+    const staleGs = makeGameState(gameId, 5, snakes, 'A');
+    mgr.setBotRecommendation(gameId, 'A', 'down', makeTurnData(staleGs, 'down'));
+
+    // It must not overwrite the snake's turn data, restage, or publish.
+    expect(cs.latestTurnData?.gameState.turn).toBe(6);
+    expect(cs.botRecommendation).toBe('left');
+    expect(cs.staged?.move).toBe('left');
+    expect(cs.staged?.turn).toBe(6);
+    const pubs = publishedFor('A');
+    expect(pubs[pubs.length - 1]).toEqual(
+      { gameId, snakeId: 'A', turn: 6, move: 'left', source: 'bot' }
+    );
+    expect(pubs.filter((p) => p.move === 'down')).toHaveLength(0);
+
+    // A same-turn recommendation (the normal full-pass path) still lands.
+    const freshGs = makeGameState(gameId, 6, snakes, 'A');
+    mgr.setBotRecommendation(gameId, 'A', 'up', makeTurnData(freshGs, 'up'));
+    expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.turn).toBe(6);
+  });
 
   test('write-through: staging the bot recommendation publishes (turn, move) to Firebase', () => {
     const gameId = 'g-publish';
@@ -244,7 +280,7 @@ describe('Staged move (snakeId, turn) tagging and Firebase write-through', () =>
     // The user stages a manual move for B while B's bot decision is still
     // computing (boardStateTurn is already 1).
     const gsB1 = makeGameState(gameId, 1, snakes, 'B');
-    mgr.updateGameState(gameId, 'B', gsB1);
+    mgr.updateBoard(gameId, gsB1);
     mgr.setUserSelection(gameId, 'B', 'left');
 
     const csB = mgr.getGame(gameId)!.controlledSnakes.get('B')!;

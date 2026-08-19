@@ -1,17 +1,40 @@
 import express from 'express';
 import { DecisionLogger } from '../logic/decision-logger';
+import { CommandLogger } from '../logic/command-logger';
+import { ActivityController } from '../server/activity-controller';
 
 const router = express.Router();
 const logger = DecisionLogger.getInstance();
 
 // Get list of games with metadata
-router.get('/api/logs/games', async (req, res) => {
+router.get('/api/logs/games', async (_req, res) => {
   try {
     const games = await logger.getGames();
     res.json(games);
   } catch (error) {
     console.error('Error fetching games:', error);
     res.status(500).json({ error: 'Failed to fetch games' });
+  }
+});
+
+// The per-game board timeline: one canonical you-less state per turn, plus
+// the shared territory/ownership grids. Native turn_states rows are merged
+// per turn with boards synthesized from old-format decision rows, so old,
+// new, and mid-deploy hybrid games all serve one contiguous timeline.
+// ?sinceTurn= (board domain) makes the fetch incremental.
+router.get('/api/games/:gameId/turns', async (req, res) => {
+  try {
+    const sinceTurn = req.query.sinceTurn != null
+      ? parseInt(req.query.sinceTurn as string, 10)
+      : undefined;
+    const result = await logger.getTurnTimeline(
+      req.params.gameId,
+      Number.isFinite(sinceTurn as number) ? sinceTurn : undefined,
+    );
+    res.json(result);
+  } catch (error) {
+    console.error('Error building turn timeline:', error);
+    res.status(500).json({ error: 'Failed to build turn timeline' });
   }
 });
 
@@ -58,11 +81,33 @@ router.get('/api/logs', async (req, res) => {
   }
 });
 
+// Command history for one game: the raw operator command events (goto/near/
+// manual/…, with operator attribution) plus the per-turn command-state
+// snapshots keyed by the board turn whose END they describe. The history
+// viewer feeds the snapshots straight into the live render paths.
+router.get('/api/logs/commands', async (req, res) => {
+  try {
+    const gameId = (req.query.game_id as string) || (req.query.gameId as string);
+    if (!gameId) {
+      res.status(400).json({ error: 'game_id is required' });
+      return;
+    }
+    const commands = await CommandLogger.getInstance().getGameCommands(gameId);
+    res.json(commands);
+  } catch (error) {
+    console.error('Error querying command logs:', error);
+    res.status(500).json({ error: 'Failed to query command logs' });
+  }
+});
+
 // Clear old logs (admin endpoint)
 router.delete('/api/logs/old', async (req, res) => {
+  // Mutating admin call → verifiable human action for the awake rule.
+  ActivityController.getInstance().recordHumanAction();
   try {
     const daysToKeep = req.query.days ? parseInt(req.query.days as string, 10) : 7;
     await logger.clearOldLogs(daysToKeep);
+    await CommandLogger.getInstance().clearOldCommands(daysToKeep);
     res.json({ message: `Cleared logs older than ${daysToKeep} days` });
   } catch (error) {
     console.error('Error clearing old logs:', error);

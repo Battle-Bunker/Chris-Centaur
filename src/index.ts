@@ -1,9 +1,13 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'path';
 import { createServer } from 'http';
-import { VoronoiStrategy } from './logic/voronoi-strategy-new';
+import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { DecisionLogger } from './logic/decision-logger';
+import { CommandLogger } from './logic/command-logger';
+import { DecisionWorkerPool } from './logic/decision-worker-pool';
 import { ActiveGameManager } from './server/active-game-manager';
+import { ActivityController } from './server/activity-controller';
 import { GameWebSocketServer } from './server/websocket-server';
 import logsRouter from './routes/logs';
 import configRouter from './routes/config';
@@ -13,6 +17,7 @@ import activityRouter from './routes/activity';
 import { ConnectionLogger } from './utils/connection-logger';
 import { ServerEventLogger } from './logic/server-event-logger';
 import { GameRegistry } from './logic/game-registry';
+import { pool } from './database/db';
 import {
   TacticToesFirebaseInterface,
   firebaseInterfaceConfigFromEnv,
@@ -21,9 +26,14 @@ import {
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
 
+// The history viewer's decision-log responses run to many megabytes of highly
+// repetitive JSON; gzip shrinks them ~10x, which is most of the transfer time
+// when replaying a game.
+app.use(compression());
+
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
@@ -34,11 +44,29 @@ const voronoiStrategy = new VoronoiStrategy();
 const gameManager = ActiveGameManager.getInstance();
 const serverEventLogger = ServerEventLogger.getInstance();
 const gameRegistry = GameRegistry.getInstance();
+// The single owner of instance idleness (awake rule, idle/wake subscribers,
+// managed timers, shutdown ordering). The game manager registered itself as
+// the game-progress source at construction; human actions are recorded from
+// the WS user-intent handler, the dashboard page routes below, and the
+// mutating API routes.
+const activityController = ActivityController.getInstance();
+
+// A dashboard page load is a VERIFIABLE human action for the awake rule:
+// browsers only GET these documents when a human navigates (all data/polling
+// endpoints live under /api and are deliberately not instrumented).
+const markHumanAction = (
+  _req: express.Request,
+  _res: express.Response,
+  next: express.NextFunction
+) => {
+  activityController.recordHumanAction();
+  next();
+};
 
 // The Battlesnake HTTP interface is gone: games are driven exclusively through
 // the TacticToes Firebase interface (see src/firebase/firebase-interface.ts).
 // The HTTP server that remains serves only the centaur web UI and its APIs.
-app.get('/', (_req, res) => {
+app.get('/', markHumanAction, (_req, res) => {
   res.redirect('/play');
 });
 
@@ -48,39 +76,39 @@ app.use(playRouter);
 app.use(connectionDebugRouter);
 app.use(activityRouter);
 
-app.get('/config', (req, res) => {
+app.get('/config', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/config.html'));
 });
 
-app.get('/board-test', (req, res) => {
+app.get('/board-test', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/board-test.html'));
 });
 
-app.get('/history', (req, res) => {
+app.get('/history', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/history.html'));
 });
 
-app.get('/play', (req, res) => {
+app.get('/play', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play.html'));
 });
 
 // Unified game viewer: works for both live (WebSocket) and finished
 // (decision-log replay) games. See src/web/play-game.html.
-app.get('/game/:id', (req, res) => {
+app.get('/game/:id', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/play-game.html'));
 });
 
 // Legacy live-game URL now redirects to the unified viewer.
-app.get('/play/:gameId', (req, res) => {
+app.get('/play/:gameId', markHumanAction, (req, res) => {
   res.redirect(302, `/game/${encodeURIComponent(req.params.gameId)}`);
 });
 
 // Server activity page: audit autoscale behavior (boot/idle/wake/shutdown).
-app.get('/activity', (req, res) => {
+app.get('/activity', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/activity.html'));
 });
 
-app.get('/connection-debug', (req, res) => {
+app.get('/connection-debug', markHumanAction, (_req, res) => {
   res.sendFile(path.join(__dirname, '../src/web/connection-debug.html'));
 });
 
@@ -88,7 +116,6 @@ const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
 gameManager.startStaleGameCleanup(300000, 600000);
-gameManager.startServerPing();
 
 // The TacticToes Firebase interface is the SOLE game transport: it signs in
 // as the centaur, discovers games via invite docs, feeds turns to the game
@@ -107,35 +134,23 @@ if (ttFirebase) {
     console.error('[tt-firebase] Failed to start Firebase interface:', err);
   });
 
-  // Autoscale hygiene: mirror the web-client idle lifecycle onto the Firebase
-  // transport. When the last web client disconnects (idle sweep, tab close),
-  // suspend the Firestore streams after a short grace period so the process
-  // holds no outbound connections and autoscale can drain to zero. The grace
-  // period absorbs transient zero-client windows during page navigations.
-  // Any client (re)connecting cancels the pending suspend / resumes at once.
-  const FIREBASE_SUSPEND_GRACE_MS = 60_000;
-  let suspendTimer: NodeJS.Timeout | null = null;
-  wsServer.onPresenceChange((count) => {
-    if (count === 0) {
-      if (!suspendTimer) {
-        suspendTimer = setTimeout(() => {
-          suspendTimer = null;
-          void ttFirebase.suspend();
-        }, FIREBASE_SUSPEND_GRACE_MS);
-        suspendTimer.unref?.();
-      }
-    } else {
-      if (suspendTimer) {
-        clearTimeout(suspendTimer);
-        suspendTimer = null;
-      }
-      void ttFirebase.resume().catch((err) => {
-        // Status is already set to 'error' and pushed to the UI; log it too
-        // so the failure is visible in the server log with full detail.
-        console.error('[tt-firebase] Resume after suspension failed:', err);
-      });
-    }
-  });
+  // Autoscale hygiene: the Firebase transport follows the controller's awake
+  // rule. On idle (no verifiable human action for the grace window, and no
+  // progressing game within the 10-minute human-attention cap) the Firestore
+  // streams are suspended so the process holds no outbound connections; any
+  // verifiable human action wakes it and resumes exactly like the old
+  // presence-driven resume. DELIBERATE BEHAVIOR CHANGE from the old
+  // presence coupling: a progressing game now holds the transport up with
+  // ZERO connected clients (bounded by the human-attention cap), and a
+  // connected-but-untouched tab no longer holds it up at all.
+  activityController.onIdle('firebase-suspend', () => ttFirebase.suspend());
+  activityController.onWake('firebase-resume', () =>
+    ttFirebase.resume().catch((err) => {
+      // Status is already set to 'error' and pushed to the UI; log it too
+      // so the failure is visible in the server log with full detail.
+      console.error('[tt-firebase] Resume after suspension failed:', err);
+    })
+  );
 } else {
   console.error(
     '[tt-firebase] NOT CONFIGURED — the centaur cannot play. Set TACTICTOES_CENTAUR_ID, ' +
@@ -144,6 +159,13 @@ if (ttFirebase) {
     '(see README.md). Serving the web UI only.'
   );
 }
+
+// Idle teardown, after the Firebase suspend above: terminate the decision
+// worker threads (they are unref'd but still hold memory); the pool respawns
+// lazily on the next decision after a wake.
+activityController.onIdle('decision-worker-pool', () => {
+  DecisionWorkerPool.shutdownSharedIfRunning();
+});
 
 // Firebase connection status surface: the centaur is nonfunctional without its
 // Firebase connection, so the web UI shows a red banner (with a Retry button)
@@ -178,6 +200,8 @@ app.post('/api/firebase-retry', async (_req, res) => {
     return;
   }
   lastRetryAt = now;
+  // The Retry button is a verifiable human action (mutating API call).
+  activityController.recordHumanAction();
   console.log('[tt-firebase] Operator retry-connect requested');
   const status = await ttFirebase.retryConnect();
   if (status.state === 'error') {
@@ -198,24 +222,46 @@ httpServer.listen(port, '0.0.0.0', () => {
   void gameRegistry.backfillFromDecisionLogs();
 });
 
+// ── Graceful shutdown: ordering owned by the ActivityController ─────────────
+// Steps run strictly in this registration order, each awaited, a failing step
+// logged and skipped (see ActivityController.shutdown). The sequence: write
+// the shutdown event (bounded flush) → real WS close (client sockets + wss,
+// so httpServer.close() can actually complete) → Firebase stop → game-manager
+// timers → logger flushes → pg pool end (AFTER both logger flushes — the
+// loggers only flush; the pool is owned here) → worker-pool terminate → HTTP
+// close and exit.
+activityController.onShutdown('server-event-flush', (signal) =>
+  // Bounded by a short internal timeout so an unreachable database can never
+  // block process exit.
+  serverEventLogger.recordShutdownAndFlush(signal)
+);
+activityController.onShutdown('ws-close', () => wsServer.shutdown());
+if (ttFirebase) {
+  activityController.onShutdown('firebase-stop', () => ttFirebase.stop());
+}
+activityController.onShutdown('game-manager-timers', () => gameManager.shutdown());
+activityController.onShutdown('command-logger-flush', () => CommandLogger.getInstance().shutdown());
+activityController.onShutdown('decision-logger-flush', () => DecisionLogger.getInstance().shutdown());
+activityController.onShutdown('connection-logger-close', () => ConnectionLogger.getInstance().shutdown());
+activityController.onShutdown('pg-pool-end', () => pool.end());
+activityController.onShutdown('decision-worker-pool', () => DecisionWorkerPool.shutdownSharedIfRunning());
+activityController.onShutdown('http-close', () => {
+  httpServer.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  // Kick idle keep-alive HTTP connections loose so close() can complete; the
+  // WS sockets are already gone (ws-close step above — the old bug was that
+  // they never were, leaving process.exit unreachable).
+  httpServer.closeIdleConnections();
+});
+
 let shuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully...`);
-  // Write the shutdown event first, bounded by a short timeout so an
-  // unreachable database can never block process exit.
-  await serverEventLogger.recordShutdownAndFlush(signal);
-  if (ttFirebase) await ttFirebase.stop().catch(() => undefined);
-  gameManager.shutdown();
-  wsServer.shutdown();
-  const decisionLogger = DecisionLogger.getInstance();
-  await decisionLogger.shutdown();
-  await ConnectionLogger.getInstance().shutdown();
-  httpServer.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+  await activityController.shutdown(signal);
 }
 
 process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });

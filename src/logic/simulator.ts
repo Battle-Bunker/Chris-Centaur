@@ -150,20 +150,15 @@ export class Simulator {
         // Check collision with each body segment
         for (let i = 0; i < snake.body.length; i++) {
           const segment = snake.body[i];
-          
-          // Skip tail if it's about to move (and snake isn't eating)
-          if (i === snake.body.length - 1) {
-            // Check if snake will eat at its NEW position
-            const snakeNewHead = newHeadPositions.get(snake.id);
-            const willEat = snakeNewHead ? (gameState.board.food ?? []).some(f => 
-              f.x === snakeNewHead.x && f.y === snakeNewHead.y
-            ) : false;
-            
-            if (!willEat && snake.id !== snakeId) continue;
-            // Allow moving into own tail if not eating
-            if (snake.id === snakeId && !willEat) continue;
-          }
-          
+
+          // The engine pops every snake's tail BEFORE resolving collisions,
+          // eating or not, so the final segment always vacates. A snake that
+          // ate last turn carries a stacked (duplicated) tail: the duplicate
+          // at the second-to-last index still blocks the cell, so skipping
+          // the last index is exact for stacked tails too. Own tail and
+          // foreign tails behave identically.
+          if (i === snake.body.length - 1 && snake.body.length > 1) continue;
+
           if (segment.x === newHead.x && segment.y === newHead.y) {
             deadSnakeIds.add(snakeId);
             break;
@@ -180,16 +175,19 @@ export class Simulator {
       if (!newHead) continue;
       
       // Check if snake is eating
-      const foodIndex = newBoard.food.findIndex(f => 
+      const foodIndex = newBoard.food.findIndex(f =>
         f.x === newHead.x && f.y === newHead.y
       );
       const isEating = foodIndex !== -1;
-      
-      // Update body
+
+      // Update body the way the engine does: pop the tail first (it vacates
+      // whether or not the snake eats), then grow by duplicating the NEW tail
+      // — which is how "ate last turn" stays visible as a stacked tail.
       const newBody = [newHead, ...snake.body];
-      if (!isEating) {
-        newBody.pop(); // Remove tail if not eating
-      } else {
+      newBody.pop();
+      if (isEating) {
+        const tail = newBody[newBody.length - 1];
+        newBody.push({ x: tail.x, y: tail.y });
         // Remove the eaten food
         newBoard.food.splice(foodIndex, 1);
         snake.health = 100; // Reset health when eating

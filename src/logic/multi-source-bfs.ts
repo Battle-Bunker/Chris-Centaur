@@ -14,7 +14,7 @@
  */
 
 import { Coord } from '../types/battlesnake';
-import { BoardGraph } from './board-graph';
+import { BoardGraph, fillNeighbors4 } from './board-graph';
 
 export interface BFSSource {
   id: string;
@@ -100,15 +100,15 @@ export function territoryCellsToObject(result: BFSResult): { [snakeId: string]: 
  * so the wire shape and vacate-turn sourcing can never drift between them.
  */
 export function toCellOwnership(result: BFSResult, sources: BFSSource[], graph: BoardGraph): CellOwnership {
-  const vacatesAt = new Array<number>(graph.cellCount);
-  for (let idx = 0; idx < graph.cellCount; idx++) vacatesAt[idx] = graph.physicalVacateTurn(idx);
   return {
     width: graph.boardWidth,
     height: graph.boardHeight,
     sources: sources.map(s => s.id),
     owner: Array.from(result.ownerIndex),
     distance: Array.from(result.distanceIndex),
-    vacatesAt,
+    // Memoized per graph (all ownership snapshots for a turn share the same
+    // graph); read-only by contract — consumers only serialize it.
+    vacatesAt: graph.physicalVacateTurns(),
   };
 }
 
@@ -186,6 +186,7 @@ export class MultiSourceBFS {
 
     let currentDistance = 0;
     const touched: number[] = []; // cells whose per-level masks need resetting
+    const nbuf = new Int32Array(4); // fillNeighbors4 scratch
 
     while (curCell.length > 0 || pendingDelayed > 0) {
       // Inject delayed sources that start at this distance level.
@@ -263,14 +264,9 @@ export class MultiSourceBFS {
         const srcIdx = curSrc[q];
         if (owner[cell] !== srcIdx) continue; // neutral or claimed by another source
 
-        const x = cell % W;
-        const n0 = cell + W < N ? cell + W : -1;
-        const n1 = cell - W >= 0 ? cell - W : -1;
-        const n2 = x > 0 ? cell - 1 : -1;
-        const n3 = x < W - 1 ? cell + 1 : -1;
-        for (let t = 0; t < 4; t++) {
-          const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
-          if (n < 0) continue;
+        const nCount = fillNeighbors4(cell, W, N, nbuf);
+        for (let t = 0; t < nCount; t++) {
+          const n = nbuf[t];
           if (owner[n] !== OWNER_UNREACHED) continue;
           const bit = 1 << srcIdx;
           if ((enqueuedMask[n] & bit) !== 0) continue;

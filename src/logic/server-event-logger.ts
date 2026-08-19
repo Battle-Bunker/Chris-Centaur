@@ -1,6 +1,11 @@
 import { sql, eq, desc, inArray } from 'drizzle-orm';
-import { db } from '../database/db';
+import { db, dbConfigured } from '../database/db';
 import { serverEvents, serverLiveness } from '../database/schema';
+import {
+  ActivityController,
+  ManagedTimerHandle,
+  transientDelay,
+} from '../server/activity-controller';
 
 export type ServerEventType = 'boot' | 'shutdown' | 'woke' | 'went-idle' | 'suspended';
 
@@ -23,13 +28,19 @@ const USER_ACTIVE_WINDOW_MS = 3 * 60 * 1000;
 // Cadence for the decay check that notices the game-traffic window expiring.
 // Unref'd so it never keeps the process alive on its own.
 const DECAY_CHECK_INTERVAL_MS = 15 * 1000;
-// Liveness heartbeat cadence: upserts a single "last alive" row so the next
-// boot can bound when this process actually died (autoscale kills send no
-// catchable signal). Unref'd, fire-and-forget, produces no inbound requests.
-const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+// LIVENESS HEARTBEAT cadence: upserts the single server_liveness "last alive"
+// row so the next boot can bound when this process actually died (autoscale
+// kills send no catchable signal). Unref'd, fire-and-forget, produces no
+// inbound requests. Runs in EVERY state, idle included — its whole purpose is
+// detecting exactly when the platform kills the instance, and the outbound DB
+// upsert does not count as the inbound traffic autoscale gauges, so stopping
+// it on idle would blind the death-watch for nothing. Distinct from the WS
+// socket keepalive (proxy-drop prevention) and the client's input-gated
+// activity heartbeat (human-presence signal) — three mechanisms, three names.
+const LIVENESS_HEARTBEAT_INTERVAL_MS = 60 * 1000;
 // If a heartbeat tick fires this much later than scheduled within the same
 // process, the process was suspended/frozen (not killed) — record it.
-const SUSPEND_DRIFT_THRESHOLD_MS = 2 * HEARTBEAT_INTERVAL_MS;
+const SUSPEND_DRIFT_THRESHOLD_MS = 2 * LIVENESS_HEARTBEAT_INTERVAL_MS;
 
 /**
  * Records server lifecycle/activity events (boot, shutdown, woke, went-idle)
@@ -52,9 +63,13 @@ export class ServerEventLogger {
   private lastGameRequestAt = 0;
   private lastGameRequestGameId: string | null = null;
   private active = false;
-  private decayInterval: NodeJS.Timeout | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private lastHeartbeatTickAt = 0;
+  // Both scope 'always': the activity-decay check is in-memory bookkeeping the
+  // /activity timeline depends on in every state, and the LIVENESS heartbeat
+  // must keep upserting while idle — its whole purpose is bounding when the
+  // platform kills the instance (see LIVENESS_HEARTBEAT_INTERVAL_MS).
+  private decayInterval: ManagedTimerHandle | null = null;
+  private livenessHeartbeatInterval: ManagedTimerHandle | null = null;
+  private lastLivenessTickAt = 0;
   private bootedAt: Date | null = null;
   private exitRecorded = false;
   // Settles once boot forensics has finished READING the previous lifetime's
@@ -87,7 +102,7 @@ export class ServerEventLogger {
       console.error('[ServerEventLogger] Boot forensics failed:', (err as Error)?.message || err);
       return null;
     });
-    // Heartbeat upserts are gated on this read completing (see upsertHeartbeat)
+    // Heartbeat upserts are gated on this read completing (see upsertLivenessHeartbeat)
     // so the previous row can't be clobbered before it has been read.
     this.forensicsRead = forensics;
     const p = forensics.then(prev => {
@@ -95,17 +110,26 @@ export class ServerEventLogger {
     });
     this.pendingWrites = this.pendingWrites.then(() => p.then(() => undefined));
 
+    const controller = ActivityController.getInstance();
     if (!this.decayInterval) {
-      this.decayInterval = setInterval(() => this.checkDecay(), DECAY_CHECK_INTERVAL_MS);
-      if (typeof this.decayInterval.unref === 'function') this.decayInterval.unref();
+      this.decayInterval = controller.managedInterval(
+        'event-activity-decay',
+        () => this.checkDecay(),
+        DECAY_CHECK_INTERVAL_MS,
+        { scope: 'always' }
+      );
     }
-    if (!this.heartbeatInterval) {
-      this.lastHeartbeatTickAt = Date.now();
-      this.heartbeatInterval = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
-      if (typeof this.heartbeatInterval.unref === 'function') this.heartbeatInterval.unref();
+    if (!this.livenessHeartbeatInterval) {
+      this.lastLivenessTickAt = Date.now();
+      this.livenessHeartbeatInterval = controller.managedInterval(
+        'liveness-heartbeat',
+        () => this.livenessHeartbeatTick(),
+        LIVENESS_HEARTBEAT_INTERVAL_MS,
+        { scope: 'always' }
+      );
       // Write the first heartbeat immediately so even a very short lifetime
       // leaves a liveness bound.
-      this.upsertHeartbeat();
+      this.upsertLivenessHeartbeat();
     }
   }
 
@@ -118,6 +142,8 @@ export class ServerEventLogger {
    * - 'unknown'     — no heartbeat data (pre-feature boots)
    */
   private async classifyPreviousEnd(): Promise<Record<string, unknown> | null> {
+    // No database → no liveness history to read (and no dead-socket timeout).
+    if (!dbConfigured) return { prevEndClass: 'unknown' satisfies PrevEndClass };
     const [prev] = await db.select().from(serverLiveness).where(eq(serverLiveness.id, 1)).limit(1);
     if (!prev) return { prevEndClass: 'unknown' satisfies PrevEndClass };
     const prevLastAliveAt = prev.lastAliveAt.getTime();
@@ -149,7 +175,10 @@ export class ServerEventLogger {
   /** Upsert the single liveness row (update-in-place, not an event append).
    *  Always waits for boot forensics to finish reading the previous row first
    *  — otherwise this upsert could erase the prior lifetime's death bound. */
-  private upsertHeartbeat(): void {
+  private upsertLivenessHeartbeat(): void {
+    // No database configured (announced once at boot by db.ts): skip the
+    // upsert instead of failing against a dead socket once a minute.
+    if (!dbConfigured) return;
     const now = new Date();
     const lastActivity = Math.max(this.lastUserIntentAt, this.lastGameRequestAt);
     const p = this.forensicsRead
@@ -180,21 +209,21 @@ export class ServerEventLogger {
     void p;
   }
 
-  private heartbeatTick(): void {
+  private livenessHeartbeatTick(): void {
     if (this.shuttingDown) return;
     const now = Date.now();
-    const sinceLast = now - this.lastHeartbeatTickAt;
+    const sinceLast = now - this.lastLivenessTickAt;
     // Suspend/freeze detection: the tick fired far later than scheduled
     // within the same process — the runtime was paused, not killed.
     if (sinceLast > SUSPEND_DRIFT_THRESHOLD_MS) {
       this.write('suspended', {
         gapMs: sinceLast,
-        expectedIntervalMs: HEARTBEAT_INTERVAL_MS,
+        expectedIntervalMs: LIVENESS_HEARTBEAT_INTERVAL_MS,
         resumedAt: now,
       });
     }
-    this.lastHeartbeatTickAt = now;
-    this.upsertHeartbeat();
+    this.lastLivenessTickAt = now;
+    this.upsertLivenessHeartbeat();
   }
 
   /**
@@ -210,21 +239,15 @@ export class ServerEventLogger {
     this.exitRecorded = true;
     this.shuttingDown = true;
     if (this.decayInterval) {
-      clearInterval(this.decayInterval);
+      this.decayInterval.clear();
       this.decayInterval = null;
     }
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
+    if (this.livenessHeartbeatInterval) {
+      this.livenessHeartbeatInterval.clear();
+      this.livenessHeartbeatInterval = null;
     }
     this.write('shutdown', { signal, connections: this.wsConnections, ...(extraDetail ?? {}) });
-    await Promise.race([
-      this.pendingWrites,
-      new Promise<void>(resolve => {
-        const t = setTimeout(resolve, timeoutMs);
-        if (typeof t.unref === 'function') t.unref();
-      }),
-    ]);
+    await Promise.race([this.pendingWrites, transientDelay(timeoutMs)]);
   }
 
   /** Called by the WebSocket server whenever the live connection count
@@ -281,6 +304,9 @@ export class ServerEventLogger {
   }
 
   private write(eventType: ServerEventType, detail: Record<string, unknown> | null): void {
+    // No database configured: event persistence is off (one boot log line in
+    // db.ts); in-memory activity tracking above continues to work as normal.
+    if (!dbConfigured) return;
     const cleanDetail =
       detail == null
         ? null

@@ -6,7 +6,6 @@
 import { GameState } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
 import { MultiSourceBFS, OWNER_NEUTRAL } from '../logic/multi-source-bfs';
-import { BoardEvaluator } from '../logic/board-evaluator';
 
 describe('Territory Calculation Tests', () => {
   

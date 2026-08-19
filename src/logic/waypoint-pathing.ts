@@ -22,7 +22,7 @@
  */
 
 import { GameState, Coord, Direction } from '../types/battlesnake';
-import { BoardGraph } from './board-graph';
+import { BoardGraph, fillNeighbors4 } from './board-graph';
 
 // The active waypoint target handed to the decision engine: the current goto
 // target (head of the goto queue) or the near target.
@@ -120,20 +120,17 @@ export function waypointPath(
   let levelEnd = 1;
   let turn = opts?.startTurn ?? 0;
   let found = false;
+  const nbuf = new Int32Array(4); // fillNeighbors4 scratch
 
   while (levelStart < levelEnd && !found) {
     let nextEnd = levelEnd;
     turn++;
     for (let q = levelStart; q < levelEnd && !found; q++) {
       const cur = queue[q];
-      const x = cur % W;
-      const n0 = cur + W < N ? cur + W : -1;
-      const n1 = cur - W >= 0 ? cur - W : -1;
-      const n2 = x > 0 ? cur - 1 : -1;
-      const n3 = x < W - 1 ? cur + 1 : -1;
-      for (let t = 0; t < 4; t++) {
-        const n = t === 0 ? n0 : t === 1 ? n1 : t === 2 ? n2 : n3;
-        if (n < 0 || visited[n] === 1) continue;
+      const nCount = fillNeighbors4(cur, W, N, nbuf);
+      for (let t = 0; t < nCount; t++) {
+        const n = nbuf[t];
+        if (visited[n] === 1) continue;
         // The target cell itself is never passability-tested: arriving on it is
         // the goal, and `near` deliberately measures the distance to a cell it
         // will not enter.

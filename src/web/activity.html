@@ -4,28 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Server Activity</title>
+  <link rel="stylesheet" href="/chrome.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background-color: #1a1a1a;
-      color: #e0e0e0;
-      padding-top: 60px;
-    }
-    .header {
-      position: fixed; top: 0; left: 0; right: 0; height: 60px;
-      background: #2a2a2a; border-bottom: 1px solid #444;
-      display: flex; align-items: center; justify-content: center;
-      padding: 0 15px; z-index: 1000;
-    }
-    .header h1 { font-size: 20px; font-weight: 600; }
-    .nav-links { position: absolute; right: 15px; display: flex; gap: 10px; }
-    .nav-links a {
-      color: #4CAF50; text-decoration: none; font-size: 14px;
-      padding: 6px 12px; border-radius: 4px; background: #333;
-    }
-    .nav-links a:hover { background: #444; }
-    .main-content { max-width: 1200px; margin: 0 auto; padding: 20px 15px; }
     .toolbar {
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
       background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 12px;
@@ -112,6 +92,7 @@
     <div id="detailPanel"></div>
   </div>
 
+  <script src="/dom-utils.js"></script>
   <script src="/activity-periods.js"></script>
   <script>
     'use strict';
@@ -153,7 +134,9 @@
       });
     }
 
-    function fmtDur(ms) {
+    // Coarse whole-unit s/m/h/d duration for timeline labels — deliberately
+    // NOT the millisecond-precision fmtDur from dom-utils.js.
+    function fmtDurCoarse(ms) {
       if (ms < 0) ms = 0;
       const s = Math.round(ms / 1000);
       if (s < 60) return s + 's';
@@ -331,7 +314,7 @@
       ctx.fillStyle = '#666';
       ctx.textAlign = 'left';
       ctx.font = '11px sans-serif';
-      ctx.fillText(`${fmtTs(viewStart)}  →  ${fmtTs(viewEnd)}  (${fmtDur(viewEnd - viewStart)})`, 8, 14);
+      ctx.fillText(`${fmtTs(viewStart)}  →  ${fmtTs(viewEnd)}  (${fmtDurCoarse(viewEnd - viewStart)})`, 8, 14);
     }
 
     function drawHatch(x, y, w, h) {
@@ -459,7 +442,7 @@
       if (seg.deadGap) {
         const cls = seg.period && seg.period.endClass;
         let t = 'Scaled to zero (process dead)\n' + fmtTs(seg.start) + ' → ' + fmtTs(seg.end) +
-          '\nDuration: ' + fmtDur(seg.end - seg.start) +
+          '\nDuration: ' + fmtDurCoarse(seg.end - seg.start) +
           '\nNo process was running here — nothing billed.';
         t += cls === 'crash'
           ? '\nPrevious lifetime ended by crash (died with recent activity).'
@@ -467,7 +450,7 @@
         return t;
       }
       const label = seg.state === 'active' ? 'Active (users/games)' : 'Up but idle';
-      let txt = `${label}\n${fmtTs(seg.start)} → ${fmtTs(seg.end)}\nDuration: ${fmtDur(seg.end - seg.start)}`;
+      let txt = `${label}\n${fmtTs(seg.start)} → ${fmtTs(seg.end)}\nDuration: ${fmtDurCoarse(seg.end - seg.start)}`;
       if (seg.period && !seg.period.endKnown) {
         const cls = seg.period.endClass;
         if (cls === 'silent-kill') {
@@ -496,12 +479,6 @@
         `<div>Time: ${escapeHtml(fmtTs(ev.ts))} (${escapeHtml(String(ev.ts))} ms)</div>` +
         `<div>Event id: ${escapeHtml(String(ev.id))}</div>` +
         `<pre>${escapeHtml(detailJson)}</pre>`;
-    }
-
-    function escapeHtml(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      })[c]);
     }
 
     // ---- Toolbar ----

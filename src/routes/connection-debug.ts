@@ -23,7 +23,7 @@ router.get('/api/connection-log/recent', (req, res) => {
   });
 });
 
-router.get('/api/connection-log/download', (req, res) => {
+router.get('/api/connection-log/download', (_req, res) => {
   const logger = ConnectionLogger.getInstance();
   res.download(logger.getLogFilePath(), 'ws-connections.log');
 });
