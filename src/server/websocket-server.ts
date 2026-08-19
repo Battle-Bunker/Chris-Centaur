@@ -1,8 +1,8 @@
 import { Server as HTTPServer, IncomingMessage } from 'http';
 import { createHash } from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ActiveGameManager } from './active-game-manager';
-import { Direction } from '../types/battlesnake';
+import { ActiveGameManager, StagedMoveView } from './active-game-manager';
+import { CentaurMove, Direction } from '../types/battlesnake';
 import { ConnectionLogger } from '../utils/connection-logger';
 import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
@@ -34,6 +34,13 @@ interface WSClient {
   // connection aliveness, NOT user activity — it must never bump
   // lastActivityAt or the 30-minute idle sweep would never fire.
   isAlive: boolean;
+  // DISPLAY-ONLY subscription: whether this client draws the Voronoi territory
+  // overlay. False means it never renders `territoryCells`, so shipping them
+  // is pure waste and they are stripped from everything sent to it (see
+  // stripUnwantedDisplayData). Nothing about the game or the bot's own Voronoi
+  // computation depends on it. Defaults true — a client that never declares a
+  // preference keeps the full payload.
+  wantsTerritoryOverlay: boolean;
 }
 
 /** Inbound message types that represent real user intent. Pings (which the
@@ -48,6 +55,7 @@ const USER_INTENT_TYPES = new Set([
   'select-move',
   'confirm-fatal-move',
   'set-waypoint',
+  'clear-human-input',
   'activity',
 ]);
 
@@ -120,6 +128,7 @@ export class GameWebSocketServer {
         connectedAt: now,
         lastActivityAt: now,
         isAlive: true,
+        wantsTerritoryOverlay: true,
       };
       this.clients.add(client);
       this.logActiveConnections('connect', connId);
@@ -238,6 +247,9 @@ export class GameWebSocketServer {
         waypoints: this.gameManager.getWaypointsForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
+        // Board-level, so it rides the board frame too: a client that joins
+        // mid-turn gets the partition without waiting for a unit's decision.
+        boardTerritory: this.gameManager.getBoardTerritory(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -252,8 +264,11 @@ export class GameWebSocketServer {
         snakeId,
         turn: turnData.gameState.turn,
         moveEvaluations: turnData.moveEvaluations,
-        territoryCells: turnData.territoryCells,
-        cellOwnership: turnData.cellOwnership || null,
+        // The Voronoi partition is a property of the BOARD, so it is sent from
+        // the game's own snapshot rather than from this unit's decision — a
+        // chess piece, which has no engine pass of its own, carries exactly the
+        // same grids as a snake.
+        boardTerritory: this.gameManager.getBoardTerritory(gameId),
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
         timeout: turnData.gameState.game.timeout || 500,
@@ -388,14 +403,14 @@ export class GameWebSocketServer {
 
         const gameState = this.gameManager.getGameState(gameId);
 
-        this.send(client.ws, {
+        this.send(client.ws, this.stripUnwantedDisplayData(client, {
           type: 'game-subscribed',
           gameId,
           userId,
           userColor: user?.color || '#888888',
           playerName: user?.name || null,
           ...(gameState || {}),
-        });
+        }));
 
         this.broadcastSelectionsUpdate(gameId);
         break;
@@ -421,13 +436,14 @@ export class GameWebSocketServer {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled) {
-            this.send(client.ws, {
+            this.send(client.ws, this.stripUnwantedDisplayData(client, {
               type: 'snake-selected',
               snakeId,
               turnData: controlled.latestTurnData,
+              boardTerritory: this.gameManager.getBoardTerritory(client.gameId),
               botRecommendation: controlled.botRecommendation,
               stagedMove: controlled.intent.kind === 'manual' ? controlled.intent.move : null,
-            });
+            }));
           }
         } else if (result.contestedBy) {
           this.send(client.ws, {
@@ -482,15 +498,27 @@ export class GameWebSocketServer {
         // last staged move at the deadline. Manual staging
         // drops the queue/waypoint per the "manual override drops the plan"
         // contract (handled inside setUserSelection).
+        // The move is a CentaurMove: one of the four direction strings for a
+        // snake, or a numeric FULL-BOARD destination index for a chess piece
+        // (the generalized candidate UI sends the candidate's own id). This
+        // allow-list validates the SHAPE; setUserSelection enforces the
+        // unit-kind match and the board-bounds check on numeric destinations.
         const validMoves: Direction[] = ['up', 'down', 'left', 'right'];
         const snakeId = msg.snakeId;
-        if (client.gameId && client.userId && snakeId && msg.move && validMoves.includes(msg.move)) {
+        const rawMove = msg.move;
+        let move: CentaurMove | null = null;
+        if (typeof rawMove === 'string' && (validMoves as string[]).includes(rawMove)) {
+          move = rawMove as Direction;
+        } else if (typeof rawMove === 'number' && Number.isInteger(rawMove) && rawMove >= 0) {
+          move = rawMove;
+        }
+        if (client.gameId && client.userId && snakeId && move !== null) {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled && controlled.selectedBy === client.userId) {
             // setUserSelection re-stages the move, which fires the coalesced
             // onStagedChange → broadcastSelectionsUpdate; no explicit broadcast.
-            this.gameManager.setUserSelection(client.gameId, snakeId, msg.move as Direction);
+            this.gameManager.setUserSelection(client.gameId, snakeId, move);
           }
         }
         break;
@@ -524,6 +552,29 @@ export class GameWebSocketServer {
         this.gameManager.setWaypoint(
           client.gameId, snakeId, msg.waypoint ?? null, client.userId, msg.append === true
         );
+        break;
+      }
+
+      case 'clear-human-input': {
+        // Delete on the client: revert this unit to NULL human input. One
+        // message for every command kind, because on the manager side they are
+        // one intent — see ActiveGameManager.clearHumanInput. Ownership is
+        // re-checked there; clearing re-stages and fires the coalesced
+        // onStagedChange broadcast, so nothing is broadcast explicitly here.
+        if (!client.gameId || !client.userId) break;
+        const snakeId = msg.snakeId;
+        if (!snakeId) break;
+        this.gameManager.clearHumanInput(client.gameId, snakeId, client.userId);
+        break;
+      }
+
+      case 'set-display-prefs': {
+        // DISPLAY-ONLY subscription, declared by the client on connect and
+        // whenever a display switch is flipped. It changes what this
+        // connection is SENT, never what the game or the bot computes.
+        if (typeof msg.territoryOverlay === 'boolean') {
+          client.wantsTerritoryOverlay = msg.territoryOverlay;
+        }
         break;
       }
 
@@ -801,8 +852,11 @@ export class GameWebSocketServer {
   // Staged moves drive the arrow render on every client. The projection lives
   // in the manager (getStagedMovesForGame) because the per-turn command-state
   // snapshot persists the identical shape — live play and the history replay
-  // must render from the same data.
-  private getStagedMovesForGame(gameId: string): { [snakeId: string]: { move: string | null; requestedMove: string; committed: boolean; color: string; source: string; fatal: boolean } } {
+  // must render from the same data. Moves are CentaurMove: Direction strings
+  // for snakes, numeric full-board destination indices for chess pieces (the
+  // renderer draws direction arrows only for the four direction strings — a
+  // piece's destination is visualized by the goto waypoint overlay).
+  private getStagedMovesForGame(gameId: string): { [snakeId: string]: StagedMoveView } {
     return this.gameManager.getStagedMovesForGame(gameId);
   }
 
@@ -872,12 +926,37 @@ export class GameWebSocketServer {
     }
   }
 
+  /** Drop the parts of a message a client has said it does not display.
+   *  Today that is the territory overlay's `territoryCells` — the overlay's
+   *  data and nothing else's. `cellOwnership` stays: it feeds the Alt-click
+   *  cell inspector, a separate feature with its own switch (none). Returns
+   *  the message untouched when there is nothing to strip. */
+  private stripUnwantedDisplayData(client: WSClient, msg: any): any {
+    if (client.wantsTerritoryOverlay) return msg;
+    const bt = msg.boardTerritory;
+    if (!bt || !bt.territoryCells) return msg;
+    return { ...msg, boardTerritory: { ...bt, territoryCells: {} } };
+  }
+
   private broadcastToGame(gameId: string, msg: any): void {
     const data = JSON.stringify(msg);
+    // The stripped variant is built at most once per broadcast, and only when
+    // a client that wants it is actually listening — clients with the overlay
+    // on pay nothing for the ones that switched it off.
+    const strippable = !!msg.boardTerritory?.territoryCells;
+    let stripped: string | null = null;
     for (const client of this.clients) {
-      if (client.gameId === gameId && !client.isLobby && client.ws.readyState === WebSocket.OPEN) {
-        this.sendRaw(client, data, msg.type);
+      if (client.gameId !== gameId || client.isLobby || client.ws.readyState !== WebSocket.OPEN) {
+        continue;
       }
+      let payload = data;
+      if (strippable && !client.wantsTerritoryOverlay) {
+        if (stripped === null) {
+          stripped = JSON.stringify(this.stripUnwantedDisplayData(client, msg));
+        }
+        payload = stripped;
+      }
+      this.sendRaw(client, payload, msg.type);
     }
   }
 

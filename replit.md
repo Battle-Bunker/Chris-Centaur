@@ -49,7 +49,7 @@ Chris-Centaur is a TypeScript centaur for TacticToes **Team Snek**: an AI engine
 
 ### Core Game Logic
 - **`BoardGraph`** — single source of truth for passability (walls, snake bodies, hazards, tail-growth timing); all collision checks defer to it. Supports tiered clearance (static / conservative / optimistic) based on when body segments will vacate.
-- **`MultiSourceBFS`** — single-pass Voronoi territory computation with tie-awareness.
+- **`MultiSourceBFS`** — Voronoi territory computation. Snakes hold ground: they divide the board by first arrival (same-turn arrivals settled by the engine's stationary contest), and each cell's claim fixes the turn its ownership is decided. A chess piece takes a cell only when it could be standing there by that turn AND would win the contest against the claim — displacement by weight, on top of a snake-primary partition.
 - **`MoveAnalyzer`** — single source of truth for move enumeration ({safe, risky} sets).
 - **`BoardEvaluator`** — unified scoring (territory, food control, space/survival heuristics, hard `trapped` veto for fatal pockets).
 - **`DecisionEngine`** — orchestrates enumeration → candidate selection → simulation → evaluation → aggregation → decision, time-bounded to respect the response deadline.

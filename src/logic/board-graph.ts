@@ -15,6 +15,39 @@
  * BoardGraph has no concept of `you`: every perspective-dependent query takes a
  * subject snake id.
  *
+ * Passability answers "may this square be entered"; ADJACENCY answers "which
+ * squares are one move away", and it is per unit type. `fillUnitNeighbors` is
+ * its single source, keyed by the unit's type and orientation and validated
+ * through the engine-mirroring legality module (piece-moves.ts). Every search
+ * — territory Voronoi, flood fills, goto/waypoint pathing — enumerates through
+ * it, so a knight searches in L-jumps and a rook along rays without a single
+ * call site knowing what a knight is. `searchSpaceFor` lifts that same root to
+ * (cell, orientation) NODES for the multi-turn searches, which is how a pawn —
+ * the one unit whose reachability depends on which way it faces — plans its
+ * quarter turns as ordinary edges, again with no call site knowing it is a pawn.
+ *
+ * Starvation-aware body vacating: health loss is movement-tied (snakes always
+ * move, so they lose exactly 1/turn unless they eat), so a snake with health h
+ * dies during relative turn h unless it eats by then. If a walls-only BFS
+ * (ignoring all bodies and hazards — a deliberately generous LOWER bound on
+ * its earliest possible eat, e) cannot reach any ALREADY-SPAWNED food within h
+ * turns (e > h), the snake certainly starves and its ENTIRE body is treated as
+ * vacated from arrival turn h+1 onward (floored at turn 2 — never the very
+ * next turn) in the optimistic and physical layers; the conservative layer
+ * keeps its usual +1 safety buffer on top. Like the tail-vacate projections,
+ * this ACCEPTS new-food-spawn risk: food spawning after this board snapshot
+ * could save the snake, in which case we briefly treat a still-alive body as
+ * passable. Chess pieces (`(unitType ?? 'snake') !== 'snake'`) never starve —
+ * they can stand still and lose nothing — and a subject's OWN body is never
+ * starvation-vacated for itself in the subjective layer.
+ *
+ * Chess-piece squares: a piece is a 1-cell unit whose `length` is its WEIGHT.
+ * Its square is a WALL in the physical layer (frozen at its current square,
+ * the documented v1 approximation), while the subjective layer grants passage
+ * exactly when the subject would WIN the stationary-square contest there —
+ * tier first, weight second, ties kill all (see piece-threats.ts) — the same
+ * physical-wall/subjective-grant split as snake-body severability.
+ *
  * The graph is integer-indexed throughout (cell index = y * width + x): the
  * evaluation pipeline runs thousands of flood fills per turn, and string-keyed
  * Maps/Sets plus per-neighbor object allocation were measured at a ~28x tax
@@ -22,6 +55,8 @@
  */
 
 import { BoardSnapshot, Coord, Snake } from '../types/battlesnake';
+import { isPieceUnit, winsStationaryContest } from './piece-threats';
+import { Orientation, isInterior, legalOrientations, planPieceAction, toIndex } from './piece-moves';
 
 export interface BoardGraphConfig {
   // Maximum turns to look ahead for optimistic passability
@@ -53,6 +88,15 @@ export type ClearanceMode = 'static' | 'conservative' | 'optimistic';
 export interface PassabilityOptions {
   // Body-segment clearance model. Defaults to 'static'.
   clearance?: ClearanceMode;
+  // Skip the hazard veto. Hazards are damage-based in the engine
+  // (board.hazardDamage on entry, default 100; death only at health <= 0),
+  // so a high-health unit CAN survive stepping onto one. Callers that model
+  // that survival themselves (MoveAnalyzer's health-aware one-step fatality,
+  // the staged-move fatality probe) opt out of the veto here and layer the
+  // simulator's exact health rule (healthAfterEntering) on top of the raw
+  // wall/body passability this then returns. Multi-turn pathing must NOT set
+  // this — see the veto's comment in passableIdx.
+  ignoreHazards?: boolean;
 }
 
 const NO_SNAKE = -1;
@@ -80,6 +124,82 @@ export function fillNeighbors4(idx: number, W: number, N: number, out: Int32Arra
   return count;
 }
 
+/**
+ * What a unit needs to know to enumerate its own graph edges: its type and the
+ * orientation it currently faces (read by the pawn, whose only step is
+ * forward). A `Snake` satisfies this structurally, so callers holding the unit
+ * itself pass it directly.
+ */
+export interface UnitAdjacency {
+  unitType?: string;
+  orientation: Orientation;
+}
+
+/** The adjacency of an ordinary snake — orthogonal steps, orientation unread. */
+export const SNAKE_ADJACENCY: UnitAdjacency = { unitType: 'snake', orientation: { dx: 0, dy: -1 } };
+
+/**
+ * Units whose edge set depends on which way they FACE, so "where can it get to"
+ * is a property of (square, orientation) rather than of the square alone.
+ *
+ * Only the pawn: its single step is forward and a quarter turn costs a whole
+ * turn, so a pawn standing still facing the wrong way is one turn — not zero —
+ * from the squares beside it. Every other unit's edges are the same whichever
+ * way it faces (a rook's rays, a knight's jumps, a snake's four steps), so its
+ * search collapses to one orientation state and behaves exactly as before.
+ */
+export const isOrientationStateful = (unitType?: string): boolean =>
+  (unitType ?? 'snake') === 'pawn';
+
+const sameOrientation = (a: Orientation, b: Orientation): boolean => a.dx === b.dx && a.dy === b.dy;
+
+// Negating a zero component yields -0, which compares equal to 0 but reads as
+// "-0" everywhere an orientation is printed or diffed. Normalize it away.
+const axis = (n: number): number => (n === 0 ? 0 : n);
+
+/**
+ * The two orientations one quarter turn away from `o` — the pawn's side
+ * squares in `planPieceAction`, which is exactly what staging a rotation
+ * encodes. Derived from the perpendicular, never re-tabulated.
+ */
+export const quarterTurnsFrom = (o: Orientation): Orientation[] => [
+  { dx: axis(-o.dy), dy: axis(o.dx) },
+  { dx: axis(o.dy), dy: axis(-o.dx) },
+];
+
+/**
+ * ONE unit's search space: the node set every multi-turn search over that
+ * unit's own moves walks, and the single place a node's cell and orientation
+ * are decoded.
+ *
+ * A node is a (cell, orientation-state) pair packed into one integer, so the
+ * searches keep their flat typed-array visited/parent arrays and their one BFS
+ * loop. For the orientation-invariant units there is exactly ONE state, the
+ * node IS the cell index, and nothing about the search changes; for the pawn
+ * the space is layered once per orientation and turning is an ordinary edge.
+ *
+ * This is why nothing above the graph has pawn-specific code: a caller asks for
+ * the space, walks it, and reads back which of its steps were turns.
+ */
+export interface UnitSearchSpace {
+  /** Nodes in the space: cells × orientation states. */
+  readonly nodeCount: number;
+  /** Upper bound on one `fillNeighbors` result. */
+  readonly neighborCapacity: number;
+  /** The node for a unit on `cell` facing the orientation the space started from. */
+  startNode(cell: number): number;
+  /** The board cell a node stands on. */
+  cellOf(node: number): number;
+  /** The orientation a node faces. */
+  orientationOf(node: number): Orientation;
+  /**
+   * Fill `out` with the nodes reachable from `node` in ONE turn, returning how
+   * many were written. `passable` is the caller's own passability layer, used
+   * to stop rays exactly as `fillUnitNeighbors` does.
+   */
+  fillNeighbors(node: number, passable: (cellIdx: number) => boolean, out: Int32Array): number;
+}
+
 export class BoardGraph {
   private width: number;
   private height: number;
@@ -90,6 +210,13 @@ export class BoardGraph {
   // Per-cell layers (length = cells).
   private hazard: Uint8Array;
   private segOwner: Int16Array;       // snake index owning a body segment here, or NO_SNAKE
+  // Snake index of the stationary chess piece standing here, or NO_SNAKE. A
+  // piece is a 1-cell unit (its weight-stack collapses at translate time), so
+  // it contributes no body segments — this layer is how its square becomes a
+  // wall. Pieces are modeled FROZEN at their current square (the documented
+  // v1 approximation shared with the Simulator), so the layer is not
+  // turn-aware: a piece square never recedes.
+  private pieceOwner: Int16Array;
   private segIsTail: Uint8Array;
   private segStaticBlocked: Uint8Array;
   private optimisticDisappear: Int16Array;
@@ -103,6 +230,17 @@ export class BoardGraph {
   private snakeExpiryTurn: number[] = [];
   private snakeHeadIdx: number[] = [];
   private snakeTailIdx: number[] = [];
+  // Contest weight: snake.length. For pieces `length` is the WEIGHT (stack
+  // size), which is exactly what stationary-square adjudication compares.
+  private snakeWeight: number[] = [];
+  // Per-snake adjacency descriptor (unit type + faced orientation), the input
+  // to fillUnitNeighbors for every search that walks the board on a subject's
+  // behalf.
+  private snakeUnit: UnitAdjacency[] = [];
+  // Relative arrival turn from which the snake's whole body counts as vacated
+  // because it certainly starves first (Infinity = no certain starvation).
+  // Optimistic/physical timing; the conservative layer adds its usual +1.
+  private snakeStarveVacate: number[] = [];
 
   // Scratch buffers for internal BFS (epoch-stamped visited avoids clearing).
   private visitStamp: Int32Array;
@@ -121,6 +259,7 @@ export class BoardGraph {
 
     this.hazard = new Uint8Array(this.cells);
     this.segOwner = new Int16Array(this.cells).fill(NO_SNAKE);
+    this.pieceOwner = new Int16Array(this.cells).fill(NO_SNAKE);
     this.segIsTail = new Uint8Array(this.cells);
     this.segStaticBlocked = new Uint8Array(this.cells);
     this.optimisticDisappear = new Int16Array(this.cells);
@@ -154,6 +293,154 @@ export class BoardGraph {
     return this.snakeIndexById.get(id) ?? -1;
   }
 
+  // ── Per-unit adjacency ───────────────────────────────────────────────────
+
+  /**
+   * The adjacency descriptor of a unit known to this graph. Unknown/dead ids
+   * fall back to snake steps, so a caller with a stale id still walks a sane
+   * graph instead of throwing.
+   */
+  unitAdjacencyFor(snakeId: string): UnitAdjacency {
+    const idx = this.snakeIndexById.get(snakeId);
+    return idx === undefined ? SNAKE_ADJACENCY : this.snakeUnit[idx];
+  }
+
+  /** Upper bound on a single unit's neighbor count here (the queen's 8 rays). */
+  neighborCapacity(): number {
+    return 8 * Math.max(this.width, this.height);
+  }
+
+  /** A scratch buffer large enough for any unit's neighbor list on this board. */
+  neighborBuffer(): Int32Array {
+    return new Int32Array(this.neighborCapacity());
+  }
+
+  /**
+   * THE per-unit adjacency: fill `out` with the cells `unit` can reach from
+   * `idx` in ONE move, returning how many were written. Every graph search —
+   * territory Voronoi, food-reach and space flood fills, goto/waypoint pathing
+   * — enumerates neighbors through here, so a knight's searches advance in
+   * L-jumps and a rook's along rays with no unit-type logic at any call site.
+   *
+   * The geometry is NOT re-derived: each candidate square is validated by
+   * `planPieceAction` (the engine-mirroring legality module), so an edge exists
+   * exactly where staging that square would plan a MOVE. Consequences worth
+   * naming: a knight and a king stop after one step in each of their
+   * orientations; sliders extend along theirs; and a pawn contributes only its
+   * forward step, because its side squares plan a ROTATE (a turn spent turning,
+   * not a displacement) and its diagonals need a capture target on the square
+   * that a multi-turn search cannot promise will still be there.
+   *
+   * Snakes are the one unit the legality module does not speak for — it mirrors
+   * the engine's PIECE rules — so they keep the plain orthogonal step.
+   *
+   * `passable` is the caller's own passability layer (optimistic / physical /
+   * conservative, subject-relative or not) and stops rays: a ray extends
+   * through passable squares and ends AT the first impassable one, which is
+   * still offered so the caller's layer decides whether entering it is legal
+   * (a won contest, a capture) without this root duplicating that judgement.
+   */
+  fillUnitNeighbors(
+    unit: UnitAdjacency,
+    idx: number,
+    passable: (cellIdx: number) => boolean,
+    out: Int32Array,
+  ): number {
+    const type = unit.unitType ?? 'snake';
+    if (type === 'snake') return fillNeighbors4(idx, this.width, this.cells, out);
+
+    // Piece geometry is defined in FULL-BOARD coordinates (perimeter wall
+    // included, y growing downward), so the walk runs there and each accepted
+    // square converts back to a graph cell index.
+    const W = this.width;
+    const H = this.height;
+    const fullW = W + 2;
+    const fullH = H + 2;
+    const ox = (idx % W) + 1;
+    const oy = H - Math.floor(idx / W);
+    const origin = toIndex(ox, oy, fullW);
+
+    let count = 0;
+    for (const o of legalOrientations(type)) {
+      for (let step = 1; ; step++) {
+        const fx = ox + o.dx * step;
+        const fy = oy + o.dy * step;
+        if (!isInterior(fx, fy, fullW, fullH)) break;
+        const action = planPieceAction(type, origin, toIndex(fx, fy, fullW), fullW, fullH, unit.orientation);
+        if (!action || action.kind !== 'move') break;
+        const cell = (H - fy) * W + (fx - 1);
+        out[count++] = cell;
+        if (!passable(cell)) break;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * THE search space of a unit: `fillUnitNeighbors` lifted to (cell,
+   * orientation) nodes so a multi-turn search can plan through TURNING as well
+   * as through moving.
+   *
+   * The orientation-invariant units get a one-state space whose nodes are their
+   * cell indices verbatim, so their searches are byte-for-byte what they were.
+   * A pawn gets one node layer per orientation, ordered with its CURRENT
+   * orientation first (making `startNode` the plain cell index there too), and
+   * two extra edges per node: the quarter turns, which cost one turn each and
+   * land on the same square. Its forward step is whatever `fillUnitNeighbors`
+   * offers for the orientation of the layer, so the single legality module
+   * still speaks for the geometry.
+   *
+   * `unit.orientation` is the orientation the search STARTS from — callers
+   * probing "what if it were facing that way" pass an override.
+   */
+  searchSpaceFor(unit: UnitAdjacency): UnitSearchSpace {
+    const cells = this.cells;
+    const type = unit.unitType ?? 'snake';
+    if (!isOrientationStateful(type)) {
+      const orientation = unit.orientation;
+      return {
+        nodeCount: cells,
+        neighborCapacity: this.neighborCapacity(),
+        startNode: (cell) => cell,
+        cellOf: (node) => node,
+        orientationOf: () => orientation,
+        fillNeighbors: (node, passable, out) => this.fillUnitNeighbors(unit, node, passable, out),
+      };
+    }
+
+    // Current orientation first, so state 0 is always where the unit stands.
+    const states: Orientation[] = [
+      unit.orientation,
+      ...legalOrientations(type).filter(o => !sameOrientation(o, unit.orientation)),
+    ];
+    const stateOf = (o: Orientation): number => states.findIndex(s => sameOrientation(s, o));
+    // The per-state adjacency descriptors, built once: fillUnitNeighbors reads
+    // only type + orientation, so one object per layer is all it ever needs.
+    const layers: UnitAdjacency[] = states.map(orientation => ({ unitType: type, orientation }));
+    // Quarter-turn targets per layer, resolved to state indices once.
+    const turns: number[][] = states.map(o => quarterTurnsFrom(o).map(stateOf).filter(s => s >= 0));
+
+    return {
+      nodeCount: cells * states.length,
+      // Its own steps plus the two quarter turns.
+      neighborCapacity: this.neighborCapacity() + 2,
+      startNode: (cell) => cell,
+      cellOf: (node) => node % cells,
+      orientationOf: (node) => states[Math.floor(node / cells)],
+      fillNeighbors: (node, passable, out) => {
+        const cell = node % cells;
+        const state = Math.floor(node / cells);
+        // Moves first, turns after: among plans of equal length the one that
+        // starts by actually going somewhere is the one BFS keeps.
+        let count = this.fillUnitNeighbors(layers[state], cell, passable, out);
+        const base = state * cells;
+        for (let i = 0; i < count; i++) out[i] += base;
+        for (const turned of turns[state]) out[count++] = turned * cells + cell;
+        return count;
+      },
+    };
+  }
+
   /**
    * Build the graph in two phases to break a circular dependency: the optimistic
    * (turn-aware) passability needs each segment's conservativeDisappearTurn,
@@ -180,6 +467,11 @@ export class BoardGraph {
     // clearance layers ('optimistic' and 'conservative') are correct.
     const foodReach = this.calculateSnakeFoodReachability(board.snakes, foodMask);
     this.fillDisappearTurns(board.snakes, foodReach);
+
+    // Phase 3: starvation-aware body vacating (see the header doc). Only needs
+    // walls + the food mask, so it composes freely on top of the tail
+    // projections filled in phase 2.
+    this.applyStarvationVacates(board.snakes, foodMask, board.food.length);
   }
 
   private buildSnakeMeta(snakes: Snake[]): void {
@@ -194,6 +486,16 @@ export class BoardGraph {
       this.snakeExpiryTurn.push(snake.invulnerabilityExpiryTurn ?? this.currentTurn);
       this.snakeHeadIdx.push(this.cellIndexOf(snake.head));
       this.snakeTailIdx.push(this.cellIndexOf(snake.body[snake.body.length - 1]));
+      this.snakeWeight.push(snake.length);
+      this.snakeStarveVacate.push(Infinity);
+      this.snakeUnit.push({
+        unitType: snake.unitType ?? 'snake',
+        orientation: snake.orientation ?? SNAKE_ADJACENCY.orientation,
+      });
+      // A chess piece's square is a wall in the physical layer (it stands
+      // still in lookahead); the subjective layer grants passage only on a
+      // WON contest — see passabilityIdxFor.
+      if (isPieceUnit(snake)) this.pieceOwner[this.cellIndexOf(snake.head)] = idx;
     }
   }
 
@@ -202,11 +504,15 @@ export class BoardGraph {
       if (snake.health <= 0) continue;
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
 
-      // Body segments, excluding the head at index 0. The engine may stack
-      // several segments on one cell (a snake that ate last turn carries a
-      // duplicated tail; spawns start fully stacked), so treat each run of
-      // consecutive duplicates as ONE cell whose vacate turn counts from the
-      // run's FIRST index — the cell only frees once its last copy pops.
+      // Body segments, excluding the head at index 0. A 1-cell unit (a chess
+      // piece, whose stack is collapsed to a single body cell at translate
+      // time) therefore contributes NO segments — its square participates in
+      // head/H2H reasoning only, with `length` carrying its weight. The
+      // engine may stack several segments on one cell (a snake that ate last
+      // turn carries a duplicated tail; spawns start fully stacked), so treat
+      // each run of consecutive duplicates as ONE cell whose vacate turn
+      // counts from the run's FIRST index — the cell only frees once its last
+      // copy pops.
       // Later snakes overwrite overlapping cells (same last-writer-wins as
       // the old Map-based build).
       for (let i = 1; i < snake.body.length; i++) {
@@ -255,7 +561,6 @@ export class BoardGraph {
    */
   private calculateSnakeFoodReachability(snakes: Snake[], foodMask: Uint8Array): number[][] {
     const reach: number[][] = [];
-    const W = this.width;
 
     for (const snake of snakes) {
       if (snake.health <= 0) continue;
@@ -273,14 +578,17 @@ export class BoardGraph {
       let levelStart = 0;
       let levelEnd = 1;
       this.queue[0] = headIdx;
-      const nbuf = new Int32Array(4);
+      const nbuf = this.neighborBuffer();
+      const unit = this.snakeUnit[snakeIdx];
+      let turn = 1;
+      const rayOpen = (cell: number): boolean => pass.passableIdx(cell, turn);
 
-      for (let turn = 1; turn <= this.config.maxLookaheadTurns; turn++) {
+      for (; turn <= this.config.maxLookaheadTurns; turn++) {
         let nextEnd = levelEnd;
         let foodFoundThisTurn = 0;
         for (let q = levelStart; q < levelEnd; q++) {
           const cur = this.queue[q];
-          const nCount = fillNeighbors4(cur, W, this.cells, nbuf);
+          const nCount = this.fillUnitNeighbors(unit, cur, rayOpen, nbuf);
           for (let t = 0; t < nCount; t++) {
             const n = nbuf[t];
             if (this.visitStamp[n] === stamp) continue;
@@ -372,6 +680,77 @@ export class BoardGraph {
     }
   }
 
+  /**
+   * Starvation-aware body vacating (phase 3). For every snake S:
+   *  - deathTurn h = S.health: health loss is movement-tied and snakes always
+   *    move, so S dies during relative turn h unless it eats first (the engine
+   *    checks the eat branch before the starvation branch, so eating ON turn h
+   *    saves it).
+   *  - earliestFoodTurn e = a LOWER bound on S's earliest possible eat of any
+   *    ALREADY-SPAWNED food: BFS from S's head blocked only by walls, ignoring
+   *    all bodies and hazards (they might vacate / only cost health — being
+   *    generous to S keeps OUR prediction conservative). e = Infinity when the
+   *    board has no food.
+   *  - S certainly starves iff e > h; then its whole body vacates from arrival
+   *    turn max(h + 1, 2) — never the very next turn (with h >= 1 for a living
+   *    snake the clamp is automatic, but it is pinned explicitly).
+   *
+   * Chess pieces never starve: their health only ticks when they move, and
+   * they can stand still indefinitely. New-food-spawn risk is accepted, same
+   * risk class as the tail projections (see the header doc).
+   */
+  private applyStarvationVacates(snakes: Snake[], foodMask: Uint8Array, foodCount: number): void {
+    for (const snake of snakes) {
+      if (snake.health <= 0) continue;
+      if ((snake.unitType ?? 'snake') !== 'snake') continue; // pieces don't starve
+      const snakeIdx = this.snakeIndexById.get(snake.id)!;
+      const h = snake.health;
+      const canEatInTime =
+        foodCount > 0 && this.wallsOnlyFoodWithin(snakeIdx, foodMask, h);
+      if (!canEatInTime) {
+        this.snakeStarveVacate[snakeIdx] = Math.max(h + 1, 2);
+      }
+    }
+  }
+
+  /**
+   * Can any food cell be reached from the snake's head within `maxDepth` moves
+   * of its OWN unit adjacency, ignoring everything except walls (board bounds)?
+   * The generous lower bound on a snake's earliest eat used by
+   * applyStarvationVacates.
+   */
+  private wallsOnlyFoodWithin(snakeIdx: number, foodMask: Uint8Array, maxDepth: number): boolean {
+    const headIdx = this.snakeHeadIdx[snakeIdx];
+    if (foodMask[headIdx] === 1) return true;
+    const stamp = ++this.stamp;
+    this.visitStamp[headIdx] = stamp;
+    this.queue[0] = headIdx;
+    let levelStart = 0;
+    let levelEnd = 1;
+    const nbuf = this.neighborBuffer();
+    const unit = this.snakeUnit[snakeIdx];
+    // Walls only: every in-bounds square is open, so rays run to the wall.
+    const rayOpen = (): boolean => true;
+
+    for (let depth = 1; depth <= maxDepth; depth++) {
+      let nextEnd = levelEnd;
+      for (let q = levelStart; q < levelEnd; q++) {
+        const nCount = this.fillUnitNeighbors(unit, this.queue[q], rayOpen, nbuf);
+        for (let t = 0; t < nCount; t++) {
+          const n = nbuf[t];
+          if (this.visitStamp[n] === stamp) continue;
+          this.visitStamp[n] = stamp;
+          if (foodMask[n] === 1) return true;
+          this.queue[nextEnd++] = n;
+        }
+      }
+      levelStart = levelEnd;
+      levelEnd = nextEnd;
+      if (levelStart === levelEnd) break;
+    }
+    return false;
+  }
+
   /** Invulnerability level of a snake (by index) projected to an absolute game turn. */
   private invulnAtIdx(snakeIdx: number, absoluteTurn: number): number {
     if (snakeIdx < 0) return 0;
@@ -398,14 +777,52 @@ export class BoardGraph {
     const headIdx = subjectIdx >= 0 ? this.snakeHeadIdx[subjectIdx] : -1;
     const tailIdx = subjectIdx >= 0 ? this.snakeTailIdx[subjectIdx] : -1;
     const clearance: ClearanceMode = opts?.clearance ?? 'static';
+    const ignoreHazards = opts?.ignoreHazards ?? false;
 
     const clearanceArr =
       clearance === 'conservative' ? this.conservativeDisappear :
       clearance === 'optimistic' ? this.optimisticDisappear : null;
+    // Starvation vacate timing per layer: optimistic/physical use the stored
+    // turn (h + 1) directly; conservative keeps its usual +1 safety buffer,
+    // mirroring how the tail projections differ across layers.
+    const starveExtra = clearance === 'conservative' ? 1 : 0;
 
     const passableIdx = (idx: number, arrivalTurn: number): boolean => {
-      if (this.hazard[idx] === 1) return false;
+      // Hazard veto — DELIBERATE CONSERVATISM under damage-based hazards.
+      // The engine deals board.hazardDamage per hazard ENTRY (death only at
+      // health <= 0), so a high-health unit could survive crossing hazard
+      // cells. Multi-turn walkers (flood fills, food-reach, Voronoi/territory
+      // BFS, waypoint pathing) stay health-unaware here: health varies along
+      // a path and per-entry damage compounds across hazard cells, so making
+      // this layer exact would thread health state through every BFS. We
+      // therefore keep hazards impassable — never banking on surviving one —
+      // and leave the health-aware exception to the single-step fatality
+      // callers that opt out via `ignoreHazards` and apply the simulator's
+      // exact rule themselves.
+      if (!ignoreHazards && this.hazard[idx] === 1) return false;
       if (idx === headIdx) return false; // origin, never a destination
+
+      // Stationary chess-piece square: entering it is a CONTEST the engine
+      // adjudicates tier-first, weight-second (weights are only compared
+      // within the top tier; ties kill all — `length` is a piece's weight).
+      // The subject may pass iff it WINS outright: the piece is strictly
+      // lower-tier at the arrival turn, or equal-tier and strictly lighter.
+      // Losing AND tying are both death, so they stay impassable. This
+      // mirrors the severability pattern below — piece squares are physical
+      // walls, and the win-grant is subject-relative so it lives ONLY here.
+      // Same frozen approximation as the Simulator: the piece is modeled at
+      // its current square (it could really move away or toward us), and the
+      // subject's CURRENT weight is used for every arrival turn.
+      const pieceIdx = this.pieceOwner[idx];
+      if (pieceIdx !== NO_SNAKE && pieceIdx !== subjectIdx) {
+        const absTurn = this.currentTurn + arrivalTurn;
+        return subjectIdx >= 0 && winsStationaryContest(
+          this.invulnAtIdx(subjectIdx, absTurn),
+          this.snakeWeight[subjectIdx],
+          this.invulnAtIdx(pieceIdx, absTurn),
+          this.snakeWeight[pieceIdx]
+        );
+      }
 
       const owner = this.segOwner[idx];
       if (owner === NO_SNAKE) return true; // empty cell (including other snakes' heads)
@@ -430,6 +847,14 @@ export class BoardGraph {
         return true;
       }
 
+      // Starvation vacate — OTHER snakes only (own-body handling returned
+      // above: a subject never banks on walking through its own still-alive
+      // body, starving or not). Turn-aware clearances only: 'static' projects
+      // nothing. Applies to the whole body, stacked tails included.
+      if (clearanceArr && this.snakeStarveVacate[owner] + starveExtra <= arrivalTurn) {
+        return true;
+      }
+
       // Otherwise the cell is passable only once the owner's body has receded
       // there under the chosen clearance timing (tail and interior alike).
       return receded;
@@ -439,7 +864,9 @@ export class BoardGraph {
   }
 
   private isStaticBlockedIdx(idx: number): boolean {
-    return this.hazard[idx] === 1 || (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
+    return this.hazard[idx] === 1 ||
+           this.pieceOwner[idx] !== NO_SNAKE ||
+           (this.segOwner[idx] !== NO_SNAKE && this.segStaticBlocked[idx] === 1);
   }
 
   /**
@@ -448,8 +875,20 @@ export class BoardGraph {
    * safety buffer — that buffer belongs to the 'conservative' clearance mode).
    */
   isPassableAtTurnIdx(idx: number, arrivalTurn: number): boolean {
-    if (this.segOwner[idx] !== NO_SNAKE && arrivalTurn <= this.config.maxLookaheadTurns) {
-      return this.physicalDisappear[idx] <= arrivalTurn;
+    // Chess-piece squares never recede: pieces are modeled FROZEN at their
+    // current square (they don't starve and this layer banks on nothing
+    // moving). Winning a contest there is subject-relative and lives only in
+    // passabilityIdxFor — exactly like snake-body severability.
+    if (this.pieceOwner[idx] !== NO_SNAKE) return false;
+    const owner = this.segOwner[idx];
+    if (owner !== NO_SNAKE) {
+      // Starvation vacate: a certainly-starving owner's body is gone from
+      // this arrival turn on (not gated by maxLookaheadTurns — the starve
+      // turn is exact, not a projection horizon).
+      if (this.snakeStarveVacate[owner] <= arrivalTurn) return true;
+      if (arrivalTurn <= this.config.maxLookaheadTurns) {
+        return this.physicalDisappear[idx] <= arrivalTurn;
+      }
     }
     return !this.isStaticBlockedIdx(idx);
   }
@@ -470,7 +909,11 @@ export class BoardGraph {
    * body cell counts as future territory.
    */
   physicalVacateTurn(idx: number): number {
-    return this.segOwner[idx] === NO_SNAKE ? 0 : this.physicalDisappear[idx];
+    const owner = this.segOwner[idx];
+    if (owner === NO_SNAKE) return 0;
+    // Starvation vacate caps the physical timing (min stays finite because
+    // physicalDisappear always is).
+    return Math.min(this.physicalDisappear[idx], this.snakeStarveVacate[owner]);
   }
 
   // Memoized whole-board physicalVacateTurn snapshot (below).
@@ -492,12 +935,13 @@ export class BoardGraph {
     return this.vacateTurnsCache;
   }
 
-  // Lazily-built static adjacency in CSR form: adjNeighbors[adjStart[i] ..
-  // adjStart[i+1]) are the statically-passable neighbor cell indices of cell
+  // Lazily-built static SNAKE-step adjacency in CSR form: adjNeighbors[adjStart[i]
+  // .. adjStart[i+1]) are the statically-passable neighbor cell indices of cell
   // i. A statically-blocked cell has an empty neighbor list (it is not a
   // usable origin). Cached once per graph — a shared resource for heuristics
   // that iterate neighborhoods repeatedly and don't need turn-aware timing;
-  // it costs nothing until first access.
+  // it costs nothing until first access. Cell-keyed, so it holds one unit
+  // type's edges: searches on a piece's behalf take fillUnitNeighbors instead.
   private adjStart: Int32Array | null = null;
   private adjNeighbors: Int32Array | null = null;
 
@@ -511,16 +955,16 @@ export class BoardGraph {
   }
 
   private buildAdjacency(): void {
-    const W = this.width;
     const N = this.cells;
     const start = new Int32Array(N + 1);
     const neighbors = new Int32Array(N * 4);
-    const nbuf = new Int32Array(4);
+    const nbuf = this.neighborBuffer();
+    const staticOpen = (cell: number): boolean => !this.isStaticBlockedIdx(cell);
     let filled = 0;
     for (let idx = 0; idx < N; idx++) {
       start[idx] = filled;
       if (this.isStaticBlockedIdx(idx)) continue;
-      const nCount = fillNeighbors4(idx, W, N, nbuf);
+      const nCount = this.fillUnitNeighbors(SNAKE_ADJACENCY, idx, staticOpen, nbuf);
       for (let t = 0; t < nCount; t++) {
         const n = nbuf[t];
         if (!this.isStaticBlockedIdx(n)) neighbors[filled++] = n;

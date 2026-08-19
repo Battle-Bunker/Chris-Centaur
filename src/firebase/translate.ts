@@ -17,13 +17,30 @@
 // the server expects in privateMoves.move.
 
 import { Timestamp } from 'firebase/firestore';
-import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { TTGameSetup, TTGameStateDoc, TTTurn } from './tactictoes-types';
+import { BoardSnapshot, Clash, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { TTClash, TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tactictoes-types';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
   const y = Math.floor(index / boardWidth);
   return { x: x - 1, y: boardHeight - y - 2 };
+}
+
+/** Inverse of toApiCoord: api coord → FULL-board index (perimeter included). */
+export function apiCoordToIndex(coord: Coord, boardWidth: number, boardHeight: number): number {
+  const x = coord.x + 1;
+  const y = boardHeight - coord.y - 2;
+  return y * boardWidth + x;
+}
+
+/**
+ * A player's CURRENT unit type: the turn's live map (promotion changes it
+ * mid-game) first, then the setup's initial type, then "snake".
+ */
+export function unitTypeFor(setup: TTGameSetup, turn: TTTurn, playerID: string): TTUnitType {
+  const fromTurn = turn.unitTypes?.[playerID];
+  if (fromTurn) return fromTurn;
+  return setup.gamePlayers.find((gp) => gp.id === playerID)?.unitType ?? 'snake';
 }
 
 /** Full-board index of the cell one step in `direction` from the head, clamped like the server. */
@@ -76,20 +93,15 @@ export function moveIndexToDirection(
 
 /**
  * The TacticToes engine's default move for a snake that has nothing staged
- * when its turn resolves: continue the previous move, i.e. step in the
- * head−neck direction. Returns null when the snake has no direction yet
- * (single cell or stacked spawn) — the engine then falls back to its
- * adjacent-cell pick, which we don't reproduce.
+ * when its turn resolves: step along its orientation (turn.orientation —
+ * present for every living unit; a snake's orientation is always one of the four
+ * orthogonals). Wire y grows downward, so wire dy -1 is api 'up'.
  */
-export function continuationDirection(
-  pieces: number[] | undefined,
-  boardWidth: number
-): Direction | null {
-  if (!pieces || pieces.length < 2) return null;
-  const head = pieces[0];
-  const neck = pieces[1];
-  if (head === neck) return null;
-  return moveIndexToDirection(neck, head, boardWidth);
+export function continuationDirection(turn: TTTurn, playerID: string): Direction {
+  const f = turn.orientation[playerID];
+  if (f.dx === 1) return 'right';
+  if (f.dx === -1) return 'left';
+  return f.dy === -1 ? 'up' : 'down';
 }
 
 function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[] {
@@ -97,11 +109,29 @@ function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[
 }
 
 /**
+ * Wire clashes → renderer clashes: the full-board index becomes an api cell,
+ * everything else rides verbatim. Deliberately lossless — the UI shows the
+ * server's own wording, and the sub-step is what dates a mid-flight piece
+ * collision within its turn.
+ */
+function mapClashes(clashes: TTClash[], w: number, h: number): Clash[] {
+  return clashes.map((c) => {
+    const mapped: Clash = {
+      cell: toApiCoord(c.index, w, h),
+      playerIDs: [...c.playerIDs],
+      reason: c.reason,
+    };
+    if (c.subStep !== undefined) mapped.subStep = c.subStep;
+    return mapped;
+  });
+}
+
+/**
  * The ONE place that interprets a TTGameStateDoc turn. Every consumer of a
  * turn document's raw fields (deadline, winners gating, alive set, per-snake
  * piece/head indices, board dimensions) goes through this view instead of
- * re-reading the doc inline — the Firebase interface used to parse endTime
- * alone in three places, with two different fallbacks.
+ * re-reading the doc inline, so each field has exactly one parse and one
+ * fallback rule.
  */
 export interface ParsedTurn {
   /** The raw turn document (for buildBoardState and field-level access). */
@@ -118,6 +148,20 @@ export interface ParsedTurn {
   pieces(id: string): number[] | undefined;
   /** Full-board head index for `id`, or undefined when absent/empty. */
   headIndex(id: string): number | undefined;
+  /**
+   * Full-board square the server's applied move for `id` resolved to, from
+   * the turn's authoritative `moves` map. For a unit that died this turn this
+   * is the square it actually died on (a piece stopped in flight records its
+   * mid-path death square; a snake its attempted head square). Undefined only
+   * when the wire carries no entry for `id` at all.
+   */
+  appliedMoveIndex(id: string): number | undefined;
+  /**
+   * Full-board squares the piece `id` actually traversed this turn, ending at
+   * its stop square — for a dead piece, the square it died on. Undefined for
+   * snakes and for pieces that did not move.
+   */
+  piecePath(id: string): number[] | undefined;
   /**
    * The turn's resolution deadline in epoch ms. The server always stamps
    * endTime; `fallbackMs` is what a caller banks on when it is missing or
@@ -142,6 +186,8 @@ export function parseTurn(doc: TTGameStateDoc, turnNumber: number): ParsedTurn |
     alive: (id) => turn.alivePlayers.includes(id),
     pieces: (id) => turn.playerPieces?.[id],
     headIndex: (id) => turn.playerPieces?.[id]?.[0],
+    appliedMoveIndex: (id) => turn.moves?.[id],
+    piecePath: (id) => turn.paths?.[id],
     endTimeMs: (fallbackMs) =>
       turn.endTime instanceof Timestamp ? turn.endTime.toMillis() : fallbackMs,
   };
@@ -150,6 +196,32 @@ export function parseTurn(doc: TTGameStateDoc, turnNumber: number): ParsedTurn |
 /** Parsed view over the doc's latest turn, or null when it has no turns. */
 export function parseLatestTurn(doc: TTGameStateDoc): ParsedTurn | null {
   return parseTurn(doc, (doc.turns?.length ?? 0) - 1);
+}
+
+/**
+ * Death cells for the transition prev → curr: for every chess piece present
+ * on `prev`'s board but gone from `curr`'s, the api-coordinate cell it died
+ * on, read from `curr`'s authoritative `moves` map (the wire records a dead
+ * piece's actual death square — mid-path for a slider stopped in flight,
+ * never its origin or staged destination). Snakes are excluded: a dead
+ * snake's cell derives from the direction-based `lastMoves` map instead.
+ * A piece absent from `moves` entirely (genuinely missing wire data) gets no
+ * entry; the renderer then falls back to its unknown-death marker.
+ */
+export function deriveDeathCells(
+  setup: TTGameSetup,
+  prev: ParsedTurn,
+  curr: ParsedTurn
+): Record<string, Coord> {
+  const result: Record<string, Coord> = {};
+  for (const unitId of Object.keys(prev.turn.playerPieces)) {
+    if (unitTypeFor(setup, prev.turn, unitId) === 'snake') continue;
+    if (curr.pieces(unitId)) continue; // still on the board — did not die
+    const deathSquare = curr.appliedMoveIndex(unitId);
+    if (deathSquare === undefined) continue;
+    result[unitId] = toApiCoord(deathSquare, curr.boardWidth, curr.boardHeight);
+  }
+  return result;
 }
 
 
@@ -188,9 +260,21 @@ function buildSnake(
 ): Snake {
   const w = setup.boardWidth;
   const h = setup.boardHeight;
-  const body = (turn.playerPieces[playerID] || []).map((i) => toApiCoord(i, w, h));
+  const rawPieces = turn.playerPieces[playerID] || [];
   const gamePlayer = setup.gamePlayers.find((gp) => gp.id === playerID);
   const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
+  const unitType = unitTypeFor(setup, turn, playerID);
+
+  // Chess pieces arrive as a weight-stack — N copies of ONE square. Collapse
+  // the stack to a single body cell (the engine treats a length-1 body as a
+  // segment-free unit), but keep `length` = N: length is the piece's WEIGHT,
+  // which is exactly what head-to-head adjudication compares, so H2H risk
+  // against pieces stays weight-correct. Snakes are untouched.
+  const isPiece = unitType !== 'snake';
+  const body = isPiece
+    ? rawPieces.slice(0, 1).map((i) => toApiCoord(i, w, h))
+    : rawPieces.map((i) => toApiCoord(i, w, h));
+  const length = isPiece ? rawPieces.length : body.length;
 
   const snake: Snake = {
     id: playerID,
@@ -199,7 +283,7 @@ function buildSnake(
     health: turn.playerHealth[playerID] ?? 0,
     body,
     head: body.length > 0 ? { ...body[0] } : { x: 0, y: 0 },
-    length: body.length,
+    length,
     shout: '',
     squad: gamePlayer?.teamID ?? '',
     customizations: {
@@ -208,11 +292,23 @@ function buildSnake(
       tail: 'default',
     },
     invulnerabilityLevel: turn.playerInvulnerabilityLevel?.[playerID] ?? 0,
+    // Orientation rides along verbatim for EVERY unit (wire convention, y down —
+    // see the Snake type for the api/canvas mapping): the UI anchors icon
+    // orientation and keyNav movement behaviour on this wire orientation.
+    orientation: { ...turn.orientation[playerID] },
   };
   if (gamePlayer) snake.letter = gamePlayer.letter;
+  snake.unitType = unitType;
+  // Per-type max health from the setup config, resolved against the unit's
+  // CURRENT type (promotion moves a pawn onto the queen's max). Engine
+  // default is 100 when the map or key is absent.
+  snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
   const expiry = invulnerabilityExpiryTurn(turn, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
+  // The team's human name (the controlling centaur's, snapshotted into the
+  // setup) rides on every unit so the UI never has to show the opaque team id.
+  if (team?.name) snake.teamName = team.name;
   return snake;
 }
 
@@ -261,6 +357,20 @@ export function buildBoardState(
     hazards: mapIndices(turn.hazards, w, h),
     snakes: Object.keys(turn.playerPieces).map((pid) => buildSnake(setup, turn, pid)),
   };
+  // Setup-derived hazard damage rides on the board so the simulator (and any
+  // fatality reasoning) sees the configured value; readers default an absent
+  // field to the engine's 100.
+  if (setup.hazardDamage !== undefined) board.hazardDamage = setup.hazardDamage;
+  // Setup-derived promotion threshold and per-type max health ride on the
+  // board so the simulator can mirror the engine's pawn-promotion reset
+  // (weight -> 1, health clamped to the queen's configured max) in
+  // lookahead; readers default an absent field to the engine's values.
+  if (setup.pawnPromotionWeight !== undefined) board.pawnPromotionWeight = setup.pawnPromotionWeight;
+  if (setup.maxHealthPerUnit !== undefined) board.maxHealthPerUnit = setup.maxHealthPerUnit;
+  // Collisions resolved into this board, mapped into api coords like every
+  // other positional field. They ride on the board (not on a per-snake view)
+  // because a clash is a fact about the board, readable by any spectator.
+  if (turn.clashes?.length) board.clashes = mapClashes(turn.clashes, w, h);
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);

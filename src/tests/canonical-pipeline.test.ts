@@ -17,6 +17,7 @@ function makeSnake(id: string, head: Coord, length = 3): Snake {
     body.push({ x: head.x, y: head.y - i });
   }
   return {
+    orientation: { dx: 0, dy: -1 },
     id,
     name: id,
     latency: '0',
@@ -82,6 +83,12 @@ function makeTurn(): TTTurn {
       centA: [10, 11, 12],
       'centA#2': [30, 31, 32],
       centB: [17, 18, 19],
+    },
+    // Head-minus-neck for each snake (wire coords, y down).
+    orientation: {
+      centA: { dx: -1, dy: 0 },
+      'centA#2': { dx: -1, dy: 0 },
+      centB: { dx: -1, dy: 0 },
     },
     winners: [],
   };

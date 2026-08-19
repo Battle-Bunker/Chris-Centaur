@@ -8,6 +8,7 @@
 
 import {
   waypointPath,
+  waypointRoute,
   waypointDistance,
   gotoProgressStat,
   nearProgressStat,
@@ -23,6 +24,7 @@ function makeSnake(id: string, head: Coord, length = 3): Snake {
     body.push({ x: head.x, y: head.y - i });
   }
   return {
+    orientation: { dx: 0, dy: -1 },
     id,
     name: id,
     latency: '0',
@@ -34,6 +36,14 @@ function makeSnake(id: string, head: Coord, length = 3): Snake {
     squad: '',
     customizations: { color: '#ffffff', head: 'default', tail: 'default' },
   };
+}
+
+/** A chess piece: a 1-cell unit whose `length` is its WEIGHT. */
+function makePiece(id: string, square: Coord, unitType: string, orientation = { dx: 0, dy: -1 }): Snake {
+  const piece = makeSnake(id, square, 1);
+  piece.unitType = unitType;
+  piece.orientation = orientation;
+  return piece;
 }
 
 function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
@@ -119,6 +129,128 @@ describe('waypointPath', () => {
     expect(waypointPath(gs, 's', snake.head, { x: 11, y: 5 })).toBeNull();
     expect(waypointPath(gs, 's', snake.head, snake.head)).toEqual([]);
     expect(waypointDistance(gs, 's', snake.head, snake.head)).toBe(0);
+  });
+
+  test('a path is measured in the UNIT own moves: knight L-hops, rook ray landings', () => {
+    const knight = makePiece('k', { x: 0, y: 0 }, 'knight');
+    const gs = makeGameState('g', 1, [knight], 'k');
+    // (1,1) is one square diagonally away and FOUR knight moves out of the
+    // corner — the classic case a step-based BFS would call distance 2.
+    const path = waypointPath(gs, 'k', knight.head, { x: 1, y: 1 })!;
+    expect(path).not.toBeNull();
+    expect(path.length).toBe(4);
+    expect(path[path.length - 1]).toEqual({ x: 1, y: 1 });
+    // Every hop is a legal L-jump.
+    let from = knight.head;
+    for (const hop of path) {
+      const [dx, dy] = [Math.abs(hop.x - from.x), Math.abs(hop.y - from.y)];
+      expect([dx, dy].sort().join()).toBe('1,2');
+      from = hop;
+    }
+
+    // A rook crosses the whole board in two ray moves.
+    const rook = makePiece('r', { x: 0, y: 0 }, 'rook');
+    const rookGs = makeGameState('g', 1, [rook], 'r');
+    expect(waypointDistance(rookGs, 'r', rook.head, { x: 10, y: 10 })).toBe(2);
+    expect(waypointDistance(rookGs, 'r', rook.head, { x: 0, y: 7 })).toBe(1);
+  });
+
+  test('a slider ray stops at a blocked square, so the path goes around', () => {
+    // A hazard wall across row 5 leaves one opening, at x=10. The rook's ray
+    // straight up its own file dies on the wall, so the shortest path is the
+    // three-move detour through the opening.
+    const rook = makePiece('r', { x: 0, y: 0 }, 'rook');
+    const gs = makeGameState('g', 1, [rook], 'r');
+    for (let x = 0; x <= 9; x++) gs.board.hazards.push({ x, y: 5 });
+
+    expect(waypointPath(gs, 'r', rook.head, { x: 0, y: 10 })).toEqual([
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ]);
+    // Beyond the wall on its own file is unreachable in one move, but the
+    // squares up to it are not.
+    expect(waypointDistance(gs, 'r', rook.head, { x: 0, y: 4 })).toBe(1);
+  });
+});
+
+describe('waypointRoute: a pawn plans through its ORIENTATION', () => {
+  // A pawn's only step is forward and a quarter turn costs a whole turn, so
+  // its reachability is a property of (square, facing). The search plans over
+  // both, which is what makes any target reachable at all — before it did, a
+  // pawn could only ever walk the ray it happened to face.
+  //
+  // Wire orientation dy -1 faces api +y ("up"); its quarter turns are api ±x.
+  const FACING_UP = { dx: 0, dy: -1 };
+
+  /** The route as a readable script: 'turn' for a rotation, else the cell. */
+  const script = (route: { cell: Coord; rotation?: { dx: number; dy: number } }[]) =>
+    route.map(s => (s.rotation ? `turn ${s.rotation.dx},${s.rotation.dy}` : `${s.cell.x},${s.cell.y}`));
+
+  test('a target BEHIND the pawn costs two quarter turns plus the steps — the shortest plan', () => {
+    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', FACING_UP);
+    const gs = makeGameState('g', 1, [pawn], 'p');
+
+    const route = waypointRoute(gs, 'p', pawn.head, { x: 5, y: 3 })!;
+    expect(route).not.toBeNull();
+    // There is no 180° turn: two quarter turns, then the two steps.
+    expect(script(route)).toEqual(['turn 1,0', 'turn 0,1', '5,4', '5,3']);
+    expect(waypointDistance(gs, 'p', pawn.head, { x: 5, y: 3 })).toBe(4);
+    // A rotation spends the turn on the square it stands on, so the cells-only
+    // projection repeats it — route length is TURNS, not squares.
+    expect(waypointPath(gs, 'p', pawn.head, { x: 5, y: 3 })).toEqual([
+      { x: 5, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 3 },
+    ]);
+  });
+
+  test('a target off the ray plans the rotation first, then walks it out', () => {
+    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', FACING_UP);
+    const gs = makeGameState('g', 1, [pawn], 'p');
+
+    // Three squares to the api +x side: turn once, then step three times.
+    expect(script(waypointRoute(gs, 'p', pawn.head, { x: 8, y: 5 })!))
+      .toEqual(['turn 1,0', '6,5', '7,5', '8,5']);
+  });
+
+  test('a diagonal-off-ray target INTERLEAVES steps and a rotation', () => {
+    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', FACING_UP);
+    const gs = makeGameState('g', 1, [pawn], 'p');
+
+    // (7,7) is two up and two across: walk the leg it already faces, turn
+    // once, walk the other. Five turns — cheaper than turning first (six).
+    expect(script(waypointRoute(gs, 'p', pawn.head, { x: 7, y: 7 })!))
+      .toEqual(['5,6', '5,7', 'turn 1,0', '6,7', '7,7']);
+  });
+
+  test('the start orientation can be overridden — the probe every rotation candidate uses', () => {
+    const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', FACING_UP);
+    const gs = makeGameState('g', 1, [pawn], 'p');
+    const target = { x: 8, y: 5 };
+
+    // Facing up it is four turns away (one rotation + three steps); ALREADY
+    // facing api +x it is three. That difference is exactly what makes a
+    // rotation candidate outscore standing still.
+    expect(waypointDistance(gs, 'p', pawn.head, target)).toBe(4);
+    expect(waypointDistance(gs, 'p', pawn.head, target, { orientation: { dx: 1, dy: 0 } })).toBe(3);
+  });
+
+  test('regression: units that cannot rotate plan exactly as before — no rotation steps', () => {
+    const knight = makePiece('k', { x: 0, y: 0 }, 'knight');
+    const knightGs = makeGameState('g', 1, [knight], 'k');
+    const knightRoute = waypointRoute(knightGs, 'k', knight.head, { x: 1, y: 1 })!;
+    expect(knightRoute).toHaveLength(4);
+    expect(knightRoute.every(s => s.rotation === undefined)).toBe(true);
+
+    const rook = makePiece('r', { x: 0, y: 0 }, 'rook');
+    const rookGs = makeGameState('g', 1, [rook], 'r');
+    expect(waypointRoute(rookGs, 'r', rook.head, { x: 10, y: 10 })!.map(s => s.cell))
+      .toEqual([{ x: 10, y: 0 }, { x: 10, y: 10 }]);
+
+    const snake = makeSnake('s', { x: 5, y: 5 });
+    const snakeGs = makeGameState('g', 1, [snake], 's');
+    const snakeRoute = waypointRoute(snakeGs, 's', snake.head, { x: 8, y: 5 })!;
+    expect(snakeRoute.map(s => s.cell)).toEqual([{ x: 6, y: 5 }, { x: 7, y: 5 }, { x: 8, y: 5 }]);
+    expect(snakeRoute.every(s => s.rotation === undefined)).toBe(true);
   });
 });
 
@@ -305,6 +437,29 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.gotoRoute.length).toBe(3);
     // A single target is all committed leg — nothing to fade.
     expect(cs.gotoRouteFirstLeg).toBe(cs.gotoRoute.length);
+  });
+
+  test('regression: a snake still navigates in single orthogonal steps', () => {
+    const gameId = 'g-goto-snake-steps';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    // A target four cells away on the diagonal is four steps of route, one
+    // cell per move — a snake reads the same per-unit adjacency every piece
+    // does and gets exactly the step graph it always had. Both 'up' and
+    // 'right' start a shortest path and take the same goto weight, so the raw
+    // bot scores still settle it: the weight is added to them, not a path
+    // override.
+    expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 7, y: 7 }, userId)).toBe(true);
+
+    expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.source).toBe('waypoint');
+    expect(cs.gotoRoute).toHaveLength(4);
+    for (let i = 0; i < cs.gotoRoute.length; i++) {
+      const from = i === 0 ? { x: 5, y: 5 } : cs.gotoRoute[i - 1];
+      expect(Math.abs(cs.gotoRoute[i].x - from.x) + Math.abs(cs.gotoRoute[i].y - from.y)).toBe(1);
+    }
+    expect(cs.gotoRoute[cs.gotoRoute.length - 1]).toEqual({ x: 7, y: 7 });
   });
 
   test('the drawn route follows the move that will actually commit, not the one the target wanted', () => {
@@ -543,6 +698,97 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(mgr.getWaypointsForGame(gameId)['A']).toBeUndefined();
     expect(cs.staged?.move).toBe('up');
     expect(cs.staged?.source).toBe('bot');
+  });
+
+  // ── ONE command lifecycle ────────────────────────────────────────────────
+  // The intent IS the command; waypoint cells, the green route and the intent
+  // mode are all DERIVED from it. So there is exactly one rule to hold: a new
+  // command replaces the old one, and a command ends when the unit does. Every
+  // projection follows for free — which is what stops a superseded or dead
+  // unit's numbered target badges lingering on the board.
+
+  test('a new command REPLACES the old one — the goto queue and its route go with it', () => {
+    const gameId = 'g-goto-override';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
+    expect(mgr.getWaypointsForGame(gameId)['A'].cells).toHaveLength(2);
+    expect(cs.gotoRoute.length).toBeGreaterThan(0);
+
+    // A manual selection is a new command: the whole queue and the drawn route
+    // go with it, not just the active target.
+    mgr.setUserSelection(gameId, 'A', 'left');
+    expect(cs.intent.kind).toBe('manual');
+    expect(cs.gotoRoute).toEqual([]);
+    expect(cs.gotoRouteRotations).toEqual([]);
+    expect(mgr.getWaypointsForGame(gameId)['A']).toBeUndefined();
+    expect(mgr.getRoutesForGame(gameId)['A']).toBeUndefined();
+
+    // And so is a near target, and a fresh goto (which replaces, never appends).
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
+    mgr.setWaypoint(gameId, 'A', { type: 'blue', x: 3, y: 3 }, userId);
+    expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({ type: 'blue', cells: [{ x: 3, y: 3 }] });
+    expect(cs.gotoRoute).toEqual([]);
+
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 2, y: 2 }, userId);
+    expect(mgr.getWaypointsForGame(gameId)['A'].cells).toEqual([{ x: 2, y: 2 }]);
+  });
+
+  test('a unit that DIES loses its command: no queue, no route, nothing left to draw', () => {
+    const gameId = 'g-goto-death';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
+    expect(mgr.getWaypointsForGame(gameId)['A'].cells).toHaveLength(2);
+    expect(cs.gotoRoute.length).toBeGreaterThan(0);
+
+    // The next canonical board no longer carries the unit at all.
+    const gone = makeGameState(gameId, 2, snakes, 'A');
+    gone.board.snakes = [];
+    mgr.updateBoard(gameId, gone);
+
+    expect(cs.intent.kind).toBe('heuristic');
+    expect(cs.intentBy).toBeNull();
+    expect(cs.gotoRoute).toEqual([]);
+    expect(cs.gotoRouteFirstLeg).toBe(0);
+    expect(mgr.getWaypointsForGame(gameId)['A']).toBeUndefined();
+    expect(mgr.getRoutesForGame(gameId)['A']).toBeUndefined();
+    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toBeNull();
+  });
+
+  test('a unit still ON the board but at zero health is dead too — same clearing', () => {
+    const gameId = 'g-goto-death-health';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    expect(cs.intent.kind).toBe('goto');
+
+    const starved = makeGameState(gameId, 2, [makeSnake('A', { x: 5, y: 5 })], 'A');
+    starved.board.snakes[0].health = 0;
+    mgr.updateBoard(gameId, starved);
+
+    expect(cs.intent.kind).toBe('heuristic');
+    expect(cs.gotoRoute).toEqual([]);
+    expect(mgr.getWaypointsForGame(gameId)['A']).toBeUndefined();
+  });
+
+  test('the game ending takes every command with it', () => {
+    const gameId = 'g-goto-gameend';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+    expect(mgr.getWaypointsForGame(gameId)['A']).toBeDefined();
+
+    mgr.endGame(gameId, makeGameState(gameId, 2, snakes, 'A'));
+
+    expect(mgr.getWaypointsForGame(gameId)).toEqual({});
+    expect(mgr.getRoutesForGame(gameId)).toEqual({});
+    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toBeNull();
   });
 
   test('only the user currently selecting the snake may change its waypoint', () => {

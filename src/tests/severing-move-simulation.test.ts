@@ -31,6 +31,7 @@ function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake
     shout: '',
     squad: '',
     customizations: { color: '#FF0000', head: 'default', tail: 'default' },
+    orientation: { dx: 0, dy: -1 },
     ...extra
   };
 }
@@ -274,6 +275,36 @@ describe('engine-aligned tail and eating physics', () => {
     ]);
     const simUs = result.board.snakes.find(s => s.id === 'us')!;
     expect(simUs.head).toEqual({ x: 8, y: 5 });
+  });
+
+  test('eating restores health to the configured maxHealth, not a hardcoded 100', () => {
+    const us = makeSnake('us', [
+      { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }
+    ], { health: 5, maxHealth: 40 });
+    const gs = makeGameState([us], us);
+    gs.board.food = [{ x: 3, y: 2 }];
+
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
+
+    const sim = result.board.snakes.find(s => s.id === 'us')!;
+    expect(sim.health).toBe(40);
+    // maxHealth must survive deepCopyBoard so chained simulations (boards
+    // simulated from this result) keep restoring to the configured max.
+    expect(sim.maxHealth).toBe(40);
+  });
+
+  test('a snake without maxHealth keeps the engine-default 100 on eating', () => {
+    const us = makeSnake('us', [
+      { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 1, y: 1 }
+    ], { health: 5 });
+    const gs = makeGameState([us], us);
+    gs.board.food = [{ x: 3, y: 2 }];
+
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
+
+    const sim = result.board.snakes.find(s => s.id === 'us')!;
+    expect(sim.health).toBe(100);
+    expect(sim.maxHealth).toBeUndefined();
   });
 
   test("an enemy's STACKED tail does not vacate this turn", () => {

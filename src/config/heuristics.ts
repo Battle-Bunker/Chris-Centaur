@@ -53,7 +53,7 @@ export const HEURISTICS = {
     default: 1.0,
     uiRange: { min: 0, max: 100, step: 0.5 },
     label: 'My Territory Weight',
-    description: 'Value of controlled Voronoi territory',
+    description: 'Value of held Voronoi territory: ground you reach before every other snake and that no chess piece could take off you',
     section: 'snake',
   },
   myControlledFood: {
@@ -135,6 +135,37 @@ export const HEURISTICS = {
     section: 'safety',
   },
 
+  // ── Health loss (drives NATURAL hazard avoidance — no hazard-specific
+  // heuristic exists anywhere else). The stat is the shared projected health
+  // COST of the candidate move (movementCost + hazardDamage × hazard squares
+  // entered — see simulator.ts's projectPath), so it is usually just
+  // 1 (the ordinary per-move decay) and jumps by hazardDamage (default 100)
+  // whenever the move enters a hazard square; eating cancels the movement
+  // term. At the default weight, an ordinary move costs a negligible -5,
+  // while one hazard square costs -505 — comparable to deaths (-500) and
+  // trapped (-600), so a survivable-but-costly hazard entry is decisively
+  // outweighed by any non-fatal alternative without hard-coding "hazard" as
+  // a concept anywhere in the scoring.
+  //
+  // The projection also resolves DEATH along the path — a wall, a snake body
+  // segment the mover cannot survive entering (ally bodies included), a lost
+  // piece contest, or hazard doses that exhaust it — as a cost that takes the
+  // projected health to zero. A full-health unit therefore reports 100, and
+  // this weight charges -500 for it: the same magnitude as the deaths weight,
+  // which is exactly the owner's point that the health heuristic should be
+  // the thing that notices. ─────────────────────────────────────────────────
+  healthLoss: {
+    default: -5,
+    uiRange: { min: -50, max: 0, step: 1 },
+    label: 'Health Loss Weight',
+    description:
+      'Penalty per point of projected health cost the move incurs (movement + hazard ' +
+      'damage on entry). Scaled so hazardDamage (default 100) dominates a handful of extra ' +
+      'steps and rivals the deaths/trapped penalties — steers away from hazards without a ' +
+      'hazard-specific rule (negative).',
+    section: 'safety',
+  },
+
   // ── Space detection ──────────────────────────────────────────────────────
   selfSpace: {
     default: 120,
@@ -162,11 +193,18 @@ export const HEURISTICS = {
   },
 
   // ── Life/death ───────────────────────────────────────────────────────────
+  // The stat is now really computed: the number of ENEMY units the candidate
+  // move destroys, read off the same contest the cost projection already
+  // resolves (simulator.ts's projectPath). The default stays 0 so enabling
+  // the reward is the owner's decision, not a silent behaviour change.
   kills: {
     default: 0,
     uiRange: { min: 0, max: 500, step: 10 },
     label: 'Kills Weight',
-    description: 'Reward for eliminating opponents',
+    description:
+      'Reward per ENEMY unit this move destroys (a piece contest we win, or a snake head ' +
+      'square we take at a strictly higher tier). Default 0 — off until you want the bot ' +
+      'hunting.',
     section: 'combat',
   },
   deaths: {
@@ -190,6 +228,30 @@ export const HEURISTICS = {
     uiRange: { min: -500, max: 0, step: 5 },
     label: 'Ally H2H Risk Weight',
     description: 'Penalty for head-to-head collision risk with allies (negative)',
+    section: 'combat',
+  },
+
+  // ── Chess-piece threat (the piece counterpart of h2h risk). Deliberately
+  // moderate — comparable to the h2h weights: a threatened square is a
+  // deterrent, not a paralyzer (the piece may not move at all, and an
+  // equal-weight attack trades the piece too). ─────────────────────────────
+  enemyPieceThreat: {
+    default: -100,
+    uiRange: { min: -500, max: 0, step: 5 },
+    label: 'Enemy Piece Threat Weight',
+    description:
+      'Penalty for landing on a square an enemy chess piece could reach next turn when the ' +
+      'contest there would kill us (higher-tier piece, or equal tier and at least our ' +
+      'weight). Moderate by design — the piece may not move (negative).',
+    section: 'combat',
+  },
+  allyPieceThreat: {
+    default: -50,
+    uiRange: { min: -500, max: 0, step: 5 },
+    label: 'Ally Piece Threat Weight',
+    description:
+      'Penalty for landing on a square one of our own chess pieces could reach next turn — ' +
+      'like ally h2h risk, we never want the trade regardless of who survives it (negative)',
     section: 'combat',
   },
 
@@ -247,6 +309,74 @@ export const HEURISTICS = {
       'where we can neither chase our own tail nor fit our length. A hard candidate-level ' +
       'veto also blocks such moves whenever a safe alternative exists.',
     section: 'aggression',
+  },
+
+  // ── Friendly fire. The engine's contests have NO friendly exemption
+  // (chessTurnSim's contestSquare compares tier then weight and never teams),
+  // so our own move kills an ally exactly the way it kills an enemy — and
+  // since score IS total weight, the harm is precisely the weight we destroy.
+  // The stat is that weight, so the penalty scales with what is lost.
+  //
+  // Magnitude: at -400 even the lightest possible ally — a weight-1 piece —
+  // costs more than every positive term on the board put together (the largest
+  // is a user waypoint at 300, then foodEaten 200, selfSpace 120), so no
+  // ordinary positional gain and no operator target can ever buy a friendly
+  // kill. It sits just UNDER the deaths penalty (-500) for that minimum case,
+  // which is the honest ordering: spending a weight-1 ally is a real
+  // sacrifice, but not worse than dying ourselves, and a deliberate one stays
+  // expressible. It scales past trapped (-600) at weight 2 and reaches the
+  // thousands for a real snake or a queen, which is what killing that much of
+  // our own team is worth. It is deliberately NOT a veto: only regicide is. ──
+  allyCasualty: {
+    default: -400,
+    uiRange: { min: -2000, max: 0, step: 10 },
+    label: 'Ally Casualty Weight',
+    description:
+      'Penalty per point of OUR OWN weight the move destroys — a piece contest we win against ' +
+      'an ally, or an ally snake we sever. Score is total weight, so the stat is exactly what ' +
+      'the team loses. Scaled above every positive heuristic so no positional gain or waypoint ' +
+      'ever buys a friendly kill (negative).',
+    section: 'combat',
+  },
+
+  // ── Regicide: the catastrophe, not a penalty. The engine eliminates a team
+  // configured with kings the moment its LAST king dies and removes every unit
+  // it still owns that turn (TeamSnekProcessor.applyRegicide), so our score
+  // goes from our whole total weight to zero and the game is over. Nothing
+  // else on the board is in that class: deaths is -500 and trapped -600, and
+  // the entire rest of the matrix cannot reach a thousand, so -100000 is not a
+  // tuning knob — it is "no sum of everything else comes close". The hard
+  // guarantee is the veto in pickBestMove (snakes) and bestPieceCandidate
+  // (pieces), exactly as trapped/fatal are vetoed; this weight makes the
+  // scoring agree with the veto wherever a veto cannot apply (every candidate
+  // commits regicide, or a human is reading the breakdown). ──────────────────
+  regicide: {
+    default: -100000,
+    uiRange: { min: -1000000, max: 0, step: 1000 },
+    label: 'Regicide Penalty (our last king)',
+    description:
+      'Penalty for a move that kills our team\'s LAST king — our own unit taking it, or our ' +
+      'king walking into a fatal square. The engine then eliminates our whole team and our ' +
+      'score becomes zero, so this dominates every other term and the move is also vetoed ' +
+      'outright (negative).',
+    section: 'combat',
+  },
+
+  // ── The same rule pointed the other way: taking an enemy team's LAST king
+  // ends THAT team. Deliberately conservative — it can only fire on a move
+  // that literally eliminates an opponent, so it cannot swing ordinary play,
+  // and at 2000 it outranks every positional term (so a winning capture is
+  // taken) while staying 50× below our own regicide (so we never trade our
+  // king for theirs). ──────────────────────────────────────────────────────
+  enemyRegicide: {
+    default: 2000,
+    uiRange: { min: 0, max: 100000, step: 100 },
+    label: 'Enemy Regicide Reward (their last king)',
+    description:
+      "Reward for a move that takes an enemy team's LAST king, eliminating that whole team. " +
+      'Fires only on a genuinely winning capture; set well below our own regicide penalty so ' +
+      'the trade is never worth making.',
+    section: 'combat',
   },
 } satisfies Record<string, HeuristicSpec>;
 

@@ -28,6 +28,28 @@ export interface Snake {
   // by the game server; when absent the level is assumed to apply this turn only.
   invulnerabilityExpiryTurn?: number;
   teamID?: string;
+  // The team's human display NAME (the controlling centaur's name, snapshotted
+  // into the game setup). `teamID` is an opaque document id and is not fit to
+  // show a reader; this is. Absent on historical logs predating the field —
+  // readers fall back to the name prefix of `name` ("Chris A" -> "Chris").
+  teamName?: string;
+  // Chess-piece support: the unit's current type ("pawn" | "knight" | "bishop" |
+  // "rook" | "queen" | "king"), absent or "snake" for ordinary snakes. Pieces
+  // arrive as 1-cell units whose `length` is their WEIGHT (stack size), not
+  // their body cell count.
+  unitType?: string;
+  // The unit's max health from the game setup's per-type config
+  // (maxHealthPerUnit); eating restores health to this. Absent means the
+  // engine default of 100 — readers use `snake.maxHealth ?? 100`.
+  maxHealth?: number;
+  // Unit orientation (EVERY unit in EVERY game — Turn.orientation), VERBATIM
+  // from the TacticToes wire (full-board convention: dy grows DOWNWARD).
+  // Toward the board centre at spawn, the moved direction after each turn (knight:
+  // exact L-offset; snake: head-minus-neck; pawns turn only via rotation);
+  // holds keep it. Note api y is flipped, so the faced api cell is
+  // {x + dx, y - dy}; canvas rows share the wire's sign (no flip when
+  // drawing).
+  orientation: { dx: number; dy: number };
 }
 
 export interface Board {
@@ -35,9 +57,51 @@ export interface Board {
   width: number;
   food: Coord[];
   hazards: Coord[];
+  // Damage a unit takes on ENTERING a hazard square, from the game setup
+  // (GameSetup.hazardDamage). Death only at health <= 0 — hazards are
+  // damage-based, not instant death. Absent means the engine default of 100 —
+  // readers use `board.hazardDamage ?? 100`.
+  hazardDamage?: number;
+  // Weight threshold at which a pawn promotes to a queen, from the game
+  // setup (GameSetup.pawnPromotionWeight). The Simulator reads this to mirror
+  // the engine's post-eat/growth promotion step. Absent means the engine
+  // default — readers use `board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT`
+  // (piece-moves.ts).
+  pawnPromotionWeight?: number;
+  // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
+  // keyed by unit type regardless of whether that type is currently fielded —
+  // a pawns-only setup can still configure the queen's max for the moment a
+  // pawn promotes. A promoted pawn's health is clamped DOWN (never raised) to
+  // this map's 'queen' entry; absent map or absent key means the engine
+  // default of 100. Distinct from `Snake.maxHealth`, which is already
+  // resolved against a unit's CURRENT type.
+  maxHealthPerUnit?: Partial<Record<string, number>>;
   snakes: Snake[];
+  // Collisions the game server resolved while producing THIS board, in api
+  // coords. One record per body cell of each unit that died, so a clash can
+  // appear several times over one snake's length and two units dying in the
+  // same contest produce two records naming the same participants. Present
+  // only on turns where something collided.
+  clashes?: Clash[];
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];
+}
+
+/**
+ * One collision the game server resolved, in the renderer's coordinate space.
+ * Purely descriptive: it names WHERE, WHO took part and WHY, and says nothing
+ * about who controls what — a neutral spectator reads it exactly as a player
+ * does. Which participants died is derived from the resulting board (a
+ * participant absent from `board.snakes` did not survive), never from this
+ * record.
+ */
+export interface Clash {
+  cell: Coord;
+  playerIDs: string[];
+  reason: string;
+  // The within-turn sub-step the collision happened on (piece games resolve a
+  // turn in several sub-steps as sliders walk their paths). Absent for snakes.
+  subStep?: number;
 }
 
 export interface Game {
@@ -64,6 +128,12 @@ export interface GameState {
   // guessing. Optional for backward compatibility with engines/logs that
   // predate it.
   lastMoves?: Record<string, Direction>;
+  // Authoritative map of unitId -> the board cell a chess piece died on
+  // during the transition into this turn, read from the wire turn's `moves`
+  // map (which records a dead piece's actual death square — mid-path for a
+  // slider stopped in flight). Pieces only: a dead snake's cell derives from
+  // `lastMoves`. Present only on turns where a piece died.
+  deathCells?: Record<string, Coord>;
 }
 
 // A board-only view of a game with NO `you`. The centaur server controls many
@@ -74,6 +144,12 @@ export interface GameState {
 export type BoardSnapshot = Omit<GameState, 'you'>;
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
+
+// A staged move on the centaur side: snakes stage a Direction; chess pieces
+// stage the FULL-BOARD index of their destination square (the same integer the
+// TacticToes wire carries in privateMoves.move — a piece's own square means
+// stay). Direction-only logic must narrow with `typeof move === 'string'`.
+export type CentaurMove = Direction | number;
 
 export interface TeamInfo {
   color: string;

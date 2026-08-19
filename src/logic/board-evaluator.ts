@@ -5,8 +5,10 @@
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
-import { BoardGraph, BoardGraphConfig, ClearanceMode, fillNeighbors4 } from './board-graph';
+import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
+import { CasualtyContext } from './simulator';
 import { WaypointProgress } from './waypoint-pathing';
 import {
   HEURISTIC_KEYS,
@@ -46,12 +48,21 @@ export interface H2HRiskContext {
   allyH2HRisk?: number;   // 1 if this move has h2h risk with ally, 0 otherwise
 }
 
+export interface PieceThreatContext {
+  enemyPieceThreat?: number;  // 1 if the move lands on a square a threatening enemy piece could take
+  allyPieceThreat?: number;   // 1 if the move lands on a square an ally piece could take
+}
+
 export interface EvaluationContext {
   // Food positions of the PRE-MOVE board, supplied when evaluating a
   // SIMULATED state (the simulation consumes eaten food, so a head sitting on
   // a pre-move food cell means this branch ate). Absent for real states.
   prevFoodSet?: Set<string>;
   h2hRisk?: H2HRiskContext;   // Head-to-head risk info for the move being evaluated
+  // Piece-threat info for the move being evaluated — same injection pattern
+  // (and reason) as h2hRisk: a property of the candidate MOVE computed once
+  // per decision from the pre-move board, not of the board being scored.
+  pieceThreat?: PieceThreatContext;
   simulatedSnakeIds?: Set<string>;  // Snake IDs that were simulated (already moved) - get startDelay: 1
   // Per-move goto/near progress stats for the candidate move that produced this
   // board (centaur play mode). Computed once per decision from the PRE-move
@@ -59,6 +70,21 @@ export interface EvaluationContext {
   // injection pattern as h2hRisk, and for the same reason: it is a property of
   // the move under consideration, not of the board being scored.
   waypointProgress?: WaypointProgress | null;
+  // Projected health cost of the candidate MOVE (movement + hazard damage, or
+  // the mover's whole health when the projection resolves the move as DEATH —
+  // simulator.ts's projectedHealthCost), computed once per decision from the
+  // PRE-move board and injected here — same per-move-constant pattern as
+  // h2hRisk/pieceThreat/waypointProgress, and for the same reason: the cost
+  // describes the move, not the simulated board. Undefined/0 for states that
+  // never had it computed (e.g. direct board-evaluator tests).
+  healthCost?: number;
+  // What the candidate MOVE does to the units on the board — the ally weight it
+  // destroys, the enemies it kills, and whether it ends a team by taking its
+  // last king (simulator.ts's projectPath, folded). Same per-move-constant
+  // injection as healthCost, and for the same reason: these describe the move,
+  // not the board it produces. The contest that resolves the move's cost is
+  // the contest that decides who dies in it, so both come off ONE projection.
+  casualties?: CasualtyContext;
   // Materialize per-snake territory cell lists (UI/visualization). Defaults to
   // true; the chunked minimax evaluation passes false — it reads only scores
   // and stats, and building coord arrays per state was measurable GC churn.
@@ -112,13 +138,20 @@ export class BoardEvaluator {
     // Check if we're dead
     const isDead = !ourSnake || ourSnake.health <= 0;
     if (isDead) {
-      // Every stat zero except: no reachable food, and the death itself.
+      // Every stat zero except: no reachable food, the death itself, and what
+      // the move did to everyone ELSE on its way — dying does not undo the
+      // ally we killed, and it certainly does not undo regicide, which
+      // eliminates the whole team whether or not we survived the move.
       // trapped stays 0 — death is already captured by deaths: 1; avoid
       // double-penalizing.
       const deadStats = {} as HeuristicStats;
       for (const key of HEURISTIC_KEYS) deadStats[key] = 0;
       deadStats.foodDistance = 1000;
       deadStats.deaths = 1;
+      deadStats.kills = ctx?.casualties?.kills ?? 0;
+      deadStats.allyCasualty = ctx?.casualties?.allyCasualty ?? 0;
+      deadStats.regicide = ctx?.casualties?.regicide ?? 0;
+      deadStats.enemyRegicide = ctx?.casualties?.enemyRegicide ?? 0;
       return {
         stats: deadStats,
         territoryCells: new Map()
@@ -137,7 +170,11 @@ export class BoardEvaluator {
         id: s.id,
         position: s.head,
         isTeam: teamSnakeIds.has(s.id),
-        startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0
+        startDelay: simulatedSnakeIds ? (simulatedSnakeIds.has(s.id) ? 1 : 0) : 0,
+        // Contest data: tier (projected onto the turn a cell is decided) then
+        // weight, settling both same-level snake arrivals and whether a piece
+        // can take a cell off the snake that claimed it.
+        ...unitContestData(s, gameState.turn)
       }));
     
     // Run the single-pass BFS with optimistic passability
@@ -201,17 +238,20 @@ export class BoardEvaluator {
 
     // Ally / opponent "has enough space" derived from the Voronoi result we
     // already computed, instead of a whole-board flood fill per snake (which
-    // was 54% of every evaluation for a ±1 signal). Won territory is a LOWER
-    // bound on a snake's reachable space — the cells it gets to before anyone
-    // else — so `territory >= max(3, length/2)` is a conservative "has room"
-    // proxy mirroring the old tail-chase threshold. Our own survival tier
-    // below keeps the full flood-fill treatment.
+    // was 54% of every evaluation for a ±1 signal). Held territory is a LOWER
+    // bound on a snake's reachable space — the cells it gets to before every
+    // other snake and that no piece could take off it — so
+    // `territory >= max(3, length/2)` is a conservative "has room" proxy
+    // mirroring the old tail-chase threshold. It is only tightened by the
+    // piece layer, never loosened, so it stays a lower bound. Our own survival
+    // tier below keeps the full flood-fill treatment.
     const spaceScores = this.spaceScoresFromTerritory(bfsResult, board.snakes, ourSnakeId, teamSnakeIds);
 
     // SURVIVAL TIER (contest-aware, conservative clearance): flood only the cells
-    // we win the Voronoi arrival race for, from our post-move head, under
+    // we HOLD in the Voronoi division, from our post-move head, under
     // conservative body-clearance timing. This is what we bank our survival on —
-    // it refuses to count room an enemy will reach first.
+    // it refuses to count room another snake will reach first, and (since the
+    // territory rule made pieces displacers) room a piece would take off us.
     // Our snake is always a live BFS source here (the dead case returned above).
     const ourSourceIdx = bfsResult.sourceIndexOf.get(ourSnakeId)!;
     const contestRegion = this.computeContestAwareRegion(graph, ourSnake, bfsResult.ownerIndex, ourSourceIdx);
@@ -273,14 +313,24 @@ export class BoardEvaluator {
         selfSpace,             // Continuous contest-aware survival room (sqrt; room == length → 1.0)
         alliesEnoughSpace: spaceScores.allies,
         opponentsEnoughSpace: spaceScores.opponents,
-        kills: 0,  // Would need before/after comparison to calculate
+        // Casualties the candidate MOVE inflicts, from the shared projection
+        // (see EvaluationContext.casualties). Enemy units killed…
+        kills: ctx?.casualties?.kills ?? 0,
         deaths: isDead ? 1 : 0,
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
         allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
+        enemyPieceThreat: ctx?.pieceThreat?.enemyPieceThreat ?? 0,  // From context, 1 if a threatening enemy piece can take the landing square
+        allyPieceThreat: ctx?.pieceThreat?.allyPieceThreat ?? 0,    // From context, 1 if an ally piece can take the landing square
         gotoProgress,
         nearProgress,
         aggression,
-        trapped
+        trapped,
+        healthLoss: ctx?.healthCost ?? 0,  // Projected health cost of this move; from context
+        // …and the ones on our own side of the board: the weight we destroy,
+        // and the two team-ending cases the engine's regicide rule creates.
+        allyCasualty: ctx?.casualties?.allyCasualty ?? 0,
+        regicide: ctx?.casualties?.regicide ?? 0,
+        enemyRegicide: ctx?.casualties?.enemyRegicide ?? 0,
       },
       territoryCells: bfsResult.territoryCells
     };
@@ -379,9 +429,10 @@ export class BoardEvaluator {
   private visitStamp: Int32Array = new Int32Array(0);
   private floodQueue: Int32Array = new Int32Array(0);
   private stamp = 0;
-  // 4-slot scratch for fillNeighbors4 in the region flood (never used while
-  // another fill of the same buffer is in flight).
-  private neighborScratch = new Int32Array(4);
+  // Scratch for the region flood's neighbor fill (never used while another
+  // fill of the same buffer is in flight); grown to whatever the graph's
+  // widest unit needs.
+  private neighborScratch: Int32Array = new Int32Array(0);
 
   private ensureScratch(cells: number): void {
     if (this.scratchCells < cells) {
@@ -390,6 +441,13 @@ export class BoardEvaluator {
       this.floodQueue = new Int32Array(cells);
       this.stamp = 0;
     }
+  }
+
+  private ensureNeighborScratch(graph: BoardGraph): Int32Array {
+    if (this.neighborScratch.length < graph.neighborCapacity()) {
+      this.neighborScratch = graph.neighborBuffer();
+    }
+    return this.neighborScratch;
   }
 
   /**
@@ -430,19 +488,20 @@ export class BoardEvaluator {
     queue[0] = startIdx;
     let levelStart = 0;
     let levelEnd = 1;
-    const nbuf = this.neighborScratch;
+    const nbuf = this.ensureNeighborScratch(graph);
 
     let reachableCount = 1; // head occupies a cell
     let tailReachable = false;
     let white = (snake.head.x + snake.head.y) % 2 === 0 ? 1 : 0;
     let black = 1 - white;
     let arrivalTurn = 1;
+    const rayOpen = (cell: number): boolean => pass.passableIdx(cell, arrivalTurn);
 
     while (levelStart < levelEnd) {
       let nextEnd = levelEnd;
       for (let q = levelStart; q < levelEnd; q++) {
         const cur = queue[q];
-        const nCount = fillNeighbors4(cur, W, N, nbuf);
+        const nCount = graph.fillUnitNeighbors(snake, cur, rayOpen, nbuf);
         for (let t = 0; t < nCount; t++) {
           const n = nbuf[t];
           if (visit[n] === stamp) continue;
@@ -496,25 +555,30 @@ export class BoardEvaluator {
     cap: number
   ): { walkLength: number; tailReached: boolean } {
     const pass = graph.passabilityIdxFor(snake.id, { clearance });
-    const W = graph.boardWidth;
-    const N = graph.cellCount;
-    this.ensureScratch(N);
+    this.ensureScratch(graph.cellCount);
     const visit = this.visitStamp;
     const stamp = ++this.stamp;
 
     // Two DISTINCT scratch buffers: degree counting runs while the candidate
     // buffer is still being iterated.
-    const candBuf = new Int32Array(4);
-    const degBuf = new Int32Array(4);
+    const candBuf = graph.neighborBuffer();
+    const degBuf = graph.neighborBuffer();
 
     let current = graph.cellIndexOf(snake.head);
     visit[current] = stamp;
     let steps = 0;
     let tailReached = false;
+    // The turn the walk arrives at the cell being enumerated, and the turn
+    // after it — read by the two ray-stop tests below.
+    let arrivalTurn = 1;
+    let nextArrival = 2;
+    const rayOpen = (cell: number): boolean => pass.passableIdx(cell, arrivalTurn);
+    const rayOpenNext = (cell: number): boolean => pass.passableIdx(cell, nextArrival);
 
     while (steps < cap) {
-      const arrivalTurn = steps + 1;
-      const nCount = fillNeighbors4(current, W, N, candBuf);
+      arrivalTurn = steps + 1;
+      nextArrival = arrivalTurn + 1;
+      const nCount = graph.fillUnitNeighbors(snake, current, rayOpen, candBuf);
       let candidates = 0;
       for (let i = 0; i < nCount; i++) {
         const n = candBuf[i];
@@ -530,10 +594,9 @@ export class BoardEvaluator {
       // numeric order keeps determinism with a simpler rule.
       let best = -1;
       let bestDegree = Infinity;
-      const nextArrival = arrivalTurn + 1;
       for (let i = 0; i < candidates; i++) {
         const cand = candBuf[i];
-        const dCount = fillNeighbors4(cand, W, N, degBuf);
+        const dCount = graph.fillUnitNeighbors(snake, cand, rayOpenNext, degBuf);
         let degree = 0;
         for (let j = 0; j < dCount; j++) {
           const nn = degBuf[j];
@@ -559,10 +622,11 @@ export class BoardEvaluator {
   /**
    * Contest-aware survival region. Flood-fills from our snake's (post-move) head
    * under CONSERVATIVE body-segment clearance, but restricted to the set of cells
-   * we actually win the Voronoi arrival race for (the multi-source BFS owner
-   * array). This is the survival room we can bank on: it refuses to count
-   * space an opponent would reach first, and it refuses to bank on bodies vacating
-   * on optimistic timing.
+   * we actually HOLD in the Voronoi division (the multi-source BFS owner array):
+   * ground we reach before every other snake and that no piece could take off us.
+   * This is the survival room we can bank on: it refuses to count space an
+   * opponent would reach first or would win off us, and it refuses to bank on
+   * bodies vacating on optimistic timing.
    *
    * The head cell is always included as the flood origin, and the tail cell is
    * allowed even when not won (tail-chase survival).

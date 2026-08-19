@@ -26,6 +26,10 @@ export interface DecisionLogEntry {
     move: Direction;
     score: number;
     numStates: number;
+    // The candidate's destination cell (api coords), when the engine's
+    // projection pass computed it. Optional: legacy rows lack it and readers
+    // must tolerate absence.
+    dest?: { x: number; y: number };
     projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
     // One stat per heuristic registry key, plus the raw foodDistance and the
     // legacy wire aliases (a UI/DB contract — see VoronoiStrategy.buildBreakdown).
@@ -314,7 +318,8 @@ export class DecisionLogger {
 
   // Enqueue a canonical turn-state write (COALESCE upsert; see TurnStateRow).
   // Called from two places with complementary halves of the row:
-  //  - the canonical turn pipeline, with the you-less game_state (+lastMoves),
+  //  - the canonical turn pipeline, with the you-less game_state (+lastMoves
+  //    and, on turns where a piece died, its deathCells),
   //  - the decision pass, with the shared territory/ownership grids, once per
   //    (game, turn).
   public logTurnState(entry: {

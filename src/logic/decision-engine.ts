@@ -4,15 +4,17 @@
  */
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
-import { MoveAnalyzer, H2HRiskInfo } from './move-analyzer';
+import { MoveAnalyzer, H2HRiskInfo, PieceThreatInfo } from './move-analyzer';
 import { BoardEvaluator, BoardEvaluation, HeuristicWeights } from './board-evaluator';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
 import { ChunkJob, ChunkResult, evaluateChunk } from './decision-chunk';
 import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
 import { WaypointContext, computeWaypointProgressByMove } from './waypoint-pathing';
 import { transientInterval, transientTimeout } from '../server/activity-controller';
+import { CasualtyContext, emptyCasualtyContext, projectPath } from './simulator';
 
 // Re-exported for consumers that take a waypoint alongside a DecisionConfig.
 export { WaypointContext } from './waypoint-pathing';
@@ -33,6 +35,12 @@ export interface MoveEvaluationResult {
   worstScore: number;
   numStates: number;
   worstEvaluation: BoardEvaluation;
+  // The candidate's destination cell (api coords). Attached where the
+  // projection BFS already computes it; optional so evaluation rows that skip
+  // the projection pass (and legacy stored rows) stay valid. Generalizes the
+  // row shape so destination-keyed candidates (chess pieces) and
+  // direction-keyed candidates (snakes) share one contract.
+  dest?: { x: number; y: number };
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
   // Per-cell owner/distance for the HYPOTHETICAL board where our head has
   // moved onto this candidate cell — the same projection BFS that produces
@@ -57,22 +65,37 @@ export interface DecisionConfig {
 // alternative exists.
 export const FATAL_TRAP_THRESHOLD = 0.5;
 
+// The candidate-level REGICIDE veto threshold. A move at/above this kills our
+// team's last king, which the engine answers by eliminating our entire team
+// that turn — every remaining unit removed, our score from its full total
+// weight to zero. It outranks the fatal-pocket veto because it is strictly
+// worse than our own death: one unit versus all of them.
+export const REGICIDE_THRESHOLD = 0.5;
+
 /**
  * The single move-selection rule, shared by the decision engine and the
- * server's waypoint re-bias (ActiveGameManager): apply the fatal-pocket veto
- * (drop candidates with trapped >= threshold unless ALL are fatal), then take
- * the highest score. Returns null for an empty candidate list.
+ * server's waypoint re-bias (ActiveGameManager): apply the regicide veto, then
+ * the fatal-pocket veto (drop the vetoed candidates unless ALL are vetoed),
+ * then take the highest score. Returns null for an empty candidate list.
+ *
+ * Each veto narrows the pool only when it leaves something behind, so the
+ * ordering is a strict priority: never end the team; then never walk into a
+ * fatal pocket; then score. A move that would kill our last king is not
+ * outbid, it is removed — the same hard guarantee the trapped veto already
+ * gives, applied to the larger catastrophe.
  *
  * Exported because staging re-scores this turn's evaluations when the goto/near
  * target moves mid-turn; a second copy of the rule would drift from the engine
  * and the staged move would stop matching what the bot would actually pick.
  */
 export function pickBestMove(
-  candidates: Array<{ move: Direction; score: number; trapped: number }>
+  candidates: Array<{ move: Direction; score: number; trapped: number; regicide?: number }>
 ): Direction | null {
   if (candidates.length === 0) return null;
-  const nonFatal = candidates.filter(c => c.trapped < FATAL_TRAP_THRESHOLD);
-  const pool = nonFatal.length > 0 ? nonFatal : candidates;
+  const survivingTeam = candidates.filter(c => (c.regicide ?? 0) < REGICIDE_THRESHOLD);
+  const alive = survivingTeam.length > 0 ? survivingTeam : candidates;
+  const nonFatal = alive.filter(c => c.trapped < FATAL_TRAP_THRESHOLD);
+  const pool = nonFatal.length > 0 ? nonFatal : alive;
   let best = pool[0];
   for (const c of pool) {
     if (c.score > best.score) best = c;
@@ -151,6 +174,8 @@ export class DecisionEngine {
     if (ourMoves.length === 1) {
       // Only one move available - still evaluate it properly
       const h2hRisk = moveAnalysis.h2hRiskByMove.get(ourMoves[0]);
+      const pieceThreat = moveAnalysis.pieceThreatByMove.get(ourMoves[0]);
+      const projection = this.moveProjections(gameState, ourMoves).get(ourMoves[0]);
       const evaluation = this.boardEvaluator.evaluateBoard(
         gameState,
         gameState.you.id,
@@ -160,7 +185,13 @@ export class DecisionEngine {
             enemyH2HRisk: h2hRisk?.hasEnemyRisk ? 1 : 0,
             allyH2HRisk: h2hRisk?.hasAllyRisk ? 1 : 0
           },
-          waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null
+          pieceThreat: {
+            enemyPieceThreat: pieceThreat?.hasEnemyThreat ? 1 : 0,
+            allyPieceThreat: pieceThreat?.hasAllyThreat ? 1 : 0
+          },
+          waypointProgress: waypointProgressByMove?.[ourMoves[0]] ?? null,
+          healthCost: projection?.healthCost,
+          casualties: projection?.casualties ?? emptyCasualtyContext()
         }
       );
 
@@ -186,6 +217,8 @@ export class DecisionEngine {
     // combinations decideIteratively fans out to the pool.
     const { simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
+    const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
+    const projectionByMove = this.moveProjections(gameState, ourMoves);
 
     // Evaluate through the SAME evaluateChunk unit the workers run, inline,
     // in chunk-sized ROUND-ROBIN order across candidate moves under a hard
@@ -214,7 +247,10 @@ export class DecisionEngine {
           simulatedSnakeIds,
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
-          waypointProgress: waypointProgressByMove?.[move] ?? null
+          pieceThreat: pieceThreatCtxByMove.get(move)!,
+          waypointProgress: waypointProgressByMove?.[move] ?? null,
+          healthCost: projectionByMove.get(move)!.healthCost,
+          casualties: projectionByMove.get(move)!.casualties
         });
         const acc = worstByMove.get(move)!;
         if (result.statesEvaluated > 0) {
@@ -239,7 +275,13 @@ export class DecisionEngine {
             gameState,
             gameState.you.id,
             teamSnakeIds,
-            { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+            {
+              h2hRisk: h2hCtxByMove.get(move)!,
+              pieceThreat: pieceThreatCtxByMove.get(move)!,
+              waypointProgress: waypointProgressByMove?.[move] ?? null,
+              healthCost: projectionByMove.get(move)!.healthCost,
+              casualties: projectionByMove.get(move)!.casualties
+            }
           )
         };
       }
@@ -278,6 +320,11 @@ export class DecisionEngine {
     const nearbySnakes: Snake[] = [];
     for (const snake of gameState.board.snakes) {
       if (snake.id === gameState.you.id || snake.health <= 0) continue;
+      // Documented v1 approximation: chess pieces are treated as STATIONARY
+      // 1-cell snakes in lookahead. They never enter the move sets (moveSet
+      // absence = frozen in the Simulator), so the engine plans around where
+      // they stand, not where they could jump.
+      if ((snake.unitType ?? 'snake') !== 'snake') continue;
       if (this.manhattanDistance(gameState.you.head, snake.head) <= this.config.nearbyDistance) {
         nearbySnakes.push(snake);
       }
@@ -308,6 +355,58 @@ export class DecisionEngine {
     return h2hCtxByMove;
   }
 
+  /**
+   * Per-move piece-threat context (0/1 flags), the piece counterpart of
+   * h2hContexts: computed once per decision from the pre-move board (the
+   * analyzer's per-decision threat map) and injected into every evaluation
+   * of that move — plain objects, so they ride into worker chunk jobs.
+   */
+  private pieceThreatContexts(
+    ourMoves: Direction[],
+    pieceThreatByMove: Map<Direction, PieceThreatInfo>
+  ): Map<Direction, { enemyPieceThreat: number; allyPieceThreat: number }> {
+    const ctxByMove = new Map<Direction, { enemyPieceThreat: number; allyPieceThreat: number }>();
+    for (const move of ourMoves) {
+      const threat = pieceThreatByMove.get(move);
+      ctxByMove.set(move, {
+        enemyPieceThreat: threat?.hasEnemyThreat ? 1 : 0,
+        allyPieceThreat: threat?.hasAllyThreat ? 1 : 0
+      });
+    }
+    return ctxByMove;
+  }
+
+  /**
+   * Per-move outcome of the ONE shared projection (simulator.ts's projectPath
+   * — the same function ActiveGameManager's piece candidate scoring uses), the
+   * counterpart of h2hContexts/pieceThreatContexts: computed once per decision
+   * from the PRE-move board, then injected unchanged into every evaluation of
+   * that move. A snake's candidate path is always its single landing square.
+   *
+   * It yields two per-move constants from one walk of the square, because they
+   * come from the same adjudication:
+   *  - the health COST. A cost that equals (or exceeds) our current health
+   *    means the projection resolved the move as DEATH — a wall, a body
+   *    segment we cannot survive entering, or hazard/movement cost that
+   *    outruns our health — and the health-loss weight charges the full-health
+   *    penalty for it.
+   *  - the CASUALTIES. The contest has no friendly exemption, so the same step
+   *    that costs us health may destroy one of our own units, and if that unit
+   *    is our last king it ends the team.
+   */
+  private moveProjections(
+    gameState: GameState,
+    ourMoves: Direction[]
+  ): Map<Direction, { healthCost: number; casualties: CasualtyContext }> {
+    const byMove = new Map<Direction, { healthCost: number; casualties: CasualtyContext }>();
+    for (const move of ourMoves) {
+      const dest = this.getMovePosition(gameState.you.head, move);
+      const projected = projectPath(gameState, [dest]);
+      byMove.set(move, { healthCost: projected.cost, casualties: projected.casualties });
+    }
+    return byMove;
+  }
+
   // Select the best move with a candidate-level fatal-pocket veto.
   // A move whose worst-case `trapped` signal is at/above the fatal threshold
   // leads into a clearly-fatal dead-end pocket (no tail-chase, not enough room
@@ -325,6 +424,7 @@ export class DecisionEngine {
       move: e.move,
       score: e.worstScore,
       trapped: e.worstEvaluation.stats.trapped,
+      regicide: e.worstEvaluation.stats.regicide,
     }))) ?? evaluations[0].move;
   }
 
@@ -345,20 +445,27 @@ export class DecisionEngine {
         id: snake.id,
         position: snake.head,
         isTeam: teamSnakeIds.has(snake.id),
-        startDelay: 0
+        startDelay: 0,
+        // Contest data (tier at the turn a cell is decided, then weight) —
+        // identical to what the evaluation BFS feeds.
+        ...unitContestData(snake, gameState.turn)
       });
     }
 
     for (const evalResult of evaluations) {
       const candidatePos = this.getMovePosition(gameState.you.head, evalResult.move);
       if (!candidatePos) continue;
+      // The only engine-side spot where a candidate's board position exists —
+      // attach it so every downstream row is destination-carrying.
+      evalResult.dest = candidatePos;
 
       const projSources: BFSSource[] = [
         {
           id: gameState.you.id,
           position: candidatePos,
           isTeam: true,
-          startDelay: 1
+          startDelay: 1,
+          ...unitContestData(gameState.you, gameState.turn)
         },
         ...otherSources
       ];
@@ -454,6 +561,8 @@ export class DecisionEngine {
     // structured-clone to worker threads).
     const { nearbySnakes, simulatedSnakeIds, nearbyMoveSets } = this.enumerateNearby(gameState, graph);
     const h2hCtxByMove = this.h2hContexts(ourMoves, moveAnalysis.h2hRiskByMove);
+    const pieceThreatCtxByMove = this.pieceThreatContexts(ourMoves, moveAnalysis.pieceThreatByMove);
+    const projectionByMove = this.moveProjections(gameState, ourMoves);
 
     // Chunk the combination space per candidate move, then interleave chunks
     // ROUND-ROBIN across moves so partial results cover every move instead of
@@ -475,7 +584,10 @@ export class DecisionEngine {
           simulatedSnakeIds,
           weights: this.config.weights,
           h2hRisk: h2hCtxByMove.get(move)!,
-          waypointProgress: waypointProgressByMove?.[move] ?? null
+          pieceThreat: pieceThreatCtxByMove.get(move)!,
+          waypointProgress: waypointProgressByMove?.[move] ?? null,
+          healthCost: projectionByMove.get(move)!.healthCost,
+          casualties: projectionByMove.get(move)!.casualties
         });
       }
       chunksByMove.set(move, chunks);
@@ -506,7 +618,13 @@ export class DecisionEngine {
           gameState,
           gameState.you.id,
           teamSnakeIds,
-          { h2hRisk: h2hCtxByMove.get(move)!, waypointProgress: waypointProgressByMove?.[move] ?? null }
+          {
+            h2hRisk: h2hCtxByMove.get(move)!,
+            pieceThreat: pieceThreatCtxByMove.get(move)!,
+            waypointProgress: waypointProgressByMove?.[move] ?? null,
+            healthCost: projectionByMove.get(move)!.healthCost,
+            casualties: projectionByMove.get(move)!.casualties
+          }
         );
         fallbackEvalByMove.set(move, cached);
       }

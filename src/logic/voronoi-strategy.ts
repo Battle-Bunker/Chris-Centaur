@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
 import { HEURISTIC_KEYS, HeuristicWeights } from '../config/heuristics';
 import { BoardGraph } from './board-graph';
 import { MultiSourceBFS, BFSSource, CellOwnership, territoryCellsToObject, toCellOwnership } from './multi-source-bfs';
+import { unitContestData } from './piece-threats';
 
 // The debug/UI payload every strategy decision resolves to.
 export interface StrategyResult {
@@ -157,7 +158,11 @@ export class VoronoiStrategy {
         // Team flags only feed aggregate sums this consumer never reads;
         // owner/distance/territory are team-independent, which is what makes
         // the result shareable across snakes on different teams.
-        isTeam: false
+        isTeam: false,
+        // Contest data: tier (projected onto the turn a cell is decided) then
+        // weight, settling both same-level snake arrivals and whether a piece
+        // can take a cell off the snake that claimed it.
+        ...unitContestData(s, gameState.turn)
       }));
     // Turn-aware clearance (same physical vacate timing the evaluation BFS
     // uses): body cells count as territory for whoever arrives first AFTER
@@ -207,6 +212,9 @@ export class VoronoiStrategy {
       move: evaluation.move,
       score: evaluation.worstScore,
       numStates: evaluation.numStates,
+      // Destination cell (api coords) when the projection pass computed it —
+      // keeps the wire/DB row destination-carrying alongside the move id.
+      dest: evaluation.dest,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
       projectedCellOwnership: evaluation.projectedCellOwnership || null,
       breakdown: this.buildBreakdown(evaluation.worstEvaluation)

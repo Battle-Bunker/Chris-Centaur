@@ -1,9 +1,11 @@
 import { Timestamp } from 'firebase/firestore';
 import { Direction } from '../types/battlesnake';
 import {
+  apiCoordToIndex,
   buildGameState,
   continuationDirection,
   controlledSnakeIDs,
+  deriveDeathCells,
   directionToMoveIndex,
   parseLatestTurn,
   parseTurn,
@@ -52,6 +54,14 @@ function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
       centB: [idx(3, 1)],
       'centB#2': [idx(2, 4)],
     },
+    // Every unit carries an orientation (wire coords, y down): head-minus-neck
+    // for the multi-cell snakes, pointed at the centre for the single-cell units.
+    orientation: {
+      centA: { dx: 0, dy: -1 },
+      'centA#2': { dx: 0, dy: 1 },
+      centB: { dx: 0, dy: 1 },
+      'centB#2': { dx: 0, dy: -1 },
+    },
     winners: [],
     ...overrides,
   };
@@ -93,19 +103,20 @@ describe('directionToMoveIndex', () => {
 });
 
 describe('continuationDirection', () => {
-  it('matches the engine default: step in the head−neck direction', () => {
-    // Head at (3,3), neck at (3,4) in full-board coords (y down): the snake
-    // last moved full-board-up, which is api 'up'.
-    expect(continuationDirection([idx(3, 3), idx(3, 4)], W)).toBe('up');
-    expect(continuationDirection([idx(3, 3), idx(2, 3)], W)).toBe('right');
-    expect(continuationDirection([idx(3, 3), idx(4, 3)], W)).toBe('left');
-    expect(continuationDirection([idx(3, 3), idx(3, 2)], W)).toBe('down');
-  });
-
-  it('returns null when the snake has no direction yet', () => {
-    expect(continuationDirection([idx(3, 3)], W)).toBeNull();
-    expect(continuationDirection([idx(3, 3), idx(3, 3)], W)).toBeNull(); // stacked spawn
-    expect(continuationDirection(undefined, W)).toBeNull();
+  it('matches the engine default: step along the wire orientation', () => {
+    // Wire y grows downward, so wire dy -1 is api 'up'.
+    const turn = makeTurn({
+      orientation: {
+        centA: { dx: 0, dy: -1 },
+        'centA#2': { dx: 0, dy: 1 },
+        centB: { dx: -1, dy: 0 },
+        'centB#2': { dx: 1, dy: 0 },
+      },
+    });
+    expect(continuationDirection(turn, 'centA')).toBe('up');
+    expect(continuationDirection(turn, 'centA#2')).toBe('down');
+    expect(continuationDirection(turn, 'centB')).toBe('left');
+    expect(continuationDirection(turn, 'centB#2')).toBe('right');
   });
 });
 
@@ -160,6 +171,180 @@ describe('buildGameState', () => {
   });
 });
 
+describe('apiCoordToIndex', () => {
+  it('is the exact inverse of toApiCoord over every playable cell', () => {
+    for (let y = 1; y <= H - 2; y++) {
+      for (let x = 1; x <= W - 2; x++) {
+        const index = idx(x, y);
+        expect(apiCoordToIndex(toApiCoord(index, W, H), W, H)).toBe(index);
+      }
+    }
+  });
+});
+
+describe('buildGameState with chess pieces', () => {
+  const pieceSetup = () =>
+    makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B', unitType: 'pawn' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+    });
+
+  it('collapses a piece weight-stack to a 1-cell body with length = weight, attaching unitType and orientation', () => {
+    const turn = makeTurn({
+      playerPieces: {
+        centA: [idx(1, 1), idx(1, 2)],
+        // Pawn at weight 3: the wire idiom is 3 copies of its single square.
+        'centA#2': [idx(5, 4), idx(5, 4), idx(5, 4)],
+        centB: [idx(3, 1)],
+        'centB#2': [idx(2, 4)],
+      },
+      orientation: {
+        centA: { dx: 0, dy: -1 },
+        'centA#2': { dx: -1, dy: 0 },
+        centB: { dx: 0, dy: 1 },
+        'centB#2': { dx: 0, dy: -1 },
+      },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+
+    const pawn = byId.get('centA#2')!;
+    expect(pawn.unitType).toBe('pawn');
+    expect(pawn.body).toEqual([{ x: 4, y: 0 }]); // stack collapsed to one cell
+    expect(pawn.head).toEqual({ x: 4, y: 0 });
+    expect(pawn.length).toBe(3); // length = WEIGHT (stack size), not cell count
+    // Orientation rides along verbatim (wire convention, y down).
+    expect(pawn.orientation).toEqual({ dx: -1, dy: 0 });
+
+    const rook = byId.get('centB')!;
+    expect(rook.unitType).toBe('rook');
+    expect(rook.body).toEqual([{ x: 2, y: 3 }]);
+    expect(rook.length).toBe(1);
+    expect(rook.orientation).toEqual({ dx: 0, dy: 1 });
+
+    // Snakes keep their multi-cell body and length = cell count, with the
+    // explicit 'snake' unit type attached.
+    const snakeA = byId.get('centA')!;
+    expect(snakeA.unitType).toBe('snake');
+    expect(snakeA.body).toEqual([{ x: 0, y: 3 }, { x: 0, y: 2 }]);
+    expect(snakeA.length).toBe(2);
+    expect(snakeA.orientation).toEqual({ dx: 0, dy: -1 });
+  });
+
+  // Turn.orientation carries an orientation for EVERY unit; translate forwards it
+  // verbatim — the UI anchors icon rotation and keyNav on this wire orientation.
+  it('every unit carries its wire orientation verbatim', () => {
+    const turn = makeTurn({
+      playerPieces: {
+        centA: [idx(1, 1), idx(1, 2)],
+        'centA#2': [idx(5, 4), idx(5, 4), idx(5, 4)],
+        centB: [idx(3, 1)],
+        'centB#2': [idx(2, 4)],
+      },
+      orientation: {
+        centA: { dx: 0, dy: -1 }, // snake: head-neck direction
+        'centA#2': { dx: 1, dy: 0 }, // pawn: rotation-controlled
+        centB: { dx: 0, dy: 1 }, // rook: last moved direction
+        'centB#2': { dx: -1, dy: 0 }, // snake
+      },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 2, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+    expect(byId.get('centA')!.orientation).toEqual({ dx: 0, dy: -1 });
+    expect(byId.get('centA#2')!.orientation).toEqual({ dx: 1, dy: 0 });
+    expect(byId.get('centB')!.orientation).toEqual({ dx: 0, dy: 1 });
+    expect(byId.get('centB#2')!.orientation).toEqual({ dx: -1, dy: 0 });
+  });
+
+  it('turn.unitTypes overrides the setup type (pawn promotion mid-game)', () => {
+    const turn = makeTurn({
+      unitTypes: { 'centA#2': 'queen' },
+    });
+    const state = buildGameState('g1', pieceSetup(), turn, 9, 'centA', null);
+    const promoted = state.board.snakes.find((s) => s.id === 'centA#2')!;
+    expect(promoted.unitType).toBe('queen');
+  });
+});
+
+describe('maxHealth from setup.maxHealthPerUnit', () => {
+  it('attaches the configured per-type max, resolved by CURRENT unit type', () => {
+    const setup = makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B', unitType: 'pawn' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+      maxHealthPerUnit: { snake: 150, pawn: 30, queen: 80 },
+    });
+    // centA#2 promoted mid-game: the QUEEN max applies, not the pawn's.
+    const turn = makeTurn({ unitTypes: { 'centA#2': 'queen' } });
+    const state = buildGameState('g1', setup, turn, 3, 'centA', null);
+    const byId = new Map(state.board.snakes.map((s) => [s.id, s]));
+
+    expect(byId.get('centA')!.maxHealth).toBe(150); // snake key
+    expect(byId.get('centA#2')!.maxHealth).toBe(80); // current type (queen) wins
+    expect(byId.get('centB')!.maxHealth).toBe(100); // rook: key absent -> default
+    expect(byId.get('centB#2')!.maxHealth).toBe(150); // implicit snake
+    // `you` is built by the same path.
+    expect(state.you.maxHealth).toBe(150);
+  });
+
+  it('defaults every unit to 100 when the setup carries no maxHealthPerUnit', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    for (const snake of state.board.snakes) {
+      expect(snake.maxHealth).toBe(100);
+    }
+  });
+});
+
+describe('hazardDamage from setup', () => {
+  it('rides on the board verbatim when the setup configures it', () => {
+    const state = buildGameState('g1', makeSetup({ hazardDamage: 25 }), makeTurn(), 0, 'centA', null);
+    expect(state.board.hazardDamage).toBe(25);
+  });
+
+  it('stays absent when the setup omits it — readers default to 100', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.hazardDamage).toBeUndefined();
+  });
+});
+
+describe('pawnPromotionWeight and maxHealthPerUnit ride on the board for the Simulator', () => {
+  it('rides pawnPromotionWeight on the board verbatim when the setup configures it', () => {
+    const state = buildGameState('g1', makeSetup({ pawnPromotionWeight: 4 }), makeTurn(), 0, 'centA', null);
+    expect(state.board.pawnPromotionWeight).toBe(4);
+  });
+
+  it('stays absent when the setup omits pawnPromotionWeight — readers default to DEFAULT_PAWN_PROMOTION_WEIGHT', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.pawnPromotionWeight).toBeUndefined();
+  });
+
+  it('rides the FULL maxHealthPerUnit map on the board, including types not currently fielded', () => {
+    // A pawns-only setup can still configure the queen's max for the moment a
+    // pawn promotes — the map is config, not derived from what is on board.
+    const state = buildGameState(
+      'g1',
+      makeSetup({ maxHealthPerUnit: { pawn: 100, queen: 30 } }),
+      makeTurn(),
+      0,
+      'centA',
+      null
+    );
+    expect(state.board.maxHealthPerUnit).toEqual({ pawn: 100, queen: 30 });
+  });
+
+  it('stays absent when the setup omits maxHealthPerUnit', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.maxHealthPerUnit).toBeUndefined();
+  });
+});
+
 describe('parseTurn', () => {
   const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: makeSetup(), turns });
 
@@ -200,6 +385,27 @@ describe('parseTurn', () => {
     expect(pt.alive('nobody')).toBe(false);
   });
 
+  it('appliedMoveIndex()/piecePath() read the authoritative moves/paths maps', () => {
+    // A rook that died mid-ray: the wire records its death square in `moves`
+    // and a path that ends on that square.
+    const deathSquare = idx(3, 1);
+    const turn = makeTurn({
+      moves: { centB: deathSquare },
+      paths: { centB: [idx(2, 1), deathSquare] },
+    });
+    const pt = parseLatestTurn(makeDoc([turn]))!;
+    expect(pt.appliedMoveIndex('centB')).toBe(deathSquare);
+    expect(pt.piecePath('centB')).toEqual([idx(2, 1), deathSquare]);
+    expect(pt.appliedMoveIndex('ghost')).toBeUndefined();
+    expect(pt.piecePath('centA')).toBeUndefined(); // snakes carry no paths entry
+    // Malformed doc without moves/paths maps: undefined, never a throw.
+    const malformed = parseLatestTurn(
+      makeDoc([makeTurn({ moves: undefined as any, paths: undefined })])
+    )!;
+    expect(malformed.appliedMoveIndex('centA')).toBeUndefined();
+    expect(malformed.piecePath('centA')).toBeUndefined();
+  });
+
   it('pieces()/headIndex() read playerPieces, tolerating absent snakes', () => {
     const pt = parseLatestTurn(makeDoc([makeTurn()]))!;
     expect(pt.pieces('centA')).toEqual([idx(1, 1), idx(1, 2)]);
@@ -227,5 +433,61 @@ describe('parseTurn', () => {
       const soon = Date.now() + 10_000;
       expect(pt.endTimeMs(soon)).toBe(soon);
     });
+  });
+});
+
+describe('deriveDeathCells', () => {
+  // centB is a rook; everyone else is a snake.
+  const pieceSetup = () =>
+    makeSetup({
+      gamePlayers: [
+        { id: 'centA', teamID: 'centA', letter: 'A' },
+        { id: 'centA#2', teamID: 'centA', letter: 'B' },
+        { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
+        { id: 'centB#2', teamID: 'centB', letter: 'B' },
+      ],
+    });
+  const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: pieceSetup(), turns });
+
+  it('maps a piece that died mid-path to the api cell of its wire death square', () => {
+    // Rook at (3,1) slides toward (5,1) and dies mid-ray on (4,1): the next
+    // turn drops it from playerPieces, records the death square in `moves`,
+    // and its `paths` entry ends there.
+    const deathSquare = idx(4, 1);
+    const prev = makeTurn();
+    const curr = makeTurn({
+      alivePlayers: ['centA', 'centA#2', 'centB#2'],
+      playerPieces: {
+        centA: [idx(1, 2), idx(1, 1)],
+        'centA#2': [idx(5, 3), idx(5, 4)],
+        'centB#2': [idx(2, 3)],
+      },
+      moves: {
+        centA: idx(1, 2),
+        'centA#2': idx(5, 3),
+        centB: deathSquare,
+        'centB#2': idx(2, 3),
+      },
+      paths: { centB: [deathSquare] },
+    });
+    const doc = makeDoc([prev, curr]);
+    const cells = deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!);
+    expect(cells).toEqual({ centB: toApiCoord(deathSquare, W, H) });
+  });
+
+  it('excludes snakes, surviving pieces, and pieces absent from the wire moves map', () => {
+    const prev = makeTurn();
+    // centA (snake) and centB (rook) both died; centB has NO moves entry
+    // (genuinely absent wire data), so neither produces a death cell.
+    const curr = makeTurn({
+      alivePlayers: ['centA#2', 'centB#2'],
+      playerPieces: {
+        'centA#2': [idx(5, 3), idx(5, 4)],
+        'centB#2': [idx(2, 3)],
+      },
+      moves: { centA: idx(1, 2), 'centA#2': idx(5, 3), 'centB#2': idx(2, 3) },
+    });
+    const doc = makeDoc([prev, curr]);
+    expect(deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!)).toEqual({});
   });
 });

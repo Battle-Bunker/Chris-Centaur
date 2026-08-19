@@ -14,7 +14,7 @@
 import { GameState, Direction } from '../types/battlesnake';
 import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
 import { WaypointProgress } from './waypoint-pathing';
-import { Simulator } from './simulator';
+import { CasualtyContext, Simulator } from './simulator';
 import { DecisionConfig } from './decision-engine';
 
 export interface ChunkJob {
@@ -28,12 +28,35 @@ export interface ChunkJob {
   weights?: DecisionConfig['weights'];
   h2hRisk: { enemyH2HRisk: number; allyH2HRisk: number };
   /**
+   * Piece-threat flags for THIS chunk's candidate move, computed once per
+   * decision on the main thread from the pre-move board (same per-move
+   * constant contract as h2hRisk). Plain object — structured-clones into
+   * worker threads for free. Optional so piece-free callers pay nothing.
+   */
+  pieceThreat?: { enemyPieceThreat: number; allyPieceThreat: number };
+  /**
    * The goto/near progress stats for THIS chunk's candidate move, computed on
    * the main thread from the pre-move board. A per-move constant (the stat
    * describes the move, not the simulated board), so it is injected unchanged
    * into every state this chunk evaluates.
    */
   waypointProgress: WaypointProgress | null;
+  /**
+   * Projected health cost of THIS chunk's candidate move (movement + hazard
+   * damage — simulator.ts's projectedHealthCost), computed once per decision
+   * on the main thread from the pre-move board. Same per-move-constant
+   * contract as h2hRisk/pieceThreat/waypointProgress. Optional so callers
+   * that construct a ChunkJob directly (tests) default to no cost.
+   */
+  healthCost?: number;
+  /**
+   * What THIS chunk's candidate move does to the units on the board — ally
+   * weight destroyed, enemies killed, and the regicide flags (simulator.ts's
+   * projectPath, folded). Plain numbers, so it structured-clones into worker
+   * threads for free. Same per-move-constant contract as healthCost; optional
+   * so callers that construct a ChunkJob directly (tests) default to none.
+   */
+  casualties?: CasualtyContext;
 }
 
 export interface ChunkResult {
@@ -79,8 +102,11 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
     const evaluation = evaluator.evaluateBoard(nextGameState, gameState.you.id, teamSet, {
       prevFoodSet: currentFoodSet,
       h2hRisk: job.h2hRisk,
+      pieceThreat: job.pieceThreat,
       simulatedSnakeIds: simulatedSet,
       waypointProgress: job.waypointProgress ?? null,
+      healthCost: job.healthCost ?? 0,
+      casualties: job.casualties,
       // Chunk evaluations feed only the minimax score aggregation — per-state
       // territory cell lists are never shipped back (see the strip below), so
       // don't build them at all.
