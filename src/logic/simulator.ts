@@ -1,5 +1,6 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { isKingUnit, isPieceUnit, winsStationaryContest } from './piece-threats';
+import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
 import { TeamDetector } from './team-detector';
 
 // MoveSet type definition (previously from move-enumerator)
@@ -661,14 +662,37 @@ export class Simulator {
       snake.length = newBody.length;
       snake.health = newHealth;
 
+      // Pawn promotion, mirroring the engine (chess/pieceMoves.ts): applied
+      // AFTER the eat/growth update above, so a pawn that eats into the
+      // threshold this turn promotes the same turn. Promotion RESETS weight
+      // to 1 (truncating the body to the single head square) rather than
+      // preserving the grown stack, keeps id/letter/orientation, and clamps
+      // (never raises) current health down to the queen's configured max —
+      // so a pawn that was mid-heal off a big meal does not carry that
+      // health into its new type max.
+      if (snake.unitType === 'pawn') {
+        const promotionWeight = newBoard.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT;
+        if (snake.length >= promotionWeight) {
+          snake.unitType = 'queen';
+          snake.body = [snake.head];
+          snake.length = 1;
+          const queenMaxHealth = newBoard.maxHealthPerUnit?.['queen'];
+          if (queenMaxHealth !== undefined) {
+            snake.health = Math.min(snake.health, queenMaxHealth);
+          }
+        }
+      }
+
       // Death only at health <= 0, for starvation and hazard damage alike
       // (hazards are damage-based, no longer instant death). Starvation is
       // decided HERE, before any food spawn could help: the engine spawns
       // food AFTER movement, so this-turn survival is fully decidable from
       // the pre-move board and the simulator must NEVER invent food — a move
       // that doesn't land on existing food and takes health to 0 is certain
-      // death (pinned by the conservative-starvation tests).
-      if (newHealth <= 0) {
+      // death (pinned by the conservative-starvation tests). Read from
+      // `snake.health`, not the pre-promotion `newHealth` local, so a
+      // promotion clamp that drives health to zero is honoured too.
+      if (snake.health <= 0) {
         deadSnakeIds.add(snake.id);
       }
     }
@@ -735,6 +759,10 @@ export class Simulator {
       // Must survive the copy: the hazard branch of healthAfterEntering reads
       // this configured damage on boards simulated FROM this copy.
       hazardDamage: board.hazardDamage,
+      // Must survive the copy: the promotion step above reads these on
+      // boards simulated FROM this copy (chained multi-turn lookahead).
+      pawnPromotionWeight: board.pawnPromotionWeight,
+      maxHealthPerUnit: board.maxHealthPerUnit,
       fertileTiles: board.fertileTiles ? board.fertileTiles.map(f => ({ x: f.x, y: f.y })) : undefined,
       snakes: (board.snakes ?? []).map(snake => ({
         id: snake.id,

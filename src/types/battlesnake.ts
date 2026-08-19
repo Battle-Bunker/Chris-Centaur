@@ -57,6 +57,20 @@ export interface Board {
   // damage-based, not instant death. Absent means the engine default of 100 —
   // readers use `board.hazardDamage ?? 100`.
   hazardDamage?: number;
+  // Weight threshold at which a pawn promotes to a queen, from the game
+  // setup (GameSetup.pawnPromotionWeight). The Simulator reads this to mirror
+  // the engine's post-eat/growth promotion step. Absent means the engine
+  // default — readers use `board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT`
+  // (piece-moves.ts).
+  pawnPromotionWeight?: number;
+  // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
+  // keyed by unit type regardless of whether that type is currently fielded —
+  // a pawns-only setup can still configure the queen's max for the moment a
+  // pawn promotes. A promoted pawn's health is clamped DOWN (never raised) to
+  // this map's 'queen' entry; absent map or absent key means the engine
+  // default of 100. Distinct from `Snake.maxHealth`, which is already
+  // resolved against a unit's CURRENT type.
+  maxHealthPerUnit?: Partial<Record<string, number>>;
   snakes: Snake[];
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];

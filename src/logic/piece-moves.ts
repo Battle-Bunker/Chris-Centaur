@@ -14,7 +14,11 @@ export interface Orientation {
 }
 
 // A pawn becomes a queen when its weight reaches the configured threshold
-// (GameSetup.pawnPromotionWeight); this is the default.
+// (GameSetup.pawnPromotionWeight); this is the default. Promotion RESETS
+// weight to 1 (the piece's body truncates to its single square) rather than
+// preserving the grown stack, keeping id/letter/orientation, and clamps
+// (never raises) current health down to the queen's configured max
+// (GameSetup.maxHealthPerUnit).
 export const DEFAULT_PAWN_PROMOTION_WEIGHT = 10;
 
 export const isPieceType = (t?: string): boolean => t !== undefined && t !== 'snake';

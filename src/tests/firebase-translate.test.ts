@@ -314,6 +314,37 @@ describe('hazardDamage from setup', () => {
   });
 });
 
+describe('pawnPromotionWeight and maxHealthPerUnit ride on the board for the Simulator', () => {
+  it('rides pawnPromotionWeight on the board verbatim when the setup configures it', () => {
+    const state = buildGameState('g1', makeSetup({ pawnPromotionWeight: 4 }), makeTurn(), 0, 'centA', null);
+    expect(state.board.pawnPromotionWeight).toBe(4);
+  });
+
+  it('stays absent when the setup omits pawnPromotionWeight — readers default to DEFAULT_PAWN_PROMOTION_WEIGHT', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.pawnPromotionWeight).toBeUndefined();
+  });
+
+  it('rides the FULL maxHealthPerUnit map on the board, including types not currently fielded', () => {
+    // A pawns-only setup can still configure the queen's max for the moment a
+    // pawn promotes — the map is config, not derived from what is on board.
+    const state = buildGameState(
+      'g1',
+      makeSetup({ maxHealthPerUnit: { pawn: 100, queen: 30 } }),
+      makeTurn(),
+      0,
+      'centA',
+      null
+    );
+    expect(state.board.maxHealthPerUnit).toEqual({ pawn: 100, queen: 30 });
+  });
+
+  it('stays absent when the setup omits maxHealthPerUnit', () => {
+    const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
+    expect(state.board.maxHealthPerUnit).toBeUndefined();
+  });
+});
+
 describe('parseTurn', () => {
   const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: makeSetup(), turns });
 

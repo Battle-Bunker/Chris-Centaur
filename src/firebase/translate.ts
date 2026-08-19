@@ -340,6 +340,12 @@ export function buildBoardState(
   // fatality reasoning) sees the configured value; readers default an absent
   // field to the engine's 100.
   if (setup.hazardDamage !== undefined) board.hazardDamage = setup.hazardDamage;
+  // Setup-derived promotion threshold and per-type max health ride on the
+  // board so the simulator can mirror the engine's pawn-promotion reset
+  // (weight -> 1, health clamped to the queen's configured max) in
+  // lookahead; readers default an absent field to the engine's values.
+  if (setup.pawnPromotionWeight !== undefined) board.pawnPromotionWeight = setup.pawnPromotionWeight;
+  if (setup.maxHealthPerUnit !== undefined) board.maxHealthPerUnit = setup.maxHealthPerUnit;
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);
