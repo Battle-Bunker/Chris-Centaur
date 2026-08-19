@@ -277,6 +277,8 @@
     ];
 
     const grid = document.getElementById('testGrid');
+    // Every fixture board is drawn at this CSS size.
+    const FIXTURE_BOARD_PX = 400;
     // Every fixture's draw call, replayed once the page's images are in. The
     // renderer loads the invulnerability-potion art asynchronously and falls
     // back to a glyph until it lands, so a one-shot draw at script time would
@@ -290,9 +292,14 @@
       h3.textContent = test.title;
       div.appendChild(h3);
 
+      // The page owns the element's CSS box; the renderer owns the backing
+      // store and sizes it to the display's resolution. Pinning the box here
+      // is what keeps a HiDPI buffer from inflating the fixture's layout —
+      // without it the element would take its size from the (now larger)
+      // width/height attributes.
       const canvas = document.createElement('canvas');
-      canvas.width = 400;
-      canvas.height = 400;
+      canvas.style.width = FIXTURE_BOARD_PX + 'px';
+      canvas.style.height = FIXTURE_BOARD_PX + 'px';
       div.appendChild(canvas);
       grid.appendChild(div);
 

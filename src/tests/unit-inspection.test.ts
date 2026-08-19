@@ -263,6 +263,44 @@ function pointerOnRow(unitId: string | null) {
   };
 }
 
+// A press on a row's copy control. The control sits INSIDE a selectable row,
+// so `closest` answers for both selectors — which is exactly the ambiguity the
+// delegated handler has to resolve in the copy control's favour.
+function makeCopyControl(unitId: string) {
+  return {
+    getAttribute: (attr: string) => (attr === 'data-copy-id' ? unitId : null),
+    textContent: 'ID',
+    classList: { add: jest.fn(), remove: jest.fn() },
+  };
+}
+
+function pointerOnCopyControl(control: ReturnType<typeof makeCopyControl>, unitId: string) {
+  return {
+    preventDefault: jest.fn(),
+    stopPropagation: jest.fn(),
+    target: {
+      closest: (sel: string) => {
+        if (sel === '[data-copy-id]') return control;
+        if (sel === '[data-select-snake]') return { getAttribute: () => unitId };
+        return null;
+      },
+    },
+  };
+}
+
+// Install a clipboard for the duration of one test. `navigator` is a real
+// global in modern Node, so it is defined over rather than assigned to.
+function withClipboard(writeText: unknown) {
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText } }, configurable: true, writable: true,
+  });
+  return () => {
+    if (had) Object.defineProperty(globalThis, 'navigator', had);
+    else delete (globalThis as Record<string, unknown>).navigator;
+  };
+}
+
 describe('units table selection', () => {
   const ourSnake = makeUnit('S', { x: 1, y: 1 }, 'snake', 'B');
   const ourPiece = makeUnit('P', { x: 2, y: 2 }, 'rook', 'A');
@@ -334,6 +372,78 @@ describe('units table selection', () => {
     c.fire('pointerdown', pointerOnRow('S'));
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith('S');
+  });
+
+  test("the copy control copies its OWN row's id, and does not select the row", () => {
+    const c = makeContainer();
+    const onSelectSnake = jest.fn();
+    const writeText = jest.fn(() => new Promise(() => { /* never settles */ }));
+    const restore = withClipboard(writeText);
+    try {
+      BoardRenderer.renderSnakeInfo(c, gameState, 'S', {
+        groupByTeam: true, onSelectSnake, selectableSnakeIds: new Set(['S', 'P']),
+      });
+      const control = makeCopyControl('P');
+      const event = pointerOnCopyControl(control, 'P');
+      c.fire('pointerdown', event);
+      expect(writeText).toHaveBeenCalledWith('P');
+      // The whole point: a press on the control is not a press on the row.
+      expect(onSelectSnake).not.toHaveBeenCalled();
+      expect(event.stopPropagation).toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a copy says so in place, then goes back to being a control', async () => {
+    jest.useFakeTimers();
+    const c = makeContainer();
+    const restore = withClipboard(jest.fn(() => Promise.resolve()));
+    try {
+      BoardRenderer.renderSnakeInfo(c, gameState, 'S', {
+        groupByTeam: true, onSelectSnake: jest.fn(), selectableSnakeIds: new Set(['S']),
+      });
+      const control = makeCopyControl('S');
+      c.fire('pointerdown', pointerOnCopyControl(control, 'S'));
+      await Promise.resolve();
+      expect(control.textContent).toBe('\u2713');
+      jest.runAllTimers();
+      expect(control.textContent).toBe('ID');
+    } finally {
+      restore();
+      jest.useRealTimers();
+    }
+  });
+
+  test('without the async clipboard the id still copies, through the legacy path', () => {
+    // The confirmation flash schedules a revert; fake timers keep it off the
+    // real clock once the assertions are done.
+    jest.useFakeTimers();
+    const c = makeContainer();
+    const restore = withClipboard(undefined);
+    const realDocument = (global as unknown as { document?: unknown }).document;
+    const field: Record<string, unknown> = { style: {} };
+    const commands: string[] = [];
+    (global as unknown as { document: unknown }).document = {
+      body: { appendChild: () => {} },
+      createElement: () => Object.assign(field, {
+        setAttribute: () => {}, select: () => {}, remove: () => {},
+      }),
+      execCommand: (cmd: string) => { commands.push(cmd); return true; },
+    };
+    try {
+      BoardRenderer.renderSnakeInfo(c, gameState, 'S', {
+        groupByTeam: true, onSelectSnake: jest.fn(), selectableSnakeIds: new Set(['S']),
+      });
+      c.fire('pointerdown', pointerOnCopyControl(makeCopyControl('S'), 'S'));
+      expect(field.value).toBe('S');
+      expect(commands).toEqual(['copy']);
+    } finally {
+      (global as unknown as { document?: unknown }).document = realDocument;
+      restore();
+      jest.runAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   test('an unchanged table is not rewritten, so nothing under the pointer is torn out', () => {

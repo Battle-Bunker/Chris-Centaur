@@ -55,9 +55,27 @@
       width: 100%; display: flex; justify-content: center;
       margin-bottom: 12px; position: relative;
     }
+    /* The canvas's CSS box is owned by JS (see the board-size block): the
+       renderer sizes the BITMAP for the display and never the element, so a
+       stretched box would be the one thing that can blur a sharp board. */
     #gameCanvas {
       border: 2px solid #888; background: #ffffff;
-      max-width: 100%; height: auto; cursor: pointer;
+      display: block; cursor: pointer;
+    }
+    /* The grip at the board's bottom-right corner. Positioned in JS against
+       the canvas's own border box, so it tracks every size the board takes. */
+    .board-resize-handle {
+      position: absolute; width: 18px; height: 18px;
+      cursor: nwse-resize; z-index: 20; touch-action: none;
+      background:
+        linear-gradient(135deg, transparent 52%, #888 52%, #888 62%, transparent 62%,
+                        transparent 72%, #888 72%, #888 82%, transparent 82%);
+      border-bottom-right-radius: 4px;
+    }
+    .board-resize-handle:hover, .board-resize-handle.dragging {
+      background:
+        linear-gradient(135deg, transparent 52%, #4CAF50 52%, #4CAF50 62%, transparent 62%,
+                        transparent 72%, #4CAF50 72%, #4CAF50 82%, transparent 82%);
     }
     #boardOverlay {
       position: absolute; top: 0; left: 0; pointer-events: none;
@@ -103,6 +121,19 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .snake-stats { font-size: 11px; color: #888; display: flex; gap: 6px; }
+    /* Per-row id control: the unit's internal document id on hover, on the
+       clipboard on click. Sits at the row's right edge, quiet until pointed at
+       so it never competes with the unit's name. */
+    .unit-id-copy {
+      flex-shrink: 0; align-self: flex-start;
+      background: transparent; border: 1px solid #555; border-radius: 4px;
+      color: #888; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+      padding: 2px 5px; cursor: pointer; line-height: 1.2;
+      font-family: inherit; transition: color 0.15s, border-color 0.15s;
+    }
+    .unit-id-copy:hover { color: #ddd; border-color: #888; }
+    .unit-id-copy.copied { color: #4CAF50; border-color: #4CAF50; }
+    .unit-id-copy.copy-failed { color: #e57373; border-color: #e57373; }
     .selected-snake-panel {
       background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
       border: 2px solid #555;
@@ -322,9 +353,11 @@
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
-      .board-left { flex: 1; }
+      /* min-width:0 keeps a board dragged wider than its column from pushing
+         the column out — which is also what makes the column's width an
+         honest maximum to clamp the board against. */
+      .board-left { flex: 1; min-width: 0; }
       .board-right { width: 300px; }
-      #gameCanvas { max-width: 600px; }
     }
   </style>
 </head>
@@ -384,6 +417,7 @@
             <canvas id="gameCanvas" width="550" height="550"></canvas>
             <div id="boardOverlay"></div>
             <div id="cellInspectPopup" style="display:none; position:absolute; pointer-events:none; z-index:25; background:rgba(20,24,28,0.94); color:#eee; border:1px solid #555; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.5; white-space:nowrap; box-shadow: 0 2px 10px rgba(0,0,0,0.6);"></div>
+            <div id="boardResizeHandle" class="board-resize-handle" title="Drag to resize the board"></div>
           </div>
         </div>
       </div>
@@ -830,8 +864,10 @@
       const { board } = cellInspectContext();
       if (!selectedCell || !board) return;
       const canvas = document.getElementById('gameCanvas');
+      // The context still carries the render pass's resolution transform, so
+      // this draws in the same CSS pixels boardCellSize answers in.
       const ctx = canvas.getContext('2d');
-      const cellSize = Math.min(canvas.width / board.width, canvas.height / board.height);
+      const cellSize = BoardRenderer.boardCellSize(canvas, board);
       const x = selectedCell.x * cellSize;
       const y = (board.height - 1 - selectedCell.y) * cellSize;
       ctx.strokeStyle = '#FFD54F';
@@ -854,11 +890,12 @@
       drawCellInspectHighlight();
 
       const canvas = document.getElementById('gameCanvas');
-      const displayWidth = canvas.clientWidth || canvas.width;
-      const displayHeight = canvas.clientHeight || canvas.height;
-      const cellSize = Math.min(displayWidth / board.width, displayHeight / board.height);
-      const px = canvas.offsetLeft + selectedCell.x * cellSize;
-      const py = canvas.offsetTop + (board.height - 1 - selectedCell.y) * cellSize;
+      // HTML overlay: CSS pixels throughout, pinned to the canvas's CONTENT
+      // box (offsetLeft/Top land on the border box).
+      const cellSize = BoardRenderer.boardCellSize(canvas, board);
+      const px = canvas.offsetLeft + canvas.clientLeft + selectedCell.x * cellSize;
+      const py = canvas.offsetTop + canvas.clientTop +
+        (board.height - 1 - selectedCell.y) * cellSize;
 
       const arrows = { up: '↑', down: '↓', left: '←', right: '→' };
       let body = `<div style="color:#aaa">Cell (${selectedCell.x}, ${selectedCell.y})</div>`;
@@ -2217,6 +2254,11 @@
     // The cell comes from pointer coordinates, never from the identity of the
     // element under the cursor, so a stale overlay cannot misdirect a click.
     function handleBoardPointerDown(event) {
+      // The resize grip sits inside the wrapper this handler captures on, and
+      // it is the one child that owns its own pointer input: a drag on the grip
+      // resizes the board, it does not click a cell.
+      if (event.target && event.target.closest &&
+          event.target.closest('#boardResizeHandle')) return;
       // History mode: Alt+Left inspects (the popup reads the historic ownership
       // snapshot), and a plain left click keeps the replay's own meanings —
       // pick a candidate move, else switch inspected snake / toggle a territory
@@ -2869,11 +2911,10 @@
         el.className = 'keynav-flash';
         document.querySelector('.canvas-wrapper').appendChild(el);
       }
-      const displayW = canvas.clientWidth || canvas.width;
-      const displayH = canvas.clientHeight || canvas.height;
-      const cell = Math.min(displayW / board.width, displayH / board.height);
-      el.style.left = (canvas.offsetLeft + head.x * cell) + 'px';
-      el.style.top = (canvas.offsetTop + (board.height - 1 - head.y) * cell) + 'px';
+      const cell = BoardRenderer.boardCellSize(canvas, board);
+      el.style.left = (canvas.offsetLeft + canvas.clientLeft + head.x * cell) + 'px';
+      el.style.top = (canvas.offsetTop + canvas.clientTop +
+        (board.height - 1 - head.y) * cell) + 'px';
       el.style.width = cell + 'px';
       el.style.height = cell + 'px';
       el.style.opacity = '1';
@@ -4938,6 +4979,170 @@
       if (e.key === 'Enter') submitLoginGate();
     });
     document.getElementById('loginGateSubmit').addEventListener('click', submitLoginGate);
+
+    // ── Board size ───────────────────────────────────────────────────────────
+    // The board is SQUARE and its size is one number: the canvas element's CSS
+    // side in pixels. The element's CSS box is the only size the page sets —
+    // the renderer reads that box, backs the bitmap at the display's resolution
+    // and re-derives the cell size, so every size the board is dragged to is
+    // drawn through the normal render path at full resolution. A stale bitmap
+    // is never stretched to fit, which is the one way a resize could blur.
+    //
+    // Square rather than the BOARD's aspect ratio: this canvas has always been
+    // square, the renderer already letterboxes a non-square board inside
+    // whatever box it is given, and one scalar makes the grip's drag, the
+    // clamp and the stored value all the same quantity.
+    const BOARD_SIZE_PREF_KEY = 'boardSizePx';
+    const BOARD_SIZE_MIN = 300;
+    const BOARD_SIZE_MAX = 1400;
+    const BOARD_SIZE_DEFAULT = 550;
+    // What the user ASKED for, which outlives a window too narrow to honour it:
+    // the layout clamp is applied on the way to the element, never to the
+    // preference, so widening the window restores the size the user chose.
+    let boardSizePref = BOARD_SIZE_DEFAULT;
+    try {
+      const stored = parseInt(localStorage.getItem(BOARD_SIZE_PREF_KEY), 10);
+      if (Number.isFinite(stored)) boardSizePref = stored;
+    } catch (_e) { /* storage unavailable → session-only default */ }
+
+    // The widest board this layout can show right now. The wrapper is the
+    // board's own column and cannot be pushed wider by the canvas inside it
+    // (.board-left is min-width:0), so its width is an honest maximum.
+    function maxBoardSize() {
+      const wrapper = document.querySelector('.canvas-wrapper');
+      const available = wrapper ? wrapper.clientWidth : 0;
+      return Math.max(
+        BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, available || BOARD_SIZE_MAX));
+    }
+
+    function clampBoardSize(size) {
+      return Math.round(
+        Math.max(BOARD_SIZE_MIN, Math.min(maxBoardSize(), size)));
+    }
+
+    // Glue the grip to the canvas's bottom-right corner, wherever the canvas
+    // now sits inside the centring wrapper.
+    function positionBoardResizeHandle() {
+      const canvas = document.getElementById('gameCanvas');
+      const handle = document.getElementById('boardResizeHandle');
+      if (!canvas || !handle) return;
+      handle.style.left =
+        (canvas.offsetLeft + canvas.offsetWidth - handle.offsetWidth) + 'px';
+      handle.style.top =
+        (canvas.offsetTop + canvas.offsetHeight - handle.offsetHeight) + 'px';
+    }
+
+    // Repaint whatever board is on screen. Both view modes draw into the same
+    // canvas, so the one thing that changes its size has to drive both.
+    function repaintBoardForSize() {
+      if (viewMode === 'historic') renderHistoricBoard();
+      else scheduleRender();
+    }
+
+    // Push the current preference (clamped) onto the element and repaint —
+    // unconditionally, so this stays the one call that means "the board's box
+    // or the display's resolution changed, draw it again". The live repaint is
+    // rAF-coalesced downstream, so a burst of these costs one frame.
+    function applyBoardSize() {
+      const canvas = document.getElementById('gameCanvas');
+      if (!canvas) return;
+      const size = clampBoardSize(boardSizePref);
+      canvas.style.width = size + 'px';
+      canvas.style.height = size + 'px';
+      positionBoardResizeHandle();
+      repaintBoardForSize();
+    }
+
+    function setBoardSize(size, persist) {
+      boardSizePref = Math.round(
+        Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, size)));
+      applyBoardSize();
+      if (!persist) return;
+      try {
+        localStorage.setItem(BOARD_SIZE_PREF_KEY, String(boardSizePref));
+      } catch (_e) { /* storage unavailable → session-only size */ }
+    }
+
+    // Drag the grip to resize. The pointer is captured so the drag survives
+    // leaving the grip, and a pointermove burst is coalesced onto ONE animation
+    // frame: at most one full-resolution re-render per frame, which is what
+    // keeps a fast drag smooth instead of queueing renders behind the pointer.
+    // The chosen size is persisted on release, not on every frame.
+    let boardResizeFrame = null;
+    let pendingBoardSize = null;
+    function initBoardResizeHandle() {
+      const handle = document.getElementById('boardResizeHandle');
+      if (!handle) return;
+      let dragStart = null;
+
+      const flush = (persist) => {
+        if (boardResizeFrame) {
+          cancelAnimationFrame(boardResizeFrame);
+          boardResizeFrame = null;
+        }
+        const size = pendingBoardSize == null ? boardSizePref : pendingBoardSize;
+        pendingBoardSize = null;
+        setBoardSize(size, persist);
+      };
+
+      handle.addEventListener('pointerdown', (event) => {
+        dragStart = {
+          x: event.clientX, y: event.clientY, size: clampBoardSize(boardSizePref),
+        };
+        handle.classList.add('dragging');
+        if (handle.setPointerCapture) handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      handle.addEventListener('pointermove', (event) => {
+        if (!dragStart) return;
+        // A corner grip follows the pointer on whichever axis it has travelled
+        // furthest, so one drag scales a square board along its diagonal.
+        const delta = Math.max(
+          event.clientX - dragStart.x, event.clientY - dragStart.y);
+        pendingBoardSize = dragStart.size + delta;
+        if (boardResizeFrame) return;
+        boardResizeFrame = requestAnimationFrame(() => {
+          boardResizeFrame = null;
+          if (pendingBoardSize == null) return;
+          setBoardSize(pendingBoardSize, false);
+          pendingBoardSize = null;
+        });
+      });
+
+      const endDrag = (event) => {
+        if (!dragStart) return;
+        dragStart = null;
+        handle.classList.remove('dragging');
+        if (handle.releasePointerCapture && event.pointerId != null) {
+          try { handle.releasePointerCapture(event.pointerId); } catch (_e) { /* already released */ }
+        }
+        flush(true);
+      };
+      handle.addEventListener('pointerup', endDrag);
+      handle.addEventListener('pointercancel', endDrag);
+    }
+
+    function initBoardSize() {
+      applyBoardSize();
+      initBoardResizeHandle();
+      // The window changing shape changes the clamp, and the grip's corner
+      // moves with the centred canvas whenever either box changes.
+      window.addEventListener('resize', applyBoardSize);
+      if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(positionBoardResizeHandle);
+        const canvas = document.getElementById('gameCanvas');
+        const wrapper = document.querySelector('.canvas-wrapper');
+        if (canvas) observer.observe(canvas);
+        if (wrapper) observer.observe(wrapper);
+      }
+      // A display-density change (browser zoom, a drag to another monitor)
+      // changes the resolution the bitmap should be backed at; the board is
+      // re-rendered at the new one through the same path as any other repaint.
+      BoardRenderer.watchRenderScale(applyBoardSize);
+    }
+    initBoardSize();
 
     // ── Page entry ───────────────────────────────────────────────────────────
     // Active game → mandatory name gate before subscribing as an operator.

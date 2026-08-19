@@ -19,6 +19,143 @@ const BoardRenderer = (function () {
     loadPotionImage();
   }
 
+  // ── Canvas resolution ─────────────────────────────────────────────────────
+  // Every canvas here is DRAWN in CSS pixels and BACKED by a bitmap at the
+  // display's own resolution: the backing store is cssSize x scale and the
+  // context carries a matching transform, which is what lets every draw call
+  // below keep speaking CSS pixels while landing on real device pixels.
+  //
+  // The scale is the device pixel ratio itself, floored at 1 and capped at 3.
+  // It is deliberately NOT raised to 2 on a 1x display: there the browser has
+  // to resample a 2x bitmap back down onto the CSS grid, which softens exactly
+  // what this board is made of — hairline grid strokes and small tag text — to
+  // buy smoother diagonals the board has almost none of. The cap stops a 4x
+  // display from paying 16x the fill rate for a difference no eye collects.
+  //
+  // The page owns each canvas's CSS box; the renderer owns only its backing
+  // store. Nothing here writes to canvas.style, so a canvas laid out by CSS
+  // keeps the box it was given, and a canvas that would otherwise take its size
+  // from its width/height attributes says so at its own call site (see
+  // play-game.html's board size and board-test.html's fixtures).
+  const MAX_RENDER_SCALE = 3;
+
+  function renderScale() {
+    const dpr =
+      typeof window !== "undefined" && window.devicePixelRatio
+        ? window.devicePixelRatio
+        : 1;
+    return Math.min(Math.max(dpr, 1), MAX_RENDER_SCALE);
+  }
+
+  // The scale each canvas/context was last prepared at, so CSS size and stroke
+  // alignment can be recovered without re-reading the display mid-frame.
+  const _canvasScale = new WeakMap();
+  const _contextScale = new WeakMap();
+
+  function contextScale(ctx) {
+    const scale = _contextScale.get(ctx);
+    return typeof scale === "number" && scale > 0 ? scale : 1;
+  }
+
+  // A canvas's drawing size in CSS pixels — the coordinate system every draw
+  // call in this file speaks. The laid-out box is the truth; a canvas with no
+  // layout (detached fixtures, tests) falls back to its backing store divided
+  // by the scale it was prepared at.
+  function canvasCssSize(canvas) {
+    if (!canvas) return { width: 0, height: 0 };
+    const boxWidth = canvas.clientWidth || 0;
+    const boxHeight = canvas.clientHeight || 0;
+    if (boxWidth > 0 && boxHeight > 0) {
+      return { width: boxWidth, height: boxHeight };
+    }
+    const scale = _canvasScale.get(canvas) || 1;
+    return { width: canvas.width / scale, height: canvas.height / scale };
+  }
+
+  // Size a canvas's backing store for the display and hand back a context whose
+  // units are CSS pixels. Resizing a canvas clears it, so the buffer is only
+  // written when it actually changes; the transform is (re)applied every time,
+  // since anything that does touch the buffer resets it.
+  function prepareCanvas(canvas, cssWidth, cssHeight) {
+    const ctx = canvas.getContext("2d");
+    const scale = renderScale();
+    const bufferWidth = Math.max(1, Math.round(cssWidth * scale));
+    const bufferHeight = Math.max(1, Math.round(cssHeight * scale));
+    if (canvas.width !== bufferWidth) canvas.width = bufferWidth;
+    if (canvas.height !== bufferHeight) canvas.height = bufferHeight;
+    _canvasScale.set(canvas, scale);
+    _contextScale.set(ctx, scale);
+    if (ctx.setTransform) ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    return ctx;
+  }
+
+  // Device-pixel alignment for the board's thin strokes. Under a scaled context
+  // the classic "+0.5 CSS pixel" no longer lands on a device-pixel boundary, so
+  // position and width are both resolved in DEVICE pixels and handed back in
+  // the CSS units the drawing code speaks: the width rounds to a whole number
+  // of device pixels, and the position takes the half-pixel offset only when
+  // that count is odd (an even-width stroke sits cleanly on the boundary).
+  function crispStroke(ctx, cssPos, cssWidth) {
+    const scale = contextScale(ctx);
+    const deviceWidth = Math.max(1, Math.round(cssWidth * scale));
+    const halfPixel = (deviceWidth % 2) / 2;
+    return {
+      pos: (Math.round(cssPos * scale) + halfPixel) / scale,
+      width: deviceWidth / scale,
+    };
+  }
+
+  // Fire `onChange` whenever the display's device-pixel ratio changes — browser
+  // zoom, or the window moving to a monitor of another density. A media query
+  // can only watch ONE ratio, so the listener re-arms itself against the new
+  // ratio each time it fires.
+  function watchRenderScale(onChange) {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const arm = () => {
+      const media = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio || 1}dppx)`,
+      );
+      const fired = () => {
+        if (media.removeEventListener) {
+          media.removeEventListener("change", fired);
+        } else if (media.removeListener) {
+          media.removeListener(fired);
+        }
+        arm();
+        onChange();
+      };
+      if (media.addEventListener) media.addEventListener("change", fired);
+      else if (media.addListener) media.addListener(fired);
+    };
+    arm();
+  }
+
+  // The on-screen size of one board cell in CSS pixels — the single derivation
+  // the renderer, the HTML overlays and every hit-test share, so a resized
+  // board can never leave one of them on a stale scale.
+  function boardCellSize(canvas, board) {
+    if (!canvas || !board) return 0;
+    const { width, height } = canvasCssSize(canvas);
+    return Math.min(width / board.width, height / board.height);
+  }
+
+  // A pointer event's position in the canvas's CSS-pixel drawing space. The
+  // bounding rect is the BORDER box, so the element's own border is stepped
+  // over to land on the content box the renderer actually draws into.
+  function pointerToCanvas(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const { width, height } = canvasCssSize(canvas);
+    const boxWidth = canvas.clientWidth || rect.width || width;
+    const boxHeight = canvas.clientHeight || rect.height || height;
+    if (!boxWidth || !boxHeight) return { x: 0, y: 0 };
+    const left = rect.left + (canvas.clientLeft || 0);
+    const top = rect.top + (canvas.clientTop || 0);
+    return {
+      x: ((event.clientX - left) * width) / boxWidth,
+      y: ((event.clientY - top) * height) / boxHeight,
+    };
+  }
+
   function hexToRgba(hex, alpha) {
     let color = hex;
     if (!color || typeof color !== "string") {
@@ -715,19 +852,22 @@ const BoardRenderer = (function () {
   }
 
   // Single source of truth for on-board click hit-testing. Maps a click event
-  // to a board cell using the CSS-displayed size (`getBoundingClientRect`) for
-  // BOTH the cell size and the click offset, so it stays correct when the canvas
-  // is scaled by CSS (its internal pixel buffer can differ from its rendered
-  // size). Returns the board cell `{x, y}` (origin bottom-left, matching the
-  // renderer's coordinate system). Callers should range-check against the board.
+  // to a board cell through the SAME CSS-pixel geometry the renderer draws in
+  // (boardCellSize over pointerToCanvas), so it stays correct whatever size the
+  // board is dragged to and whatever resolution its bitmap is backed at — the
+  // buffer is device pixels, the click is CSS pixels, and only one of those is
+  // a coordinate system. Returns the board cell `{x, y}` (origin bottom-left,
+  // matching the renderer's coordinate system). Callers should range-check
+  // against the board.
   function getClickedCell(canvas, board, event) {
     if (!canvas || !board) return null;
-    const rect = canvas.getBoundingClientRect();
-    const cellSize = Math.min(rect.width / board.width, rect.height / board.height);
+    const cellSize = boardCellSize(canvas, board);
     if (!cellSize) return null;
-    const x = Math.floor((event.clientX - rect.left) / cellSize);
-    const y = board.height - 1 - Math.floor((event.clientY - rect.top) / cellSize);
-    return { x, y };
+    const point = pointerToCanvas(canvas, event);
+    return {
+      x: Math.floor(point.x / cellSize),
+      y: board.height - 1 - Math.floor(point.y / cellSize),
+    };
   }
 
   // Find the first snake whose body occupies `cell`. An optional `filter(snake)`
@@ -1560,7 +1700,6 @@ const BoardRenderer = (function () {
   }
 
   function renderBoard(canvas, gameState, moveState, options) {
-    const ctx = canvas.getContext("2d");
     const snakeId = options?.snakeId || null;
     const chosenMove = options?.chosenMove || null;
     const showChosenArrow = options?.showChosenArrow !== false;
@@ -1573,10 +1712,12 @@ const BoardRenderer = (function () {
     if (!gameState || !gameState.board) return;
 
     const board = gameState.board;
-    const cellSize = Math.min(
-      canvas.width / board.width,
-      canvas.height / board.height,
-    );
+    // Measure the CSS box FIRST, then back the bitmap at the display's
+    // resolution for that box. Everything below — this function and every
+    // overlay drawn after it — works in the CSS pixels the transform maps.
+    const { width: cssWidth, height: cssHeight } = canvasCssSize(canvas);
+    const ctx = prepareCanvas(canvas, cssWidth, cssHeight);
+    const cellSize = Math.min(cssWidth / board.width, cssHeight / board.height);
     const boardW = board.width * cellSize;
     const boardH = board.height * cellSize;
     const turn = gameState.turn || 0;
@@ -1587,22 +1728,23 @@ const BoardRenderer = (function () {
     ctx.globalAlpha = 1;
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
 
     ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 1.5;
     for (let x = 0; x <= board.width; x++) {
-      const px = Math.floor(x * cellSize) + 0.5;
+      const line = crispStroke(ctx, x * cellSize, 1.5);
+      ctx.lineWidth = line.width;
       ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, boardH);
+      ctx.moveTo(line.pos, 0);
+      ctx.lineTo(line.pos, boardH);
       ctx.stroke();
     }
     for (let y = 0; y <= board.height; y++) {
-      const py = Math.floor(y * cellSize) + 0.5;
+      const line = crispStroke(ctx, y * cellSize, 1.5);
+      ctx.lineWidth = line.width;
       ctx.beginPath();
-      ctx.moveTo(0, py);
-      ctx.lineTo(boardW, py);
+      ctx.moveTo(0, line.pos);
+      ctx.lineTo(boardW, line.pos);
       ctx.stroke();
     }
 
@@ -2151,7 +2293,8 @@ const BoardRenderer = (function () {
   }
 
   // Per-canvas unit-tag rects from the last render, for hover hit-testing.
-  // Rects are in BOARD-PIXEL space (the canvas's internal coordinate system).
+  // Rects are in CSS-PIXEL space — the coordinate system the renderer draws in,
+  // which is the canvas's own space only up to the resolution transform.
   const _nameTagRects = new WeakMap();
 
   // Where the pointer is with respect to ONE unit: on nothing of its own, on
@@ -2578,18 +2721,20 @@ const BoardRenderer = (function () {
   }
 
   // Hit-test a mouse event against the unit-tag rects from the last render.
-  // Returns the unit's snake id, or null. Uses the CSS-displayed size so it
-  // stays correct when the canvas is scaled (same principle as getClickedCell).
+  // Returns the unit's snake id, or null. The rects were recorded in the
+  // renderer's CSS-pixel space, which is exactly what pointerToCanvas answers
+  // in (same principle as getClickedCell).
   function getNameTagAt(canvas, event) {
     const rects = _nameTagRects.get(canvas);
     if (!rects || rects.length === 0) return null;
-    const bounds = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / bounds.width;
-    const scaleY = canvas.height / bounds.height;
-    const px = (event.clientX - bounds.left) * scaleX;
-    const py = (event.clientY - bounds.top) * scaleY;
+    const point = pointerToCanvas(canvas, event);
     for (const r of rects) {
-      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+      if (
+        point.x >= r.x &&
+        point.x <= r.x + r.w &&
+        point.y >= r.y &&
+        point.y <= r.y + r.h
+      ) {
         return r.snakeId;
       }
     }
@@ -2608,16 +2753,16 @@ const BoardRenderer = (function () {
     onCellClick,
   ) {
     overlayEl.innerHTML = "";
-    const displayWidth = canvas.clientWidth || canvas.width;
-    const displayHeight = canvas.clientHeight || canvas.height;
+    // The overlay is HTML, so it is laid out in CSS pixels — the same units the
+    // renderer draws in — and needs no resolution correction of its own. It is
+    // pinned to the canvas's CONTENT box (offsetLeft/Top land on the border
+    // box) so its cells sit exactly on the drawn ones at any board size.
+    const { width: displayWidth, height: displayHeight } = canvasCssSize(canvas);
     overlayEl.style.width = displayWidth + "px";
     overlayEl.style.height = displayHeight + "px";
-    overlayEl.style.left = canvas.offsetLeft + "px";
-    overlayEl.style.top = canvas.offsetTop + "px";
-    const displayCellSize = Math.min(
-      displayWidth / board.width,
-      displayHeight / board.height,
-    );
+    overlayEl.style.left = canvas.offsetLeft + (canvas.clientLeft || 0) + "px";
+    overlayEl.style.top = canvas.offsetTop + (canvas.clientTop || 0) + "px";
+    const displayCellSize = boardCellSize(canvas, board);
 
     Object.values(moveState.moves).forEach((move) => {
       if (!move.position) return;
@@ -2805,30 +2950,88 @@ const BoardRenderer = (function () {
               ${ownerBadge}
             </div>
           </div>
+          ${unitIdCopyHTML(snake)}
         </div>
       `;
   }
 
-  // The (i) affordance pinned to the units table's top-right corner. Rows
-  // carry no internal document id; this reveals the whole id list on hover.
-  function unitIdsAffordanceHTML() {
+  // One unit's internal document id, as a control on that unit's OWN row: the
+  // id on hover, the id on the clipboard on click. An id belongs beside the
+  // unit it names — a single corner tooltip listing every id made the reader
+  // match names to lines by eye, and gave them nothing to copy.
+  function unitIdCopyHTML(snake) {
     return (
-      `<div style="grid-column:1/-1;text-align:right;line-height:1;">` +
-      `<span data-unit-ids style="display:inline-block;width:16px;height:16px;` +
-      `border:1px solid #555;border-radius:50%;color:#888;font-size:11px;` +
-      `line-height:15px;text-align:center;cursor:help;">i</span></div>`
+      `<button type="button" class="unit-id-copy" data-copy-id="${snake.id}"` +
+      ` title="${snake.id}\nClick to copy" aria-label="Copy unit id">ID</button>`
     );
   }
 
-  // Fill the (i) tooltip with one "name - id" line per unit. Written through
-  // the DOM property rather than an attribute, so untrusted unit names cannot
-  // break out of the markup.
-  function fillUnitIdsAffordance(container, snakes) {
-    const el = container.querySelector("[data-unit-ids]");
-    if (!el) return;
-    el.title = ["Unit IDs"]
-      .concat(snakes.map((s) => `${s.name || s.id} \u2014 ${s.id}`))
-      .join("\n");
+  // How long the copy control wears its confirmation before reverting.
+  const COPY_FEEDBACK_MS = 1100;
+
+  // Copy one unit's id, then say so in place. The async clipboard API is the
+  // path; a hidden field plus execCommand is the fallback for an insecure
+  // context or a browser that refuses the permission, and a refusal by BOTH
+  // shows as a cross rather than as silence.
+  function copyUnitId(button) {
+    const id = button.getAttribute && button.getAttribute("data-copy-id");
+    if (!id) return;
+    const clipboard =
+      typeof navigator !== "undefined" && navigator.clipboard
+        ? navigator.clipboard
+        : null;
+    if (clipboard && clipboard.writeText) {
+      clipboard.writeText(id).then(
+        () => flashCopyFeedback(button, true),
+        () => flashCopyFeedback(button, copyBySelection(id)),
+      );
+      return;
+    }
+    flashCopyFeedback(button, copyBySelection(id));
+  }
+
+  // Clipboard fallback: a field off-screen, selected and copied through the
+  // legacy command, removed either way.
+  function copyBySelection(text) {
+    if (typeof document === "undefined" || !document.body) return false;
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.top = "-1000px";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    let copied = false;
+    try {
+      field.select();
+      copied = !!document.execCommand("copy");
+    } catch (e) {
+      copied = false;
+    }
+    field.remove();
+    return copied;
+  }
+
+  // The in-place confirmation on a copy control: a tick, or a cross when the
+  // clipboard refused, reverting to the label on its own. The original label is
+  // remembered on the element so a second click mid-flash cannot make the tick
+  // the label.
+  function flashCopyFeedback(button, copied) {
+    if (button._copyRevert) clearTimeout(button._copyRevert);
+    if (button._copyLabel == null) button._copyLabel = button.textContent;
+    const label = button._copyLabel;
+    button.textContent = copied ? "\u2713" : "\u2715";
+    if (button.classList) {
+      button.classList.add(copied ? "copied" : "copy-failed");
+    }
+    button._copyRevert = setTimeout(() => {
+      button.textContent = label;
+      if (button.classList) {
+        button.classList.remove("copied");
+        button.classList.remove("copy-failed");
+      }
+      button._copyRevert = null;
+    }, COPY_FEEDBACK_MS);
   }
 
   // The markup last written into each units-table container. A units table is
@@ -2840,26 +3043,37 @@ const BoardRenderer = (function () {
   // registered ONCE per container and survives every innerHTML rebuild.
   const _unitTableDelegated = new WeakSet();
 
-  // Wire (once) the units table's selection input. This mirrors the board's
-  // delegated `pointerdown` handler, and for the same reason: a `click` only
-  // fires when press and release land on the SAME element, so a per-row click
-  // listener silently drops any selection whose row is replaced between the
-  // two — and rows are replaced by every board update, every selection
-  // broadcast and every scrub frame. Registering on the container (which
-  // outlives the rows) and resolving the row from the event target means a
-  // rebuild mid-press can never swallow the interaction, and one listener
-  // serves N rows instead of N listeners re-attached per render.
-  function delegateUnitSelection(container, options) {
-    container._onSelectSnake = options.onSelectSnake;
+  // Wire (once) the units table's input — BOTH the row selection and the
+  // per-row copy control, through one delegated `pointerdown`. This mirrors the
+  // board's delegated handler, and for the same reason: a `click` only fires
+  // when press and release land on the SAME element, so a per-row listener
+  // silently drops any interaction whose row is replaced between the two — and
+  // rows are replaced by every board update, every selection broadcast and
+  // every scrub frame. Registering on the container (which outlives the rows)
+  // and resolving the target from the event means a rebuild mid-press can never
+  // swallow the interaction, and one listener serves N rows however many rows
+  // there are — copy controls included, which is why the copy button gets no
+  // listener of its own.
+  //
+  // The copy control sits INSIDE a selectable row, so it is resolved first and
+  // returns: copying an id is not a request to select the unit.
+  function delegateUnitTableInput(container, options) {
+    container._onSelectSnake = (options && options.onSelectSnake) || null;
     if (_unitTableDelegated.has(container)) return;
     _unitTableDelegated.add(container);
     container.addEventListener("pointerdown", (event) => {
+      const target = event.target;
+      if (!target || !target.closest) return;
+      const copyButton = target.closest("[data-copy-id]");
+      if (copyButton) {
+        if (event.preventDefault) event.preventDefault();
+        if (event.stopPropagation) event.stopPropagation();
+        copyUnitId(copyButton);
+        return;
+      }
       const handler = container._onSelectSnake;
       if (!handler) return;
-      const row =
-        event.target && event.target.closest
-          ? event.target.closest("[data-select-snake]")
-          : null;
+      const row = target.closest("[data-select-snake]");
       if (!row) return;
       handler(row.getAttribute("data-select-snake"));
     });
@@ -2893,20 +3107,18 @@ const BoardRenderer = (function () {
     const allSnakes = snakes.concat(deadSnakes);
 
     if (!options || !options.groupByTeam) {
-      const flat =
-        unitIdsAffordanceHTML() +
-        allSnakes
-          .map((snake) =>
-            renderSnakeInfoItem(
-              snake, ourSnakeId,
-              { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null },
-              currentTurn,
-            ),
-          )
-          .join("");
+      const flat = allSnakes
+        .map((snake) =>
+          renderSnakeInfoItem(
+            snake, ourSnakeId,
+            { dead: deadIds.has(snake.id), owner: ownersMap[snake.id] || null },
+            currentTurn,
+          ),
+        )
+        .join("");
+      delegateUnitTableInput(container, options);
       container.innerHTML = flat;
       _unitTableHTML.set(container, flat);
-      fillUnitIdsAffordance(container, allSnakes);
       return;
     }
 
@@ -2976,16 +3188,14 @@ const BoardRenderer = (function () {
       })
       .join("");
 
-    // The selection handler goes on FIRST and only once, so it is live even
+    // The delegated handler goes on FIRST and only once, so it is live even
     // for the very first pointerdown after this render.
-    if (options.onSelectSnake) delegateUnitSelection(container, options);
+    delegateUnitTableInput(container, options);
 
-    const markup = unitIdsAffordanceHTML() + html;
-    if (_unitTableHTML.get(container) !== markup) {
-      _unitTableHTML.set(container, markup);
-      container.innerHTML = markup;
+    if (_unitTableHTML.get(container) !== html) {
+      _unitTableHTML.set(container, html);
+      container.innerHTML = html;
     }
-    fillUnitIdsAffordance(container, allSnakes);
   }
 
   function updateStatsTable(tbody, move, moveState) {
@@ -3341,35 +3551,36 @@ const BoardRenderer = (function () {
   }
 
   function renderMinimap(canvas, gameState, ourSnakeId) {
-    const ctx = canvas.getContext("2d");
     if (!gameState || !gameState.board) return;
     const board = gameState.board;
-    const cellSize = Math.min(
-      canvas.width / board.width,
-      canvas.height / board.height,
-    );
+    // The same resolution contract as the full board: measure the CSS box,
+    // back the bitmap at the display's scale, draw in CSS pixels.
+    const { width: cssWidth, height: cssHeight } = canvasCssSize(canvas);
+    const ctx = prepareCanvas(canvas, cssWidth, cssHeight);
+    const cellSize = Math.min(cssWidth / board.width, cssHeight / board.height);
     const boardW = board.width * cellSize;
     const boardH = board.height * cellSize;
 
     ctx.imageSmoothingEnabled = false;
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
 
     ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 1;
     for (let x = 0; x <= board.width; x++) {
-      const px = Math.floor(x * cellSize) + 0.5;
+      const line = crispStroke(ctx, x * cellSize, 1);
+      ctx.lineWidth = line.width;
       ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, boardH);
+      ctx.moveTo(line.pos, 0);
+      ctx.lineTo(line.pos, boardH);
       ctx.stroke();
     }
     for (let y = 0; y <= board.height; y++) {
-      const py = Math.floor(y * cellSize) + 0.5;
+      const line = crispStroke(ctx, y * cellSize, 1);
+      ctx.lineWidth = line.width;
       ctx.beginPath();
-      ctx.moveTo(0, py);
-      ctx.lineTo(boardW, py);
+      ctx.moveTo(0, line.pos);
+      ctx.lineTo(boardW, line.pos);
       ctx.stroke();
     }
 
@@ -3490,6 +3701,12 @@ const BoardRenderer = (function () {
     findSnakeAtCell,
     findTerritoryOwnerAtCell,
     isPieceUnit,
+    renderScale,
+    prepareCanvas,
+    canvasCssSize,
+    boardCellSize,
+    pointerToCanvas,
+    watchRenderScale,
     unitDrawsOrientationEye,
     compareUnitsByLetter,
     inspectableUnitIds,

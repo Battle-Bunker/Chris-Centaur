@@ -235,20 +235,21 @@ describe('units table', () => {
     body: [{ x: 1, y: 1 }, { x: 1, y: 0 }],
   };
 
-  function render() {
-    const idsEl: Record<string, unknown> = {};
-    const container = {
-      innerHTML: '',
-      querySelector: (sel: string) => (sel === '[data-unit-ids]' ? idsEl : null),
-    };
-    BoardRenderer.renderSnakeInfo(container, { turn: 7, board: { snakes: [snake] } }, snake.id);
-    return { html: container.innerHTML, idsEl };
+  // The table's input is delegated to the container, so even the plain
+  // (ungrouped) render needs a container that can carry a listener.
+  function makeTableContainer() {
+    return { innerHTML: '', addEventListener: () => {} };
   }
 
-  test('rows show the shared stat icons, not the internal document id', () => {
-    const { html } = render();
+  function render(unit = snake) {
+    const container = makeTableContainer();
+    BoardRenderer.renderSnakeInfo(container, { turn: 7, board: { snakes: [unit] } }, unit.id);
+    return container.innerHTML as string;
+  }
+
+  test('rows show the shared stat icons', () => {
+    const html = render();
     expect(html).toContain(snake.name);
-    expect(html).not.toContain(snake.id);
     // Weight rides the same anvil path the on-board tags draw.
     expect(html).toContain(BoardRenderer.anvilIconSVG(13));
     expect(html).toContain(BoardRenderer.STAT_ICON.health);
@@ -256,23 +257,21 @@ describe('units table', () => {
   });
 
   test('a negative invulnerability level wears the drawn hazard mark', () => {
-    const idsEl: Record<string, unknown> = {};
-    const container = {
-      innerHTML: '',
-      querySelector: (sel: string) => (sel === '[data-unit-ids]' ? idsEl : null),
-    };
-    const vulnerable = { ...snake, invulnerabilityLevel: -2 };
-    BoardRenderer.renderSnakeInfo(
-      container, { turn: 7, board: { snakes: [vulnerable] } }, vulnerable.id);
-    expect(container.innerHTML).toContain(BoardRenderer.hazardIconSVG(13));
-    expect(container.innerHTML).not.toContain(BoardRenderer.STAT_ICON.invulnerable);
+    const html = render({ ...snake, invulnerabilityLevel: -2 });
+    expect(html).toContain(BoardRenderer.hazardIconSVG(13));
+    expect(html).not.toContain(BoardRenderer.STAT_ICON.invulnerable);
   });
 
-  test('the (i) affordance reveals every unit id on hover', () => {
-    const { html, idsEl } = render();
-    expect(html).toContain('data-unit-ids');
-    expect(idsEl.title).toContain(snake.id);
-    expect(idsEl.title).toContain(snake.name);
+  test('every row carries its OWN unit id, on hover and on a copy control', () => {
+    const html = render();
+    expect(html).toContain(`data-copy-id="${snake.id}"`);
+    // Hover readout: the id is the control's title, so it needs no click to be
+    // read and no second surface to be shown in.
+    expect(html).toContain(`title="${snake.id}`);
+  });
+
+  test('the corner (i) id list is gone — ids belong on the rows they name', () => {
+    expect(render()).not.toContain('data-unit-ids');
   });
 });
 
