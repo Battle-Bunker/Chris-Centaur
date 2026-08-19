@@ -3784,6 +3784,9 @@ const BoardRenderer = (function () {
         aggressionScore: 0,
         trappedScore: 0,
         healthLossScore: 0,
+        allyCasualtyScore: 0,
+        regicideScore: 0,
+        enemyRegicideScore: 0,
         fertileScore: 0,
       };
 
@@ -4006,6 +4009,31 @@ const BoardRenderer = (function () {
         weight: breakdown.weights?.healthLoss ?? 0,
         weightedScore: breakdown.weighted?.healthLossScore ?? 0,
         averageWeighted: averageWeighted.healthLossScore ?? 0,
+      },
+      // Friendly fire and the two team-ending cases. The engine's contests
+      // carry no friendly exemption, so our own move can destroy our own
+      // units; the value here is the WEIGHT we destroy, which is exactly what
+      // team score is counted in.
+      {
+        name: "Ally Casualty (our weight killed)",
+        value: breakdown.allyCasualty ?? 0,
+        weight: breakdown.weights?.allyCasualty ?? 0,
+        weightedScore: breakdown.weighted?.allyCasualtyScore ?? 0,
+        averageWeighted: averageWeighted.allyCasualtyScore ?? 0,
+      },
+      {
+        name: "Regicide (our last king)",
+        value: breakdown.regicide ?? 0,
+        weight: breakdown.weights?.regicide ?? 0,
+        weightedScore: breakdown.weighted?.regicideScore ?? 0,
+        averageWeighted: averageWeighted.regicideScore ?? 0,
+      },
+      {
+        name: "Enemy Regicide (their last king)",
+        value: breakdown.enemyRegicide ?? 0,
+        weight: breakdown.weights?.enemyRegicide ?? 0,
+        weightedScore: breakdown.weighted?.enemyRegicideScore ?? 0,
+        averageWeighted: averageWeighted.enemyRegicideScore ?? 0,
       },
       ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
         ? [

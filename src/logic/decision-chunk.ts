@@ -14,7 +14,7 @@
 import { GameState, Direction } from '../types/battlesnake';
 import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
 import { WaypointProgress } from './waypoint-pathing';
-import { Simulator } from './simulator';
+import { CasualtyContext, Simulator } from './simulator';
 import { DecisionConfig } from './decision-engine';
 
 export interface ChunkJob {
@@ -49,6 +49,14 @@ export interface ChunkJob {
    * that construct a ChunkJob directly (tests) default to no cost.
    */
   healthCost?: number;
+  /**
+   * What THIS chunk's candidate move does to the units on the board — ally
+   * weight destroyed, enemies killed, and the regicide flags (simulator.ts's
+   * projectPath, folded). Plain numbers, so it structured-clones into worker
+   * threads for free. Same per-move-constant contract as healthCost; optional
+   * so callers that construct a ChunkJob directly (tests) default to none.
+   */
+  casualties?: CasualtyContext;
 }
 
 export interface ChunkResult {
@@ -98,6 +106,7 @@ export function evaluateChunk(job: ChunkJob): ChunkResult {
       simulatedSnakeIds: simulatedSet,
       waypointProgress: job.waypointProgress ?? null,
       healthCost: job.healthCost ?? 0,
+      casualties: job.casualties,
       // Chunk evaluations feed only the minimax score aggregation — per-state
       // territory cell lists are never shipped back (see the strip below), so
       // don't build them at all.

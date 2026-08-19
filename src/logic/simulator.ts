@@ -1,5 +1,6 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { isPieceUnit, winsStationaryContest } from './piece-threats';
+import { isKingUnit, isPieceUnit, winsStationaryContest } from './piece-threats';
+import { TeamDetector } from './team-detector';
 
 // MoveSet type definition (previously from move-enumerator)
 export type MoveSet = Map<string, Direction>;
@@ -62,6 +63,66 @@ export interface ProjectedPath {
   captureStopped: boolean;
   /** The mover reached the staged destination alive AND it holds food. */
   eats: boolean;
+  /** Who this traversal destroys, and what that costs us (see CasualtyContext). */
+  casualties: CasualtyContext;
+}
+
+/**
+ * One unit this traversal destroys or shortens. The engine's contests carry NO
+ * friendly exemption — `contestSquare` in chessTurnSim.ts compares tier then
+ * weight and never teams — so our own move kills an ally exactly the way it
+ * kills an enemy, which is the whole reason this record exists.
+ */
+export interface ProjectedCasualty {
+  /** The victim's unit id. */
+  id: string;
+  /** The victim's team identity (TeamDetector's one team-identity rule). */
+  teamKey: string;
+  /** The victim is on OUR team. */
+  ally: boolean;
+  /**
+   * WEIGHT destroyed — the currency team score is denominated in (piece score
+   * = stack weight, snake score = body length, so team score is total weight).
+   * A killed unit loses all of it; a severed snake loses the segments cut off.
+   */
+  weight: number;
+  /** The victim dies outright, rather than surviving shortened. */
+  killed: boolean;
+  /** The victim is a king (regicide's trigger). */
+  king: boolean;
+}
+
+/**
+ * What a candidate move DOES to the units on the board, folded into the four
+ * per-move stats the scoring layer reads. All plain numbers, so the context
+ * survives the structured clone into decision worker threads.
+ */
+export interface CasualtyContext {
+  /** Total weight of OUR OWN units this move destroys (kills + severed segments). */
+  allyCasualty: number;
+  /**
+   * 1 when this move ends OUR team: our last living king dies in it — killed
+   * by our own unit, or because the mover IS that king and the traversal is
+   * fatal. The engine then removes every remaining unit we own that turn
+   * (applyRegicide), so our score goes from its total weight to zero.
+   */
+  regicide: number;
+  /** Number of ENEMY units this move kills outright. */
+  kills: number;
+  /** 1 when this move ends an ENEMY team by taking its last living king. */
+  enemyRegicide: number;
+}
+
+const NO_CASUALTIES: CasualtyContext = {
+  allyCasualty: 0,
+  regicide: 0,
+  kills: 0,
+  enemyRegicide: 0,
+};
+
+/** A fresh zeroed casualty context (never hand out the frozen module copy). */
+export function emptyCasualtyContext(): CasualtyContext {
+  return { ...NO_CASUALTIES };
 }
 
 /**
@@ -96,6 +157,14 @@ export interface ProjectedPath {
  *  - The mover's OWN body is a wall with no tier exemption (a snake cannot
  *    sever itself).
  *
+ * Every outcome in which somebody ELSE dies or is cut short is recorded as a
+ * casualty, on the same no-friendly-exemption terms: the contest that wins us
+ * a square is the contest that kills whoever stood there, ally or enemy. The
+ * folded `casualties` context carries the weight we destroy on our own side,
+ * the enemies we kill, and — the catastrophic case — whether the king that
+ * dies is the LAST king of a team, which the engine's regicide rule turns
+ * into that whole team's elimination.
+ *
  * Movement costs 1 per square ACTUALLY entered — UNLESS the mover reaches the
  * staged destination alive and it holds food, which restores health to the
  * type max and so cancels the movement cost entirely (mirrors
@@ -125,7 +194,14 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
   const mover = state.you;
   const health = mover.health;
   if (path.length === 0) {
-    return { path: [], cost: 0, fatal: false, captureStopped: false, eats: false };
+    return {
+      path: [],
+      cost: 0,
+      fatal: false,
+      captureStopped: false,
+      eats: false,
+      casualties: emptyCasualtyContext(),
+    };
   }
 
   const hazardDamage = board.hazardDamage ?? 100;
@@ -134,6 +210,7 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
   const moverIsPiece = isPieceUnit(mover);
 
   const entered: Coord[] = [];
+  const victims: ProjectedCasualty[] = [];
   let hazardAccrued = 0;
   let died = false;
   let captureStopped = false;
@@ -160,11 +237,14 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
 
     // 3. Occupancy: bodies and stationary pieces.
     const outcome = resolveTraversedSquare(board, mover, moverTier, state.turn, sq);
-    if (outcome === 'death') {
+    if (outcome.verdict === 'death') {
       died = true;
       break;
     }
-    if (outcome === 'sever') {
+    if (outcome.verdict === 'sever') {
+      // Winning the square is what destroys whoever held it — record the
+      // victim before deciding whether we stop on their square.
+      if (outcome.victim) victims.push(outcome.victim);
       // Only a PIECE capture-stops; a snake severs through and keeps its
       // (single-square) move.
       if (moverIsPiece) {
@@ -188,7 +268,82 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
   const fatal = died || cost >= health;
   if (fatal) cost = Math.max(cost, health);
 
-  return { path: entered, cost, fatal, captureStopped, eats };
+  return {
+    path: entered,
+    cost,
+    fatal,
+    captureStopped,
+    eats,
+    casualties: foldCasualties(board, mover, victims, fatal),
+  };
+}
+
+/**
+ * The per-victim records folded into the four per-move stats, plus the one
+ * question no single victim can answer on its own: does anybody's team END
+ * here? The engine's applyRegicide (TeamSnekProcessor) eliminates a team
+ * CONFIGURED with kings the moment its LAST king dies, deleting every unit it
+ * still owns that turn.
+ *
+ * The client can decide that from the live board alone, with no roster: a king
+ * only ever enters play from the game setup (pawns promote to queens, never to
+ * kings), and a team configured with kings cannot still be playing with none
+ * alive — the rule would already have eliminated it. So "this team is subject
+ * to regicide" is exactly "this team has a living king", and "this is its
+ * last" is exactly "we are killing every living king it has". A team with no
+ * living king is a team without kings, and no regicide term can ever fire for
+ * it.
+ *
+ * The mover itself counts: if OUR last king is the unit making this move and
+ * the traversal is fatal, the team dies just as surely as if an ally had
+ * taken it — the same catastrophe, one move earlier in the causal chain.
+ */
+function foldCasualties(
+  board: Board,
+  mover: Snake,
+  victims: ProjectedCasualty[],
+  moverDies: boolean
+): CasualtyContext {
+  const moverIsDoomedKing = moverDies && isKingUnit(mover);
+  if (victims.length === 0 && !moverIsDoomedKing) return emptyCasualtyContext();
+
+  const ourKey = TeamDetector.getTeamKey(mover);
+  const out = emptyCasualtyContext();
+
+  // Kings we take off each team, keyed by that team.
+  const kingsTakenByTeam = new Map<string, number>();
+  const takeKing = (teamKey: string): void => {
+    kingsTakenByTeam.set(teamKey, (kingsTakenByTeam.get(teamKey) ?? 0) + 1);
+  };
+
+  for (const victim of victims) {
+    if (victim.ally) out.allyCasualty += victim.weight;
+    else if (victim.killed) out.kills += 1;
+    if (victim.king && victim.killed) takeKing(victim.teamKey);
+  }
+  if (moverIsDoomedKing) takeKing(ourKey);
+
+  if (kingsTakenByTeam.size > 0) {
+    // Living kings per affected team, counted once over the board.
+    const livingKingsByTeam = new Map<string, number>();
+    for (const unit of board.snakes) {
+      if (unit.health <= 0 || !isKingUnit(unit)) continue;
+      const key = TeamDetector.getTeamKey(unit);
+      if (!kingsTakenByTeam.has(key)) continue;
+      livingKingsByTeam.set(key, (livingKingsByTeam.get(key) ?? 0) + 1);
+    }
+    for (const [teamKey, taken] of kingsTakenByTeam) {
+      const living = livingKingsByTeam.get(teamKey) ?? 0;
+      // Conservative when the board cannot see the king we are killing (a
+      // victim absent from board.snakes cannot happen today, but `living` is
+      // the only guard): taking at least as many kings as are alive ends them.
+      if (living === 0 || taken < living) continue;
+      if (teamKey === ourKey) out.regicide = 1;
+      else out.enemyRegicide = 1;
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -196,14 +351,36 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
  * 'continue' (nothing there, or the segment has already vacated), 'sever'
  * (the mover strictly out-tiers the owner — a piece capture-stops here) or
  * 'death'. Bodies are compared with NO team check, exactly like the engine.
+ *
+ * A 'sever' verdict names its VICTIM, because winning the square and killing
+ * whoever held it are the same event: a piece contest we win removes that
+ * piece and all its weight, and a body segment we out-tier is cut there, so
+ * the owner survives minus everything behind the cut. That is the one place
+ * an ally casualty can be learned, and it is learned from the contest itself
+ * rather than a second, forkable copy of the rule.
  */
+interface SquareOutcome {
+  verdict: 'continue' | 'sever' | 'death';
+  /** Present only on 'sever': whoever we destroyed or cut, and by how much. */
+  victim?: ProjectedCasualty;
+}
+
+const CONTINUE: SquareOutcome = { verdict: 'continue' };
+const DEATH: SquareOutcome = { verdict: 'death' };
+
 function resolveTraversedSquare(
   board: Board,
   mover: Snake,
   moverTier: number,
   currentTurn: number,
   sq: Coord
-): 'continue' | 'sever' | 'death' {
+): SquareOutcome {
+  const ourKey = TeamDetector.getTeamKey(mover);
+  const casualty = (owner: Snake, weight: number, killed: boolean): ProjectedCasualty => {
+    const teamKey = TeamDetector.getTeamKey(owner);
+    return { id: owner.id, teamKey, ally: teamKey === ourKey, weight, killed, king: isKingUnit(owner) };
+  };
+
   for (const owner of board.snakes) {
     if (owner.health <= 0) continue;
     const isSelf = owner.id === mover.id;
@@ -213,9 +390,11 @@ function resolveTraversedSquare(
       if (isSelf) continue;
       const seat = owner.body[0] ?? owner.head;
       if (!seat || seat.x !== sq.x || seat.y !== sq.y) continue;
+      // A piece is its whole weight in one square: winning the contest kills
+      // it outright and the board loses every point of that weight.
       return winsStationaryContest(moverTier, mover.length, tierAtArrival(owner, currentTurn), owner.length)
-        ? 'sever'
-        : 'death';
+        ? { verdict: 'sever', victim: casualty(owner, owner.length, true) }
+        : DEATH;
     }
 
     for (let i = 0; i < owner.body.length; i++) {
@@ -225,11 +404,16 @@ function resolveTraversedSquare(
       const seg = owner.body[i];
       if (seg.x !== sq.x || seg.y !== sq.y) continue;
       // Our own body is a wall with no tier exemption — nothing severs itself.
-      if (isSelf) return 'death';
-      return moverTier > tierAtArrival(owner, currentTurn) ? 'sever' : 'death';
+      if (isSelf) return DEATH;
+      if (moverTier <= tierAtArrival(owner, currentTurn)) return DEATH;
+      // Severed at segment i: everything from i backwards is cut away. At i=0
+      // that is the whole snake — the engine adjudicates a head square as a
+      // head-class contest, which a strictly higher tier wins outright.
+      const lost = owner.body.length - i;
+      return { verdict: 'sever', victim: casualty(owner, lost, i === 0) };
     }
   }
-  return 'continue';
+  return CONTINUE;
 }
 
 /**

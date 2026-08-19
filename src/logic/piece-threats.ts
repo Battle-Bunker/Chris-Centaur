@@ -142,6 +142,16 @@ export function unitContestData(unit: Snake, baseTurn: number): {
 
 export const isPieceUnit = (s: Snake): boolean => (s.unitType ?? 'snake') !== 'snake';
 
+/**
+ * Is this unit a KING? The engine's regicide rule (TeamSnekProcessor's
+ * applyRegicide) eliminates a team CONFIGURED with kings the moment its LAST
+ * king dies, removing every remaining unit it owns that turn. A king only ever
+ * enters play from the game setup (pawns promote to queens, never to kings),
+ * so a team with a living king is exactly a team the rule applies to — which
+ * is what lets the client decide regicide from the board alone.
+ */
+export const isKingUnit = (s: Snake): boolean => s.unitType === 'king';
+
 export type UnitThreatKind = 'snake' | 'piece';
 
 /** One unit threatening one square: who, which side, which reach/timing kind. */

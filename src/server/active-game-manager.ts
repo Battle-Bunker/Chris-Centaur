@@ -1,6 +1,6 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { healthAfterEntering, projectPath } from '../logic/simulator';
+import { CasualtyContext, emptyCasualtyContext, healthAfterEntering, projectPath } from '../logic/simulator';
 import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
@@ -63,6 +63,11 @@ interface PieceCandidateScore {
   // Charged as DEFAULT_CONFIG.deaths in `score`, exactly like a snake's
   // `deaths` stat, AND vetoed outright in bestPieceCandidate.
   fatal: boolean;
+  // What this candidate DOES to the units it passes through, from the same
+  // projection (contests have no friendly exemption, so our own ray kills our
+  // own units): ally weight destroyed, enemies killed, and the two regicide
+  // flags. `regicide` is vetoed in bestPieceCandidate exactly like `fatal`.
+  casualties: CasualtyContext;
   score: number;
 }
 
@@ -1591,6 +1596,9 @@ export class ActiveGameManager {
           move: evaluation.move,
           score: evaluation.score - recorded + weight * progress[i].stat,
           trapped: breakdown.trapped ?? 0,
+          // The regicide veto travels with the row: a waypoint must never
+          // re-bias us onto a move that ends our own team.
+          regicide: breakdown.regicide ?? 0,
         };
       }));
     } catch (e) {
@@ -2033,9 +2041,18 @@ export class ActiveGameManager {
     // is fatal we score among all of them (least-bad death). Enumeration is
     // untouched: fatal candidates still reach the UI, so a human commander can
     // still stage a sacrifice.
+    //
+    // REGICIDE outranks it, exactly as it does in pickBestMove for snakes: a
+    // candidate that takes our team's LAST king ends the whole team that turn,
+    // which is strictly worse than losing this one piece — so it is filtered
+    // FIRST and only ignored if literally every candidate commits it. (Staying
+    // put is always enumerated and never kills anyone, so in practice there is
+    // always something left.)
     const all = this.computePieceCandidates(gameId, snakeId);
-    const survivable = all.filter(c => !c.fatal);
-    const pool = survivable.length > 0 ? survivable : all;
+    const survivingTeam = all.filter(c => c.casualties.regicide === 0);
+    const alive = survivingTeam.length > 0 ? survivingTeam : all;
+    const survivable = alive.filter(c => !c.fatal);
+    const pool = survivable.length > 0 ? survivable : alive;
     let best: PieceCandidateScore | null = null;
     for (const candidate of pool) {
       if (candidate.score <= 0) continue;
@@ -2058,6 +2075,10 @@ export class ActiveGameManager {
    *   score(dest) = base + weight × progressStat(dest)
    *                        + healthLossWeight × cost(dest)
    *                        + deathsWeight × fatal(dest)
+   *                        + allyCasualtyWeight × allyWeightDestroyed(dest)
+   *                        + regicideWeight × endsOurTeam(dest)
+   *                        + killsWeight × enemiesKilled(dest)
+   *                        + enemyRegicideWeight × endsTheirTeam(dest)
    *
    * ADDITIVE, exactly as getWaypointBiasedMove is for snakes (which subtracts
    * the contribution already inside the engine score before adding the one for
@@ -2147,6 +2168,7 @@ export class ActiveGameManager {
         : null;
       const healthCost = projected?.cost ?? 0;
       const fatal = projected?.fatal ?? false;
+      const casualties = projected?.casualties ?? emptyCasualtyContext();
       return {
         move: dest,
         action,
@@ -2157,9 +2179,14 @@ export class ActiveGameManager {
         dist: progress?.[i].dist ?? null,
         healthCost,
         fatal,
+        casualties,
         score: weight * stat
           + DEFAULT_CONFIG.healthLoss * healthCost
-          + DEFAULT_CONFIG.deaths * (fatal ? 1 : 0),
+          + DEFAULT_CONFIG.deaths * (fatal ? 1 : 0)
+          + DEFAULT_CONFIG.kills * casualties.kills
+          + DEFAULT_CONFIG.allyCasualty * casualties.allyCasualty
+          + DEFAULT_CONFIG.regicide * casualties.regicide
+          + DEFAULT_CONFIG.enemyRegicide * casualties.enemyRegicide,
       };
     });
   }
@@ -2244,6 +2271,7 @@ export class ActiveGameManager {
       const progressScore = candidate.weight * candidate.stat;
       const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
       const deaths = candidate.fatal ? 1 : 0;
+      const { allyCasualty, regicide, kills, enemyRegicide } = candidate.casualties;
       return {
         move: candidate.move,
         score: candidate.score,
@@ -2251,14 +2279,28 @@ export class ActiveGameManager {
         breakdown: {
           healthLoss: candidate.healthCost,
           deaths,
+          // The casualty terms report on EVERY candidate, zero included, so a
+          // ray that kills nothing is visibly a ray that kills nothing.
+          kills,
+          allyCasualty,
+          regicide,
+          enemyRegicide,
           weights: {
             healthLoss: DEFAULT_CONFIG.healthLoss,
             deaths: DEFAULT_CONFIG.deaths,
+            kills: DEFAULT_CONFIG.kills,
+            allyCasualty: DEFAULT_CONFIG.allyCasualty,
+            regicide: DEFAULT_CONFIG.regicide,
+            enemyRegicide: DEFAULT_CONFIG.enemyRegicide,
             ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
           },
           weighted: {
             healthLossScore,
             deathsScore: deaths === 1 ? DEFAULT_CONFIG.deaths : 0,
+            killsScore: DEFAULT_CONFIG.kills * kills,
+            allyCasualtyScore: DEFAULT_CONFIG.allyCasualty * allyCasualty,
+            regicideScore: DEFAULT_CONFIG.regicide * regicide,
+            enemyRegicideScore: DEFAULT_CONFIG.enemyRegicide * enemyRegicide,
             ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
           },
           ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),

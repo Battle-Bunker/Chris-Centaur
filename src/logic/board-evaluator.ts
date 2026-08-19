@@ -8,6 +8,7 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 import { unitContestData } from './piece-threats';
+import { CasualtyContext } from './simulator';
 import { WaypointProgress } from './waypoint-pathing';
 import {
   HEURISTIC_KEYS,
@@ -77,6 +78,13 @@ export interface EvaluationContext {
   // describes the move, not the simulated board. Undefined/0 for states that
   // never had it computed (e.g. direct board-evaluator tests).
   healthCost?: number;
+  // What the candidate MOVE does to the units on the board — the ally weight it
+  // destroys, the enemies it kills, and whether it ends a team by taking its
+  // last king (simulator.ts's projectPath, folded). Same per-move-constant
+  // injection as healthCost, and for the same reason: these describe the move,
+  // not the board it produces. The contest that resolves the move's cost is
+  // the contest that decides who dies in it, so both come off ONE projection.
+  casualties?: CasualtyContext;
   // Materialize per-snake territory cell lists (UI/visualization). Defaults to
   // true; the chunked minimax evaluation passes false — it reads only scores
   // and stats, and building coord arrays per state was measurable GC churn.
@@ -130,13 +138,20 @@ export class BoardEvaluator {
     // Check if we're dead
     const isDead = !ourSnake || ourSnake.health <= 0;
     if (isDead) {
-      // Every stat zero except: no reachable food, and the death itself.
+      // Every stat zero except: no reachable food, the death itself, and what
+      // the move did to everyone ELSE on its way — dying does not undo the
+      // ally we killed, and it certainly does not undo regicide, which
+      // eliminates the whole team whether or not we survived the move.
       // trapped stays 0 — death is already captured by deaths: 1; avoid
       // double-penalizing.
       const deadStats = {} as HeuristicStats;
       for (const key of HEURISTIC_KEYS) deadStats[key] = 0;
       deadStats.foodDistance = 1000;
       deadStats.deaths = 1;
+      deadStats.kills = ctx?.casualties?.kills ?? 0;
+      deadStats.allyCasualty = ctx?.casualties?.allyCasualty ?? 0;
+      deadStats.regicide = ctx?.casualties?.regicide ?? 0;
+      deadStats.enemyRegicide = ctx?.casualties?.enemyRegicide ?? 0;
       return {
         stats: deadStats,
         territoryCells: new Map()
@@ -298,7 +313,9 @@ export class BoardEvaluator {
         selfSpace,             // Continuous contest-aware survival room (sqrt; room == length → 1.0)
         alliesEnoughSpace: spaceScores.allies,
         opponentsEnoughSpace: spaceScores.opponents,
-        kills: 0,  // Would need before/after comparison to calculate
+        // Casualties the candidate MOVE inflicts, from the shared projection
+        // (see EvaluationContext.casualties). Enemy units killed…
+        kills: ctx?.casualties?.kills ?? 0,
         deaths: isDead ? 1 : 0,
         enemyH2HRisk: ctx?.h2hRisk?.enemyH2HRisk ?? 0,  // From context, 1 if h2h risk with enemy
         allyH2HRisk: ctx?.h2hRisk?.allyH2HRisk ?? 0,    // From context, 1 if h2h risk with ally
@@ -309,6 +326,11 @@ export class BoardEvaluator {
         aggression,
         trapped,
         healthLoss: ctx?.healthCost ?? 0,  // Projected health cost of this move; from context
+        // …and the ones on our own side of the board: the weight we destroy,
+        // and the two team-ending cases the engine's regicide rule creates.
+        allyCasualty: ctx?.casualties?.allyCasualty ?? 0,
+        regicide: ctx?.casualties?.regicide ?? 0,
+        enemyRegicide: ctx?.casualties?.enemyRegicide ?? 0,
       },
       territoryCells: bfsResult.territoryCells
     };
