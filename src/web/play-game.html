@@ -124,35 +124,14 @@
     .no-selection-msg {
       text-align: center; padding: 20px; color: #666; font-size: 14px;
     }
-    .move-controls {
-      background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
+    /* One line of prose under the unit header: what the unit is doing this
+       turn and how to steer it. Replaces the old move-button grid, which said
+       the same thing with buttons that duplicated the board. */
+    .unit-status-line {
+      background: #2a2a2a; border-radius: 8px; padding: 10px 14px;
+      margin-bottom: 15px; color: #aaa; font-size: 12px; line-height: 1.5;
     }
-    .move-controls h3 {
-      font-size: 15px; margin-bottom: 10px; color: #4CAF50;
-    }
-    .move-buttons {
-      display: grid; grid-template-columns: 1fr 1fr 1fr;
-      grid-template-rows: 1fr 1fr; gap: 8px;
-      max-width: 280px; margin: 0 auto 15px;
-    }
-    .move-button {
-      padding: 10px; background: #333; color: white;
-      border: 2px solid #444; border-radius: 6px;
-      cursor: pointer; font-size: 14px; text-align: center;
-      transition: all 0.2s;
-    }
-    .move-button:hover:not(:disabled) { background: #444; }
-    .move-button.selected {
-      background: rgba(156, 39, 176, 0.2) !important;
-      border: 5px solid #9C27B0 !important;
-      box-shadow: 0 0 15px rgba(156, 39, 176, 0.8), inset 0 0 10px rgba(156, 39, 176, 0.3) !important;
-      z-index: 10; position: relative;
-    }
-    .move-button.committed {
-      background: rgba(156, 39, 176, 0.3) !important;
-      border-color: #9C27B0 !important;
-    }
-    .move-button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .unit-status-line b { color: #ddd; }
     /* Keyboard destination selection: brief "unavailable" flash overlaid on
        the selected unit's cell (see flashUnavailable). */
     .keynav-flash {
@@ -160,22 +139,6 @@
       border: 3px solid #ff5252; border-radius: 6px;
       box-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
       opacity: 0; transition: opacity 0.25s ease-out;
-    }
-    .move-button .score {
-      font-size: 11px; color: #aaa; display: block; margin-top: 3px;
-    }
-    .submit-section {
-      display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px;
-    }
-    .submit-btn {
-      background: #4CAF50; color: white; border: none;
-      padding: 12px 32px; border-radius: 6px; cursor: pointer;
-      font-size: 16px; font-weight: 600; transition: all 0.2s;
-    }
-    .submit-btn:hover { background: #45a049; }
-    .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .submit-btn .shortcut {
-      font-size: 11px; font-weight: 400; opacity: 0.7; margin-left: 6px;
     }
     .decision-stats {
       background: #2a2a2a; border-radius: 8px; padding: 15px; overflow-x: auto;
@@ -261,43 +224,76 @@
     }
     .confirm-btn { background: #4CAF50; color: white; }
     .cancel-btn { background: #444; color: #ccc; }
-    .kbd-legend {
-      display: inline-flex; align-items: center; gap: 6px;
+    /* Board-adjacent controls: the display toggles that belong to the board
+       itself, plus the affordance that opens the shortcuts pane. */
+    .board-tools {
+      display: inline-flex; align-items: center; gap: 8px;
       margin-right: 4px;
     }
-    .kbd-pill {
-      position: relative;
-      display: inline-flex; align-items: center; gap: 4px;
+    .board-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
       padding: 3px 8px; border-radius: 4px;
       background: #2a2a2a; border: 1px solid #555;
       color: #ddd; font-size: 11px; font-weight: 600;
-      cursor: help; user-select: none;
+      cursor: pointer; user-select: none; white-space: nowrap;
     }
-    .kbd-pill .kbd-key {
-      display: inline-block;
-      padding: 1px 5px; border-radius: 3px;
-      background: #444; border: 1px solid #666;
-      font-family: ui-monospace, monospace; font-size: 10px;
-      color: #fff;
+    .board-toggle:hover { border-color: #777; }
+    .board-toggle input { cursor: pointer; accent-color: #4CAF50; margin: 0; }
+    .shortcuts-hint {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px; border-radius: 4px;
+      background: rgba(76,175,80,0.14); border: 1px solid #4CAF50;
+      color: #a5d6a7; font-family: ui-monospace, monospace;
+      font-size: 11px; font-weight: 700; cursor: pointer;
+      user-select: none; white-space: nowrap;
     }
-    .kbd-pill .kbd-tip {
-      position: absolute; top: calc(100% + 6px); left: 50%;
-      transform: translateX(-50%);
-      width: 260px; padding: 8px 10px;
-      background: #1a1a1a; border: 1px solid #4CAF50;
-      border-radius: 4px; color: #ddd;
-      font-size: 11px; font-weight: 400; line-height: 1.4;
-      text-align: left; white-space: normal;
-      opacity: 0; pointer-events: none; transition: opacity 0.12s;
-      z-index: 1001;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    .shortcuts-hint:hover { background: rgba(76,175,80,0.28); color: #fff; }
+
+    /* ── Keyboard shortcuts pane (Ctrl+/) ────────────────────────────────── */
+    .shortcuts-overlay {
+      position: fixed; inset: 0; z-index: 2000;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(8, 10, 12, 0.72); padding: 24px;
+      backdrop-filter: blur(2px);
     }
-    .kbd-pill .kbd-tip strong { color: #4CAF50; }
-    .kbd-pill .kbd-tip code {
-      background: #333; padding: 1px 4px; border-radius: 2px;
-      font-size: 10px; color: #fff;
+    .shortcuts-overlay.open { display: flex; }
+    .shortcuts-pane {
+      width: min(1080px, 100%); max-height: 86vh; overflow-y: auto;
+      background: #1e1f22; border: 1px solid #4CAF50; border-radius: 10px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.65);
+      padding: 18px 22px 22px;
     }
-    .kbd-pill:hover .kbd-tip { opacity: 1; }
+    .shortcuts-pane-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 12px; margin-bottom: 4px;
+    }
+    .shortcuts-pane-header h2 { font-size: 17px; font-weight: 700; color: #4CAF50; }
+    .shortcuts-pane-header .dismiss { font-size: 11px; color: #888; }
+    /* Multi-column so the groups PACK (a grid would leave a row as tall as its
+       tallest group); column-width keeps it responsive down to one column. */
+    .shortcuts-columns { columns: 280px 3; column-gap: 26px; margin-top: 12px; }
+    .shortcuts-group { break-inside: avoid; margin-bottom: 14px; }
+    .shortcuts-group h3 {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: #81c784;
+      border-bottom: 1px solid #3a3d41; padding-bottom: 4px; margin-bottom: 6px;
+    }
+    .shortcuts-group dl { display: grid; grid-template-columns: minmax(52px, 36%) 1fr; gap: 5px 10px; }
+    .shortcuts-group dt {
+      text-align: right; font-size: 12px; color: #9e9e9e; line-height: 1.5;
+    }
+    .shortcuts-group dd { font-size: 12px; color: #bdbdbd; line-height: 1.4; }
+    .shortcuts-group dd b { color: #e0e0e0; font-weight: 600; }
+    kbd {
+      display: inline-block; padding: 1px 5px; border-radius: 3px;
+      background: #33373b; border: 1px solid #55595e; border-bottom-width: 2px;
+      font-family: ui-monospace, monospace; font-size: 10px; color: #fff;
+      white-space: nowrap;
+    }
+    .shortcuts-note {
+      margin-top: 6px; padding-top: 10px; border-top: 1px solid #3a3d41;
+      font-size: 11px; color: #888; line-height: 1.5;
+    }
     .turn-controls {
       background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 15px;
     }
@@ -357,67 +353,12 @@
           <div class="board-header">
             <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="kbd-legend">
-              <span class="kbd-pill">
-                <span class="kbd-key">Tab</span> Cycle
-                <span class="kbd-tip">
-                  <strong>Tab — cycle your snakes</strong><br>
-                  Cycles the selection through the snakes you own (every snake
-                  you have selected this game stays yours and shows your name
-                  tag on the board). <code>Space</code> stages, <code>Esc</code> deselects.
-                </span>
-              </span>
-              <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
-                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Right-click</span> Goto
-                <span class="kbd-tip">
-                  <strong>Right-click — green "goto" target</strong><br>
-                  Sets a target the bot is REWARDED for approaching. It is a
-                  weighted vote in the same scoring matrix every other heuristic
-                  feeds — never a path override — so survival heuristics can
-                  still outvote it and the snake will never die for a target.
-                  The optimal step scores the full bonus, fading to nothing at
-                  twice the best path length.<br>
-                  Right-click the lone green cell again to cancel.
-                </span>
-              </span>
-              <span class="kbd-pill" style="background:rgba(76,175,80,0.18); border-color:#4caf50;">
-                <span class="kbd-key" style="background:#2e7d32; color:#fff;">Shift + Right</span> Cue
-                <span class="kbd-tip">
-                  <strong>Shift+Right-click — cue another target</strong><br>
-                  Appends to the goto queue instead of replacing it; shift-right
-                  a queued cell again to remove it. Targets are numbered on the
-                  board in order, and the green path shows the snake's whole
-                  predicted trajectory through them.<br>
-                  Reaching the active target promotes the next; emptying the
-                  queue reverts to the heuristic. Only the ACTIVE target steers
-                  the bot — the faded part of the path is a prediction, not a
-                  commitment.
-                </span>
-              </span>
-              <span class="kbd-pill" style="background:rgba(33,150,243,0.18); border-color:#2196f3;">
-                <span class="kbd-key" style="background:#1565c0; color:#fff;">Ctrl + Click</span> Near
-                <span class="kbd-tip">
-                  <strong>Ctrl-click — blue "near" target</strong><br>
-                  Rewards staying close to a cell WITHOUT ever arriving on it —
-                  the bonus peaks one square away and is zero for landing on the
-                  target or cutting off the path to it. Weighted into the bot's
-                  scoring exactly like Goto, so survival still wins. Single
-                  target, never auto-clears — ctrl-click the blue cell again to
-                  remove.
-                </span>
-              </span>
-              <span class="kbd-pill">
-                <span class="kbd-key">Alt + Click</span> Inspect
-                <span class="kbd-tip">
-                  <strong>Alt-click — inspect a cell</strong><br>
-                  Shows which snake's Voronoi territory owns that cell and at
-                  what BFS distance. Works on any cell, snake bodies included.
-                  While a candidate move is selected the popup describes that
-                  move's HYPOTHETICAL board. A plain click or <code>Esc</code>
-                  clears it.
-                </span>
-              </span>
-            </div>
+              <div class="board-tools">
+                <label class="board-toggle" title="Draw the board-wide Voronoi territory overlay (each unit's reachable region, outlined in its colour). Off skips the whole overlay — the client stops building territory grids and the server stops sending them.">
+                  <input type="checkbox" id="territoryOverlayToggle"> Voronoi
+                </label>
+                <button type="button" class="shortcuts-hint" id="shortcutsHintBtn" title="Keyboard shortcuts">Ctrl&nbsp;+&nbsp;/</button>
+              </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
               <button id="submitAllBtn" onclick="submitAll()" title="Commit all our snakes for this turn. Commitment is binding: each snake's confirmed staged move is frozen (Firebase rejects further staging) and the turn can end early once every player has committed. Snakes whose requested move is still confirming commit automatically the moment it confirms. Cannot be undone for the turn." style="background: #2e7d32; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Submit All</button>
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
@@ -461,15 +402,10 @@
             <span class="intent-mode-badge" id="intentModeBadge"></span>
           </div>
 
-          <div class="move-controls" id="moveControls">
-            <h3>Move Selection</h3>
-            <div class="move-buttons" id="moveButtons"></div>
-            <div class="submit-section">
-              <button class="submit-btn" id="submitBtn" onclick="stageSelectedMove()" disabled>
-                Stage Move <span class="shortcut">[Space]</span>
-              </button>
-            </div>
-          </div>
+          <!-- Move selection has no button UI: candidates are picked on the
+               board (click) or with the keyboard, and staged with Space. See
+               the shortcuts pane (Ctrl+/) for the whole schema. -->
+          <div class="unit-status-line" id="unitStatusLine"></div>
 
           <div class="decision-stats">
             <h3>Decision Breakdown</h3>
@@ -496,6 +432,123 @@
   </div>
 
   <div class="connection-status connecting" id="connectionStatus">Connecting...</div>
+
+  <!-- THE keyboard reference. Every keydown handler on this page is described
+       here; there is no other shortcuts UI. Opened/closed with Ctrl+/, closed
+       with Esc or a click outside. -->
+  <div class="shortcuts-overlay" id="shortcutsOverlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="shortcuts-pane" id="shortcutsPane">
+      <div class="shortcuts-pane-header">
+        <h2>Keyboard &amp; board shortcuts</h2>
+        <span class="dismiss"><kbd>Ctrl</kbd> + <kbd>/</kbd> or <kbd>Esc</kbd> to close &middot; click outside to dismiss</span>
+      </div>
+      <div class="shortcuts-columns">
+
+        <div class="shortcuts-group">
+          <h3>Selecting a unit</h3>
+          <dl>
+            <dt><kbd>Tab</kbd></dt>
+            <dd>Cycle through the units you own, in <b>letter rank</b> order (A, B, C&hellip;) with your own team first &mdash; the same order the units table lists them in.</dd>
+            <dt><kbd>Esc</kbd></dt>
+            <dd>Deselect the current unit (and clear any cell inspection).</dd>
+            <dt>Click</dt>
+            <dd>Click one of your units on the board, or its row in the units table, to select it.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>Choosing a move &mdash; arrow pad</h3>
+          <dl>
+            <dt><kbd>&uarr;</kbd> / <kbd>W</kbd></dt>
+            <dd>Extend <b>forward</b> along the current axis, out to the last legal square of the ray.</dd>
+            <dt><kbd>&darr;</kbd> / <kbd>S</kbd></dt>
+            <dd>Retract back toward hold, keeping the axis. Snakes cannot hold or reverse, so theirs stops short.</dd>
+            <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd> / <kbd>A</kbd> <kbd>D</kbd></dt>
+            <dd><b>Turn</b> through the unit&rsquo;s legal axis ring; switching axis resets the distance to 1.</dd>
+            <dt><kbd>&uarr;</kbd>+<kbd>&larr;</kbd>/<kbd>&rarr;</kbd></dt>
+            <dd><b>Pawns only</b> &mdash; hold Up and tap Left/Right for the diagonal-forward candidates. Left/Right alone rotate the pawn.</dd>
+            <dt><kbd>Space</kbd></dt>
+            <dd><b>Stage</b> the selected candidate as this unit&rsquo;s move for the turn.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>Choosing a move &mdash; numpad</h3>
+          <dl>
+            <dt><kbd>1</kbd>&hellip;<kbd>9</kbd></dt>
+            <dd>Absolute directions. A direction key selects its axis at distance 1 and repeat-presses extend along it.</dd>
+            <dt>opposite key</dt>
+            <dd>Retracts one square per press, through hold and out the other side &mdash; crossing hold flips the axis to the direction of travel.</dd>
+            <dt><kbd>5</kbd></dt>
+            <dd><b>Hold</b> (no change): selects the stay candidate and resets the axis to the unit&rsquo;s own orientation.</dd>
+            <dt>pawns</dt>
+            <dd><kbd>7</kbd>/<kbd>9</kbd> diagonal-forward, <kbd>4</kbd>/<kbd>6</kbd> rotate, <kbd>8</kbd> forward, <kbd>2</kbd> retract to hold.</dd>
+          </dl>
+          <div class="shortcuts-note">Works with NumLock either way. An unavailable move flashes the unit&rsquo;s cell red instead of staging anything.</div>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>Commanding a unit</h3>
+          <dl>
+            <dt><kbd>Del</kbd></dt>
+            <dd><b>Clear every command</b> given to the selected unit &mdash; staged move, goto queue, near target, staged rotation &mdash; reverting it to no human input at all. It then does whatever no input means for it (a snake follows the bot; a piece holds).</dd>
+            <dt>Right-click</dt>
+            <dd>Green <b>goto</b> target: the bot is rewarded for approaching it. A weighted vote in the same scoring matrix every heuristic feeds &mdash; never a path override &mdash; so survival can still outvote it. Right-click the lone target again to cancel.</dd>
+            <dt><kbd>Shift</kbd>+Right-click</dt>
+            <dd><b>Cue</b> another goto target onto the queue instead of replacing it; shift-right a queued cell again to remove it. Only the active (first) target steers the bot; the faded path is a prediction.</dd>
+            <dt><kbd>Ctrl</kbd>+click</dt>
+            <dd>Blue <b>near</b> target: rewards staying close <em>without</em> arriving &mdash; the bonus peaks one square away. Single target; ctrl-click it again to remove.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>The turn</h3>
+          <dl>
+            <dt><kbd>Enter</kbd></dt>
+            <dd><b>Submit All</b> &mdash; mark every unit you control done for this turn. Binding: confirmed staged moves freeze and the turn can end early.</dd>
+            <dt><kbd>Enter</kbd> / <kbd>Esc</kbd></dt>
+            <dd>Confirm / cancel an open dialog (take-over, certain-death confirmation). Dialogs take these keys first.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>Inspecting the board</h3>
+          <dl>
+            <dt><kbd>Alt</kbd>+click</dt>
+            <dd>Inspect a cell: which unit&rsquo;s Voronoi territory owns it and at what distance. Works on any cell, bodies included; with a candidate selected it describes that move&rsquo;s hypothetical board.</dd>
+            <dt><kbd>Alt</kbd> tap</dt>
+            <dd>Tap Alt on its own to toggle whether unit name tags are shown by default. Hovering a unit always calls its tag up. Persisted per browser.</dd>
+            <dt>click</dt>
+            <dd>A plain left click on empty board clears the inspection.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>History &amp; replay</h3>
+          <dl>
+            <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt>
+            <dd>Scrub one turn back / forward while the scrubber has focus.</dd>
+            <dt>arrows / numpad</dt>
+            <dd>After clicking a unit or a candidate cell, the same move-selection schema steers the replayed candidates instead; <kbd>Esc</kbd> hands the arrows back to the scrubber.</dd>
+            <dt>drag</dt>
+            <dd>Drag the turn slider, or use <b>|&#x25C0; &larr; &rarr; &#x25B6;|</b>, to move through the game. Live control keys stay inert while scrubbing.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>Display</h3>
+          <dl>
+            <dt><kbd>Ctrl</kbd> + <kbd>/</kbd></dt>
+            <dd>Open or close this pane, anywhere on the page.</dd>
+            <dt>Voronoi</dt>
+            <dd>The checkbox above the board toggles the territory overlay, live and in history alike. Switching it off skips the overlay&rsquo;s work entirely &mdash; no grids built, drawn, or even sent &mdash; not just its paint. Persisted per browser.</dd>
+          </dl>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
 
   <div class="confirm-dialog-overlay" id="confirmDialog">
     <div class="confirm-dialog">
@@ -664,6 +717,61 @@
     function liveTerritoryForCurrentTurn() {
       if (!liveBoardTerritory || !currentGameState) return null;
       return liveBoardTerritory.turn === currentGameState.turn ? liveBoardTerritory : null;
+    }
+
+    // ── Voronoi territory overlay switch ────────────────────────────────────
+    // THE gate for the overlay, live and historic alike. When it is off the
+    // overlay's work does not happen at any layer, rather than happening and
+    // then not being painted:
+    //   · the page stops threading territory grids into any moveState
+    //     (territoryGridForOverlay below is the one accessor every site uses);
+    //   · renderBoard is told showTerritory:false, so it builds no owner map,
+    //     no per-snake colour/body maps and walks no cell boundaries — that
+    //     also covers a candidate's PROJECTED grid, which rides on the move;
+    //   · the server is told to stop putting `territoryCells` on the wire for
+    //     this client (see the display-prefs message). The bot's own Voronoi
+    //     computation is untouched — it is decision-making, not display.
+    // Persisted per browser; on by default.
+    const TERRITORY_OVERLAY_PREF_KEY = 'territoryOverlayEnabled';
+    let territoryOverlayOn = true;
+    try {
+      territoryOverlayOn = localStorage.getItem(TERRITORY_OVERLAY_PREF_KEY) !== '0';
+    } catch (_e) { /* storage unavailable → session-only default */ }
+
+    // The territory grid any moveState should carry, given the switch. Every
+    // site that plumbs a grid into a moveState goes through here, so there is
+    // one place the overlay can be switched off for good.
+    function territoryGridForOverlay(grid) {
+      return territoryOverlayOn ? (grid || {}) : {};
+    }
+
+    // Tell the server whether this client wants the overlay's data at all.
+    // Display-only: `cellOwnership` (the Alt-click inspector's grid) keeps
+    // flowing either way, since the inspector is a separate feature.
+    function sendDisplayPrefs() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: 'set-display-prefs',
+        territoryOverlay: territoryOverlayOn,
+      }));
+    }
+
+    function setTerritoryOverlay(on) {
+      territoryOverlayOn = !!on;
+      try {
+        localStorage.setItem(TERRITORY_OVERLAY_PREF_KEY, territoryOverlayOn ? '1' : '0');
+      } catch (_e) { /* storage unavailable → session-only toggle */ }
+      const box = document.getElementById('territoryOverlayToggle');
+      if (box) box.checked = territoryOverlayOn;
+      sendDisplayPrefs();
+      // Rebuild whatever moveState is on screen so its grid matches the switch
+      // (switching back on must re-thread the grid, not wait for a new turn).
+      if (viewMode === 'historic') {
+        renderHistoricAtTurn(historicTurnNumber);
+      } else {
+        if (selectedSnakeId) setupMoveStateForSnake(selectedSnakeId);
+        scheduleRender();
+      }
     }
 
     function repaintBoard() {
@@ -1029,6 +1137,10 @@
       // Tight ping burst right after connect so a usable clock-offset
       // estimate exists before the first turn deadline matters.
       afterOpen: () => {
+        // Declare the display prefs on every (re)connect, right after the
+        // subscribe: the server keeps them per connection, so a reconnect
+        // would otherwise silently start shipping overlay data again.
+        sendDisplayPrefs();
         for (let i = 0; i < 5; i++) setTimeout(sendClockPing, 150 + i * 350);
       },
       // Distinguish this page's idle closes in the connection log.
@@ -1515,7 +1627,7 @@
       // what used to leave pieces with no territory overlay at all.
       const evalData = {
         evaluations: td.moveEvaluations || [],
-        territoryCells: liveTerritoryForCurrentTurn()?.territoryCells || {}
+        territoryCells: territoryGridForOverlay(liveTerritoryForCurrentTurn()?.territoryCells)
       };
 
       moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
@@ -1696,6 +1808,9 @@
       const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
         snakeId: selectedSnakeId,
         showChosenArrow: false,
+        // Overlay switch: false makes the renderer skip the territory work
+        // whole, projected grids included — see territoryGridForOverlay.
+        showTerritory: territoryOverlayOn,
         controlledSnakeIds: controlledSnakeIds,
         selectionGlows: selectionGlows,
         // Unit tags: styling derives reactively from the selections map
@@ -1799,77 +1914,41 @@
       }
     }
 
-    // The keypad slot's hint for a selected chess piece: candidates live on
-    // the board itself (every legal destination is a colored cell), so the
-    // slot shows the keyboard controls instead of direction buttons.
-    function renderPieceMoveHint(text) {
-      document.getElementById('moveButtons').innerHTML =
-        '<div style="grid-column: 1 / -1; padding: 10px 6px; color: #999; ' +
-        'font-size: 12px; text-align: center; line-height: 1.5;">' +
-        text + '</div>';
+    // The status line under the unit header: one sentence saying what the
+    // unit is doing this turn. Unit-agnostic — the only thing that varies is
+    // the sentence, never the mechanism (there is no per-unit control UI).
+    function renderUnitStatus(html) {
+      const el = document.getElementById('unitStatusLine');
+      if (el) el.innerHTML = html;
+    }
+
+    // The selected candidate, phrased for the status line.
+    function selectedCandidateLabel() {
+      if (!userSelectedMove || !moveState) return null;
+      const entry = moveState.moves[userSelectedMove];
+      return entry ? (entry.label ?? String(userSelectedMove).toUpperCase()) : null;
     }
 
     function updateMoveControls() {
       if (viewMode === 'historic') return;
       if (!selectedSnakeId) return;
-      const isPiece = selectedUnitIsPiece();
       if (!moveState) {
-        if (isPiece) {
-          // Candidate turn data for the piece hasn't landed yet.
-          updateIntentModeBadge();
-          renderPieceMoveHint('Waiting for this piece’s candidate moves…');
-          const submitBtn = document.getElementById('submitBtn');
-          submitBtn.disabled = true;
-          submitBtn.innerHTML = 'Stage Move <span class="shortcut">[Space]</span>';
-        }
+        updateIntentModeBadge();
+        renderUnitStatus('Waiting for this unit\u2019s candidate moves\u2026');
         return;
       }
       updateIntentModeBadge();
 
       if (moveSubmitted) {
-        const csData = controlledSnakeTurnData[selectedSnakeId];
-        const committedDir = csData?.committedMove;
-
-        if (isPiece) {
-          renderPieceMoveHint('Move committed for this turn.');
-        } else {
-          BoardRenderer.renderMoveButtons(
-            document.getElementById('moveButtons'), moveState, () => {}
-          );
-        }
-
-        if (!isPiece && committedDir) {
-          // Disable every direction button and mark the committed one.
-          document.querySelectorAll('#moveButtons .move-button').forEach(btn => {
-            btn.disabled = true;
-            btn.style.cursor = 'not-allowed';
-            const dir = btn.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
-            if (dir === committedDir) {
-              btn.classList.add('committed');
-              btn.innerHTML = btn.innerHTML.replace(/<\/button>/, ' \u2713');
-            }
-          });
-        }
-
-        const submitBtn = document.getElementById('submitBtn');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = 'Move Committed \u2713';
+        renderUnitStatus('Move <b>committed</b> for this turn.');
       } else {
-        if (isPiece) {
-          renderPieceMoveHint(
-            'Chess piece \u2014 click a candidate square, or steer with the ' +
-            'keyboard: \u2190/\u2192 turn through the piece\u2019s directions, ' +
-            '\u2191 extends / \u2193 retracts to hold; numpad picks absolute ' +
-            'directions (5 = hold, no change). Pawns: \u2190/\u2192 rotate, ' +
-            '\u2191+\u2190/\u2192 diagonal. Space stages. ' +
-            'Right-click sets a goto destination.'
-          );
-        } else {
-          BoardRenderer.renderMoveButtons(
-            document.getElementById('moveButtons'), moveState, selectMove
-          );
-        }
-        updateSubmitButton();
+        const label = selectedCandidateLabel();
+        renderUnitStatus(
+          (label
+            ? `Selected <b>${escapeHtml(label)}</b> \u2014 press <kbd>Space</kbd> to stage it.`
+            : 'Pick a destination on the board, or steer with the arrow pad / numpad, then <kbd>Space</kbd> to stage.') +
+          ' <kbd>Del</kbd> clears every command. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
+        );
       }
 
       if (!analyticsFrozen) {
@@ -2042,22 +2121,6 @@
         }
       }
       return bestMove;
-    }
-
-    function updateSubmitButton() {
-      const btn = document.getElementById('submitBtn');
-      if (moveSubmitted) {
-        btn.disabled = true;
-        btn.innerHTML = 'Move Committed \u2713';
-      } else if (userSelectedMove) {
-        const label = moveState?.moves?.[userSelectedMove]?.label
-          ?? String(userSelectedMove).toUpperCase();
-        btn.disabled = false;
-        btn.innerHTML = `Stage ${label} <span class="shortcut">[Space]</span>`;
-      } else {
-        btn.disabled = true;
-        btn.innerHTML = 'Stage Move <span class="shortcut">[Space]</span>';
-      }
     }
 
     function startTurnTimer() {
@@ -2372,7 +2435,7 @@
         candidatesByPosition, holdCandidate: null,
         // Same board-level grid every other moveState carries, so this
         // synthetic one is not a second shape for consumers to special-case.
-        territoryCells: liveTerritoryForCurrentTurn()?.territoryCells || {},
+        territoryCells: territoryGridForOverlay(liveTerritoryForCurrentTurn()?.territoryCells),
         selectedSnake: snakeId,
       };
     }
@@ -2816,7 +2879,85 @@
       setKeyNavSelection(step.axis, step.distance);
     }
 
+    // ── Keyboard shortcuts pane ─────────────────────────────────────────────
+    // THE keyboard reference for this page: one overlay, opened and closed
+    // with Ctrl+/ (also Esc, also a click outside). There is no other
+    // shortcuts UI — the move/command buttons this page used to carry are
+    // gone, and every flow they offered is a key or a board click documented
+    // in the pane.
+    function shortcutsPaneOpen() {
+      return document.getElementById('shortcutsOverlay').classList.contains('open');
+    }
+
+    function setShortcutsPane(open) {
+      document.getElementById('shortcutsOverlay').classList.toggle('open', !!open);
+    }
+
+    function toggleShortcutsPane() {
+      setShortcutsPane(!shortcutsPaneOpen());
+    }
+
+    // Ctrl+/ (Cmd+/ on a Mac). Matched on e.code too, because a layout where
+    // '/' needs a modifier reports a different e.key for the same physical key.
+    function isShortcutsPaneChord(e) {
+      return (e.ctrlKey || e.metaKey) && (e.key === '/' || e.key === '?' || e.code === 'Slash');
+    }
+
+    document.getElementById('shortcutsHintBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      toggleShortcutsPane();
+    });
+    // A click on the backdrop (never inside the pane) dismisses.
+    document.getElementById('shortcutsOverlay').addEventListener('pointerdown', (e) => {
+      if (e.target === e.currentTarget) setShortcutsPane(false);
+    });
+
+    // ── Voronoi overlay switch wiring ───────────────────────────────────────
+    (function setupTerritoryOverlayToggle() {
+      const box = document.getElementById('territoryOverlayToggle');
+      if (!box) return;
+      box.checked = territoryOverlayOn;
+      box.addEventListener('change', () => setTerritoryOverlay(box.checked));
+    })();
+
+    // ── Clear human input ───────────────────────────────────────────────────
+    // ONE path for "this unit has been told nothing". Everything a human can
+    // give a unit — a staged move (a piece's rotation is one), a goto queue, a
+    // near target, an un-staged local cursor — is dropped in a single step,
+    // because on the server all of it IS the unit's intent and clearing means
+    // replacing that intent wholesale. What the unit does next is whatever no
+    // input resolves to for its kind; that outcome is decided where moves are
+    // staged, never named here.
+    function clearHumanInput(snakeId) {
+      if (!snakeId) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'clear-human-input', snakeId }));
+      // Local echo covers only the local half: the inspection cursor. Staged
+      // moves and waypoints are server-owned and arrive on the broadcast.
+      if (snakeId === selectedSnakeId) {
+        userSelectedMove = null;
+        if (moveState) moveState.selectedMove = null;
+        updateMoveControls();
+        scheduleRender();
+      }
+      showBannerNotice('Commands cleared \u2014 back to no human input');
+    }
+
     document.addEventListener('keydown', (e) => {
+      // Ctrl+/ is global: it works with a text field focused, over a dialog,
+      // in history mode, and while the pane itself is open (it closes it).
+      if (isShortcutsPaneChord(e)) {
+        e.preventDefault();
+        toggleShortcutsPane();
+        return;
+      }
+      // While the pane is open it owns the keyboard: Esc closes it, and every
+      // other key is swallowed so nothing steers the board behind it.
+      if (shortcutsPaneOpen()) {
+        e.preventDefault();
+        if (e.key === 'Escape') setShortcutsPane(false);
+        return;
+      }
       // Let the buffer input (or any text/number field) receive keys normally.
       const active = document.activeElement;
       if (active && (active.tagName === 'INPUT' && active.type !== 'range' || active.tagName === 'TEXTAREA')) {
@@ -2897,6 +3038,15 @@
       if (e.key === 'Tab') {
         e.preventDefault();
         cycleOwnedSnakes();
+        return;
+      }
+
+      // Delete: revert the selected unit to null human input. Deliberately
+      // above the moveSubmitted gate — a committed move is frozen for this
+      // turn, but the queue/target it was clearing still steers later ones.
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        if (selectedSnakeId) clearHumanInput(selectedSnakeId);
         return;
       }
 
@@ -3590,8 +3740,8 @@
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
         });
-      const legend = document.querySelector('.kbd-legend');
-      if (legend) legend.style.display = 'none';
+      // The board tools stay: the Voronoi switch and the shortcuts pane both
+      // apply to the replay exactly as they do to live play.
       const users = document.getElementById('connectedUsers');
       if (users) users.style.display = 'none';
       const firstMove = document.getElementById('firstMoveIndicator');
@@ -4054,7 +4204,7 @@
         const blob = evalRow.move_evaluations || {};
         const evalInput = {
           evaluations: blob.evaluations || (Array.isArray(blob) ? blob : []),
-          territoryCells: blob.territoryCells || timelineRow?.territory || {},
+          territoryCells: territoryGridForOverlay(blob.territoryCells || timelineRow?.territory),
         };
         historicMoveState = BoardRenderer.processMoveEvaluations(
           evalInput, evalRow.safe_moves, head, evalRow.bot_recommendation
@@ -4067,7 +4217,7 @@
         // candidates to draw, but the turn's territory grid belongs to the
         // BOARD, not to that unit, so the overlay still renders.
         historicMoveState = sharedTerritoryMoveState(
-          timelineRow?.territory, getHistoricSnakeId()
+          territoryGridForOverlay(timelineRow?.territory), getHistoricSnakeId()
         );
       }
       // The cell inspector reads whichever era captured the ownership grid:
@@ -4236,6 +4386,7 @@
       const cmd = ctx.cmd || null;
       const cellSize = BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
         snakeId: own ? own.snake_id : getHistoricSnakeId(),
+        showTerritory: territoryOverlayOn,
         chosenMove: submitted || botRec,
         chosenMoveStyle: submitted ? 'submitted' : 'recommendation-only',
         secondaryMove: submitted && botRec && submitted !== botRec ? botRec : null,
@@ -4299,9 +4450,6 @@
       historicKeyFocus = 'candidates';
       ms.selectedMove = moveKey;
       ms.keyNav = nav || deriveKeyNavFromSelection(ms.moves[moveKey], ms.keyNav);
-      BoardRenderer.renderMoveButtons(
-        document.getElementById('moveButtons'), ms, historicSelectMove
-      );
       renderHistoricBoard();
       BoardRenderer.updateStatsTable(
         document.getElementById('statsTableBody'), ms.moves[moveKey], ms
@@ -4380,13 +4528,13 @@
 
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = 'none';
-      const submitSection = document.querySelector('#moveControls .submit-section');
-      if (submitSection) submitSection.style.display = 'none';
 
       renderHistoricCommandNote(turn.snake_id);
 
-      BoardRenderer.renderMoveButtons(
-        document.getElementById('moveButtons'), historicMoveState, historicSelectMove
+      renderUnitStatus(
+        'Read-only replay \u2014 click a candidate square, or steer with the ' +
+        'arrow pad / numpad, to read that move\u2019s breakdown. ' +
+        '<kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
       );
       BoardRenderer.updateStatsTable(
         document.getElementById('statsTableBody'), null, historicMoveState
@@ -4466,8 +4614,6 @@
       if (commandNote) commandNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = 'none';
-      const submitSection = document.querySelector('#moveControls .submit-section');
-      if (submitSection) submitSection.style.display = 'none';
 
       const boardState = historicRenderCtx?.boardRow?.game_state;
       const unit = boardState?.board?.snakes?.find(s => s.id === snakeId) || null;
@@ -4482,9 +4628,9 @@
           : unit
             ? 'not loaded yet for this turn.'
             : 'it is dead at this turn.';
-      document.getElementById('moveButtons').innerHTML =
-        '<div style="grid-column: 1 / -1; color: #888; text-align: center; padding: 12px;">' +
-        `No decision data for this unit \u2014 ${escapeHtml(reason)}</div>`;
+      renderUnitStatus(
+        `No decision data for this unit \u2014 ${escapeHtml(reason)}`
+      );
       document.getElementById('statsTableBody').innerHTML =
         '<tr><td colspan="5" style="text-align: center; color: #888;">' +
         `No decision data \u2014 ${escapeHtml(reason)}</td></tr>`;
@@ -4497,8 +4643,6 @@
       if (commandNote) commandNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = '';
-      const submitSection = document.querySelector('#moveControls .submit-section');
-      if (submitSection) submitSection.style.display = '';
       if (selectedSnakeId) {
         showSelectionUI();
       } else {
@@ -4659,6 +4803,9 @@
     });
     document.addEventListener('keyup', (e) => {
       if (e.key !== 'Alt') { altTapPending = false; return; }
+      // The shortcuts pane is modal: an Alt press that happened over it is
+      // not a board gesture.
+      if (shortcutsPaneOpen()) { altTapPending = false; return; }
       if (!altTapPending) return;
       altTapPending = false;
       e.preventDefault(); // keep the browser from focusing its menu bar

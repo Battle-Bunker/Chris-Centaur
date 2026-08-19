@@ -1294,6 +1294,31 @@ export class ActiveGameManager {
     return true;
   }
 
+  // Revert a unit to NULL HUMAN INPUT: cancel every command a human has given
+  // it — the staged manual move (a piece's staged rotation is one), the goto
+  // queue, the near target — in a single step. This needs no per-command
+  // clearing because ALL of it is the unit's `intent`, one discriminated
+  // union: replacing that union with `heuristic` structurally drops whatever
+  // it held. Only the user currently selecting the unit may clear it.
+  //
+  // Deliberately says nothing about what the unit does next. setIntent
+  // re-stages through the ordinary path, and that path already knows what no
+  // input means for each kind of unit (today: the bot's recommendation for a
+  // snake, holding for a piece). Naming those outcomes here would fork the
+  // fallback into a second definition.
+  clearHumanInput(gameId: string, snakeId: string, userId: string): boolean {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game || !controlled) return false;
+    if (controlled.selectedBy !== userId) return false;
+    const cleared = controlled.intent.kind;
+    const operator = this.operatorFor(game, userId);
+    this.logCommandEvent(gameId, snakeId, 'input-clear', operator, { cleared });
+    this.setIntent(gameId, snakeId, { kind: 'heuristic' }, null);
+    console.log(`[ActiveGameManager] Human input cleared for ${gameId}:${snakeId} (was ${cleared})`);
+    return true;
+  }
+
   private viewFor(snapshot: BoardSnapshot, snakeId: string): GameState | null {
     const you = snapshot.board.snakes.find(s => s.id === snakeId);
     if (!you) return null;

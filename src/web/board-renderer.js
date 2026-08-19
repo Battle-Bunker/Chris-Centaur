@@ -1556,7 +1556,12 @@ const BoardRenderer = (function () {
       });
     }
 
-    if (moveState) {
+    // Voronoi territory overlay. `showTerritory: false` skips the WHOLE block,
+    // not just the paint: no owner map, no per-snake colour/body maps, no
+    // per-cell boundary walk. It is the single gate for every territory grid
+    // the board can draw — the turn's partition and a candidate's projected
+    // one alike — so switching the overlay off costs the renderer nothing.
+    if (moveState && options?.showTerritory !== false) {
       let activeTerritoryForDisplay = moveState.territoryCells;
       if (
         moveState.selectedMove &&
@@ -2848,46 +2853,6 @@ const BoardRenderer = (function () {
     fillUnitIdsAffordance(container, allSnakes);
   }
 
-  function renderMoveButtons(container, moveState, onMoveClick) {
-    const buttonLayout = [null, "up", null, "left", "down", "right"];
-
-    container.innerHTML = buttonLayout
-      .map((direction) => {
-        if (!direction) {
-          return '<div style="grid-column: span 1;"></div>';
-        }
-        const move = moveState.moves[direction];
-        if (!move) return "";
-
-        let classes = ["move-button"];
-        if (move.isChosen) classes.push("chosen");
-        if (moveState.selectedMove === direction) classes.push("selected");
-
-        const scoreText =
-          move.score != null
-            ? `Score: ${move.score.toFixed(2)}`
-            : move.isSafe
-              ? "Score: 0.00"
-              : "Not evaluated";
-
-        const bgColor = move.color || candidateTint(0.5);
-        // Same hue as the board cell's tint, opaque enough to read as a button.
-        const solidColor = bgColor.replace(/[\d.]+\)$/, "0.8)");
-
-        return `
-        <button class="${classes.join(" ")}"
-                onclick="BoardRenderer._moveClickHandler('${direction}')"
-                style="background: ${solidColor};">
-          ${direction.toUpperCase()} ${move.isChosen ? "\u2713" : ""}
-          <span class="score">${scoreText}</span>
-        </button>
-      `;
-      })
-      .join("");
-
-    BoardRenderer._moveClickHandler = onMoveClick;
-  }
-
   function updateStatsTable(tbody, move, moveState) {
     if (!move || !move.breakdown) {
       tbody.innerHTML = `
@@ -3365,7 +3330,6 @@ const BoardRenderer = (function () {
     renderBoard,
     createBoardOverlay,
     renderSnakeInfo,
-    renderMoveButtons,
     updateStatsTable,
     renderMinimap,
     renderTerritoryBoundaries,
@@ -3389,7 +3353,6 @@ const BoardRenderer = (function () {
     unitDrawsOrientationEye,
     compareUnitsByLetter,
     inspectableUnitIds,
-    _moveClickHandler: null,
   };
 })();
 
