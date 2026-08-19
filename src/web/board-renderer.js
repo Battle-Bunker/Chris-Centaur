@@ -2585,7 +2585,7 @@ const BoardRenderer = (function () {
     // square sits on a cell diagonally adjacent to the unit's head, carrying
     // its letter, weight, health, buff, and operator name when owned.
     // Placement + hover hit-testing live in renderUnitTags / getNameTagAt.
-    renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans);
+    renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans, turn);
 
     // Dead-head markers (drawn last so they sit on top of live snakes). This is
     // the SINGLE centralized death-rendering path shared by live play, /play
@@ -2984,7 +2984,15 @@ const BoardRenderer = (function () {
   // unitTagVisibility turns those into the one state each tag draws in.
   // The tag the pointer is latched onto still PUBLISHES its rect while hidden:
   // that rect is how the caller sees the pointer leave it and un-latch.
-  function renderUnitTags(ctx, canvas, board, cellSize, options, bodyPlans) {
+  function renderUnitTags(
+    ctx,
+    canvas,
+    board,
+    cellSize,
+    options,
+    bodyPlans,
+    currentTurn,
+  ) {
     const rects = [];
     _nameTagRects.set(canvas, rects);
     const owners = options?.owners || {};
@@ -3086,12 +3094,21 @@ const BoardRenderer = (function () {
           text: String(health),
         });
       }
+      // The tag writes the buff's TURNS, same as the body plate — its LEVEL
+      // is already spelled out by the body's own outline colour, so a level
+      // number here would say twice what the outline says once. No expiry on
+      // the wire means no countdown to write, so the tag carries no
+      // invulnerability entry at all (same shared helper, same fallback the
+      // body plate uses).
       if (invulnLevel !== 0) {
-        stats.push({
-          ...invulnerabilityMark(invulnLevel),
-          iconColor: null,
-          text: String(invulnLevel),
-        });
+        const invulnTurns = invulnerabilityTurnsRemaining(snake, currentTurn);
+        if (invulnTurns != null) {
+          stats.push({
+            ...invulnerabilityMark(invulnLevel),
+            iconColor: null,
+            text: String(invulnTurns),
+          });
+        }
       }
 
       // The letter square is SQUARE by construction — it is the anchor that
@@ -3371,18 +3388,23 @@ const BoardRenderer = (function () {
     const snakeColor = snake.customizations?.color || snake.color || "#888888";
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
+    // The row writes the buff's TURNS, same as the body plate — its LEVEL is
+    // already spelled out by the unit's own body outline colour (blue for
+    // protected, red for extra-vulnerable), so a level number here would say
+    // twice what the outline says once. No expiry on the wire (older logs, or
+    // a level already lapsed at the displayed turn) means no countdown to
+    // write, so the row carries no invulnerability entry at all — the same
+    // shared helper the body plate and the unit tag both ask.
     if (invulnLevel !== 0) {
-      // The shield stays a glyph; the extra-vulnerable end of the scale is the
-      // drawn hazard mark, inlined at the row's text height.
-      const invulnMark = invulnerabilityMark(invulnLevel);
-      const icon = invulnMark.mark ? hazardIconSVG(13) : invulnMark.icon;
-      // Turns remaining (inclusive of the current turn) from the shared
-      // countdown. Falls back to just the level when the expiry is missing
-      // (older logs) or already passed at the displayed turn.
       const remaining = invulnerabilityTurnsRemaining(snake, currentTurn);
-      const turnsSuffix = remaining != null ? ` \u00B7 ${remaining}t` : "";
-      invulnDisplay =
-        `<span title="Invulnerability">${icon} ${invulnLevel}${turnsSuffix}</span>`;
+      if (remaining != null) {
+        // The shield stays a glyph; the extra-vulnerable end of the scale is
+        // the drawn hazard mark, inlined at the row's text height.
+        const invulnMark = invulnerabilityMark(invulnLevel);
+        const icon = invulnMark.mark ? hazardIconSVG(13) : invulnMark.icon;
+        invulnDisplay =
+          `<span title="Invulnerability">${icon} ${remaining}</span>`;
+      }
     }
     // Historical replays predating letters stored an emoji head glyph; the
     // letter is already the suffix of a current snake's name, so only the

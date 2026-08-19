@@ -214,6 +214,23 @@ describe('canvas resolution', () => {
     expect(tagHits(3)).toEqual(atOne);
   });
 
+  test('a buffed unit\'s tag writes turns remaining, not the level', () => {
+    // Level 3, expiry turn 8; makeState's turn is 3, so 6 turns remain
+    // inclusive of the current turn — the same countdown the body plate and
+    // the units table read, never the bare level.
+    const snake: Snake = {
+      ...makeUnit('S', { x: 5, y: 5 }),
+      invulnerabilityLevel: 3,
+      invulnerabilityExpiryTurn: 8,
+    };
+    const ops: Op[] = [];
+    const canvas = fakeCanvas(ops);
+    BoardRenderer.renderBoard(canvas, makeState([snake]), emptyMoveState, {});
+    const texts = ops.filter((o) => o.op === 'fillText').map((o) => o.args[0]);
+    expect(texts).toContain('6');
+    expect(texts).not.toContain('3');
+  });
+
   test('the minimap is backed the same way — one resolution path, not one per surface', () => {
     withDevicePixelRatio(3);
     const ops: Op[] = [];

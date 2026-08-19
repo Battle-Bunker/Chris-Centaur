@@ -627,7 +627,19 @@ describe('tag outline', () => {
 });
 
 describe('units table', () => {
-  const snake = {
+  const snake: {
+    id: string;
+    name: string;
+    letter: string;
+    health: number;
+    maxHealth: number;
+    length: number;
+    unitType: string;
+    color: string;
+    invulnerabilityLevel: number;
+    invulnerabilityExpiryTurn?: number;
+    body: Array<{ x: number; y: number }>;
+  } = {
     id: 'doc-id-9f3c1b',
     name: 'Red Rockets A',
     letter: 'A',
@@ -637,6 +649,8 @@ describe('units table', () => {
     unitType: 'snake',
     color: '#e53935',
     invulnerabilityLevel: 2,
+    // Turn 7 (the fixture's displayed turn) + 3 turns left, inclusive.
+    invulnerabilityExpiryTurn: 10,
     body: [{ x: 1, y: 1 }, { x: 1, y: 0 }],
   };
 
@@ -661,10 +675,28 @@ describe('units table', () => {
     expect(html).toContain(BoardRenderer.STAT_ICON.invulnerable);
   });
 
-  test('a negative invulnerability level wears the drawn hazard mark', () => {
-    const html = render({ ...snake, invulnerabilityLevel: -2 });
+  test('the invulnerability cell writes turns remaining, not the level', () => {
+    // 4 turns left (expiry 10, inclusive of turn 7) — never the level (2),
+    // same countdown the body plate and the on-board tag both read.
+    const html = render();
+    expect(html).toContain(`${BoardRenderer.STAT_ICON.invulnerable} 4</span>`);
+    expect(html).not.toContain(`${BoardRenderer.STAT_ICON.invulnerable} 2`);
+    // The old level-and-turns separator is gone along with the level.
+    expect(html).not.toContain('·');
+  });
+
+  test('a negative invulnerability level wears the drawn hazard mark, and also writes turns', () => {
+    const html = render({ ...snake, invulnerabilityLevel: -2, invulnerabilityExpiryTurn: 9 });
     expect(html).toContain(BoardRenderer.hazardIconSVG(13));
     expect(html).not.toContain(BoardRenderer.STAT_ICON.invulnerable);
+    // 3 turns left (expiry 9, inclusive of turn 7) — never the level (-2).
+    expect(html).toContain('3</span>');
+  });
+
+  test('no expiry on the wire means no invulnerability entry at all, matching the body', () => {
+    const html = render({ ...snake, invulnerabilityExpiryTurn: undefined });
+    expect(html).not.toContain(BoardRenderer.STAT_ICON.invulnerable);
+    expect(html).not.toContain(BoardRenderer.hazardIconSVG(13));
   });
 
   test('every row carries its OWN unit id, on hover and on a copy control', () => {
