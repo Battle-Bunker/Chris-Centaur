@@ -835,12 +835,13 @@ const BoardRenderer = (function () {
   // the unit's own numbers can live on — which is where they belong, because
   // a number ON the unit needs no line traced back to it. Walking head → tail,
   // each DISTINCT body cell carries exactly one item:
-  //   head        the unit's LETTER on a rounded square filled with the owning
-  //               player's colour (its own body colour when nobody holds it)
+  //   head        the unit's LETTER, on the same plate every stat behind it
+  //               uses, filled with the owning player's colour (its own body
+  //               colour when nobody holds it)
   //   neck        weight, behind the silver anvil
   //   2nd cell    health, behind the heart tinted by the shared thresholds
-  //   3rd cell    invulnerability, behind the shield / hazard mark, carrying
-  //               the turns it still has to run — only when there is a level
+  //   3rd cell    the TURNS of invulnerability still to run, behind the
+  //               shield / hazard mark — only while a level is running
   //   tail        how many body parts are STACKED on the tail cell — only when
   //               more than one is
   // The tail's stack count OUTRANKS the flow items: it is the one number
@@ -858,6 +859,21 @@ const BoardRenderer = (function () {
   // colour and over every terrain a body can lie on.
   const BODY_ITEM_PLAQUE = "rgba(255, 255, 255, 0.94)";
   const BODY_ITEM_TEXT = "#14181e";
+
+  // Every item — the head's letter and every stat behind it — is drawn on ONE
+  // square of the same size, so a body reads as a run of identical plates
+  // rather than as pills each taking whatever width its own number happens to
+  // want. The side is a fraction of the body's own THICKNESS, not the cell's,
+  // which is what keeps the unit's colour showing all the way round the plate
+  // at every cell size — and what keeps the head's plate clear of the health
+  // BAR along that cell's bottom edge (drawHealthBar).
+  const BODY_PLATE_SIDE = 0.86;
+  // How much of the plate's width its content may spend; the rest is the
+  // margin that keeps a number off the plate's rounded corners.
+  const BODY_PLATE_INNER = 0.9;
+  // The corner radius as a fraction of the side — one value, so the letter
+  // square and the stat plates round identically.
+  const BODY_PLATE_RADIUS = 0.26;
 
   // The body cells an item can be placed on: the DISTINCT coordinates the
   // body occupies, head → tail. A snake that doubles back over itself — a
@@ -890,59 +906,32 @@ const BoardRenderer = (function () {
     return n;
   }
 
-  // A board cell as a canvas rect, inset on every side. Both item boxes below
-  // are this with their own inset, so a cell can never be located two ways.
-  function cellBox(cell, boardHeight, cellSize, inset) {
+  // THE box every body item is drawn in: the shared square, centred in its
+  // cell. One geometry for the letter and for every stat, so a cell can never
+  // be located two ways and no item can quietly claim more room than another.
+  function bodyPlateBox(cell, boardHeight, cellSize) {
+    const side = (cellSize - getSnakeGap(cellSize) * 2) * BODY_PLATE_SIDE;
+    const inset = (cellSize - side) / 2;
     return {
       x: cell.x * cellSize + inset,
       y: (boardHeight - 1 - cell.y) * cellSize + inset,
-      w: cellSize - inset * 2,
-      h: cellSize - inset * 2,
+      w: side,
+      h: side,
     };
   }
 
-  // The drawable box for a STAT item: the cell itself, barely inset. A stat
-  // reads as a horizontal BAND whose height comes from its text and never from
-  // the box, so it can spend the cell's full width — which is what lets a
-  // three-digit health sit beside its heart — while still never overhanging
-  // the body cells above and below it.
-  function bodyItemBox(cell, boardHeight, cellSize) {
-    return cellBox(cell, boardHeight, cellSize, Math.max(1.5, cellSize * 0.06));
-  }
-
-  // The head cell's LETTER SQUARE is a square, not a band, so it keeps to the
-  // body's own inner area — a square spilling into the gap would overhang the
-  // shape it sits on. The head cell also wears the unit's health BAR along its
-  // bottom edge (drawHealthBar), so the square gives that strip back rather
-  // than sitting under it.
-  function headItemBox(cell, boardHeight, cellSize) {
-    const box = cellBox(
-      cell, boardHeight, cellSize,
-      getSnakeGap(cellSize) + Math.max(0.5, cellSize * 0.02),
-    );
-    const barTop =
-      (boardHeight - 1 - cell.y) * cellSize +
-      cellSize -
-      Math.max(2, cellSize * 0.15) -
-      Math.max(1, cellSize * 0.03);
-    box.h = Math.max(0, Math.min(box.y + box.h, barTop - 1) - box.y);
-    return box;
-  }
-
-  // Fit a STAT item into one cell's band. Text width scales exactly with font
+  // Fit a STAT item INSIDE the plate. Text width scales exactly with font
   // size, so the size that fits is solved for rather than searched: measure
-  // once at the preferred size, scale down to the width available, and accept
-  // the result only while it stays above the size a number can still be read
-  // at. Readings are then tried in the order that keeps the most MEANING:
-  //   icon + full text → full text → icon + short text → short text
-  // The icon is given up BEFORE the buff's countdown because the body already
-  // says which buff it is — a protected snake wears a blue outline, an
-  // extra-vulnerable one a red — while nothing else on the board says how many
-  // turns are left. Position along the body (weight, then health, then buff)
-  // is what still names a bare number. `null` means even the shortest reading
-  // cannot be read here, and the caller drops the item.
+  // once at the preferred size, scale down to the plate's inner width, and
+  // accept the result only while it stays above the size a number can still be
+  // read at. Two readings are tried, in the order that keeps the most MEANING:
+  //   icon + number → number
+  // The icon is what is given up, because position along the body (weight,
+  // then health, then the buff) still names a bare number while nothing names
+  // a bare icon. `null` means even the bare number cannot be read here, and
+  // the caller drops the item — which is precisely what warrants a tag.
   function fitBodyStat(ctx, item, box, cellSize) {
-    // The band's ceiling is the body's own thickness, not the cell's.
+    // The text's ceiling is the body's own thickness, not the cell's.
     const bodyH = cellSize - getSnakeGap(cellSize) * 2;
     const pref = Math.min(
       Math.max(BODY_ITEM_MIN_FONT, cellSize * 0.34),
@@ -950,26 +939,20 @@ const BoardRenderer = (function () {
     );
     if (pref < BODY_ITEM_MIN_FONT) return null;
     const minFont = Math.max(BODY_ITEM_MIN_FONT, pref * 0.7);
-    const avail = box.w * 0.94;
+    const avail = box.w * BODY_PLATE_INNER;
     // The tail's stack count is a bare number by design — the tail's own
     // position is what names it — so it simply has no icon reading to try.
     const hasIcon = !!(item.mark || item.icon);
-    const texts = [item.text];
-    if (item.shortText && item.shortText !== item.text) texts.push(item.shortText);
-    const readings = [];
-    for (const text of texts) {
-      if (hasIcon) readings.push({ withIcon: true, text });
-      readings.push({ withIcon: false, text });
-    }
+    const readings = hasIcon ? [true, false] : [false];
     ctx.save();
     ctx.font = `700 ${pref}px sans-serif`;
     try {
-      for (const reading of readings) {
+      for (const withIcon of readings) {
         const iconH = pref * 0.95;
         const iconGap = pref * 0.14;
         const atPref =
-          (reading.withIcon ? statIconWidth(ctx, item, iconH) + iconGap : 0) +
-          ctx.measureText(reading.text).width;
+          (withIcon ? statIconWidth(ctx, item, iconH) + iconGap : 0) +
+          ctx.measureText(item.text).width;
         if (atPref <= 0) continue;
         const fontSize = Math.min(pref, (pref * avail) / atPref);
         if (fontSize < minFont) continue;
@@ -977,11 +960,10 @@ const BoardRenderer = (function () {
         return {
           font: `700 ${fontSize}px sans-serif`,
           fontSize,
-          bodyH,
           iconH: fontSize * 0.95,
           iconGap: fontSize * 0.14,
-          withIcon: reading.withIcon,
-          text: reading.text,
+          withIcon,
+          text: item.text,
           width: atPref * scale,
         };
       }
@@ -991,41 +973,61 @@ const BoardRenderer = (function () {
     return null;
   }
 
-  // Fit the LETTER square into the head cell. The letter is the unit's name
-  // out loud, so it takes the whole box and only the box's size can turn it
-  // away.
+  // Fit the LETTER into the same plate, solved against the same inner width:
+  // the letter is the unit's name out loud, so a wide one is made smaller
+  // rather than turned away, and only a plate too small to read anything in
+  // gives it up to the tag.
   function fitBodyLetter(ctx, item, box) {
-    const side = Math.min(box.w, box.h);
-    if (side < BODY_ITEM_MIN_FONT) return null;
-    const fontSize = Math.max(BODY_ITEM_MIN_FONT, side * 0.74);
+    if (box.w < BODY_ITEM_MIN_FONT) return null;
+    const pref = box.w * 0.74;
     ctx.save();
-    ctx.font = `800 ${fontSize}px sans-serif`;
-    const width = ctx.measureText(item.text).width;
+    ctx.font = `800 ${pref}px sans-serif`;
+    const atPref = ctx.measureText(item.text).width;
     ctx.restore();
-    // A historic multi-character glyph that cannot fit the square is not a
-    // letter any more; the tag's own square is wide enough for it.
-    if (width > box.w * 0.92) return null;
-    return { font: `800 ${fontSize}px sans-serif`, fontSize, width };
+    const avail = box.w * BODY_PLATE_INNER;
+    const fontSize = atPref > avail ? (pref * avail) / atPref : pref;
+    if (fontSize < BODY_ITEM_MIN_FONT) return null;
+    return { font: `800 ${fontSize}px sans-serif`, fontSize };
   }
 
-  // Draw one stat item: its plaque, then icon + number centred on it.
+  // THE plate every body item is drawn on: a rounded square of the shared size
+  // and radius, optionally rimmed. Both readings — the head's letter square
+  // and a stat's plaque — are painted through here, so the two can never round
+  // or size differently. The rim is drawn INSIDE the square, so a rimmed plate
+  // and a bare one take up exactly the same footprint.
+  function drawBodyPlate(ctx, box, fill, rim, rimWidth) {
+    const r = box.w * BODY_PLATE_RADIUS;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(box.x, box.y, box.w, box.h, r);
+    else ctx.rect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (!rim) return;
+    const half = rimWidth / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(
+        box.x + half, box.y + half,
+        box.w - rimWidth, box.h - rimWidth,
+        Math.max(0, r - half),
+      );
+    } else {
+      ctx.rect(box.x + half, box.y + half, box.w - rimWidth, box.h - rimWidth);
+    }
+    ctx.lineWidth = rimWidth;
+    ctx.strokeStyle = rim;
+    ctx.stroke();
+  }
+
+  // Draw one stat item: its plate, then icon + number centred on it.
   function drawBodyStatItem(ctx, item, box, fit) {
     const midY = box.y + box.h / 2;
-    const plaqueH = Math.min(fit.bodyH, fit.fontSize * 1.46);
-    const plaqueW = Math.min(box.w, fit.width + fit.fontSize * 0.44);
-    const px = box.x + (box.w - plaqueW) / 2;
-    const py = midY - plaqueH / 2;
     ctx.save();
-    ctx.beginPath();
-    const r = Math.min(plaqueH, plaqueW) * 0.26;
-    if (ctx.roundRect) ctx.roundRect(px, py, plaqueW, plaqueH, r);
-    else ctx.rect(px, py, plaqueW, plaqueH);
-    ctx.fillStyle = BODY_ITEM_PLAQUE;
-    ctx.fill();
+    drawBodyPlate(ctx, box, BODY_ITEM_PLAQUE);
     ctx.font = fit.font;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    let x = px + (plaqueW - fit.width) / 2;
+    let x = box.x + (box.w - fit.width) / 2;
     if (fit.withIcon) {
       const mark = STAT_MARK[item.mark];
       if (mark) {
@@ -1041,21 +1043,16 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
-  // Draw the head's letter square: the owning player's colour behind a white
-  // letter, rimmed in white so the square still reads when its fill IS the
+  // Draw the head's letter plate: the owning player's colour behind a white
+  // letter, rimmed in white so the plate still reads when its fill IS the
   // body colour around it (an unowned unit), and the letter carries a dark
   // halo so it survives a light owner colour.
   function drawBodyLetter(ctx, item, box, fit) {
     ctx.save();
-    ctx.beginPath();
-    const r = Math.min(box.w, box.h) * 0.26;
-    if (ctx.roundRect) ctx.roundRect(box.x, box.y, box.w, box.h, r);
-    else ctx.rect(box.x, box.y, box.w, box.h);
-    ctx.fillStyle = item.fill;
-    ctx.fill();
-    ctx.lineWidth = Math.max(1, fit.fontSize * 0.11);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.stroke();
+    drawBodyPlate(
+      ctx, box, item.fill,
+      "rgba(255, 255, 255, 0.9)", Math.max(1, fit.fontSize * 0.11),
+    );
     ctx.font = fit.font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1105,17 +1102,22 @@ const BoardRenderer = (function () {
         text: String(snake.health),
       });
     }
+    // The buff writes the TURNS it still has to run, and nothing else: its
+    // LEVEL is already spelled out by the body's own outline colour — blue for
+    // protected, red for extra-vulnerable — so a number for it would say twice
+    // what one glance says once. A historic row carrying no expiry has no
+    // countdown to write, and so writes nothing; the outline still says the
+    // unit is buffed.
     const invulnLevel = snake.invulnerabilityLevel || 0;
-    if (invulnLevel !== 0) {
-      const remaining = invulnerabilityTurnsRemaining(snake, opts && opts.turn);
-      const level = String(invulnLevel);
+    const invulnTurns =
+      invulnLevel !== 0
+        ? invulnerabilityTurnsRemaining(snake, opts && opts.turn)
+        : null;
+    if (invulnTurns != null) {
       flow.push({
         ...invulnerabilityMark(invulnLevel),
         key: "invulnerable",
-        // The level is the stat; the turns are how long it lasts, and they are
-        // the first thing given up when the cell cannot hold both.
-        text: remaining != null ? `${level}·${remaining}t` : level,
-        shortText: level,
+        text: String(invulnTurns),
       });
     }
 
@@ -1127,10 +1129,8 @@ const BoardRenderer = (function () {
       stacked > 1 && tailIndex > 0 ? { key: "stack", text: `×${stacked}` } : null;
 
     let dropped = 0;
-    const place = (item, cell, isHead) => {
-      const box = isHead
-        ? headItemBox(cell, boardHeight, cellSize)
-        : bodyItemBox(cell, boardHeight, cellSize);
+    const place = (item, cell) => {
+      const box = bodyPlateBox(cell, boardHeight, cellSize);
       const fit = item.chip
         ? fitBodyLetter(ctx, item, box)
         : fitBodyStat(ctx, item, box, cellSize);
@@ -1141,7 +1141,7 @@ const BoardRenderer = (function () {
       plan.placements.push({ item, box, fit });
     };
 
-    place(letterItem, cells[0], true);
+    place(letterItem, cells[0]);
     // The tail's cell is reserved first — it outranks the flow — so the flow
     // stops one cell short whenever a stack has to be shown.
     const lastFlowIndex = tailItem ? tailIndex - 1 : tailIndex;
@@ -1151,10 +1151,10 @@ const BoardRenderer = (function () {
         dropped++;
         continue;
       }
-      place(item, cells[slot], false);
+      place(item, cells[slot]);
       slot++;
     }
-    if (tailItem) place(tailItem, cells[tailIndex], false);
+    if (tailItem) place(tailItem, cells[tailIndex]);
 
     plan.tagWarranted = dropped > 0;
     return plan;
@@ -4091,6 +4091,7 @@ const BoardRenderer = (function () {
     TAG_MODE_LABEL,
     unitBodyInfoPlan,
     tailStackCount,
+    getSnakeGap,
     distinctBodyCells,
     invulnerabilityTurnsRemaining,
     invulnerabilityMark,

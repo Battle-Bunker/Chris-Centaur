@@ -300,7 +300,9 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
     expect(p.tagWarranted).toBe(true);
   });
 
-  test('the buff takes the third body cell, with the turns it has left', () => {
+  test('the buff cell counts the TURNS left, and says nothing of the level', () => {
+    // The level is what the body's outline colour is for; repeating it here
+    // would spend a cell saying what one glance already says.
     const p = run(
       snake({
         body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
@@ -312,12 +314,29 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
     expect(keysOf(p)).toEqual(['letter', 'weight', 'health', 'invulnerable']);
     expect(p.tagWarranted).toBe(false);
     const buff = p.placements[3];
-    expect(buff.item.text).toBe('2·4t');
-    // The countdown is the first thing given up when the cell cannot hold it.
-    expect(buff.item.shortText).toBe('2');
+    expect(buff.item.text).toBe('4');
+    // One reading only: a bare integer, with the shield when it fits.
+    expect(buff.item.shortText).toBeUndefined();
+    expect(buff.item.icon).toBe(BoardRenderer.STAT_ICON.invulnerable);
   });
 
-  test('with no expiry on the wire the buff is just its level', () => {
+  test('a negative buff counts its turns behind the hazard mark, not a level', () => {
+    const p = run(
+      snake({
+        body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
+        invulnerabilityLevel: -1,
+        invulnerabilityExpiryTurn: 30,
+      }),
+      { turn: 25 },
+    );
+    expect(p.placements[3].item.text).toBe('6');
+    expect(p.placements[3].item.mark).toBe('hazard');
+  });
+
+  test('with no expiry on the wire the buff has no count, so it writes nothing', () => {
+    // A historic row carries a level but no expiry: there is no countdown to
+    // write, and the outline colour still says the unit is buffed — so the
+    // body simply has no buff item, and nothing was dropped to warrant a tag.
     const p = run(
       snake({
         body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
@@ -325,7 +344,8 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
       }),
       { turn: 25 },
     );
-    expect(p.placements[3].item.text).toBe('-1');
+    expect(keysOf(p)).toEqual(['letter', 'weight', 'health']);
+    expect(p.tagWarranted).toBe(false);
   });
 
   test('the tail stack OUTRANKS the flow: its cell is reserved first', () => {
@@ -338,6 +358,7 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
           { x: 1, y: 6 }, { x: 1, y: 6 }, { x: 1, y: 6 },
         ],
         invulnerabilityLevel: 1,
+        invulnerabilityExpiryTurn: 29,
       }),
       { turn: 25 },
     );
@@ -351,11 +372,37 @@ describe('unitBodyInfoPlan (what the body carries, and what is left over)', () =
       snake({
         body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
         invulnerabilityLevel: 1,
+        invulnerabilityExpiryTurn: 29,
       }),
       { turn: 25 },
     );
     expect(keysOf(p)).toEqual(['letter', 'weight', 'health', 'invulnerable']);
     expect(p.tagWarranted).toBe(false);
+  });
+
+  test('every item is drawn on the SAME square, the head letter included', () => {
+    // One plate size for the whole run: a body reads as a column of identical
+    // squares, not as pills each as wide as the number it happens to carry.
+    const p = run(
+      snake({
+        body: [{ x: 1, y: 9 }, { x: 1, y: 8 }, { x: 1, y: 7 }, { x: 1, y: 6 }],
+        health: 100,
+        invulnerabilityLevel: 2,
+        invulnerabilityExpiryTurn: 28,
+      }),
+      { turn: 25 },
+    );
+    expect(keysOf(p)).toEqual(['letter', 'weight', 'health', 'invulnerable']);
+    const boxes = p.placements.map((pl: { box: { x: number; y: number; w: number; h: number } }) => pl.box);
+    for (const box of boxes) {
+      expect(box.w).toBeCloseTo(boxes[0].w, 6);
+      expect(box.h).toBeCloseTo(box.w, 6); // square, never a band
+      // Centred in its cell, and inside the body's own thickness so the
+      // unit's colour still shows all the way round the plate.
+      expect(((box.x % CELL) + CELL) % CELL).toBeCloseTo((CELL - box.w) / 2, 6);
+      expect(((box.y % CELL) + CELL) % CELL).toBeCloseTo((CELL - box.h) / 2, 6);
+      expect(box.w).toBeLessThan(CELL - BoardRenderer.getSnakeGap(CELL) * 2);
+    }
   });
 
   test('overlapping body cells count once — one cell, one item', () => {
