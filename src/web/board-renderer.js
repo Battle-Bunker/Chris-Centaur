@@ -835,24 +835,36 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
-  // Hazard cell: the RED HAZARD MARK itself, centred in the cell — the same
-  // vector symbol the unit tags and the units table wear for danger, so one
-  // meaning keeps one shape wherever it appears. It replaces the red lattice
-  // this cell used to be hatched with: a texture says "something is different
-  // here" and leaves the reader to remember what, while the symbol says
-  // "hazard" outright, and it stops competing with the fertile tiles' diagonal
-  // hatch for the same visual channel. The clip is inset by a pixel on every
-  // side so the mark never paints over the cell's own grid lines, and the mark
-  // is sized to leave the cell's borders — and whatever else shares the cell —
-  // visible around it.
+  // Hazard cell: a red lattice — a faint wash crossed by GRID-ALIGNED bars,
+  // horizontal and vertical — rather than a solid red block. The bars carry
+  // the "danger" read while the gaps between them leave whatever shares the
+  // cell visible: the black grid lines, a unit standing in the hazard, a
+  // candidate ring. Running the bars square to the board rather than on the
+  // diagonals keeps them from reading as the diagonal hatch the fertile tiles
+  // already own. The clip is inset by a pixel on every side so the lattice
+  // never paints over the cell's own grid lines.
   function drawHazardCell(ctx, x, y, cellSize) {
-    const height = Math.max(6, cellSize * 0.66);
-    const width = (height * HAZARD_ICON.w) / HAZARD_ICON.h;
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    drawHazardIcon(ctx, x + (cellSize - width) / 2, y + cellSize / 2, height);
+    ctx.fillStyle = "rgba(220, 30, 30, 0.18)";
+    ctx.fillRect(x, y, cellSize, cellSize);
+    ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
+    ctx.lineWidth = Math.max(1, cellSize / 11);
+    const spacing = Math.max(4, cellSize / 3);
+    // Half a spacing in from the edges, so the pattern is centred in the cell
+    // and no bar lands exactly on a grid line the clip is protecting.
+    for (let offset = spacing / 2; offset < cellSize; offset += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, y + offset);
+      ctx.lineTo(x + cellSize, y + offset);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + offset, y);
+      ctx.lineTo(x + offset, y + cellSize);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
