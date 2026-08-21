@@ -7,7 +7,7 @@
  *
  * The engine is unambiguous on both halves (TacticToes
  * functions/src/gameprocessors/):
- *  - chess/chessTurnSim.ts `contestSquare` adjudicates a contested square by
+ *  - engine/turnEngine.ts adjudicates a contested cell by
  *    invulnerability tier first and weight second, and NEVER by team. An ally
  *    kills an ally exactly as an enemy would.
  *  - TeamSnekProcessor.ts `applyRegicide` eliminates a team whose config
@@ -23,7 +23,7 @@
  * killing every living king it has".
  */
 
-import { projectPath } from '../logic/simulator';
+import { evaluatePathOnBoard } from '../logic/turn-oracle';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { DecisionEngine, pickBestMove } from '../logic/decision-engine';
 import { ActiveGameManager } from '../server/active-game-manager';
@@ -31,6 +31,20 @@ import { apiCoordToIndex } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { HEURISTICS } from '../config/heuristics';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
+
+/**
+ * The candidate-outcome oracle, in the shape these tests read.
+ *
+ * There is no hand-written projection any more: this runs the REAL turn
+ * through the vendored TacticToes engine (turn-oracle.ts over
+ * src/engine-vendor/) and reads the settled result. So every assertion below
+ * is now a test of MARSHALLING and READING — did we hand the engine the right
+ * board, and did we read its answer correctly — rather than a test of rules
+ * arithmetic the bot no longer performs.
+ */
+function projectPath(state: GameState, path: Coord[]) {
+  return evaluatePathOnBoard(state.board, state.turn, state.you.id, path);
+}
 
 jest.mock('../logic/command-logger', () => {
   const logEvent = jest.fn();
@@ -115,10 +129,15 @@ describe('the reported move: our own snake steps onto our own king', () => {
 
     const outcome = projectPath(gs, [RIGHT]);
 
-    // We survive — that was always the problem. The step is cheap and legal.
-    expect(outcome.fatal).toBe(false);
-    expect(outcome.cost).toBe(1);
-    // And it destroys our own weight-1 king, which ends the team.
+    // INVERTED, by the engine itself. The old hand-written projection reported
+    // this as a move we SURVIVE (cost 1) that merely flags regicide for the
+    // scorer. The engine disagrees: taking our own last king eliminates the
+    // whole team, and our snake is on that team — so it is removed too, with
+    // cause "regicide", and the move costs us everything.
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.deathCause).toBe('regicide');
+    expect(outcome.cost).toBe(gs.you.health);
+    // And it destroys our own weight-1 king, which is what ended the team.
     expect(outcome.casualties.allyCasualty).toBe(1);
     expect(outcome.casualties.regicide).toBe(1);
     // Nothing on the enemy's side of the ledger.
@@ -193,18 +212,25 @@ describe('the reported move: our own snake steps onto our own king', () => {
     const gs = makeState([us, king], 'us');
     const team = teamOf('us', 'K');
 
-    // The bug, reproduced: with the two new weights switched off, stepping onto
-    // our own king is the HIGHEST-scoring candidate on the board — it wins a
-    // contest, opens space, and costs one point of health. That is exactly how
-    // the owner's snake came to do it.
+    // INVERTED, and this is the clearest single illustration of what running
+    // the real game bought us. The bug this test was written for was that the
+    // move LOOKED GOOD: with the regicide and ally-casualty weights switched
+    // off, the old projection scored stepping onto our own king as the
+    // best candidate on the board — it won a contest, opened space, and cost
+    // one point of health — and only two bespoke weights held it back.
+    //
+    // Now the engine reports the move as OUR OWN DEATH, because regicide takes
+    // our snake with the team. So it is dead last on health-loss alone, before
+    // any combat weight is consulted at all: the catastrophe is visible in the
+    // most basic stat the bot has.
     const blind = new DecisionEngine({
       timeoutMs: 50,
       weights: { regicide: 0, allyCasualty: 0 },
     }).decide(gs, team);
     const blindRows = new Map(blind.evaluations.map(e => [e.move, e.worstScore]));
     const rivals = [...blindRows].filter(([m]) => m !== 'right').map(([, s]) => s);
-    expect(blindRows.get('right' as Direction)!).toBeGreaterThan(Math.max(...rivals));
-    // The veto alone already refuses it, whatever the weights say.
+    expect(blindRows.get('right' as Direction)!).toBeLessThan(Math.max(...rivals));
+    // The veto refuses it as well, whatever the weights say.
     expect(blind.move).not.toBe('right' as Direction);
 
     // And at the shipped weights it is both vetoed and hopelessly outscored.

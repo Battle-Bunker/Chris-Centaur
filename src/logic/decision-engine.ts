@@ -14,7 +14,7 @@ import { DecisionWorkerPool } from './decision-worker-pool';
 import { recordDecisionTelemetry } from './decision-telemetry';
 import { WaypointContext, computeWaypointProgressByMove } from './waypoint-pathing';
 import { transientInterval, transientTimeout } from '../server/activity-controller';
-import { CasualtyContext, emptyCasualtyContext, projectPath } from './simulator';
+import { CasualtyContext, emptyCasualtyContext, evaluateCandidatePath, marshalBoard } from './turn-oracle';
 
 // Re-exported for consumers that take a waypoint alongside a DecisionConfig.
 export { WaypointContext } from './waypoint-pathing';
@@ -377,32 +377,38 @@ export class DecisionEngine {
   }
 
   /**
-   * Per-move outcome of the ONE shared projection (simulator.ts's projectPath
-   * — the same function ActiveGameManager's piece candidate scoring uses), the
-   * counterpart of h2hContexts/pieceThreatContexts: computed once per decision
-   * from the PRE-move board, then injected unchanged into every evaluation of
-   * that move. A snake's candidate path is always its single landing square.
+   * Per-move outcome, RUN THROUGH THE REAL GAME (turn-oracle.ts, over the
+   * vendored TacticToes engine — the same code ActiveGameManager's piece
+   * candidate scoring calls). The counterpart of h2hContexts /
+   * pieceThreatContexts: computed once per decision from the PRE-move board,
+   * then injected unchanged into every evaluation of that move. A snake's
+   * candidate path is always its single landing square.
    *
-   * It yields two per-move constants from one walk of the square, because they
-   * come from the same adjudication:
-   *  - the health COST. A cost that equals (or exceeds) our current health
-   *    means the projection resolved the move as DEATH — a wall, a body
-   *    segment we cannot survive entering, or hazard/movement cost that
-   *    outruns our health — and the health-loss weight charges the full-health
+   * Both constants are READ OFF a settled turn rather than derived here:
+   *  - the health COST is our health before minus the health the engine left
+   *    us with, and a cost that equals our health means the engine put us in
+   *    its death registry — for whatever reason it found, wall or body or
+   *    contest or exhaustion. The health-loss weight charges the full-health
    *    penalty for it.
-   *  - the CASUALTIES. The contest has no friendly exemption, so the same step
-   *    that costs us health may destroy one of our own units, and if that unit
-   *    is our last king it ends the team.
+   *  - the CASUALTIES are whoever the engine killed in a clash we took part
+   *    in, plus the teams it reports in `eliminatedTeamIDs`. The contest has
+   *    no friendly exemption, so the same step that costs us health may
+   *    destroy one of our own units, and if that unit is our last king it ends
+   *    the team.
    */
   private moveProjections(
     gameState: GameState,
     ourMoves: Direction[]
   ): Map<Direction, { healthCost: number; casualties: CasualtyContext }> {
     const byMove = new Map<Direction, { healthCost: number; casualties: CasualtyContext }>();
+    // One marshalling of the board, reused across every candidate.
+    const marshalled = marshalBoard(gameState.board, gameState.turn);
     for (const move of ourMoves) {
       const dest = this.getMovePosition(gameState.you.head, move);
-      const projected = projectPath(gameState, [dest]);
-      byMove.set(move, { healthCost: projected.cost, casualties: projected.casualties });
+      const outcome = evaluateCandidatePath(marshalled, gameState.you.id, [
+        marshalled.toIndex(dest),
+      ]);
+      byMove.set(move, { healthCost: outcome.cost, casualties: outcome.casualties });
     }
     return byMove;
   }

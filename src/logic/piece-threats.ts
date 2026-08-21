@@ -4,14 +4,22 @@
  * take this square next turn and hurt us there?" for BOTH unit kinds:
  * snakes (the old bespoke head-to-head adjacency scan) and chess pieces.
  *
- * CONTEST RULE (the engine's stationary-square adjudication, tier FIRST,
- * weight second): when units contest a square, everyone below the top
- * invulnerability tier at the square dies with weight never consulted; among
- * the top tier the unique heaviest survives, and ties kill all. For pieces,
- * `snake.length` carries the WEIGHT (stack size), not a body cell count.
+ * CONTEST RULE — a REACHABILITY heuristic's copy of the engine's cell
+ * adjudication (tier FIRST, weight second). The authoritative encoding lives
+ * in src/engine-vendor/, and anything that needs to know what a move actually
+ * DOES calls it through turn-oracle.ts. What survives here is deliberately a
+ * different question — "which squares could this unit contest next turn, and
+ * would it beat us there?" — an estimate over moves nobody has staged, which
+ * no turn resolution can answer because there is no turn to resolve.
+ * when units contest a square, everyone below the top invulnerability tier at
+ * the square dies with weight never consulted; among the top tier the unique
+ * heaviest survives, and ties kill all. Both inputs are FROZEN at the start of
+ * the turn — nothing a unit gains or loses during a turn can change how that
+ * turn's collisions resolve — which is exactly what makes a snapshot of the
+ * board a sound basis for this map. For pieces, `snake.length` carries the
+ * WEIGHT (stack size), not a body cell count.
  * `winsStationaryContest` is the ONE encoding of that rule, shared by:
  *  - BoardGraph's subjective passability (may WE walk onto a piece square?),
- *  - the Simulator's mover-vs-stationary-piece resolution,
  *  - the threat map below (would the unit kill-or-tie US at a square?),
  *  - the Voronoi BFS, twice over: `stationaryContestWinner` read as "who, if
  *    anyone, survives a multi-way race to one square?" for same-turn snake
@@ -26,11 +34,26 @@
  *    occupancy or legality (matching the legacy h2h scan: a snake whose only
  *    adjacent option is its own body still "threatens" the square; we don't
  *    model enemy-suicide filtering here).
- *  - sliders (rook/bishop/queen): full rays from the current square, blocked
- *    by CURRENT occupancy — any unit body/stack stops the ray, but the
- *    blocker square itself IS reachable (contests happen there). Range is
- *    deliberately NOT capped by the piece's health: a piece can overspend
- *    health on a long move and still kill in-flight before it dies.
+ *  - sliders (rook/bishop/queen): rays from the current square, stopped by
+ *    whichever comes first —
+ *      · OCCUPANCY AT ARRIVAL: any unit body/stack stops the ray, but the
+ *        blocker square itself IS reachable (contests happen there). Under
+ *        frozen state an occupied square never clears mid-turn — not even when
+ *        its occupant dies on it, because the corpse keeps fighting there for
+ *        the rest of the turn — so the blocker really is the end of the ray.
+ *        A multi-cell snake's LAST body index is excluded, because the engine
+ *        pops every tail before collisions resolve: the square is guaranteed
+ *        empty on arrival and the ray runs straight through it (a stacked
+ *        tail's duplicate at the second-to-last index still blocks).
+ *      · HEALTH: the engine charges 1 per square entered plus a full hazard
+ *        dose per hazard square entered, per sub-step, and a unit whose health
+ *        hits zero HALTS on that square. So a slider's range really is capped
+ *        by what it can afford — a rook on 2 health cannot threaten a square
+ *        five away, and it is not conservative to pretend it can, it is just
+ *        wrong. The square where the health runs out IS still threatened: that
+ *        sub-step's collisions are adjudicated before the charge, so an
+ *        exhausted slider still kills on the square it halts on — and it halts
+ *        there whether or not the cell goes on to feed it back to life.
  *  - knight: the 8 L-jumps; king: the 8 adjacent steps.
  *  - pawn: the faced square plus BOTH diagonal-forwards (from snake.orientation,
  *    wire convention — api cell of a wire delta d is {x + d.dx, y - d.dy}).
@@ -207,10 +230,13 @@ export function snakeReachableIdx(snakeUnit: Snake, board: Board): number[] {
 
 /**
  * Every api-board square `piece` could reach with a single move next turn,
- * as cell indices (y * width + x). `occupied` marks CURRENT unit occupancy
- * (any body/stack cell) and blocks slider rays beyond the blocker square;
+ * as cell indices (y * width + x). `occupied` marks unit occupancy AS OF THE
+ * ARRIVAL TURN (any body/stack cell that has NOT vacated — see
+ * computeUnitThreatMap's tail rule) and blocks slider rays beyond the blocker;
  * knight/king/pawn destinations ignore occupancy entirely (contests happen
- * on arrival). Exported for direct geometry tests.
+ * on arrival). Slider rays are additionally capped by what the piece's health
+ * can pay for (see PER-KIND REACH in the module doc). Exported for direct
+ * geometry tests.
  */
 export function pieceReachableIdx(piece: Snake, board: Board, occupied: Uint8Array): number[] {
   const W = board.width;
@@ -220,13 +246,28 @@ export function pieceReachableIdx(piece: Snake, board: Board, occupied: Uint8Arr
   const push = (cx: number, cy: number): void => {
     if (cx >= 0 && cx < W && cy >= 0 && cy < H) out.push(cy * W + cx);
   };
+  // The per-square bill a slider pays walking a ray. Hazard cells are the only
+  // thing that makes a square cost more than 1, so a hazard-free board never
+  // builds the set.
+  const hazardDamage = board.hazardDamage ?? 100;
+  const hazardIdx = new Set<number>();
+  for (const h of board.hazards ?? []) {
+    if (h.x >= 0 && h.x < W && h.y >= 0 && h.y < H) hazardIdx.add(h.y * W + h.x);
+  }
   const rays = (dirs: ReadonlyArray<readonly [number, number]>): void => {
     for (const [dx, dy] of dirs) {
       let cx = x + dx;
       let cy = y + dy;
+      // The health the piece carries into the ray. Each square it enters is
+      // charged AFTER that square's collisions, so the square it can no longer
+      // pay for is still threatened — it just cannot go on past it.
+      let remaining = piece.health;
       while (cx >= 0 && cx < W && cy >= 0 && cy < H) {
-        out.push(cy * W + cx);
-        if (occupied[cy * W + cx] === 1) break; // blocker included, ray stops
+        const idx = cy * W + cx;
+        out.push(idx);
+        if (occupied[idx] === 1) break; // blocker included, ray stops
+        remaining -= 1 + (hazardIdx.has(idx) ? hazardDamage : 0);
+        if (remaining <= 0) break; // exhausted: it halts on this square
         cx += dx;
         cy += dy;
       }
@@ -286,16 +327,40 @@ export function computeUnitThreatMap(
   const H = board.height;
   const cells = W * H;
 
-  // Current occupancy (every living unit's body/stack cells, heads included)
-  // is only consulted by slider rays — built lazily so snake-only boards
-  // never pay for it.
+  // Occupancy AT ARRIVAL (every living unit's body/stack cells, heads
+  // included, MINUS the squares guaranteed to be empty by then) is only
+  // consulted by slider rays — built lazily so snake-only boards never pay
+  // for it.
+  //
+  // The one square of the simultaneous body shift we can see from a pre-move
+  // board is the TAIL: the engine pops every multi-cell snake's last segment
+  // before any collision is resolved, eating or not (the advance that opens
+  // each sub-step), so it has always vacated by the time an enemy ray gets
+  // there. Nothing ELSE clears: under frozen state the board loses occupancy
+  // only through movement, never through removal.
+  // Blocking a ray on it would TRUNCATE the threat map and leave the squares
+  // beyond it unmarked — an under-estimate of enemy reach, the one direction
+  // a safety map must never err in. So the last body index of every multi-cell
+  // snake is excluded, exactly the rule the cost projection already applies
+  // (simulator.ts resolveTraversedSquare).
+  //
+  // A STACKED tail (the snake ate last turn, so the tail cell appears twice)
+  // does NOT vacate: the duplicate at the second-to-last index is still there
+  // after the pop and still blocks. Skipping only the LAST INDEX — rather than
+  // clearing the tail SQUARE — is exact for that case, because the duplicate
+  // marks the same cell on its own pass.
   let occupied: Uint8Array | null = null;
   const getOccupied = (): Uint8Array => {
     if (occupied) return occupied;
     occupied = new Uint8Array(cells);
     for (const s of board.snakes) {
       if (s.health <= 0) continue;
-      for (const seg of s.body) {
+      // A piece is a 1-cell weight stack that never pops anything; only a
+      // multi-cell SNAKE has a tail to vacate.
+      const vacating = !isPieceUnit(s) && s.body.length > 1 ? s.body.length - 1 : -1;
+      for (let i = 0; i < s.body.length; i++) {
+        if (i === vacating) continue;
+        const seg = s.body[i];
         if (seg.x >= 0 && seg.x < W && seg.y >= 0 && seg.y < H) {
           occupied[seg.y * W + seg.x] = 1;
         }

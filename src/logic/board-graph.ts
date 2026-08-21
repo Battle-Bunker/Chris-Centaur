@@ -28,18 +28,21 @@
  *
  * Starvation-aware body vacating: health loss is movement-tied (snakes always
  * move, so they lose exactly 1/turn unless they eat), so a snake with health h
- * dies during relative turn h unless it eats by then. If a walls-only BFS
- * (ignoring all bodies and hazards — a deliberately generous LOWER bound on
- * its earliest possible eat, e) cannot reach any ALREADY-SPAWNED food within h
- * turns (e > h), the snake certainly starves and its ENTIRE body is treated as
- * vacated from arrival turn h+1 onward (floored at turn 2 — never the very
- * next turn) in the optimistic and physical layers; the conservative layer
- * keeps its usual +1 safety buffer on top. Like the tail-vacate projections,
- * this ACCEPTS new-food-spawn risk: food spawning after this board snapshot
- * could save the snake, in which case we briefly treat a still-alive body as
- * passable. Chess pieces (`(unitType ?? 'snake') !== 'snake'`) never starve —
- * they can stand still and lose nothing — and a subject's OWN body is never
- * starvation-vacated for itself in the subjective layer.
+ * runs out during relative turn h unless it eats by then — turn h included,
+ * because exhaustion only halts movement and the food phase still runs at the
+ * unit's final cell, so a snake that reaches food on its last point of health
+ * recovers. If a walls-only BFS (ignoring all bodies and hazards — a
+ * deliberately generous LOWER bound on its earliest possible eat, e) cannot
+ * reach any ALREADY-SPAWNED food within h turns (e > h), the snake certainly
+ * dies and its ENTIRE body is treated as vacated from arrival turn h+1 onward
+ * (floored at turn 2 — never the very next turn) in the optimistic and
+ * physical layers; the conservative layer keeps its usual +1 safety buffer on
+ * top. Like the tail-vacate projections, this ACCEPTS new-food-spawn risk:
+ * food spawning after this board snapshot could save the snake, in which case
+ * we briefly treat a still-alive body as passable. Chess pieces
+ * (`(unitType ?? 'snake') !== 'snake'`) never starve — they can stand still
+ * and lose nothing — and a subject's OWN body is never starvation-vacated for
+ * itself in the subjective layer.
  *
  * Chess-piece squares: a piece is a 1-cell unit whose `length` is its WEIGHT.
  * Its square is a WALL in the physical layer (frozen at its current square,
@@ -682,18 +685,23 @@ export class BoardGraph {
 
   /**
    * Starvation-aware body vacating (phase 3). For every snake S:
-   *  - deathTurn h = S.health: health loss is movement-tied and snakes always
-   *    move, so S dies during relative turn h unless it eats first (the engine
-   *    checks the eat branch before the starvation branch, so eating ON turn h
-   *    saves it).
+   *  - exhaustionTurn h = S.health: health loss is movement-tied and snakes
+   *    always move, so S runs out of health during relative turn h unless it
+   *    eats first.
    *  - earliestFoodTurn e = a LOWER bound on S's earliest possible eat of any
    *    ALREADY-SPAWNED food: BFS from S's head blocked only by walls, ignoring
    *    all bodies and hazards (they might vacate / only cost health — being
    *    generous to S keeps OUR prediction conservative). e = Infinity when the
    *    board has no food.
-   *  - S certainly starves iff e > h; then its whole body vacates from arrival
-   *    turn max(h + 1, 2) — never the very next turn (with h >= 1 for a living
-   *    snake the clamp is automatic, but it is pinned explicitly).
+   *  - S certainly dies iff it cannot eat by turn h, i.e. e > h. Turn h ITSELF
+   *    still counts, because exhaustion is PROVISIONAL death: reaching zero
+   *    health stops movement but nothing else, and the food phase runs at end
+   *    of turn at the unit's final cell. A snake that steps onto food on
+   *    exactly its last point of health halts there, eats, restores to max and
+   *    lives. What kills is being at zero somewhere with no food under it.
+   *  - then its whole body vacates from arrival turn max(h + 1, 2) — never the
+   *    very next turn (with h >= 1 for a living snake the clamp is automatic,
+   *    but it is pinned explicitly).
    *
    * Chess pieces never starve: their health only ticks when they move, and
    * they can stand still indefinitely. New-food-spawn risk is accepted, same
@@ -705,6 +713,7 @@ export class BoardGraph {
       if ((snake.unitType ?? 'snake') !== 'snake') continue; // pieces don't starve
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
       const h = snake.health;
+      // h, not h - 1: turn h is still in time (see above).
       const canEatInTime =
         foodCount > 0 && this.wallsOnlyFoodWithin(snakeIdx, foodMask, h);
       if (!canEatInTime) {

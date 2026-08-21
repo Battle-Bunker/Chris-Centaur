@@ -2,17 +2,19 @@
  * Starvation-aware body vacating in the BoardGraph passability layers.
  *
  * Health loss is movement-tied (snakes always move, so they lose exactly
- * 1/turn unless they eat). A snake with health h dies during relative turn h
- * unless it eats by then; eating ON turn h saves it (the engine checks the
- * eat branch before the starvation branch). If a walls-only BFS — ignoring
+ * 1/turn unless they eat). A snake with health h runs out during relative turn
+ * h, and eating ON TURN h still saves it: EXHAUSTION IS PROVISIONAL DEATH —
+ * reaching zero halts movement and nothing else, and the food phase runs at
+ * end of turn at the unit's FINAL cell, so a snake that steps onto food on its
+ * last point of health eats there and recovers. If a walls-only BFS — ignoring
  * all bodies and hazards, a generous LOWER bound on the snake's earliest
  * possible eat e — cannot reach any already-spawned food within h turns
- * (e > h), the snake certainly starves and its whole body vacates from
- * arrival turn max(h + 1, 2) in the optimistic and physical layers, with the
+ * (e > h), the snake certainly dies and its whole body vacates from arrival
+ * turn max(h + 1, 2) in the optimistic and physical layers, with the
  * conservative layer keeping its usual +1 buffer. Chess pieces never starve
  * (they can stand still), and a subject never gets its OWN body
- * starvation-vacated. New-food-spawn risk is accepted, same risk class as
- * the tail projections.
+ * starvation-vacated. New-food-spawn risk is accepted, same risk class as the
+ * tail projections.
  */
 
 import { BoardGraph } from '../logic/board-graph';
@@ -126,9 +128,13 @@ describe('Starvation-aware body vacating', () => {
     expect(staticPass(nearHeadSegment, 3)).toBe(false);
   });
 
-  test('same snake with food within walls-only distance 2 of its head does NOT starve (normal tail projection only)', () => {
+  // Food reachable on exactly the LAST turn is still a rescue, because
+  // exhaustion is provisional: at health 2 the snake pays 1 on turn 1 and its
+  // last 1 on turn 2, halts on the food it just reached, and the end-of-turn
+  // food phase restores it there. So the horizon is `e > h`, not `e > h - 1`.
+  test('food reachable ON the exhaustion turn IS a rescue — the halt cell feeds it', () => {
     // Food at (7,7): walls-only BFS distance 2 from the enemy head (8,8),
-    // e = 2 <= h = 2 — eating on turn h saves it.
+    // e = 2 <= h = 2.
     const graph = makeGraph({ health: 2 }, [{ x: 7, y: 7 }]);
     const optimistic = passFor(graph, 'us', 'optimistic');
 
