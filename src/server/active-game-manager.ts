@@ -2178,11 +2178,11 @@ export class ActiveGameManager {
       // Projected outcome of THIS candidate's own traversed path: a move's
       // full ray/jump (converted from full-board indices to the api coords the
       // projection reads food/hazards/bodies in), stay/rotate always free. The
-      // projection truncates the path at a death, a STARVATION HALT (the ray
+      // projection truncates the path at a death, an EXHAUSTION HALT (the ray
       // costs more health than the piece has, so it stops where the health ran
-      // out) or a capture-stop, so a ray that never reaches the staged
-      // destination is neither credited with the meal there nor charged for
-      // the squares beyond.
+      // out — fatal unless that very square feeds it) or a capture-stop, so a
+      // ray that never reaches the staged destination is neither credited with
+      // the meal there nor charged for the squares beyond.
       const projected = action.kind === 'move'
         ? projectPath(gs, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
         : null;

@@ -12,22 +12,27 @@ export type MoveSet = Map<string, Direction>;
  * staged-move fatality probe so the three can never drift.
  *
  * The engine charges health PER SUB-STEP, strictly after that sub-step's
- * collisions, and settles food only at END OF TURN. So the order here is
- * CHARGE, THEN EAT — the exact reverse of what it used to be:
+ * collisions, and settles food only at END OF TURN. So the order is CHARGE,
+ * THEN EAT:
  *  - health loss is MOVEMENT-based (no universal per-turn decay): entering a
  *    cell costs 1, and a hazard cell costs a further board.hazardDamage
  *    (default 100). Both are charged in the sub-step the cell is entered.
- *  - the moment health reaches <= 0 the unit STARVES where it stands. It is
- *    removed at end of turn, before the food phase ever runs.
- *  - only a unit that arrives ALIVE eats, and then the food phase ASSIGNS the
- *    unit's configured type max (snake.maxHealth, engine default 100) —
- *    wiping the movement cost and every hazard dose it just paid.
+ *  - health reaching <= 0 is EXHAUSTION, and exhaustion is PROVISIONAL death:
+ *    it stops MOVEMENT and nothing else. The unit halts on the cell it
+ *    reached and stays a live collision incumbent there.
+ *  - the food phase then runs at END OF TURN, at the unit's FINAL cell, and
+ *    ASSIGNS the configured type max (snake.maxHealth, engine default 100) —
+ *    wiping the movement cost and every hazard dose. Food is the only heal.
+ *  - a unit still at or below zero after that phase dies; one that halted ON
+ *    food recovers and lives.
  *
- * The consequence worth stating outright, because the old rule said the
- * opposite: FOOD NO LONGER RESCUES A UNIT THE STEP WOULD KILL. A snake at
- * health 1 stepping onto food pays its 1, hits zero, and starves with the meal
- * untouched. Food on a hazard cell is the same story — the dose lands first,
- * and only a unit that survives it gets the meal.
+ * For a one-cell step — every snake move, and this function's only caller
+ * shape — the halt cell IS the destination, so the whole rule collapses to:
+ * charge, and then let food at the destination restore to max whether or not
+ * the charge took the unit to zero. A snake at health 1 stepping onto food
+ * survives at full health; food on a hazard cell rescues just the same, and
+ * the dose is wiped along with the step. What food cannot do is rescue a unit
+ * from a cell it never reached (see projectPath, where a ray can halt short).
  *
  * Death is health <= 0. Call with the PRE-move snake and a board whose food
  * has not yet been spliced for this move.
@@ -37,8 +42,6 @@ export function healthAfterEntering(snake: Snake, board: Board, dest: Coord): nu
   if ((board.hazards ?? []).some(h => h.x === dest.x && h.y === dest.y)) {
     health -= board.hazardDamage ?? 100;
   }
-  // Starved on arrival: the meal is never reached, whatever is on the cell.
-  if (health <= 0) return health;
   const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
   return eats ? (snake.maxHealth ?? 100) : health;
 }
@@ -71,25 +74,32 @@ export function tierAtArrival(unit: Snake, currentTurn: number): number {
  */
 export interface ProjectedPath {
   /**
-   * Squares actually entered, truncated at a death, a starvation halt or a
+   * Squares actually entered, truncated at a death, an exhaustion halt or a
    * capture-stop.
    */
   path: Coord[];
   /**
    * Health points the traversal costs: 1 per square entered plus a full hazard
-   * dose per hazard square entered, or 0 when the mover arrives alive on food.
-   * When `fatal`, it is at least the mover's current health, so the projected
-   * health lands at zero or below.
+   * dose per hazard square entered — or 0 when the mover ENDS THE TURN alive
+   * on food, which restores it to its type max and so cancels the whole bill.
+   * A LOSS measure, never a health delta: a recovery from zero reports 0 just
+   * as an untroubled meal does. When `fatal`, it is at least the mover's
+   * current health, so the projected health lands at zero or below.
    */
   cost: number;
   /**
-   * The mover does not survive the traversal — killed on a square, or starved
-   * the moment the running bill exhausted its health part-way along the ray.
+   * The mover does not survive the traversal — killed outright on a square, or
+   * EXHAUSTED (the running bill outran its health) on a square with no food to
+   * recover on. Exhaustion alone is not fatal: see `eats`.
    */
   fatal: boolean;
   /** The mover severed a body / killed a piece and stopped there. */
   captureStopped: boolean;
-  /** The mover reached the staged destination alive AND it holds food. */
+  /**
+   * The mover ends the turn alive on food, and so restores to its type max.
+   * The square it ends on is whatever stopped it — the staged destination, a
+   * capture-stop, or an exhaustion halt it thereby RECOVERS from.
+   */
   eats: boolean;
   /** Who this traversal destroys, and what that costs us (see CasualtyContext). */
   casualties: CasualtyContext;
@@ -173,11 +183,16 @@ export function emptyCasualtyContext(): CasualtyContext {
  *    still takes its victim with it.
  *  - THE CHARGE: 1 for the square entered, plus board.hazardDamage (default
  *    100) if it is a hazard square, mid-flight squares included. Health hitting
- *    <= 0 is STARVATION: the mover HALTS on that square and dies there. It
- *    never reaches the rest of the ray, so no further movement cost and no
- *    further hazard dose accrues — and no food beyond that square can help it,
- *    because there is no mid-ray food rescue at all. A capture-stop is charged
- *    for the square it stopped on, since it entered it.
+ *    <= 0 is EXHAUSTION, which stops MOVEMENT and nothing else: the mover
+ *    HALTS on that square, and whether it DIES there is settled at end of turn
+ *    by the food phase. Halting ON food is a full recovery — it eats, restores
+ *    to its type max, and lives, having simply stopped short of the staged
+ *    destination. Halting anywhere else is death on the halt square. Either
+ *    way the rest of the ray is never walked, so no further movement cost and
+ *    no further hazard dose accrues, and food BEYOND the halt square is out of
+ *    reach: there is no mid-ray rescue by a meal the mover never gets to.
+ *    A capture-stop is charged for the square it stopped on, since it entered
+ *    it.
  *  - A SNAKE BODY SEGMENT is an absolute wall, with NO friendly exemption:
  *    the engine compares tiers and weights and never teams, so an ally's body
  *    kills exactly like an enemy's. Equal-or-lower tier than the owner ⇒
@@ -204,14 +219,15 @@ export function emptyCasualtyContext(): CasualtyContext {
  * dies is the LAST king of a team, which the engine's regicide rule turns
  * into that whole team's elimination.
  *
- * The bill is the sum of those per-square charges — UNLESS the mover reaches
- * the staged destination ALIVE and it holds food, which SETS health to the
- * type max and so cancels the whole bill, hazard doses included (the food
- * phase assigns the max rather than adding to the running health — mirrors
- * healthAfterEntering). Eating only ever helps a mover that ARRIVES: a death,
- * a starvation halt or a capture-stop credits NO meal, so food at the staged
- * destination cannot save a ray that runs out of health — or out of board — on
- * the way there.
+ * The bill is the sum of those per-square charges — UNLESS the mover ends the
+ * turn ALIVE on food, which SETS health to the type max and so cancels the
+ * whole bill, hazard doses included (the food phase assigns the max rather
+ * than adding to the running health — mirrors healthAfterEntering). The food
+ * phase runs at the mover's FINAL square, whatever stopped it there: the
+ * staged destination, a capture-stop, or an exhaustion halt all eat alike.
+ * What is never credited is food on a square the mover did not end on — so a
+ * ray that runs out of health, or out of board, short of the meal is not
+ * saved by it.
  *
  * FROZEN STATE — what the engine guarantees, and what the projection may
  * therefore assume. All collision adjudication reads the tier and weight each
@@ -280,7 +296,12 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
   // it — so the square where it outruns `health` is the square the mover
   // halts and dies on, not a total compared against the health afterwards.
   let accrued = 0;
+  // Killed outright by the board or by a contest — settled, and not something
+  // the food phase can undo.
   let died = false;
+  // Ran out of health and HALTED. Provisional only: the food phase at the end
+  // of the turn decides whether it is also a death.
+  let exhausted = false;
   let captureStopped = false;
 
   for (const sq of path) {
@@ -297,7 +318,7 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
 
     // 2. Occupancy: bodies and stationary pieces. Also a collision, and also
     //    settled before the charge — which is what lets a mover that wins the
-    //    square and then starves on it still take its victim with it.
+    //    square and then exhausts on it still take its victim with it.
     const outcome = resolveTraversedSquare(board, mover, moverTier, state.turn, sq);
     if (outcome.verdict === 'death') {
       // A death can still be a TRADE: a tied stationary contest kills the unit
@@ -322,32 +343,42 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
     accrued += 1;
     if (hazards.some(h => h.x === sq.x && h.y === sq.y)) accrued += hazardDamage;
     if (health - accrued <= 0) {
-      // STARVED HERE. The mover halts on this square and dies on it — the rest
-      // of the ray is never walked, so nothing beyond it is charged and no
-      // food beyond it is reachable.
-      died = true;
+      // EXHAUSTED HERE. Movement stops and nothing else — this square is the
+      // mover's final one, so the rest of the ray is never walked and nothing
+      // beyond it is charged. Whether it also DIES is settled below, by what
+      // this square holds.
+      exhausted = true;
       break;
     }
 
     if (captureStopped) break;
   }
 
-  const reachedDestination = !died && !captureStopped;
+  // The square the mover ENDS the turn on, whatever stopped it there: the
+  // staged destination, a capture-stop, or an exhaustion halt. The engine's
+  // food phase runs at that square for every survivor, so this is the one
+  // question worth asking about food.
   const dest = entered[entered.length - 1];
-  const eats =
-    reachedDestination && (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
-  // Arriving on food alive wipes the WHOLE bill, not just the movement term:
-  // the engine's end-of-turn food phase SETS health to the unit's type max
+  const feeds = !died && (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
+  // EXHAUSTION IS PROVISIONAL DEATH, and this is where it is settled: a mover
+  // that ran out of health on a square holding food eats at end of turn,
+  // restores to its type max, and lives — halted short of the staged
+  // destination, but alive. Exhausted anywhere else, it dies on the halt
+  // square. A wall or a lost contest is an outright death that no meal undoes.
+  const fatal = died || (exhausted && !feeds);
+  const eats = !fatal && feeds;
+  // Ending the turn on food wipes the WHOLE bill, not just the movement term:
+  // the engine's food phase SETS health to the unit's type max
   // (TeamSnekProcessor.processFood), which restores the hazard doses charged
   // in flight along with the movement cost. Verified: 100 health through two
   // 20-damage hazards onto food lands at 100, not 60.
+  //
+  // `cost` stays a LOSS measure, not a health delta: every meal reports 0,
+  // whether the mover strolled in on full health or recovered from zero. Two
+  // traversals that end at the same type max must not score differently.
   let cost = eats ? 0 : accrued;
-  // Fatality is one condition, and by construction the walk above already
-  // decided it: the mover either finished the path with health to spare, or it
-  // halted on the square that killed it. A fatal traversal reports a cost that
-  // ZEROES the health, which is what makes the health-loss heuristic sensitive
-  // to it.
-  const fatal = died;
+  // A fatal traversal reports a cost that ZEROES the health, which is what
+  // makes the health-loss heuristic sensitive to it.
   if (fatal) cost = Math.max(cost, health);
 
   return {
@@ -888,14 +919,13 @@ export class Simulator {
       // damage triggers on ENTERING a hazard square.
       const newHealth = healthAfterEntering(snake, newBoard, newHead);
 
-      // Eating is the END-OF-TURN food phase, and it is for SURVIVORS: a unit
-      // the step's own cost killed starves on arrival and is removed before
-      // the phase runs, so it neither grows nor takes the meal off the board.
-      // (`healthAfterEntering` already refuses to restore such a unit; this is
-      // the other half — the food has to still be there for somebody else.)
-      const foodIndex = newHealth > 0
-        ? newBoard.food.findIndex(f => f.x === newHead.x && f.y === newHead.y)
-        : -1;
+      // Eating is the END-OF-TURN food phase, at the unit's FINAL cell. A
+      // snake's move is one cell, so its final cell is always the one it just
+      // entered — and because exhaustion only halts movement, a snake the step
+      // took to zero still eats here and recovers. `healthAfterEntering`
+      // already reports the restored health; this is the growth and the
+      // splice.
+      const foodIndex = newBoard.food.findIndex(f => f.x === newHead.x && f.y === newHead.y);
       const isEating = foodIndex !== -1;
 
       // Update body the way the engine does: pop the tail first (it vacates

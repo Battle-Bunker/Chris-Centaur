@@ -47,8 +47,9 @@
  *        by what it can afford — a rook on 2 health cannot threaten a square
  *        five away, and it is not conservative to pretend it can, it is just
  *        wrong. The square where the health runs out IS still threatened: that
- *        sub-step's collisions are adjudicated before the charge, so a dying
- *        slider still kills on the square it dies on.
+ *        sub-step's collisions are adjudicated before the charge, so an
+ *        exhausted slider still kills on the square it halts on — and it halts
+ *        there whether or not the cell goes on to feed it back to life.
  *  - knight: the 8 L-jumps; king: the 8 adjacent steps.
  *  - pawn: the faced square plus BOTH diagonal-forwards (from snake.orientation,
  *    wire convention — api cell of a wire delta d is {x + d.dx, y - d.dy}).
@@ -283,7 +284,7 @@ export function pieceReachableIdx(piece: Snake, board: Board, occupied: Uint8Arr
         out.push(idx);
         if (occupied[idx] === 1) break; // blocker included, ray stops
         remaining -= 1 + (hazardIdx.has(idx) ? hazardDamage : 0);
-        if (remaining <= 0) break; // starves on this square and halts there
+        if (remaining <= 0) break; // exhausted: it halts on this square
         cx += dx;
         cy += dy;
       }

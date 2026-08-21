@@ -1103,7 +1103,7 @@ export class TacticToesFirebaseInterface {
       canonical.lastMoves = lastMoves;
       // Everything that died this turn: its authoritative death cell, straight
       // from the turn's `deaths` registry, rides on the canonical state so the
-      // renderer can mark the actual square — mid-ray deaths, starvation halts
+      // renderer can mark the actual square — mid-ray deaths, exhaustion halts
       // and edge-contest losers that never left their own square included —
       // live and in the logged replay.
       const deathCells = deriveDeathCells(pt);

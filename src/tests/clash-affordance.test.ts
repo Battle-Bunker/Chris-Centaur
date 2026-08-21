@@ -102,7 +102,7 @@ function clashState(): GameState {
           reason: 'Outweighed',
         },
         {
-          cell: { x: 2, y: 4 }, subStep: 5, kind: 'starvation',
+          cell: { x: 2, y: 4 }, subStep: 5, kind: 'exhaustion',
           playerIDs: ['spent'], victimIDs: ['spent'],
           reason: 'Ran out of health',
         },

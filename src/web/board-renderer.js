@@ -2778,7 +2778,7 @@ const BoardRenderer = (function () {
     //     when present, else the engine's authoritative `deathCells` map —
     //     which is now the turn's DEATH REGISTRY and covers every unit that
     //     died, snakes and pieces alike: the exact cell it died on, whether
-    //     that is a slider's mid-ray stop, the square a starving unit halted
+    //     that is a slider's mid-ray stop, the square an exhausted unit halted
     //     on, or the square an edge-contest loser never left. The `lastMoves`
     //     fallback below survives only for logs older than the registry; it
     //     steps the last-known head one cell in the recorded direction, which
@@ -3871,7 +3871,7 @@ const BoardRenderer = (function () {
 
   // The clash records marking one cell. The server writes ONE record per cell
   // per event, so several records on one cell mean several distinct events
-  // there — a contest on sub-step 2 and a starvation on sub-step 5, say — not
+  // there — a contest on sub-step 2 and an exhaustion on sub-step 5, say — not
   // one event counted several times.
   function clashesAtCell(board, cell) {
     if (!cell) return [];
@@ -3954,12 +3954,29 @@ const BoardRenderer = (function () {
       .replace(/"/g, "&quot;");
   }
 
-  // One participant's line in the clash panel: its team colour, its team name
-  // and letter, and what this event did to it. The outcome comes from the
-  // RECORD, not from the board: `victimIDs` is the server's own list of who
-  // died here, so a participant not on it walked away from THIS event —
+  // How one event ended for one participant, as a CSS class plus its label.
+  // Read off the RECORD, never the board: `victimIDs` is the server's own list
+  // of who died here, so a participant not on it walked away from THIS event —
   // whatever became of it later in the turn.
-  function clashParticipantHTML(id, lookup, victimIds) {
+  //
+  // "recovered" is the third outcome, and it belongs to exhaustion alone. Both
+  // exhaustion kinds are PROVISIONAL deaths: running out of health halts a
+  // unit but only kills it if it is still at zero once the end-of-turn food
+  // phase has run, so a unit that halted on food eats and lives. The server
+  // says so by leaving victimIDs empty, and "survived" would undersell it —
+  // the unit did stop where it did not mean to.
+  const EXHAUSTION_KINDS = ["exhaustion", "hazard"];
+  function clashOutcome(clash, id, victimIds) {
+    if (victimIds.has(id)) return { cls: "died", label: "died" };
+    if (clash && EXHAUSTION_KINDS.indexOf(clash.kind) !== -1) {
+      return { cls: "recovered", label: "recovered" };
+    }
+    return { cls: "survived", label: "survived" };
+  }
+
+  // One participant's line in the clash panel: its team colour, its team name
+  // and letter, and what this event did to it.
+  function clashParticipantHTML(id, lookup, victimIds, clash) {
     const snake = lookup(id);
     const color =
       (snake && (snake.customizations?.color || snake.color)) || "#888888";
@@ -3968,15 +3985,13 @@ const BoardRenderer = (function () {
     const label = snake
       ? escapeHTML([team, letter].filter(Boolean).join(" ") || snake.name || id)
       : escapeHTML(id);
-    const survived = !victimIds.has(id);
-    const outcome = survived
-      ? '<span class="clash-outcome survived">survived</span>'
-      : '<span class="clash-outcome died">died</span>';
+    const { cls, label: outcomeLabel } = clashOutcome(clash, id, victimIds);
+    const died = cls === "died";
     return (
       `<li class="clash-participant">` +
       `<span class="clash-swatch" style="background-color:${color};"></span>` +
-      `<span class="clash-unit"${survived ? "" : ' style="text-decoration:line-through;"'}>${label}</span>` +
-      outcome +
+      `<span class="clash-unit"${died ? ' style="text-decoration:line-through;"' : ""}>${label}</span>` +
+      `<span class="clash-outcome ${cls}">${outcomeLabel}</span>` +
       `</li>`
     );
   }
@@ -4012,7 +4027,7 @@ const BoardRenderer = (function () {
             : `<span class="clash-substep" title="Within-turn sub-step: pieces resolve a turn one square of their path at a time">sub-step ${escapeHTML(clash.subStep)}</span>`;
         const victimIds = new Set(clash.victimIDs || []);
         const participants = (clash.playerIDs || [])
-          .map((id) => clashParticipantHTML(id, lookup, victimIds))
+          .map((id) => clashParticipantHTML(id, lookup, victimIds, clash))
           .join("");
         return (
           `<div class="clash-event">` +

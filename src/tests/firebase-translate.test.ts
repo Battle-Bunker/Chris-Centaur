@@ -444,7 +444,7 @@ describe('parseTurn', () => {
  * and to cover pieces only — snakes were left to a direction-derived cell.
  * Both of those are gone: the registry is authoritative, it covers every unit
  * that died, and it is the only thing that can express the two cells no
- * derivation can (a starvation halt, and an edge-contest loser that dies
+ * derivation can (a fatal exhaustion halt, and an edge-contest loser that dies
  * without ever leaving its own square).
  */
 describe('deriveDeathCells — straight off the death registry', () => {
@@ -512,7 +512,7 @@ describe('deriveDeathCells — straight off the death registry', () => {
       alivePlayers: ['centA', 'centB', 'centB#2'],
       playerPieces: { centA: [idx(1, 2), idx(1, 1)], centB: [idx(3, 1)], 'centB#2': [idx(2, 3)] },
       moves: { centA: idx(1, 2), 'centA#2': haltSquare, centB: idx(3, 1), 'centB#2': idx(2, 3) },
-      deaths: { 'centA#2': { cell: haltSquare, subStep: 3, cause: 'starvation' } },
+      deaths: { 'centA#2': { cell: haltSquare, subStep: 3, cause: 'exhaustion' } },
     });
     const doc = makeDoc([makeTurn(), curr]);
     expect(deriveDeathCells(parseTurn(doc, 1)!)).toEqual({

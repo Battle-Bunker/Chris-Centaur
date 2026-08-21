@@ -10,8 +10,10 @@
  * segment is an absolute wall: the mover dies there unless its invulnerability
  * tier is STRICTLY higher, in which case it severs and CAPTURE-STOPS on that
  * square. The engine compares tiers and weights and never teams — an ally's
- * body kills exactly like an enemy's — and a dead mover is removed before the
- * food phase, so it cannot eat, not even on its death square.
+ * body kills exactly like an enemy's — and a mover KILLED OUTRIGHT is removed
+ * before the food phase, so it cannot eat, not even on its death square.
+ * (Exhaustion is the one death the food phase can undo — a separate rule, and
+ * a separate block below.)
  *
  * SIMULTANEITY. The engine resolves every snake's whole move in sub-step 1, so
  * a slider contests POST-move bodies. From the pre-move board the client can
@@ -267,19 +269,20 @@ describe('projectPath: the other ways a traversal ends', () => {
 });
 
 /**
- * MID-RAY STARVATION. The engine charges movement cost per sub-step, strictly
- * after that sub-step's collisions, and kills at health <= 0 on the spot; food
- * is settled at end of turn, for survivors only. So a slider that cannot
- * afford its ray HALTS where the health ran out and dies there — and food at
- * the staged destination is not a rescue, because it never gets there.
+ * MID-RAY EXHAUSTION, AND WHAT SETTLES IT.
  *
- * INVERTED. This used to be a plain "cost >= health" test applied to the WHOLE
- * ray, with the explicit rider that "reaching food at the end would have
- * cancelled it — and does". The engine settled movement cost in the food phase
- * back then, so a meal really could retroactively pay for a ray the health
- * could not. It cannot any more: cost is charged as it is spent.
+ * The engine charges movement cost per sub-step, strictly after that sub-step's
+ * collisions. Health reaching <= 0 is EXHAUSTION, which stops MOVEMENT and
+ * nothing else: the slider HALTS on the square it reached. Whether it also
+ * DIES is settled at end of turn by the food phase, which runs at the unit's
+ * FINAL square — so halting ON food is a full recovery, and halting anywhere
+ * else is death on the halt square.
+ *
+ * The distinction that survives every revision of this rule: food at the
+ * STAGED DESTINATION, beyond the halt, is worth nothing. A meal only ever
+ * saves a unit that actually ends the turn on top of it.
  */
-describe('projectPath: a ray the health cannot pay for halts and dies mid-way', () => {
+describe('projectPath: a ray the health cannot pay for halts, and the halt square decides', () => {
   const RAY: Coord[] = [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }];
 
   test('a movement cost that outruns health kills on the square it runs out', () => {
@@ -320,14 +323,56 @@ describe('projectPath: a ray the health cannot pay for halts and dies mid-way', 
     expect(outcome.cost).toBe(0);
   });
 
-  test('health exactly equal to the ray length is one square short', () => {
-    // Health 4 over 4 squares: the last one takes it to 0, so it halts there.
+  // THE RECOVERY CASE (piece). Health 4 over 4 squares: the last square takes
+  // it to exactly 0, so it exhausts ON the staged destination — and that
+  // square holds the food, so it eats there, restores to its type max and
+  // lives. Exhaustion is provisional; the halt square is what settles it.
+  test('exhausting ON food is a full recovery — halted, fed, alive', () => {
     const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 4 });
     const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 5, y: 5 }] }), RAY);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.path).toEqual(RAY);
+    // The meal cancels the whole bill, exactly as any other meal does — `cost`
+    // is a LOSS measure, so a recovery from zero reports 0 just like a stroll
+    // onto food at full health.
+    expect(outcome.cost).toBe(0);
+  });
+
+  test('the same ray one square SHORT of the food is still death', () => {
+    // Health 4, food moved to (6,5): the rook halts at (5,5) with nothing
+    // under it. One square, and the whole outcome flips.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 4 });
+    const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 6, y: 5 }] }), RAY);
     expect(outcome.fatal).toBe(true);
     expect(outcome.eats).toBe(false);
-    expect(outcome.path).toEqual(RAY); // it does arrive — and starves on arrival
+    expect(outcome.path).toEqual(RAY);
     expect(outcome.cost).toBe(4);
+  });
+
+  test('a mid-ray halt ON food recovers too — it just stops short of the staged square', () => {
+    // Health 2 over a 4-square ray with food on the SECOND square: it halts
+    // there, eats, and lives, having entered two squares of four.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 2 });
+    const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 3, y: 5 }] }), RAY);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
+    expect(outcome.cost).toBe(0);
+  });
+
+  test('a hazard halt on food recovers, doses and all', () => {
+    // 34 - 1 = 33, then a 30-dose square takes it to 2, then 1, then 0 on
+    // (5,5) — where the food is. The food phase ASSIGNS the max, so the doses
+    // go with the movement cost.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 34 });
+    const gs = makeState([rook], 'R', {
+      hazards: [{ x: 3, y: 5 }], hazardDamage: 30, food: [{ x: 5, y: 5 }],
+    });
+    const outcome = projectPath(gs, RAY);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.cost).toBe(0);
   });
 
   test('hazard doses count toward the same running bill, not a separate one', () => {
@@ -341,22 +386,25 @@ describe('projectPath: a ray the health cannot pay for halts and dies mid-way', 
     expect(outcome.cost).toBe(34);
   });
 
+  // THE RECOVERY CASE (snake). A snake's path is one square, so its halt
+  // square is always its destination — the recovery case and the ordinary
+  // arrival collapse into one.
   test('a SNAKE step is the same rule with a one-square path', () => {
-    // Health 1 onto food: the step's own cost kills it before the food phase.
+    // Health 1 onto food: the step exhausts it, and the same square feeds it.
     const us = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { health: 1 });
     const gs = makeState([us], 'us', { food: [{ x: 6, y: 5 }] });
     const outcome = projectPath(gs, [{ x: 6, y: 5 }]);
-    expect(outcome.fatal).toBe(true);
-    expect(outcome.eats).toBe(false);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.cost).toBe(0);
 
-    const healthier = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { health: 2 });
-    const fed = projectPath(makeState([healthier], 'us', { food: [{ x: 6, y: 5 }] }), [{ x: 6, y: 5 }]);
-    expect(fed.fatal).toBe(false);
-    expect(fed.eats).toBe(true);
-    expect(fed.cost).toBe(0);
+    // The same step onto a bare square is death: there is nothing to recover on.
+    const bare = projectPath(makeState([us], 'us'), [{ x: 6, y: 5 }]);
+    expect(bare.fatal).toBe(true);
+    expect(bare.eats).toBe(false);
   });
 
-  test('a mover that WINS a square and then starves on it still takes its victim', () => {
+  test('a mover that WINS a square and then exhausts on it still takes its victim', () => {
     // Collisions are adjudicated before the charge, so the dying mover is a
     // killer first and a corpse second — the trade is real and must be scored.
     const bishop = makePiece('B', { x: 2, y: 2 }, 'bishop', { length: 5, health: 2, teamID: 'ours' });

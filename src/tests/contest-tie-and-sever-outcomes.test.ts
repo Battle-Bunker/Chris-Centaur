@@ -368,6 +368,26 @@ describe('a meal wipes the hazard doses the traversal accrued', () => {
     expect(outcome.eats).toBe(false);
     expect(outcome.cost).toBe(2 + 20);
   });
+
+  // The other half of the same rule, which the food phase running at the
+  // FINAL cell (not the staged destination) makes true: a capture-stop ON food
+  // does credit the meal. The mover ends the turn standing on it, which is the
+  // only question the engine's food phase asks.
+  test('a capture-stop ON food DOES credit the meal — the food phase reads the final cell', () => {
+    const rook = makePiece('R', OURS, { x: 1, y: 5 }, 'rook', 5, { health: 100 });
+    const victim = makePiece('EP', THEIRS, { x: 3, y: 5 }, 'pawn', 1);
+    const gs = makeState([rook, victim], 'R', {
+      hazards: [{ x: 2, y: 5 }],
+      hazardDamage: 20,
+      food: [{ x: 3, y: 5 }], // the square we capture and stop on
+    });
+
+    const outcome = projectPath(gs, RAY);
+    expect(outcome.captureStopped).toBe(true);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.cost).toBe(0);
+    expect(outcome.casualties.kills).toBe(1);
+  });
 });
 
 describe('the piece candidate path: a winning king trade is scored, not discarded', () => {

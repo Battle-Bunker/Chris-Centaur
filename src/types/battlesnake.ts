@@ -101,8 +101,12 @@ export type ClashKind =
   | 'edge'
   | 'bodyBlock'
   | 'sever'
+  // Exhausted by hazard damage / by movement cost. Both HALT the unit where
+  // it stood; both are only PROVISIONALLY fatal, settled at end of turn after
+  // the food phase — a unit that halted on food recovers. A record of either
+  // kind with an empty victimIDs is that recovered case, and draws no death.
   | 'hazard'
-  | 'starvation'
+  | 'exhaustion'
   | 'wall'
   | 'self'
   | 'regicide';
@@ -128,7 +132,9 @@ export interface Clash {
   kind: ClashKind;
   // Every unit involved, survivors included.
   playerIDs: string[];
-  // The subset of playerIDs that died (or starved) HERE. Empty for a sever.
+  // The subset of playerIDs that died HERE. An EMPTY list is meaningful: the
+  // event hurt nobody fatally — a sever, or an exhaustion the unit recovered
+  // from by halting on food.
   victimIDs: string[];
   // The unique unit left standing at this cell, when there is one.
   survivorID?: string;
@@ -163,10 +169,10 @@ export interface GameState {
   // Authoritative map of unitId -> the board cell it died on during the
   // transition into this turn, read from the wire turn's `deaths` registry.
   // EVERY unit removed that turn is in it — snakes and pieces, killed and
-  // starved alike — so this, not `lastMoves`, is the death channel. (A snake
-  // that loses an edge contest dies on its OWN start cell without moving at
-  // all, which no direction-derived cell can express.) Present only on turns
-  // where somebody died.
+  // fatally exhausted alike — so this, not `lastMoves`, is the death channel.
+  // (A snake that loses an edge contest dies on its OWN start cell without
+  // moving at all, which no direction-derived cell can express.) Present only
+  // on turns where somebody died.
   deathCells?: Record<string, Coord>;
 }
 

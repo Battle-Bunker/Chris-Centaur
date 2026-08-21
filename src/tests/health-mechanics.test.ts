@@ -7,12 +7,15 @@
  *  - Hazards deal configurable damage (GameSetup.hazardDamage, default 100)
  *    on ENTERING a hazard square; death only at health <= 0 — no longer
  *    instant death.
- *  - CHARGE FIRST, EAT AFTER. The engine charges movement and hazard cost in
- *    the sub-step the cell is entered, kills at health <= 0 on the spot, and
- *    settles food only at end of turn, for survivors. So eating restores to
- *    the type max (snake.maxHealth) — but ONLY for a unit that arrived alive.
- *    FOOD NEVER RESCUES A UNIT THE STEP ITSELF KILLS. That is the inversion
- *    this file carries: it used to be the other way round.
+ *  - CHARGE FIRST, EAT AFTER — but EXHAUSTION IS PROVISIONAL DEATH. The engine
+ *    charges movement and hazard cost in the sub-step the cell is entered;
+ *    health reaching <= 0 stops MOVEMENT and nothing else. Whether it kills is
+ *    settled at end of turn, after the food phase, which runs at the unit's
+ *    FINAL cell and ASSIGNS the type max (snake.maxHealth). So a unit that
+ *    halted on food eats, recovers and lives; one at zero anywhere else dies.
+ *    A snake's move is one cell, so its halt cell IS its destination: food at
+ *    the destination rescues a step that would otherwise kill, hazard dose and
+ *    all — and the dose is wiped along with the movement cost.
  *
  * Plus the owner's explicit conservatism guarantee, pinned here: the engine
  * spawns food AFTER movement, so this-turn survival is fully decidable from
@@ -112,22 +115,24 @@ describe('hazard damage (no longer instant death)', () => {
     expect(alive.board.snakes.find(s => s.id === 'us')!.health).toBe(1);
   });
 
-  // INVERTED (was: "food on a hazard square: eat restores to max FIRST, then
-  // the damage lands"). The dose is charged in the movement sub-step and the
-  // food phase runs afterwards, for survivors only — so at health 5 the step
-  // plus a 30-damage dose kills outright and the meal is never taken.
-  test('food on a hazard square does NOT rescue: the dose lands first, and it kills', () => {
-    const gs = hazardScenario(5, 30);
+  // Food on a hazard square RESCUES, and restores to the FULL type max — the
+  // dose is charged first and then wiped, because the food phase assigns the
+  // max rather than subtracting from it. (This lands between two older
+  // readings: it is not "eat to 100 then take 30" — the answer is 100, not 70
+  // — and it is not "the dose kills first and the meal is never taken", which
+  // was the starved-is-dead reading exhaustion-is-provisional replaced.)
+  test('food on a hazard square rescues an exhausted unit, at the FULL type max', () => {
+    const gs = hazardScenario(5, 30); // 5 - 1 - 30 = -26: exhausted on arrival
     gs.board.food = [{ x: 6, y: 5 }];
     const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
 
-    expect(result.deadSnakeIds).toEqual(new Set(['us']));
-    // The food is still sitting there: nobody lived to eat it.
-    expect(result.board.food).toEqual([{ x: 6, y: 5 }]);
+    expect(result.deadSnakeIds.size).toBe(0);
+    expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
+    expect(result.board.food).toEqual([]);
   });
 
-  test('food on a hazard square the unit SURVIVES restores it to the type max', () => {
-    // 50 - 1 - 30 = 19 > 0, so it arrives alive and the food phase assigns 100.
+  test('food on a hazard square the unit survives outright restores it the same way', () => {
+    // 50 - 1 - 30 = 19 > 0, never exhausted — and still assigned the max.
     const gs = hazardScenario(50, 30);
     gs.board.food = [{ x: 6, y: 5 }];
     const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
@@ -135,6 +140,12 @@ describe('hazard damage (no longer instant death)', () => {
     expect(result.deadSnakeIds.size).toBe(0);
     expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
     expect(result.board.food).toEqual([]);
+  });
+
+  test('the SAME hazard square without food is death — the meal is the whole difference', () => {
+    const gs = hazardScenario(5, 30);
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
+    expect(result.deadSnakeIds).toEqual(new Set(['us']));
   });
 
   test('hazardDamage survives deepCopyBoard (chained simulations keep the config)', () => {
@@ -152,18 +163,19 @@ describe('hazard damage (no longer instant death)', () => {
     expect(healthAfterEntering(us, gs.board, { x: 6, y: 5 })).toBe(19); // hazard entry
   });
 
-  test('healthAfterEntering charges BEFORE the meal, so a step that kills stays killed', () => {
-    // Health 1 onto food: 1 - 1 = 0. The unit starves on arrival and the food
-    // phase never runs for it — the meal is not a rescue, it is a reward for
-    // surviving.
+  // INVERTED (was: "healthAfterEntering charges BEFORE the meal, so a step
+  // that kills stays killed"). The charge does come first, but exhaustion only
+  // HALTS — and for a one-cell step the halt cell is the destination, so the
+  // end-of-turn meal there still lands.
+  test('healthAfterEntering: the charge comes first, and the meal at the halt cell still saves', () => {
+    // Health 1 onto food: 1 - 1 = 0, exhausted — and the food phase runs at
+    // that very cell, so it recovers to the type max.
     const dying = hazardScenario(1, 30);
     dying.board.food = [{ x: 4, y: 5 }];
-    expect(healthAfterEntering(dying.you, dying.board, { x: 4, y: 5 })).toBe(0);
+    expect(healthAfterEntering(dying.you, dying.board, { x: 4, y: 5 })).toBe(100);
 
-    // One more point of health and the same step is a full restore.
-    const living = hazardScenario(2, 30);
-    living.board.food = [{ x: 4, y: 5 }];
-    expect(healthAfterEntering(living.you, living.board, { x: 4, y: 5 })).toBe(100);
+    // The charge is still real: the same step onto a bare cell is at zero.
+    expect(healthAfterEntering(dying.you, dying.board, { x: 3, y: 5 })).toBe(0);
   });
 
   describe('projectedHealthCost — the one shared cost projection for snakes and pieces', () => {
@@ -258,16 +270,14 @@ describe('hazard damage (no longer instant death)', () => {
       expect(analysis.risky).not.toContain('right');
     });
 
-    // INVERTED (was: "food on a survivable hazard square counts the eat before
-    // the damage"). The damage lands first, so at health 5 the step is certain
-    // death whatever is on the cell — the food does not enter the fatality
-    // decision at all.
-    test('food does not make an unsurvivable hazard step survivable', () => {
-      const gs = hazardScenario(5, 30); // 5 - 1 - 30 <= 0: dead on arrival
+    test('food on the hazard square makes an otherwise-lethal step survivable', () => {
+      // 5 - 1 - 30 exhausts on arrival, but the halt cell feeds it: risky, not
+      // excluded. The damage still lands first — the meal is what undoes it.
+      const gs = hazardScenario(5, 30);
       gs.board.food = [{ x: 6, y: 5 }];
       const analysis = analyzer.analyzeMoves(gs.you, gs, new BoardGraph(gs));
 
-      expect(analysis.risky).not.toContain('right');
+      expect(analysis.risky).toContain('right');
       expect(analysis.safe).not.toContain('right');
     });
 
@@ -325,44 +335,33 @@ describe('conservative starvation prediction (owner guarantee)', () => {
     expect(result.board.food).toEqual([{ x: 6, y: 5 }]);
   });
 
-  // INVERTED (was: "at health 1, the food-adjacent move survives at the type
-  // max"). At health 1 EVERY move is death, the food step included: the step
-  // costs its 1 before the food phase runs, so the snake starves standing on
-  // an uneaten meal. Health 1 is one turn too late to be saved.
-  test('at health 1 every move is certain death — the food step no longer rescues', () => {
-    for (const move of ['up', 'left', 'right'] as Direction[]) {
+  test('at health 1, every NON-food move is certain death in the simulated board', () => {
+    for (const move of ['up', 'left'] as Direction[]) {
       const result = simulator.simulateNextBoardState(starvingScenario(), moves([['us', move]]));
       expect(result.deadSnakeIds).toEqual(new Set(['us']));
       expect(result.board.snakes.find(s => s.id === 'us')).toBeUndefined();
     }
-    // And the meal is untouched, because nobody lived to take it.
-    const onFood = simulator.simulateNextBoardState(starvingScenario(), moves([['us', 'right']]));
-    expect(onFood.board.food).toEqual([{ x: 6, y: 5 }]);
   });
 
-  test('at health 2 the food-adjacent move survives, and restores to the type max', () => {
-    const result = simulator.simulateNextBoardState(
-      starvingScenario({ health: 2 }), moves([['us', 'right']])
-    );
+  // The last point of health is still enough to reach food, because exhaustion
+  // only HALTS: the snake ends the turn on the meal and the food phase runs
+  // there. (This is the half of "at health 1 every move is death" that the
+  // provisional-death ruling took back; the non-food half above stands.)
+  test('at health 1, the food-adjacent move survives at the type max', () => {
+    const result = simulator.simulateNextBoardState(starvingScenario(), moves([['us', 'right']]));
     expect(result.deadSnakeIds.size).toBe(0);
     expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
+    expect(result.board.food).toEqual([]);
 
     const custom = simulator.simulateNextBoardState(
-      starvingScenario({ health: 2, maxHealth: 40 }), moves([['us', 'right']])
+      starvingScenario({ maxHealth: 40 }), moves([['us', 'right']])
     );
     expect(custom.deadSnakeIds.size).toBe(0);
     expect(custom.board.snakes.find(s => s.id === 'us')!.health).toBe(40);
-
-    // The turn before is the last chance: at health 2 the other directions
-    // still kill, so the food step is the only survivable one.
-    const away = simulator.simulateNextBoardState(
-      starvingScenario({ health: 1 }), moves([['us', 'up']])
-    );
-    expect(away.deadSnakeIds).toEqual(new Set(['us']));
   });
 
-  test('decide() takes the reachable food while it still saves — at health 2', () => {
-    const gs = starvingScenario({ health: 2 });
+  test('decide() consequently avoids the starvation moves and takes the reachable food', () => {
+    const gs = starvingScenario();
     const engine = new DecisionEngine();
     const decision = engine.decide(gs, new Set(['us']));
 

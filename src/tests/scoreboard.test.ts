@@ -262,6 +262,52 @@ describe('clash inspection', () => {
     expect(html).toContain('Body severed by a higher tier');
   });
 
+  test('a RECOVERED exhaustion reads as recovered, and draws no death', () => {
+    // Empty victimIDs on an exhaustion/hazard record is the provisional death
+    // that did NOT land: the unit halted where its health ran out and the
+    // end-of-turn food phase brought it back. "survived" would undersell it —
+    // it did stop somewhere it did not mean to.
+    const recovered = {
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 4, kind: 'exhaustion',
+        playerIDs: ['a'], victimIDs: [],
+        reason: 'Ran out of health',
+      }],
+    };
+    const html = BoardRenderer.renderClashDetails(recovered, { x: 3, y: 3 }, {});
+    expect(html).toContain('clash-outcome recovered');
+    expect(html).not.toContain('clash-outcome died');
+    expect(html).not.toContain('line-through');
+    expect(html).toContain('Ran out of health');
+  });
+
+  test('a hazard exhaustion reads the same way, and the FATAL flavour still reads dead', () => {
+    const at = (kind: string, victimIDs: string[]) => ({
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 4, kind,
+        playerIDs: ['a'], victimIDs, reason: 'Drained by a hazard',
+      }],
+    });
+    expect(BoardRenderer.renderClashDetails(at('hazard', []), { x: 3, y: 3 }, {}))
+      .toContain('clash-outcome recovered');
+    // Same kind, victim named: the provisional death landed.
+    const fatal = BoardRenderer.renderClashDetails(at('hazard', ['a']), { x: 3, y: 3 }, {});
+    expect(fatal).toContain('clash-outcome died');
+    expect(fatal).not.toContain('clash-outcome recovered');
+    // And a SEVER — non-fatal for a different reason — is not "recovered".
+    const sever = BoardRenderer.renderClashDetails({
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 1, kind: 'sever',
+        playerIDs: ['a'], victimIDs: [], reason: 'Body severed by a higher tier',
+      }],
+    }, { x: 3, y: 3 }, {});
+    expect(sever).toContain('clash-outcome survived');
+    expect(sever).not.toContain('clash-outcome recovered');
+  });
+
   test('a victim still standing on the board is reported dead anyway', () => {
     // `x` is alive on `clashBoard`, but this record says it died HERE — the
     // record wins, which is the whole point of reading victimIDs.
@@ -362,7 +408,7 @@ describe('clashes and team names on the wire', () => {
   test('every ClashKind rides through verbatim, regicide included', () => {
     const kinds = [
       'contest', 'edge', 'bodyBlock', 'sever', 'hazard',
-      'starvation', 'wall', 'self', 'regicide',
+      'exhaustion', 'wall', 'self', 'regicide',
     ] as const;
     const board = buildBoardState('g', setup, turnWith(
       kinds.map((kind, i) => ({
@@ -377,6 +423,32 @@ describe('clashes and team names on the wire', () => {
     const regicide = board.clashes!.find((c) => c.kind === 'regicide')!;
     expect(regicide.victimIDs).toEqual(['p1']);
     expect(regicide.cell).toEqual(toApiCoord(16 + 8, 7, 7));
+  });
+
+  test('a RECOVERED exhaustion rides through with its empty victimIDs intact', () => {
+    // Exhaustion is provisional death: the unit halted, ate at the halt cell
+    // and lived, so the server leaves victimIDs empty. An empty list is DATA,
+    // not a gap — mapping must not drop the field or fill it in.
+    const board = buildBoardState('g', setup, turnWith([
+      {
+        index: 16, subStep: 3, kind: 'exhaustion',
+        playerIDs: ['p1'], victimIDs: [],
+        reason: 'Ran out of health',
+      },
+      {
+        index: 17, subStep: 2, kind: 'hazard',
+        playerIDs: ['p2'], victimIDs: [],
+        reason: 'Drained by a hazard',
+      },
+    ]), 4, null).board;
+
+    expect(board.clashes!.map((c) => c.victimIDs)).toEqual([[], []]);
+    expect(board.clashes!.map((c) => c.kind)).toEqual(['exhaustion', 'hazard']);
+    // The same kinds with a victim named are the FATAL flavour, and map alike.
+    const fatal = buildBoardState('g', setup, turnWith([
+      { index: 16, subStep: 3, kind: 'exhaustion', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Ran out of health' },
+    ]), 4, null).board;
+    expect(fatal.clashes![0].victimIDs).toEqual(['p1']);
   });
 
   test('a survivorless record simply carries no survivorID', () => {
@@ -408,7 +480,7 @@ describe('clashes and team names on the wire', () => {
   // the renderer undated.
   test('every clash is dated: a whole-move unit records sub-step 1', () => {
     const board = buildBoardState('g', setup, turnWith([
-      { index: 16, subStep: 1, kind: 'starvation', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Ran out of health' },
+      { index: 16, subStep: 1, kind: 'exhaustion', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Ran out of health' },
     ]), 4, null).board;
     expect(board.clashes![0].subStep).toBe(1);
 

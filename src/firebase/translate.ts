@@ -210,15 +210,18 @@ export function parseLatestTurn(doc: TTGameStateDoc): ParsedTurn | null {
 /**
  * Death cells for the transition into `curr`, read STRAIGHT OFF the turn's
  * authoritative death registry (`Turn.deaths`) — every unit removed that turn,
- * snakes and pieces, killed and starved alike, at the api-coordinate cell the
+ * snakes and pieces, killed and fatally exhausted alike, at the api-coordinate cell the
  * server says it died on.
  *
  * The registry is the primary source, not a supplement, and nothing here
  * derives a death from the board or from a move direction any more. Two
  * reasons that matters under the current engine:
- *  - a STARVED unit halts wherever its health ran out — mid-ray for a slider,
- *    on its own square for a unit that never moved — and no move or direction
- *    on the wire says where that was;
+ *  - an EXHAUSTED unit halts wherever its health ran out — mid-ray for a
+ *    slider, on its own square for a unit that never moved — and no move or
+ *    direction on the wire says where that was. (Exhaustion is only
+ *    provisionally fatal: one that halted on food recovers and is simply
+ *    absent from the registry, which is another thing no derivation could
+ *    have worked out.)
  *  - an EDGE-CONTEST loser never crosses, so it dies on the square it started
  *    from without moving at all; a direction-derived cell would put its marker
  *    one square away, on a cell it never reached.

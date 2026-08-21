@@ -93,10 +93,12 @@ export interface TTTurn {
   /**
    * The AUTHORITATIVE death registry for this turn, and the only thing a
    * renderer reads to draw a death (mirrors shared/types/Game.ts Turn.deaths).
-   * Every unit removed this turn appears here — killed, walled, severed to
-   * nothing, and STARVED alike (a unit whose health ran out mid-turn halts
-   * where it stood, keeps fighting as a collision object for the rest of the
-   * turn, and is removed at the end of it). Written on every turn; an empty
+   * Every unit removed this turn appears here — killed, walled, and fatally
+   * EXHAUSTED alike. Exhaustion is PROVISIONAL death (see TTClashKind): a
+   * unit that ran out of health halts where it stood and keeps fighting as a
+   * collision object, but it only reaches this registry if its health is
+   * still at or below zero at END OF TURN. One that halted on food eats,
+   * recovers, and is simply absent from here. Written on every turn; an empty
    * object means nobody died.
    *
    * REQUIRED, exactly as on the wire — the registry is not an enrichment the
@@ -150,8 +152,17 @@ export type TTClashKind =
   | 'edge'
   | 'bodyBlock' // died entering a cell occupied by a unit's body/trail
   | 'sever' // body cut by a strictly-higher-tier unit — non-fatal for the owner
-  | 'hazard' // health exhausted by hazard damage (starved where it stood)
-  | 'starvation' // health exhausted by movement cost (starved where it stood)
+  // Exhausted by HAZARD damage. Like `exhaustion` below, this halts the unit
+  // and is only PROVISIONALLY fatal.
+  | 'hazard'
+  // Exhausted by MOVEMENT cost. Running out of health mid-turn stops movement
+  // and nothing else: the unit halts on the cell it reached and stays a live
+  // collision incumbent there. Whether it DIES is settled at end of turn,
+  // after the food phase — food is the only heal and it is eaten at the
+  // unit's final cell, so a unit that halted ON food recovers and lives.
+  // A `hazard`/`exhaustion` record with EMPTY victimIDs is exactly that
+  // recovered case: it explains why the unit stopped short, and nobody died.
+  | 'exhaustion'
   | 'wall' // hit a boundary wall
   | 'self' // collided with own body
   | 'regicide'; // removed with its team when the team's last king fell
@@ -173,8 +184,10 @@ export interface TTClash {
   kind: TTClashKind;
   // Every unit involved in this record, survivors included.
   playerIDs: string[];
-  // The subset of playerIDs that died (or starved) HERE. Empty for a sever,
-  // which is non-fatal for the body's owner.
+  // The subset of playerIDs that died HERE. EMPTY is meaningful, not missing
+  // data: it means the event was non-fatal for everyone named. Two records
+  // read that way — a `sever` (the body's owner is cut, not killed) and a
+  // `hazard`/`exhaustion` whose unit recovered on food at its halt cell.
   victimIDs: string[];
   // The unique unit left standing at this cell, when there is one. Withdrawn
   // by the server when the named unit was itself condemned in the same
