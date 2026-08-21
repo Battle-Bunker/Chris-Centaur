@@ -9,24 +9,38 @@ export type MoveSet = Map<string, Direction>;
 /**
  * The engine's exact health rule for a unit ENTERING `dest` this turn, shared
  * by the Simulator, MoveAnalyzer's health-aware hazard fatality and the
- * staged-move fatality probe so the three can never drift:
- *  - health loss is MOVEMENT-based (no universal per-turn decay): a snake
- *    that moves pays 1 — unless it eats, which restores health to the unit's
- *    configured type max (snake.maxHealth, engine default 100);
- *  - a hazard square deals board.hazardDamage (default 100) on ENTRY, applied
- *    AFTER the eat/step update, so food on a hazard cell restores to max
- *    first and the damage lands on the restored value.
- * Death is health <= 0 — hazards are damage-based, never instant death.
- * Call with the PRE-move snake and a board whose food has not yet been
- * spliced for this move.
+ * staged-move fatality probe so the three can never drift.
+ *
+ * The engine charges health PER SUB-STEP, strictly after that sub-step's
+ * collisions, and settles food only at END OF TURN. So the order here is
+ * CHARGE, THEN EAT — the exact reverse of what it used to be:
+ *  - health loss is MOVEMENT-based (no universal per-turn decay): entering a
+ *    cell costs 1, and a hazard cell costs a further board.hazardDamage
+ *    (default 100). Both are charged in the sub-step the cell is entered.
+ *  - the moment health reaches <= 0 the unit STARVES where it stands. It is
+ *    removed at end of turn, before the food phase ever runs.
+ *  - only a unit that arrives ALIVE eats, and then the food phase ASSIGNS the
+ *    unit's configured type max (snake.maxHealth, engine default 100) —
+ *    wiping the movement cost and every hazard dose it just paid.
+ *
+ * The consequence worth stating outright, because the old rule said the
+ * opposite: FOOD NO LONGER RESCUES A UNIT THE STEP WOULD KILL. A snake at
+ * health 1 stepping onto food pays its 1, hits zero, and starves with the meal
+ * untouched. Food on a hazard cell is the same story — the dose lands first,
+ * and only a unit that survives it gets the meal.
+ *
+ * Death is health <= 0. Call with the PRE-move snake and a board whose food
+ * has not yet been spliced for this move.
  */
 export function healthAfterEntering(snake: Snake, board: Board, dest: Coord): number {
-  const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
-  let health = eats ? (snake.maxHealth ?? 100) : snake.health - 1;
+  let health = snake.health - 1;
   if ((board.hazards ?? []).some(h => h.x === dest.x && h.y === dest.y)) {
     health -= board.hazardDamage ?? 100;
   }
-  return health;
+  // Starved on arrival: the meal is never reached, whatever is on the cell.
+  if (health <= 0) return health;
+  const eats = (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
+  return eats ? (snake.maxHealth ?? 100) : health;
 }
 
 /**
@@ -46,24 +60,32 @@ export function tierAtArrival(unit: Snake, currentTurn: number): number {
 
 /**
  * How a projected traversal ends. `path` is the squares this PROJECTION has
- * the mover enter, truncated at the death or capture-stop it resolved — so a
- * caller must never assume the staged destination was reached. It is close to
- * the engine's Turn.paths but deliberately NOT claimed to equal it: the engine
- * adjudicates an in-flight edge swap before either unit is charged for its
- * destination, so a swap LOSER never crosses the edge and its real path ends
- * one square EARLIER than the square appended here. Nothing reads `path`
- * today; treat it as a debugging trace of the projection, not as the wire
- * record.
+ * the mover enter, truncated at the death, the starvation halt or the
+ * capture-stop it resolved — so a caller must never assume the staged
+ * destination was reached. It is close to the engine's Turn.paths but
+ * deliberately NOT claimed to equal it: the engine settles an in-flight edge
+ * exchange before either unit completes its crossing, so an exchange LOSER
+ * never enters the square and its real path ends one square EARLIER than the
+ * square appended here. Nothing reads `path` today; treat it as a debugging
+ * trace of the projection, not as the wire record.
  */
 export interface ProjectedPath {
-  /** Squares actually entered, truncated at a death or a capture-stop. */
+  /**
+   * Squares actually entered, truncated at a death, a starvation halt or a
+   * capture-stop.
+   */
   path: Coord[];
   /**
-   * Health points the traversal costs. When `fatal`, it is at least the
-   * mover's current health, so the projected health lands at zero or below.
+   * Health points the traversal costs: 1 per square entered plus a full hazard
+   * dose per hazard square entered, or 0 when the mover arrives alive on food.
+   * When `fatal`, it is at least the mover's current health, so the projected
+   * health lands at zero or below.
    */
   cost: number;
-  /** The mover does not survive the traversal (projected health 0). */
+  /**
+   * The mover does not survive the traversal — killed on a square, or starved
+   * the moment the running bill exhausted its health part-way along the ray.
+   */
   fatal: boolean;
   /** The mover severed a body / killed a piece and stopped there. */
   captureStopped: boolean;
@@ -75,9 +97,9 @@ export interface ProjectedPath {
 
 /**
  * One unit this traversal destroys or shortens. The engine's contests carry NO
- * friendly exemption — `contestSquare` in chessTurnSim.ts compares tier then
- * weight and never teams — so our own move kills an ally exactly the way it
- * kills an enemy, which is the whole reason this record exists.
+ * friendly exemption — every adjudication compares tier then frozen weight and
+ * never teams — so our own move kills an ally exactly the way it kills an
+ * enemy, which is the whole reason this record exists.
  */
 export interface ProjectedCasualty {
   /** The victim's unit id. */
@@ -142,15 +164,20 @@ export function emptyCasualtyContext(): CasualtyContext {
  *
  * A slider genuinely ARRIVES on every square of its ray (the engine advances
  * it one square per sub-step and contests wherever it lands), so every square
- * is adjudicated here in the engine's own within-square order — walls, then
- * the hazard dose, then the occupancy contest:
+ * is adjudicated here in the engine's own within-square order — COLLISIONS
+ * FIRST, THEN THE HEALTH CHARGE:
  *
  *  - WALL / off-board: death on that square.
- *  - HAZARD: board.hazardDamage on ENTRY, mid-flight squares included. Only
- *    hazard damage is charged DURING flight (the engine settles movement cost
- *    in the food phase afterwards), so a mover dies mid-path exactly when the
- *    hazard doses so far exhaust its health — and the traversal stops there
- *    rather than accruing further doses.
+ *  - The occupancy contest (below). It is settled BEFORE any health is
+ *    charged, which is why a mover that wins a square and then starves on it
+ *    still takes its victim with it.
+ *  - THE CHARGE: 1 for the square entered, plus board.hazardDamage (default
+ *    100) if it is a hazard square, mid-flight squares included. Health hitting
+ *    <= 0 is STARVATION: the mover HALTS on that square and dies there. It
+ *    never reaches the rest of the ray, so no further movement cost and no
+ *    further hazard dose accrues — and no food beyond that square can help it,
+ *    because there is no mid-ray food rescue at all. A capture-stop is charged
+ *    for the square it stopped on, since it entered it.
  *  - A SNAKE BODY SEGMENT is an absolute wall, with NO friendly exemption:
  *    the engine compares tiers and weights and never teams, so an ally's body
  *    kills exactly like an enemy's. Equal-or-lower tier than the owner ⇒
@@ -177,41 +204,52 @@ export function emptyCasualtyContext(): CasualtyContext {
  * dies is the LAST king of a team, which the engine's regicide rule turns
  * into that whole team's elimination.
  *
- * Movement costs 1 per square ACTUALLY entered — UNLESS the mover reaches the
- * staged destination alive and it holds food, which SETS health to the type
- * max and so cancels the whole bill: the movement cost the engine never
- * charged AND the mid-flight hazard doses it already deducted (the food phase
- * assigns the max rather than adding to the running health — mirrors
- * healthAfterEntering). A death or a capture-stop credits NO meal: the engine
- * removes a dead mover before the food phase, and a truncated slider never
- * gets to the far end — so a mover that hazard doses kill mid-flight is fatal
- * even when its staged destination holds food it will never reach.
+ * The bill is the sum of those per-square charges — UNLESS the mover reaches
+ * the staged destination ALIVE and it holds food, which SETS health to the
+ * type max and so cancels the whole bill, hazard doses included (the food
+ * phase assigns the max rather than adding to the running health — mirrors
+ * healthAfterEntering). Eating only ever helps a mover that ARRIVES: a death,
+ * a starvation halt or a capture-stop credits NO meal, so food at the staged
+ * destination cannot save a ray that runs out of health — or out of board — on
+ * the way there.
  *
- * SIMULTANEITY — what this projection deliberately cannot see. The engine
- * resolves every snake's whole move in sub-step 1, so a slider contests each
- * snake's POST-move body. From the pre-move board the client can see exactly
- * one square of that shift: the tail always vacates (the engine pops it before
- * any collision, eating or not — a stacked tail's duplicate at the
- * second-to-last index still blocks, so skipping only the last index is
- * exact). Every other current segment — index 0 included, because the pre-move
- * head becomes a body segment once the snake steps forward — is treated as
- * still occupied, and the square a snake's head moves INTO is not modelled at
- * all (that is the unit threat map's job). Both choices are conservative in
- * the same direction: we may call a traversal fatal that the real
- * simultaneous resolution would have let through, and we never bank on a body
- * clearing out of our way.
+ * FROZEN STATE — what the engine guarantees, and what the projection may
+ * therefore assume. All collision adjudication reads the tier and weight each
+ * unit held at the START of the turn, and nothing is ever REMOVED from the
+ * board mid-turn: dead units, starved units and severed segments all stay put
+ * as collision objects until the whole collision phase is over. Modelling
+ * other units as frozen on the squares they occupy now is therefore MORE
+ * accurate than it used to be, not less — and the reverse inference, "that
+ * square frees up once its occupant dies", is simply wrong. A square where
+ * somebody dies is blocked for the rest of the turn, which is exactly what a
+ * capture-stop already encodes here.
  *
- * Other units' PIECES are modelled as FROZEN on the squares they occupy now:
- * the projection never gives them a move, so a piece that is in flight during
- * the same turn is invisible to it. Two consequences follow. An in-flight EDGE
- * SWAP — the enemy piece stepping onto our origin as we step onto its square —
- * is never seen as a swap, and neither is the meal a unit takes on a square we
- * are contesting. Both are verdict-equivalent for us: the engine adjudicates a
- * swapped edge with the SAME tier-then-weight rule as a shared square
- * (`contestSquare`, called from the edge-swap pass), so who lives and who dies
- * is what this projection already computes — only the square a loser dies on
- * differs (its own start square rather than the contested one), which is the
- * `path` caveat above and nothing scoring reads.
+ * SIMULTANEITY — what this projection still cannot see. A slider contests each
+ * snake's POST-move body, and snakes move in sub-step 1. From the pre-move
+ * board the client can see exactly one square of that shift: the tail always
+ * vacates (the engine pops it before any collision, eating or not — a stacked
+ * tail's duplicate at the second-to-last index still blocks, so skipping only
+ * the last index is exact). Every other current segment — index 0 included,
+ * whose two possible fates (the owner's neck if it stepped away, an edge
+ * exchange if it stepped into us) are weighed in resolveTraversedSquare's
+ * i = 0 policy note — is treated as still occupied, and the square a snake's
+ * head moves INTO is not modelled at all (that is the unit threat map's job).
+ * Both choices are conservative in the same direction: we may call a traversal
+ * fatal that the real simultaneous resolution would have let through, and we
+ * never bank on a body clearing out of our way.
+ *
+ * Other units' PIECES are modelled as frozen too: the projection never gives
+ * them a move, so a unit that is in flight during the same turn is invisible
+ * to it. The consequence that matters is the EDGE EXCHANGE — the other unit
+ * stepping onto our origin as we step onto its square. The engine settles that
+ * head-to-head, uniformly for every unit kind and length, on the same
+ * tier-then-weight rule a shared square uses, so WHO LIVES is what this
+ * projection already computes for a stationary occupant. Two things differ and
+ * neither is read by scoring: the square a loser dies on (its own start square
+ * — "squashed against its own neck" — rather than the contested one), which is
+ * the `path` caveat above; and, when the occupant is a multi-cell SNAKE, the
+ * projection deliberately models the other meeting instead (see
+ * resolveTraversedSquare's i = 0 policy note).
  *
  * Call with a board whose food/hazards have not yet been spliced for this
  * move.
@@ -238,7 +276,10 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
 
   const entered: Coord[] = [];
   const victims: ProjectedCasualty[] = [];
-  let hazardAccrued = 0;
+  // The running bill, charged square by square exactly as the engine charges
+  // it — so the square where it outruns `health` is the square the mover
+  // halts and dies on, not a total compared against the health afterwards.
+  let accrued = 0;
   let died = false;
   let captureStopped = false;
 
@@ -247,22 +288,16 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
     // records a dead mover's path as ending ON the square it died on.
     entered.push(sq);
 
-    // 1. Walls / off the board.
+    // 1. Walls / off the board. A collision, so it is settled before any
+    //    charge — and a unit that dies here is never billed for the square.
     if (sq.x < 0 || sq.x >= board.width || sq.y < 0 || sq.y >= board.height) {
       died = true;
       break;
     }
 
-    // 2. Hazard dose on entry — the only cost charged DURING flight.
-    if (hazards.some(h => h.x === sq.x && h.y === sq.y)) {
-      hazardAccrued += hazardDamage;
-      if (health - hazardAccrued <= 0) {
-        died = true;
-        break;
-      }
-    }
-
-    // 3. Occupancy: bodies and stationary pieces.
+    // 2. Occupancy: bodies and stationary pieces. Also a collision, and also
+    //    settled before the charge — which is what lets a mover that wins the
+    //    square and then starves on it still take its victim with it.
     const outcome = resolveTraversedSquare(board, mover, moverTier, state.turn, sq);
     if (outcome.verdict === 'death') {
       // A death can still be a TRADE: a tied stationary contest kills the unit
@@ -279,30 +314,40 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
       if (outcome.victim) victims.push(outcome.victim);
       // Only a PIECE capture-stops; a snake severs through and keeps its
       // (single-square) move.
-      if (moverIsPiece) {
-        captureStopped = true;
-        break;
-      }
+      if (moverIsPiece) captureStopped = true;
     }
+
+    // 3. The health charge for the square just entered, strictly after this
+    //    square's collisions: 1 for the step, plus a full dose for a hazard.
+    accrued += 1;
+    if (hazards.some(h => h.x === sq.x && h.y === sq.y)) accrued += hazardDamage;
+    if (health - accrued <= 0) {
+      // STARVED HERE. The mover halts on this square and dies on it — the rest
+      // of the ray is never walked, so nothing beyond it is charged and no
+      // food beyond it is reachable.
+      died = true;
+      break;
+    }
+
+    if (captureStopped) break;
   }
 
   const reachedDestination = !died && !captureStopped;
   const dest = entered[entered.length - 1];
   const eats =
     reachedDestination && (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
-  // Reaching food alive wipes the WHOLE bill, not just the movement term: the
-  // engine's food phase SETS health to the unit's type max
-  // (TeamSnekProcessor.processFoodAndHealth), which restores the mid-flight
-  // hazard doses the sub-step sim already deducted along with the movement
-  // cost it never charged. Verified: 100 health through two 20-damage hazards
-  // onto food lands at 100, not 60.
-  let cost = eats ? 0 : entered.length + hazardAccrued;
-  // Fatality is one condition: the projected health lands at or below zero,
-  // whether from a wall/body/contest death mid-path or from the cost simply
-  // outrunning the mover's health. Either way the projection reports a cost
-  // that ZEROES the health, which is what makes the health-loss heuristic
-  // sensitive to it.
-  const fatal = died || cost >= health;
+  // Arriving on food alive wipes the WHOLE bill, not just the movement term:
+  // the engine's end-of-turn food phase SETS health to the unit's type max
+  // (TeamSnekProcessor.processFood), which restores the hazard doses charged
+  // in flight along with the movement cost. Verified: 100 health through two
+  // 20-damage hazards onto food lands at 100, not 60.
+  let cost = eats ? 0 : accrued;
+  // Fatality is one condition, and by construction the walk above already
+  // decided it: the mover either finished the path with health to spare, or it
+  // halted on the square that killed it. A fatal traversal reports a cost that
+  // ZEROES the health, which is what makes the health-loss heuristic sensitive
+  // to it.
+  const fatal = died;
   if (fatal) cost = Math.max(cost, health);
 
   return {
@@ -395,10 +440,11 @@ function foldCasualties(
  *    and a body segment we out-tier is cut there, so the owner survives minus
  *    everything behind the cut.
  *  - 'death' WITH a victim: a stationary-piece contest we TIE. The engine's
- *    `contestSquare` kills every unit at the top tier when the heaviest weight
- *    there is not unique, so a tie is mutual destruction — we die AND so does
- *    the piece. Losing outright is 'death' with no victim (the bare DEATH
- *    constant), which is the whole reason the two are distinguished here.
+ *    cell contest leaves AT MOST ONE unique strict maximum standing (tier
+ *    first, then frozen weight) and any tie leaves nobody, so equal tier and
+ *    equal weight is mutual destruction — we die AND so does the piece. Losing
+ *    outright is 'death' with no victim (the bare DEATH constant), which is
+ *    the whole reason the two are distinguished here.
  * That is the one place an ally casualty can be learned, and it is learned
  * from the contest itself rather than a second, forkable copy of the rule.
  */
@@ -443,9 +489,9 @@ function resolveTraversedSquare(
       if (winsStationaryContest(moverTier, mover.length, ownerTier, owner.length)) {
         return { verdict: 'sever', victim: casualty(owner, owner.length, true) };
       }
-      // A TIE is not a loss: the engine's contestSquare kills everyone at the
-      // top tier when no unique heaviest is there, so equal tier and equal
-      // weight is MUTUAL destruction. We still die (the verdict is fatal), but
+      // A TIE is not a loss: the engine's cell contest leaves at most one
+      // unique strict maximum standing, so equal tier and equal weight is
+      // MUTUAL destruction. We still die (the verdict is fatal), but
       // the piece dies with us — a trade, not a suicide, and the casualty is
       // what makes the difference visible to scoring (a tied capture of an
       // enemy's last king still ends their team).
@@ -467,22 +513,40 @@ function resolveTraversedSquare(
       // Severed at segment i: everything from i backwards is cut away, and the
       // owner survives shortened.
       //
-      // i = 0 is the owner's PRE-move head, and that is where the projection's
-      // frozen-snake view and the engine part company. The engine resolves
-      // every snake's whole move in sub-step 1, so by the time a slider arrives
-      // this square is no longer a head at all: it is post-move index 1, the
-      // segment the snake swept in behind itself. `owner.body.indexOf(square,
-      // 1)` finds it there and `splice(1)` cuts everything from it back — the
-      // owner walks away ALIVE as a single segment, whatever its length was.
-      // So a multi-cell snake's head square is a sever that costs it
-      // length - 1, not a kill.
+      // ── i = 0: THE OWNER'S START-OF-TURN HEAD CELL, and a POLICY CHOICE ──
       //
-      // A LENGTH-1 owner is the exception: its only segment pops before its
-      // head lands, so it leaves nothing behind and its square really is a
-      // head-class contest, which a strictly higher tier wins outright — a
-      // kill for its whole weight of 1. (The engine now applies the same
-      // tier-then-weight rule to length-1 snakes in edge swaps, so this
-      // stationary model stays verdict-accurate.)
+      // Enemy snakes always move, so by the time we arrive their start-of-turn
+      // head cell is one of exactly two things, and the projection cannot know
+      // which — it never gives other units a move:
+      //
+      //  (a) CHASE — the owner stepped away or aside. The cell is now its
+      //      post-move index 1, the NECK it swept in behind itself: a living
+      //      body cell. Equal-or-lower tier dies on it; a strictly higher tier
+      //      severs it there and capture-stops, and the owner walks away alive
+      //      as a single segment, whatever its length was. You cannot chase a
+      //      head.
+      //  (b) EXCHANGE — the owner stepped into OUR origin, so the two heads
+      //      crossed the same edge. That is an edge contest, uniform across
+      //      every unit kind and every length: frozen tier, then frozen
+      //      weight, settled before either head reaches the far side. There is
+      //      no swept-in-neck exemption — trails make no difference to it.
+      //
+      // POLICY: we model (a), the CHASE, always. It is the worse of the two
+      // meetings for us wherever they differ, and never the better one —
+      // verified combination by combination in the projection tests rather
+      // than asserted here. The one place the choice is not purely
+      // conservative is the CASUALTY LEDGER, not the fatality verdict: when we
+      // strictly out-tier the owner, (a) costs it length - 1 and leaves it
+      // alive while (b) would destroy it outright, so we under-credit a kill
+      // on an enemy (conservative) and under-charge our own damage to an ALLY
+      // by one weight, king included (optimistic — the known corner).
+      //
+      // A LENGTH-1 owner is the exception to the shape, not to the policy: its
+      // only segment pops before its head lands, so under (a) the cell is
+      // simply EMPTY, and under (b) it is a head-class contest a strictly
+      // higher tier wins outright. We model it as the contest — a kill for its
+      // whole weight of 1 — which keeps the frozen-occupancy assumption the
+      // rest of this function rests on.
       if (i === 0 && owner.body.length > 1) {
         return { verdict: 'sever', victim: casualty(owner, owner.body.length - 1, false) };
       }
@@ -515,7 +579,16 @@ export interface SimulatedBoardState {
 
 export class Simulator {
   /**
-   * Simulate the next board state given a set of moves for all snakes
+   * Simulate the next board state given a set of moves for all snakes.
+   *
+   * FROZEN STATE. The engine removes nothing from the board mid-turn: a unit
+   * that dies HALTS where it stood and stays there as a collision object until
+   * the collision phase ends, and only then leaves. So dying this turn never
+   * opens a square for anybody else this turn, and the resolution is
+   * order-independent. That is why every occupancy question below is asked of
+   * the board AS IT STOOD AT TURN START (`preDead`), never of the running
+   * `deadSnakeIds` set — which records who is leaving at the END of the turn,
+   * not who has stopped blocking.
    */
   public simulateNextBoardState(
     gameState: GameState,
@@ -554,21 +627,93 @@ export class Simulator {
       // move by the enumerator, and therefore stand still in lookahead. A
       // stationary 1-cell body contributes no wall segments (index 0 is the
       // head), so a piece's square is only contested via the stationary-
-      // square rule in step 3 — weight-correct because length = weight.
+      // square rule in step 4 — weight-correct because length = weight.
       if (!move) continue;
       
-      const newHead = this.getNewHead(snake.head, move);
-      newHeadPositions.set(snake.id, newHead);
-      
-      // Track potential head-to-head collisions
-      const posKey = `${newHead.x},${newHead.y}`;
-      if (!headCollisions.has(posKey)) {
-        headCollisions.set(posKey, []);
-      }
-      headCollisions.get(posKey)!.push(snake.id);
+      newHeadPositions.set(snake.id, this.getNewHead(snake.head, move));
     }
-    
-    // Step 2: Resolve head-to-head collisions
+
+    // Everything already off the board when the turn began — the ONLY units
+    // that do not block this turn. Anything that dies from here on is still a
+    // collision object for the whole turn (see the frozen-state note above),
+    // so the occupancy passes read THIS set and never `deadSnakeIds`.
+    const preDead = new Set(deadSnakeIds);
+
+    // Step 2: in-flight EDGE EXCHANGES. Two units whose HEADS exchange through
+    // one edge in one sub-step contest that edge on frozen tier then frozen
+    // weight, exactly the way they would contest a shared cell: the unique
+    // maximum completes the crossing, and a tie leaves nobody standing.
+    //
+    // THE RULE IS UNIFORM. Having a trail makes no difference, and length makes
+    // no difference: the contest is head-to-head and is settled before either
+    // head reaches the far side, so the swept-in neck never gets a say. (The
+    // only exemption in the engine is a JUMP, which crosses no edge — and a
+    // knight's L-offset can never land on an adjacent cell anyway, so no unit
+    // can exchange heads with one.) Snake-only games run the same unified
+    // engine as every other game, so this is not a chess-variant rule.
+    //
+    // It goes FIRST, before the co-arrival pass, for the engine's own reason:
+    // an exchange decides who actually completed a crossing, so it has to be
+    // settled before anything asks who arrived where. An exchange loser never
+    // reaches its destination and takes no part in the contest there.
+    //
+    // The loser is SQUASHED AGAINST ITS OWN NECK: it dies on the cell its head
+    // held at the start of the turn, never on the one it was reaching for. Its
+    // head reverts, but the TAIL POP STANDS — tails depart deterministically,
+    // never contingent on a contest ahead of the head — so its corpse is its
+    // start-of-turn body minus the shed tail. A length-1 loser therefore owns
+    // no cells at all, though its death cell is still a collision object for
+    // the rest of the turn. Both fall out of the occupancy rules in step 4
+    // without special casing: the tail-skip already drops the shed cell, and
+    // `edgeLosers` keeps a one-cell loser's death cell blocking.
+    //
+    // The winner is the SURVIVOR of the cell it lands on, not a fresh arrival
+    // at it: it is never re-adjudicated against the pile it just made there,
+    // which is what `edgeSettled` records for step 4. A THIRD unit arriving at
+    // that cell does contest it, against the winner, in the ordinary way.
+    const edgeLosers = new Set<string>();
+    const edgeSettled = new Map<string, Set<string>>();
+    const settle = (oneId: string, otherId: string): void => {
+      for (const [self, other] of [[oneId, otherId], [otherId, oneId]]) {
+        let seen = edgeSettled.get(self);
+        if (!seen) edgeSettled.set(self, (seen = new Set()));
+        seen.add(other);
+      }
+    };
+    const edgeContenders = [...newHeadPositions.keys()]
+      .map(id => newBoard.snakes.find(s => s.id === id)!)
+      .filter(s => s && !deadSnakeIds.has(s.id));
+    for (let i = 0; i < edgeContenders.length; i++) {
+      for (let j = i + 1; j < edgeContenders.length; j++) {
+        const a = edgeContenders[i];
+        const b = edgeContenders[j];
+        const aTo = newHeadPositions.get(a.id)!;
+        const bTo = newHeadPositions.get(b.id)!;
+        const exchanged =
+          aTo.x === b.head.x && aTo.y === b.head.y &&
+          bTo.x === a.head.x && bTo.y === a.head.y;
+        if (!exchanged) continue;
+        settle(a.id, b.id);
+        if (!winsStationaryContest(invulnOf(a.id), a.length, invulnOf(b.id), b.length)) {
+          deadSnakeIds.add(a.id);
+          edgeLosers.add(a.id);
+        }
+        if (!winsStationaryContest(invulnOf(b.id), b.length, invulnOf(a.id), a.length)) {
+          deadSnakeIds.add(b.id);
+          edgeLosers.add(b.id);
+        }
+      }
+    }
+
+    // Step 3: Resolve head-to-head collisions — the co-arrival contest, over
+    // the movers that actually completed a crossing (an edge loser never
+    // reached its destination, so it is not standing there to be contested).
+    for (const [id, newHead] of newHeadPositions.entries()) {
+      if (edgeLosers.has(id)) continue;
+      const posKey = `${newHead.x},${newHead.y}`;
+      if (!headCollisions.has(posKey)) headCollisions.set(posKey, []);
+      headCollisions.get(posKey)!.push(id);
+    }
     for (const [, snakeIds] of headCollisions.entries()) {
       if (snakeIds.length > 1) {
         // Multiple snakes moved to same position
@@ -630,11 +775,16 @@ export class Simulator {
         }
       }
     }
-    
-    // Step 3: Check for wall and body collisions
+
+    // Step 4: Check for wall and body collisions. Every occupancy question
+    // here is asked of the turn-start board: a unit condemned earlier this
+    // turn is still standing on its cells for the rest of it (frozen state),
+    // so a death never clears the way for somebody else's step.
     for (const [snakeId, newHead] of newHeadPositions.entries()) {
+      // A mover already condemned has its own outcome settled; nothing below
+      // can kill it twice.
       if (deadSnakeIds.has(snakeId)) continue;
-      
+
       // Check wall collision
       if (newHead.x < 0 || newHead.x >= newBoard.width ||
           newHead.y < 0 || newHead.y >= newBoard.height) {
@@ -646,9 +796,33 @@ export class Simulator {
       const movingInvulnerability = invulnOf(snakeId);
       const mover = newBoard.snakes.find(s => s.id === snakeId)!;
 
-      // Check body collision (including other snakes)
+      // Check body collision (including other snakes). `preDead`, not
+      // `deadSnakeIds`: a unit that dies THIS turn keeps blocking until the
+      // turn is over, so only units already gone at turn start are skipped.
       for (const snake of newBoard.snakes) {
-        if (!this.isAlive(snake) || deadSnakeIds.has(snake.id)) continue;
+        if (!this.isAlive(snake) || preDead.has(snake.id)) continue;
+        // This pair's meeting was already settled at the edge (step 2b), on
+        // the edge's own terms. Neither may be re-adjudicated against the
+        // other here: the winner would otherwise die on the corpse it just
+        // made, which is precisely the swept-in-neck doctrine the uniform
+        // edge rule replaced.
+        if (edgeSettled.get(snakeId)?.has(snake.id)) continue;
+        // A ONE-CELL unit that MOVES leaves nothing behind: a length-1 snake
+        // pops its only segment as it steps, and a piece's stack teleports
+        // whole. Its old cell is genuinely empty on arrival — the same
+        // exactness the tail rule below rests on, applied to the degenerate
+        // body. (A one-cell unit that does NOT move still holds its cell and
+        // is contested there; and one SQUASHED at the edge does not vacate
+        // either — it died on that cell, which is a collision object for the
+        // rest of the turn even though the corpse owns nothing.)
+        if (
+          snake.id !== snakeId &&
+          snake.body.length === 1 &&
+          newHeadPositions.has(snake.id) &&
+          !edgeLosers.has(snake.id)
+        ) {
+          continue;
+        }
 
         // Stationary chess piece: entering its (single) square is a CONTEST
         // the engine adjudicates tier-first, weight-second — everyone below
@@ -656,7 +830,7 @@ export class Simulator {
         // the top tier the unique heaviest survives and ties kill all
         // (`length` is a piece's WEIGHT). A won contest KILLS the piece: the
         // mover occupies the square with no growth and no health restore —
-        // a piece is not food (the normal movement rule in step 4 applies).
+        // a piece is not food (the normal movement rule in step 5 applies).
         if (snake.id !== snakeId && isPieceUnit(snake)) {
           const sq = snake.body[0];
           if (sq && sq.x === newHead.x && sq.y === newHead.y) {
@@ -697,19 +871,13 @@ export class Simulator {
       }
     }
     
-    // Step 4: Update snake positions for surviving snakes
+    // Step 5: Update snake positions for surviving snakes
     for (const snake of newBoard.snakes) {
       if (deadSnakeIds.has(snake.id)) continue;
       
       const newHead = newHeadPositions.get(snake.id);
       if (!newHead) continue;
       
-      // Check if snake is eating
-      const foodIndex = newBoard.food.findIndex(f =>
-        f.x === newHead.x && f.y === newHead.y
-      );
-      const isEating = foodIndex !== -1;
-
       // Health via the ONE shared movement/eat/hazard rule, computed BEFORE
       // the eaten food is spliced off the board (the rule reads dest food).
       // Movement-based decay only: units absent from the moveSet — frozen
@@ -719,6 +887,16 @@ export class Simulator {
       // deliberately unmodeled: they don't move in lookahead, and hazard
       // damage triggers on ENTERING a hazard square.
       const newHealth = healthAfterEntering(snake, newBoard, newHead);
+
+      // Eating is the END-OF-TURN food phase, and it is for SURVIVORS: a unit
+      // the step's own cost killed starves on arrival and is removed before
+      // the phase runs, so it neither grows nor takes the meal off the board.
+      // (`healthAfterEntering` already refuses to restore such a unit; this is
+      // the other half — the food has to still be there for somebody else.)
+      const foodIndex = newHealth > 0
+        ? newBoard.food.findIndex(f => f.x === newHead.x && f.y === newHead.y)
+        : -1;
+      const isEating = foodIndex !== -1;
 
       // Update body the way the engine does: pop the tail first (it vacates
       // whether or not the snake eats), then grow by duplicating the NEW tail
@@ -738,7 +916,7 @@ export class Simulator {
       snake.length = newBody.length;
       snake.health = newHealth;
 
-      // Pawn promotion, mirroring the engine (chess/pieceMoves.ts): applied
+      // Pawn promotion, mirroring the engine (engine/moveGrammar.ts): applied
       // AFTER the eat/growth update above, so a pawn that eats into the
       // threshold this turn promotes the same turn. Promotion RESETS weight
       // to 1 (truncating the body to the single head square) rather than
@@ -773,11 +951,11 @@ export class Simulator {
       }
     }
     
-    // Step 5: Severing. A snake that moved onto a strictly-less-invulnerable
-    // snake's body doesn't just survive there (step 3 skipped that collision) —
+    // Step 6: Severing. A snake that moved onto a strictly-less-invulnerable
+    // snake's body doesn't just survive there (step 4 skipped that collision) —
     // it CUTS the body: the contacted segment and everything behind it are
     // removed, and the owner survives shortened. Mirrors the server's tiered
-    // collision pass (SnekProcessor.checkSnakeCollisionsTiered), which severs
+    // collision phase (engine/turnEngine.ts), which severs
     // against post-move bodies with higher levels acting first.
     const severingMovers = newBoard.snakes
       .filter(s => !deadSnakeIds.has(s.id) && newHeadPositions.has(s.id))
@@ -798,7 +976,7 @@ export class Simulator {
       }
     }
 
-    // Step 6: Remove dead snakes from the board
+    // Step 7: Remove dead snakes from the board
     newBoard.snakes = newBoard.snakes.filter(s => !deadSnakeIds.has(s.id));
     
     return {

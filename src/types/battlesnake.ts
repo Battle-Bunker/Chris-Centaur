@@ -78,30 +78,62 @@ export interface Board {
   maxHealthPerUnit?: Partial<Record<string, number>>;
   snakes: Snake[];
   // Collisions the game server resolved while producing THIS board, in api
-  // coords. One record per body cell of each unit that died, so a clash can
-  // appear several times over one snake's length and two units dying in the
-  // same contest produce two records naming the same participants. Present
-  // only on turns where something collided.
+  // coords. ONE RECORD PER CELL PER EVENT: a unit that died contributes one
+  // record on the cell it died on, not one per body cell. The only event that
+  // spans two cells is an edge-contest tie, which emits one record on each
+  // unit's own cell. Present only on turns where something collided.
   clashes?: Clash[];
+  // Cells cut from each SURVIVING snake this turn by a sever, in api coords —
+  // non-fatal damage, keyed by unit id. Present only on turns where a sever
+  // actually truncated somebody.
+  severedCells?: Record<string, Coord[]>;
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];
 }
 
 /**
- * One collision the game server resolved, in the renderer's coordinate space.
- * Purely descriptive: it names WHERE, WHO took part and WHY, and says nothing
- * about who controls what — a neutral spectator reads it exactly as a player
- * does. Which participants died is derived from the resulting board (a
- * participant absent from `board.snakes` did not survive), never from this
- * record.
+ * What produced a clash record (and, in a death registry, what killed the
+ * unit). Rendering branches on THIS and on the explicit id lists — never on
+ * the `reason` string, which is display text the server rewords at will.
+ */
+export type ClashKind =
+  | 'contest'
+  | 'edge'
+  | 'bodyBlock'
+  | 'sever'
+  | 'hazard'
+  | 'starvation'
+  | 'wall'
+  | 'self'
+  | 'regicide';
+
+/**
+ * One adjudicated collision event at one cell, in the renderer's coordinate
+ * space. Purely descriptive: it names WHERE, WHEN (which within-turn sub-step),
+ * WHAT KIND of event it was, WHO took part and WHICH of them died, and says
+ * nothing about who controls what — a neutral spectator reads it exactly as a
+ * player does.
+ *
+ * Who died is stated OUTRIGHT by `victimIDs`. It is never inferred from the
+ * resulting board: under the engine's frozen-state rule a dead unit stays on
+ * the board as a collision object for the rest of the turn, so board occupancy
+ * mid-turn says nothing about survival, and a unit that died in an EARLIER
+ * event can legitimately appear as a participant in a later one.
  */
 export interface Clash {
   cell: Coord;
+  // The within-turn sub-step this event happened on. Always present: a
+  // whole-move unit records 1, a slider records the step of its ray it was on.
+  subStep: number;
+  kind: ClashKind;
+  // Every unit involved, survivors included.
   playerIDs: string[];
+  // The subset of playerIDs that died (or starved) HERE. Empty for a sever.
+  victimIDs: string[];
+  // The unique unit left standing at this cell, when there is one.
+  survivorID?: string;
+  // Display text only.
   reason: string;
-  // The within-turn sub-step the collision happened on (piece games resolve a
-  // turn in several sub-steps as sliders walk their paths). Absent for snakes.
-  subStep?: number;
 }
 
 export interface Game {
@@ -128,11 +160,13 @@ export interface GameState {
   // guessing. Optional for backward compatibility with engines/logs that
   // predate it.
   lastMoves?: Record<string, Direction>;
-  // Authoritative map of unitId -> the board cell a chess piece died on
-  // during the transition into this turn, read from the wire turn's `moves`
-  // map (which records a dead piece's actual death square — mid-path for a
-  // slider stopped in flight). Pieces only: a dead snake's cell derives from
-  // `lastMoves`. Present only on turns where a piece died.
+  // Authoritative map of unitId -> the board cell it died on during the
+  // transition into this turn, read from the wire turn's `deaths` registry.
+  // EVERY unit removed that turn is in it — snakes and pieces, killed and
+  // starved alike — so this, not `lastMoves`, is the death channel. (A snake
+  // that loses an edge contest dies on its OWN start cell without moving at
+  // all, which no direction-derived cell can express.) Present only on turns
+  // where somebody died.
   deathCells?: Record<string, Coord>;
 }
 

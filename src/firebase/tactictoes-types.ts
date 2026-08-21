@@ -66,11 +66,15 @@ export interface TTTurn {
   // Board indices, head first, full-board coords. A chess piece is a
   // weight-stack: N copies of its single square (weight = array length).
   playerPieces: Record<string, number[]>;
-  // The move index the server actually applied for EVERY player alive at turn
-  // start — staged or engine-defaulted alike. Authoritative and complete,
-  // including for units that died this turn: a dead piece records the square
-  // it actually died on (mid-path for a slider stopped in flight — never its
-  // origin or staged destination); a dead snake its attempted head square.
+  // The square each unit actually ENDED its move on, for EVERY player alive at
+  // turn start — staged or engine-defaulted alike. This is the death-square
+  // guarantee: anything that died records the cell it died on, never a staged
+  // destination it was blocked from entering. A slider truncated in flight —
+  // by a capture-stop or by its health running out mid-ray — records its stop
+  // square, which can be well short of what was staged; an edge-contest loser
+  // records its OWN start square, because it never crossed. `deaths[id].cell`
+  // agrees with this for every unit that died, and IS the primary source: this
+  // map exists for the living too.
   moves: Record<string, number>;
   winners: Array<{ playerID: string; score: number }>;
   // Current type per unit (changes on pawn promotion); absent in snake-only games.
@@ -86,6 +90,29 @@ export interface TTTurn {
   // Squares each chess piece actually traversed this turn (snakes excluded).
   // A dead piece's path ends at the square it died on.
   paths?: Record<string, number[]>;
+  /**
+   * The AUTHORITATIVE death registry for this turn, and the only thing a
+   * renderer reads to draw a death (mirrors shared/types/Game.ts Turn.deaths).
+   * Every unit removed this turn appears here — killed, walled, severed to
+   * nothing, and STARVED alike (a unit whose health ran out mid-turn halts
+   * where it stood, keeps fighting as a collision object for the rest of the
+   * turn, and is removed at the end of it). Written on every turn; an empty
+   * object means nobody died.
+   *
+   * REQUIRED, exactly as on the wire — the registry is not an enrichment the
+   * bot may or may not get, it is the death channel. Readers still guard the
+   * field (`turn.deaths ?? {}`) against a malformed document rather than
+   * trusting the compiler about someone else's JSON.
+   */
+  deaths: Record<string, TTUnitDeath>;
+  /**
+   * Cells cut from each SURVIVING snake this turn by a sever — non-fatal
+   * damage, for damage indicators (mirrors shared/types/Game.ts
+   * Turn.severedCells). Absent when no sever truncated anything. A sever whose
+   * owner died the same turn is a clash record but truncates nothing, so it
+   * never appears here.
+   */
+  severedCells?: Record<string, number[]>;
   fertileTiles?: number[];
   invulnerabilityPotions?: number[];
   playerInvulnerabilityLevel?: Record<string, number>;
@@ -94,14 +121,12 @@ export interface TTTurn {
   // this is what tells us how long the current level will hold.
   activeEffects?: TTActiveEffect[];
   // Collisions the server resolved while producing THIS turn's board (mirrors
-  // shared/types/Game.ts Turn.clashes). One record per DISTINCT CELL MARKED,
-  // which is not the same as "cells of the dead": a kill marks every cell of
-  // the unit that died (so a multi-cell snake contributes several records
-  // sharing one reason), but a SEVER marks the cells that were cut off a snake
-  // which SURVIVES — its record names a survivor, not a casualty. Who actually
-  // died is read off the resulting board, never off these records (see
-  // TTClash.playerIDs, which lists participants including survivors). Absent on
-  // turns where nothing collided.
+  // shared/types/Game.ts Turn.clashes). ONE RECORD PER CELL PER EVENT — a
+  // multi-cell snake that died no longer contributes a record per body cell,
+  // and the only event that spans two cells is an edge-contest tie (one record
+  // on each unit's own cell). Who died is stated outright by `victimIDs`, so
+  // nothing has to be inferred from the resulting board. Absent on turns where
+  // nothing collided.
   clashes?: TTClash[];
   // NOTE: the wire also carries a per-team `teamScores` map. It is
   // deliberately NOT typed here, because nothing reads it: the scoreboard
@@ -111,21 +136,61 @@ export interface TTTurn {
 }
 
 /**
- * One collision the server resolved, verbatim from the TacticToes wire
- * (shared/types/Game.ts Clash).
+ * What produced a clash record, and — in TTUnitDeath.cause — what killed the
+ * unit (mirrors shared/types/Game.ts ClashKind). This, together with the
+ * explicit id lists, is what a reader branches on. The `reason` string is
+ * display text and MUST NOT be branched on: the server rewrites its wording
+ * freely.
+ */
+export type TTClashKind =
+  | 'contest' // same-cell (or durable collision cell) tier-then-weight contest
+  // In-flight edge exchange: two units whose HEADS cross the same edge in one
+  // sub-step. Uniform across every unit kind and length — the loser is
+  // squashed at the cell its head started from, and dies there.
+  | 'edge'
+  | 'bodyBlock' // died entering a cell occupied by a unit's body/trail
+  | 'sever' // body cut by a strictly-higher-tier unit — non-fatal for the owner
+  | 'hazard' // health exhausted by hazard damage (starved where it stood)
+  | 'starvation' // health exhausted by movement cost (starved where it stood)
+  | 'wall' // hit a boundary wall
+  | 'self' // collided with own body
+  | 'regicide'; // removed with its team when the team's last king fell
+
+/**
+ * One adjudicated event at one cell, verbatim from the TacticToes wire
+ * (shared/types/Game.ts Clash). A single collision that spans two cells (an
+ * edge-contest tie) emits one record per cell; nothing else ever produces two
+ * records for one event.
  */
 export interface TTClash {
-  // FULL-board index (perimeter included) of the cell the clash marks.
+  // FULL-board index (perimeter included) of the cell this event happened on.
   index: number;
-  // Every unit that took part in the contest — survivors included. Which of
-  // them died is read off the resulting board, not off this list.
+  // Which within-turn sub-step the event happened on. ALWAYS present: a
+  // whole-move unit (every snake, a knight's jump, a king's step) records 1,
+  // and a slider walking its ray records the sub-step it was on.
+  subStep: number;
+  // What produced the record — the thing readers branch on.
+  kind: TTClashKind;
+  // Every unit involved in this record, survivors included.
   playerIDs: string[];
-  // Human-readable cause, written by the game processor.
+  // The subset of playerIDs that died (or starved) HERE. Empty for a sever,
+  // which is non-fatal for the body's owner.
+  victimIDs: string[];
+  // The unique unit left standing at this cell, when there is one. Withdrawn
+  // by the server when the named unit was itself condemned in the same
+  // sub-step (two snakes can annihilate each other simultaneously).
+  survivorID?: string;
+  // Display text ONLY, written by the game processor. Never load-bearing.
   reason: string;
-  // Which within-turn sub-step the collision happened on. Piece games resolve
-  // a turn in several sub-steps (a slider walks its path one square at a
-  // time), so a mid-flight collision is dated by this. Absent for snake games.
-  subStep?: number;
+}
+
+/** Where, when and how one unit died this turn (shared/types/Game.ts UnitDeath). */
+export interface TTUnitDeath {
+  // FULL-board index of the cell the unit died on — the last cell it actually
+  // reached, never a staged destination it was blocked from entering.
+  cell: number;
+  subStep: number;
+  cause: TTClashKind;
 }
 
 export interface TTActiveEffect {

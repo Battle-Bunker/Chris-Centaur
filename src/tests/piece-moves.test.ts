@@ -1,7 +1,7 @@
 /**
  * Legality tests for the chess-piece movement mirror
  * (src/logic/piece-moves.ts), which must stay in lockstep with the TacticToes
- * engine's functions/src/gameprocessors/chess/pieceMoves.ts — the centaur uses
+ * engine's functions/src/gameprocessors/engine/moveGrammar.ts — the centaur uses
  * it to decide whether a clicked destination is a legal single move (anything
  * illegal stages "stay").
  *

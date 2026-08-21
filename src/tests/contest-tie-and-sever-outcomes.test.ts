@@ -1,23 +1,27 @@
 /**
  * Outcomes the projection used to get WRONG, verified against the engine
- * (TacticToes functions/src/gameprocessors/chess/chessTurnSim.ts and
+ * (TacticToes functions/src/gameprocessors/engine/turnEngine.ts and
  * TeamSnekProcessor.ts):
  *
  *  1. A TIED stationary contest is MUTUAL destruction, not a plain loss.
- *     `contestSquare` kills every unit at the top tier whenever the heaviest
- *     weight there is not unique, so equal tier + equal weight kills both. The
+ *     A cell contest leaves AT MOST ONE unique strict maximum standing (tier
+ *     first, then frozen weight) and kills everyone else, so equal tier +
+ *     equal weight kills both. The
  *     projection used to answer `winsStationaryContest === false` with a bare
  *     death and no victim, which scored a game-winning king trade as pure
  *     suicide — kills 0, enemyRegicide 0 — and (symmetrically) charged nothing
  *     for trading with an ALLY.
  *
- *  2. Entering a multi-cell snake's CURRENT head square is a SEVER, not a
- *     kill. The engine resolves every snake's whole move in sub-step 1, so by
- *     the time a slider arrives that square holds post-move index 1:
- *     `body.indexOf(square, 1)` finds it and `splice(1)` cuts from there, and
- *     the owner walks away ALIVE as a single segment. Only a LENGTH-1 owner —
- *     which leaves nothing behind when its one segment pops — really is a
- *     head-class contest and dies outright.
+ *  2. Entering a multi-cell snake's CURRENT head square is modelled as a
+ *     SEVER, not a kill. Snakes always move, so by the time a slider arrives
+ *     that square is the owner's NECK — post-move index 1, the segment it
+ *     swept in behind itself — and a strictly higher tier cuts from there,
+ *     leaving the owner alive as a single segment. (The other thing that
+ *     square can be is an EDGE EXCHANGE, if the owner stepped into our origin;
+ *     modelling the neck instead is the deliberate conservative policy pinned
+ *     in fatal-path-projection.test.ts.) Only a LENGTH-1 owner — which leaves
+ *     nothing behind when its one segment pops — is modelled as a head-class
+ *     contest and dies outright.
  *
  *  3. A meal WIPES mid-flight hazard damage. Hazard doses are deducted inside
  *     the sub-step sim; the food phase afterwards ASSIGNS the type max

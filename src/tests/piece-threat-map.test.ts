@@ -2,8 +2,9 @@
  * The per-decision piece threat map and its ride through the pipeline:
  *
  *  - geometry: slider rays blocked by current occupancy (blocker square
- *    included), knight L-jumps, king steps, pawn forward + both
- *    diagonal-forwards from its orientation — board-bounded, health-uncapped;
+ *    included) AND by what the piece's health can pay for, knight L-jumps,
+ *    king steps, pawn forward + both diagonal-forwards from its orientation —
+ *    all board-bounded;
  *  - threat rule: an enemy piece threatens a square iff it would WIN or TIE
  *    the contest there (higher tier, or equal tier and weight >= ours); an
  *    ally piece threatens every square it can reach (we never want the
@@ -78,9 +79,9 @@ const farUs = (): Snake => makeSnake('us', [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x:
 describe('piece threat map geometry', () => {
   test('a queen ray is blocked by current occupancy — the blocker square included, nothing beyond', () => {
     const us = farUs();
-    // Heavier than us -> threatens everywhere it can reach. Health 1 pins
-    // that slider range is NOT capped by piece health.
-    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10, { health: 1 });
+    // Heavier than us -> threatens everywhere it can reach. Full health, so
+    // nothing here is limited by what the ray costs (that is its own test).
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10);
     const blocker = makeSnake('b', [{ x: 5, y: 8 }, { x: 6, y: 8 }, { x: 7, y: 8 }]);
     const gs = makeGameState([us, queen, blocker], 'us');
     const map = computePieceThreatMap(us, gs.board, TURN)!;
@@ -105,7 +106,7 @@ describe('piece threat map geometry', () => {
 
   test('a ray runs THROUGH a vacating tail — the squares beyond it are threatened', () => {
     // The engine pops every multi-cell snake's last segment before any
-    // collision is resolved (chessTurnSim.ts advance step 1), so a tail cell
+    // collision is resolved (the advance that opens each sub-step), so a tail cell
     // is guaranteed EMPTY by the time an enemy ray reaches it. Blocking on it
     // truncated the map and left the squares beyond a tail unmarked — an
     // UNDER-estimate of enemy reach, the one direction a safety map must never
@@ -143,6 +144,60 @@ describe('piece threat map geometry', () => {
     // ...but the ray stops there, exactly as it does on any interior segment.
     expect(map.enemyThreat[idx(5, 9)]).toBe(0);
     expect(map.enemyThreat[idx(5, 10)]).toBe(0);
+  });
+
+  // INVERTED (was: "slider range is NOT capped by piece health — a piece can
+  // overspend health on a long move and still kill in-flight before it dies").
+  // The engine charges the step in the sub-step it is taken and a unit at zero
+  // health HALTS on the spot, so a slider simply cannot arrive anywhere it
+  // cannot pay to reach. Pretending it can is not conservatism, it is a wrong
+  // answer — it would have this queen threatening the whole board on 2 health.
+  test('a slider ray is capped by what its health can pay for', () => {
+    const us = farUs();
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10, { health: 2 });
+    const gs = makeGameState([us, queen], 'us');
+    const map = computePieceThreatMap(us, gs.board, TURN)!;
+
+    // Two squares along each ray: the first costs 1 and leaves 1, the second
+    // costs the last point. The second square IS still threatened — that
+    // sub-step's collisions are adjudicated before the charge, so a dying
+    // slider still kills on the square it dies on.
+    expect(map.enemyThreat[idx(5, 6)]).toBe(1);
+    expect(map.enemyThreat[idx(5, 7)]).toBe(1);
+    // The third is beyond its reach entirely.
+    expect(map.enemyThreat[idx(5, 8)]).toBe(0);
+    // Same cap on every ray, diagonals included.
+    expect(map.enemyThreat[idx(7, 7)]).toBe(1);
+    expect(map.enemyThreat[idx(8, 8)]).toBe(0);
+  });
+
+  test('a hazard on the ray eats into the same budget', () => {
+    const us = farUs();
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10, { health: 40 });
+    const gs = makeGameState([us, queen], 'us');
+    gs.board.hazards = [{ x: 5, y: 6 }];
+    gs.board.hazardDamage = 30;
+    const map = computePieceThreatMap(us, gs.board, TURN)!;
+
+    // Up the column: (5,6) costs 1 + 30 and leaves 9, so the ray runs on...
+    expect(map.enemyThreat[idx(5, 6)]).toBe(1);
+    expect(map.enemyThreat[idx(5, 10)]).toBe(1);
+    // ...but only 9 squares' worth. The clear rays are unaffected and reach
+    // the board edge as usual.
+    expect(map.enemyThreat[idx(0, 5)]).toBe(1);
+    expect(map.enemyThreat[idx(10, 5)]).toBe(1);
+  });
+
+  test('a health cap never trims a single-step reach: the unit still kills where it dies', () => {
+    // A knight, king or pawn enters exactly one square. Its collisions are
+    // adjudicated before its charge, so even at health 1 it threatens its
+    // whole reach — there is nothing beyond that square to trim.
+    const us = farUs();
+    const knight = makePiece('n', { x: 5, y: 5 }, 'knight', 10, { health: 1 });
+    const map = computePieceThreatMap(us, makeGameState([us, knight], 'us').board, TURN)!;
+    for (const [x, y] of [[6, 7], [7, 6], [7, 4], [6, 3], [4, 3], [3, 4], [3, 6], [4, 7]]) {
+      expect(map.enemyThreat[idx(x, y)]).toBe(1);
+    }
   });
 
   test("a LENGTH-1 snake blocks: it has no tail to pop, and a PIECE's stack never vacates", () => {

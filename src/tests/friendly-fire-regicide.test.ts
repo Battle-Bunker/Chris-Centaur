@@ -7,7 +7,7 @@
  *
  * The engine is unambiguous on both halves (TacticToes
  * functions/src/gameprocessors/):
- *  - chess/chessTurnSim.ts `contestSquare` adjudicates a contested square by
+ *  - engine/turnEngine.ts adjudicates a contested cell by
  *    invulnerability tier first and weight second, and NEVER by team. An ally
  *    kills an ally exactly as an enemy would.
  *  - TeamSnekProcessor.ts `applyRegicide` eliminates a team whose config

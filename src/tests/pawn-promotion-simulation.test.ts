@@ -1,5 +1,5 @@
 /**
- * Pawn promotion mirrored from the TacticToes engine (chess/pieceMoves.ts):
+ * Pawn promotion mirrored from the TacticToes engine (engine/moveGrammar.ts):
  * a pawn that reaches the configured weight threshold (GameSetup.
  * pawnPromotionWeight, default DEFAULT_PAWN_PROMOTION_WEIGHT) promotes to a
  * queen immediately AFTER the eat/growth update — so a pawn that eats into

@@ -3,16 +3,18 @@
  *
  * Health loss is movement-tied (snakes always move, so they lose exactly
  * 1/turn unless they eat). A snake with health h dies during relative turn h
- * unless it eats by then; eating ON turn h saves it (the engine checks the
- * eat branch before the starvation branch). If a walls-only BFS — ignoring
- * all bodies and hazards, a generous LOWER bound on the snake's earliest
- * possible eat e — cannot reach any already-spawned food within h turns
- * (e > h), the snake certainly starves and its whole body vacates from
- * arrival turn max(h + 1, 2) in the optimistic and physical layers, with the
- * conservative layer keeping its usual +1 buffer. Chess pieces never starve
- * (they can stand still), and a subject never gets its OWN body
- * starvation-vacated. New-food-spawn risk is accepted, same risk class as
- * the tail projections.
+ * unless it eats FIRST — and "first" now means BY TURN h - 1, not on turn h.
+ * The engine charges the step as it is spent and settles food only at end of
+ * turn, so a snake that reaches food on the very turn its health runs out
+ * pays its last point on arrival, starves, and is removed before the food
+ * phase ever runs. If a walls-only BFS — ignoring all bodies and hazards, a
+ * generous LOWER bound on the snake's earliest possible eat e — cannot reach
+ * any already-spawned food within h - 1 turns (e > h - 1), the snake
+ * certainly starves and its whole body vacates from arrival turn
+ * max(h + 1, 2) in the optimistic and physical layers, with the conservative
+ * layer keeping its usual +1 buffer. Chess pieces never starve (they can
+ * stand still), and a subject never gets its OWN body starvation-vacated.
+ * New-food-spawn risk is accepted, same risk class as the tail projections.
  */
 
 import { BoardGraph } from '../logic/board-graph';
@@ -126,10 +128,26 @@ describe('Starvation-aware body vacating', () => {
     expect(staticPass(nearHeadSegment, 3)).toBe(false);
   });
 
-  test('same snake with food within walls-only distance 2 of its head does NOT starve (normal tail projection only)', () => {
+  // INVERTED (was: food at walls-only distance 2 from a health-2 snake saved
+  // it, because "eating ON turn h saves it"). It no longer does: at health 2
+  // the snake pays 1 on turn 1 and its last 1 on turn 2, starving the moment
+  // it arrives — before the food phase. Only food reachable by turn h - 1 = 1
+  // is a rescue.
+  test('food reachable only ON the death turn is NOT a rescue — the snake still starves', () => {
     // Food at (7,7): walls-only BFS distance 2 from the enemy head (8,8),
-    // e = 2 <= h = 2 — eating on turn h saves it.
+    // e = 2 > h - 1 = 1.
     const graph = makeGraph({ health: 2 }, [{ x: 7, y: 7 }]);
+    const optimistic = passFor(graph, 'us', 'optimistic');
+
+    expect(optimistic(nearHeadSegment, 2)).toBe(false);
+    expect(optimistic(nearHeadSegment, 3)).toBe(true);
+  });
+
+  test('food reachable the turn BEFORE does save it (normal tail projection only)', () => {
+    // Same food at (7,7), walls-only distance 2 — but one more point of
+    // health, so e = 2 <= h - 1 = 2: it eats on turn 2 with a point still in
+    // hand, and never starves at all.
+    const graph = makeGraph({ health: 3 }, [{ x: 7, y: 7 }]);
     const optimistic = passFor(graph, 'us', 'optimistic');
 
     // No starvation opening at turn 3 or 4; the segment only opens at its

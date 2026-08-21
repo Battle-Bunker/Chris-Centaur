@@ -2775,11 +2775,15 @@ const BoardRenderer = (function () {
     // (staged) cell the same way for every consumer:
     //   - `actual` (solid marker): the server-decided final cell. Taken from an
     //     explicit actualHead (history: last-known head stepped by server_move)
-    //     when present, else the engine's authoritative `deathCells` map
-    //     (pieces: the exact cell the unit died on — mid-path for a slider
-    //     stopped in flight), else derived from the authoritative `lastMoves`
-    //     map (snakes: last-known head stepped one cell in the recorded
-    //     direction). Same sources for our units and enemies.
+    //     when present, else the engine's authoritative `deathCells` map —
+    //     which is now the turn's DEATH REGISTRY and covers every unit that
+    //     died, snakes and pieces alike: the exact cell it died on, whether
+    //     that is a slider's mid-ray stop, the square a starving unit halted
+    //     on, or the square an edge-contest loser never left. The `lastMoves`
+    //     fallback below survives only for logs older than the registry; it
+    //     steps the last-known head one cell in the recorded direction, which
+    //     the registry makes unnecessary and which cannot express a death on
+    //     the unit's own square at all. Same sources for our units and enemies.
     //   - `intended` (shadow marker): the move we actually submitted. Taken from
     //     an explicit intendedHead (history: last-known head stepped by
     //     submitted_move) when present, else the `submittedMoves` map (live:
@@ -2805,10 +2809,10 @@ const BoardRenderer = (function () {
     // logged inside game_state JSONB, so historic scrubbing and /history get it
     // for free); an explicit option can override it.
     const lastMoves = options?.lastMoves || gameState?.lastMoves || null;
-    // Dead pieces' authoritative death cells, keyed by unit id. Like lastMoves
-    // it rides on the rendered game state (logged inside game_state JSONB, so
-    // historic scrubbing and /history get it for free); an explicit option can
-    // override it.
+    // The turn's death registry, keyed by unit id: every unit that died and
+    // the cell it died on. Like lastMoves it rides on the rendered game state
+    // (logged inside game_state JSONB, so historic scrubbing and /history get
+    // it for free); an explicit option can override it.
     const deathCells = options?.deathCells || gameState?.deathCells || null;
     const stagedMovesForDeaths = options?.stagedMoves || null;
     // Live: the client tracks the move it actually committed per snake ({id: move}).
@@ -2851,8 +2855,8 @@ const BoardRenderer = (function () {
           { ghost: true },
         );
 
-      // Authoritative final cell: explicit override first, else the engine's
-      // per-piece death cell, else lastMoves (snakes).
+      // Authoritative final cell: explicit override first, else the turn's
+      // death registry, else the legacy lastMoves derivation.
       let actual = d.actualHead || null;
       if (!actual && deathCells && d.id != null && deathCells[d.id]) {
         actual = deathCells[d.id];
@@ -3844,13 +3848,20 @@ const BoardRenderer = (function () {
 
   // ── Clash inspection ──────────────────────────────────────────────────
   //
-  // A clash is the game server's own record of a collision it resolved:
-  // WHERE it happened, WHO took part, WHY someone died, and — in piece games,
-  // which resolve a turn in several sub-steps as sliders walk their paths —
-  // WHICH sub-step it happened on. It rides on the board (`board.clashes`,
-  // api coords), so it reads identically on the live board and on a scrubbed
-  // historic one, and it says nothing about control or ownership: a neutral
-  // spectator reads a clash exactly as a player does.
+  // A clash is the game server's own record of one collision event it
+  // resolved: WHERE it happened, WHICH SUB-STEP of the turn it happened on
+  // (every unit records one; a slider walking its ray records the step it was
+  // on), WHAT KIND of event it was, WHO took part and — stated outright —
+  // WHICH of them died. It rides on the board (`board.clashes`, api coords),
+  // so it reads identically on the live board and on a scrubbed historic one,
+  // and it says nothing about control or ownership: a neutral spectator reads
+  // a clash exactly as a player does.
+  //
+  // Survival is READ OFF THE RECORD (`victimIDs` / `survivorID`), never off
+  // the board. Under the engine's frozen-state rule a unit that dies stays on
+  // the board as a collision object until the turn ends, and a unit killed in
+  // an earlier event can legitimately turn up as a participant in a later one,
+  // so board occupancy answers a different question entirely.
 
   // Every clash record the board carries. Defensive about boards from older
   // wires and logs, which carry none.
@@ -3858,9 +3869,10 @@ const BoardRenderer = (function () {
     return (board && Array.isArray(board.clashes) && board.clashes) || [];
   }
 
-  // The clash records marking one cell. The server writes one record per body
-  // cell of each unit that died, so a single collision can mark several cells
-  // and one cell can carry several records (two units dying in one contest).
+  // The clash records marking one cell. The server writes ONE record per cell
+  // per event, so several records on one cell mean several distinct events
+  // there — a contest on sub-step 2 and a starvation on sub-step 5, say — not
+  // one event counted several times.
   function clashesAtCell(board, cell) {
     if (!cell) return [];
     return boardClashes(board).filter(
@@ -3868,17 +3880,21 @@ const BoardRenderer = (function () {
     );
   }
 
-  // The distinct COLLISIONS among a set of records: records differing only in
-  // which body cell they mark describe one event and are folded together.
+  // The distinct EVENTS among a set of records. One record per cell per event
+  // is the wire's own guarantee, so on a well-formed board this is the
+  // identity; it stays as a defensive exact-duplicate filter, keyed on
+  // everything that identifies an event (never on `reason`, which is display
+  // text two different events can share).
   function distinctClashes(clashes) {
     const seen = new Set();
     const out = [];
     for (const clash of clashes || []) {
       if (!clash) continue;
       const key = [
-        clash.reason || "",
+        clash.kind || "",
         clash.subStep == null ? "" : clash.subStep,
         (clash.playerIDs || []).join(","),
+        (clash.victimIDs || []).join(","),
       ].join("|");
       if (seen.has(key)) continue;
       seen.add(key);
@@ -3939,10 +3955,11 @@ const BoardRenderer = (function () {
   }
 
   // One participant's line in the clash panel: its team colour, its team name
-  // and letter, and whether it walked away. Survival is READ OFF THE BOARD —
-  // the clash record names participants, not victims — so a participant that
-  // is no longer among `board.snakes` did not survive the collision.
-  function clashParticipantHTML(id, lookup, aliveIds) {
+  // and letter, and what this event did to it. The outcome comes from the
+  // RECORD, not from the board: `victimIDs` is the server's own list of who
+  // died here, so a participant not on it walked away from THIS event —
+  // whatever became of it later in the turn.
+  function clashParticipantHTML(id, lookup, victimIds) {
     const snake = lookup(id);
     const color =
       (snake && (snake.customizations?.color || snake.color)) || "#888888";
@@ -3951,7 +3968,7 @@ const BoardRenderer = (function () {
     const label = snake
       ? escapeHTML([team, letter].filter(Boolean).join(" ") || snake.name || id)
       : escapeHTML(id);
-    const survived = aliveIds.has(id);
+    const survived = !victimIds.has(id);
     const outcome = survived
       ? '<span class="clash-outcome survived">survived</span>'
       : '<span class="clash-outcome died">died</span>';
@@ -3977,7 +3994,6 @@ const BoardRenderer = (function () {
     const clashes = distinctClashes(clashesAtCell(board, cell));
     if (clashes.length === 0) return "";
     const alive = (board && board.snakes) || [];
-    const aliveIds = new Set(alive.map((s) => s.id));
     const byId = new Map();
     for (const snake of (options && options.knownSnakes) || []) {
       if (snake && snake.id) byId.set(snake.id, snake);
@@ -3994,8 +4010,9 @@ const BoardRenderer = (function () {
           clash.subStep == null
             ? ""
             : `<span class="clash-substep" title="Within-turn sub-step: pieces resolve a turn one square of their path at a time">sub-step ${escapeHTML(clash.subStep)}</span>`;
+        const victimIds = new Set(clash.victimIDs || []);
         const participants = (clash.playerIDs || [])
-          .map((id) => clashParticipantHTML(id, lookup, aliveIds))
+          .map((id) => clashParticipantHTML(id, lookup, victimIds))
           .join("");
         return (
           `<div class="clash-event">` +

@@ -45,6 +45,8 @@ function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
     startTime: null as any,
     endTime: null as any,
     moves: {},
+    // The wire writes the death registry on every turn; empty means nobody died.
+    deaths: {},
     alivePlayers: ['centA', 'centA#2', 'centB', 'centB#2'],
     food: [idx(2, 2)],
     hazards: [idx(3, 3)],
@@ -436,7 +438,16 @@ describe('parseTurn', () => {
   });
 });
 
-describe('deriveDeathCells', () => {
+/**
+ * deriveDeathCells reads the turn's DEATH REGISTRY (`Turn.deaths`) and nothing
+ * else. It used to reconstruct a death from the board plus the `moves` map,
+ * and to cover pieces only — snakes were left to a direction-derived cell.
+ * Both of those are gone: the registry is authoritative, it covers every unit
+ * that died, and it is the only thing that can express the two cells no
+ * derivation can (a starvation halt, and an edge-contest loser that dies
+ * without ever leaving its own square).
+ */
+describe('deriveDeathCells — straight off the death registry', () => {
   // centB is a rook; everyone else is a snake.
   const pieceSetup = () =>
     makeSetup({
@@ -449,12 +460,9 @@ describe('deriveDeathCells', () => {
     });
   const makeDoc = (turns: TTTurn[]): TTGameStateDoc => ({ setup: pieceSetup(), turns });
 
-  it('maps a piece that died mid-path to the api cell of its wire death square', () => {
-    // Rook at (3,1) slides toward (5,1) and dies mid-ray on (4,1): the next
-    // turn drops it from playerPieces, records the death square in `moves`,
-    // and its `paths` entry ends there.
+  it('maps a piece that died mid-ray to the api cell the registry names', () => {
+    // Rook at (3,1) slides toward (5,1) and dies mid-ray on (4,1).
     const deathSquare = idx(4, 1);
-    const prev = makeTurn();
     const curr = makeTurn({
       alivePlayers: ['centA', 'centA#2', 'centB#2'],
       playerPieces: {
@@ -468,26 +476,96 @@ describe('deriveDeathCells', () => {
         centB: deathSquare,
         'centB#2': idx(2, 3),
       },
+      deaths: { centB: { cell: deathSquare, subStep: 2, cause: 'contest' } },
       paths: { centB: [deathSquare] },
     });
-    const doc = makeDoc([prev, curr]);
-    const cells = deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!);
-    expect(cells).toEqual({ centB: toApiCoord(deathSquare, W, H) });
+    const doc = makeDoc([makeTurn(), curr]);
+    expect(deriveDeathCells(parseTurn(doc, 1)!)).toEqual({
+      centB: toApiCoord(deathSquare, W, H),
+    });
   });
 
-  it('excludes snakes, surviving pieces, and pieces absent from the wire moves map', () => {
-    const prev = makeTurn();
-    // centA (snake) and centB (rook) both died; centB has NO moves entry
-    // (genuinely absent wire data), so neither produces a death cell.
+  it('covers SNAKES too — the registry is not a pieces-only channel', () => {
+    // centA (a snake) walked into the perimeter and died on the wall square.
+    const wallSquare = idx(0, 1);
     const curr = makeTurn({
-      alivePlayers: ['centA#2', 'centB#2'],
+      alivePlayers: ['centA#2', 'centB', 'centB#2'],
       playerPieces: {
         'centA#2': [idx(5, 3), idx(5, 4)],
+        centB: [idx(3, 1)],
         'centB#2': [idx(2, 3)],
       },
-      moves: { centA: idx(1, 2), 'centA#2': idx(5, 3), 'centB#2': idx(2, 3) },
+      moves: { centA: wallSquare, 'centA#2': idx(5, 3), centB: idx(3, 1), 'centB#2': idx(2, 3) },
+      deaths: { centA: { cell: wallSquare, subStep: 1, cause: 'wall' } },
     });
-    const doc = makeDoc([prev, curr]);
-    expect(deriveDeathCells(doc.setup, parseTurn(doc, 0)!, parseTurn(doc, 1)!)).toEqual({});
+    const doc = makeDoc([makeTurn(), curr]);
+    expect(deriveDeathCells(parseTurn(doc, 1)!)).toEqual({
+      centA: toApiCoord(wallSquare, W, H),
+    });
+  });
+
+  it('marks a STARVED unit where it halted, which no move direction could say', () => {
+    // centA#2 ran out of health part-way and halted on (5,3). It is dead, but
+    // it never reached anything a direction from its old head would point at.
+    const haltSquare = idx(5, 3);
+    const curr = makeTurn({
+      alivePlayers: ['centA', 'centB', 'centB#2'],
+      playerPieces: { centA: [idx(1, 2), idx(1, 1)], centB: [idx(3, 1)], 'centB#2': [idx(2, 3)] },
+      moves: { centA: idx(1, 2), 'centA#2': haltSquare, centB: idx(3, 1), 'centB#2': idx(2, 3) },
+      deaths: { 'centA#2': { cell: haltSquare, subStep: 3, cause: 'starvation' } },
+    });
+    const doc = makeDoc([makeTurn(), curr]);
+    expect(deriveDeathCells(parseTurn(doc, 1)!)).toEqual({
+      'centA#2': toApiCoord(haltSquare, W, H),
+    });
+  });
+
+  it('marks an EDGE-CONTEST loser on its OWN start square — it never crossed', () => {
+    // centB#2 and centA tried to swap; centB#2 lost, fell back, and died on
+    // the square it started the sub-step on. Its `moves` entry is that same
+    // square, so the transition records no movement at all.
+    const ownSquare = idx(2, 4);
+    const curr = makeTurn({
+      alivePlayers: ['centA', 'centA#2', 'centB'],
+      playerPieces: {
+        centA: [idx(1, 2), idx(1, 1)],
+        'centA#2': [idx(5, 3), idx(5, 4)],
+        centB: [idx(3, 1)],
+      },
+      moves: { centA: idx(1, 2), 'centA#2': idx(5, 3), centB: idx(3, 1), 'centB#2': ownSquare },
+      deaths: { 'centB#2': { cell: ownSquare, subStep: 1, cause: 'edge' } },
+    });
+    const doc = makeDoc([makeTurn(), curr]);
+    expect(deriveDeathCells(parseTurn(doc, 1)!)).toEqual({
+      'centB#2': toApiCoord(ownSquare, W, H),
+    });
+  });
+
+  it('reports several deaths from one turn, and nothing at all from a quiet one', () => {
+    const curr = makeTurn({
+      alivePlayers: ['centA'],
+      playerPieces: { centA: [idx(1, 2), idx(1, 1)] },
+      deaths: {
+        'centA#2': { cell: idx(5, 3), subStep: 1, cause: 'bodyBlock' },
+        centB: { cell: idx(4, 1), subStep: 2, cause: 'contest' },
+        'centB#2': { cell: idx(2, 3), subStep: 1, cause: 'regicide' },
+      },
+    });
+    const doc = makeDoc([makeTurn(), curr]);
+    expect(Object.keys(deriveDeathCells(parseTurn(doc, 1)!)).sort()).toEqual([
+      'centA#2', 'centB', 'centB#2',
+    ]);
+
+    // A turn where nobody died carries an empty registry and yields nothing.
+    expect(deriveDeathCells(parseTurn(makeDoc([makeTurn()]), 0)!)).toEqual({});
+  });
+
+  it('tolerates a malformed registry entry rather than inventing a cell', () => {
+    const curr = makeTurn({
+      // Nothing on the wire should look like this; the guard is against
+      // somebody else's JSON, not against the compiler.
+      deaths: { centA: undefined as never, centB: { subStep: 1 } as never },
+    });
+    expect(deriveDeathCells(parseTurn(makeDoc([curr]), 0)!)).toEqual({});
   });
 });

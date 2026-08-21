@@ -312,7 +312,7 @@ export const HEURISTICS = {
   },
 
   // ── Friendly fire. The engine's contests have NO friendly exemption
-  // (chessTurnSim's contestSquare compares tier then weight and never teams),
+  // (the engine's cell contest compares tier then frozen weight and never teams),
   // so our own move kills an ally exactly the way it kills an enemy — and
   // since score IS total weight, the harm is precisely the weight we destroy.
   // The stat is that weight, so the penalty scales with what is lost.

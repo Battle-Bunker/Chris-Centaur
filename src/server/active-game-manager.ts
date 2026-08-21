@@ -1681,8 +1681,10 @@ export class ActiveGameManager {
       // Hazards are damage-based (board.hazardDamage on entry, default 100;
       // death only at health <= 0), so a hazard step is only CERTAIN death
       // when the simulator's exact entry rule says the health won't survive
-      // it — same health-aware classification MoveAnalyzer applies. A
-      // survivable hazard step still checks hazard-blind wall/body fatality.
+      // it — same health-aware classification MoveAnalyzer applies, and the
+      // same charge-then-eat order, so food on the cell is not a way out of a
+      // step whose own cost kills. A survivable hazard step still checks
+      // hazard-blind wall/body fatality.
       const boardHazards = game.boardState.board.hazards ?? [];
       if (snake && boardHazards.some(h => h.x === dest.x && h.y === dest.y)) {
         if (healthAfterEntering(snake, game.boardState.board, dest) <= 0) return true;
@@ -2176,9 +2178,11 @@ export class ActiveGameManager {
       // Projected outcome of THIS candidate's own traversed path: a move's
       // full ray/jump (converted from full-board indices to the api coords the
       // projection reads food/hazards/bodies in), stay/rotate always free. The
-      // projection truncates the path at a death or a capture-stop, so a ray
-      // that never reaches the staged destination is neither credited with the
-      // meal there nor charged for the squares beyond.
+      // projection truncates the path at a death, a STARVATION HALT (the ray
+      // costs more health than the piece has, so it stops where the health ran
+      // out) or a capture-stop, so a ray that never reaches the staged
+      // destination is neither credited with the meal there nor charged for
+      // the squares beyond.
       const projected = action.kind === 'move'
         ? projectPath(gs, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
         : null;

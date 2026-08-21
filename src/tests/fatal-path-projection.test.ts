@@ -5,7 +5,7 @@
  * Reported from live play: a bishop planned a long ray that CROSSED a snake
  * body — an ALLY's — and ate food at the far end, and the client valued it as
  * a free, health-restoring move. Per the engine (TacticToes
- * functions/src/gameprocessors/chess/chessTurnSim.ts) a slider genuinely
+ * functions/src/gameprocessors/engine/turnEngine.ts) a slider genuinely
  * ARRIVES on every square of its ray and every square is contested, so a body
  * segment is an absolute wall: the mover dies there unless its invulnerability
  * tier is STRICTLY higher, in which case it severs and CAPTURE-STOPS on that
@@ -16,11 +16,15 @@
  * SIMULTANEITY. The engine resolves every snake's whole move in sub-step 1, so
  * a slider contests POST-move bodies. From the pre-move board the client can
  * see exactly one square of that shift — the tail always vacates — so that is
- * the one segment the projection lets through. Every other segment (index 0
- * included: the pre-move head becomes a body segment once the snake steps
- * forward) is treated as still occupied, and the square a head moves INTO is
- * not modelled here at all. Both choices are conservative in the same
- * direction: never bank on a body clearing out of our way.
+ * the one segment the projection lets through. Every other segment is treated
+ * as still occupied, and the square a head moves INTO is not modelled here at
+ * all. Index 0 is the interesting one: it is the owner's start-of-turn head
+ * cell, which by arrival is either the NECK it swept in behind itself (it
+ * stepped away) or an EDGE EXCHANGE (it stepped into us). The projection
+ * models the neck, as a deliberate policy — see the conservative-policy
+ * verification block below, which checks the direction rather than asserting
+ * it. Both choices are conservative in the same direction: never bank on a
+ * body clearing out of our way.
  */
 
 import { projectPath, projectedHealthCost } from '../logic/simulator';
@@ -260,17 +264,110 @@ describe('projectPath: the other ways a traversal ends', () => {
     expect(outcome.cost).toBe(4 + 3 * 30);
   });
 
-  test('a movement cost that outruns health is fatal too (starvation), reported as projected health 0', () => {
+});
+
+/**
+ * MID-RAY STARVATION. The engine charges movement cost per sub-step, strictly
+ * after that sub-step's collisions, and kills at health <= 0 on the spot; food
+ * is settled at end of turn, for survivors only. So a slider that cannot
+ * afford its ray HALTS where the health ran out and dies there — and food at
+ * the staged destination is not a rescue, because it never gets there.
+ *
+ * INVERTED. This used to be a plain "cost >= health" test applied to the WHOLE
+ * ray, with the explicit rider that "reaching food at the end would have
+ * cancelled it — and does". The engine settled movement cost in the food phase
+ * back then, so a meal really could retroactively pay for a ray the health
+ * could not. It cannot any more: cost is charged as it is spent.
+ */
+describe('projectPath: a ray the health cannot pay for halts and dies mid-way', () => {
+  const RAY: Coord[] = [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }];
+
+  test('a movement cost that outruns health kills on the square it runs out', () => {
+    // Health 3: 3 → 2 → 1 → 0 on the THIRD square, which is where it stops.
     const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 3 });
     const gs = makeState([rook], 'R');
-    const outcome = projectPath(gs, [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }]);
+    const outcome = projectPath(gs, RAY);
+
     expect(outcome.fatal).toBe(true);
-    expect(outcome.cost).toBe(4);
-    // Reaching food at the end would have cancelled it — and does.
+    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
+    // Three squares entered, not four: the fourth is never walked, and the
+    // cost reported zeroes the health exactly.
+    expect(outcome.cost).toBe(3);
+    expect(gs.you.health - outcome.cost).toBe(0);
+  });
+
+  test('FOOD AT THE STAGED DESTINATION DOES NOT RESCUE IT — the ray dies short of the meal', () => {
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 3 });
     const fed = makeState([rook], 'R', { food: [{ x: 5, y: 5 }] });
-    const fedOutcome = projectPath(fed, [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }]);
-    expect(fedOutcome.fatal).toBe(false);
-    expect(fedOutcome.cost).toBe(0);
+    const outcome = projectPath(fed, RAY);
+
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.eats).toBe(false);
+    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
+    expect(outcome.cost).toBe(3);
+    // Byte-identical to the unfed ray: the food is not an input to any of it.
+    expect(outcome).toEqual(projectPath(makeState([rook], 'R'), RAY));
+  });
+
+  test('one more point of health pays the whole ray, and THEN the meal counts', () => {
+    // Health 5: 5 → 4 → 3 → 2 → 1 on arrival, alive, so the food phase runs.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 5 });
+    const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 5, y: 5 }] }), RAY);
+
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.eats).toBe(true);
+    expect(outcome.path).toEqual(RAY);
+    expect(outcome.cost).toBe(0);
+  });
+
+  test('health exactly equal to the ray length is one square short', () => {
+    // Health 4 over 4 squares: the last one takes it to 0, so it halts there.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 4 });
+    const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 5, y: 5 }] }), RAY);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.eats).toBe(false);
+    expect(outcome.path).toEqual(RAY); // it does arrive — and starves on arrival
+    expect(outcome.cost).toBe(4);
+  });
+
+  test('hazard doses count toward the same running bill, not a separate one', () => {
+    // Health 34, one 30-damage hazard on the second square:
+    // 34 → 33, then 33 - 31 = 2, then 1, then 0 on the fourth square.
+    const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 34 });
+    const gs = makeState([rook], 'R', { hazards: [{ x: 3, y: 5 }], hazardDamage: 30 });
+    const outcome = projectPath(gs, RAY);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.path).toEqual(RAY);
+    expect(outcome.cost).toBe(34);
+  });
+
+  test('a SNAKE step is the same rule with a one-square path', () => {
+    // Health 1 onto food: the step's own cost kills it before the food phase.
+    const us = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { health: 1 });
+    const gs = makeState([us], 'us', { food: [{ x: 6, y: 5 }] });
+    const outcome = projectPath(gs, [{ x: 6, y: 5 }]);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.eats).toBe(false);
+
+    const healthier = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { health: 2 });
+    const fed = projectPath(makeState([healthier], 'us', { food: [{ x: 6, y: 5 }] }), [{ x: 6, y: 5 }]);
+    expect(fed.fatal).toBe(false);
+    expect(fed.eats).toBe(true);
+    expect(fed.cost).toBe(0);
+  });
+
+  test('a mover that WINS a square and then starves on it still takes its victim', () => {
+    // Collisions are adjudicated before the charge, so the dying mover is a
+    // killer first and a corpse second — the trade is real and must be scored.
+    const bishop = makePiece('B', { x: 2, y: 2 }, 'bishop', { length: 5, health: 2, teamID: 'ours' });
+    const pawn = makePiece('P', { x: 4, y: 4 }, 'pawn', { length: 1, teamID: 'theirs' });
+    const gs = makeState([bishop, pawn], 'B');
+    const outcome = projectPath(gs, BISHOP_RAY);
+
+    // (3,3) takes it to 1, (4,4) is won and then takes it to 0.
+    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.casualties.kills).toBe(1);
   });
 });
 
@@ -379,5 +476,143 @@ describe('valuing it: chess-piece candidate rows and staging', () => {
     csOpen.selectedBy = 'u1';
     mgr.setWaypoint(open, 'B', { type: 'green', x: 6, y: 6 }, 'u1');
     expect(csOpen.staged?.move).toBe(fullIdx({ x: 6, y: 6 }));
+  });
+});
+
+/**
+ * THE i = 0 POLICY, VERIFIED RATHER THAN ASSERTED.
+ *
+ * An enemy snake's start-of-turn head cell is, by the time we arrive, exactly
+ * one of two things — and the projection cannot know which, because it never
+ * gives other units a move:
+ *
+ *  (a) CHASE — the owner stepped away or aside, so the cell is now its NECK
+ *      (post-move index 1), a living body cell. Equal-or-lower tier dies on
+ *      it; strictly higher tier severs it and capture-stops.
+ *  (b) EXCHANGE — the owner stepped into OUR origin, so the heads crossed the
+ *      same edge. That is an edge contest, uniform across every unit kind and
+ *      length: frozen tier, then frozen weight. No trail exemption.
+ *
+ * simulator.ts models (a) always. This block does not take that on trust: it
+ * walks every tier × weight combination, computes what (b) would have decided,
+ * and checks the direction — the model must never say we SURVIVE where the
+ * exchange would have killed us. It also records, rather than hides, the one
+ * place the choice is not purely conservative: the casualty LEDGER when we
+ * strictly out-tier the owner.
+ */
+describe('the i = 0 policy: modelling the chase, and checking it is the worse branch', () => {
+  const OWNER_HEAD: Coord = { x: 4, y: 4 };
+  const STEP: Coord[] = [OWNER_HEAD];
+
+  /** Our mover stepping one square onto `owner`'s start-of-turn head cell. */
+  function meeting(
+    moverTier: number, moverWeight: number,
+    ownerTier: number, ownerWeight: number,
+    ownerTeam = 'theirs'
+  ) {
+    const mover = makePiece('M', { x: 3, y: 4 }, 'rook', {
+      length: moverWeight, teamID: 'ours',
+      invulnerabilityLevel: moverTier, invulnerabilityExpiryTurn: 99,
+    });
+    // A body of `ownerWeight` cells with its HEAD on the contested square.
+    const body: Coord[] = [];
+    for (let i = 0; i < ownerWeight; i++) body.push({ x: 4, y: 4 - i });
+    const owner = makeSnake('O', body, {
+      teamID: ownerTeam,
+      invulnerabilityLevel: ownerTier, invulnerabilityExpiryTurn: 99,
+    });
+    return projectPath(makeState([mover, owner], 'M'), STEP);
+  }
+
+  /** What the EDGE EXCHANGE would decide: tier first, then frozen weight. */
+  function exchangeKillsUs(
+    moverTier: number, moverWeight: number, ownerTier: number, ownerWeight: number
+  ): boolean {
+    if (moverTier !== ownerTier) return moverTier < ownerTier;
+    return moverWeight <= ownerWeight; // equal weight is a deadlock: nobody lives
+  }
+
+  const TIERS: Array<[number, number, string]> = [
+    [0, 1, 'we out-tier them'],
+    [1, 1, 'equal tier'],
+    [1, 0, 'they out-tier us'],
+  ];
+  // Owner weights >= 2 keep the cell a genuine head-of-a-body case; weight 1
+  // is the degenerate owner the model treats as a head-class contest instead.
+  const WEIGHTS: Array<[number, number, string]> = [
+    [5, 2, 'we outweigh them'],
+    [3, 3, 'equal weight'],
+    [2, 5, 'they outweigh us'],
+  ];
+
+  test('every tier x weight combination: the model is never the more optimistic branch', () => {
+    const optimistic: string[] = [];
+    const strictlyConservative: string[] = [];
+    let checked = 0;
+
+    for (const [ownerTier, moverTier, tierLabel] of TIERS) {
+      for (const [moverWeight, ownerWeight, weightLabel] of WEIGHTS) {
+        checked++;
+        const modelFatal = meeting(moverTier, moverWeight, ownerTier, ownerWeight).fatal;
+        const exchangeFatal = exchangeKillsUs(moverTier, moverWeight, ownerTier, ownerWeight);
+        const label = `${tierLabel} / ${weightLabel}`;
+        // THE DIRECTION: model-fatal >= exchange-fatal. Saying we survive
+        // where the exchange would have killed us is the one answer the
+        // projection may never give.
+        if (!modelFatal && exchangeFatal) optimistic.push(label);
+        if (modelFatal && !exchangeFatal) strictlyConservative.push(label);
+      }
+    }
+
+    expect(checked).toBe(TIERS.length * WEIGHTS.length);
+    expect(optimistic).toEqual([]);
+    // ...and the check is not vacuous: exactly one combination is where the
+    // two branches genuinely disagree — equal tier with us the heavier, where
+    // the exchange would have let us through and the model calls it death.
+    expect(strictlyConservative).toEqual(['equal tier / we outweigh them']);
+  });
+
+  test('at or below the owner tier the model is fatal outright — the worse branch every time', () => {
+    // Equal tier: the exchange lets a heavier mover through, the model does
+    // not. Strictly conservative, and the case that matters most in play.
+    expect(meeting(1, 5, 1, 2).fatal).toBe(true);
+    expect(exchangeKillsUs(1, 5, 1, 2)).toBe(false);
+    // Equal tier, equal weight: both agree we die.
+    expect(meeting(1, 3, 1, 3).fatal).toBe(true);
+    expect(exchangeKillsUs(1, 3, 1, 3)).toBe(true);
+    // Lower tier: both agree we die.
+    expect(meeting(0, 5, 1, 2).fatal).toBe(true);
+    expect(exchangeKillsUs(0, 5, 1, 2)).toBe(true);
+  });
+
+  test('strictly out-tiering the owner: both branches let us live, and we capture-stop', () => {
+    const modelled = meeting(2, 3, 0, 4);
+    expect(modelled.fatal).toBe(false);
+    expect(modelled.captureStopped).toBe(true);
+    expect(exchangeKillsUs(2, 3, 0, 4)).toBe(false);
+  });
+
+  // The honest corner, pinned so it cannot drift into a silent assumption.
+  test('the LEDGER is where the policy is not conservative: an out-tiered owner', () => {
+    // Chase: we cut the owner at its neck and it walks away as one segment, so
+    // the model charges weight - 1 and reports it alive. Exchange: it would
+    // have died outright, for its whole weight.
+    const enemy = meeting(2, 3, 0, 4);
+    expect(enemy.casualties.kills).toBe(0); // under-credits our own gain: safe
+    // The same shape against an ALLY under-CHARGES us by one weight, which is
+    // the optimistic direction — and it is why an ally king cut here does not
+    // raise our own regicide flag.
+    const ally = meeting(2, 3, 0, 4, 'ours');
+    expect(ally.casualties.allyCasualty).toBe(3); // 4 - 1, not the full 4
+    expect(ally.casualties.regicide).toBe(0);
+  });
+
+  test('a LENGTH-1 owner is modelled as the contest, which is the exchange branch exactly', () => {
+    // Its only segment pops, so a chase would leave the cell EMPTY. Modelling
+    // the contest keeps the frozen-occupancy assumption and matches (b).
+    const modelled = meeting(2, 3, 0, 1);
+    expect(modelled.fatal).toBe(false);
+    expect(modelled.captureStopped).toBe(true);
+    expect(modelled.casualties.kills).toBe(1);
   });
 });

@@ -27,11 +27,13 @@
  * quarter turns as ordinary edges, again with no call site knowing it is a pawn.
  *
  * Starvation-aware body vacating: health loss is movement-tied (snakes always
- * move, so they lose exactly 1/turn unless they eat), so a snake with health h
- * dies during relative turn h unless it eats by then. If a walls-only BFS
+ * move, so they lose exactly 1/turn unless they eat by turn h - 1 — the engine
+ * charges the step before it settles food, so eating on the turn the health
+ * runs out is too late), so a snake with health h
+ * dies during relative turn h unless it eats first. If a walls-only BFS
  * (ignoring all bodies and hazards — a deliberately generous LOWER bound on
- * its earliest possible eat, e) cannot reach any ALREADY-SPAWNED food within h
- * turns (e > h), the snake certainly starves and its ENTIRE body is treated as
+ * its earliest possible eat, e) cannot reach any ALREADY-SPAWNED food within
+ * h - 1 turns (e > h - 1), the snake certainly starves and its ENTIRE body is treated as
  * vacated from arrival turn h+1 onward (floored at turn 2 — never the very
  * next turn) in the optimistic and physical layers; the conservative layer
  * keeps its usual +1 safety buffer on top. Like the tail-vacate projections,
@@ -683,17 +685,21 @@ export class BoardGraph {
   /**
    * Starvation-aware body vacating (phase 3). For every snake S:
    *  - deathTurn h = S.health: health loss is movement-tied and snakes always
-   *    move, so S dies during relative turn h unless it eats first (the engine
-   *    checks the eat branch before the starvation branch, so eating ON turn h
-   *    saves it).
+   *    move, so S dies during relative turn h unless it eats first.
    *  - earliestFoodTurn e = a LOWER bound on S's earliest possible eat of any
    *    ALREADY-SPAWNED food: BFS from S's head blocked only by walls, ignoring
    *    all bodies and hazards (they might vacate / only cost health — being
    *    generous to S keeps OUR prediction conservative). e = Infinity when the
    *    board has no food.
-   *  - S certainly starves iff e > h; then its whole body vacates from arrival
-   *    turn max(h + 1, 2) — never the very next turn (with h >= 1 for a living
-   *    snake the clamp is automatic, but it is pinned explicitly).
+   *  - S certainly starves iff it cannot eat by turn h - 1, i.e. e > h - 1.
+   *    NOT `e > h`: the engine charges the movement cost as it is spent and
+   *    settles food only at end of turn, so a snake that steps onto food on
+   *    turn h pays its last point of health FIRST, starves on arrival, and is
+   *    removed before the food phase ever runs. Eating on the turn it would
+   *    die no longer saves it; it has to have eaten by the turn before.
+   *  - then its whole body vacates from arrival turn max(h + 1, 2) — never the
+   *    very next turn (with h >= 1 for a living snake the clamp is automatic,
+   *    but it is pinned explicitly).
    *
    * Chess pieces never starve: their health only ticks when they move, and
    * they can stand still indefinitely. New-food-spawn risk is accepted, same
@@ -705,8 +711,9 @@ export class BoardGraph {
       if ((snake.unitType ?? 'snake') !== 'snake') continue; // pieces don't starve
       const snakeIdx = this.snakeIndexById.get(snake.id)!;
       const h = snake.health;
+      // h - 1: the last turn on which a meal can still save it (see above).
       const canEatInTime =
-        foodCount > 0 && this.wallsOnlyFoodWithin(snakeIdx, foodMask, h);
+        foodCount > 0 && this.wallsOnlyFoodWithin(snakeIdx, foodMask, h - 1);
       if (!canEatInTime) {
         this.snakeStarveVacate[snakeIdx] = Math.max(h + 1, 2);
       }

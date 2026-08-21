@@ -110,18 +110,27 @@ function mapIndices(indices: number[] | undefined, w: number, h: number): Coord[
 
 /**
  * Wire clashes → renderer clashes: the full-board index becomes an api cell,
- * everything else rides verbatim. Deliberately lossless — the UI shows the
- * server's own wording, and the sub-step is what dates a mid-flight piece
- * collision within its turn.
+ * everything else rides verbatim. Deliberately lossless — `kind`, `victimIDs`
+ * and `survivorID` are what a renderer branches on, the sub-step dates the
+ * event inside its turn, and `reason` is carried only so the UI can quote the
+ * server's own wording.
+ *
+ * `subStep` is required on the wire (1 for whole-move units), but a
+ * historic/hand-written document can still be missing it; it defaults to 1
+ * rather than reappearing as `undefined`, so every record a renderer sees is
+ * dated.
  */
 function mapClashes(clashes: TTClash[], w: number, h: number): Clash[] {
   return clashes.map((c) => {
     const mapped: Clash = {
       cell: toApiCoord(c.index, w, h),
+      subStep: c.subStep ?? 1,
+      kind: c.kind,
       playerIDs: [...c.playerIDs],
+      victimIDs: [...(c.victimIDs ?? [])],
       reason: c.reason,
     };
-    if (c.subStep !== undefined) mapped.subStep = c.subStep;
+    if (c.survivorID !== undefined) mapped.survivorID = c.survivorID;
     return mapped;
   });
 }
@@ -199,27 +208,30 @@ export function parseLatestTurn(doc: TTGameStateDoc): ParsedTurn | null {
 }
 
 /**
- * Death cells for the transition prev → curr: for every chess piece present
- * on `prev`'s board but gone from `curr`'s, the api-coordinate cell it died
- * on, read from `curr`'s authoritative `moves` map (the wire records a dead
- * piece's actual death square — mid-path for a slider stopped in flight,
- * never its origin or staged destination). Snakes are excluded: a dead
- * snake's cell derives from the direction-based `lastMoves` map instead.
- * A piece absent from `moves` entirely (genuinely missing wire data) gets no
- * entry; the renderer then falls back to its unknown-death marker.
+ * Death cells for the transition into `curr`, read STRAIGHT OFF the turn's
+ * authoritative death registry (`Turn.deaths`) — every unit removed that turn,
+ * snakes and pieces, killed and starved alike, at the api-coordinate cell the
+ * server says it died on.
+ *
+ * The registry is the primary source, not a supplement, and nothing here
+ * derives a death from the board or from a move direction any more. Two
+ * reasons that matters under the current engine:
+ *  - a STARVED unit halts wherever its health ran out — mid-ray for a slider,
+ *    on its own square for a unit that never moved — and no move or direction
+ *    on the wire says where that was;
+ *  - an EDGE-CONTEST loser never crosses, so it dies on the square it started
+ *    from without moving at all; a direction-derived cell would put its marker
+ *    one square away, on a cell it never reached.
+ * `Turn.moves` still carries the same cell for anything that died (the
+ * death-square guarantee), but it is the living unit's channel — this is the
+ * dead one's.
  */
-export function deriveDeathCells(
-  setup: TTGameSetup,
-  prev: ParsedTurn,
-  curr: ParsedTurn
-): Record<string, Coord> {
+export function deriveDeathCells(curr: ParsedTurn): Record<string, Coord> {
   const result: Record<string, Coord> = {};
-  for (const unitId of Object.keys(prev.turn.playerPieces)) {
-    if (unitTypeFor(setup, prev.turn, unitId) === 'snake') continue;
-    if (curr.pieces(unitId)) continue; // still on the board — did not die
-    const deathSquare = curr.appliedMoveIndex(unitId);
-    if (deathSquare === undefined) continue;
-    result[unitId] = toApiCoord(deathSquare, curr.boardWidth, curr.boardHeight);
+  const deaths = curr.turn.deaths ?? {};
+  for (const [unitId, death] of Object.entries(deaths)) {
+    if (!death || typeof death.cell !== 'number') continue;
+    result[unitId] = toApiCoord(death.cell, curr.boardWidth, curr.boardHeight);
   }
   return result;
 }
@@ -371,6 +383,16 @@ export function buildBoardState(
   // other positional field. They ride on the board (not on a per-snake view)
   // because a clash is a fact about the board, readable by any spectator.
   if (turn.clashes?.length) board.clashes = mapClashes(turn.clashes, w, h);
+  // Non-fatal sever damage, mapped like every other positional field. A fact
+  // about the board (which snakes got shortened, and where the cut segments
+  // used to be), so it rides beside the clashes rather than on a snake view.
+  if (turn.severedCells && Object.keys(turn.severedCells).length > 0) {
+    const severed: Record<string, Coord[]> = {};
+    for (const [unitId, cells] of Object.entries(turn.severedCells)) {
+      severed[unitId] = mapIndices(cells, w, h);
+    }
+    board.severedCells = severed;
+  }
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);

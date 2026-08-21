@@ -86,8 +86,9 @@ function survivor(): Snake {
 }
 
 // Two clash cells: one the survivor is standing on, one nobody walked away
-// from. The second record repeats a cell, as the wire does when several bodies
-// collided on one square.
+// from. (2,4) carries two records, because two separate events happened
+// there — the wire writes one record per cell per event, so a cell can be
+// marked more than once without any of them being a duplicate.
 function clashState(): GameState {
   return {
     game: { id: 'g', ruleset: { name: 'standard', version: '1' }, timeout: 500 },
@@ -95,9 +96,21 @@ function clashState(): GameState {
     board: {
       width: BOARD, height: BOARD, food: [], hazards: [], snakes: [survivor()],
       clashes: [
-        { cell: { x: 2, y: 4 }, playerIDs: ['keep', 'gone'], reason: 'Head-on collision', subStep: 2 },
-        { cell: { x: 2, y: 4 }, playerIDs: ['gone', 'keep'], reason: 'Head-on collision', subStep: 2 },
-        { cell: { x: 5, y: 1 }, playerIDs: ['gone'], reason: 'Collided with wall', subStep: 3 },
+        {
+          cell: { x: 2, y: 4 }, subStep: 2, kind: 'contest',
+          playerIDs: ['gone', 'keep'], victimIDs: ['gone'], survivorID: 'keep',
+          reason: 'Outweighed',
+        },
+        {
+          cell: { x: 2, y: 4 }, subStep: 5, kind: 'starvation',
+          playerIDs: ['spent'], victimIDs: ['spent'],
+          reason: 'Ran out of health',
+        },
+        {
+          cell: { x: 5, y: 1 }, subStep: 3, kind: 'wall',
+          playerIDs: ['gone'], victimIDs: ['gone'],
+          reason: 'Hit the wall',
+        },
       ],
     },
     you: survivor(),

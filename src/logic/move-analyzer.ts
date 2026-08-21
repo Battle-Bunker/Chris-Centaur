@@ -94,8 +94,10 @@ export class MoveAnalyzer {
 
       if (isHazard) {
         // Health-aware hazard fatality, mirroring the Simulator exactly:
-        // moving costs 1 unless the cell holds food (eating restores to the
-        // type max BEFORE the hazard damage lands); dead iff health <= 0.
+        // moving costs 1 plus the hazard dose, charged before anything is
+        // eaten, and dead iff that leaves health <= 0. Food on the cell does
+        // NOT enter the fatality decision — the engine settles food at end of
+        // turn, for survivors, so a meal cannot pay for a step that kills.
         if (healthAfterEntering(snake, board, newPosition) <= 0) continue;
         // Survivable damage — but the cell must still be otherwise passable.
         hazardBlindPassability ??= graph.passabilityIdxFor(snake.id, { ignoreHazards: true });

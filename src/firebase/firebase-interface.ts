@@ -1094,17 +1094,19 @@ export class TacticToesFirebaseInterface {
     // Read the moves the server actually applied on the PREVIOUS turn from
     // the new turn's authoritative `moves` map. Bookkeeping must run BEFORE
     // the new board is fed in so it measures against the old head. The map
-    // also rides on the canonical state (GameState.lastMoves) — the
-    // renderer's death markers consume it, on the live board and in the replay.
+    // also rides on the canonical state (GameState.lastMoves), where it drives
+    // our own resolved-move bookkeeping and the decision log. It is NOT the
+    // death channel any more — `deathCells` below is (see deriveDeathCells).
     if (turnNumber > 0) {
       const prevPt = parseTurn(data, turnNumber - 1)!;
       const lastMoves = this.deriveLastMoves(data.setup, prevPt, pt);
       canonical.lastMoves = lastMoves;
-      // Pieces that died this turn: their authoritative death cell (from the
-      // wire's `moves` map) rides on the canonical state so the renderer can
-      // mark the actual square — mid-path deaths included — live and in the
-      // logged replay.
-      const deathCells = deriveDeathCells(data.setup, prevPt, pt);
+      // Everything that died this turn: its authoritative death cell, straight
+      // from the turn's `deaths` registry, rides on the canonical state so the
+      // renderer can mark the actual square — mid-ray deaths, starvation halts
+      // and edge-contest losers that never left their own square included —
+      // live and in the logged replay.
+      const deathCells = deriveDeathCells(pt);
       if (Object.keys(deathCells).length > 0) canonical.deathCells = deathCells;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
@@ -1530,8 +1532,8 @@ export class TacticToesFirebaseInterface {
       // (any square, own square = stay), so there is no direction bookkeeping —
       // and an adjacent piece step (king/pawn) must not masquerade as one.
       // This keeps applyResolvedMoves and decision-log server_moves snake-only
-      // by construction; a dead piece's cell reaches the renderer through
-      // deriveDeathCells instead.
+      // by construction; every dead unit's cell — snakes included — reaches
+      // the renderer through deriveDeathCells instead.
       if (unitTypeFor(setup, prev.turn, snakeId) !== 'snake') continue;
       const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
