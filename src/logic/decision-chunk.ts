@@ -14,7 +14,8 @@
 import { GameState, Direction } from '../types/battlesnake';
 import { BoardEvaluator, BoardEvaluation } from './board-evaluator';
 import { WaypointProgress } from './waypoint-pathing';
-import { CasualtyContext, Simulator } from './simulator';
+import { Simulator } from './simulator';
+import { CasualtyContext } from './turn-oracle';
 import { DecisionConfig } from './decision-engine';
 
 export interface ChunkJob {
@@ -43,7 +44,7 @@ export interface ChunkJob {
   waypointProgress: WaypointProgress | null;
   /**
    * Projected health cost of THIS chunk's candidate move (movement + hazard
-   * damage — simulator.ts's projectedHealthCost), computed once per decision
+   * damage — turn-oracle.ts's projectedHealthCost), computed once per decision
    * on the main thread from the pre-move board. Same per-move-constant
    * contract as h2hRisk/pieceThreat/waypointProgress. Optional so callers
    * that construct a ChunkJob directly (tests) default to no cost.
@@ -51,8 +52,8 @@ export interface ChunkJob {
   healthCost?: number;
   /**
    * What THIS chunk's candidate move does to the units on the board — ally
-   * weight destroyed, enemies killed, and the regicide flags (simulator.ts's
-   * projectPath, folded). Plain numbers, so it structured-clones into worker
+   * weight destroyed, enemies killed, and the regicide flags, read off a
+   * resolved turn (turn-oracle.ts). Plain numbers, so it structured-clones into worker
    * threads for free. Same per-move-constant contract as healthCost; optional
    * so callers that construct a ChunkJob directly (tests) default to none.
    */

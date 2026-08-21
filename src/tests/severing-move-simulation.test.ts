@@ -327,20 +327,25 @@ describe('engine-aligned tail and eating physics', () => {
 });
 
 /**
- * FROZEN STATE — nothing leaves the board mid-turn.
+ * FROZEN STATE, AS THE ENGINE ACTUALLY DOES IT — and the sub-step boundary
+ * that a hand-written mirror got wrong.
  *
- * The engine removes a dead unit only once the whole collision phase is over:
- * until then it HALTS where it stood and stays there as a collision object,
- * body and all. So a unit dying this turn never opens a square for anybody
- * else this turn, and "that cell frees up when they die" — which the simulator
- * used to grant, by skipping any snake already in its running dead set — is
- * exactly the reasoning the engine now forbids.
+ * A dead unit does not leave the board mid-turn: it halts where it stood and
+ * its whole occupancy becomes a set of durable collision cells. But those
+ * cells are registered when the sub-step's batch is APPLIED, so they contest
+ * arrivals on LATER sub-steps. Within the very sub-step the unit was
+ * condemned in, the adjudication tiers run in order — arrivals before living
+ * bodies — and a unit condemned at the arrival tier is no longer a living body
+ * owner when the body tier looks. So its segments do not block anybody that
+ * same sub-step.
  *
- * This also makes the resolution order-independent, which is the property the
- * engine is built around: whether A is condemned before or after B is
- * adjudicated cannot change B's outcome.
+ * For snake-only turns, which resolve in a single sub-step, that means a
+ * same-turn corpse never blocks at all. This file previously asserted the
+ * opposite, from a hand-rolled reading of "nothing is removed mid-turn"; the
+ * bot now calls the real engine and the real engine disagrees. Both halves of
+ * the rule are pinned below.
  */
-describe('frozen state: a unit that dies this turn keeps blocking for the rest of it', () => {
+describe('frozen state: when a dying unit blocks, and when it does not', () => {
   const simulator = new Simulator();
 
   /**
@@ -362,33 +367,32 @@ describe('frozen state: a unit that dies this turn keeps blocking for the rest o
     return makeGameState([doomed, bully, follower], follower);
   }
 
-  test('its body still kills a unit that steps onto it in the same turn', () => {
+  // INVERTED against the hand-rolled mirror this file used to assert. The
+  // engine condemns `doomed` at the ARRIVAL tier, and the body tier that runs
+  // straight after it in the same sub-step only recognises owners that were
+  // still living when it looked. `follower` walks through.
+  test('a unit condemned THIS sub-step is not a body owner in it — the step goes through', () => {
     const gs = corpseScenario();
     const result = simulator.simulateNextBoardState(
       gs,
       // doomed goes up into bully's head square and loses; follower steps onto
-      // doomed's index-1 segment at (5,4) in the very same turn.
+      // doomed's index-1 segment at (5,4) in the very same sub-step.
       moves([['doomed', 'up'], ['bully', 'down'], ['follower', 'right']])
     );
 
     expect(result.deadSnakeIds.has('doomed')).toBe(true);
-    // THE POINT: the corpse blocked. follower does not get to walk through it.
-    expect(result.deadSnakeIds.has('follower')).toBe(true);
+    expect(result.deadSnakeIds.has('follower')).toBe(false);
   });
 
-  test('the same square is walkable once the corpse is genuinely gone', () => {
-    // Positive control: with `doomed` shifted off (5,4) entirely, the step is
-    // ordinary and survivable — so the death above really is what blocked it.
+  test('a unit that is ALREADY dead still holds its cells — nothing is removed mid-turn', () => {
+    // The other half of the rule. `doomed` is not condemned this turn at all;
+    // it simply stands there, and its body blocks as any living body does.
     const gs = corpseScenario();
-    const doomed = gs.board.snakes.find(s => s.id === 'doomed')!;
-    doomed.body = [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 6, y: 6 }];
-    doomed.head = doomed.body[0];
-
     const result = simulator.simulateNextBoardState(
-      gs, moves([['doomed', 'up'], ['bully', 'down'], ['follower', 'right']])
+      gs, moves([['bully', 'down'], ['follower', 'right']])
     );
-    expect(result.deadSnakeIds.has('doomed')).toBe(true);
-    expect(result.deadSnakeIds.has('follower')).toBe(false);
+    expect(result.deadSnakeIds.has('doomed')).toBe(false);
+    expect(result.deadSnakeIds.has('follower')).toBe(true);
   });
 
   test('a PIECE killed on its square still holds it against a second arrival', () => {
@@ -531,13 +535,11 @@ describe('edge exchanges are uniform: trails and lengths make no difference', ()
     expect(result.deadSnakeIds.has('b')).toBe(false);
   });
 
-  test("a squashed length-1 loser's death cell still blocks a third unit", () => {
-    // Two length-1 snakes deadlock the edge, so BOTH are squashed at home and
-    // neither crosses. Their corpses own no cells at all — each one's only
-    // cell was the tail it shed — but the cells they died on are collision
-    // objects for the rest of the turn, so `third` arriving on one meets the
-    // pile rather than an empty square. Without that, a one-cell mover's cell
-    // would read as vacated and this step would look free.
+  // INVERTED, for the same sub-step reason as the corpse block above: the two
+  // deadlocked snakes are condemned at the EDGE tier of sub-step 1, and their
+  // cells only become durable once that sub-step's batch is applied. `third`
+  // arrives inside the same sub-step, so it meets nothing.
+  test("a squashed loser's cell is free to a unit arriving in the SAME sub-step", () => {
     const dot1 = makeSnake('a', [{ x: 5, y: 5 }]);
     const dot2 = makeSnake('b', [{ x: 6, y: 5 }], green);
     const third = makeSnake('third', [{ x: 5, y: 4 }, { x: 5, y: 3 }], {
@@ -547,7 +549,8 @@ describe('edge exchanges are uniform: trails and lengths make no difference', ()
       makeGameState([dot1, dot2, third], third),
       moves([['a', 'right'], ['b', 'left'], ['third', 'up']])
     );
-    expect(result.deadSnakeIds).toEqual(new Set(['a', 'b', 'third']));
+    expect(result.deadSnakeIds).toEqual(new Set(['a', 'b']));
+    expect(result.board.snakes.find(s => s.id === 'third')!.head).toEqual({ x: 5, y: 5 });
   });
 
   test('a multi-cell loser leaves its body MINUS the shed tail, and the tail cell is free', () => {

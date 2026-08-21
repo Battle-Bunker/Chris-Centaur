@@ -29,7 +29,7 @@
  * body clearing out of our way.
  */
 
-import { projectPath, projectedHealthCost } from '../logic/simulator';
+import { evaluatePathOnBoard } from '../logic/turn-oracle';
 import { BoardEvaluator } from '../logic/board-evaluator';
 import { ActiveGameManager } from '../server/active-game-manager';
 import { apiCoordToIndex } from '../firebase/translate';
@@ -92,6 +92,25 @@ function makeState(
 // (3,3) → (4,4) → (5,5) → (6,6), with FOOD at the far end (6,6) and a snake
 // body segment sitting on (4,4). `blockerBody` picks whose body and where in
 // it (4,4) sits.
+/**
+ * The candidate-outcome oracle, in the shape these tests read.
+ *
+ * There is no hand-written projection any more: this runs the REAL turn
+ * through the vendored TacticToes engine (turn-oracle.ts over
+ * src/engine-vendor/) and reads the settled result. So every assertion below
+ * is now a test of MARSHALLING and READING — did we hand the engine the right
+ * board, and did we read its answer correctly — rather than a test of rules
+ * arithmetic the bot no longer performs.
+ */
+function projectPath(state: GameState, path: Coord[]) {
+  return evaluatePathOnBoard(state.board, state.turn, state.you.id, path);
+}
+
+/** The same, reduced to the health cost every scoring caller reads. */
+function costOf(state: GameState, path: Coord[]): number {
+  return projectPath(state, path).cost;
+}
+
 const BISHOP_RAY: Coord[] = [{ x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }, { x: 6, y: 6 }];
 
 function bishopVsBody(
@@ -128,11 +147,11 @@ describe('projectPath: a snake body is an absolute wall on a slider ray', () => 
     expect(gs.you.health - outcome.cost).toBe(0);
     // The traversal ends ON the square it died on — it never reaches (5,5)
     // or the staged destination (6,6).
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
     // Food sits at (6,6), which the bishop never reaches: no meal, and so no
     // cancellation of the movement cost.
-    expect(outcome.eats).toBe(false);
-    expect(projectedHealthCost(gs, BISHOP_RAY)).toBe(100);
+    expect(outcome.ate).toBe(false);
+    expect(costOf(gs, BISHOP_RAY)).toBe(100);
   });
 
   test('an ENEMY body is byte-identical to an ally body — the projection has no team input at all', () => {
@@ -149,12 +168,12 @@ describe('projectPath: a snake body is an absolute wall on a slider ray', () => 
     const outcome = projectPath(gs, BISHOP_RAY);
 
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(true);
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.halted).toBe(true);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
     // Two squares actually entered, and the far-end food is never reached, so
     // the movement cost is NOT cancelled.
     expect(outcome.cost).toBe(2);
-    expect(outcome.eats).toBe(false);
+    expect(outcome.ate).toBe(false);
   });
 
   test('equal tiers are still death — a tie never grants passage', () => {
@@ -167,18 +186,35 @@ describe('projectPath: a snake body is an absolute wall on a slider ray', () => 
     expect(projectPath(gs, BISHOP_RAY).fatal).toBe(true);
   });
 
-  test('a segment that VACATES before arrival is not fatal: the ray passes through and eats', () => {
-    // (4,4) is the blocker's TAIL — the engine pops every tail before
-    // collisions resolve, eating or not, so it is empty when the slider
-    // arrives. This is the ONE square of the simultaneous body shift the
-    // client can see from a pre-move board.
+  // INVERTED, and it is the price of the enemy-intent assumption rather than a
+  // rules change. The tail pop is unconditional FOR A UNIT THAT MOVES; the
+  // oracle resolves the turn with every other unit HOLDING, and a held snake
+  // pops nothing. So a tail cell reads as occupied now, where the old
+  // hand-written projection let a ray through it.
+  //
+  // We take that trade knowingly: the alternative is inventing a heading for
+  // every enemy on the board, and a guessed heading changes which of its
+  // segments we meet and therefore how much of it we cut. Erring toward
+  // "occupied" costs reach; erring the other way costs units.
+  test("a HELD snake's tail does not vacate — the ray dies on it", () => {
     const gs = bishopVsBody('ally', [{ x: 3, y: 5 }, { x: 4, y: 4 }]);
     const outcome = projectPath(gs, BISHOP_RAY);
 
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.ate).toBe(false);
+  });
+
+  test('a genuinely EMPTY square is not fatal: the ray passes through and eats', () => {
+    // The positive control the tail case used to serve as: with nothing on
+    // (4,4) at all, the ray runs to the far end and takes the meal.
+    const gs = bishopVsBody('ally', [{ x: 3, y: 5 }, { x: 3, y: 6 }]);
+    const outcome = projectPath(gs, BISHOP_RAY);
+
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(false);
-    expect(outcome.path).toEqual(BISHOP_RAY);
-    expect(outcome.eats).toBe(true);
+    expect(outcome.halted).toBe(false);
+    expect(outcome.traversed).toEqual(BISHOP_RAY);
+    expect(outcome.ate).toBe(true);
     expect(outcome.cost).toBe(0); // reaching the food alive cancels the movement
   });
 
@@ -192,7 +228,7 @@ describe('projectPath: a snake body is an absolute wall on a slider ray', () => 
     const gs = bishopVsBody('ally', [{ x: 4, y: 4 }, { x: 4, y: 3 }, { x: 4, y: 2 }]);
     const outcome = projectPath(gs, BISHOP_RAY);
     expect(outcome.fatal).toBe(true);
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
   });
 });
 
@@ -204,7 +240,7 @@ describe('projectPath: the other ways a traversal ends', () => {
     const outcome = projectPath(gs, BISHOP_RAY);
     expect(outcome.fatal).toBe(true);
     expect(outcome.cost).toBe(100);
-    expect(outcome.eats).toBe(false);
+    expect(outcome.ate).toBe(false);
   });
 
   test('a stationary PIECE the mover outweighs is killed, and the mover capture-stops on its square', () => {
@@ -213,9 +249,9 @@ describe('projectPath: the other ways a traversal ends', () => {
     const gs = makeState([bishop, rook], 'B', { food: [{ x: 6, y: 6 }] });
     const outcome = projectPath(gs, BISHOP_RAY);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(true);
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
-    expect(outcome.eats).toBe(false);
+    expect(outcome.halted).toBe(true);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.ate).toBe(false);
   });
 
   test('the mover’s OWN body is a wall with no tier exemption — nothing severs itself', () => {
@@ -235,7 +271,7 @@ describe('projectPath: the other ways a traversal ends', () => {
     const gs = makeState([rook], 'R');
     const outcome = projectPath(gs, [{ x: 0, y: 5 }, { x: -1, y: 5 }]);
     expect(outcome.fatal).toBe(true);
-    expect(outcome.path).toEqual([{ x: 0, y: 5 }, { x: -1, y: 5 }]);
+    expect(outcome.traversed).toEqual([{ x: 0, y: 5 }, { x: -1, y: 5 }]);
   });
 
   test('hazard doses that exhaust health kill mid-flight and TRUNCATE — later doses never accrue', () => {
@@ -247,12 +283,12 @@ describe('projectPath: the other ways a traversal ends', () => {
     const outcome = projectPath(gs, [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }]);
     // 55 - 30 = 25 survives (3,5); 25 - 30 <= 0 dies there.
     expect(outcome.fatal).toBe(true);
-    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
-    // Two squares entered and TWO doses charged, not four: 2 + 2 × 30 = 62.
-    // The cost never under-reports, and it always takes the health to zero or
-    // below — the remaining two doses of the staged ray never accrue.
-    expect(outcome.cost).toBe(62);
-    expect(gs.you.health - outcome.cost).toBeLessThanOrEqual(0);
+    expect(outcome.traversed).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
+    // A fatal traversal costs exactly the health the unit had: the oracle
+    // reports what the engine actually took off it, not a hypothetical bill
+    // bigger than the unit. Either way the projected health lands at zero.
+    expect(outcome.cost).toBe(55);
+    expect(gs.you.health - outcome.cost).toBe(0);
   });
 
   test('a survivable hazard crossing keeps accruing and stays non-fatal', () => {
@@ -292,7 +328,7 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const outcome = projectPath(gs, RAY);
 
     expect(outcome.fatal).toBe(true);
-    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
+    expect(outcome.traversed).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
     // Three squares entered, not four: the fourth is never walked, and the
     // cost reported zeroes the health exactly.
     expect(outcome.cost).toBe(3);
@@ -305,8 +341,8 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const outcome = projectPath(fed, RAY);
 
     expect(outcome.fatal).toBe(true);
-    expect(outcome.eats).toBe(false);
-    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
+    expect(outcome.ate).toBe(false);
+    expect(outcome.traversed).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }]);
     expect(outcome.cost).toBe(3);
     // Byte-identical to the unfed ray: the food is not an input to any of it.
     expect(outcome).toEqual(projectPath(makeState([rook], 'R'), RAY));
@@ -318,8 +354,8 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 5, y: 5 }] }), RAY);
 
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
-    expect(outcome.path).toEqual(RAY);
+    expect(outcome.ate).toBe(true);
+    expect(outcome.traversed).toEqual(RAY);
     expect(outcome.cost).toBe(0);
   });
 
@@ -331,8 +367,8 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 4 });
     const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 5, y: 5 }] }), RAY);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
-    expect(outcome.path).toEqual(RAY);
+    expect(outcome.ate).toBe(true);
+    expect(outcome.traversed).toEqual(RAY);
     // The meal cancels the whole bill, exactly as any other meal does — `cost`
     // is a LOSS measure, so a recovery from zero reports 0 just like a stroll
     // onto food at full health.
@@ -345,8 +381,8 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 4 });
     const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 6, y: 5 }] }), RAY);
     expect(outcome.fatal).toBe(true);
-    expect(outcome.eats).toBe(false);
-    expect(outcome.path).toEqual(RAY);
+    expect(outcome.ate).toBe(false);
+    expect(outcome.traversed).toEqual(RAY);
     expect(outcome.cost).toBe(4);
   });
 
@@ -356,8 +392,8 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const rook = makePiece('R', { x: 1, y: 5 }, 'rook', { health: 2 });
     const outcome = projectPath(makeState([rook], 'R', { food: [{ x: 3, y: 5 }] }), RAY);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
-    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
+    expect(outcome.ate).toBe(true);
+    expect(outcome.traversed).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
     expect(outcome.cost).toBe(0);
   });
 
@@ -371,7 +407,7 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     });
     const outcome = projectPath(gs, RAY);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
+    expect(outcome.ate).toBe(true);
     expect(outcome.cost).toBe(0);
   });
 
@@ -382,7 +418,7 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const gs = makeState([rook], 'R', { hazards: [{ x: 3, y: 5 }], hazardDamage: 30 });
     const outcome = projectPath(gs, RAY);
     expect(outcome.fatal).toBe(true);
-    expect(outcome.path).toEqual(RAY);
+    expect(outcome.traversed).toEqual(RAY);
     expect(outcome.cost).toBe(34);
   });
 
@@ -395,13 +431,13 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const gs = makeState([us], 'us', { food: [{ x: 6, y: 5 }] });
     const outcome = projectPath(gs, [{ x: 6, y: 5 }]);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
+    expect(outcome.ate).toBe(true);
     expect(outcome.cost).toBe(0);
 
     // The same step onto a bare square is death: there is nothing to recover on.
     const bare = projectPath(makeState([us], 'us'), [{ x: 6, y: 5 }]);
     expect(bare.fatal).toBe(true);
-    expect(bare.eats).toBe(false);
+    expect(bare.ate).toBe(false);
   });
 
   test('a mover that WINS a square and then exhausts on it still takes its victim', () => {
@@ -413,7 +449,7 @@ describe('projectPath: a ray the health cannot pay for halts, and the halt squar
     const outcome = projectPath(gs, BISHOP_RAY);
 
     // (3,3) takes it to 1, (4,4) is won and then takes it to 0.
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, { x: 4, y: 4 }]);
     expect(outcome.fatal).toBe(true);
     expect(outcome.casualties.kills).toBe(1);
   });
@@ -425,8 +461,8 @@ describe('valuing it: the health-loss component ranks a fatal path below any sur
     const them = makeSnake('them', [{ x: 6, y: 6 }, { x: 6, y: 5 }, { x: 6, y: 4 }]);
     const gs = makeState([us, them], 'us');
 
-    const fatalCost = projectedHealthCost(gs, [{ x: 6, y: 5 }]); // into their body
-    const safeCost = projectedHealthCost(gs, [{ x: 4, y: 5 }]);  // open square
+    const fatalCost = costOf(gs, [{ x: 6, y: 5 }]); // into their body
+    const safeCost = costOf(gs, [{ x: 4, y: 5 }]);  // open square
     expect(fatalCost).toBe(100);
     expect(safeCost).toBe(1);
 
@@ -515,10 +551,13 @@ describe('valuing it: chess-piece candidate rows and staging', () => {
     mgr.setWaypoint(blocked, 'B', { type: 'green', x: 6, y: 6 }, 'u1');
     expect(csBlocked.staged?.move).not.toBe(fullIdx({ x: 6, y: 6 }));
 
-    // Positive control: the same geometry with the blocking segment vacating
-    // (it is the tail) stages the arrival, meal and all.
+    // Positive control: the same geometry with the ray genuinely CLEAR stages
+    // the arrival, meal and all. (The blocker is moved off the diagonal
+    // entirely — a tail no longer serves as the control, because the oracle
+    // resolves the turn with every other unit holding and a held snake pops
+    // nothing.)
     const open = 'g-fatal-goto-open';
-    const gsOpen = bishopVsBody('ally', [{ x: 3, y: 5 }, { x: 4, y: 4 }]);
+    const gsOpen = bishopVsBody('ally', [{ x: 3, y: 5 }, { x: 3, y: 6 }]);
     gsOpen.game.id = open;
     const csOpen = feed(open, gsOpen);
     csOpen.selectedBy = 'u1';
@@ -528,139 +567,102 @@ describe('valuing it: chess-piece candidate rows and staging', () => {
 });
 
 /**
- * THE i = 0 POLICY, VERIFIED RATHER THAN ASSERTED.
+ * THE ENEMY-INTENT HYPOTHESES — what replaced the conservative-policy table.
  *
- * An enemy snake's start-of-turn head cell is, by the time we arrive, exactly
- * one of two things — and the projection cannot know which, because it never
- * gives other units a move:
+ * That table existed because the bot MODELLED what an enemy snake's head cell
+ * would have become by our arrival, and had to argue that its guess erred in
+ * the safe direction. There is no guess left to argue about: the oracle
+ * RESOLVES the turn, once with every other unit holding and once per enemy
+ * standing next to the cell we are stepping into, and reports each field's
+ * extreme (turn-oracle.ts). What is left to pin is the aggregation itself.
  *
- *  (a) CHASE — the owner stepped away or aside, so the cell is now its NECK
- *      (post-move index 1), a living body cell. Equal-or-lower tier dies on
- *      it; strictly higher tier severs it and capture-stops.
- *  (b) EXCHANGE — the owner stepped into OUR origin, so the heads crossed the
- *      same edge. That is an edge contest, uniform across every unit kind and
- *      length: frozen tier, then frozen weight. No trail exemption.
- *
- * simulator.ts models (a) always. This block does not take that on trust: it
- * walks every tier × weight combination, computes what (b) would have decided,
- * and checks the direction — the model must never say we SURVIVE where the
- * exchange would have killed us. It also records, rather than hides, the one
- * place the choice is not purely conservative: the casualty LEDGER when we
- * strictly out-tier the owner.
+ * The head-on hypotheses are the whole point: they are the collisions a static
+ * board structurally cannot show you, and the old projection could never
+ * credit a kill for one.
  */
-describe('the i = 0 policy: modelling the chase, and checking it is the worse branch', () => {
-  const OWNER_HEAD: Coord = { x: 4, y: 4 };
-  const STEP: Coord[] = [OWNER_HEAD];
+describe('enemy-intent hypotheses: the collisions a static board cannot show', () => {
+  const OURS_TEAM = 'ours';
+  const THEIRS_TEAM = 'theirs';
 
-  /** Our mover stepping one square onto `owner`'s start-of-turn head cell. */
-  function meeting(
-    moverTier: number, moverWeight: number,
-    ownerTier: number, ownerWeight: number,
-    ownerTeam = 'theirs'
-  ) {
-    const mover = makePiece('M', { x: 3, y: 4 }, 'rook', {
-      length: moverWeight, teamID: 'ours',
-      invulnerabilityLevel: moverTier, invulnerabilityExpiryTurn: 99,
-    });
-    // A body of `ownerWeight` cells with its HEAD on the contested square.
+  /**
+   * Our snake at (5,5) stepping right onto (6,5), with an enemy snake sitting
+   * at (7,5) — one step from the cell we are taking, and therefore able to
+   * arrive on it in the same turn.
+   */
+  function faceOff(ourLength: number, theirLength: number) {
     const body: Coord[] = [];
-    for (let i = 0; i < ownerWeight; i++) body.push({ x: 4, y: 4 - i });
-    const owner = makeSnake('O', body, {
-      teamID: ownerTeam,
-      invulnerabilityLevel: ownerTier, invulnerabilityExpiryTurn: 99,
+    for (let i = 0; i < ourLength; i++) body.push({ x: 5, y: 5 - i });
+    const enemyBody: Coord[] = [];
+    for (let i = 0; i < theirLength; i++) enemyBody.push({ x: 7 + i, y: 5 });
+    const us = makeSnake('us', body, { teamID: OURS_TEAM });
+    const them = makeSnake('them', enemyBody, { teamID: THEIRS_TEAM });
+    return projectPath(makeState([us, them], 'us'), [{ x: 6, y: 5 }]);
+  }
+
+  test('a HEAVIER unit is credited with the kill the head-on hypothesis produces', () => {
+    // Baseline (they hold): we step onto an empty square and nothing happens.
+    // Head-on (they step onto it too): a co-arrival contest we win on weight.
+    // The kill is real in a reachable world, so it is credited.
+    const outcome = faceOff(4, 2);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.casualties.kills).toBe(1);
+  });
+
+  test('a LIGHTER unit is fatal — safety is judged against their best play', () => {
+    const outcome = faceOff(2, 4);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.deathCause).toBe('contest');
+    expect(outcome.casualties.kills).toBe(0);
+  });
+
+  test('an EVEN meeting is fatal for us AND credits the trade', () => {
+    const outcome = faceOff(3, 3);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.casualties.kills).toBe(1);
+  });
+
+  test('an enemy too far to reach the square generates no hypothesis at all', () => {
+    // Same shape, but the enemy head is two cells from our destination. The
+    // baseline is then the only world, and the step is an ordinary one — this
+    // is what keeps the hypothesis set to a handful, and keeps long-range
+    // danger in the threat map where it is priced as a deterrent.
+    const us = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { teamID: OURS_TEAM });
+    const them = makeSnake('them', [{ x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 }], {
+      teamID: THEIRS_TEAM,
     });
-    return projectPath(makeState([mover, owner], 'M'), STEP);
-  }
-
-  /** What the EDGE EXCHANGE would decide: tier first, then frozen weight. */
-  function exchangeKillsUs(
-    moverTier: number, moverWeight: number, ownerTier: number, ownerWeight: number
-  ): boolean {
-    if (moverTier !== ownerTier) return moverTier < ownerTier;
-    return moverWeight <= ownerWeight; // equal weight is a deadlock: nobody lives
-  }
-
-  const TIERS: Array<[number, number, string]> = [
-    [0, 1, 'we out-tier them'],
-    [1, 1, 'equal tier'],
-    [1, 0, 'they out-tier us'],
-  ];
-  // Owner weights >= 2 keep the cell a genuine head-of-a-body case; weight 1
-  // is the degenerate owner the model treats as a head-class contest instead.
-  const WEIGHTS: Array<[number, number, string]> = [
-    [5, 2, 'we outweigh them'],
-    [3, 3, 'equal weight'],
-    [2, 5, 'they outweigh us'],
-  ];
-
-  test('every tier x weight combination: the model is never the more optimistic branch', () => {
-    const optimistic: string[] = [];
-    const strictlyConservative: string[] = [];
-    let checked = 0;
-
-    for (const [ownerTier, moverTier, tierLabel] of TIERS) {
-      for (const [moverWeight, ownerWeight, weightLabel] of WEIGHTS) {
-        checked++;
-        const modelFatal = meeting(moverTier, moverWeight, ownerTier, ownerWeight).fatal;
-        const exchangeFatal = exchangeKillsUs(moverTier, moverWeight, ownerTier, ownerWeight);
-        const label = `${tierLabel} / ${weightLabel}`;
-        // THE DIRECTION: model-fatal >= exchange-fatal. Saying we survive
-        // where the exchange would have killed us is the one answer the
-        // projection may never give.
-        if (!modelFatal && exchangeFatal) optimistic.push(label);
-        if (modelFatal && !exchangeFatal) strictlyConservative.push(label);
-      }
-    }
-
-    expect(checked).toBe(TIERS.length * WEIGHTS.length);
-    expect(optimistic).toEqual([]);
-    // ...and the check is not vacuous: exactly one combination is where the
-    // two branches genuinely disagree — equal tier with us the heavier, where
-    // the exchange would have let us through and the model calls it death.
-    expect(strictlyConservative).toEqual(['equal tier / we outweigh them']);
+    const outcome = projectPath(makeState([us, them], 'us'), [{ x: 6, y: 5 }]);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.cost).toBe(1);
+    expect(outcome.casualties.kills).toBe(0);
   });
 
-  test('at or below the owner tier the model is fatal outright — the worse branch every time', () => {
-    // Equal tier: the exchange lets a heavier mover through, the model does
-    // not. Strictly conservative, and the case that matters most in play.
-    expect(meeting(1, 5, 1, 2).fatal).toBe(true);
-    expect(exchangeKillsUs(1, 5, 1, 2)).toBe(false);
-    // Equal tier, equal weight: both agree we die.
-    expect(meeting(1, 3, 1, 3).fatal).toBe(true);
-    expect(exchangeKillsUs(1, 3, 1, 3)).toBe(true);
-    // Lower tier: both agree we die.
-    expect(meeting(0, 5, 1, 2).fatal).toBe(true);
-    expect(exchangeKillsUs(0, 5, 1, 2)).toBe(true);
+  test('the EDGE EXCHANGE: an enemy standing on our destination stages OUR origin', () => {
+    // The one hypothesis a frozen board can never produce — both heads cross
+    // the same edge. Heavier wins it; lighter dies at home.
+    const heavy = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 3 }], {
+      teamID: OURS_TEAM,
+    });
+    const light = makeSnake('them', [{ x: 6, y: 5 }, { x: 7, y: 5 }], { teamID: THEIRS_TEAM });
+    const won = projectPath(makeState([heavy, light], 'us'), [{ x: 6, y: 5 }]);
+    expect(won.fatal).toBe(false);
+    expect(won.casualties.kills).toBe(1);
+
+    const lightUs = makeSnake('us', [{ x: 5, y: 5 }, { x: 5, y: 4 }], { teamID: OURS_TEAM });
+    const heavyThem = makeSnake('them', [
+      { x: 6, y: 5 }, { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 },
+    ], { teamID: THEIRS_TEAM });
+    const lost = projectPath(makeState([lightUs, heavyThem], 'us'), [{ x: 6, y: 5 }]);
+    expect(lost.fatal).toBe(true);
   });
 
-  test('strictly out-tiering the owner: both branches let us live, and we capture-stop', () => {
-    const modelled = meeting(2, 3, 0, 4);
-    expect(modelled.fatal).toBe(false);
-    expect(modelled.captureStopped).toBe(true);
-    expect(exchangeKillsUs(2, 3, 0, 4)).toBe(false);
-  });
-
-  // The honest corner, pinned so it cannot drift into a silent assumption.
-  test('the LEDGER is where the policy is not conservative: an out-tiered owner', () => {
-    // Chase: we cut the owner at its neck and it walks away as one segment, so
-    // the model charges weight - 1 and reports it alive. Exchange: it would
-    // have died outright, for its whole weight.
-    const enemy = meeting(2, 3, 0, 4);
-    expect(enemy.casualties.kills).toBe(0); // under-credits our own gain: safe
-    // The same shape against an ALLY under-CHARGES us by one weight, which is
-    // the optimistic direction — and it is why an ally king cut here does not
-    // raise our own regicide flag.
-    const ally = meeting(2, 3, 0, 4, 'ours');
-    expect(ally.casualties.allyCasualty).toBe(3); // 4 - 1, not the full 4
-    expect(ally.casualties.regicide).toBe(0);
-  });
-
-  test('a LENGTH-1 owner is modelled as the contest, which is the exchange branch exactly', () => {
-    // Its only segment pops, so a chase would leave the cell EMPTY. Modelling
-    // the contest keeps the frozen-occupancy assumption and matches (b).
-    const modelled = meeting(2, 3, 0, 1);
-    expect(modelled.fatal).toBe(false);
-    expect(modelled.captureStopped).toBe(true);
-    expect(modelled.casualties.kills).toBe(1);
+  test('AGGREGATION: worst case for the costs, best case for the gains', () => {
+    // The even meeting above is the case that shows both halves at once, and
+    // it is the aggregation policy in one assertion: we report the death (it
+    // happens in a world the enemy can choose) AND the kill (so does that).
+    // A move is never allowed to look both safe and profitable on one guess.
+    const outcome = faceOff(3, 3);
+    expect(outcome.fatal).toBe(true);
+    expect(outcome.cost).toBe(100);
+    expect(outcome.casualties.kills).toBe(1);
   });
 });

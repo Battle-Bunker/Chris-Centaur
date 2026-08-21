@@ -23,7 +23,8 @@
  * will definitely die this turn without eating, and must NEVER invent food.
  */
 
-import { Simulator, MoveSet, healthAfterEntering, projectedHealthCost } from '../logic/simulator';
+import { Simulator, MoveSet } from '../logic/simulator';
+import { evaluatePathOnBoard, healthAfterEntering as engineHealthAfterEntering } from '../logic/turn-oracle';
 import { MoveAnalyzer } from '../logic/move-analyzer';
 import { BoardGraph } from '../logic/board-graph';
 import { DecisionEngine } from '../logic/decision-engine';
@@ -68,6 +69,23 @@ function makeGameState(snakes: Snake[], you: Snake, turn = 10): GameState {
 }
 
 const moves = (entries: [string, Direction][]): MoveSet => new Map(entries);
+
+/**
+ * Both helpers below ask the REAL engine (turn-oracle.ts over the vendored
+ * TacticToes module) rather than a bot-side mirror of the health rule:
+ *  - `healthAfterEntering` resolves a turn with nothing else on the board, so
+ *    only movement cost, hazard dose, exhaustion and the end-of-turn meal can
+ *    touch the answer;
+ *  - `projectedHealthCost` resolves the whole board and reports the health the
+ *    engine left us short.
+ */
+function healthAfterEntering(snake: Snake, board: GameState['board'], dest: Coord): number {
+  return engineHealthAfterEntering(board, 10, snake, dest);
+}
+
+function projectedHealthCost(state: GameState, path: Coord[]): number {
+  return evaluatePathOnBoard(state.board, state.turn, state.you.id, path).cost;
+}
 
 describe('hazard damage (no longer instant death)', () => {
   const simulator = new Simulator();

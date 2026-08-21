@@ -4,7 +4,13 @@
  * take this square next turn and hurt us there?" for BOTH unit kinds:
  * snakes (the old bespoke head-to-head adjacency scan) and chess pieces.
  *
- * CONTEST RULE (the engine's cell adjudication, tier FIRST, weight second):
+ * CONTEST RULE — a REACHABILITY heuristic's copy of the engine's cell
+ * adjudication (tier FIRST, weight second). The authoritative encoding lives
+ * in src/engine-vendor/, and anything that needs to know what a move actually
+ * DOES calls it through turn-oracle.ts. What survives here is deliberately a
+ * different question — "which squares could this unit contest next turn, and
+ * would it beat us there?" — an estimate over moves nobody has staged, which
+ * no turn resolution can answer because there is no turn to resolve.
  * when units contest a square, everyone below the top invulnerability tier at
  * the square dies with weight never consulted; among the top tier the unique
  * heaviest survives, and ties kill all. Both inputs are FROZEN at the start of
@@ -14,9 +20,7 @@
  * WEIGHT (stack size), not a body cell count.
  * `winsStationaryContest` is the ONE encoding of that rule, shared by:
  *  - BoardGraph's subjective passability (may WE walk onto a piece square?),
- *  - the Simulator's mover-vs-stationary-piece resolution,
  *  - the threat map below (would the unit kill-or-tie US at a square?),
- *  - the projection's per-square adjudication (simulator.ts's projectPath),
  *  - the Voronoi BFS, twice over: `stationaryContestWinner` read as "who, if
  *    anyone, survives a multi-way race to one square?" for same-turn snake
  *    arrivals, and `winsStationaryContest` read as "could this piece hold that
@@ -98,27 +102,6 @@ export function winsStationaryContest(
   if (theirTier < ourTier) return true;
   if (theirTier > ourTier) return false;
   return ourWeight > theirWeight;
-}
-
-/**
- * The OTHER half of the same rule: do (ourTier, ourWeight) and
- * (theirTier, theirWeight) TIE — neither survives the square?
- *
- * `winsStationaryContest` is false for two very different outcomes: a LOSS
- * (they walk away, we die) and a TIE (nobody walks away). The engine's cell
- * contest leaves AT MOST ONE unique strict maximum standing and kills
- * everyone else, so a tie is MUTUAL DESTRUCTION — the
- * unit we tied with dies too, and that is a casualty the projection must
- * record. Same ordering as the win rule: tier first, then weight, so a tie is
- * exactly equal tier AND equal weight.
- */
-export function tiesStationaryContest(
-  ourTier: number,
-  ourWeight: number,
-  theirTier: number,
-  theirWeight: number
-): boolean {
-  return ourTier === theirTier && ourWeight === theirWeight;
 }
 
 /**

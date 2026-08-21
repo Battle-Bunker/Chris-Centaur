@@ -49,7 +49,12 @@ function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake
 function makePiece(id: string, square: Coord, unitType: string, weight: number, extra: Partial<Snake> = {}): Snake {
   return makeSnake(id, Array.from({ length: weight }, () => ({ ...square })), {
     unitType,
-    orientation: { dx: 0, dy: -1 },
+    // Facing +x, so the api 'right' these tests stage is the pawn's FORWARD
+    // step. That matters now: the Simulator resolves through the real
+    // movement grammar, and a pawn staged at its own SIDE square spends the
+    // turn rotating instead of stepping — which is a legal pawn action, just
+    // not the one a promotion test means to exercise.
+    orientation: { dx: 1, dy: 0 },
     ...extra,
   });
 }
@@ -161,7 +166,9 @@ describe('pawn promotion in the Simulator', () => {
 
   test('a promoted unit moves as a queen in subsequent projection, not as a pawn', () => {
     const pawn = makePiece('p', { x: 5, y: 5 }, 'pawn', DEFAULT_PAWN_PROMOTION_WEIGHT - 1, {
-      orientation: { dx: 0, dy: -1 }, // facing "up" (wire convention)
+      // Wire dy +1 is api 'down' — the direction this test stages, and so the
+      // pawn's forward step.
+      orientation: { dx: 0, dy: 1 },
     });
     const gs = makeGameState([pawn], 'p');
     gs.board.food = [{ x: 5, y: 4 }]; // one step in the facing direction

@@ -31,7 +31,7 @@
  *     far end saves nothing.
  */
 
-import { projectPath } from '../logic/simulator';
+import { evaluatePathOnBoard } from '../logic/turn-oracle';
 import { ActiveGameManager } from '../server/active-game-manager';
 import { apiCoordToIndex } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
@@ -107,6 +107,20 @@ function makeState(
 
 // A bishop at (2,2) whose up-right ray runs (3,3) → (4,4) → (5,5) → (6,6);
 // the contested square is always (4,4).
+/**
+ * The candidate-outcome oracle, in the shape these tests read.
+ *
+ * There is no hand-written projection any more: this runs the REAL turn
+ * through the vendored TacticToes engine (turn-oracle.ts over
+ * src/engine-vendor/) and reads the settled result. So every assertion below
+ * is now a test of MARSHALLING and READING — did we hand the engine the right
+ * board, and did we read its answer correctly — rather than a test of rules
+ * arithmetic the bot no longer performs.
+ */
+function projectPath(state: GameState, path: Coord[]) {
+  return evaluatePathOnBoard(state.board, state.turn, state.you.id, path);
+}
+
 const BISHOP_RAY: Coord[] = [{ x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }, { x: 6, y: 6 }];
 const CONTESTED: Coord = { x: 4, y: 4 };
 
@@ -121,9 +135,11 @@ describe('a TIED stationary contest is a TRADE: both units die, and the victim i
     // We do not survive it — that half was never in doubt.
     expect(outcome.fatal).toBe(true);
     expect(outcome.cost).toBe(gs.you.health);
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, CONTESTED]);
-    // A death, not a capture-stop: we never walk off the square.
-    expect(outcome.captureStopped).toBe(false);
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, CONTESTED]);
+    // A death, not a capture-stop: we stopped short of (6,6) because we died
+    // on the contested square, and the registry says so.
+    expect(outcome.deathCause).toBe('contest');
+    expect(outcome.finalCell).toEqual(CONTESTED);
     // ...but the enemy dies with us. That is the half that used to be lost.
     expect(outcome.casualties.kills).toBe(1);
     expect(outcome.casualties.allyCasualty).toBe(0);
@@ -231,56 +247,72 @@ describe('a tie with an ALLY is charged — the engine has no friendly exemption
       BISHOP_RAY
     );
     expect(won.fatal).toBe(false);
-    expect(won.captureStopped).toBe(true);
+    expect(won.halted).toBe(true);
     expect(won.casualties.kills).toBe(1);
   });
 });
 
-describe("entering a multi-cell snake's head square SEVERS it — the owner survives at weight 1", () => {
-  // Strictly higher tier, so we cut through instead of dying on the body.
+/**
+ * ENTERING A SNAKE'S HEAD CELL, under the assumption we actually make.
+ *
+ * INVERTED, and the inversion is instructive. The old hand-written projection
+ * modelled this square as the owner's NECK — reasoning that snakes always move,
+ * so by our arrival the head has swept forward and index 0 has become index 1 —
+ * and therefore called it a SEVER costing weight - 1.
+ *
+ * The bot no longer models anything: it hands the board to the engine with the
+ * assumption it can actually defend, which is that the other unit HOLDS. And a
+ * held snake's head cell is exactly that — a head. So the engine adjudicates a
+ * head-class CONTEST there, and a strictly-higher-tier arrival kills the whole
+ * snake rather than trimming it.
+ *
+ * The old answer was not more correct; it was a different assumption smuggled
+ * into the rules layer, and one the bot could not state consistently (it froze
+ * enemies everywhere else). This one is stated once, in turn-oracle.ts, and
+ * everything downstream follows from it.
+ */
+describe("entering a HELD snake's head cell is a head-class contest, not a sever", () => {
+  // Strictly higher tier, so we win the contest instead of dying on the body.
   const cutter = (teamID: string) =>
     makePiece('B', teamID, { x: 2, y: 2 }, 'bishop', 3, {
       invulnerabilityLevel: 2,
       invulnerabilityExpiryTurn: 99,
     });
 
-  test('a LENGTH-4 owner loses 3 segments and lives — it is not a kill', () => {
-    // (4,4) is the owner's CURRENT head. By arrival it is post-move index 1,
-    // so the engine severs there and leaves the owner as a single segment.
+  test('a LENGTH-4 owner dies outright, for its whole weight', () => {
     const ally = makeSnake('ally', OURS, [
       CONTESTED, { x: 4, y: 3 }, { x: 4, y: 2 }, { x: 4, y: 1 },
     ]);
     const outcome = projectPath(makeState([cutter(OURS), ally], 'B'), BISHOP_RAY);
 
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(true);
-    expect(outcome.path).toEqual([{ x: 3, y: 3 }, CONTESTED]);
-    // Weight 4 becomes weight 1: three segments cut away, owner alive.
-    expect(outcome.casualties.allyCasualty).toBe(3);
+    expect(outcome.halted).toBe(true); // capture-stopped on the contested cell
+    expect(outcome.traversed).toEqual([{ x: 3, y: 3 }, CONTESTED]);
+    // The whole snake, not weight - 1: it never got to sweep its head forward.
+    expect(outcome.casualties.allyCasualty).toBe(4);
     expect(outcome.casualties.kills).toBe(0);
     expect(outcome.casualties.regicide).toBe(0);
   });
 
-  test('the same square on an ENEMY length-4 snake is NOT a kill either', () => {
+  test('the same square on an ENEMY length-4 snake is a kill, counted once', () => {
     const enemy = makeSnake('enemy', THEIRS, [
       CONTESTED, { x: 4, y: 3 }, { x: 4, y: 2 }, { x: 4, y: 1 },
     ]);
     const outcome = projectPath(makeState([cutter(OURS), enemy], 'B'), BISHOP_RAY);
 
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(true);
-    // The snake is shortened, not destroyed — claiming a kill here would have
-    // been an over-estimate of what the move achieves.
-    expect(outcome.casualties.kills).toBe(0);
+    expect(outcome.halted).toBe(true);
+    // `kills` counts UNITS destroyed, not weight — one snake is one kill.
+    expect(outcome.casualties.kills).toBe(1);
     expect(outcome.casualties.allyCasualty).toBe(0);
   });
 
-  test('a LENGTH-1 owner still dies outright — it leaves nothing behind to sever', () => {
+  test('a LENGTH-1 owner dies the same way — nothing special about it any more', () => {
     const enemy = makeSnake('enemy', THEIRS, [CONTESTED]);
     const outcome = projectPath(makeState([cutter(OURS), enemy], 'B'), BISHOP_RAY);
 
     expect(outcome.fatal).toBe(false);
-    expect(outcome.captureStopped).toBe(true);
+    expect(outcome.halted).toBe(true);
     expect(outcome.casualties.kills).toBe(1);
 
     // And on our own side it is charged as the full weight-1 loss it is.
@@ -290,19 +322,25 @@ describe("entering a multi-cell snake's head square SEVERS it — the owner surv
     expect(friendly.casualties.kills).toBe(0);
   });
 
-  test('a length-2 owner is the boundary: one segment cut, still alive', () => {
+  test('a length-2 owner costs its two cells', () => {
     const ally = makeSnake('ally', OURS, [CONTESTED, { x: 4, y: 3 }]);
     const outcome = projectPath(makeState([cutter(OURS), ally], 'B'), BISHOP_RAY);
-    expect(outcome.casualties.allyCasualty).toBe(1);
+    expect(outcome.casualties.allyCasualty).toBe(2);
     expect(outcome.casualties.kills).toBe(0);
   });
 
-  test('interior segments are unchanged: index i still costs everything from i back', () => {
+  // INTERIOR segments are the case that never depended on the assumption: a
+  // body cell is a body cell whether or not its owner moved, so this really is
+  // a sever, and it costs exactly what the engine reports it cut.
+  test('an INTERIOR segment is still a sever: index i costs everything from i back', () => {
     // (4,4) as index 1 of a 4-cell snake: segments 1..3 are cut away.
     const ally = makeSnake('ally', OURS, [
       { x: 4, y: 5 }, CONTESTED, { x: 4, y: 3 }, { x: 4, y: 2 },
     ]);
     const outcome = projectPath(makeState([cutter(OURS), ally], 'B'), BISHOP_RAY);
+    expect(outcome.fatal).toBe(false);
+    expect(outcome.halted).toBe(true);
+    // Cut, not killed: three cells lost and the owner walks away.
     expect(outcome.casualties.allyCasualty).toBe(3);
     expect(outcome.casualties.kills).toBe(0);
   });
@@ -322,7 +360,7 @@ describe('a meal wipes the hazard doses the traversal accrued', () => {
 
     const outcome = projectPath(gs, RAY);
     expect(outcome.fatal).toBe(false);
-    expect(outcome.eats).toBe(true);
+    expect(outcome.ate).toBe(true);
     // 100 → 60 through the two doses → the food phase ASSIGNS 100 again.
     expect(outcome.cost).toBe(0);
 
@@ -346,10 +384,11 @@ describe('a meal wipes the hazard doses the traversal accrued', () => {
 
     const outcome = projectPath(gs, RAY);
     expect(outcome.fatal).toBe(true);
-    expect(outcome.eats).toBe(false);
-    expect(outcome.path).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
-    // The cost still zeroes the health, and the third dose never accrues.
-    expect(outcome.cost).toBe(2 + 2 * 30);
+    expect(outcome.ate).toBe(false);
+    expect(outcome.traversed).toEqual([{ x: 2, y: 5 }, { x: 3, y: 5 }]);
+    // A fatal traversal costs exactly the health it had — the oracle reports
+    // what the engine took, not a hypothetical bill larger than the unit.
+    expect(outcome.cost).toBe(55);
     expect(gs.you.health - outcome.cost).toBeLessThanOrEqual(0);
   });
 
@@ -364,8 +403,8 @@ describe('a meal wipes the hazard doses the traversal accrued', () => {
     });
 
     const outcome = projectPath(gs, RAY);
-    expect(outcome.captureStopped).toBe(true);
-    expect(outcome.eats).toBe(false);
+    expect(outcome.halted).toBe(true);
+    expect(outcome.ate).toBe(false);
     expect(outcome.cost).toBe(2 + 20);
   });
 
@@ -383,8 +422,8 @@ describe('a meal wipes the hazard doses the traversal accrued', () => {
     });
 
     const outcome = projectPath(gs, RAY);
-    expect(outcome.captureStopped).toBe(true);
-    expect(outcome.eats).toBe(true);
+    expect(outcome.halted).toBe(true);
+    expect(outcome.ate).toBe(true);
     expect(outcome.cost).toBe(0);
     expect(outcome.casualties.kills).toBe(1);
   });

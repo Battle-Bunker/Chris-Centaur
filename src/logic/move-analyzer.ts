@@ -6,7 +6,7 @@
 
 import { GameState, Snake, Direction, Coord } from '../types/battlesnake';
 import { BoardGraph } from './board-graph';
-import { healthAfterEntering } from './simulator';
+import { healthAfterEntering } from './turn-oracle';
 import { UnitThreatMap, computeUnitThreatMap } from './piece-threats';
 
 export interface H2HRiskInfo {
@@ -98,7 +98,7 @@ export class MoveAnalyzer {
         // eaten, and dead iff that leaves health <= 0. Food on the cell does
         // NOT enter the fatality decision — the engine settles food at end of
         // turn, for survivors, so a meal cannot pay for a step that kills.
-        if (healthAfterEntering(snake, board, newPosition) <= 0) continue;
+        if (healthAfterEntering(board, gameState.turn, snake, newPosition) <= 0) continue;
         // Survivable damage — but the cell must still be otherwise passable.
         hazardBlindPassability ??= graph.passabilityIdxFor(snake.id, { ignoreHazards: true });
         if (!hazardBlindPassability.passableIdx(cellIdx, 1)) continue;

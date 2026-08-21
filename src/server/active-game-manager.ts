@@ -1,6 +1,12 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
 import { BoardGraph } from '../logic/board-graph';
-import { CasualtyContext, emptyCasualtyContext, healthAfterEntering, projectPath } from '../logic/simulator';
+import {
+  CasualtyContext,
+  emptyCasualtyContext,
+  evaluateCandidatePath,
+  healthAfterEntering,
+  marshalBoard,
+} from '../logic/turn-oracle';
 import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
@@ -52,8 +58,8 @@ interface PieceCandidateScore {
   stat: number;
   // Moves still to run from this candidate to the target (null = unreachable).
   dist: number | null;
-  // Projected health cost of this candidate's path (simulator.ts's
-  // projectPath — the SAME cost projection the snake health-loss
+  // Health this candidate's path costs, read off a turn the real engine
+  // resolved (turn-oracle.ts — the SAME oracle the snake health-loss
   // heuristic uses), folded additively into `score` at DEFAULT_CONFIG.healthLoss.
   healthCost: number;
   // The projection resolved this candidate as DEATH (projected health 0): the
@@ -1687,7 +1693,7 @@ export class ActiveGameManager {
       // hazard-blind wall/body fatality.
       const boardHazards = game.boardState.board.hazards ?? [];
       if (snake && boardHazards.some(h => h.x === dest.x && h.y === dest.y)) {
-        if (healthAfterEntering(snake, game.boardState.board, dest) <= 0) return true;
+        if (healthAfterEntering(game.boardState.board, game.boardState.turn, snake, dest) <= 0) return true;
         return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic', ignoreHazards: true })
           .passableIdx(graph.cellIndexOf(dest), 1);
       }
@@ -2101,8 +2107,8 @@ export class ActiveGameManager {
    * signal ordering them: the hop that ends nearest the target along a
    * shortest path scores the full weight, and nothing else competes for the
    * lead. Health cost only ever pulls a candidate DOWN — the same shared
-   * projection the snake health-loss heuristic uses (simulator.ts's
-   * projectedHealthCost, over the candidate's own traversed path), so a
+   * oracle the snake health-loss heuristic uses (turn-oracle.ts, resolving
+   * the candidate's own path through the vendored engine), so a
    * cheaper hop wins a tie and a hazard-crossing ray is decisively outweighed
    * by a same-progress detour around it, with no piece-specific hazard rule.
    * A ray the projection resolves as DEATH — it crosses a snake body segment
@@ -2173,22 +2179,30 @@ export class ActiveGameManager {
       }
     }
 
+    // One marshalling of the board into engine terms, reused by every
+    // candidate below. `action.path` is already full-board indices, which is
+    // what the engine wants, so a move's ray goes straight in.
+    const marshalled = marshalBoard(board, gs.turn);
+
     return legal.map(({ dest, action }, i) => {
       const stat = progress?.[i].stat ?? 0;
-      // Projected outcome of THIS candidate's own traversed path: a move's
-      // full ray/jump (converted from full-board indices to the api coords the
-      // projection reads food/hazards/bodies in), stay/rotate always free. The
-      // projection truncates the path at a death, an EXHAUSTION HALT (the ray
-      // costs more health than the piece has, so it stops where the health ran
-      // out — fatal unless that very square feeds it) or a capture-stop, so a
-      // ray that never reaches the staged destination is neither credited with
-      // the meal there nor charged for the squares beyond.
-      const projected = action.kind === 'move'
-        ? projectPath(gs, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
+      // THE REAL TURN, RESOLVED. This candidate's path goes into the vendored
+      // engine and the outcome is read off the result: `fatal` is our unit
+      // appearing in the death registry, `healthCost` is the health the engine
+      // left us short, and `casualties` is whoever it killed in a clash we
+      // took part in plus whatever it reports in `eliminatedTeamIDs`. Nothing
+      // here re-derives a rule — a truncated ray, an exhaustion halt that food
+      // rescues, a capture-stop, an edge exchange with an enemy that stepped
+      // into us: all of it is whatever the engine actually did.
+      //
+      // A stay/rotate enters nothing and so cannot hurt anybody; the engine
+      // agrees, but skipping the call keeps the common case free.
+      const outcome = action.kind === 'move'
+        ? evaluateCandidatePath(marshalled, snakeId, action.path)
         : null;
-      const healthCost = projected?.cost ?? 0;
-      const fatal = projected?.fatal ?? false;
-      const casualties = projected?.casualties ?? emptyCasualtyContext();
+      const healthCost = outcome?.cost ?? 0;
+      const fatal = outcome?.fatal ?? false;
+      const casualties = outcome?.casualties ?? emptyCasualtyContext();
       return {
         move: dest,
         action,

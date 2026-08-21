@@ -138,7 +138,7 @@ export const HEURISTICS = {
   // ── Health loss (drives NATURAL hazard avoidance — no hazard-specific
   // heuristic exists anywhere else). The stat is the shared projected health
   // COST of the candidate move (movementCost + hazardDamage × hazard squares
-  // entered — see simulator.ts's projectPath), so it is usually just
+  // entered — see turn-oracle.ts), so it is usually just
   // 1 (the ordinary per-move decay) and jumps by hazardDamage (default 100)
   // whenever the move enters a hazard square; eating cancels the movement
   // term. At the default weight, an ordinary move costs a negligible -5,
@@ -195,7 +195,7 @@ export const HEURISTICS = {
   // ── Life/death ───────────────────────────────────────────────────────────
   // The stat is now really computed: the number of ENEMY units the candidate
   // move destroys, read off the same contest the cost projection already
-  // resolves (simulator.ts's projectPath). The default stays 0 so enabling
+  // resolves (turn-oracle.ts). The default stays 0 so enabling
   // the reward is the owner's decision, not a silent behaviour change.
   kills: {
     default: 0,
