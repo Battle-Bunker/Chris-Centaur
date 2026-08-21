@@ -27,10 +27,14 @@
  *    adjacent option is its own body still "threatens" the square; we don't
  *    model enemy-suicide filtering here).
  *  - sliders (rook/bishop/queen): full rays from the current square, blocked
- *    by CURRENT occupancy — any unit body/stack stops the ray, but the
- *    blocker square itself IS reachable (contests happen there). Range is
- *    deliberately NOT capped by the piece's health: a piece can overspend
- *    health on a long move and still kill in-flight before it dies.
+ *    by occupancy AT ARRIVAL — any unit body/stack stops the ray, but the
+ *    blocker square itself IS reachable (contests happen there). A multi-cell
+ *    snake's LAST body index is excluded, because the engine pops every tail
+ *    before collisions resolve: the square is guaranteed empty on arrival and
+ *    the ray runs straight through it (a stacked tail's duplicate at the
+ *    second-to-last index still blocks). Range is deliberately NOT capped by
+ *    the piece's health: a piece can overspend health on a long move and still
+ *    kill in-flight before it dies.
  *  - knight: the 8 L-jumps; king: the 8 adjacent steps.
  *  - pawn: the faced square plus BOTH diagonal-forwards (from snake.orientation,
  *    wire convention — api cell of a wire delta d is {x + d.dx, y - d.dy}).
@@ -79,6 +83,27 @@ export function winsStationaryContest(
   if (theirTier < ourTier) return true;
   if (theirTier > ourTier) return false;
   return ourWeight > theirWeight;
+}
+
+/**
+ * The OTHER half of the same rule: do (ourTier, ourWeight) and
+ * (theirTier, theirWeight) TIE — neither survives the square?
+ *
+ * `winsStationaryContest` is false for two very different outcomes: a LOSS
+ * (they walk away, we die) and a TIE (nobody walks away). The engine's
+ * `contestSquare` (chessTurnSim.ts) kills everyone at the top tier when the
+ * heaviest weight there is not unique, so a tie is MUTUAL DESTRUCTION — the
+ * unit we tied with dies too, and that is a casualty the projection must
+ * record. Same ordering as the win rule: tier first, then weight, so a tie is
+ * exactly equal tier AND equal weight.
+ */
+export function tiesStationaryContest(
+  ourTier: number,
+  ourWeight: number,
+  theirTier: number,
+  theirWeight: number
+): boolean {
+  return ourTier === theirTier && ourWeight === theirWeight;
 }
 
 /**
@@ -207,8 +232,9 @@ export function snakeReachableIdx(snakeUnit: Snake, board: Board): number[] {
 
 /**
  * Every api-board square `piece` could reach with a single move next turn,
- * as cell indices (y * width + x). `occupied` marks CURRENT unit occupancy
- * (any body/stack cell) and blocks slider rays beyond the blocker square;
+ * as cell indices (y * width + x). `occupied` marks unit occupancy AS OF THE
+ * ARRIVAL TURN (any body/stack cell that has NOT vacated — see
+ * computeUnitThreatMap's tail rule) and blocks slider rays beyond the blocker;
  * knight/king/pawn destinations ignore occupancy entirely (contests happen
  * on arrival). Exported for direct geometry tests.
  */
@@ -286,16 +312,38 @@ export function computeUnitThreatMap(
   const H = board.height;
   const cells = W * H;
 
-  // Current occupancy (every living unit's body/stack cells, heads included)
-  // is only consulted by slider rays — built lazily so snake-only boards
-  // never pay for it.
+  // Occupancy AT ARRIVAL (every living unit's body/stack cells, heads
+  // included, MINUS the squares guaranteed to be empty by then) is only
+  // consulted by slider rays — built lazily so snake-only boards never pay
+  // for it.
+  //
+  // The one square of the simultaneous body shift we can see from a pre-move
+  // board is the TAIL: the engine pops every multi-cell snake's last segment
+  // before any collision is resolved, eating or not (chessTurnSim.ts advance
+  // step 1), so it has always vacated by the time an enemy ray gets there.
+  // Blocking a ray on it would TRUNCATE the threat map and leave the squares
+  // beyond it unmarked — an under-estimate of enemy reach, the one direction
+  // a safety map must never err in. So the last body index of every multi-cell
+  // snake is excluded, exactly the rule the cost projection already applies
+  // (simulator.ts resolveTraversedSquare).
+  //
+  // A STACKED tail (the snake ate last turn, so the tail cell appears twice)
+  // does NOT vacate: the duplicate at the second-to-last index is still there
+  // after the pop and still blocks. Skipping only the LAST INDEX — rather than
+  // clearing the tail SQUARE — is exact for that case, because the duplicate
+  // marks the same cell on its own pass.
   let occupied: Uint8Array | null = null;
   const getOccupied = (): Uint8Array => {
     if (occupied) return occupied;
     occupied = new Uint8Array(cells);
     for (const s of board.snakes) {
       if (s.health <= 0) continue;
-      for (const seg of s.body) {
+      // A piece is a 1-cell weight stack that never pops anything; only a
+      // multi-cell SNAKE has a tail to vacate.
+      const vacating = !isPieceUnit(s) && s.body.length > 1 ? s.body.length - 1 : -1;
+      for (let i = 0; i < s.body.length; i++) {
+        if (i === vacating) continue;
+        const seg = s.body[i];
         if (seg.x >= 0 && seg.x < W && seg.y >= 0 && seg.y < H) {
           occupied[seg.y * W + seg.x] = 1;
         }

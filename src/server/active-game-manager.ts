@@ -61,7 +61,9 @@ interface PieceCandidateScore {
   // above its tier (ally bodies included; the engine never teams), a piece
   // contest it loses or ties, a wall, or hazard doses that exhaust it.
   // Charged as DEFAULT_CONFIG.deaths in `score`, exactly like a snake's
-  // `deaths` stat, AND vetoed outright in bestPieceCandidate.
+  // `deaths` stat, AND vetoed outright in bestPieceCandidate — except when the
+  // same traversal ends an enemy team (see `casualties.enemyRegicide`), which
+  // is a winning trade rather than a suicide.
   fatal: boolean;
   // What this candidate DOES to the units it passes through, from the same
   // projection (contests have no friendly exemption, so our own ray kills our
@@ -2048,10 +2050,20 @@ export class ActiveGameManager {
     // FIRST and only ignored if literally every candidate commits it. (Staying
     // put is always enumerated and never kills anyone, so in practice there is
     // always something left.)
+    //
+    // The ONE exemption from the fatal veto is a candidate that ENDS AN ENEMY
+    // TEAM: a traversal that takes their last king wins us the engine's
+    // regicide (every unit that team owns is removed that turn) even when the
+    // contest is a TIE that kills our unit too. Trading one piece for a whole
+    // enemy side is a winning move, not a suicide, so it stays in the pool and
+    // is ranked by `score` — where enemyRegicide (+2000) beats the deaths
+    // (-500) and health-loss (-500 at full health) charges it carries. Our own
+    // regicide filter runs FIRST and is not exempted, so this can never trade
+    // our last king for theirs.
     const all = this.computePieceCandidates(gameId, snakeId);
     const survivingTeam = all.filter(c => c.casualties.regicide === 0);
     const alive = survivingTeam.length > 0 ? survivingTeam : all;
-    const survivable = alive.filter(c => !c.fatal);
+    const survivable = alive.filter(c => !c.fatal || c.casualties.enemyRegicide === 1);
     const pool = survivable.length > 0 ? survivable : alive;
     let best: PieceCandidateScore | null = null;
     for (const candidate of pool) {
@@ -2096,7 +2108,11 @@ export class ActiveGameManager {
    * loses a piece contest, or exhausts its health — reports a cost that zeroes
    * the piece's health AND sets `fatal`, which charges DEFAULT_CONFIG.deaths
    * on top, the same way a snake's death enters its score. bestPieceCandidate
-   * then vetoes it outright.
+   * then vetoes it outright — unless the same traversal ends an enemy team,
+   * because a TIED contest kills the unit we tied with too: a mutual
+   * destruction still records its victim (kills / allyCasualty / regicide),
+   * so a fatal-but-winning king trade carries the enemyRegicide reward and is
+   * scored rather than discarded.
    *
    * The stat comes from the shared waypoint pathfinder walking the graph's
    * per-unit adjacency, so a knight is ordered by knight moves and a rook by

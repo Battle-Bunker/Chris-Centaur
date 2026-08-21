@@ -154,10 +154,18 @@ describe('hazard damage (no longer instant death)', () => {
       expect(gs.you.health - cost).toBe(healthAfterEntering(gs.you, gs.board, { x: 6, y: 5 }));
     });
 
-    test('eating on a hazard square still charges the hazard damage (only movement is cancelled)', () => {
+    // INVERTED (was: "eating on a hazard square still charges the hazard
+    // damage"). The engine deals hazard doses inside the movement/sub-step
+    // phase and settles food afterwards, and the food phase ASSIGNS the type
+    // max (TeamSnekProcessor.processFoodAndHealth: `newPlayerHealth[id] =
+    // maxHealthFor(type)`) rather than adding to the running health. So a meal
+    // wipes every hazard dose the traversal accrued, at the destination and
+    // mid-flight alike — the cost of a survived hazard crossing that ends on
+    // food is zero, not the doses.
+    test('eating wipes the hazard damage too — the food phase SETS health to the type max', () => {
       const gs = hazardScenario(50, 30);
       gs.board.food = [{ x: 6, y: 5 }]; // food sits ON the hazard cell
-      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(30); // 0 movement + 30 hazard
+      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(0);
     });
 
     test('a stay/rotate action (empty path) costs nothing', () => {

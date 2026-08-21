@@ -103,6 +103,62 @@ describe('piece threat map geometry', () => {
     expect(map.enemyThreat[idx(5, 5)]).toBe(0);
   });
 
+  test('a ray runs THROUGH a vacating tail — the squares beyond it are threatened', () => {
+    // The engine pops every multi-cell snake's last segment before any
+    // collision is resolved (chessTurnSim.ts advance step 1), so a tail cell
+    // is guaranteed EMPTY by the time an enemy ray reaches it. Blocking on it
+    // truncated the map and left the squares beyond a tail unmarked — an
+    // UNDER-estimate of enemy reach, the one direction a safety map must never
+    // err in. Mirrors the tail rule the cost projection already applies.
+    const us = farUs();
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10);
+    // A 3-cell snake whose TAIL sits on (5,8), squarely on the queen's column.
+    const blocker = makeSnake('b', [{ x: 3, y: 8 }, { x: 4, y: 8 }, { x: 5, y: 8 }]);
+    const gs = makeGameState([us, queen, blocker], 'us');
+    const map = computePieceThreatMap(us, gs.board, TURN)!;
+
+    // Up to the tail square...
+    expect(map.enemyThreat[idx(5, 6)]).toBe(1);
+    expect(map.enemyThreat[idx(5, 7)]).toBe(1);
+    expect(map.enemyThreat[idx(5, 8)]).toBe(1);
+    // ...and straight on past it, to the board edge.
+    expect(map.enemyThreat[idx(5, 9)]).toBe(1);
+    expect(map.enemyThreat[idx(5, 10)]).toBe(1);
+  });
+
+  test('a STACKED tail still blocks — the duplicate at the second-to-last index does not vacate', () => {
+    // Ate last turn, so the tail cell appears twice: only ONE copy pops, and
+    // the other still occupies (5,8). Skipping the last INDEX (rather than
+    // clearing the tail SQUARE) is what keeps this exact.
+    const us = farUs();
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10);
+    const blocker = makeSnake('b', [
+      { x: 3, y: 8 }, { x: 4, y: 8 }, { x: 5, y: 8 }, { x: 5, y: 8 },
+    ]);
+    const gs = makeGameState([us, queen, blocker], 'us');
+    const map = computePieceThreatMap(us, gs.board, TURN)!;
+
+    // The blocker square itself is still reachable (a contest happens there)...
+    expect(map.enemyThreat[idx(5, 8)]).toBe(1);
+    // ...but the ray stops there, exactly as it does on any interior segment.
+    expect(map.enemyThreat[idx(5, 9)]).toBe(0);
+    expect(map.enemyThreat[idx(5, 10)]).toBe(0);
+  });
+
+  test("a LENGTH-1 snake blocks: it has no tail to pop, and a PIECE's stack never vacates", () => {
+    const us = farUs();
+    const queen = makePiece('q', { x: 5, y: 5 }, 'queen', 10);
+    // A single-cell snake and a 1-cell piece stack, on two different rays.
+    const dot = makeSnake('dot', [{ x: 5, y: 8 }]);
+    const pawn = makePiece('p', { x: 8, y: 5 }, 'pawn', 1);
+    const gs = makeGameState([us, queen, dot, pawn], 'us');
+    const map = computePieceThreatMap(us, gs.board, TURN)!;
+
+    expect(map.enemyThreat[idx(5, 8)]).toBeGreaterThanOrEqual(1);
+    expect(map.enemyThreat[idx(5, 9)]).toBe(0);
+    expect(map.enemyThreat[idx(9, 5)]).toBe(0);
+  });
+
   test('knight L-jumps (board-bounded)', () => {
     const us = farUs();
     const knight = makePiece('n', { x: 5, y: 5 }, 'knight', 10);

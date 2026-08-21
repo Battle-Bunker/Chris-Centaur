@@ -94,9 +94,14 @@ export interface TTTurn {
   // this is what tells us how long the current level will hold.
   activeEffects?: TTActiveEffect[];
   // Collisions the server resolved while producing THIS turn's board (mirrors
-  // shared/types/Game.ts Turn.clashes). One record per body cell of each unit
-  // that died, so a multi-cell snake contributes several records sharing one
-  // reason. Absent on turns where nothing collided.
+  // shared/types/Game.ts Turn.clashes). One record per DISTINCT CELL MARKED,
+  // which is not the same as "cells of the dead": a kill marks every cell of
+  // the unit that died (so a multi-cell snake contributes several records
+  // sharing one reason), but a SEVER marks the cells that were cut off a snake
+  // which SURVIVES — its record names a survivor, not a casualty. Who actually
+  // died is read off the resulting board, never off these records (see
+  // TTClash.playerIDs, which lists participants including survivors). Absent on
+  // turns where nothing collided.
   clashes?: TTClash[];
   // NOTE: the wire also carries a per-team `teamScores` map. It is
   // deliberately NOT typed here, because nothing reads it: the scoreboard

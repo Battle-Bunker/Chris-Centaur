@@ -1,5 +1,5 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
-import { isKingUnit, isPieceUnit, winsStationaryContest } from './piece-threats';
+import { isKingUnit, isPieceUnit, tiesStationaryContest, winsStationaryContest } from './piece-threats';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
 import { TeamDetector } from './team-detector';
 
@@ -45,10 +45,15 @@ export function tierAtArrival(unit: Snake, currentTurn: number): number {
 }
 
 /**
- * How a projected traversal ends. `path` is the squares the mover ACTUALLY
- * enters (the engine's Turn.paths semantics: a truncated slider's list ends
- * on the square it stopped or died on, never its staged destination), so a
- * caller must never assume the staged destination was reached.
+ * How a projected traversal ends. `path` is the squares this PROJECTION has
+ * the mover enter, truncated at the death or capture-stop it resolved — so a
+ * caller must never assume the staged destination was reached. It is close to
+ * the engine's Turn.paths but deliberately NOT claimed to equal it: the engine
+ * adjudicates an in-flight edge swap before either unit is charged for its
+ * destination, so a swap LOSER never crosses the edge and its real path ends
+ * one square EARLIER than the square appended here. Nothing reads `path`
+ * today; treat it as a debugging trace of the projection, not as the wire
+ * record.
  */
 export interface ProjectedPath {
   /** Squares actually entered, truncated at a death or a capture-stop. */
@@ -151,10 +156,16 @@ export function emptyCasualtyContext(): CasualtyContext {
  *    kills exactly like an enemy's. Equal-or-lower tier than the owner ⇒
  *    death on that square; strictly higher ⇒ the mover severs the body and
  *    CAPTURE-STOPS there (a piece's move ends early — it never reaches the
- *    staged destination).
+ *    staged destination). A MULTI-CELL snake's index-0 (pre-move head) square
+ *    is a sever too, not a kill: by the time the mover arrives that square
+ *    holds post-move index 1, so the cut leaves the owner alive as a single
+ *    segment, minus length - 1. Only a LENGTH-1 owner — which leaves nothing
+ *    behind — dies there outright.
  *  - A STATIONARY PIECE's square is the same tier-then-weight contest
- *    (`winsStationaryContest`, the one shared encoding): losing or tying is
- *    death, winning kills the piece and capture-stops the mover.
+ *    (`winsStationaryContest`, the one shared encoding): winning kills the
+ *    piece and capture-stops the mover, LOSING is death, and TYING is mutual
+ *    destruction — the mover dies AND takes the piece with it, which is a
+ *    trade the casualty ledger records rather than a bare suicide.
  *  - The mover's OWN body is a wall with no tier exemption (a snake cannot
  *    sever itself).
  *
@@ -167,11 +178,14 @@ export function emptyCasualtyContext(): CasualtyContext {
  * into that whole team's elimination.
  *
  * Movement costs 1 per square ACTUALLY entered — UNLESS the mover reaches the
- * staged destination alive and it holds food, which restores health to the
- * type max and so cancels the movement cost entirely (mirrors
+ * staged destination alive and it holds food, which SETS health to the type
+ * max and so cancels the whole bill: the movement cost the engine never
+ * charged AND the mid-flight hazard doses it already deducted (the food phase
+ * assigns the max rather than adding to the running health — mirrors
  * healthAfterEntering). A death or a capture-stop credits NO meal: the engine
  * removes a dead mover before the food phase, and a truncated slider never
- * gets to the far end.
+ * gets to the far end — so a mover that hazard doses kill mid-flight is fatal
+ * even when its staged destination holds food it will never reach.
  *
  * SIMULTANEITY — what this projection deliberately cannot see. The engine
  * resolves every snake's whole move in sub-step 1, so a slider contests each
@@ -186,6 +200,18 @@ export function emptyCasualtyContext(): CasualtyContext {
  * the same direction: we may call a traversal fatal that the real
  * simultaneous resolution would have let through, and we never bank on a body
  * clearing out of our way.
+ *
+ * Other units' PIECES are modelled as FROZEN on the squares they occupy now:
+ * the projection never gives them a move, so a piece that is in flight during
+ * the same turn is invisible to it. Two consequences follow. An in-flight EDGE
+ * SWAP — the enemy piece stepping onto our origin as we step onto its square —
+ * is never seen as a swap, and neither is the meal a unit takes on a square we
+ * are contesting. Both are verdict-equivalent for us: the engine adjudicates a
+ * swapped edge with the SAME tier-then-weight rule as a shared square
+ * (`contestSquare`, called from the edge-swap pass), so who lives and who dies
+ * is what this projection already computes — only the square a loser dies on
+ * differs (its own start square rather than the contested one), which is the
+ * `path` caveat above and nothing scoring reads.
  *
  * Call with a board whose food/hazards have not yet been spliced for this
  * move.
@@ -239,6 +265,11 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
     // 3. Occupancy: bodies and stationary pieces.
     const outcome = resolveTraversedSquare(board, mover, moverTier, state.turn, sq);
     if (outcome.verdict === 'death') {
+      // A death can still be a TRADE: a tied stationary contest kills the unit
+      // we tied with as well as us, so its victim is recorded exactly like a
+      // won contest's. Without this the mutual-destruction case folds to zero
+      // casualties and scores as pure suicide.
+      if (outcome.victim) victims.push(outcome.victim);
       died = true;
       break;
     }
@@ -259,8 +290,13 @@ export function projectPath(state: GameState, path: Coord[]): ProjectedPath {
   const dest = entered[entered.length - 1];
   const eats =
     reachedDestination && (board.food ?? []).some(f => f.x === dest.x && f.y === dest.y);
-  const movementCost = eats ? 0 : entered.length;
-  let cost = movementCost + hazardAccrued;
+  // Reaching food alive wipes the WHOLE bill, not just the movement term: the
+  // engine's food phase SETS health to the unit's type max
+  // (TeamSnekProcessor.processFoodAndHealth), which restores the mid-flight
+  // hazard doses the sub-step sim already deducted along with the movement
+  // cost it never charged. Verified: 100 health through two 20-damage hazards
+  // onto food lands at 100, not 60.
+  let cost = eats ? 0 : entered.length + hazardAccrued;
   // Fatality is one condition: the projected health lands at or below zero,
   // whether from a wall/body/contest death mid-path or from the cost simply
   // outrunning the mover's health. Either way the projection reports a cost
@@ -353,16 +389,26 @@ function foldCasualties(
  * (the mover strictly out-tiers the owner — a piece capture-stops here) or
  * 'death'. Bodies are compared with NO team check, exactly like the engine.
  *
- * A 'sever' verdict names its VICTIM, because winning the square and killing
- * whoever held it are the same event: a piece contest we win removes that
- * piece and all its weight, and a body segment we out-tier is cut there, so
- * the owner survives minus everything behind the cut. That is the one place
- * an ally casualty can be learned, and it is learned from the contest itself
- * rather than a second, forkable copy of the rule.
+ * A verdict names its VICTIM whenever winning-or-tying the square destroys
+ * whoever held it — the two are the same event:
+ *  - 'sever': a piece contest we WIN removes that piece and all its weight,
+ *    and a body segment we out-tier is cut there, so the owner survives minus
+ *    everything behind the cut.
+ *  - 'death' WITH a victim: a stationary-piece contest we TIE. The engine's
+ *    `contestSquare` kills every unit at the top tier when the heaviest weight
+ *    there is not unique, so a tie is mutual destruction — we die AND so does
+ *    the piece. Losing outright is 'death' with no victim (the bare DEATH
+ *    constant), which is the whole reason the two are distinguished here.
+ * That is the one place an ally casualty can be learned, and it is learned
+ * from the contest itself rather than a second, forkable copy of the rule.
  */
 interface SquareOutcome {
   verdict: 'continue' | 'sever' | 'death';
-  /** Present only on 'sever': whoever we destroyed or cut, and by how much. */
+  /**
+   * Whoever we destroyed or cut, and by how much. Present on 'sever', and on
+   * the MUTUAL-DESTRUCTION flavour of 'death' (a tied contest), never on a
+   * plain loss.
+   */
   victim?: ProjectedCasualty;
 }
 
@@ -393,9 +439,20 @@ function resolveTraversedSquare(
       if (!seat || seat.x !== sq.x || seat.y !== sq.y) continue;
       // A piece is its whole weight in one square: winning the contest kills
       // it outright and the board loses every point of that weight.
-      return winsStationaryContest(moverTier, mover.length, tierAtArrival(owner, currentTurn), owner.length)
-        ? { verdict: 'sever', victim: casualty(owner, owner.length, true) }
-        : DEATH;
+      const ownerTier = tierAtArrival(owner, currentTurn);
+      if (winsStationaryContest(moverTier, mover.length, ownerTier, owner.length)) {
+        return { verdict: 'sever', victim: casualty(owner, owner.length, true) };
+      }
+      // A TIE is not a loss: the engine's contestSquare kills everyone at the
+      // top tier when no unique heaviest is there, so equal tier and equal
+      // weight is MUTUAL destruction. We still die (the verdict is fatal), but
+      // the piece dies with us — a trade, not a suicide, and the casualty is
+      // what makes the difference visible to scoring (a tied capture of an
+      // enemy's last king still ends their team).
+      if (tiesStationaryContest(moverTier, mover.length, ownerTier, owner.length)) {
+        return { verdict: 'death', victim: casualty(owner, owner.length, true) };
+      }
+      return DEATH;
     }
 
     for (let i = 0; i < owner.body.length; i++) {
@@ -407,9 +464,28 @@ function resolveTraversedSquare(
       // Our own body is a wall with no tier exemption — nothing severs itself.
       if (isSelf) return DEATH;
       if (moverTier <= tierAtArrival(owner, currentTurn)) return DEATH;
-      // Severed at segment i: everything from i backwards is cut away. At i=0
-      // that is the whole snake — the engine adjudicates a head square as a
-      // head-class contest, which a strictly higher tier wins outright.
+      // Severed at segment i: everything from i backwards is cut away, and the
+      // owner survives shortened.
+      //
+      // i = 0 is the owner's PRE-move head, and that is where the projection's
+      // frozen-snake view and the engine part company. The engine resolves
+      // every snake's whole move in sub-step 1, so by the time a slider arrives
+      // this square is no longer a head at all: it is post-move index 1, the
+      // segment the snake swept in behind itself. `owner.body.indexOf(square,
+      // 1)` finds it there and `splice(1)` cuts everything from it back — the
+      // owner walks away ALIVE as a single segment, whatever its length was.
+      // So a multi-cell snake's head square is a sever that costs it
+      // length - 1, not a kill.
+      //
+      // A LENGTH-1 owner is the exception: its only segment pops before its
+      // head lands, so it leaves nothing behind and its square really is a
+      // head-class contest, which a strictly higher tier wins outright — a
+      // kill for its whole weight of 1. (The engine now applies the same
+      // tier-then-weight rule to length-1 snakes in edge swaps, so this
+      // stationary model stays verdict-accurate.)
+      if (i === 0 && owner.body.length > 1) {
+        return { verdict: 'sever', victim: casualty(owner, owner.body.length - 1, false) };
+      }
       const lost = owner.body.length - i;
       return { verdict: 'sever', victim: casualty(owner, lost, i === 0) };
     }
