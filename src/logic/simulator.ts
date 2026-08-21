@@ -1,8 +1,7 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { isPieceUnit } from './piece-threats';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
-import { marshalBoard } from './turn-oracle';
-import { resolveTurn } from '../engine-vendor/engine/resolveTurn';
+import { StagedAction, marshalBoard, resolvePartialTurn } from './turn-oracle';
 
 // MoveSet type definition (previously from move-enumerator)
 export type MoveSet = Map<string, Direction>;
@@ -42,14 +41,17 @@ export class Simulator {
   /**
    * Simulate the next board state given a set of moves for all snakes.
    *
-   * Units ABSENT from `moveSet` are FROZEN — given an empty path, which the
-   * engine resolves as a unit that holds. That is the lookahead's own
-   * long-standing contract and the thing that bounds its branching factor:
-   * the move set names every unit being modelled, and the rest of the board
-   * stands still rather than multiplying the tree.
+   * `moveSet` names every unit being modelled; the rest of the board is
+   * FROZEN — one turn behind in time, a collision incumbent and nothing else.
+   * That is what bounds the lookahead's branching factor, and it is the same
+   * PARTIAL-TIME-ADVANCE CONTRACT turn-oracle.ts applies to turn N+0 scoring.
+   * `resolvePartialTurn` is the single implementation of it; read the contract
+   * there before changing anything here.
    *
-   * Same assumption turn-oracle.ts makes for turn N+0 scoring, for the same
-   * reason: a unit stands where we can see it standing.
+   * (The territory BFS compensates for the half-turn skew on its own side:
+   * board-evaluator gives every SIMULATED snake `startDelay: 1`, because it
+   * has spent its move, while a frozen snake floods from distance 0 with its
+   * move still in hand.)
    *
    * `teamSnakeIds` keeps one deliberate BOT heuristic, and it is not a rule:
    * we never let our own snake profit from a teammate's death in a collision
@@ -66,15 +68,15 @@ export class Simulator {
     const marshalled = marshalBoard(board, gameState.turn);
     const byId = new Map((board.snakes ?? []).map(s => [s.id, s]));
 
-    const units = marshalled.units.map(unit => {
+    const staged = new Map<string, StagedAction>();
+    for (const unit of marshalled.units) {
       const move = moveSet.get(unit.id);
-      if (move === undefined) return { ...unit, path: [] };
+      if (move === undefined) continue; // frozen: see resolvePartialTurn
       const snake = byId.get(unit.id) as Snake;
-      const dest = Simulator.destinationOf(snake.head, move);
-      return { ...unit, stagedMove: marshalled.toIndex(dest) };
-    });
+      staged.set(unit.id, { stagedMove: marshalled.toIndex(Simulator.destinationOf(snake.head, move)) });
+    }
 
-    const result = resolveTurn({ ...marshalled.config, units });
+    const result = resolvePartialTurn(marshalled, staged);
 
     const deadSnakeIds = new Set<string>(Object.keys(result.deaths));
     // Anything that was already off the board (health <= 0, empty body) never

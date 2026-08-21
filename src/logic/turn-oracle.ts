@@ -301,36 +301,108 @@ function enemyIntents(
 }
 
 /**
- * Resolve one turn: our unit walking `path`, everyone else per `intent`.
+ * ── THE PARTIAL-TIME-ADVANCE CONTRACT ──────────────────────────────────────
  *
- * A unit with no assumed intent is given an EMPTY PATH, which the engine
- * resolves as a unit that holds. Every other unit on the board stands exactly
- * where we can see it standing, which is the one thing about them we actually
- * know. That is the bot's long-standing frozen-enemy model, and the engine's
- * frozen-state rule makes it a sound reading of a static board.
+ * The bot never simulates the whole board. It advances the units it is
+ * modelling — ours, plus whichever enemies a caller has an intent for — and
+ * leaves every other unit exactly as it found it. Those units are FROZEN, and
+ * frozen means ONE TURN BEHIND IN TIME, not "chose to stand still":
  *
- * One consequence is worth stating, because it is the price of the assumption
- * and it is paid in the cautious direction: a held snake does not pop a tail,
- * so an enemy's TAIL CELL reads as occupied here. The old hand-written
- * projection let a ray through a tail, on the grounds that the pop is
- * unconditional — true of a snake that moves, and a snake always does. We give
- * that up rather than invent a direction for every enemy on the board: a
- * guessed heading changes which of its segments we meet, and therefore how
- * much of it we cut, which is a fiction with numbers attached. Erring toward
- * "that cell is occupied" costs us reach; erring the other way costs units.
+ *   A frozen unit is a COLLISION INCUMBENT AND NOTHING ELSE. It blocks. It
+ *   contests, at its frozen tier and weight. A simulated mover can kill it,
+ *   sever it, or lose to it, and every one of those outcomes is real and is
+ *   kept. But it pays no hazard dose and no movement cost, eats nothing (food
+ *   under it survives for whoever arrives later), never exhausts, never dies
+ *   of the passage of time, and never triggers regicide except through a
+ *   genuine interaction with something we did simulate.
+ *
+ * This is deliberate, and it is what the bot has always done: before the
+ * engine was vendored, frozen units were simply left out of the hand-written
+ * collision pass, so they had no side effects to speak of. Giving them a
+ * default move instead would be worse than useless — it would bias every
+ * evaluation toward one arbitrary world out of four.
+ *
+ * The vendored engine, correctly, knows nothing about any of this: an
+ * empty-path unit is a unit that HELD, and holding is a real action with real
+ * consequences. It doses a stationary unit standing on a hazard (kind-blind:
+ * snakes and pieces alike), lets it eat and grow at its cell, kills it if the
+ * dose exhausts it, and cascades regicide from that death. All correct for a
+ * unit that actually held; all wrong for a unit that simply has not moved yet.
+ *
+ * So the bot reconciles, on its own side of the boundary — src/engine-vendor/
+ * stays byte-identical to upstream, and the sync spec enforces that:
+ *
+ *  1. BEFORE resolving, a frozen unit is given a health the turn cannot spend
+ *     (`FROZEN_HEALTH`). Health is not an input to ANY adjudication the engine
+ *     performs — contests read tier and frozen weight, never health — so this
+ *     cannot change a single collision outcome. What it does change is the
+ *     health phase, which is exactly the half we are neutralising: the unit
+ *     can no longer exhaust, so it cannot die of time, so it cannot cascade a
+ *     regicide it had no part in.
+ *  2. AFTER resolving, a frozen SURVIVOR gets its real health back, and any
+ *     meal it took at its own cell is undone — the growth popped off and the
+ *     food returned to the board. Eating happens in the end-of-turn phase,
+ *     after every collision, so undoing it afterwards is exact.
+ *
+ * A frozen unit that DIED is left alone: with exhaustion off the table, the
+ * only way it can be in the death registry is a mover's interaction, and those
+ * deaths are the whole point of running the engine.
+ *
+ * KEEP THIS LAYER SMALL AND LEGIBLE. Fuller partial-board simulation is
+ * planned for a future stack migration, at which point this reconciliation
+ * should be deleted rather than extended.
  */
-function resolveWith(
+
+/**
+ * The health a frozen unit is lent for the duration of one resolution. Big
+ * enough that no single turn's charges can spend it — a frozen unit takes at
+ * most one hazard dose, since it enters nothing — and restored immediately
+ * afterwards. Never observed by a caller.
+ */
+const FROZEN_HEALTH = Number.MAX_SAFE_INTEGER;
+
+/** What one unit is doing this turn, for the units we are actually modelling. */
+export type StagedAction = { path: number[] } | { stagedMove: number };
+
+/**
+ * Resolve a turn in which only `staged` units take one. Everyone else is
+ * frozen under the contract above.
+ *
+ * This is the ONLY way the bot calls `resolveTurn`, so the contract cannot be
+ * bypassed by adding a call site.
+ */
+export function resolvePartialTurn(
   marshalled: MarshalledBoard,
-  ourID: string,
-  path: number[],
-  intent: EnemyIntent
+  staged: Map<string, StagedAction>
 ): TurnResolution {
+  const frozen = marshalled.units.filter((u) => !staged.has(u.id));
   const units: ResolveUnit[] = marshalled.units.map((unit) => {
-    if (unit.id === ourID) return { ...unit, path };
-    const staged = intent.get(unit.id);
-    return staged === undefined ? { ...unit, path: [] } : { ...unit, stagedMove: staged };
+    const action = staged.get(unit.id);
+    if (action) return { ...unit, ...action };
+    return { ...unit, path: [], health: FROZEN_HEALTH };
   });
-  return resolveTurn({ ...marshalled.config, units });
+
+  const result = resolveTurn({ ...marshalled.config, units });
+
+  // Give back what the turn should never have taken. `result` is freshly
+  // built by every resolveTurn call and nobody else holds a reference to it,
+  // so repairing it in place is the cheapest honest thing to do.
+  const inputFood = new Set(marshalled.config.food);
+  for (const unit of frozen) {
+    const settled = result.board[unit.id];
+    if (!settled) continue; // died to a real interaction — that death stands
+    settled.health = marshalled.startHealth.get(unit.id) as number;
+
+    // A meal it should never have reached: the food phase grew it by one cell
+    // and took the food off the board. Both are undone, so the meal is still
+    // there for whoever actually arrives.
+    const cell = settled.occupancy[0];
+    if (inputFood.has(cell) && !result.food.includes(cell)) {
+      settled.occupancy.pop();
+      result.food.push(cell);
+    }
+  }
+  return result;
 }
 
 /**
@@ -455,9 +527,11 @@ export function evaluateCandidatePath(
 
   const origin = ourUnit.occupancy[0];
   const intents = enemyIntents(marshalled, ourID, origin, path.length > 0 ? path[0] : null);
-  const outcomes = intents.map((intent) =>
-    readOutcome(marshalled, ourID, path, resolveWith(marshalled, ourID, path, intent))
-  );
+  const outcomes = intents.map((intent) => {
+    const staged = new Map<string, StagedAction>([[ourID, { path }]]);
+    intent.forEach((cell, id) => staged.set(id, { stagedMove: cell }));
+    return readOutcome(marshalled, ourID, path, resolvePartialTurn(marshalled, staged));
+  });
   return aggregate(outcomes);
 }
 
@@ -496,10 +570,7 @@ export function healthAfterEntering(board: Board, currentTurn: number, unit: Sna
   const solo: Board = { ...board, snakes: [unit] };
   const marshalled = marshalBoard(solo, currentTurn);
   const path = [marshalled.toIndex(cell)];
-  const result = resolveTurn({
-    ...marshalled.config,
-    units: marshalled.units.map((u) => ({ ...u, path })),
-  });
+  const result = resolvePartialTurn(marshalled, new Map([[unit.id, { path }]]));
   // Dead means the engine took it to zero or below; report the shortfall the
   // registry implies rather than inventing a number.
   return result.board[unit.id]?.health ?? 0;
