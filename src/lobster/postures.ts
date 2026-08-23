@@ -209,19 +209,49 @@ export function postureAssumption(posture: Posture): Assumption {
   return { kind: "posture", posture }
 }
 
+/** Consecutive measurements a new classification must survive before the
+ * governor acts on it. See `PostureGovernor`. */
+export const DEFAULT_POSTURE_DWELL = 2
+
 /**
  * Holds the current posture and logs every transition as a named assumption.
  *
- * No hysteresis and no dwell time: a flip is a measurement, and delaying it
- * would trade detection latency (the thing the governor's own risk register
- * says to measure) for log tidiness.
+ * DWELL, AND WHY IT IS NOT BUDGET-KEYING. A flip replaces the ratchet's basis
+ * and resets its floor to −∞, so posture chatter is not a log-tidiness
+ * question: it is the ratchet being reset. `measure()` recomputes the
+ * conditions from the CURRENT incumbent's ledger on every slice, and an
+ * incumbent that alternates between two plans with and without a residual hold
+ * alternates the classification with it — several times inside one wire write
+ * interval.
+ *
+ * So a classification has to HOLD for `dwell` consecutive measurements before
+ * the governor acts on it. It is counted in MEASUREMENTS, never in
+ * milliseconds: `PostureConditions` still carries no clock, no budget and no
+ * work counter, `classifyPosture` is still a pure function of it, and there is
+ * still no code path by which a millisecond can change a posture. What the
+ * dwell adds is the requirement that the board say the same thing twice.
+ *
+ * `dwell = 1` restores the old flip-on-first-sight behaviour for a harness
+ * that wants to drive classifications directly.
  */
 export class PostureGovernor {
   private posture: Posture
   private readonly log: PostureFlip[] = []
+  /** The classification waiting out its dwell, and how long it has held. */
+  private pending: Posture | null = null
+  private held = 0
 
-  constructor(initial: Posture = "SIGHTED") {
+  constructor(
+    initial: Posture = "SIGHTED",
+    private readonly dwell: number = DEFAULT_POSTURE_DWELL,
+  ) {
     this.posture = initial
+  }
+
+  /** How many consecutive measurements the CURRENT dissenting classification
+   * has held. Zero when the board agrees with the standing posture. */
+  get pendingHeld(): number {
+    return this.pending === null ? 0 : this.held
   }
 
   get current(): Posture {
@@ -236,10 +266,23 @@ export class PostureGovernor {
     return this.log
   }
 
-  /** Classify, flip if the classification moved, and return the flip (or null). */
+  /** Classify, flip if the classification moved AND held, and return the flip. */
   observe(conditions: PostureConditions, at: number): PostureFlip | null {
     const next = classifyPosture(conditions)
-    if (next === this.posture) return null
+    if (next === this.posture) {
+      // The board agrees with where we are: whatever was pending is gone.
+      this.pending = null
+      this.held = 0
+      return null
+    }
+    if (this.pending === next) this.held++
+    else {
+      this.pending = next
+      this.held = 1
+    }
+    if (this.held < Math.max(1, this.dwell)) return null
+    this.pending = null
+    this.held = 0
     const flip: PostureFlip = {
       from: this.posture,
       to: next,

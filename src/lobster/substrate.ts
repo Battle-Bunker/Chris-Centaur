@@ -161,6 +161,13 @@ export interface SubstrateOptions {
   readonly modeled?: Iterable<string>;
   /** Held units narrowed to a declared first-move set (an ASSUMPTION). */
   readonly narrowings?: ReadonlyMap<string, ReadonlyArray<number>>;
+  /**
+   * The game this substrate belongs to. Scopes the geometry (engine + arena)
+   * cache, so concurrent games do not share a slab arena and a finished game's
+   * engines can be dropped. Absent ⇒ a shared scope, which is the old
+   * behaviour and is what tests and probes want.
+   */
+  readonly gameId?: string;
 }
 
 /** A unit as this substrate reads it back — the wire vocabulary, not the engine's. */
@@ -229,23 +236,70 @@ export class OverlappingUnitsError extends Error {
 // ---------------------------------------------------------------------------
 
 interface Geometry {
+  readonly key: string;
   readonly grid: Grid;
   readonly terrain: Terrain;
   readonly engine: PartialEngine;
+  /** Live substrates holding this engine. An engine with references is being
+   * resolved against RIGHT NOW; dropping it would orphan a live arena. */
+  refs: number;
+  lastUsed: number;
+  /** Marked for removal as soon as the last reference goes. */
+  retire: boolean;
 }
 
 /**
  * Grid shift masks and the engine's arena are functions of the BOARD, not of
  * the turn, and a match hands us a fresh board object every turn — so a
  * per-board-object cache misses every single time. Keyed by everything the
- * three of them read. Bounded, so a long-lived process cannot accumulate one
- * engine per food layout it ever saw.
+ * three of them read.
+ *
+ * SCOPED PER GAME, AND REFERENCE-COUNTED. Two things forced both:
+ *
+ *  - An engine is a slab ARENA and a cloud-source cache, and two games with
+ *    identical geometry are two decisions that overlap by design (a turn
+ *    resolves early, so turn N+1's decision starts while N's is still
+ *    running). Sharing one arena between them makes their pressure additive
+ *    and their lifetimes entangled for no benefit — a decision reuses its own
+ *    game's engine turn after turn, which is where the whole saving comes
+ *    from. The game id is part of the key.
+ *  - The engine's cloud-source cache grows for the life of the engine (an
+ *    upstream demand: it wants a WeakMap or a per-decision source), so an
+ *    engine that never dies is retained heap that never stops growing. A
+ *    per-game scope gives it a LIFETIME: when the game ends its engines go,
+ *    and the growth is bounded by one game rather than by the process. This
+ *    is a mitigation, not the fix, and it does not fight the fix — an engine
+ *    whose sources evict themselves simply retires cheaper.
+ *
+ * Eviction never CLEARS: an entry with live substrates is retired instead, and
+ * leaves when its last reference does. Wholesale `clear()` at a size limit
+ * orphaned engines that live resolutions were still borrowing slabs from.
  */
 const GEOMETRIES = new Map<string, Geometry>();
 const GEOMETRY_CACHE_LIMIT = 24;
+let geometryTick = 0;
+
+/** Census for the soak: what the shared-arena decision actually costs. */
+export function geometryCacheStats(): {
+  entries: number;
+  live: number;
+  retiring: number;
+  scopes: number;
+} {
+  let live = 0;
+  let retiring = 0;
+  const scopes = new Set<string>();
+  for (const g of GEOMETRIES.values()) {
+    if (g.refs > 0) live++;
+    if (g.retire) retiring++;
+    scopes.add(g.key.slice(0, g.key.indexOf('\u0000')));
+  }
+  return { entries: GEOMETRIES.size, live, retiring, scopes: scopes.size };
+}
 
 function geometryFor(
   marshalled: MarshalledBoard,
+  scope: string,
   maxUnits: number,
   maxTrail: number,
   maxHealth: number,
@@ -254,21 +308,27 @@ function geometryFor(
 ): Geometry {
   const { config, fullWidth, fullHeight } = marshalled;
   const key = [
-    fullWidth,
-    fullHeight,
+    // The game scope, first, so a game's entries are addressable as a group.
+    scope,
+    String(fullWidth),
+    String(fullHeight),
     config.walls.join(','),
     config.hazards.join(','),
-    hazardDamage,
-    maxHealth,
-    promotionWeight,
-    maxUnits,
-    maxTrail,
+    String(hazardDamage),
+    String(maxHealth),
+    String(promotionWeight),
+    String(maxUnits),
+    String(maxTrail),
     // The cloud source's premise includes the food board, so a changed food
     // layout must not reuse an engine built around the old one.
     config.food.join(','),
-  ].join('|');
+  ].join('\u0000');
   const hit = GEOMETRIES.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined && !hit.retire) {
+    hit.refs++;
+    hit.lastUsed = ++geometryTick;
+    return hit;
+  }
 
   const grid = makeGrid(fullWidth, fullHeight);
   const terrain = makeTerrain(grid, config.walls, config.hazards);
@@ -277,10 +337,67 @@ function geometryFor(
     { food: boardWith(grid, config.food), potions: boardWith(grid, []) },
     { maxUnits, maxTrail, hazardDamage, maxHealth, pawnPromotionWeight: promotionWeight }
   );
-  const geometry: Geometry = { grid, terrain, engine };
-  if (GEOMETRIES.size >= GEOMETRY_CACHE_LIMIT) GEOMETRIES.clear();
+  const geometry: Geometry = {
+    key,
+    grid,
+    terrain,
+    engine,
+    refs: 1,
+    lastUsed: ++geometryTick,
+    retire: false,
+  };
   GEOMETRIES.set(key, geometry);
+  evictGeometries();
   return geometry;
+}
+
+/** Make room, without ever orphaning an engine a live substrate is using. */
+function evictGeometries(): void {
+  while (GEOMETRIES.size > GEOMETRY_CACHE_LIMIT) {
+    let victim: Geometry | null = null;
+    for (const g of GEOMETRIES.values()) {
+      if (g.refs > 0) continue;
+      if (victim === null || g.lastUsed < victim.lastUsed) victim = g;
+    }
+    if (victim === null) {
+      // Everything is live. Retire the oldest so it leaves the moment it can,
+      // and stop — over the limit is better than a use-after-free.
+      let oldest: Geometry | null = null;
+      for (const g of GEOMETRIES.values()) {
+        if (g.retire) continue;
+        if (oldest === null || g.lastUsed < oldest.lastUsed) oldest = g;
+      }
+      if (oldest !== null) oldest.retire = true;
+      return;
+    }
+    GEOMETRIES.delete(victim.key);
+  }
+}
+
+function releaseGeometry(geometry: Geometry): void {
+  geometry.refs = Math.max(0, geometry.refs - 1);
+  if (geometry.refs === 0 && geometry.retire) GEOMETRIES.delete(geometry.key);
+}
+
+/**
+ * A game is over: its engines have no future. Entries with no live substrate
+ * go now; the rest are retired and leave with their last reference. This is
+ * the geometry cache's LIFETIME — without it a long-lived process keeps one
+ * growing cloud-source cache per board it has ever seen.
+ */
+export function releaseGeometriesFor(gameId: string): number {
+  const prefix = `${gameId}\u0000`;
+  let dropped = 0;
+  for (const [key, g] of [...GEOMETRIES]) {
+    if (!key.startsWith(prefix)) continue;
+    if (g.refs > 0) {
+      g.retire = true;
+      continue;
+    }
+    GEOMETRIES.delete(key);
+    dropped++;
+  }
+  return dropped;
 }
 
 /** Test hook: drop every cached engine. Never called on the decision path. */
@@ -332,6 +449,7 @@ export class EngineSubstrate implements Substrate {
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
   private resolveCount = 0;
   private released = false;
+  private readonly geometry: Geometry;
 
   constructor(options: SubstrateOptions) {
     const { board, turn } = options;
@@ -355,12 +473,14 @@ export class EngineSubstrate implements Substrate {
     const promotionWeight = board.pawnPromotionWeight ?? 10;
     const geometry = geometryFor(
       marshalled,
+      options.gameId ?? '',
       maxUnits,
       maxTrail,
       maxHealth,
       marshalled.config.hazardDamage,
       promotionWeight
     );
+    this.geometry = geometry;
     this.grid = geometry.grid;
     this.terrain = geometry.terrain;
     this.engine = geometry.engine;
@@ -834,6 +954,9 @@ export class EngineSubstrate implements Substrate {
     this.holdCache.clear();
     this.claimView = null;
     this.influenceCache.clear();
+    // The engine outlives this substrate by design (that is the cache), but
+    // only while something is still using it.
+    releaseGeometry(this.geometry);
   }
 
   // --- holds ----------------------------------------------------------------

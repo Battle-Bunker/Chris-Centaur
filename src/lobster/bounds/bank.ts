@@ -171,6 +171,15 @@ export interface BankResult extends PlanScore {
   readonly worstResolution: Resolution;
   /** The est channel — ordering only, never adjudication. */
   readonly est: number;
+  /**
+   * Narrowings the bank had to DECLARE while pricing — today, an adversary
+   * option list whose completeness the substrate could not corroborate. They
+   * are not part of the basis (a narrowing discovered on one plan and not on
+   * another would make the two incomparable and freeze the ascent); they are
+   * the honest record that a member was not allowed to move the floor, and
+   * why.
+   */
+  readonly narrowings: ReadonlyArray<Assumption>;
 }
 
 export interface BankInput {
@@ -217,6 +226,9 @@ export class BoundBank {
   private readonly witnessKeys = new Set<string>();
   private witnessList: Witness[] = [];
   private readonly optionCache = new Map<UnitId, { options: ReadonlyArray<Candidate>; complete: boolean }>();
+  /** Narrowings this bank had to declare — see `declare`. */
+  private readonly narrowingKeys = new Set<string>();
+  private readonly narrowingList: Assumption[] = [];
   private readonly views = new Map<string, { sub: Substrate; release(): void }>();
   private readonly canModel: boolean;
 
@@ -235,6 +247,11 @@ export class BoundBank {
 
   get witnesses(): ReadonlyArray<Witness> {
     return this.witnessList;
+  }
+
+  /** Everything this bank could not prove and had to say so about. */
+  get narrowings(): ReadonlyArray<Assumption> {
+    return this.narrowingList;
   }
 
   /** Seed the set from a previous context (restarts inherit witnesses). */
@@ -334,22 +351,68 @@ export class BoundBank {
     };
   }
 
-  private optionsFor(view: Substrate, unitId: UnitId): { options: ReadonlyArray<Candidate>; complete: boolean } {
+  private optionsFor(
+    view: Substrate,
+    unitId: UnitId,
+  ): { options: ReadonlyArray<Candidate>; complete: boolean } {
     const hit = this.optionCache.get(unitId);
     if (hit) return hit;
     // ADVERSARY purpose: the complete legal option list, by contract. The
     // generator's own-side prunes — exact ones included — would read as
     // incompleteness here, and an enemy's pruning rationale is ours, not its.
     const set = this.input.gen.candidatesFor(view, unitId, "adversary");
-    // COMPLETE means every legal staged move is in the list. A pruned option
-    // is a WHICH-truncation whatever the prune's own confidence: an enemy's
-    // pruning rationale is ours, not its.
-    const value = {
-      options: set.candidates,
-      complete: set.candidates.length >= set.legalCount && set.prunedLedger.length === 0,
-    };
+
+    // COMPLETENESS IS CHECKED, NOT ACCEPTED (V4 S2).
+    //
+    // `complete` is what lets a group RAISE THE FLOOR: a min over a subset of
+    // an enemy's replies is an over-estimate of the min over all of them, so a
+    // member that reports completeness it does not have publishes an unsound
+    // floor with no declared narrowing. Testing `candidates.length >=
+    // set.legalCount` against a `legalCount` the same generator computed as
+    // `candidates.length` is a tautology — the generator self-certifies the
+    // one property the bank exists to check. The count is taken from the
+    // SUBSTRATE's own enumerator instead, which is the engine's, and the
+    // generator's self-report has to agree with it.
+    //
+    // A substrate that cannot enumerate (a stub, a foreign implementation)
+    // cannot corroborate anything: the sweep is then treated as incomplete —
+    // it contributes its ceiling and never a floor — and the narrowing is
+    // declared. Unverified is not the same as verified, and the safe reading
+    // of "I could not check" is the one that cannot publish a wrong floor.
+    let enumerated: number | null = null;
+    try {
+      enumerated = view.actionsOf(unitId).length;
+    } catch {
+      enumerated = null;
+    }
+    const agrees = enumerated !== null && set.legalCount === enumerated;
+    const covers = enumerated !== null && set.candidates.length >= enumerated;
+    const complete = agrees && covers && set.prunedLedger.length === 0;
+    if (!complete && set.prunedLedger.length === 0) {
+      // Not an ordinary prune: either the substrate could not corroborate the
+      // list, or the generator's own count disagrees with the engine's.
+      this.declare({
+        kind: "narrowing",
+        unitId,
+        note:
+          enumerated === null
+            ? `adversary completeness unverifiable for unit ${unitId}: the substrate does not enumerate`
+            : `adversary option list unproved for unit ${unitId}: generator reports ${set.legalCount} ` +
+              `over ${set.candidates.length} candidates, the engine enumerates ${enumerated}`,
+      });
+    }
+    const value = { options: set.candidates, complete };
     this.optionCache.set(unitId, value);
     return value;
+  }
+
+  /** Record a narrowing this bank had to make. Declared, deduplicated, and
+   * carried on every result — never silently folded into a bound. */
+  private declare(assumption: Assumption): void {
+    const key = JSON.stringify(assumption);
+    if (this.narrowingKeys.has(key)) return;
+    this.narrowingKeys.add(key);
+    this.narrowingList.push(assumption);
   }
 
   // ------------------------------------------------------------------ price
@@ -555,6 +618,7 @@ export class BoundBank {
       ceilingFrom: widened ? floorPick.report.rung : ceilPick.rung,
       worstResolution: floorPick.resolution,
       est,
+      narrowings: this.narrowingList,
     };
   }
 

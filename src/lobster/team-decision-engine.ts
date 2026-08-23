@@ -54,7 +54,7 @@ import type {
   Witness,
 } from './contracts';
 import { NO_ORDER_MOVE } from './contracts';
-import { EngineSubstrate, makeSubstrate } from './substrate';
+import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
 import { materialEvaluator, standingOf } from './evaluate';
@@ -246,6 +246,10 @@ export class TeamDecisionEngine {
     if (!game) return;
     game.unsubscribe?.();
     this.games.delete(gameId);
+    // The game's engines (slab arenas and cloud-source caches) have no future.
+    // Without this the geometry cache is a process-lifetime hold on every
+    // board the centaur ever played.
+    releaseGeometriesFor(gameId);
   }
 
   /**
@@ -557,6 +561,7 @@ export class TeamDecisionEngine {
    */
   private substrateFor(input: TeamTurnInput, modelled: ReadonlyArray<string>): EngineSubstrate {
     return makeSubstrate({
+      gameId: input.gameId,
       board: input.board,
       turn: input.turn,
       asTeam: input.ourTeamId,
@@ -582,6 +587,7 @@ export class TeamDecisionEngine {
 
     const allIds = (input.board.snakes ?? []).map((s) => s.id);
     const probe = makeSubstrate({
+      gameId: input.gameId,
       board: input.board,
       turn: input.turn,
       asTeam: input.ourTeamId,

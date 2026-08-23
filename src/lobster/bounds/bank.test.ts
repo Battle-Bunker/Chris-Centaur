@@ -434,3 +434,110 @@ describe('the est channel never adjudicates', () => {
     }
   });
 });
+
+// ---------------------------------------------------------- the guard itself
+
+describe('the adversary-completeness guard has INDEPENDENT evidence (V4 S2)', () => {
+  /**
+   * A generator that caps an enemy's replies and reports a `legalCount` to
+   * match — the exact shape the old guard could not catch, because it tested
+   * `candidates.length >= legalCount` against a count the generator had just
+   * set to `candidates.length`. Nothing is left in the pruned ledger: this
+   * adversary does not admit to having truncated anything.
+   */
+  const lyingGenerator = (cap: number): ReturnType<typeof makeGenerator> => ({
+    candidatesFor(sub, unitId) {
+      const all = (sub as unknown as { optionsFor(id: UnitId): ReadonlyArray<unknown> }).optionsFor(
+        unitId
+      );
+      const kept = all.slice(0, cap) as never;
+      return {
+        unitId,
+        candidates: kept,
+        prunedLedger: [],
+        // The lie: "this is everything there was".
+        legalCount: (kept as ReadonlyArray<unknown>).length,
+      };
+    },
+  });
+
+  const UNGATED = { ...DEFAULT_BANK_CONFIG, gateOnEntanglement: false, b3: false };
+
+  test('an honest generator still lets a complete group raise the floor', () => {
+    const ctx = bankFor(CONTACT, UNGATED);
+    try {
+      const plan = allPlans(ctx.sub, ctx.gen, OURS, 1)[0] as JointPlan;
+      const out = ctx.bank.price(plan);
+      const groups = out.members.filter((m) => m.rung !== 'B0' && m.rung !== 'B2');
+      expect(groups.length).toBeGreaterThan(0);
+      expect(groups.some((m) => m.complete)).toBe(true);
+      expect(out.narrowings).toEqual([]);
+    } finally {
+      ctx.close();
+    }
+  });
+
+  test('a generator that caps replies and reports a matching count is CAUGHT', () => {
+    const board = makeTestBoard(CONTACT);
+    const own = makeSubstrate(board, OURS);
+    const honest = makeGenerator();
+    const bank = new BoundBank({
+      sub: own,
+      gen: lyingGenerator(2),
+      evaluate: makeEvaluator(),
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      config: UNGATED,
+    });
+    try {
+      const plan = allPlans(own, honest, OURS, 1)[0] as JointPlan;
+      const out = bank.price(plan);
+      const groups = out.members.filter((m) => m.rung === 'B1' || m.rung === 'B3');
+      // The truncated sweep ran — and not one of its groups was allowed to
+      // move the floor.
+      expect(groups.length).toBeGreaterThan(0);
+      for (const m of groups) {
+        expect(m.complete).toBe(false);
+        expect(m.floor).toBeNull();
+      }
+      expect(out.floorFrom).toBe('B0');
+      // And the narrowing is DECLARED, naming the unit and both counts.
+      expect(out.narrowings.length).toBeGreaterThan(0);
+      for (const a of out.narrowings) {
+        expect(a.kind).toBe('narrowing');
+        if (a.kind === 'narrowing') {
+          expect(a.note).toContain('adversary option list unproved');
+        }
+      }
+    } finally {
+      bank.release();
+      own.release();
+    }
+  });
+
+  test('a floor from a lying generator never sits above the truth', () => {
+    // The point of the guard, stated as the property it protects.
+    const board = makeTestBoard(CONTACT);
+    const own = makeSubstrate(board, OURS);
+    const honest = makeGenerator();
+    const bank = new BoundBank({
+      sub: own,
+      gen: lyingGenerator(1),
+      evaluate: makeEvaluator(),
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      config: UNGATED,
+    });
+    try {
+      for (const plan of allPlans(own, honest, OURS, 4)) {
+        const out = bank.price(plan);
+        expect(out.bounds.worst).toBeLessThanOrEqual(trueWorstCase(board, OURS, plan).value);
+      }
+    } finally {
+      bank.release();
+      own.release();
+    }
+  });
+});

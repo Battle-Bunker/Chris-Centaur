@@ -21,7 +21,9 @@ import {
   TooManyHeldError,
   UnknownUnitError,
   clearGeometryCache,
+  geometryCacheStats,
   makeSubstrate,
+  releaseGeometriesFor,
 } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 
@@ -508,5 +510,114 @@ describe('capacity is a typed refusal, never a silent truncation', () => {
     // Nothing modelled: every unit would be held.
     expect(() => sub.claimField()).toThrow(TooManyHeldError);
     sub.release();
+  });
+});
+
+// ------------------------------------------------- the geometry cache (V4 R4)
+
+describe('the geometry cache has a scope, a refcount, and a lifetime', () => {
+  const board = (): Board =>
+    boardOf([
+      piece('a', { x: 2, y: 2 }, 'king', 1, { teamID: 'red' }),
+      piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+
+  beforeEach(() => clearGeometryCache());
+  afterEach(() => clearGeometryCache());
+
+  test('two GAMES on the same board do not share a slab arena', () => {
+    // Two decisions overlap by design (an early turn resolution starts the
+    // next turn while this one runs), and two games with identical geometry
+    // used to be handed the same PartialEngine — one arena, additive pressure,
+    // entangled lifetimes, for a saving that only ever came from a single
+    // game reusing its own engine turn after turn.
+    const one = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN, asTeam: 'red' });
+    const two = makeSubstrate({ gameId: 'g2', board: board(), turn: TURN, asTeam: 'red' });
+    try {
+      expect(one.engine).not.toBe(two.engine);
+      expect(geometryCacheStats().entries).toBe(2);
+      expect(geometryCacheStats().live).toBe(2);
+    } finally {
+      one.release();
+      two.release();
+    }
+  });
+
+  test('the same game reuses its engine turn after turn — the whole point', () => {
+    const first = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN, asTeam: 'red' });
+    const engine = first.engine;
+    first.release();
+    const second = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN + 1, asTeam: 'red' });
+    try {
+      expect(second.engine).toBe(engine);
+      expect(geometryCacheStats().entries).toBe(1);
+    } finally {
+      second.release();
+    }
+  });
+
+  test('a game that ends takes its engines with it', () => {
+    const sub = makeSubstrate({ gameId: 'g-done', board: board(), turn: TURN, asTeam: 'red' });
+    sub.release();
+    expect(geometryCacheStats().entries).toBe(1);
+    expect(releaseGeometriesFor('g-done')).toBe(1);
+    expect(geometryCacheStats().entries).toBe(0);
+  });
+
+  test('a LIVE engine is retired, never orphaned, when its game ends', () => {
+    const sub = makeSubstrate({ gameId: 'g-live', board: board(), turn: TURN, asTeam: 'red' });
+    try {
+      expect(releaseGeometriesFor('g-live')).toBe(0);
+      // Still cached, because a live substrate is still borrowing slabs from
+      // it — but marked, and it leaves with its last reference.
+      expect(geometryCacheStats().entries).toBe(1);
+      expect(geometryCacheStats().retiring).toBe(1);
+      // And it is not handed out again while it is retiring.
+      const other = makeSubstrate({
+        gameId: 'g-live',
+        board: board(),
+        turn: TURN,
+        asTeam: 'red',
+      });
+      expect(other.engine).not.toBe(sub.engine);
+      other.release();
+    } finally {
+      sub.release();
+    }
+    expect(geometryCacheStats().live).toBe(0);
+  });
+
+  test('pressure never evicts an engine a live substrate is using', () => {
+    // The old cache cleared WHOLESALE at its limit, silently orphaning every
+    // engine a live resolution still held slabs from.
+    const live: EngineSubstrate[] = [];
+    try {
+      for (let i = 0; i < 30; i++) {
+        live.push(
+          makeSubstrate({
+            gameId: `g${i}`,
+            board: boardOf([
+              piece('a', { x: 2, y: 2 }, 'king', 1, { teamID: 'red' }),
+              piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
+              // A distinct food layout per game: a distinct geometry.
+              piece(`f${i}`, { x: 1 + (i % 7), y: 8 }, 'king', 1, { teamID: 'blue' }),
+            ]),
+            turn: TURN,
+            asTeam: 'red',
+          })
+        );
+      }
+      // Every one of them still resolves: not one engine was pulled out from
+      // under a live substrate.
+      for (const sub of live) {
+        expect(sub.outstanding()).toBeGreaterThan(0);
+        expect(() => sub.actionsOf(sub.unitOfWireId('a')?.unitId as UnitId)).not.toThrow();
+      }
+      expect(geometryCacheStats().live).toBe(30);
+    } finally {
+      for (const sub of live) sub.release();
+    }
+    // Released, the over-limit entries can finally go.
+    expect(geometryCacheStats().live).toBe(0);
   });
 });

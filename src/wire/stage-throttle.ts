@@ -30,12 +30,31 @@
  * it. One second is the repo's existing unit for "this write should have
  * landed by now", and re-using it keeps the two loops in phase.
  *
- * WHAT THE DELAY COSTS. Nothing that can be lost. The kernel's ratchet
- * guarantees a later emission is never a worse promise than an earlier one
- * within an epoch, so a suppressed revision is only ever superseded by one at
- * least as good; and the FINAL flush is exempt from the throttle entirely, so
- * the best plan found always reaches the wire. The worst case is that the
- * staged set trails the incumbent by up to one interval mid-turn.
+ * WHAT THE DELAY COSTS, AND WHICH MECHANISM ACTUALLY PAYS FOR IT.
+ *
+ * The FINAL flush is exempt from the throttle entirely, so the best plan found
+ * always reaches the wire; the worst case mid-turn is that the staged set
+ * trails the incumbent by up to one interval. What makes that safe is worth
+ * naming precisely, because the obvious answer is the wrong one.
+ *
+ * It is NOT "the kernel's ratchet guarantees a later emission is never a worse
+ * promise than an earlier one". The kernel's ratchet is scoped to a BASIS, and
+ * a basis is `(epoch, posture)`: a committed pin starts a new epoch and a
+ * posture flip starts a new basis, and in both cases the floor is reset to
+ * −∞ with an infinite gap. Over a ten-second turn at this interval — about ten
+ * admitted writes — an operator event or a posture change in between is
+ * ordinary, not exotic, so "monotone within an epoch" is not a property that
+ * covers the interval this throttle imposes.
+ *
+ * What does cover it is the STICKY STAGER's switch margin (`voc.ts`): the
+ * staged plan is only replaced by a rival that beats it on the leading channel
+ * by a margin, at an equal-or-deeper horizon, and a vacuous incumbent is not
+ * dethroned by a shallower-informed rival at all. That rule spans bases — it
+ * is about which plan is staged, not about which floor was proved — so a
+ * suppressed revision is superseded by one the stager already judged better on
+ * the same terms. The posture governor's dwell (`postures.ts`) is the second
+ * half: a flip has to hold for two consecutive measurements, so basis churn
+ * cannot chatter faster than the throttle can write.
  *
  * THE FINAL FLUSH RULE. `final: true` is always admitted and always resets the
  * clock. A throttle that could swallow the last write before the deadline
