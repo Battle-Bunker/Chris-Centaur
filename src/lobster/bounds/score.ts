@@ -105,12 +105,22 @@ export function ledgerKey(e: LedgerEntry): string {
 }
 
 export function normalizeLedger(entries: ReadonlyArray<LedgerEntry>): ReadonlyArray<LedgerEntry> {
+  // Ledger normalisation is ~9% of a decision's self time (measured), and it
+  // runs on every branch of every price. A single entry is already
+  // deduplicated and already ordered, and that is the common case; above it,
+  // sorting the KEYS costs one array rather than an array of pairs plus a map.
+  // The order is unchanged — it is part of a bound's identity.
+  if (entries.length <= 1) return entries;
   const seen = new Map<string, LedgerEntry>();
   for (const e of entries) {
     const k = ledgerKey(e);
     if (!seen.has(k)) seen.set(k, e);
   }
-  return [...seen.entries()].sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).map((e) => e[1]);
+  if (seen.size === 1) return [...seen.values()];
+  const keys = [...seen.keys()].sort();
+  const out: LedgerEntry[] = new Array<LedgerEntry>(keys.length);
+  for (let i = 0; i < keys.length; i++) out[i] = seen.get(keys[i] as string) as LedgerEntry;
+  return out;
 }
 
 export function unionLedgers(
