@@ -1981,7 +1981,7 @@ export class ActiveGameManager {
     // here belongs to a unit that took the wrong path and is refused rather
     // than staged as a direction.
     const recommended = controlled?.botRecommendation;
-    if (typeof recommended === 'string') {
+    if (typeof recommended === 'string' && recommended) {
       return { direction: recommended, source: 'bot' };
     }
 
