@@ -20,6 +20,7 @@ import {
   NO_ORDER_MOVE,
   TooManyHeldError,
   UnknownUnitError,
+  SharedClaimViewError,
   clearGeometryCache,
   geometryCacheStats,
   makeSubstrate,
@@ -619,5 +620,65 @@ describe('the geometry cache has a scope, a refcount, and a lifetime', () => {
     }
     // Released, the over-limit entries can finally go.
     expect(geometryCacheStats().live).toBe(0);
+  });
+});
+
+// ------------------------------------------- the modelled sibling (V4 H1)
+
+describe('a modelled sibling shares the parent claim view — and says so', () => {
+  const board = (): Board =>
+    boardOf([
+      piece('a', { x: 2, y: 2 }, 'rook', 2, { teamID: 'red' }),
+      piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
+      piece('c', { x: 6, y: 2 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+
+  test('resolution on a sibling is unaffected: the plan is the modelled set', () => {
+    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
+    try {
+      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
+      const view = sub.withModelled([enemy]);
+      // The whole reason the shared-state sibling is legal: a resolve derives
+      // its held set from the plan it is given, never from the claim view.
+      expect(view.actionsOf(enemy).length).toBeGreaterThan(0);
+      expect(() => view.pathOf(enemy, view.actionsOf(enemy)[0]?.to as number)).not.toThrow();
+      view.release();
+      // A sibling's release never disturbs the parent.
+      expect(sub.outstanding()).toBeGreaterThan(0);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('a NARROWER sibling refuses claim questions rather than answering wrong', () => {
+    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
+    try {
+      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
+      // Narrower: our rook is modelled on the parent and not here. The parent's
+      // claim view would report it as a mover, so entanglement would be
+      // UNDER-reported — the direction a floor may not be built on.
+      const view = sub.withModelled([enemy]);
+      expect(() => view.entangled([{ cell: 30, fromSubStep: 0, toSubStep: 0 }])).toThrow(
+        SharedClaimViewError
+      );
+      expect(() => view.influenceOf(enemy)).toThrow(SharedClaimViewError);
+      view.release();
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('a WIDER sibling answers: the shared view over-reports, which is sound', () => {
+    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
+    try {
+      const ours = sub.unitOfWireId('a')?.unitId as UnitId;
+      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
+      const view = sub.withModelled([ours, enemy]);
+      expect(() => view.influenceOf(ours)).not.toThrow();
+      expect(view.influenceOf(ours)).toEqual(sub.influenceOf(ours));
+      view.release();
+    } finally {
+      sub.release();
+    }
   });
 });

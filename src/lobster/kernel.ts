@@ -40,6 +40,7 @@
  * never reach the wire.
  */
 
+import { transientDelay } from "../server/activity-controller"
 import type {
   Assumption,
   Bound,
@@ -108,10 +109,14 @@ export function defaultNow(): number {
  * this is parity with it, not a new feature.
  */
 function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    if (typeof setImmediate === "function") setImmediate(resolve)
-    else setTimeout(resolve, 0)
-  })
+  if (typeof setImmediate === "function") {
+    return new Promise<void>((resolve) => {
+      setImmediate(resolve)
+    })
+  }
+  // No `setImmediate` (a browser-shaped host): the repo's sanctioned
+  // auto-unref'd one-shot, never a bare timer.
+  return transientDelay(0)
 }
 
 /**

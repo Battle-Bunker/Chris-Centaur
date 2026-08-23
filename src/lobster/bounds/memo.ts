@@ -23,6 +23,15 @@
  * The bank calls `release()` when it closes, so `outstanding()` returns to
  * its between-decisions baseline the moment a search call ends.
  *
+ * ONE BUDGET, NOT ONE PER VIEW. `capacity` is a SLAB budget, and slabs come
+ * from one arena: a memo whose children each kept their own capacity-sized
+ * cache had a real ceiling of `capacity × views`, which measured 9754
+ * outstanding slabs at 26 units against a nominal 4096 — 27 MB of ArrayBuffer
+ * per engine, over the process cap once a few geometries are live. The store
+ * below is SHARED down the whole family: every view writes into it, eviction
+ * is global and oldest-first, and each entry remembers which substrate owes
+ * its slab back. `stats.slabs` and `stats.peakSlabs` are what a soak reads.
+ *
  * It is a PROXY, not a subclass, and that is deliberate. A substrate is
  * allowed to carry capabilities beyond the pinned interface, and a
  * hand-written wrapper hides every one it was not told about. Feature
@@ -42,6 +51,12 @@ export interface MemoStats {
   /** Real engine resolutions — the number the budget is denominated in. */
   readonly resolutions: number;
   readonly hits: number;
+  /** Cached resolutions holding a slab RIGHT NOW, across every view. */
+  readonly slabs: number;
+  /** The high-water mark of the above, for the soak. */
+  readonly peakSlabs: number;
+  /** The shared ceiling `slabs` is held under. */
+  readonly capacity: number;
 }
 
 export interface MemoizedSubstrate extends Substrate {
@@ -49,41 +64,58 @@ export interface MemoizedSubstrate extends Substrate {
   resetStats(): void;
 }
 
-interface Counters {
+interface Entry {
+  readonly resolution: BoundedResolution;
+  /** Who to hand the slab back to. A sibling's slabs are the sibling's. */
+  readonly owner: Substrate;
+}
+
+/** The family's shared cache: one budget, one eviction order. */
+interface Store {
+  readonly capacity: number;
+  /** Insertion-ordered, which is the eviction order. */
+  readonly entries: Map<string, Entry>;
   misses: number;
   hits: number;
+  peak: number;
+  nextView: number;
 }
 
 function wrap(
   inner: Substrate,
-  capacity: number,
-  counters: Counters,
+  store: Store,
+  /** Namespaces this view's keys inside the shared store. */
+  viewId: number,
   /** Whether release() also releases `inner`. False for the decision's own
    * substrate (borrowed); true for a modelled sibling this memo created. */
   ownsInner: boolean,
 ): MemoizedSubstrate {
-  const cache = new Map<string, BoundedResolution>();
+  const prefix = `v${viewId}#`;
+
+  const evict = (): void => {
+    while (store.entries.size > store.capacity) {
+      const oldest = store.entries.keys().next();
+      if (oldest.done) return;
+      const evicted = store.entries.get(oldest.value);
+      store.entries.delete(oldest.value);
+      // Cheapest sound eviction: drop the oldest insertion and return its slab
+      // at once, to whichever view actually borrowed it.
+      if (evicted !== undefined) evicted.owner.releaseResolution(evicted.resolution.resolution);
+    }
+  };
 
   const resolveBoundedFor = (plan: JointPlan, asTeam: number): BoundedResolution => {
-    const key = `${asTeam}#${planKey(plan)}`;
-    const hit = cache.get(key);
+    const key = `${prefix}${asTeam}#${planKey(plan)}`;
+    const hit = store.entries.get(key);
     if (hit !== undefined) {
-      counters.hits++;
-      return hit;
+      store.hits++;
+      return hit.resolution;
     }
-    counters.misses++;
+    store.misses++;
     const value = inner.resolveBoundedFor(plan, asTeam);
-    if (cache.size >= capacity) {
-      // Cheapest sound eviction: drop the oldest insertion (Map preserves
-      // insertion order) and return its slab at once.
-      const oldest = cache.keys().next();
-      if (!oldest.done) {
-        const evicted = cache.get(oldest.value);
-        cache.delete(oldest.value);
-        if (evicted !== undefined) inner.releaseResolution(evicted.resolution);
-      }
-    }
-    cache.set(key, value);
+    store.entries.set(key, { resolution: value, owner: inner });
+    evict();
+    if (store.entries.size > store.peak) store.peak = store.entries.size;
     return value;
   };
 
@@ -99,15 +131,18 @@ function wrap(
   // slab a later hit hands back out. Releases are deferred to eviction and to
   // release(); a resolution the memo has never seen is passed through.
   const releaseResolution = (resolution: BoundedResolution["resolution"]): void => {
-    for (const entry of cache.values()) {
-      if (entry.resolution === resolution) return;
+    for (const entry of store.entries.values()) {
+      if (entry.resolution.resolution === resolution) return;
     }
     inner.releaseResolution(resolution);
   };
 
   const release = (): void => {
-    for (const entry of cache.values()) inner.releaseResolution(entry.resolution);
-    cache.clear();
+    for (const [key, entry] of [...store.entries]) {
+      if (!key.startsWith(prefix)) continue;
+      store.entries.delete(key);
+      entry.owner.releaseResolution(entry.resolution.resolution);
+    }
     // The decision's own substrate is BORROWED, never owned: the decision that
     // built it releases it, and this memo returns only what it cached. A
     // modelled sibling created by `withModelled` below IS owned, and its own
@@ -116,8 +151,9 @@ function wrap(
   };
 
   const resetStats = (): void => {
-    counters.misses = 0;
-    counters.hits = 0;
+    store.misses = 0;
+    store.hits = 0;
+    store.peak = store.entries.size;
   };
 
   // Feature-detected so a substrate WITHOUT modelling (the bank's B0-only
@@ -127,11 +163,11 @@ function wrap(
   const withModelled =
     typeof inner.withModelled === "function"
       ? (modelled: ReadonlyArray<number>): Substrate =>
-          // Children share the parent's counters, so the budget sees ONE
-          // number for the whole decision rather than one per hold
-          // configuration. The child wrap OWNS its sibling: releasing the
+          // Children share the parent's counters AND its slab budget, so the
+          // budget sees ONE number for the whole decision rather than one per
+          // hold configuration. The child wrap OWNS its sibling: releasing the
           // view releases the sibling.
-          wrap(inner.withModelled(modelled), capacity, counters, true)
+          wrap(inner.withModelled(modelled), store, ++store.nextView, true)
       : undefined;
 
   return new Proxy(inner, {
@@ -148,7 +184,13 @@ function wrap(
         case "resetStats":
           return resetStats;
         case "stats":
-          return { resolutions: counters.misses, hits: counters.hits } satisfies MemoStats;
+          return {
+            resolutions: store.misses,
+            hits: store.hits,
+            slabs: store.entries.size,
+            peakSlabs: store.peak,
+            capacity: store.capacity,
+          } satisfies MemoStats;
         case "withModelled":
           return withModelled;
         default: {
@@ -169,5 +211,10 @@ function wrap(
 
 /** Wrap a substrate so a plan is resolved at most once per scoring team. */
 export function memoizeSubstrate(sub: Substrate, capacity = 4096): MemoizedSubstrate {
-  return wrap(sub, capacity, { misses: 0, hits: 0 }, false);
+  return wrap(
+    sub,
+    { capacity, entries: new Map(), misses: 0, hits: 0, peak: 0, nextView: 0 },
+    0,
+    false,
+  );
 }

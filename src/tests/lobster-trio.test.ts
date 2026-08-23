@@ -716,3 +716,145 @@ describe('pin-context cache tier 2 is DEFERRED: absent transfer repeats work, ne
     expect(resumes).toHaveLength(0);
   });
 });
+
+// ------------------------------- the PRODUCTION pairing under the bound laws
+
+describe('EngineSubstrate + BoundEvaluator bracket the exhaustive truth', () => {
+  /**
+   * The 120-configuration bank harness proves the bounds layer sound against
+   * `testkit.makeSubstrate` + `testkit.makeEvaluator`, and the trio suite
+   * checks the production pairing only for the ORDERING invariant lo ≤ est ≤
+   * hi. Neither puts the pairing production actually runs — the real
+   * EngineSubstrate under the real BoundEvaluator — under `floor ≤ SV ≤
+   * ceiling`. This does, exhaustively, on a board small enough to enumerate.
+   *
+   * Ground truth is the security value by definition: the MINIMUM over every
+   * complete enemy reply of the value of a world in which every unit is named,
+   * so nothing is held and the evaluator's bracket collapses.
+   */
+  const SMALL = (): Board =>
+    boardOf([
+      piece('u1', { x: 2, y: 3 }, 'king', 1, { teamID: 'red' }),
+      piece('u2', { x: 2, y: 5 }, 'king', 1, { teamID: 'red' }),
+      piece('E', { x: 4, y: 4 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+
+  test('floor ≤ exhaustive security value ≤ ceiling, on every staged set', () => {
+    const board = SMALL();
+    // The ORACLE substrate: everything modelled, so a fully-named plan is a
+    // determinate world and the evaluator's interval collapses onto it.
+    const oracle = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      modeled: board.snakes.map((s) => s.id),
+    });
+    // The PRODUCTION substrate: only our team modelled, the enemy held — the
+    // configuration a real decision runs in.
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const gen = new GrammarCandidateGenerator();
+    const bank = new BoundBank({
+      sub,
+      gen,
+      evaluate: materialEvaluator,
+      asTeam: 0,
+      budget: unbounded(),
+      basis: [],
+    });
+    try {
+      const ours = sub.commandable(0);
+      expect(ours).toHaveLength(2);
+      const enemy = oracle.unitOfWireId('E')?.unitId as UnitId;
+      const replies = oracle.actionsOf(enemy);
+      expect(replies.length).toBeGreaterThan(1);
+
+      const optionsPerUnit = ours.map((unitId) =>
+        gen.candidatesFor(sub, unitId).candidates.slice(0, 3)
+      );
+      let checked = 0;
+      let exactWorlds = 0;
+      for (const a of optionsPerUnit[0] as ReadonlyArray<Candidate>) {
+        for (const b of optionsPerUnit[1] as ReadonlyArray<Candidate>) {
+          const staged: JointPlan = new Map([
+            [a.unitId, a],
+            [b.unitId, b],
+          ]);
+
+          // SV(staged) = min over the enemy's COMPLETE reply set.
+          let sv = Number.POSITIVE_INFINITY;
+          for (const reply of replies) {
+            const world = new Map(staged);
+            world.set(enemy, reply);
+            const bound = materialEvaluator.scorePlan(oracle, world, 0);
+            // Nothing is held, so the world is determinate: the bracket has
+            // collapsed and there is a single value to minimise over.
+            expect(bound.lo).toBe(bound.hi);
+            exactWorlds++;
+            if (bound.lo < sv) sv = bound.lo;
+          }
+
+          const priced = bank.price(staged);
+          expect(priced.bounds.worst).toBeLessThanOrEqual(sv);
+          expect(sv).toBeLessThanOrEqual(priced.bounds.best);
+          checked++;
+        }
+      }
+      expect(checked).toBe(9);
+      expect(exactWorlds).toBe(checked * replies.length);
+    } finally {
+      bank.release();
+      sub.release();
+      oracle.release();
+    }
+  }, 60_000);
+});
+
+// ------------------------------------------- the reach-profile gate (V4 S1)
+
+describe('S1 TRIPWIRE: per-kind maxHealth is flattened, so reach may not lead', () => {
+  /**
+   * NOT A FIX — a gate, deliberately loud.
+   *
+   * `EngineSubstrate` collapses a board's per-kind `maxHealthPerUnit` map to
+   * ONE ceiling, the maximum, because the engine carries one. Inflating an
+   * ENEMY's ceiling grows its cloud, which is safe. Inflating OUR OWN inflates
+   * our earliest-arrival flood — and `reachFeature`'s LO reading counts our
+   * located units' territory, so a bigger-than-true territory inside `lo` puts
+   * the published floor above the truth. Unsound, in the one direction
+   * everything here exists to forbid.
+   *
+   * It is invisible to the soundness harness by construction: `checkSoundness`
+   * brackets the partial evaluation against completion worlds computed by the
+   * SAME engine under the SAME flattened premise, and a premise error common
+   * to both sides cannot show up as a violation.
+   *
+   * It costs nothing today because the production evaluator reads reach at
+   * horizon 0. This test fails the moment that stops being true while the
+   * flattening is still here.
+   */
+  test('the production evaluator does not read reach while the flatten stands', () => {
+    const board = boardOf([
+      piece('p', { x: 2, y: 2 }, 'pawn', 1, { teamID: 'red' }),
+      piece('K', { x: 5, y: 5 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+    // A real server-configured per-kind map (firebase/translate.ts writes it).
+    (board as { maxHealthPerUnit?: Record<string, number> }).maxHealthPerUnit = { pawn: 30 };
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    try {
+      const engineCeiling = sub.engine.config.maxHealth;
+      const configured = Object.values({ pawn: 30 });
+      const diverges = configured.some((v) => v !== engineCeiling);
+      // Today: the pawn's real ceiling is 30, the engine carries 100.
+      expect(diverges).toBe(true);
+
+      // THE GATE. While the premise is flattened, the profile the team engine
+      // ships with may not read reach at all. Adopting the calibrated
+      // reach/king profile means removing the flatten FIRST (an upstream
+      // engine amendment: per-kind maxHealth), not afterwards.
+      expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
+      expect(materialEvaluator.profile.weights.reach).toBe(0);
+    } finally {
+      sub.release();
+    }
+  });
+});

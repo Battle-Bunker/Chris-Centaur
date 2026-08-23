@@ -541,3 +541,72 @@ describe('the adversary-completeness guard has INDEPENDENT evidence (V4 S2)', ()
     }
   });
 });
+
+// ------------------------------------------------ the slab budget (V3-R7)
+
+describe('the memo holds ONE slab budget across every modelled sibling', () => {
+  test('siblings share the ceiling instead of each getting their own', () => {
+    // `memoCapacity` is a SLAB budget and slabs come from one arena, so a memo
+    // whose children each kept a capacity-sized cache had a real ceiling of
+    // capacity x views — measured at 9754 outstanding slabs against a nominal
+    // 4096, which is 27 MB of ArrayBuffer per engine.
+    const board = makeTestBoard(CONTACT);
+    const own = makeSubstrate(board, OURS);
+    const gen = makeGenerator();
+    const bank = new BoundBank({
+      sub: own,
+      gen,
+      evaluate: makeEvaluator(),
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      // Tiny on purpose: the ceiling has to be observable.
+      config: { ...DEFAULT_BANK_CONFIG, gateOnEntanglement: false, memoCapacity: 4 },
+    });
+    try {
+      for (const plan of allPlans(own, gen, OURS, 8)) bank.price(plan);
+      const stats = (
+        bank as unknown as {
+          memo: {
+            stats: {
+              slabs: number;
+              peakSlabs: number;
+              capacity: number;
+              resolutions: number;
+            };
+          };
+        }
+      ).memo.stats;
+      expect(stats.capacity).toBe(4);
+      // Every view writes into the same store, so the high-water mark is the
+      // budget — not the budget times the number of hold configurations.
+      expect(stats.peakSlabs).toBeLessThanOrEqual(4);
+      expect(stats.slabs).toBeLessThanOrEqual(4);
+      // And the work really was spread over more than one view.
+      expect(stats.resolutions).toBeGreaterThan(4);
+    } finally {
+      bank.release();
+      own.release();
+    }
+  });
+
+  test('release still returns every slab the family borrowed', () => {
+    const board = makeTestBoard(CONTACT);
+    const own = makeSubstrate(board, OURS);
+    const gen = makeGenerator();
+    const bank = new BoundBank({
+      sub: own,
+      gen,
+      evaluate: makeEvaluator(),
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      config: { ...DEFAULT_BANK_CONFIG, gateOnEntanglement: false, memoCapacity: 4 },
+    });
+    for (const plan of allPlans(own, gen, OURS, 6)) bank.price(plan);
+    bank.release();
+    expect(own.outstanding()).toBe(1);
+    own.release();
+    expect(own.outstanding()).toBe(0);
+  });
+});

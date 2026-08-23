@@ -332,15 +332,20 @@ describe('pin advice from the speculative seam', () => {
     epoch: 0,
   });
 
+  const spec = (
+    key: string,
+    lo: number,
+    hi: number,
+    cursor: number,
+    over: { posture?: 'SIGHTED' | 'FOGGED-VACUOUS'; epoch?: number } = {}
+  ) => ({ key, lo, hi, cursor, posture: over.posture ?? ('SIGHTED' as const), epoch: over.epoch ?? 0 });
+
   test('prices a considered pin against the staged incumbent, above threshold only', () => {
     const alternative = { unitId: 4 as UnitId, from: 10, to: 11, path: [11] };
     const plan = new Map([[4 as UnitId, alternative]]);
     const report = {
       journal: [record(plan, 20, 60)],
-      speculative: [
-        { key: 'spec:[4@77?]', lo: 5, hi: 40, cursor: 8 },
-        { key: 'spec:[9@12?]', lo: 20, hi: 60, cursor: 2 },
-      ],
+      speculative: [spec('spec:[4@77?]', 5, 40, 8), spec('spec:[9@12?]', 20, 60, 2)],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,
@@ -366,7 +371,7 @@ describe('pin advice from the speculative seam', () => {
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
       journal: [record(plan, 20, 60)],
-      speculative: [{ key: 'spec:[4@77?]', lo: 30, hi: 70, cursor: 4 }],
+      speculative: [spec('spec:[4@77?]', 30, 70, 4)],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,
@@ -377,6 +382,116 @@ describe('pin advice from the speculative seam', () => {
     expect(advice).toHaveLength(1);
     expect(advice[0]?.costLo).toBe(0);
     expect(advice[0]?.costHi).toBe(0);
+  });
+
+  test('V4 B3: a pin is matched by TOKEN, never by substring', () => {
+    // "1@5?" is a substring of "31@5?". Matching by text read unit 31's
+    // speculative context as unit 1's and surfaced a fabricated 100-point
+    // price to the operator — confirmed empirically before the fix.
+    const plan = new Map([[1 as UnitId, { unitId: 1 as UnitId, from: 4, to: 5, path: [5] }]]);
+    const report = {
+      journal: [record(plan, 100, 100)],
+      speculative: [spec('spec:[31@5?]', 0, 0, 8)],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 1, to: 5, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toEqual([]);
+
+    // The real unit's own context still prices, of course.
+    const own = adviseFromReport({
+      report: {
+        journal: [record(plan, 100, 100)],
+        speculative: [spec('spec:[31@5?]', 0, 0, 8), spec('spec:[1@5?]', 40, 40, 8)],
+      } as unknown as KernelReport,
+      tentative: [{ unitId: 1, to: 5, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(own).toHaveLength(1);
+    expect(own[0]?.costLo).toBe(60);
+  });
+
+  test('V4 B7: costLo is the LO channel and costHi the HI channel, never crossed', () => {
+    // A pin that gives up a lot of floor and little ceiling. A min/max across
+    // the two channels reports the ceiling's delta as the floor's.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [record(plan, 50, 60)],
+      speculative: [spec('spec:[4@77?]', 10, 58, 8)],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.costLo).toBe(40); // 50 − 10, the floor channel
+    expect(advice[0]?.costHi).toBe(2); // 60 − 58, the ceiling channel
+    expect(advice[0]?.degraded).toBe(false);
+  });
+
+  test('V1-BUG-6: an unbounded speculative ceiling is not a free pin', () => {
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [record(plan, 10, 20)],
+      speculative: [spec('spec:[4@77?]', 10, Number.POSITIVE_INFINITY, 8)],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    // [0,0] "free" is a lie about a pin whose real cost is unknown.
+    expect(advice).toEqual([]);
+  });
+
+  test('V1-BUG-7: the context from the RECORD\u2019s own epoch is the one priced', () => {
+    // A speculative key names the committed pins it was searched under, so one
+    // hover leaves a trail across epochs and both keys mention the pin.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [{ ...record(plan, 20, 60), epoch: 1 }],
+      speculative: [
+        spec('spec:[4@77?]', 0, 0, 4, { epoch: 0 }),
+        spec('spec:[0@30,4@77?]', 15, 55, 20, { epoch: 1 }),
+      ],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    // The epoch-1 context: 20−15 and 60−55, not 20−0 and 60−0.
+    expect(advice[0]?.costLo).toBe(5);
+    expect(advice[0]?.costHi).toBe(5);
+    expect(advice[0]?.degraded).toBe(false);
+    expect(advice[0]?.basis.speculative.epoch).toBe(1);
+  });
+
+  test('a cross-basis reading is surfaced DEGRADED, never as a clean price', () => {
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [record(plan, 20, 60)],
+      speculative: [spec('spec:[4@77?]', 5, 40, 8, { posture: 'FOGGED-VACUOUS' })],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.degraded).toBe(true);
+    expect(advice[0]?.basis.staged.posture).toBe('SIGHTED');
+    expect(advice[0]?.basis.speculative.posture).toBe('FOGGED-VACUOUS');
   });
 });
 

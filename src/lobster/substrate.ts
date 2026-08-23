@@ -400,6 +400,41 @@ export function releaseGeometriesFor(gameId: string): number {
   return dropped;
 }
 
+/**
+ * The questions a modelled sibling cannot answer for itself, because it shares
+ * its parent's claim view. See `EngineSubstrate.withModelled`.
+ */
+const CLAIM_QUESTIONS: ReadonlySet<string> = new Set([
+  'claimField',
+  'entangled',
+  'influenceOf',
+  'modeled',
+]);
+
+/**
+ * A claim question was asked of a modelled sibling whose modelled set is
+ * NARROWER than its parent's, where the parent's shared claim view would
+ * under-report entanglement — the unsound direction.
+ */
+export class SharedClaimViewError extends Error {
+  readonly code = 'shared_claim_view' as const;
+  constructor(
+    readonly question: string,
+    readonly siblingModelled: ReadonlyArray<UnitId>,
+    readonly parentModelled: ReadonlyArray<UnitId>
+  ) {
+    super(
+      `substrate: ${question}() on a modelled sibling that expects ` +
+        `[${siblingModelled.join(',')}] live while its parent models ` +
+        `[${parentModelled.join(',')}]. The sibling shares the parent's claim view, so the ` +
+        'answer would be about the parent — and for a narrower sibling that UNDER-reports ' +
+        'entanglement, which is the direction a floor may not be built on. A consumer that ' +
+        'needs per-sibling claims needs a sibling with its own claim field.'
+    );
+    this.name = 'SharedClaimViewError';
+  }
+}
+
 /** Test hook: drop every cached engine. Never called on the decision path. */
 export function clearGeometryCache(): void {
   GEOMETRIES.clear();
@@ -889,18 +924,48 @@ export class EngineSubstrate implements Substrate {
   /**
    * A modelled sibling — the contract's `withModelled`, under the PLAN-DOMAIN
    * RULE this substrate already lives by: naming a unit in a plan makes it
-   * live, so a sibling needs no new engine state, only independent release
-   * semantics. The proxy shares every slab and cache with its parent and its
-   * `release()` is a no-op, so releasing a sibling can never disturb the
-   * parent (nor return a slab the parent still owns).
+   * live, so a sibling needs no new engine state for RESOLUTION, only
+   * independent release semantics. The proxy shares every slab and cache with
+   * its parent and its `release()` is a no-op, so releasing a sibling can
+   * never disturb the parent (nor return a slab the parent still owns).
+   *
+   * THE LIMITATION, STATED. A sibling shares the parent's CLAIM VIEW, which is
+   * built from the PARENT's modelled set. Resolution is unaffected — a
+   * resolve derives its held set from the plan it is given, not from this
+   * field — but a CLAIM question (`claimField`, `entangled`, `influenceOf`,
+   * `modeled`) asked of a sibling is answered about the parent. For a sibling
+   * whose modelled set is a SUPERSET of the parent's that is a sound
+   * over-approximation: more units carry claims than the sibling says are
+   * held, and an over-reported claim only loosens a bound. For a NARROWER
+   * sibling it is the unsound direction — units the sibling expects to be
+   * claims are answered as modelled, so entanglement is UNDER-reported and a
+   * floor built on it would be too high.
+   *
+   * So a narrower sibling refuses claim questions outright. Resolution,
+   * enumeration and the plan-domain machinery all work exactly as before; only
+   * the questions whose answer would be wrong throw. Fail loud, never wrong.
+   * (The bank's views are narrower than the parent — they name the references
+   * plus one enemy, not our own units — and they ask no claim questions, which
+   * is why this is a guard rather than a rewrite. A consumer that needs real
+   * per-sibling claims, such as the deferred tier-2 footprint transfer, needs
+   * a sibling with its own claim field and its own slab lifecycle: that is the
+   * fix, and this is the tripwire that will demand it.)
    */
-  withModelled(_modelled: ReadonlyArray<UnitId>): Substrate {
+  withModelled(modelled: ReadonlyArray<UnitId>): Substrate {
     const parent = this;
+    const requested = new Set(modelled);
+    const narrower = [...parent.modeledIds].some((id) => !requested.has(id));
     return new Proxy(parent, {
       get(target, prop, receiver): unknown {
         if (prop === 'release') return () => undefined;
         if (prop === 'withModelled') {
-          return (m: ReadonlyArray<UnitId>) => parent.withModelled(m);
+          return (m: ReadonlyArray<UnitId>) =>
+            parent.withModelled([...requested, ...m]);
+        }
+        if (narrower && typeof prop === 'string' && CLAIM_QUESTIONS.has(prop)) {
+          return () => {
+            throw new SharedClaimViewError(prop, [...requested], [...parent.modeledIds]);
+          };
         }
         const value = Reflect.get(target, prop, receiver);
         return typeof value === 'function'
