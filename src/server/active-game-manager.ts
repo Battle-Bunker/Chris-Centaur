@@ -84,7 +84,11 @@ export interface TurnData {
   moveEvaluations: MoveEvaluation[];
   territoryCells: { [snakeId: string]: { x: number; y: number }[] };
   safeMoves: Direction[];
-  botRecommendation: Direction | null;
+  // A Direction for a snake; a FULL-BOARD destination index for a chess piece
+  // (own square = stay), the same CentaurMove split staging uses. Pieces had
+  // no bot route at all until the piece recommendation channel existed — see
+  // `updatePieceTurn` and `setBotRecommendation`.
+  botRecommendation: CentaurMove | null;
   timestamp: number;
   // Per-cell Voronoi owner/distance for the current board (cell inspector).
   // Absent on the quick pass and interim recommendations.
@@ -280,10 +284,16 @@ export interface ControlledSnake {
   // The unit's current kind: 'snake' or a chess-piece type. Kept fresh on every
   // board intake (pawn promotion changes pawn → queen mid-game). Pieces skip
   // every direction-only path: fatal gate, reversal tripwire, suicide moves,
-  // bot recommendations, waypoint re-bias, goto routes.
+  // waypoint re-bias, goto routes.
   unitType: string;
   latestTurnData: TurnData | null;
-  botRecommendation: Direction | null;
+  // The bot's own choice for this unit — the THIRD rung of the precedence
+  // ladder, below manual and waypoint and above the hard fallback. A Direction
+  // for a snake, a full-board destination index for a piece. `null` means the
+  // bot has nothing to say: a snake then falls back to 'up', and a piece stages
+  // nothing at all (the server defaults it to stay), which is exactly what
+  // every piece did before there was a piece bot route.
+  botRecommendation: CentaurMove | null;
   selectedBy: string | null;
   // Persistent ownership: the last player to select this snake. Unlike
   // `selectedBy` (the single active selection, cleared on deselect/switch),
@@ -1153,7 +1163,7 @@ export class ActiveGameManager {
       id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
-      botRecommendation: Direction | null;
+      botRecommendation: CentaurMove | null;
     }>;
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
@@ -1170,7 +1180,7 @@ export class ActiveGameManager {
       id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
-      botRecommendation: Direction | null;
+      botRecommendation: CentaurMove | null;
     }> = [];
     const selections: { [snakeId: string]: { userId: string; color: string } | null } = {};
 
@@ -1337,9 +1347,10 @@ export class ActiveGameManager {
   //
   // Deliberately says nothing about what the unit does next. setIntent
   // re-stages through the ordinary path, and that path already knows what no
-  // input means for each kind of unit (today: the bot's recommendation for a
-  // snake, holding for a piece). Naming those outcomes here would fork the
-  // fallback into a second definition.
+  // input means for each kind of unit — the bot's recommendation where there
+  // is one (a Direction for a snake, a destination for a piece), and holding
+  // for a piece the bot has nothing to say about. Naming those outcomes here
+  // would fork the fallback into a second definition.
   clearHumanInput(gameId: string, snakeId: string, userId: string): boolean {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
@@ -1755,14 +1766,21 @@ export class ActiveGameManager {
       }
     }
 
-    if (controlled?.botRecommendation) {
-      // Anything that reaches here is the bot's recommendation — manual and the
-      // waypoint re-bias were both unavailable this turn. Report it truthfully
-      // as 'bot' even when a waypoint is nominally set, so the staged arrow
-      // renders grey and the user can never mistake a bot decision for their
-      // own staged move. The fallback is logged at the stageMove choke point
-      // where the active intent mode is known.
-      return { direction: controlled.botRecommendation, source: 'bot' };
+    // Anything that reaches here is the bot's recommendation — manual and the
+    // waypoint re-bias were both unavailable this turn. Report it truthfully
+    // as 'bot' even when a waypoint is nominally set, so the staged arrow
+    // renders grey and the user can never mistake a bot decision for their
+    // own staged move. The fallback is logged at the stageMove choke point
+    // where the active intent mode is known.
+    //
+    // This is the DIRECTION ladder: it is reached only from `stageMove` after
+    // pieces have branched to `stagePieceMove`, whose own ladder ends in the
+    // numeric bot rung (`computePieceStagedMove`). So a numeric recommendation
+    // here belongs to a unit that took the wrong path and is refused rather
+    // than staged as a direction.
+    const recommended = controlled?.botRecommendation;
+    if (typeof recommended === 'string') {
+      return { direction: recommended, source: 'bot' };
     }
 
     return { direction: 'up', source: 'fallback' };
@@ -1883,7 +1901,14 @@ export class ActiveGameManager {
       typeof direction === 'string' &&
       this.isMoveFatal(gameId, snakeId, direction)
     ) {
-      const fallback = controlled.botRecommendation;
+      // This is the SNAKE path (pieces branched out above), so the bot's
+      // recommendation for this unit is a Direction. The narrowing is explicit
+      // rather than assumed: botRecommendation is a CentaurMove now that
+      // pieces have a bot route, and a numeric destination is not a legal
+      // substitute for a snake's direction — it would be a wire-shape error,
+      // so it is refused in favour of the hard fallback.
+      const recommended = controlled.botRecommendation;
+      const fallback = typeof recommended === 'string' ? recommended : null;
       console.warn(`[ActiveGameManager] FATAL-MOVE GATE for ${gameId}:${snakeId} turn ${turn}: unconsented ${source} move ${direction} is certain death — staging ${fallback ? `bot move ${fallback}` : `fallback 'up'`} instead, awaiting confirmation`);
       if (controlled.fatalPromptTurn !== turn || controlled.fatalPromptMove !== direction) {
         controlled.fatalPromptTurn = turn;
@@ -2016,10 +2041,43 @@ export class ActiveGameManager {
         action: best?.action ?? { kind: 'stay' },
       };
     }
-    if (intent.kind !== 'manual' || typeof intent.move !== 'number') return null;
-
     const pawnTargets =
       controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+
+    if (intent.kind !== 'manual' || typeof intent.move !== 'number') {
+      // THE BOT RUNG, third and last — reached only when no operator command
+      // applies, exactly as it is for snakes. It is the whole of the piece bot
+      // route: before it existed, `botRecommendation` was hard-coded null for
+      // every piece and an uncommanded piece stages nothing at all, which is
+      // still what happens when the bot has nothing to say.
+      //
+      // The recommendation is validated through the SAME planPieceAction the
+      // manual rung uses, so a destination the server would reject stages the
+      // piece's own square (= stay) instead of a write the engine discards.
+      const recommended = controlled.botRecommendation;
+      if (typeof recommended !== 'number') return null;
+      const botAction = planPieceAction(
+        controlled.unitType,
+        originIdx,
+        recommended,
+        fullW,
+        fullH,
+        you.orientation,
+        pawnTargets
+      );
+      if (!botAction) {
+        console.warn(
+          `[ActiveGameManager] Bot recommended illegal destination ${recommended} for ` +
+            `${controlled.unitType} ${gameId}:${snakeId} — staging stay (${originIdx}) instead`
+        );
+      }
+      return {
+        move: botAction ? recommended : originIdx,
+        source: 'bot',
+        action: botAction ?? { kind: 'stay' },
+      };
+    }
+
     const action = planPieceAction(
       controlled.unitType,
       originIdx,
@@ -2346,15 +2404,26 @@ export class ActiveGameManager {
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of
-  // setBotRecommendation's turn bookkeeping, without any engine decision:
-  // own pieces get no bot recommendation (the minimax engine drives snakes
-  // only; see the v1 note in Simulator). Refreshes the unit type (pawn
+  // setBotRecommendation's turn bookkeeping. Refreshes the unit type (pawn
   // promotion) and re-stages the piece's goto command for the new turn.
   // In the canonical pipeline the transport calls updateBoard FIRST (which
   // advances the shared board and runs the goto-arrival shift), then this per
   // piece; the board-advance branch below is defensive only, kept so the game
   // stays live if a transport ever feeds pieces without feeding the board.
-  updatePieceTurn(gameId: string, snakeId: string, gameState: GameState): void {
+  //
+  // `botRecommendation` is the piece's own bot route: a FULL-BOARD destination
+  // index the decision engine wants this piece on, or null for "the bot has
+  // nothing to say". It used to be hard-coded null here, which is why pieces
+  // were operator-command-only — an uncommanded piece staged nothing and the
+  // server defaulted it to stay. Omitting the argument reproduces exactly that,
+  // so the snake-only transport is unchanged; passing one adds the third rung
+  // of the precedence ladder BELOW manual and waypoint, never above them.
+  updatePieceTurn(
+    gameId: string,
+    snakeId: string,
+    gameState: GameState,
+    botRecommendation: number | null = null
+  ): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
@@ -2395,6 +2464,11 @@ export class ActiveGameManager {
 
     // Promotion changes the unit type mid-game (pawn → queen).
     controlled.unitType = gameState.you.unitType ?? controlled.unitType;
+    // The bot's destination for this piece, if the caller has one. Set BEFORE
+    // the re-stage below so the piece ladder's bot rung can see it, and cleared
+    // by an explicit null so a stale recommendation from the previous turn can
+    // never survive into this one.
+    controlled.botRecommendation = botRecommendation;
     // Candidate turn data: every legal destination scored by the waypoint
     // bias, through the same TurnData/broadcast contract snakes use.
     controlled.latestTurnData = {
@@ -2402,7 +2476,7 @@ export class ActiveGameManager {
       moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
       safeMoves: [],
-      botRecommendation: null,
+      botRecommendation,
       timestamp: Date.now(),
     };
 
@@ -2789,12 +2863,35 @@ export class ActiveGameManager {
     return this.games.get(gameId)?.boardTerritory ?? null;
   }
 
-  setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
+  /**
+   * The bot's move for one unit, with the turn data behind it.
+   *
+   * `move` is a CentaurMove: a Direction for a snake, a FULL-BOARD destination
+   * index for a chess piece. The union is the whole of the pieces bot route on
+   * this entry point — every Direction-only caller is unchanged, and the shape
+   * check below refuses a mismatched pairing the way `setUserSelection` does,
+   * as defence in depth rather than as a silent coercion.
+   *
+   * What this method does NOT change is precedence: it writes
+   * `botRecommendation` and re-stages, and staging resolves manual > waypoint >
+   * bot exactly as before. A bot recommendation can never displace a human's.
+   */
+  setBotRecommendation(gameId: string, snakeId: string, move: CentaurMove, turnData: TurnData): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return;
+
+    if (this.isPieceUnit(controlled)) {
+      if (typeof move !== 'number') {
+        console.log(`[ActiveGameManager] Ignoring bot direction ${move} for piece ${gameId}:${snakeId} — pieces are recommended by destination`);
+        return;
+      }
+    } else if (typeof move !== 'string') {
+      console.log(`[ActiveGameManager] Ignoring numeric bot move ${move} for snake ${gameId}:${snakeId} — snakes are recommended by direction`);
+      return;
+    }
 
     const incomingTurn = turnData.gameState.turn;
     // Early-resolution race guard: a turn can resolve before its deadline
@@ -2845,7 +2942,18 @@ export class ActiveGameManager {
       }
     }
 
-    controlled.latestTurnData = turnData;
+    // A piece's turn data is its scored candidate list, not a snake decision's
+    // move matrix — the UI reads the same TurnData shape for both, so a
+    // recommendation arriving for a piece rebuilds the candidate rows here the
+    // way updatePieceTurn does rather than publishing whatever the caller had.
+    controlled.latestTurnData = this.isPieceUnit(controlled)
+      ? {
+          ...turnData,
+          moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
+          safeMoves: [],
+          botRecommendation: move,
+        }
+      : turnData;
     controlled.botRecommendation = move;
     // Lift the board-wide Voronoi grids off this snake's decision onto the
     // GAME, where every unit's views can read them.
