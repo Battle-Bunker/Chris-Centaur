@@ -43,9 +43,8 @@
  * the horizon and reads the answer.
  */
 
-import { Fate, NEVER, bbIntersects, bbTest } from '../../partial-engine/index';
+import { Fate, NEVER, bbTest } from '../../partial-engine/index';
 import type {
-  Board,
   FieldSlot,
   Resolution,
   ScoreBounds,
@@ -111,8 +110,7 @@ export interface EvalContext {
 export function standingOf(
   sub: EngineSubstrate,
   resolution: Resolution,
-  asTeam: number,
-  touched: Board
+  asTeam: number
 ): Standing[] {
   const fates = new Map(resolution.fates.map((f) => [f.unitId, f.fate]));
   const out: Standing[] = [];
@@ -137,20 +135,23 @@ export function standingOf(
     });
   }
 
-  const words = sub.grid.words;
   for (const slot of resolution.state.field.slots) {
     const mine = slot.record.team === asTeam;
     const cloud = slot.cloud;
-    // THE WIDENING THE CLAIM LAYER CANNOT DO FOR ITSELF. A cloud's
-    // `deathPossible` is derived from terrain and from the other CLAIMS —
-    // mobile units never narrow a cloud — so a held unit that would walk
-    // straight into one of this turn's movers is still reported as certainly
-    // alive. Priced into a FLOOR that is harmless (an enemy we assume survives
-    // is the pessimistic reading anyway). Priced into a CEILING it is a false
-    // proof: the world where the enemy blunders into us really exists, and the
-    // law harness finds it in one board. So a claim that touches any cell a
-    // mover occupied is treated as killable in the reading that hopes for it.
-    const contested = cloud.deathPossible || bbIntersects(cloud.possible, touched, words);
+    // A cloud's `deathPossible` is derived from terrain and from the other
+    // CLAIMS — mobile units never narrow a cloud — so on its own it still
+    // reports a held unit that would walk straight into one of this turn's
+    // movers as certainly alive. That is harmless in a FLOOR (an enemy we
+    // assume survives is the pessimistic reading anyway) and a false proof in
+    // a CEILING: the world where the enemy blunders into us really exists.
+    //
+    // This file used to widen it here, by intersecting the cloud with a
+    // snapshot of every cell a mover touched. THE ENGINE ANSWERS IT NOW:
+    // `Resolution.mayHaveDied` is exactly that question, computed inside the
+    // resolution that knows it, and the engine's own reading of a slot's fate
+    // is `deathPossible || mayHaveDied`. Reading the engine's answer instead
+    // of recomputing it is what stops the two drifting apart.
+    const contested = cloud.deathPossible || (resolution.mayHaveDied & (1 << slot.slot)) !== 0;
     out.push({
       unitId: slot.record.unitId,
       team: slot.record.team,
@@ -212,11 +213,10 @@ export function makeContext(
   sub: EngineSubstrate,
   resolution: Resolution,
   engineMaterial: ScoreBounds,
-  touched: Board,
   asTeam: number,
   horizonTurns: number = REACH_HORIZON_TURNS
 ): EvalContext {
-  const standing = standingOf(sub, resolution, asTeam, touched);
+  const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
   let cached: ReadonlyMap<UnitId, Int32Array> | null = null;
   return {

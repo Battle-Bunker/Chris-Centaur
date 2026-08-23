@@ -70,12 +70,19 @@ function armies(size: number, ours: number, theirs: number, shift = 0): Board {
   return { width: size, height: size, food: [], hazards: [], snakes } as unknown as Board;
 }
 
-/** The engine's private cloud-source table, read for diagnosis only. */
+/**
+ * Timelines the engine is retaining across every live cloud source.
+ *
+ * V3 read this off the engine's private `sources` map and summed each source's
+ * `timelines`. The engine PUBLISHES the number now — `retainedTimelines`,
+ * documented as "the number a memory test asserts a bound on" — because the
+ * caches behind it grew a WeakMap half that a private-field reader would
+ * miscount and an LRU half that a private-field reader would not know the
+ * bound of. Reading the engine's own accessor is what keeps this test and the
+ * thing it measures from drifting apart.
+ */
 function timelineCount(engine: unknown): number {
-  const e = engine as { sources: Map<string, { timelines: Map<unknown, unknown> }> };
-  let n = 0;
-  for (const s of e.sources.values()) n += s.timelines.size;
-  return n;
+  return (engine as { retainedTimelines: number }).retainedTimelines;
 }
 
 beforeEach(() => clearGeometryCache());
@@ -109,10 +116,17 @@ describe('slab discipline holds across a decision', () => {
 
 // -------------------------------------------------------- cloud-timeline leak
 
-describe('REPRO: cloud timelines are retained for the life of a game', () => {
-  const TURNS = 24;
+// INVERTED. V3 filed this as a REPRO with a "when the engine stops retaining
+// these, invert the assertion" banner. The engine bounds both caches now — a
+// source cache keyed on the item premise, and a per-source timeline cache — so
+// a reused engine reaches a ceiling instead of climbing forever.
+describe('cloud timelines are BOUNDED on a reused engine', () => {
+  // Long enough to pass the per-source LRU bound (128 timelines) several
+  // times over: a bounded cache and an unbounded one are indistinguishable
+  // until the bound is reached.
+  const TURNS = 80;
 
-  test('a cached engine accumulates one timeline per held unit per turn, forever', () => {
+  test('a cached engine reaches a ceiling instead of one timeline per turn', () => {
     let engine: unknown = null;
     const counts: number[] = [];
     for (let t = 0; t < TURNS; t++) {
@@ -132,17 +146,17 @@ describe('REPRO: cloud timelines are retained for the life of a game', () => {
     }
     const first = counts[0] as number;
     const last = counts[counts.length - 1] as number;
-    // Monotone: nothing is ever removed.
-    for (let i = 1; i < counts.length; i++) {
-      expect(counts[i] as number).toBeGreaterThanOrEqual(counts[i - 1] as number);
-    }
-    // And it grows — per turn, unboundedly. THIS IS THE BUG. When the engine
-    // stops retaining these, invert the assertion.
-    expect(last).toBeGreaterThan(first);
-    expect((last - first) / (TURNS - 1)).toBeGreaterThanOrEqual(1);
+    const peak = Math.max(...counts);
+    // A CEILING, not a slope. The old engine added one timeline per held unit
+    // per turn for the life of the game — 16 a turn on this board, forever.
+    expect(peak).toBeLessThan(16 * TURNS);
+    // The second half of the run adds nothing: the cache has settled.
+    const half = counts.slice(Math.floor(TURNS / 2));
+    expect(Math.max(...half) - Math.min(...half)).toBeLessThanOrEqual(0);
+    expect(last).toBeGreaterThanOrEqual(first);
   });
 
-  test('the geometry cache is the amplifier: drop it each turn and nothing accumulates', () => {
+  test('dropping the geometry cache each turn is no longer the difference', () => {
     const counts: number[] = [];
     for (let t = 0; t < TURNS; t++) {
       clearGeometryCache();
@@ -156,6 +170,8 @@ describe('REPRO: cloud timelines are retained for the life of a game', () => {
         sub.release();
       }
     }
+    // It never accumulated in this arm and it does not now — what changed is
+    // that the REUSED arm above matches it.
     expect(new Set(counts).size).toBe(1);
   });
 });

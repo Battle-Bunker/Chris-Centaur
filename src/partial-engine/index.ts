@@ -66,12 +66,23 @@ export {
 } from "./grammar.js";
 export type { Candidate, KindProfile, OrientationIndex, Terrain, UnitAction } from "./grammar.js";
 
-export { CloudSource, CloudTimeline, NEVER, headSubStepLBOf, meetingTime } from "./cloud.js";
+export {
+  CloudSource,
+  CloudTimeline,
+  DEFAULT_TIMELINE_CACHE,
+  FROZEN_RECORD_KEY_FIELDS,
+  NEVER,
+  frozenRecordKey,
+  headSubStepLBOf,
+  maxHealthFor,
+  meetingTime,
+} from "./cloud.js";
 export type {
   ArrivalGrid,
   ClaimBasis,
   Cloud,
   CloudPremise,
+  CloudSourceOptions,
   FrozenRecord,
   StrengthBounds,
 } from "./cloud.js";

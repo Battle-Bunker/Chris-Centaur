@@ -236,16 +236,13 @@ class TestSubstrate implements BoundedSubstrate, ModellingSubstrate, RosterSubst
     this.meter.resolves++;
     const engine = this.board.engine;
     const out = resolveBounded(engine, this.state, this.assignmentOf(plan), asTeam);
-    const grid = this.board.terrain.grid;
-    const touched = newBoard(grid);
-    touched.set(engine.touched.subarray(0, grid.words));
     const scalar =
       this.heldPricing === "interval" ? null : scalarFold(engine, out.resolution, asTeam);
     // The forked slab has served its purpose; the arrays we keep reading
     // (ledger, clashes, deaths, the shared CloudField) are plain objects.
     engine.release(out.resolution.state);
     const value: CachedResolve = {
-      full: { resolution: out.resolution, perTeam: out.perTeam, bounds: out.bounds, touched },
+      full: { resolution: out.resolution, perTeam: out.perTeam, bounds: out.bounds },
       worst: scalar === null ? out.bounds.worst : scalar.worst,
       best: scalar === null ? out.bounds.best : scalar.best,
     };

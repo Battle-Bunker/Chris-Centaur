@@ -283,11 +283,20 @@ describe('the cliff', () => {
   });
 });
 
-describe('the one place this fold differs from the engine’s own', () => {
+describe('this fold and the engine’s own agree, contested or not', () => {
+  // These two boards used to pin the ONE place the fold differed: the claim
+  // layer could not see this turn's movers, so a held unit that would walk
+  // straight into one was reported certainly alive, and this file widened the
+  // ceiling itself by intersecting the cloud with a snapshot of every touched
+  // cell. THE ENGINE ANSWERS IT NOW (`Resolution.mayHaveDied`), so the fold
+  // reads the engine's answer and the two agree on both boards. They are kept
+  // because the widening still has to HAPPEN — the second board proves the
+  // enemy is priced as possibly-dead in our best reading, which is the whole
+  // point; it just is not this file's arithmetic any more.
   test('with no claim contested, the two folds agree exactly', () => {
     // Our rook is walled off in a corner of an 11x11 board and moves one cell;
-    // the enemy's claim cannot reach anything a mover touched, so the widening
-    // never applies and the fold must reproduce resolveBounded's own answer.
+    // the enemy's claim cannot reach anything a mover touched, so nothing is
+    // contested and the fold must reproduce resolveBounded's own answer.
     const board = boardOf(
       [
         piece('R', { x: 0, y: 0 }, 'rook', 2, { teamID: 'red', health: 50 }),
@@ -301,15 +310,15 @@ describe('the one place this fold differs from the engine’s own', () => {
     sub.withResolution(
       new Map([[rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }]]),
       0,
-      ({ resolution, bounds, touched }) => {
-        const ctx = makeContext(sub, resolution, bounds, touched, 0, 0);
+      ({ resolution, bounds }) => {
+        const ctx = makeContext(sub, resolution, bounds, 0, 0);
         expect(materialBounds(ctx)).toEqual({ worst: bounds.worst, best: bounds.best });
       }
     );
     sub.release();
   });
 
-  test('with a claim in reach, the ceiling widens — and only the ceiling', () => {
+  test('with a claim in reach, the enemy is possibly-dead in our BEST reading', () => {
     // The same board with the enemy standing where our rook's ray goes: the
     // world in which it blunders into us really exists, so pricing it alive in
     // our BEST reading would be a false proof.
@@ -323,11 +332,18 @@ describe('the one place this fold differs from the engine’s own', () => {
     sub.withResolution(
       new Map([[rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }]]),
       0,
-      ({ resolution, bounds, touched }) => {
-        const ctx = makeContext(sub, resolution, bounds, touched, 0, 0);
+      ({ resolution, bounds }) => {
+        const ctx = makeContext(sub, resolution, bounds, 0, 0);
+        // The widening HAPPENS: the held enemy is not counted alive in the
+        // reading that hopes for its death.
+        const enemy = ctx.standing.find((st) => st.held && st.team !== 0);
+        expect(enemy).toBeDefined();
+        expect(enemy?.worstAlive).toBe(true); // pessimistic: it survives
+        expect(enemy?.bestAlive).toBe(false); // optimistic: it may have died
+        // And the engine already accounts for it, so the two folds agree.
         const mine = materialBounds(ctx);
         expect(mine.worst).toBe(bounds.worst);
-        expect(mine.best).toBeGreaterThan(bounds.best);
+        expect(mine.best).toBe(bounds.best);
       }
     );
     sub.release();

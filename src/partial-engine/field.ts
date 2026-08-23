@@ -46,6 +46,21 @@ export class CloudField {
   readonly unionEver: Board;
   /** Union of certain occupancy, with contested cells already demoted. */
   readonly unionCertain: Board;
+  /**
+   * Slots whose unit LEAVES A TRAIL, so has a body an arrival can be blocked
+   * by. A fact about the field, computed once and shared by every sibling —
+   * the resolver reads it once per mover and used to derive it per resolution.
+   */
+  readonly trailSlots: SlotMask;
+  /**
+   * Slots whose claim could conceivably be read as PRESENT — those whose owner
+   * cannot have killed itself. It is only a candidacy: a resolution still has
+   * to rule out this turn's modelled movers and the other claims (see
+   * `PartialEngine.markUnconditionalClaims`). Zero here means no resolution
+   * over this field need do any of that work at all, which is the common case
+   * and worth one number to know.
+   */
+  readonly unconditionalCandidates: SlotMask;
 
   /**
    * The field one turn on, memoized. Sibling states share a field by pointer, so
@@ -72,10 +87,17 @@ export class CloudField {
     this.unionPossible = new Uint32Array(w);
     this.unionEver = new Uint32Array(w);
     this.unionCertain = new Uint32Array(w);
+    let trail = 0;
+    let candidates = 0;
     for (const s of slots) {
       bbOr(this.unionPossible, s.cloud.possible, w);
       bbOr(this.unionEver, s.cloud.everPossible, w);
+      const bit = 1 << s.slot;
+      if (profileOf(s.record.kind).leavesTrail) trail |= bit;
+      if (!s.cloud.deathPossible) candidates |= bit;
     }
+    this.trailSlots = trail;
+    this.unconditionalCandidates = candidates;
     // Two units cannot both CERTAINLY stand on one cell, so if their claims
     // overlap at least one of them is dead. Weakening `certain` is always safe,
     // so every claimant loses the cell. DESIGN.md §3.5.

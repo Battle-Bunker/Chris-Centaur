@@ -156,6 +156,18 @@ function targetsBoard(engine: PartialEngine, state: StateHandle): Board {
  *
  * Returns the subject-frame ScoreBounds (own minus everyone else) with the
  * field's assumptions as its basis, plus the per-team scoped intervals.
+ *
+ * HELD SURVIVAL IS READ FROM BOTH HALVES OF THE BOARD (the R1 harness's
+ * finding). `cloud.deathPossible` is a fact about the claim's own side only —
+ * a cloud is branch-independent by design, so it cannot know that a unit
+ * somebody IS modelling walked through a cell the held unit might occupy.
+ * Reading it alone prices such a unit certainly-alive, which forbids the very
+ * world the subject's CEILING is supposed to include, and a real resolution
+ * then scores above the upper bound. `Resolution.mayHaveDied` supplies the
+ * missing half and is folded in here, frame-neutrally: contests are team-blind,
+ * so the subject's own held units blunder into the subject's own movers too,
+ * and the same widening that raises an enemy-side ceiling lowers an own-side
+ * floor. Both are the sound direction.
  */
 export function resolveBounded(
   engine: PartialEngine,
@@ -183,10 +195,15 @@ export function resolveBounded(
   }
   for (const slot of resolution.state.field.slots) {
     const cloud = slot.cloud;
+    const reachedByAMover = (resolution.mayHaveDied & (1 << slot.slot)) !== 0;
     units.push({
       unitId: slot.record.unitId,
       team: slot.record.team,
-      survival: cloud.certainlyGone ? "no" : cloud.deathPossible ? "maybe" : "yes",
+      survival: cloud.certainlyGone
+        ? "no"
+        : cloud.deathPossible || reachedByAMover
+          ? "maybe"
+          : "yes",
       weightMin: slot.bounds.weightMin,
       weightMax: slot.bounds.weightMax,
       partialLossMax: Math.max(0, slot.record.weight - slot.bounds.weightMin),

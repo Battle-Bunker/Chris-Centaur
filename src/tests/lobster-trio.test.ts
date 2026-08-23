@@ -844,50 +844,78 @@ describe('EngineSubstrate + BoundEvaluator bracket the exhaustive truth', () => 
   }, 60_000);
 });
 
-// ------------------------------------------- the reach-profile gate (V4 S1)
+// ------------------------------- per-kind maxHealth, threaded (V4 S1 retired)
 
-describe('S1 TRIPWIRE: per-kind maxHealth is flattened, so reach may not lead', () => {
+describe('per-kind maxHealth reaches the engine, so reach is bounded by it', () => {
   /**
-   * NOT A FIX — a gate, deliberately loud.
+   * RETIRED TRIPWIRE, INVERTED.
    *
-   * `EngineSubstrate` collapses a board's per-kind `maxHealthPerUnit` map to
-   * ONE ceiling, the maximum, because the engine carries one. Inflating an
-   * ENEMY's ceiling grows its cloud, which is safe. Inflating OUR OWN inflates
-   * our earliest-arrival flood — and `reachFeature`'s LO reading counts our
-   * located units' territory, so a bigger-than-true territory inside `lo` puts
-   * the published floor above the truth. Unsound, in the one direction
-   * everything here exists to forbid.
+   * The substrate used to collapse a board's per-kind `maxHealthPerUnit` to
+   * one ceiling — the maximum — because the engine carried one. That kept
+   * ceilings sound and LOST FLOORS: our own low-maximum units were credited
+   * with a refuel budget, and so a reach, they do not have, and `reachFeature`
+   * reads reach on its LO side. It was invisible to the soundness harness by
+   * construction, because `checkSoundness` brackets against completion worlds
+   * computed by the same engine under the same flattened premise.
    *
-   * It is invisible to the soundness harness by construction: `checkSoundness`
-   * brackets the partial evaluation against completion worlds computed by the
-   * SAME engine under the SAME flattened premise, and a premise error common
-   * to both sides cannot show up as a violation.
-   *
-   * It costs nothing today because the production evaluator reads reach at
-   * horizon 0. This test fails the moment that stops being true while the
-   * flattening is still here.
+   * The engine takes the table now (`EngineConfig.maxHealthPerKind`), so the
+   * test is the positive one: a low-maximum unit's reach really is bounded by
+   * ITS maximum and not by the board's largest.
    */
-  test('the production evaluator does not read reach while the flatten stands', () => {
+  const withCeilings = (pawnMax: number): Board => {
     const board = boardOf([
-      piece('p', { x: 2, y: 2 }, 'pawn', 1, { teamID: 'red' }),
-      piece('K', { x: 5, y: 5 }, 'king', 1, { teamID: 'blue' }),
+      piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red', health: 4 }),
+      piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
     ]);
-    // A real server-configured per-kind map (firebase/translate.ts writes it).
-    (board as { maxHealthPerUnit?: Record<string, number> }).maxHealthPerUnit = { pawn: 30 };
-    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    try {
-      const engineCeiling = sub.engine.config.maxHealth;
-      const configured = Object.values({ pawn: 30 });
-      const diverges = configured.some((v) => v !== engineCeiling);
-      // Today: the pawn's real ceiling is 30, the engine carries 100.
-      expect(diverges).toBe(true);
+    (board as { maxHealthPerUnit?: Record<string, number> }).maxHealthPerUnit = {
+      pawn: pawnMax,
+      king: 100,
+    };
+    return board;
+  };
 
-      // THE GATE. While the premise is flattened, the profile the team engine
-      // ships with may not read reach at all. Adopting the calibrated
-      // reach/king profile means removing the flatten FIRST (an upstream
-      // engine amendment: per-kind maxHealth), not afterwards.
-      expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
-      expect(materialEvaluator.profile.weights.reach).toBe(0);
+  test('the engine is handed the table, not its maximum', () => {
+    const sub = makeSubstrate({ board: withCeilings(30), turn: TURN, asTeam: 'red' });
+    try {
+      const perKind = sub.engine.config.maxHealthPerKind;
+      expect(perKind).not.toBeNull();
+      // Kind indices are the grammar registry's order; the pawn's own ceiling
+      // is 30 and the flat default stays 100 for everything else.
+      expect(perKind).toContain(30);
+      expect(sub.engine.config.maxHealth).toBe(100);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('a LOW ceiling is a real premise: the two boards are different engines', () => {
+    // The table is part of the engine's premise, so a board that configures a
+    // different ceiling may not reuse an engine built around the old one.
+    const low = makeSubstrate({ gameId: 'g', board: withCeilings(30), turn: TURN, asTeam: 'red' });
+    const high = makeSubstrate({ gameId: 'g', board: withCeilings(90), turn: TURN, asTeam: 'red' });
+    try {
+      expect(low.engine).not.toBe(high.engine);
+      expect(low.engine.config.maxHealthPerKind).not.toEqual(
+        high.engine.config.maxHealthPerKind
+      );
+    } finally {
+      low.release();
+      high.release();
+    }
+  });
+
+  test('a flat board still builds a flat engine — nothing changes where nothing was configured', () => {
+    const sub = makeSubstrate({
+      board: boardOf([
+        piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red' }),
+        piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
+      ]),
+      turn: TURN,
+      asTeam: 'red',
+    });
+    try {
+      expect(sub.engine.config.maxHealthPerKind).toBeNull();
+      expect(sub.engine.config.maxHealth).toBe(100);
     } finally {
       sub.release();
     }

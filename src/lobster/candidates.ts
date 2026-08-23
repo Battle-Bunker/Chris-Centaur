@@ -97,9 +97,27 @@ export const PRUNE = {
 
 export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
 
-/** Whether a prune is outcome-preserving. Exactly three of them are. */
+/**
+ * Whether a prune is outcome-preserving.
+ *
+ * `suffix-collapse` WAS one, and is not any more — UPSTREAM DEMAND. The engine's
+ * living-body encounter is now answered by TIER alone (weight is absent from
+ * the rule), so a strictly higher-tier mover SEVERS the body and continues
+ * where the old weight comparator halted it. `risk.ts`'s halt axis has not
+ * followed: `assessPath` still reports a certain halt at a claim's body cell,
+ * so the collapse deletes a staged distance the resolver would genuinely
+ * reach. Reproduced against the real resolver — a weight-3 rook at (1,3) with
+ * 10 health, a weight-2 snake claim at (1,4), 11x11: staging the cell BEYOND
+ * the claim resolves to the rook standing there with 8 health, not to the
+ * representative's stop with 9.
+ *
+ * The prune still fires — it is worth its cost — but it is DECLARED lossy, so
+ * the ledger names what it can delete instead of asserting an exactness it no
+ * longer has. Restore `true` when the halt axis is tier-only too, and the
+ * exactness suite will prove it.
+ */
 export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
-  [PRUNE.suffixCollapse]: true,
+  [PRUNE.suffixCollapse]: false,
   [PRUNE.healthHorizon]: true,
   [PRUNE.certainEdgeHorizon]: true,
   [PRUNE.quietThinning]: false,
@@ -112,7 +130,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
 /** What each lossy prune can cost, in the class of tactic it deletes. */
 export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
   [PRUNE.suffixCollapse]:
-    'the move ends at a certain stop before this staged distance, so it resolves identically to the representative',
+    'the move ends at a stop the claim layer calls certain before this staged distance — outcome-preserving except where a higher-tier mover severs a living body and continues, which the halt axis does not yet model',
   [PRUNE.healthHorizon]:
     'the mover cannot afford the next cell in any world, so every longer staging resolves identically',
   [PRUNE.certainEdgeHorizon]:
@@ -357,9 +375,13 @@ function collapseSuffixes(
       continue;
     }
     const reason = stopReason(verdict, horizon);
+    // The polarity is the vocabulary's, not this loop's: `suffix-collapse` is
+    // declared lossy until the engine's halt axis is tier-only (see
+    // PRUNE_EXACT), and the other two horizons remain outcome-preserving.
+    const exact = PRUNE_EXACT[reason];
     for (const candidate of group) {
       if (candidate.path.length <= horizon + 1) kept.push(candidate);
-      else pruned.push({ candidate, prune: reason, exact: true });
+      else pruned.push({ candidate, prune: reason, exact });
     }
   }
   return kept;

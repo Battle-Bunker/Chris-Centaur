@@ -262,13 +262,41 @@ describe('an exact prune really is exact', () => {
       sub.release();
     }
     expect(checked).toBeGreaterThan(30);
-    // Both certainty sources actually fire on this corpus. The third exact
-    // prune, `certain-edge-horizon`, needs a held unit whose CERTAIN material
-    // survives certainly — presence-certainty, not strength-determinacy — which
-    // random boards essentially never produce, and which is exactly the
-    // conservatism the claim layer is supposed to have.
+    // `health-horizon` is the one exact prune random boards produce in volume.
+    // `certain-edge-horizon` needs a held unit whose CERTAIN material survives
+    // certainly — presence-certainty, not strength-determinacy — which random
+    // boards essentially never produce, and which is exactly the conservatism
+    // the claim layer is supposed to have.
     expect(fired).toContain(PRUNE.healthHorizon);
-    expect(fired).toContain(PRUNE.suffixCollapse);
+    // `suffix-collapse` is NOT here any more, and its absence is the point:
+    // the engine's living-body encounter is answered by tier alone now, so a
+    // higher-tier mover severs a claim's body and continues where the claim
+    // layer's halt axis still says it certainly stops. It is declared lossy
+    // until the halt axis follows (see PRUNE_EXACT), and this suite is what
+    // will prove the restoration.
+    expect(PRUNE_EXACT[PRUNE.suffixCollapse]).toBe(false);
+    expect(fired).not.toContain(PRUNE.suffixCollapse);
+  });
+
+  test('the demoted suffix-collapse still FIRES, and is declared in the ledger', () => {
+    // Demoted is not disabled: the prune still pays for itself, and a
+    // declared narrowing is the honest form of it.
+    let fired = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const board = randomBoard(seed);
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      for (const unit of sub.roster()) {
+        const set = exactOnly.candidatesFor(sub, unit.unitId);
+        for (const e of set.prunedLedger) {
+          if (e.prune !== PRUNE.suffixCollapse) continue;
+          expect(e.exact).toBe(false);
+          expect(typeof PRUNE_NOTES[PRUNE.suffixCollapse]).toBe('string');
+          fired++;
+        }
+      }
+      sub.release();
+    }
+    expect(fired).toBeGreaterThan(0);
   });
 
   test('the two horizons fire on boards built to produce them, and both are exact', () => {

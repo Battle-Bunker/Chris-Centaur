@@ -113,16 +113,18 @@ export interface TeamDecisionOptions {
    * profile lost material at a one-second budget and overran at ten, because
    * it costs an arrival flood per unit PER EVALUATION.
    *
-   * Adopting it has three prerequisites, and none of them is a tuning knob:
-   *   1. per-decision caching of the arrival flood (it is recomputed from
-   *      scratch for every plan the search prices today);
+   * Adopting it had three prerequisites, and none of them is a tuning knob.
+   * ONE IS NOW MET:
+   *   1. per-decision caching of the arrival flood — OPEN. It is recomputed
+   *      from scratch for every plan the search prices, which is what made the
+   *      profile lose material at a one-second budget.
    *   2. per-kind maxHealth reaching the engine instead of being flattened to
-   *      the maximum — the flatten inflates OUR earliest-arrival flood, and
-   *      the reach feature reads that on its LO side, which is a floor above
-   *      the truth (the tripwire in the trio suite fails the moment reach is
-   *      switched on while the flatten stands);
-   *   3. a re-run of the production-regime bench, because (1) changes the
-   *      cost that made the verdict.
+   *      the maximum — MET. The flatten inflated OUR earliest-arrival flood
+   *      and the reach feature reads that on its LO side, so a floor above the
+   *      truth. `EngineConfig.maxHealthPerKind` carries the table now and the
+   *      substrate threads it; the trio suite tests it positively.
+   *   3. a re-run of the production-regime bench — OPEN, and blocked on (1),
+   *      because (1) changes the cost that produced the verdict.
    */
   readonly evaluate?: Evaluator;
   readonly search?: Partial<SearchTuning>;
@@ -725,9 +727,9 @@ export class TeamDecisionEngine {
     plan: JointPlan,
     excluding: ReadonlySet<UnitId>
   ): number {
-    return sub.withResolution(plan, asTeam, ({ resolution, touched }) => {
+    return sub.withResolution(plan, asTeam, ({ resolution }) => {
       let worst = 0;
-      for (const s of standingOf(sub, resolution, asTeam, touched)) {
+      for (const s of standingOf(sub, resolution, asTeam)) {
         if (s.team === asTeam) {
           if (excluding.has(s.unitId)) continue;
           if (s.worstAlive) worst += Math.max(0, s.weightMin - s.partialLossMax);

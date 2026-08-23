@@ -65,6 +65,7 @@ import type { Board as ApiBoard } from '../types/battlesnake';
 import { marshalBoard } from '../logic/turn-oracle';
 import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
+import type { UnitType } from '../engine-vendor/shared/types/Game';
 
 import {
   MAX_FROZEN,
@@ -96,7 +97,7 @@ import type {
   UnitSpec,
   UnitView,
 } from '../partial-engine/index';
-import { toUnitSpec } from '../partial-engine/wire-adapter';
+import { kindOfWireType, toUnitSpec } from '../partial-engine/wire-adapter';
 
 import { NO_ORDER_MOVE } from './contracts';
 import type {
@@ -297,12 +298,49 @@ export function geometryCacheStats(): {
   return { entries: GEOMETRIES.size, live, retiring, scopes: scopes.size };
 }
 
+/**
+ * THE HEALTH TABLE THE ENGINE READS, indexed by `UnitKind`.
+ *
+ * The wire configures `maxHealthPerUnit` per unit TYPE and the vendored
+ * resolver reads it as `input.maxHealth[type]`; the partial engine wants the
+ * same table indexed by kind. Absent entries mean the flat `maxHealth`, so a
+ * board that configures nothing behaves exactly as it always did.
+ *
+ * This used to be flattened to the maximum of the configured values, because
+ * the engine carried one ceiling. That kept ceilings sound and LOST FLOORS:
+ * our own low-maximum units were credited with a refuel budget — and so a
+ * reach — they do not have, which is a floor above the truth as soon as
+ * anything reads reach on its lo side. The engine takes the table now.
+ */
+function healthPerKind(
+  maxHealth: number,
+  table: Readonly<Record<string, number>> | undefined
+): ReadonlyArray<number> | null {
+  if (table === undefined) return null;
+  const out: number[] = [];
+  let diverges = false;
+  for (const [type, value] of Object.entries(table)) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    let kind: number;
+    try {
+      kind = kindOfWireType(type as UnitType);
+    } catch {
+      continue; // a type this engine has no kind for cannot be indexed
+    }
+    while (out.length <= kind) out.push(maxHealth);
+    out[kind] = value;
+    if (value !== maxHealth) diverges = true;
+  }
+  return diverges ? out : null;
+}
+
 function geometryFor(
   marshalled: MarshalledBoard,
   scope: string,
   maxUnits: number,
   maxTrail: number,
   maxHealth: number,
+  maxHealthPerKind: ReadonlyArray<number> | null,
   hazardDamage: number,
   promotionWeight: number
 ): Geometry {
@@ -316,6 +354,9 @@ function geometryFor(
     config.hazards.join(','),
     String(hazardDamage),
     String(maxHealth),
+    // The per-kind table is part of the engine's premise: two boards that
+    // configure different ceilings are different engines.
+    (maxHealthPerKind ?? []).join(','),
     String(promotionWeight),
     String(maxUnits),
     String(maxTrail),
@@ -335,7 +376,14 @@ function geometryFor(
   const engine = new PartialEngine(
     terrain,
     { food: boardWith(grid, config.food), potions: boardWith(grid, []) },
-    { maxUnits, maxTrail, hazardDamage, maxHealth, pawnPromotionWeight: promotionWeight }
+    {
+      maxUnits,
+      maxTrail,
+      hazardDamage,
+      maxHealth,
+      maxHealthPerKind,
+      pawnPromotionWeight: promotionWeight,
+    }
   );
   const geometry: Geometry = {
     key,
@@ -495,16 +543,16 @@ export class EngineSubstrate implements Substrate {
     const trailLengths = marshalled.units.map((u) => u.occupancy.length);
     const maxUnits = Math.max(4, marshalled.units.length);
     const maxTrail = Math.max(4, ...trailLengths, 1) + 2;
-    // The partial engine carries ONE health ceiling; the board may configure
-    // one per kind. The uncertainty layer may only err by claiming too much,
-    // so the ceiling is the MAXIMUM of the configured values: a cloud grown
-    // against it reaches at least as far as the truth.
+    // The flat ceiling is the DEFAULT for kinds the board does not configure,
+    // and the per-kind table carries the ones it does. It used to be the
+    // maximum over the table with the table thrown away — sound ceilings,
+    // unsound floors (see `healthPerKind`).
+    const configured = marshalled.config.maxHealth ?? {};
     const maxHealth = Math.max(
       100,
-      ...Object.values(marshalled.config.maxHealth ?? {}).filter(
-        (v): v is number => typeof v === 'number'
-      )
+      ...Object.values(configured).filter((v): v is number => typeof v === 'number')
     );
+    const maxHealthPerKind = healthPerKind(maxHealth, configured);
     const promotionWeight = board.pawnPromotionWeight ?? 10;
     const geometry = geometryFor(
       marshalled,
@@ -512,6 +560,7 @@ export class EngineSubstrate implements Substrate {
       maxUnits,
       maxTrail,
       maxHealth,
+      maxHealthPerKind,
       marshalled.config.hazardDamage,
       promotionWeight
     );
@@ -851,13 +900,11 @@ export class EngineSubstrate implements Substrate {
 
     this.resolveCount++;
     const out = resolveBounded(this.engine, working, assignment, asTeam);
-    const touched = newBoard(this.grid);
-    touched.set(this.engine.touched.subarray(0, this.grid.words));
     this.borrowed.add(out.resolution.state.slab);
     // `resolveBounded` forks again internally, so the working handle is spent
     // the moment it returns.
     this.releaseHandle(working);
-    return { ...out, touched };
+    return out;
   }
 
   /** Scoped resolution: the leak-proof door. */

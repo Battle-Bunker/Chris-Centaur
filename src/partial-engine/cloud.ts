@@ -193,6 +193,19 @@ export interface CloudPremise {
   readonly hazardDamage: number;
   /** Health a meal restores to — the two-phase relaxation's second budget. */
   readonly maxHealth: number;
+  /**
+   * PER-KIND maximum health, indexed by `UnitKind`, for the games that
+   * configure one (the wire's `maxHealthPerUnit`; the vendored resolver's
+   * `input.maxHealth[type]`). Absent or undefined at an index falls back to
+   * `maxHealth`, so the flat configuration is unchanged bit for bit.
+   *
+   * Flattening a per-kind table to its maximum is SOUND for anything the
+   * claims over-approximate — a bigger refuel budget only widens a cloud —
+   * and UNSOUND the moment a consumer reads the arrival/cost grid as its own
+   * unit's reach inside a floor. So the table is carried rather than
+   * collapsed.
+   */
+  readonly maxHealthPerKind?: ReadonlyArray<number> | null;
 }
 
 export const DEFAULT_PREMISE_RULES = {
@@ -200,6 +213,19 @@ export const DEFAULT_PREMISE_RULES = {
   hazardDamage: 15,
   maxHealth: 100,
 } as const;
+
+/**
+ * The health a meal restores THIS kind to. One lookup, in one place, so the
+ * resolver's food phase and the claim's refuel budget can never disagree about
+ * what a kind's maximum is.
+ */
+export function maxHealthFor(
+  maxHealth: number,
+  perKind: ReadonlyArray<number> | null | undefined,
+  kind: UnitKind,
+): number {
+  return perKind?.[kind] ?? maxHealth;
+}
 
 const growBoard = (grid: Grid): Board => new Uint32Array(grid.words);
 
@@ -351,6 +377,13 @@ export class CloudTimeline {
   private healthMaskBinds: boolean;
   /** The same terrain with nothing masked off — where a trail unit may DIE. */
   private readonly unmaskedTerrain: Terrain;
+  /**
+   * The most a meal could restore this unit to — the max over every kind it
+   * might BE, because a pawn past the promotion horizon refuels as a queen.
+   * Over the kindSet rather than the whole table: flattening to the global
+   * maximum is what made a low-max unit's reach a fiction.
+   */
+  private readonly refuelTo: number;
   /** Lazily built arrival/cost grid; extended in place as the horizon grows. */
   private arrivalGrid: ArrivalGrid | null = null;
 
@@ -367,6 +400,14 @@ export class CloudTimeline {
     // enter more cells than its health affords; every kind but the knight moves
     // at least one Chebyshev step per cell entered, and a knight at most two.
     const profile = profileOf(record.kind);
+    const ownMax = maxHealthFor(premise.maxHealth, premise.maxHealthPerKind, record.kind);
+    this.refuelTo =
+      profile.promotesTo === null
+        ? ownMax
+        : Math.max(
+            ownMax,
+            maxHealthFor(premise.maxHealth, premise.maxHealthPerKind, profile.promotesTo),
+          );
     const cells = Math.max(1, Math.floor(record.health / profile.costPerCell));
     const reach = cells * (record.kind === Kind.Knight ? 2 : 1);
     this.healthMask = growBoard(grid);
@@ -501,11 +542,20 @@ export class CloudTimeline {
       return fixed;
     }
 
-    // Once food is inside the cumulative claim the unit could have eaten and
-    // restored to full health, so the health cap stops binding for good.
+    // Once food is inside the cumulative claim the unit could have eaten, so
+    // the FROZEN health stops binding — but its kind's maximum still does. A
+    // meal restores to that maximum and no further, and the food phase runs at
+    // END of turn, so within this turn the unit entered at most
+    // maxHealth/costPerCell cells however many meals it has had. Reading the
+    // whole board span here (which is what a flat 100 always yielded) is an
+    // over-approximation the claims can afford and a consumer's own-unit reach
+    // cannot.
     const fedPossible = bbIntersects(prev.everPossible, food, w);
     const rayCap = fedPossible
-      ? Math.max(grid.width, grid.height)
+      ? Math.min(
+          Math.max(grid.width, grid.height),
+          Math.max(1, Math.floor(this.refuelTo / profile.costPerCell)),
+        )
       : Math.max(1, Math.floor(r.health / profile.costPerCell));
 
     const headPossible = growBoard(grid);
@@ -868,7 +918,7 @@ export class CloudTimeline {
     });
     if (refuels.length > 0) {
       for (const c of refuels) cost[c] = 0;
-      relaxFrom(refuels, Math.max(0, this.premise.maxHealth));
+      relaxFrom(refuels, Math.max(0, this.refuelTo));
     }
 
     for (let c = 0; c < grid.cells; c++) {
@@ -886,37 +936,179 @@ export class CloudTimeline {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Interning — two levels, and neither of them a leak
+// ---------------------------------------------------------------------------
+
+/**
+ * EXHAUSTIVENESS GUARD for the structural key. A cloud is a pure function of
+ * the record and the premise, so the key must name EVERY field of the record:
+ * a missed field is not a slow shared timeline, it is a silently WRONG one.
+ * Adding a field to `FrozenRecord` makes this object literal incomplete and
+ * fails the build, which is the moment to extend `frozenRecordKey` — and
+ * `partial-memory.test.ts` drives its perturbation test off these very keys,
+ * so a field added here but forgotten in the key string fails a test too.
+ */
+export const FROZEN_RECORD_KEY_FIELDS: { readonly [K in keyof FrozenRecord]-?: true } = {
+  unitId: true,
+  kind: true,
+  team: true,
+  occupancy: true,
+  heldAtTurn: true,
+  health: true,
+  tier: true,
+  tierExpiresAtTurn: true,
+  weight: true,
+  orientation: true,
+  narrowedTo: true,
+};
+
+/**
+ * The record's VALUE, as a string. Two records with the same key describe the
+ * same unit observed the same way, so they may share one computed timeline —
+ * which is what lets a record rebuilt from a wire payload, or reconstructed by
+ * a catch-up, land on the dilation a sibling already paid for.
+ *
+ * `unitId` and `team` are in the key even though no dilation reads them,
+ * because `Cloud.record` is handed back to consumers: sharing across a
+ * differing id would answer a question about the wrong unit.
+ */
+export function frozenRecordKey(r: FrozenRecord): string {
+  return `${r.unitId}|${r.kind}|${r.team}|${r.occupancy.join(",")}|${r.heldAtTurn}|${r.health}|${r.tier}|${r.tierExpiresAtTurn ?? "-"}|${r.weight}|${r.orientation}|${r.narrowedTo === null ? "-" : r.narrowedTo.join(",")}`;
+}
+
+export interface CloudSourceOptions {
+  /**
+   * How many timelines this source keeps by VALUE. The bound is the whole
+   * point: this map is the only strong retention in the interning path, so its
+   * capacity is the source's memory ceiling. 0 disables value interning and
+   * leaves identity interning alone.
+   */
+  readonly cacheSize?: number;
+  /**
+   * Claim versions, supplied so several sources can share one counter. A
+   * version is documented as monotonically increasing per unit id, and a
+   * source that can be evicted must not be able to reset one.
+   */
+  readonly versions?: Map<number, number>;
+}
+
+/** Timelines a source keeps by value before the least-recently-used one goes. */
+export const DEFAULT_TIMELINE_CACHE = 128;
+
 /**
  * Memoizes cloud timelines per frozen record, so every state in a search tree
  * that holds the same unit shares the same computed clouds. Also the home of
  * CLAIM VERSIONS: refining a unit (narrowing, catch-up) bumps its version, and
  * every branch sharing the interned claim sees the bump — O(1), not
  * O(branches) (delta §5).
+ *
+ * TWO LEVELS, BECAUSE THE TWO DEMANDS ON THIS MAP PULL APART.
+ *
+ *   · IDENTITY, in a WeakMap. Within one decision the field holds the record
+ *     objects, so `timelineFor` is called with the same object again and again
+ *     and the answer must be the same pointer — that is the whole structural-
+ *     sharing story. A record is also the natural GC root for its own clouds:
+ *     when the consumer drops the record, nothing about it is worth keeping.
+ *     A strong Map here LEAKS, and leaks in the normal case rather than an
+ *     exotic one: records carry per-turn observation data, so a long-lived
+ *     process rebuilds them every turn and the old ones are garbage the map
+ *     pins forever (measured: +33 MB per 100 turns, linear, in a 512 MB cap).
+ *
+ *   · VALUE, in a bounded LRU. Identity interning is free but blind: two code
+ *     paths that rebuild an EQUAL record from the same observation shared
+ *     nothing, and paid for two dilations (backlog item 2). Keying by value
+ *     fixes that, and — unlike a WeakMap — its keys are not tied to any live
+ *     object's lifetime, so it MUST be bounded or it is the same leak wearing
+ *     a different hat. The bound is a cap on wasted work, never on
+ *     correctness: an eviction costs a re-dilation and nothing else.
+ *
+ * So identity feeds value and value feeds identity: a value hit re-registers
+ * the new record object in the WeakMap, and every future call through that
+ * object skips the key derivation entirely.
  */
 export class CloudSource {
   private readonly premise: CloudPremise;
   private readonly scratch: DilateScratch;
-  private readonly timelines = new Map<FrozenRecord, CloudTimeline>();
-  private readonly versions = new Map<number, number>();
+  /** Identity interning. WEAK on purpose — see the class comment. */
+  private readonly byIdentity = new WeakMap<FrozenRecord, CloudTimeline>();
+  /** Value interning, LRU by insertion order. The only strong retention here. */
+  private readonly byValue = new Map<string, CloudTimeline>();
+  private readonly versions: Map<number, number>;
+  /** How many timelines `byValue` may hold. */
+  readonly cacheSize: number;
   /** Instrumentation for the benchmarks: how often sharing actually hit. */
   hits = 0;
   misses = 0;
+  /** Split of `hits`, so a bench can tell which level is doing the work. */
+  identityHits = 0;
+  valueHits = 0;
+  evictions = 0;
 
-  constructor(premise: CloudPremise) {
+  constructor(premise: CloudPremise, options: CloudSourceOptions = {}) {
     this.premise = premise;
     this.scratch = makeScratch(premise.terrain.grid);
+    this.cacheSize = Math.max(0, options.cacheSize ?? DEFAULT_TIMELINE_CACHE);
+    this.versions = options.versions ?? new Map<number, number>();
   }
 
   timelineFor(record: FrozenRecord): CloudTimeline {
-    const found = this.timelines.get(record);
-    if (found !== undefined) {
+    const byIdentity = this.byIdentity.get(record);
+    if (byIdentity !== undefined) {
       this.hits++;
-      return found;
+      this.identityHits++;
+      return byIdentity;
+    }
+    if (this.cacheSize === 0) {
+      this.misses++;
+      const made = new CloudTimeline(record, this.premise, this.scratch);
+      this.byIdentity.set(record, made);
+      return made;
+    }
+    const key = frozenRecordKey(record);
+    const byValue = this.byValue.get(key);
+    if (byValue !== undefined) {
+      this.hits++;
+      this.valueHits++;
+      // Touch: most-recently-used goes to the end of the insertion order.
+      this.byValue.delete(key);
+      this.byValue.set(key, byValue);
+      this.byIdentity.set(record, byValue);
+      return byValue;
     }
     this.misses++;
     const made = new CloudTimeline(record, this.premise, this.scratch);
-    this.timelines.set(record, made);
+    this.byIdentity.set(record, made);
+    this.byValue.set(key, made);
+    if (this.byValue.size > this.cacheSize) {
+      const oldest = this.byValue.keys().next();
+      if (!oldest.done) {
+        this.byValue.delete(oldest.value);
+        this.evictions++;
+      }
+    }
     return made;
+  }
+
+  /**
+   * How many timelines this source is retaining — the number a memory test
+   * asserts a bound on, and the number a profile should look at first.
+   * The WeakMap contributes nothing: what it holds is alive because the
+   * CONSUMER is still holding the record, and dies with it.
+   */
+  get retainedTimelines(): number {
+    return this.byValue.size;
+  }
+
+  /**
+   * Drop every retained timeline. The explicit half of the lifecycle: a
+   * consumer that has finished a decision, or that knows its records have all
+   * been rebuilt, can say so instead of waiting for the LRU to notice. Claim
+   * versions SURVIVE — they are a fact about refinements that happened, not a
+   * cache.
+   */
+  clear(): void {
+    this.byValue.clear();
   }
 
   /** Monotonically increasing per unit id; bumped by any refinement of it. */

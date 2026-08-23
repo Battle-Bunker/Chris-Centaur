@@ -12,9 +12,12 @@
 // DESIGN.md §3.6 and §4.
 //
 // WHAT A RESOLUTION RETURNS. Not "what happens" — one well-defined timeline
-// (the OPTIMISTIC one: maybe-cells treated as empty, certain cells treated as
-// occupied on the neck argument) plus a complete LEDGER of every point at which
-// that timeline could differ from the truth. An empty ledger is a proof of
+// (the OPTIMISTIC one: a cell a frozen unit MIGHT hold is treated as empty, and
+// so is a cell the neck argument makes certain while its owner might still be
+// dead — `certain` is CERTAIN-CONDITIONAL-ON-ALIVE, and a claim only occupies a
+// cell in this timeline when nothing could have killed its owner) plus a
+// complete LEDGER of every point at which that timeline could differ from the
+// truth. An empty ledger is a proof of
 // correctness for every possible behaviour of the frozen units (DESIGN.md §4.3,
 // T2). A non-empty one tells the searcher exactly which unit to go back and
 // simulate, and from which turn.
@@ -27,9 +30,9 @@
 // being cleared.
 
 import type { Board, Grid } from "./bitgrid.js";
-import { bbSet, bbTest, bbZero } from "./bitgrid.js";
+import { bbIntersects, bbSet, bbTest, bbZero } from "./bitgrid.js";
 import type { CloudPremise, FrozenRecord, StrengthBounds } from "./cloud.js";
-import { CloudSource } from "./cloud.js";
+import { CloudSource, DEFAULT_TIMELINE_CACHE, maxHealthFor } from "./cloud.js";
 import type { CloudField, SlotMask } from "./field.js";
 import { emptyField } from "./field.js";
 import type { Terrain, UnitKind } from "./grammar.js";
@@ -69,8 +72,32 @@ export interface EngineConfig {
   readonly maxTrail: number;
   readonly hazardDamage: number;
   readonly maxHealth: number;
+  /**
+   * PER-KIND maximum health, indexed by `UnitKind` — the wire's
+   * `maxHealthPerUnit`, which the game configures and the vendored resolver
+   * reads as `input.maxHealth[type]`. `null`, or `undefined` at an index,
+   * means `maxHealth`, so a flat configuration behaves exactly as before.
+   *
+   * Two things read it, and they are the two the game reads its own table
+   * for: the food phase (a meal restores to the EATER'S kind's maximum) and
+   * the claim's refuel budget (the arrival/cost grid's second relaxation, and
+   * the ray cap of a unit that might have eaten). A consumer that flattens the
+   * table to its maximum keeps sound ceilings and loses sound floors — its own
+   * low-maximum units are then credited with a reach they do not have.
+   */
+  readonly maxHealthPerKind: ReadonlyArray<number> | null;
   /** Weight at which a promoting kind promotes (docs/chess-pieces.md; default 10). */
   readonly pawnPromotionWeight: number;
+  /**
+   * How many cloud sources (one per distinct item premise) the engine keeps.
+   * A premise is derived from the state's own food/potion boards, so a game
+   * that eats produces a fresh one every few turns and an unbounded map of
+   * them is a leak in the NORMAL case. LRU: an eviction costs a re-dilation
+   * and never a wrong answer.
+   */
+  readonly sourceCacheSize: number;
+  /** Timelines each cloud source keeps by value; see `CloudSourceOptions`. */
+  readonly timelineCacheSize: number;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -78,7 +105,10 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   maxTrail: 24,
   hazardDamage: 15,
   maxHealth: 100,
+  maxHealthPerKind: null,
   pawnPromotionWeight: 10,
+  sourceCacheSize: 8,
+  timelineCacheSize: DEFAULT_TIMELINE_CACHE,
 };
 
 /** A search node. Immutable by convention; the engine mutates only through it. */
@@ -151,10 +181,16 @@ export interface Entanglement {
   readonly frozen: SlotMask;
   readonly channel: Channel;
   /**
-   * `false` — the optimistic timeline treated the cell as empty; the frozen unit
-   * merely has to have moved here for this to bite.
-   * `true` — the optimistic timeline PLACED the frozen unit here on the neck
-   * argument; only its death makes that wrong, which is much rarer.
+   * How strong the claim on this cell is — a grading of the CLAIM, not of what
+   * the timeline did with it.
+   *
+   * `false` — a mere maybe: the frozen unit has to have MOVED here for this to
+   * bite.
+   * `true` — the neck argument makes the cell certain, so the frozen unit is
+   * here in every world where it is still alive; only its death makes that
+   * wrong, which is much rarer. The optimistic timeline still steps around it
+   * while that death is possible (certain-conditional-on-alive), so this flag
+   * tells a consumer how likely the entry is to matter, not who won the cell.
    */
   readonly assumedPresent: boolean;
   /** Whether the frozen unit's strength interval permits it to beat this one. */
@@ -252,6 +288,36 @@ export interface Resolution {
    * the board, so there is no partial loss to price.
    */
   readonly severedCells: ReadonlyMap<number, ReadonlyArray<number>>;
+  /**
+   * THE OTHER HALF OF `deathPossible` — frozen slots whose claim this turn's
+   * MODELLED FOOTPRINT reached, so no consumer may price them certainly-alive.
+   *
+   * A `Cloud` is deliberately a pure function of (record, terrain, item set,
+   * turns held, narrowing) and of nothing a sibling branch does — that purity
+   * is what lets one timeline be shared by pointer across a whole search tree.
+   * So `cloud.deathPossible` can only ever answer from the claim's own side of
+   * the board: exhaustion, a hazard, a wall it was free to enter, its own body.
+   * It cannot know that a unit somebody IS modelling walked through the cell
+   * the held unit might be standing on.
+   *
+   * That gap is harmless in a FLOOR (which prices an enemy alive anyway) and a
+   * FALSE PROOF in a CEILING: the subject's best world is the one where the
+   * enemy dies, and a held unit reported certainly-alive forbids exactly that
+   * world. A real resolution then scores ABOVE the "upper" bound.
+   *
+   * This mask is the branch-dependent fact, published where it belongs — on
+   * the resolution, which is the one object that knows both halves. Read it as
+   *
+   *     survival = cloud.certainlyGone ? "no"
+   *              : cloud.deathPossible || (mayHaveDied & (1 << slot)) ? "maybe"
+   *              : "yes"
+   *
+   * which is what `resolveBounded` does. It is deliberately TARGETED: only
+   * slots whose `possible` intersects `touched`, so a held unit nobody came
+   * near keeps its tight ceiling. Bit `slot`, not array index. Always 0 when
+   * nothing is frozen.
+   */
+  readonly mayHaveDied: SlotMask;
 }
 
 /** Display strings, verbatim from the vendored resolver's `REASON`. */
@@ -369,8 +435,22 @@ export class PartialEngine {
    * constructor argument: an empty premise beside a stateful board silently
    * yields a weight ceiling that cannot grow — a bound that can only get
    * more pessimistic is not conservative, it is broken.
+   *
+   * LRU-BOUNDED (`config.sourceCacheSize`). The premise key changes whenever
+   * an item leaves the board, so in a long-lived process this map grows once
+   * per few turns forever, and each entry used to pin every timeline built
+   * against it. Eviction is free of consequence: a source owns no state a
+   * consumer holds — fields hold TIMELINES, not sources — so an evicted
+   * premise costs the next hold a re-dilation and nothing more.
    */
   private readonly sources = new Map<string, CloudSource>();
+  /**
+   * Claim versions, OWNED BY THE ENGINE rather than by each source. A version
+   * is documented as monotonically increasing per unit id; letting an eviction
+   * take the counter with it would let a version go backwards, and a consumer
+   * comparing versions would read a refinement as un-done.
+   */
+  private readonly claimVersions = new Map<number, number>();
 
   private readonly unitStride: number;
   private readonly boardStride: number;
@@ -439,6 +519,14 @@ export class PartialEngine {
   private readonly uSever: Int32Array;
   /** Slots whose strength interval permits beating this unit. One turn's constant. */
   private readonly uBeatenBy: Int32Array;
+  /**
+   * Slots that can kill this unit ON THEIR OWN LIVING BODY and that `uBeatenBy`
+   * does NOT already name — the difference between the two comparators, which
+   * is all the per-cell loop ever needs. Non-zero only for trail claims at the
+   * mover's own tier that it out-weighs, which is exactly the case the contest
+   * comparator gets wrong (V2 BUG-1) and empty on most boards.
+   */
+  private readonly uBodyBeatenBy: Int32Array;
   private readonly pendKill: Int32Array;
   /** The ClashKind index (`CAUSE_NAMES`) a pending kill will be recorded under. */
   private readonly pendCause: Int32Array;
@@ -477,6 +565,12 @@ export class PartialEngine {
   /** (cell -> live slots already reported there this turn), generation-stamped. */
   private readonly notedStamp: Int32Array;
   private readonly notedMask: Int32Array;
+  /**
+   * Slots this turn's adjudication has stopped trusting the certainty of —
+   * folded into the resolution's `softFrozen`. Shrinking certainty is always
+   * sound, and one word carries it.
+   */
+  private pendSoftFrozen = 0;
   private turnGen = 1;
   private readonly maxPath: number;
   /** Per-resolution event output; see `Resolution.clashes` / `.deaths`. */
@@ -490,6 +584,20 @@ export class PartialEngine {
   private readonly pathScratch: number[] = [];
   /** Every cell any live unit occupied or entered this turn. */
   readonly touched: Board;
+  /**
+   * Every cell a live unit occupies at turn start or COULD enter along its
+   * planned path — a superset of `touched`, known before the first sub-step and
+   * therefore usable by the adjudicator. `touched` is what actually happened;
+   * this is what the modelled side could reach, which is the question a claim's
+   * conditionality turns on.
+   */
+  private readonly planFootprint: Board;
+  /**
+   * Frozen slots whose claim this branch may read as PRESENT — the only slots
+   * for which `certain` is a fact rather than a conditional. See
+   * `markUnconditionalClaims`.
+   */
+  private unconditionalClaims: SlotMask = 0;
   private ledger: Entanglement[] = [];
 
   constructor(
@@ -500,14 +608,18 @@ export class PartialEngine {
     this.terrain = terrain;
     this.grid = terrain.grid;
     this.config = { ...DEFAULT_ENGINE_CONFIG, ...config };
-    this.clouds = new CloudSource({
-      terrain,
-      food: premise.food,
-      potions: premise.potions,
-      promotionWeight: this.config.pawnPromotionWeight,
-      hazardDamage: this.config.hazardDamage,
-      maxHealth: this.config.maxHealth,
-    });
+    this.clouds = new CloudSource(
+      {
+        terrain,
+        food: premise.food,
+        potions: premise.potions,
+        promotionWeight: this.config.pawnPromotionWeight,
+        hazardDamage: this.config.hazardDamage,
+        maxHealth: this.config.maxHealth,
+        maxHealthPerKind: this.config.maxHealthPerKind,
+      },
+      { cacheSize: this.config.timelineCacheSize, versions: this.claimVersions },
+    );
 
     const U = this.config.maxUnits;
     const B = this.grid.cells;
@@ -554,6 +666,7 @@ export class PartialEngine {
     this.uStartHead = new Int32Array(U);
     this.uSever = new Int32Array(U);
     this.uBeatenBy = new Int32Array(U);
+    this.uBodyBeatenBy = new Int32Array(U);
     this.pendKill = new Int32Array(U);
     this.pendStop = new Int32Array(U);
     this.pendSever = new Int32Array(U);
@@ -561,6 +674,7 @@ export class PartialEngine {
     this.notedStamp = new Int32Array(B);
     this.notedMask = new Int32Array(B);
     this.touched = new Uint32Array(this.grid.words);
+    this.planFootprint = new Uint32Array(this.grid.words);
   }
 
   // -------------------------------------------------------------------------
@@ -602,25 +716,73 @@ export class PartialEngine {
     const fb = this.foodBase(state.slab);
     const pb = this.potionBase(state.slab);
     const key = this.premiseKeyOf(state);
-    let src = this.sources.get(key);
-    if (src === undefined) {
-      const food = new Uint32Array(this.grid.words);
-      const potions = new Uint32Array(this.grid.words);
-      for (let i = 0; i < this.grid.words; i++) {
-        food[i] = this.boardArena[fb + i] as number;
-        potions[i] = this.boardArena[pb + i] as number;
-      }
-      src = new CloudSource({
+    const found = this.sources.get(key);
+    if (found !== undefined) {
+      // Touch, so the premise a search is actually working in is the last one
+      // to be evicted.
+      this.sources.delete(key);
+      this.sources.set(key, found);
+      return found;
+    }
+    const food = new Uint32Array(this.grid.words);
+    const potions = new Uint32Array(this.grid.words);
+    for (let i = 0; i < this.grid.words; i++) {
+      food[i] = this.boardArena[fb + i] as number;
+      potions[i] = this.boardArena[pb + i] as number;
+    }
+    const src = new CloudSource(
+      {
         terrain: this.terrain,
         food,
         potions,
         promotionWeight: this.config.pawnPromotionWeight,
         hazardDamage: this.config.hazardDamage,
         maxHealth: this.config.maxHealth,
-      });
-      this.sources.set(key, src);
+        maxHealthPerKind: this.config.maxHealthPerKind,
+      },
+      { cacheSize: this.config.timelineCacheSize, versions: this.claimVersions },
+    );
+    this.sources.set(key, src);
+    while (this.sources.size > this.config.sourceCacheSize) {
+      const oldest = this.sources.keys().next();
+      if (oldest.done) break;
+      this.sources.delete(oldest.value);
     }
     return src;
+  }
+
+  /**
+   * The health a meal restores this kind to. Public because a consumer pricing
+   * a plan needs the same number the resolver will use, and deriving it from
+   * `config` a second time is how the two drift apart.
+   */
+  maxHealthOf(kind: UnitKind): number {
+    return maxHealthFor(this.config.maxHealth, this.config.maxHealthPerKind, kind);
+  }
+
+  /** How many premises the engine is currently retaining sources for. */
+  get sourceCount(): number {
+    return this.sources.size;
+  }
+
+  /** Timelines retained across every live source, `clouds` included. */
+  get retainedTimelines(): number {
+    let n = this.clouds.retainedTimelines;
+    for (const src of this.sources.values()) n += src.retainedTimelines;
+    return n;
+  }
+
+  /**
+   * Drop every per-premise cloud source, and everything the constructor-premise
+   * source interned. The explicit half of the claim-cache lifecycle, for a
+   * consumer that knows a decision is over: nothing a caller still holds points
+   * at a source (fields hold timelines), so this frees the caches and leaves
+   * every existing state, field and bound exactly as it was. Claim versions
+   * survive — they record refinements that happened, and are not a cache.
+   */
+  clearSources(): void {
+    this.sources.clear();
+    this.clouds.clear();
   }
 
   private uBase(slab: number): number {
@@ -1122,6 +1284,17 @@ export class PartialEngine {
     this.currentTurn = state.turn;
     this.turnGen++;
     bbZero(this.touched, this.grid.words);
+    this.unconditionalClaims = 0;
+    this.pendSoftFrozen = 0;
+    // THE FOOTPRINT IS ONLY EVER READ TO PROMOTE A CLAIM TO UNCONDITIONAL, and
+    // a claim whose owner could have killed itself can never be promoted — so
+    // one O(K) pass over a boolean decides whether any of the board work below
+    // is worth doing at all. A held trail unit long enough to run into itself
+    // has `deathPossible` from its first held turn, which is most of them, so
+    // this skips the whole mechanism on the shape a search actually runs.
+    const mayPromote = anyFrozen && field.unconditionalCandidates !== 0;
+    if (mayPromote) bbZero(this.planFootprint, this.grid.words);
+    const trailSlots = anyFrozen ? field.trailSlots : 0;
     this.pileGen++;
     let softFrozen = state.softFrozen;
     const strict = options?.strict === true;
@@ -1200,9 +1373,18 @@ export class PartialEngine {
       this.uStatus[i] = S_ACTIVE;
       this.uPrevHead[i] = head;
       this.uStartHead[i] = head;
-      this.uBeatenBy[i] = anyFrozen
-        ? beatenBy(field, this.uTier[i] as number, this.uWeight[i] as number)
-        : 0;
+      if (anyFrozen) {
+        this.beatMasksInto(
+          field,
+          i,
+          this.uTier[i] as number,
+          this.uWeight[i] as number,
+          trailSlots,
+        );
+      } else {
+        this.uBeatenBy[i] = 0;
+        this.uBodyBeatenBy[i] = 0;
+      }
       const staged = orders[i] ?? NO_ORDER;
       const orient = arena[o + U_ORIENT] as number;
       const action =
@@ -1232,7 +1414,17 @@ export class PartialEngine {
       this.uPathLen[i] = n;
       if (n > subSteps) subSteps = n;
       bbSet(this.touched, head);
+      if (mayPromote) {
+        // The modelled side's whole reach, known before any sub-step runs: its
+        // turn-start occupancy (a trail unit's body kills what runs into it) and
+        // every cell it may enter.
+        const t = this.trailBase(state.slab, i);
+        const len = arena[o + U_LEN] as number;
+        for (let j = 0; j < len; j++) bbSet(this.planFootprint, arena[t + j] as number);
+        for (let s = 0; s < n; s++) bbSet(this.planFootprint, pathScratch[s] as number);
+      }
     }
+    if (mayPromote) this.markUnconditionalClaims(field);
 
     // A unit that never moves still pays a stationary hazard dose at sub-step 1,
     // so all health accounting lives in one place.
@@ -1267,6 +1459,17 @@ export class PartialEngine {
       turn: nextTurn,
       softFrozen,
     };
+    // Which frozen claims this turn's movers actually reached. `touched` is
+    // complete by now (stage 1 wrote every origin head, `advance` every
+    // landing), and `field` is the POST-MOVE claim — the same turn — so the
+    // intersection is between two boards describing the same instant.
+    let mayHaveDied = 0;
+    if (anyFrozen) {
+      const w = this.grid.words;
+      for (const slot of field.slots) {
+        if (bbIntersects(slot.cloud.possible, this.touched, w)) mayHaveDied |= 1 << slot.slot;
+      }
+    }
     return {
       state: next,
       ledger: this.ledger,
@@ -1276,6 +1479,7 @@ export class PartialEngine {
       clashes: this.clashes,
       deaths: this.deaths,
       severedCells: this.severed,
+      mayHaveDied,
     };
   }
 
@@ -1590,7 +1794,7 @@ export class PartialEngine {
       this.cellBuf[b + 1] = v;
     }
     for (let a = 0; a < cells; a++) {
-      this.contestCell(state, this.cellBuf[a] as number, s, field, anyFrozen);
+      this.contestCell(state, this.cellBuf[a] as number, s);
     }
 
     // TIER 5 — LIVING body / trail cells. An arrival at tier ≤ the owner's dies;
@@ -1667,6 +1871,46 @@ export class PartialEngine {
       if ((this.uPathLen[i] as number) > s) this.pendStop[i] = 1;
     }
 
+    // c5 AGAINST A FROZEN CLAIM — for the claims this branch may actually read
+    // as present (`markUnconditionalClaims`). A certain cell in a resolution is
+    // always a living trail unit's BODY segment: `certain` at turnsHeld n covers
+    // freeze indices i ≤ k−1−n, which sit at body index i+n ≥ 1. So it is
+    // answered by TIER ALONE, like every other living body, and never by the
+    // cell contest that used to fold the claim in at `(tierMax, weightMax)`.
+    //
+    // The gate is the whole difference between this being right and being the
+    // bug in a different coat: `deathPossible` alone says "the owner cannot kill
+    // itself", which says nothing about the mover standing next to it.
+    if (anyFrozen && this.unconditionalClaims !== 0) {
+      for (let i = 0; i < U; i++) {
+        if (this.uStatus[i] !== S_ACTIVE || (this.uPathLen[i] as number) < s) continue;
+        if (this.uBodyAlive[i] !== 1 || this.uBlocked[i] === 1) continue;
+        const cell = arena[this.trailBase(state.slab, i)] as number;
+        if (!bbTest(field.unionCertain, cell)) continue;
+        const fslot = field.certainAt(cell);
+        if (fslot < 0 || (this.unconditionalClaims & (1 << fslot)) === 0) continue;
+        const held = field.bySlot(fslot);
+        if (held === undefined || !profileOf(held.record.kind).leavesTrail) continue;
+        const id = this.idOf(base, i);
+        const ownerId = held.record.unitId;
+        if ((this.uTier[i] as number) <= held.bounds.tierMax) {
+          if (this.pendKill[i] === -1) {
+            this.pendKill[i] = cell;
+            this.pendCause[i] = C_BODYBLOCK;
+          }
+          this.pileAdd(cell, i);
+          this.clash("bodyBlock", cell, s, [id, ownerId], [id], REASON.bodyBlock, ownerId);
+          continue;
+        }
+        // Strictly higher tier severs and capture-stops. The cut lands on a
+        // claim rather than on arena storage, so what a resolution can do about
+        // it is stop trusting that claim's certainty — which is what
+        // `softFrozen` is for, and shrinking certainty is always sound.
+        this.pendSoftFrozen |= 1 << fslot;
+        this.clash("sever", cell, s, [id, ownerId], [], REASON.sever, id);
+        if ((this.uPathLen[i] as number) > s) this.pendStop[i] = 1;
+      }
+    }
     // ---- The uncertainty overlay: one pass, one entry per (unit, cell) ----
     // Every ray cell IS a head cell at some sub-step, so recording the head cell
     // of every advancing unit covers arrival, transit, body contact and durable
@@ -1706,13 +1950,7 @@ export class PartialEngine {
    * Survival is being the unique strict maximum of the entire pile — never a
    * pairwise comparison against the newest arrival.
    */
-  private contestCell(
-    state: StateHandle,
-    cell: number,
-    s: number,
-    field: CloudField,
-    anyFrozen: boolean,
-  ): void {
+  private contestCell(state: StateHandle, cell: number, s: number): void {
     const base = this.uBase(state.slab);
     this.partGen++;
     let n = 0;
@@ -1755,28 +1993,33 @@ export class PartialEngine {
         }
       }
     }
-    // A frozen unit the neck argument places here contests with its interval; the
-    // upper end is used, because that is the reading that can kill.
-    let frozenParticipant = 0;
-    let frozenTier = 0;
-    if (anyFrozen && bbTest(field.unionCertain, cell)) {
-      const fslot = field.certainAt(cell);
-      const held = fslot >= 0 ? field.bySlot(fslot) : undefined;
-      if (held !== undefined) {
-        frozenParticipant = 1;
-        frozenTier = held.bounds.tierMax;
-        consider(held.bounds.tierMax, held.bounds.weightMax, -3 - fslot);
-      }
-    }
-
+    // A FROZEN CLAIM IS NOT A PARTICIPANT IN THIS CONTEST (V2 BUG-1, the other
+    // half). This branch used to fold the neck argument's certain cell in as a
+    // head-to-head contestant at `(tierMax, weightMax)`, and both parts of that
+    // were wrong:
+    //
+    //   · WRONG RULE. A certain cell in a resolution is always a living trail
+    //     unit's BODY segment — `certain` at turnsHeld n covers freeze indices
+    //     i ≤ k−1−n, which sit at body index i+n ≥ 1 — and the rules answer a
+    //     body encounter by TIER ONLY (c5), never by a cell contest. Deciding
+    //     it on weight let a heavy mover WIN a cell the rules say kills it, and
+    //     let a light one LOSE a cell the rules say kills it too. It is
+    //     adjudicated in the body tier now, where c5 already lives.
+    //
+    //   · WRONG CERTAINTY. `certain` is CERTAIN-CONDITIONAL-ON-ALIVE, stated at
+    //     cloud.ts's own field: while `deathPossible` holds, no verdict layer
+    //     may read a certain cell as presence "yes". The ledger already obeyed
+    //     that (it records the cell as a maybe); the adjudicator did not, so the
+    //     two halves of one resolution disagreed about the same cell.
+    //
     // Nobody to contest: an arriver alone on an empty cell neither stops nor dies.
-    if (n + frozenParticipant < 2) return;
+    if (n < 2) return;
 
     const unique = bestCount === 1;
     const survivorStanding = unique && best >= 0 && this.uStanding[best] === 1;
     // Display text only: a contest with several units at the top tier was
     // settled on weight, one with a single unit there on tier.
-    let atMaxTier = frozenParticipant === 1 && frozenTier === bestTier ? 1 : 0;
+    let atMaxTier = 0;
     for (let k = 0; k < n; k++) {
       if ((this.uTier[this.partBuf[k] as number] as number) === bestTier) atMaxTier++;
     }
@@ -1918,6 +2161,8 @@ export class PartialEngine {
     for (let i = 0; i < U; i++) {
       if (this.pendStop[i] === 1 && this.uStatus[i] === S_ACTIVE) this.uStatus[i] = S_STOPPED;
     }
+    soft |= this.pendSoftFrozen;
+    this.pendSoftFrozen = 0;
     return soft;
   }
 
@@ -2027,7 +2272,11 @@ export class PartialEngine {
       const bit = 1 << (head & 31);
       if (((this.boardArena[word] as number) & bit) === 0) continue;
       this.boardArena[word] = (this.boardArena[word] as number) & ~bit;
-      this.uHealth[i] = this.config.maxHealth;
+      // A meal restores to the EATER'S kind's maximum, not to a game-wide one:
+      // the game configures `maxHealthPerUnit` and the vendored resolver reads
+      // `input.maxHealth[type]` here, so a flat number diverges from the rules
+      // on the first bite a low-maximum unit takes.
+      this.uHealth[i] = this.maxHealthOf(arena[o + U_KIND] as UnitKind);
       const len = arena[o + U_LEN] as number;
       if (profileOf(arena[o + U_KIND] as UnitKind).leavesTrail && len < this.config.maxTrail) {
         arena[t + len] = arena[t + len - 1] as number;
@@ -2058,7 +2307,14 @@ export class PartialEngine {
     for (let i = 0; i < U; i++) {
       const o = base + i * U_FIELDS;
       if (arena[o + U_STATUS] !== Standing.Alive) continue;
-      arena[o + U_HEALTH] = Math.min(this.config.maxHealth, this.uHealth[i] as number);
+      // The ceiling is an input sanitizer, not a rule of the turn: health only
+      // ever falls during a turn, and only the food phase above raises it — to
+      // exactly this number. It bites solely on a unit CREATED above its own
+      // kind's maximum.
+      arena[o + U_HEALTH] = Math.min(
+        this.maxHealthOf(arena[o + U_KIND] as UnitKind),
+        this.uHealth[i] as number,
+      );
       if ((this.uHealth[i] as number) <= 0) {
         arena[o + U_STATUS] = Standing.Gone;
         // Exhaustion stops being provisional. The halt record it wrote gets its
@@ -2145,29 +2401,46 @@ export class PartialEngine {
     const certainBit = certainSlot >= 0 ? 1 << certainSlot : 0;
 
     // Split what MIGHT be here into "its arriving front could be here"
-    // (a contest) and "only its trail could be here" (a body block).
+    // (a contest) and "only its trail could be here" (a body block) — and, in
+    // the SAME pass, decide PER ROLE whether the frozen unit could beat this
+    // mover at this cell.
+    //
+    // THE ROLES ARE ALTERNATIVES AND EACH HAS ITS OWN COMPARATOR (V2 BUG-1).
+    // A head-to-head contest is tier-then-weight; a LIVING BODY is tier only
+    // (the rules' c5: `mover.tier <= maxOwnerTier` condemns, weight never
+    // enters). One cell can admit BOTH — a snake's front can reach the cell its
+    // own neck occupies — and the verdict is then the meet over both, so
+    // reading only the head comparator let a mover that out-weighed the owner
+    // come back unthreatened and the FLOOR priced it alive.
+    const headMask = this.uBeatenBy[i] as number;
+    // The slots the BODY rule ADDS over the contest comparator: trail units at
+    // the mover's own tier that it out-weighs. Empty on most boards, which is
+    // what keeps the second bit test off the hot path entirely.
+    const bodyOnly = this.uBodyBeatenBy[i] as number;
     let front = 0;
+    let beat = 0;
     for (const slot of field.slots) {
       const bit = 1 << slot.slot;
-      if ((maybe & bit) === 0 || bit === certainBit) continue;
-      if (bbTest(slot.cloud.headPossible, cell)) front |= bit;
+      if ((maybe & bit) === 0) continue;
+      if (bbTest(slot.cloud.headPossible, cell) && bit !== certainBit) front |= bit;
+      // A corpse at this cell wrestles at frozen strength, so the contest
+      // comparator is a live alternative wherever the claim reaches — no role
+      // test needed for it.
+      if ((headMask & bit) !== 0) {
+        beat |= bit;
+        continue;
+      }
+      if ((bodyOnly & bit) !== 0 && bbTest(slot.cloud.bodyPossible, cell)) beat |= bit;
     }
     const trailOnly = maybe & ~certainBit & ~front;
-    if (front !== 0)
-      this.record(s, cell, id, front, channel, false, this.couldBeat(field, front, i));
+    if (front !== 0) this.record(s, cell, id, front, channel, false, (beat & front) !== 0);
     if (trailOnly !== 0) {
-      this.record(
-        s,
-        cell,
-        id,
-        trailOnly,
-        Channel.BodyBlock,
-        false,
-        this.couldBeat(field, trailOnly, i),
-      );
+      this.record(s, cell, id, trailOnly, Channel.BodyBlock, false, (beat & trailOnly) !== 0);
     }
     // Cells a frozen unit might have died on keep fighting for the rest of the
-    // turn even when it is certainly no longer standing there.
+    // turn even when it is certainly no longer standing there. That is the
+    // WRESTLING rule and it contests at frozen strength — tier then weight —
+    // so the pile keeps the head comparator.
     const corpses = ever & ~maybe & ~certainBit;
     if (corpses !== 0) {
       this.record(s, cell, id, corpses, Channel.Durable, false, this.couldBeat(field, corpses, i));
@@ -2175,11 +2448,21 @@ export class PartialEngine {
     if (certainBit !== 0) {
       const slot = field.bySlot(certainSlot);
       if (slot === undefined) return;
-      // The optimistic timeline PLACED it here on the neck argument. Only its
-      // death makes that wrong — and when nothing could have killed it, there is
-      // nothing to record at all.
-      if (slot.cloud.deathPossible) {
-        this.record(s, cell, id, certainBit, channel, true, this.couldBeat(field, certainBit, i));
+      // A certain cell in a RESOLUTION is always a living trail unit's body
+      // segment — `certain` at turnsHeld n covers freeze indices i ≤ k−1−n,
+      // which sit at body index i+n ≥ 1 — so `beat` has already read it through
+      // the body comparator. The corpse alternative (the owner died here) is a
+      // wrestle at frozen strength, hence the head comparator as well.
+      const certainBeat = ((beat | headMask) & certainBit) !== 0;
+      // ONE GATE, SHARED WITH THE ADJUDICATOR. It used to be the claim's own
+      // `deathPossible`, which reads only one of the three ways an owner can
+      // die (see `markUnconditionalClaims`) — so the adjudicator stood the
+      // claim up while the ledger called the same cell a maybe, and one
+      // resolution said two things about one cell. A slot the branch may read
+      // as present needs no entry: the timeline placed it, and nothing could
+      // have moved it. Everything else is a maybe, and is recorded.
+      if ((this.unconditionalClaims & certainBit) === 0) {
+        this.record(s, cell, id, certainBit, channel, true, certainBeat);
       }
       // Even a unit that is certainly here has an uncertain STRENGTH; a contest
       // its interval straddles was decided on a reading, not a fact.
@@ -2187,6 +2470,54 @@ export class PartialEngine {
         this.record(s, cell, id, certainBit, Channel.Strength, true, true);
       }
     }
+  }
+
+  /**
+   * WHICH CLAIMS THIS BRANCH MAY READ AS PRESENT.
+   *
+   * `certain` is CERTAIN-CONDITIONAL-ON-ALIVE (cloud.ts states it at the
+   * field): the cells are occupied in every continuation where the owner is
+   * still alive. Reading them as presence "yes" is therefore only legitimate
+   * when the owner CANNOT have died — and that is three questions, not one:
+   *
+   *   1. could it kill itself? `cloud.deathPossible` — a wall, a hazard, its
+   *      own body, running out of health. This is the only one the claim can
+   *      answer, because a cloud is branch-independent by construction.
+   *   2. could something MODELLED kill it? A trail unit dies by meeting a mover
+   *      with its HEAD — a cell contest, an edge exchange, or running into a
+   *      mover's body — so the question is whether this turn's modelled reach
+   *      touches the claim's arriving front. It is emphatically NOT "does a
+   *      mover stand on the claim": a mover that arrives on a living BODY dies
+   *      to it (c5) and cannot kill its owner, which is exactly the case the
+   *      neck argument was invented for.
+   *   3. could another FROZEN unit kill it? Two overlapping claims can settle
+   *      each other while nobody is watching. Backlog item 7 is the general
+   *      form; here it is cheap to be conservative and simply refuse
+   *      unconditional status to any claim whose front another claim reaches.
+   *
+   * A slot outside this mask is a maybe for the whole turn: the optimistic
+   * timeline steps around its certain cells and the ledger carries them. That
+   * is a widening, so it is always sound; the mask exists to keep the PRECISION
+   * the neck argument buys where the argument actually holds.
+   */
+  private markUnconditionalClaims(field: CloudField): void {
+    const w = this.grid.words;
+    let mask = 0;
+    for (const slot of field.slots) {
+      if ((field.unconditionalCandidates & (1 << slot.slot)) === 0) continue;
+      const cloud = slot.cloud;
+      if (bbIntersects(cloud.headPossible, this.planFootprint, w)) continue;
+      let met = false;
+      for (const other of field.slots) {
+        if (other.slot === slot.slot) continue;
+        if (bbIntersects(other.cloud.everPossible, cloud.headPossible, w)) {
+          met = true;
+          break;
+        }
+      }
+      if (!met) mask |= 1 << slot.slot;
+    }
+    this.unconditionalClaims = mask;
   }
 
   /** Channel 3: my head crossed a→b; could a frozen unit have crossed b→a? */
@@ -2223,6 +2554,55 @@ export class PartialEngine {
    * for the whole turn on both sides, so the answer is a turn constant per unit,
    * computed once during planning and read here as one AND.
    */
+  /**
+   * THE TWO COMPARATORS A FROZEN CLAIM CAN BE MET WITH, in one pass over the
+   * slots because both are turn constants for the unit and the pass is per
+   * mover.
+   *
+   * `uBeatenBy` — a CELL CONTEST: head against head, or a wrestle against
+   * durable pile material. Tier first, then weight, exactly as the resolver's
+   * own comparator.
+   *
+   * `uBodyBeatenBy` — a LIVING BODY, AND WEIGHT DOES NOT ENTER IT. The rules'
+   * body rule (the vendored resolver's c5) condemns an arrival on a living
+   * trail unit's body segment when `mover.tier <= maxOwnerTier`; strictly
+   * higher tier severs and capture-stops. There is no weight comparison
+   * anywhere in it, so at tier parity — every board in production today —
+   * stepping onto an enemy snake's body is unconditionally fatal for the
+   * entrant, however heavy it is.
+   *
+   * Reading a body encounter through the contest comparator let a mover that
+   * out-weighed the owner come back "could not be beaten", so it was never
+   * marked Contingent and the FLOOR priced it alive — a floor above the truth
+   * in precisely the situation a heavy unit is most tempted to enter, attacking
+   * a lighter enemy (V2 BUG-1).
+   *
+   * The body mask is a SUPERSET of the contest one (`tierMax >= tier` is
+   * implied by either of its disjuncts), restricted to the slots that have a
+   * body at all. So using it where the body rule applies can only ever ADD
+   * contingency: floors down, ceilings up, the sound direction on both sides.
+   */
+  private beatMasksInto(
+    field: CloudField,
+    i: number,
+    tier: number,
+    weight: number,
+    trailSlots: SlotMask,
+  ): void {
+    let head = 0;
+    let body = 0;
+    for (const slot of field.slots) {
+      const b = slot.bounds;
+      const bit = 1 << slot.slot;
+      if (b.tierMax > tier || (b.tierMax === tier && b.weightMax >= weight)) head |= bit;
+      if (b.tierMax >= tier) body |= bit;
+    }
+    this.uBeatenBy[i] = head;
+    // The DIFFERENCE, not the mask: the hot per-cell loop only ever asks which
+    // slots the body rule ADDS, and this way it asks with one array read.
+    this.uBodyBeatenBy[i] = body & trailSlots & ~head;
+  }
+
   private couldBeat(_field: CloudField, mask: SlotMask, i: number): boolean {
     return (mask & (this.uBeatenBy[i] as number)) !== 0;
   }
@@ -2342,16 +2722,6 @@ function decisive(b: StrengthBounds, tier: number, weight: number): boolean {
   const lo = cmpPair(tier, weight, b.tierMin, b.weightMin);
   const hi = cmpPair(tier, weight, b.tierMax, b.weightMax);
   return lo === hi && lo !== 0;
-}
-
-/** The slots whose interval permits beating a unit of this strength. */
-function beatenBy(field: CloudField, tier: number, weight: number): SlotMask {
-  let mask = 0;
-  for (const slot of field.slots) {
-    const b = slot.bounds;
-    if (b.tierMax > tier || (b.tierMax === tier && b.weightMax >= weight)) mask |= 1 << slot.slot;
-  }
-  return mask;
 }
 
 function cmpPair(t1: number, w1: number, t2: number, w2: number): number {

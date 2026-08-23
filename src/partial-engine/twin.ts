@@ -44,6 +44,13 @@ export interface TwinWorld {
   readonly food: ReadonlySet<number>;
   readonly hazardDamage: number;
   readonly maxHealth: number;
+  /**
+   * Per-kind maximum health, indexed by `UnitKind`; falls back to `maxHealth`.
+   * The walker needs its own copy because the unit it walks CHANGES KIND at
+   * promotion, and a pawn that promotes and then eats restores to the queen's
+   * maximum. Leave it out for a flat game.
+   */
+  readonly maxHealthPerKind?: ReadonlyArray<number> | null;
   readonly promotionWeight: number;
 }
 
@@ -253,7 +260,7 @@ function step(u: WalkState, world: TwinWorld, food: Set<number>, pick: number): 
   const standing = u.cells[0] as number;
   if (food.has(standing)) {
     food.delete(standing);
-    u.health = world.maxHealth;
+    u.health = world.maxHealthPerKind?.[u.kind] ?? world.maxHealth;
     u.weight += 1;
     if (u.kind === UnitKind.Snake) u.cells.push(u.cells[u.cells.length - 1] as number);
   }

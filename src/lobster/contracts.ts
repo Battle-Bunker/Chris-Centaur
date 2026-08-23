@@ -33,7 +33,6 @@
  */
 
 import type {
-  Board as EngineBoard,
   Resolution,
   ScoreBounds as EngineScoreBounds,
   StateHandle,
@@ -321,9 +320,6 @@ export interface BoundedResolution {
   readonly perTeam: ReadonlyMap<number, { readonly worst: number; readonly best: number }>
   /** Subject-frame material bounds, with the field's assumptions as basis. */
   readonly bounds: EngineScoreBounds
-  /** Every cell a MOVER occupied or entered this turn, snapshotted — the
-   * ceiling widening a held unit's claim layer cannot compute for itself. */
-  readonly touched: EngineBoard
 }
 
 /** B1 owns: engine substrate. One place translates wire state to engine state

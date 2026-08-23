@@ -88,12 +88,11 @@ export class BoundEvaluator implements Evaluator {
           'field are not on the Substrate interface'
       );
     }
-    return sub.withResolution(plan, asTeam, ({ resolution, bounds, touched }) => {
+    return sub.withResolution(plan, asTeam, ({ resolution, bounds }) => {
       const ctx = makeContext(
         sub,
         resolution,
         bounds,
-        touched,
         asTeam,
         this.profile.reachHorizonTurns
       );
