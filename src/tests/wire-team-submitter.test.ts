@@ -17,6 +17,7 @@ import {
   TeamSubmitterPort,
   TimerHandle,
   planTeamBatches,
+  privateMoveDoc,
 } from '../wire/team-submitter';
 
 const unit = (snakeId: string, move: CentaurMove = 'up'): TeamStagedUnit => ({
@@ -32,6 +33,87 @@ function roster(n: number): TeamStagedUnit[] {
   for (let i = 0; i < n; i++) units.push(unit(`u${String(n - i).padStart(2, '0')}`));
   return units;
 }
+
+// ── the wire document ──────────────────────────────────────────────────────
+
+/**
+ * The security rules cannot be executed from this repo, so what is pinned here
+ * is the CLIENT's side of the same contract: the exact field set
+ * `isValidPrivateMove` demands. The rule reads
+ *
+ *   move.keys().hasAll(['gameID','moveNumber','playerID','move','timestamp'])
+ *     && move.gameID is string
+ *     && move.moveNumber is int && move.moveNumber >= 0
+ *     && move.playerID is string
+ *     && move.move is int && move.move >= 0
+ *     && (move.timestamp is timestamp || move.timestamp == request.time)
+ *
+ * A write that misses one of those is DENIED, not corrected — and a denied
+ * write is silent from here, so the turn simply resolves without us.
+ */
+describe('the privateMoves document the rules will accept', () => {
+  const SENTINEL = { __serverTimestamp: true };
+
+  test('carries exactly the five fields the rule names, and no others', () => {
+    const built = privateMoveDoc('game-1', 7, { playerID: 'A', move: 42 }, SENTINEL);
+    expect(Object.keys(built).sort()).toEqual([
+      'gameID',
+      'move',
+      'moveNumber',
+      'playerID',
+      'timestamp',
+    ]);
+    expect(built).toEqual({
+      gameID: 'game-1',
+      moveNumber: 7,
+      playerID: 'A',
+      move: 42,
+      timestamp: SENTINEL,
+    });
+  });
+
+  test('the staging source is NOT on the wire', () => {
+    // Unknown fields are accepted and IGNORED server-side. A field the server
+    // ignores must never be written as if it meant something.
+    const built = privateMoveDoc('game-1', 0, { playerID: 'A', move: 1 }, SENTINEL) as Record<
+      string,
+      unknown
+    >;
+    expect(built.source).toBeUndefined();
+    expect('source' in built).toBe(false);
+  });
+
+  test('the types the rule checks are the types that go out', () => {
+    const built = privateMoveDoc('game-1', 0, { playerID: 'A', move: 0 }, SENTINEL);
+    expect(typeof built.gameID).toBe('string');
+    expect(typeof built.playerID).toBe('string');
+    expect(Number.isInteger(built.moveNumber)).toBe(true);
+    expect(built.moveNumber).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(built.move)).toBe(true);
+    expect(built.move).toBeGreaterThanOrEqual(0);
+  });
+
+  test('every document a planned batch produces satisfies the rule’s shape', () => {
+    const plan = planTeamBatches({
+      units: roster(26),
+      isCommitted: () => false,
+      encode: (u) => Number(u.snakeId.replace(/\D/g, '')),
+    });
+    for (const chunk of plan.chunks) {
+      for (const entry of chunk) {
+        const built = privateMoveDoc('game-1', 3, entry, SENTINEL);
+        expect(Object.keys(built).sort()).toEqual([
+          'gameID',
+          'move',
+          'moveNumber',
+          'playerID',
+          'timestamp',
+        ]);
+        expect(Number.isInteger(built.move) && built.move >= 0).toBe(true);
+      }
+    }
+  });
+});
 
 // ── the pure planner ───────────────────────────────────────────────────────
 

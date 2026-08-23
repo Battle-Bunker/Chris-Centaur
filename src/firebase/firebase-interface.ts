@@ -74,7 +74,7 @@ import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
 import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadline';
 import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
-import { TeamBatchDoc, TeamBatchSubmitter } from '../wire/team-submitter';
+import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import type { PinEvent } from '../lobster/contracts';
 import {
   ParsedTurn,
@@ -1793,13 +1793,7 @@ export class TacticToesFirebaseInterface {
     );
     const batch = writeBatch(this.db);
     for (const entry of docs) {
-      batch.set(doc(movesCol), {
-        gameID: watched.gameID,
-        moveNumber: turn,
-        playerID: entry.playerID,
-        move: entry.move,
-        timestamp: serverTimestamp(),
-      });
+      batch.set(doc(movesCol), privateMoveDoc(watched.gameID, turn, entry, serverTimestamp()));
     }
     await batch.commit();
     console.log(
@@ -1834,13 +1828,12 @@ export class TacticToesFirebaseInterface {
 
     await addDoc(
       collection(this.db, `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`),
-      {
-        gameID: watched.gameID,
-        moveNumber: turn,
-        playerID: snakeId,
-        move: moveIndex,
-        timestamp: serverTimestamp(),
-      }
+      privateMoveDoc(
+        watched.gameID,
+        turn,
+        { playerID: snakeId, move: moveIndex },
+        serverTimestamp()
+      )
     );
     console.log(
       `[tt-firebase] Staged ${move} (index ${moveIndex}, source ${source}) for ${snakeId} turn ${turn}`

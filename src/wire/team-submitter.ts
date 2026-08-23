@@ -176,6 +176,38 @@ export function planTeamBatches(input: TeamBatchPlanInput): TeamBatchPlan {
   return { chunks, excluded, unchanged, groups };
 }
 
+/**
+ * The `privateMoves` document, in exactly the shape the server's security
+ * rules validate. There is one definition of it and both staging paths — the
+ * per-unit `addDoc` and the team `writeBatch` — build through here.
+ *
+ * The rule (`isValidPrivateMove`, TacticToes firestore.rules) requires ALL of
+ * `gameID`, `moveNumber`, `playerID`, `move`, `timestamp`, with `move` and
+ * `moveNumber` non-negative integers and `timestamp` either a timestamp or the
+ * server-timestamp sentinel. A missing or wrong-typed field is a DENIED write,
+ * not a rejected move — the turn simply resolves without us. Extra fields are
+ * accepted and ignored server-side, which is precisely why none are added:
+ * a field the server ignores can never be load-bearing, so putting one there
+ * would be a lie waiting to be believed.
+ *
+ * `timestamp` is passed in rather than produced here so this stays free of the
+ * Firestore SDK (and so tests can pin the shape without one).
+ */
+export function privateMoveDoc(
+  gameID: string,
+  turn: number,
+  doc: { playerID: string; move: number },
+  timestamp: unknown
+): { gameID: string; moveNumber: number; playerID: string; move: number; timestamp: unknown } {
+  return {
+    gameID,
+    moveNumber: turn,
+    playerID: doc.playerID,
+    move: doc.move,
+    timestamp,
+  };
+}
+
 export type TimerHandle = unknown;
 
 /**
