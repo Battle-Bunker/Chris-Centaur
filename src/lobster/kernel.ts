@@ -44,6 +44,7 @@ import type {
   Assumption,
   Bound,
   BudgetHandle,
+  CrossfadeVerdict,
   EmitRecord,
   JointPlan,
   Kernel,
@@ -86,6 +87,31 @@ const hasPerformance = typeof performance !== "undefined" && typeof performance.
 /** The default clock: monotonic, sub-millisecond, and never wall-clock. */
 export function defaultNow(): number {
   return hasPerformance ? performance.now() : Date.now()
+}
+
+/**
+ * ONE MACROTASK YIELD.
+ *
+ * A slice is synchronous JavaScript and an `async *` generator with no `await`
+ * in it resolves every `yield` on the MICROTASK queue — so a decision that
+ * only yields values never reaches the event loop's timer or I/O phase at all.
+ * Everything the anytime design depends on lives out there: the Firestore
+ * snapshot listener that delivers an operator's pin, the `setImmediate` the
+ * manager coalesces staged writes through, the per-turn final-flush timer, and
+ * the other games sharing this process. Without a real yield the mid-decision
+ * constraint-epoch machinery is unreachable from the wire, every revision
+ * collapses into one post-decision burst, and three concurrent games interleave
+ * only at emission granularity.
+ *
+ * The legacy path yields on purpose for exactly these reasons
+ * (`DecisionWorkerPool.submit` wraps each inline chunk in `setImmediate`);
+ * this is parity with it, not a new feature.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (typeof setImmediate === "function") setImmediate(resolve)
+    else setTimeout(resolve, 0)
+  })
 }
 
 /**
@@ -132,14 +158,38 @@ export function canonicalPins(pins: PinSet): Pin[] {
     .sort((a, b) => a.unitId - b.unitId || a.to - b.to)
 }
 
+/** One pin's token inside a `pinContextKey` body. The ONLY legal way to ask
+ * whether a key mentions a pin: `"1@5?"` is a substring of `"31@5?"`, and a
+ * consumer matching by substring fabricates prices for the wrong unit
+ * (V4 B3 — confirmed empirically). Compare tokens, never text. */
+export function pinContextToken(pin: Pin): string {
+  return `${pin.unitId}@${pin.to}${pin.tentative ? "?" : ""}`
+}
+
 /** The cache key of a pin context. Speculative contexts get their own namespace. */
 export function pinContextKey(pins: ReadonlyArray<Pin>, speculative = false): string {
   const body = pins
     .slice()
     .sort((a, b) => a.unitId - b.unitId || a.to - b.to)
-    .map((p) => `${p.unitId}@${p.to}${p.tentative ? "?" : ""}`)
+    .map(pinContextToken)
     .join(",")
   return `${speculative ? "spec" : "pin"}:[${body}]`
+}
+
+/**
+ * The inverse of `pinContextKey`: the namespace plus the EXACT token list.
+ * A key this function cannot parse yields no tokens rather than a guess, so a
+ * malformed key matches nothing instead of matching everything.
+ */
+export function parsePinContextKey(key: string): {
+  speculative: boolean
+  tokens: ReadonlyArray<string>
+} {
+  const open = key.indexOf(":[")
+  if (open < 0 || !key.endsWith("]")) return { speculative: false, tokens: [] }
+  const speculative = key.slice(0, open) === "spec"
+  const body = key.slice(open + 2, key.length - 1)
+  return { speculative, tokens: body === "" ? [] : body.split(",") }
 }
 
 // ------------------------------------------------------------ pin-context cache
@@ -171,6 +221,10 @@ export interface PinContextEntry {
   readonly epochBaseline: number
   incumbent: PlanScore | null
   bounds: { lo: number; hi: number } | null
+  /** The basis `bounds` was proved under — the posture that led and the epoch
+   * whose pin set it assumed. Carried so a consumer differencing this bracket
+   * against a record can prove the two share a basis (V4 B7). */
+  boundsBasis: { posture: Posture; epoch: number } | null
   /** Witnesses survive restarts and pin-context switches; they are certificates. */
   witnesses: ReadonlyArray<Witness>
   /** Refinement slices already spent here. A resume starts above zero. */
@@ -248,6 +302,7 @@ export class PinContextCache {
       epochBaseline: epoch,
       incumbent: null,
       bounds: null,
+      boundsBasis: null,
       witnesses: [],
       cursor: 0,
       citedUnits: new Set<UnitId>(),
@@ -279,6 +334,7 @@ export class PinContextCache {
       if (active !== undefined && active.citedUnits.has(unitId)) {
         active.incumbent = null
         active.bounds = null
+        active.boundsBasis = null
         active.witnesses = []
         active.cursor = 0
         active.citedUnits = new Set<UnitId>()
@@ -316,6 +372,18 @@ export class PinContextCache {
 export interface KernelOptions {
   /** Held back from search for the final flush. */
   readonly reserveMs: number
+  /**
+   * REAL-TIME interval between event-loop yields, in ms. `0` disables the
+   * yield entirely (a synchronous decision; only for harnesses that need one).
+   *
+   * Gated on the REAL clock, never on the injected one, because what it is
+   * rationing is real event-loop starvation: a suite driving a fake clock
+   * yields as rarely as its wall time earns, and production yields on the
+   * schedule production needs. The cost of the yield is charged to the
+   * decision like any other elapsed time — the next slice's budget is read
+   * after it.
+   */
+  readonly yieldIntervalMs: number
   /** Target duration of one refinement slice. Bounds deadline overshoot. */
   readonly sliceMs: number
   /** Minimum wall gap between writes. The wire has no server-side rate limit; this is it. */
@@ -332,6 +400,23 @@ export interface KernelOptions {
   readonly crossfade: "off" | "teammate"
   /** Tier-2 of the crossfade gate. Absent ⇒ overlapping writes pass UNCERTIFIED and are counted. */
   readonly teammateFloor?: (plan: JointPlan, excluding: ReadonlySet<UnitId>) => number
+  /**
+   * Tier-3 of the crossfade gate: THE WIRE'S OWN CHUNK PARTITION, in commit
+   * order, in this substrate's unit numbering.
+   *
+   * The transport cuts a revision into chunks from a STABLE partition, so a
+   * revision interrupted after chunk k leaves the server holding chunks 0..k
+   * from the new revision and the rest from the old one — a union of whole
+   * groups from two ADJACENT revisions. Those unions are the only torn states
+   * that exist, and with the partition in hand the gate prices each of them
+   * directly (`teammateFloor` over the WHOLE team on the mixed plan) instead
+   * of comparing two coherent plans neither of which the wire can hold.
+   *
+   * Absent ⇒ the gate falls back to the delta comparison, which speaks only
+   * for an ADJACENT-REVISION atomic pair; such a pass is counted
+   * `uncertified`, never `certified` (V4 B4).
+   */
+  readonly crossfadeGroups?: (plan: JointPlan) => ReadonlyArray<ReadonlyArray<UnitId>>
   /** What one slice is assumed to cost before one has been measured. */
   readonly initialStepCostMs: number
   /** How much more than the estimate must remain before another slice starts. */
@@ -352,6 +437,7 @@ export interface KernelOptions {
 
 export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   reserveMs: 1,
+  yieldIntervalMs: 5,
   sliceMs: 0.5,
   minWriteIntervalMs: 2,
   gapImprovementFraction: 0.15,
@@ -395,7 +481,15 @@ export type EmitRefusal =
 
 export interface ConformanceSample {
   readonly epoch: number
-  /** Clock time from applying the pin event to the conforming record leaving the kernel. */
+  /**
+   * Clock time from the operator event ARRIVING at `onPinEvent` to the
+   * conforming record leaving the kernel — not from the moment the loop got
+   * round to dequeuing it. A slice is synchronous JS, so a delivered event can
+   * only be observed at a yield, and the queue wait is up to one slice: it is
+   * part of the operator's latency and it is measured here (V4 R2). Events
+   * that arrived before this decision's run began are measured from the
+   * decision's own start, which is the earliest reading on this clock.
+   */
   readonly latencyMs: number
   /** Refinement slices run between the event and the re-stage. MUST be 0. */
   readonly slicesBefore: number
@@ -417,6 +511,14 @@ export interface KernelReport {
   readonly budgetMs: number
   readonly overshootMs: number
   readonly slices: number
+  /** True when the turn resolved under the decision and it stopped early. */
+  readonly abandoned: boolean
+  /** Slices skipped because every unit this decision commands is pinned, so a
+   * refinement slice could not have changed anything. */
+  readonly idleSlices: number
+  /** Event-loop yields taken. Zero over a whole decision means the process was
+   * held for the whole turn — the shape V3-R2 named. */
+  readonly yields: number
   readonly improveCalls: number
   readonly refineCalls: number
   readonly conformCalls: number
@@ -434,8 +536,51 @@ export interface KernelReport {
   readonly basisHistory: ReadonlyArray<BasisSnapshot>
   readonly journal: ReadonlyArray<EmitRecord>
   readonly levers: ReadonlyArray<Lever>
-  readonly crossfade: { independent: number; certified: number; uncertified: number; blocked: number }
-  readonly speculative: ReadonlyArray<{ key: string; lo: number; hi: number; cursor: number }>
+  /**
+   * The crossfade gate's own accounting.
+   *
+   *   independent  the changed units cannot influence any cell an unchanged
+   *                staged unit can: no interleaving differs from either write.
+   *   certified    a teammate floor was proved for every interleaving the WIRE
+   *                can actually produce — which, when a chunk partition is
+   *                supplied, means every "whole groups from two adjacent
+   *                revisions" tear was priced (`tornPriced` counts those).
+   *   uncertified  the write passed WITHOUT a certificate: no teammate-floor
+   *                hook, or no chunk partition — in which case the delta
+   *                comparison speaks only for an ADJACENT-REVISION atomic pair
+   *                and is deliberately NOT reported as certified (V4 B4).
+   *   blocked      some interleaving proved worse than the standing wire plan.
+   */
+  readonly crossfade: {
+    independent: number
+    certified: number
+    uncertified: number
+    blocked: number
+    /** Certifications that priced at least one real torn interleaving. */
+    tornPriced: number
+    /** Forced writes (rung 0, conformance re-stage) whose certificate would
+     * have refused. They ship anyway — never starved — and say so. */
+    forcedUncertified: number
+  }
+  /** Every unit a human Submit froze this turn — the kernel's half of the
+   * humans-always-win pair (the ledger owns the other half; the two must
+   * agree, V4 R7a). */
+  readonly committedUnits: ReadonlyArray<UnitId>
+  /**
+   * The speculative (tentative-pin) contexts, with the BASIS each bracket was
+   * proved under. The advice layer may only difference a speculative bracket
+   * against a record proved on the same posture and epoch — a cross-basis
+   * comparison is the one thing the whole bounds layer exists to forbid — so
+   * the basis travels with the numbers rather than being assumed (V4 B7).
+   */
+  readonly speculative: ReadonlyArray<{
+    key: string
+    lo: number
+    hi: number
+    cursor: number
+    posture: Posture | null
+    epoch: number | null
+  }>
   /** Every pin context this turn touched: the tier-3 store, as data. */
   readonly contexts: ReadonlyArray<{
     readonly key: string
@@ -505,7 +650,49 @@ interface PlanCandidate {
   horizon: number
 }
 
+/** Consecutive slices that charge nothing to the clock before the loop gives
+ * up. See the rail's note in `drive`. */
+const STALL_LIMIT = 1024
+
 const EMPTY_PLAN: JointPlan = new Map()
+const NO_UNITS: ReadonlySet<UnitId> = new Set<UnitId>()
+
+/**
+ * Every state the wire can actually hold while a chunked revision lands:
+ * `groups 0..k−1` from the new plan, the rest still holding the old one, for
+ * every cut k that separates two CHANGED units. A cut with no changed unit on
+ * one side of it produces a plan identical to one of the two coherent ones, so
+ * it is not a torn state and is not priced.
+ */
+function tornPlans(
+  prevPlan: JointPlan,
+  plan: JointPlan,
+  groups: ReadonlyArray<ReadonlyArray<UnitId>>,
+  changed: ReadonlySet<UnitId>,
+): JointPlan[] {
+  const out: JointPlan[] = []
+  for (let k = 1; k < groups.length; k++) {
+    let changedLanded = false
+    let changedPending = false
+    for (let i = 0; i < groups.length; i++) {
+      for (const unitId of groups[i] as ReadonlyArray<UnitId>) {
+        if (!changed.has(unitId)) continue
+        if (i < k) changedLanded = true
+        else changedPending = true
+      }
+    }
+    if (!changedLanded || !changedPending) continue
+    const mixed = new Map(plan)
+    for (let i = k; i < groups.length; i++) {
+      for (const unitId of groups[i] as ReadonlyArray<UnitId>) {
+        const old = prevPlan.get(unitId)
+        if (old !== undefined) mixed.set(unitId, old)
+      }
+    }
+    out.push(mixed)
+  }
+  return out
+}
 
 interface Run {
   readonly input: KernelInput
@@ -525,7 +712,21 @@ interface Run {
   readonly basisHistory: BasisSnapshot[]
   pins: Pin[]
   tentative: Pin[]
+  /**
+   * The plan the WIRE currently holds — the last record a consumer actually
+   * took. Distinct from `basis.stagedPlan`, which is ratchet state and is
+   * dropped with its basis on every epoch and posture change: the wire does
+   * not forget what it is holding just because the kernel re-based. The
+   * conformance re-stage splices pins into THIS (so an epoch change repairs
+   * the staged set instead of rebuilding it from the generator's first
+   * candidates), the crossfade gate tears against THIS, and a human's commit
+   * reads the unit's destination from THIS.
+   */
+  wirePlan: JointPlan | null
   committedUnits: Set<UnitId>
+  /** Narrowings declared mid-decision by the consumer (`declare`): they ride
+   * every record emitted from the moment they are learned. */
+  declared: Assumption[]
   /** Committed pins whose destination the unit's grammar cannot reach, keyed
    * by unitId → the refused destination. See EmitRefusal "pin-unreachable". */
   refusedPins: Map<UnitId, number>
@@ -535,6 +736,11 @@ interface Run {
   lastView: LeverView | null
   seq: number
   lastWriteMs: number
+  /** Real-clock reading of the last event-loop yield. */
+  lastYieldWall: number
+  yields: number
+  aborted: boolean
+  idleSlices: number
   slices: number
   probes: number
   improveCalls: number
@@ -544,7 +750,26 @@ interface Run {
   sliceCostTotal: number
   boundViolations: number
   refusals: Record<EmitRefusal, number>
-  crossfade: { independent: number; certified: number; uncertified: number; blocked: number }
+  crossfade: {
+    independent: number
+    certified: number
+    uncertified: number
+    blocked: number
+    tornPriced: number
+    forcedUncertified: number
+  }
+}
+
+/**
+ * A queued operator event with the clock reading at which it ARRIVED — never
+ * the reading at which the loop got round to it (V4 R2). `at === null` marks
+ * an event that arrived before this decision's run existed: there was no
+ * injected clock to stamp it with, so it is measured from the decision's own
+ * start, which is the earliest honest reading on the run's clock.
+ */
+interface PendingEvent {
+  readonly ev: PinEvent
+  readonly at: number | null
 }
 
 // -------------------------------------------------------------------- kernel
@@ -552,7 +777,7 @@ interface Run {
 export class LobsterKernel implements Kernel {
   private readonly opts: KernelOptions
   /** Instance state, drained by `decide()`. Never module scope. */
-  private pending: PinEvent[] = []
+  private pending: PendingEvent[] = []
   private run: Run | null = null
   private report: KernelReport | null = null
 
@@ -567,9 +792,34 @@ export class LobsterKernel implements Kernel {
   /**
    * Operator constraint events. Queued, applied at the top of the next loop
    * iteration — which is the next slice boundary, never mid-resolution.
+   *
+   * The arrival is STAMPED HERE (V4 R2) so the conformance latency the report
+   * publishes is the operator's, not the loop's. And the queue is NOT cleared
+   * when the loop first runs: `decide()` returns an async iterable whose body
+   * does not execute until the consumer's first `next()`, and an event that
+   * lands in that window is the operator's just as much as one that lands a
+   * slice later (V4 R7b). It is cleared when a decision ENDS instead.
    */
   onPinEvent(ev: PinEvent): void {
-    this.pending.push(ev)
+    this.pending.push({ ev, at: this.run === null ? null : this.run.now() })
+  }
+
+  /**
+   * Declare a narrowing the CONSUMER discovered while draining this decision —
+   * a staged move the wire could not express, say. It rides every record
+   * emitted from this point on, exactly as the kernel's own pin-unreachable
+   * narrowing does: a default is a narrowing and must be named, and the module
+   * that discovers one is not always the module that emits the record.
+   *
+   * Ignored (and reported as such) outside a live decision — there is nothing
+   * for it to ride.
+   */
+  declare(assumption: Assumption): boolean {
+    if (this.run === null) return false
+    const key = JSON.stringify(assumption)
+    if (this.run.declared.some((a) => JSON.stringify(a) === key)) return true
+    this.run.declared.push(assumption)
+    return true
   }
 
   async *decide(input: KernelInput): AsyncIterable<EmitRecord> {
@@ -607,7 +857,9 @@ export class LobsterKernel implements Kernel {
       basisHistory: [],
       pins,
       tentative: input.initialPins.filter((p) => p.tentative),
+      wirePlan: null,
       committedUnits: new Set<UnitId>(),
+      declared: [],
       refusedPins: new Map<UnitId, number>(),
       epoch: 0,
       basis: newBasis(0, "SIGHTED"),
@@ -615,6 +867,10 @@ export class LobsterKernel implements Kernel {
       lastView: null,
       seq: 0,
       lastWriteMs: Number.NEGATIVE_INFINITY,
+      lastYieldWall: defaultNow(),
+      yields: 0,
+      aborted: false,
+      idleSlices: 0,
       slices: 0,
       probes: 0,
       improveCalls: 0,
@@ -636,9 +892,18 @@ export class LobsterKernel implements Kernel {
         "pin-unreachable": 0,
         "bounds-inversion": 0,
       },
-      crossfade: { independent: 0, certified: 0, uncertified: 0, blocked: 0 },
+      crossfade: {
+        independent: 0,
+        certified: 0,
+        uncertified: 0,
+        blocked: 0,
+        tornPriced: 0,
+        forcedUncertified: 0,
+      },
     }
-    this.pending = []
+    // NOT `this.pending = []`: events queued between `decide()` and the
+    // consumer's first `next()` belong to THIS decision (V4 R7b). The queue is
+    // cleared when the decision ends, below.
     this.run = run
     this.auditPins(run)
     try {
@@ -647,6 +912,7 @@ export class LobsterKernel implements Kernel {
       run.basisHistory.push(basisSnapshot(run.basis))
       this.report = this.finish(run)
       this.run = null
+      this.pending = []
     }
   }
 
@@ -662,33 +928,90 @@ export class LobsterKernel implements Kernel {
     yield* this.commit(run, first)
 
     // A slice that charges nothing to the clock cannot end the turn, so the
-    // loop needs a counted stop as well as a timed one. It is a bug rail, not
-    // a policy: a search that never spends time has nothing to sell.
+    // loop needs a stop the clock cannot provide. It is a bug rail, not a
+    // policy: a search that never spends time has nothing to sell, and after
+    // STALL_LIMIT consecutive free slices the honest conclusion is that this
+    // decision is not going to buy anything with the rest of its budget.
+    // Under any real clock `stalled` never accumulates at all.
     let iterations = 0
+    let stalled = 0
+    let lastTick = run.now()
     while (run.now() < run.searchDeadline) {
       if (++iterations > 1_000_000) break
+      const tick = run.now()
+      if (tick === lastTick) {
+        if (++stalled > STALL_LIMIT) break
+      } else {
+        stalled = 0
+        lastTick = tick
+      }
+
+      // 0. HAND THE PROCESS BACK. Everything the anytime design needs —
+      //    the operator's pin arriving on a Firestore listener, the manager's
+      //    coalesced staged write, the final-flush timer, the other games —
+      //    lives on the macrotask queue, and a slice never touches it. The
+      //    yield is taken BEFORE the pending check so an event delivered by it
+      //    opens its epoch in this same iteration.
+      if (this.opts.yieldIntervalMs > 0) {
+        const wall = defaultNow()
+        if (wall - run.lastYieldWall >= this.opts.yieldIntervalMs) {
+          await yieldToEventLoop()
+          run.lastYieldWall = defaultNow()
+          run.yields++
+          if (run.now() >= run.searchDeadline) break
+        }
+      }
+
+      // 0½. THE TURN MAY ALREADY BE OVER. An early resolution (every alive
+      //     player committed) ends the turn well before its endTime, and every
+      //     further write is accepted and discarded. Stop here — before any
+      //     emission, and without the final flush — so the budget and the wire
+      //     go to the turn that is actually live.
+      if (run.input.abandoned?.() === true) {
+        run.aborted = true
+        return
+      }
+
       // 1. Constraint epochs come first: the wire must never hold a set that
       //    contradicts an operator, not even for one slice.
       if (this.pending.length > 0) {
-        const at = run.now()
+        const at = this.earliestArrival(run)
         const slicesAtEvent = run.slices
         const changed = this.applyPinEvents(run)
         if (changed) {
           const conformCallsBefore = run.conformCalls
           const resumed = this.retarget(run)
-          const conformed = this.conformNow(run, run.basis.stagedPlan ?? EMPTY_PLAN)
+          // Splice the new pins into what the WIRE is holding, not into the
+          // freshly-emptied basis: an epoch change repairs the staged set, it
+          // does not rebuild it from the generator's first candidates.
+          const conformed = this.conformNow(run, run.wirePlan ?? EMPTY_PLAN)
           run.stager.adopt(conformed.key)
           const rec = this.buildRecord(run, conformed)
           yield* this.commit(run, rec)
           run.conformance.push({
             epoch: run.epoch,
-            latencyMs: run.now() - at,
+            latencyMs: Math.max(0, run.now() - at),
             slicesBefore: run.slices - slicesAtEvent,
             conformCalls: run.conformCalls - conformCallsBefore,
             resumedFromCache: resumed,
           })
           continue
         }
+      }
+
+      // 1½. NOTHING COMMANDABLE IS FREE. With every unit this decision
+      //     commands pinned, a refinement slice has nothing it is allowed to
+      //     move: the sweep, the repair and the polish all skip pinned units,
+      //     so `improve` can only re-price the incumbent and be refused on
+      //     `worth`. Hand the time back instead of burning it (V1-OBS-3) —
+      //     the operator can still unpin, and an event wakes the loop.
+      if (run.tentative.length === 0 && this.everythingPinned(run)) {
+        run.idleSlices++
+        if (this.opts.yieldIntervalMs <= 0) break
+        await yieldToEventLoop()
+        run.lastYieldWall = defaultNow()
+        run.yields++
+        continue
       }
 
       // 2. Context: the committed one, or — one slice in N — a speculative one.
@@ -759,6 +1082,13 @@ export class LobsterKernel implements Kernel {
 
       if (entry.speculative) continue
 
+      // 4½. An event that arrived DURING this slice is already an operator
+      //     constraint, and the emit gates below would happily put a set on
+      //     the wire that contradicts it — one write, one slice late. The
+      //     wire must never hold a set that contradicts an operator, not even
+      //     for one slice, so the emission yields to the epoch (V1-BUG-3).
+      if (this.pending.length > 0) continue
+
       // 5. Measure the board conditions and let the governor flip. A flip
       //    starts a new basis and RE-MEASURES the incumbent under the new
       //    channel before anything may replace it (the same-evaluator rule).
@@ -780,10 +1110,26 @@ export class LobsterKernel implements Kernel {
 
   // --------------------------------------------------------------- epochs
 
+  /**
+   * When the earliest still-queued operator event actually arrived. Clamped
+   * into `[t0, now]`: an event stamped on another clock (one queued before the
+   * run existed) must never produce a negative or fabricated latency.
+   */
+  private earliestArrival(run: Run): number {
+    const now = run.now()
+    let earliest = Number.POSITIVE_INFINITY
+    for (const p of this.pending) {
+      const at = p.at ?? run.t0
+      if (at < earliest) earliest = at
+    }
+    if (!Number.isFinite(earliest)) return now
+    return Math.min(Math.max(earliest, run.t0), now)
+  }
+
   /** Apply queued events. Returns true iff a new constraint epoch started. */
   private applyPinEvents(run: Run): boolean {
     let epochChanged = false
-    const events = this.pending
+    const events = this.pending.map((p) => p.ev)
     this.pending = []
     for (const ev of events) {
       switch (ev.kind) {
@@ -814,18 +1160,26 @@ export class LobsterKernel implements Kernel {
           break
         }
         case "commit": {
-          // A human Submit: the unit's staged move is permanent for the turn.
-          // Pin it where it currently stands and refuse every later change.
-          const staged = run.basis.stagedPlan?.get(ev.unitId)
-          const to = staged?.to ?? run.pins.find((p) => p.unitId === ev.unitId)?.to
-          if (to === undefined) break
+          // A human Submit: the unit is permanent for the turn.
+          //
+          // THE FREEZE IS LEARNED UNCONDITIONALLY (V4 R7a). There are two
+          // humans-always-win gates — this `committedUnits` set and the wire
+          // ledger's own committed set — and they must agree about who is
+          // frozen. A unit with neither a staged move nor a standing pin has
+          // no destination for the kernel to pin it AT, but the freeze is a
+          // fact about the operator, not about whether this kernel happens to
+          // know where the unit went: record it first, then pin it if there is
+          // somewhere to pin it to.
           run.committedUnits.add(ev.unitId)
+          run.tentative = run.tentative.filter((p) => p.unitId !== ev.unitId)
+          const staged = run.wirePlan?.get(ev.unitId)
+          const to = staged?.to ?? run.pins.find((p) => p.unitId === ev.unitId)?.to
+          if (to === undefined) break // frozen, with no destination to claim
           run.pins = canonicalPins(
             run.pins
               .filter((p) => p.unitId !== ev.unitId)
               .concat({ unitId: ev.unitId, to, tentative: false }),
           )
-          run.tentative = run.tentative.filter((p) => p.unitId !== ev.unitId)
           epochChanged = true
           break
         }
@@ -904,26 +1258,52 @@ export class LobsterKernel implements Kernel {
     if (run.tentative.length === 0) return run.active
     if (run.slices === 0) return run.active // the committed context is served first
     if (run.slices % this.opts.speculativePeriod !== 0) return run.active
-    const which = run.tentative[Math.floor(run.slices / this.opts.speculativePeriod) % run.tentative.length]
-    const pins: Pin[] = canonicalPins(run.pins)
-      .filter((p) => p.unitId !== which.unitId)
-      .concat(which)
-    const key = pinContextKey(pins, true)
+    const which = run.tentative[
+      Math.floor(run.slices / this.opts.speculativePeriod) % run.tentative.length
+    ] as Pin
+    const committed = canonicalPins(run.pins).filter((p) => p.unitId !== which.unitId)
+    // THE KEY NAMES IT TENTATIVE; THE CONTEXT SEARCHES IT AS BINDING.
+    //
+    // A speculative context exists to answer "what would this pin cost?", and
+    // the search honours a pin only when it is not flagged tentative — so
+    // handing it the tentative flag made every speculative slice re-search the
+    // UNCONSTRAINED problem under a name claiming otherwise, and the advice
+    // layer then differenced two searches of the same question and reported
+    // the pin as free (V1-BUG-4: 0 of 289 speculative slices honoured the pin
+    // they were named for; costly pins bracketed 11/34 instead of 33/34). The
+    // key keeps the `?` marker because that is the advice layer's handle on
+    // this context; the pin set inside it is binding.
+    const key = pinContextKey([...committed, which], true)
+    const pins: Pin[] = [...committed, { ...which, tentative: false }]
     return run.cache.obtain(key, pins, true, run.epoch, run.active.stepCostMs).entry
   }
 
   private searchContext(run: Run, entry: PinContextEntry, budget: BudgetHandle): SearchContext {
+    // A REFUSED PIN IS NOT AN OPERATOR-PIN CLAIM (V1-BUG-2). The pin stands —
+    // the bot never unpins — but the search cannot honour a destination the
+    // grammar cannot reach, and handing it to the basis made every score in
+    // the context assert an `operator-pin` the plan visibly contradicts, so a
+    // record carried both the refusal narrowing and the claim it refutes. The
+    // refusal rides as the narrowing it is, and nothing else.
+    const refused = run.pins.filter((p) => run.refusedPins.get(p.unitId) === p.to)
     return {
       sub: run.input.sub,
       gen: run.input.gen,
       evaluate: run.input.evaluate,
       asTeam: run.input.asTeam,
-      pins: entry.pins,
+      pins: entry.pins.filter((p) => run.refusedPins.get(p.unitId) !== p.to),
       // The decision's standing basis (reference actions, held-capacity
       // narrowings) plus the CURRENT posture — so every plan a context prices
       // shares one basis, and a posture flip re-bases rather than compares.
       assumptions: [
         ...(run.input.assumptions ?? []),
+        ...refused.map(
+          (p): Assumption => ({
+            kind: "narrowing",
+            unitId: p.unitId,
+            note: `operator-pin-unreachable@${p.to}: unit keeps its own choice`,
+          }),
+        ),
         { kind: "posture", posture: run.governor.current },
       ],
       incumbent: entry.incumbent,
@@ -936,6 +1316,9 @@ export class LobsterKernel implements Kernel {
   private absorb(run: Run, entry: PinContextEntry, score: PlanScore): void {
     entry.incumbent = score
     entry.bounds = { lo: score.bounds.worst, hi: score.bounds.best }
+    // The basis this bracket was proved under travels with it: an advice layer
+    // differencing it against a record must be able to prove the two agree.
+    entry.boundsBasis = { posture: run.governor.current, epoch: run.epoch }
     if (score.witnesses.length > 0) {
       const seen = new Set(entry.witnesses.map(witnessKey))
       const merged = entry.witnesses.slice()
@@ -1153,9 +1536,22 @@ export class LobsterKernel implements Kernel {
 
   /**
    * The forced path: an already-chosen plan (rung 0, or the epoch-change
-   * conformance re-stage). Gates 1–3 are waived because the constraint set
-   * changed underneath them; the crossfade certificate is not, because the
-   * wire's atomicity did not change.
+   * conformance re-stage).
+   *
+   * GATES 1–3 ARE WAIVED because the constraint set changed underneath them.
+   * SO IS GATE 4, DELIBERATELY: a forced write is either the first staged set
+   * of the turn or the answer to an operator's pin, and an adversarial
+   * teammate floor that refused every consultation must not be able to starve
+   * either of them. Humans always win, structurally — this is a stated
+   * guarantee now, not an accident of where `gate()` is called (V3-R5 proved
+   * the behaviour is the right one, and that the comment that used to sit here
+   * claimed the opposite of what the code did).
+   *
+   * The certificate is still CONSULTED, because the wire's atomicity did not
+   * change and a torn re-stage on a >10-unit team is exactly the write most
+   * likely to tear. A refusal is recorded on the record itself as
+   * `forced-uncertified` and counted, so an operator's re-stage that shipped
+   * without a certificate is visible rather than invisible.
    */
   private buildRecord(run: Run, cand: PlanCandidate): EmitRecord {
     const rows = this.rows(run)
@@ -1171,7 +1567,16 @@ export class LobsterKernel implements Kernel {
             horizon: cand.horizon,
             vacuity: "alive",
           }
-    return this.record(run, cand, row, this.slackFor(run, rows, idx, row), row.horizon)
+    const verdict = this.crossfade(run, cand.plan)
+    if (verdict === "blocked") run.crossfade.forcedUncertified++
+    return this.record(
+      run,
+      cand,
+      row,
+      this.slackFor(run, rows, idx, row),
+      row.horizon,
+      verdict === "blocked" ? "forced-uncertified" : verdict,
+    )
   }
 
   private gate(
@@ -1255,12 +1660,32 @@ export class LobsterKernel implements Kernel {
     }
 
     // Gate 4 — CROSSFADE.
-    if (!this.crossfade(run, cand.plan)) {
+    const verdict = this.crossfade(run, cand.plan)
+    if (verdict === "blocked") {
+      run.crossfade.blocked++
       run.refusals.crossfade++
       return null
     }
 
-    return this.record(run, cand, row, slack, horizon)
+    return this.record(run, cand, row, slack, horizon, verdict)
+  }
+
+  /**
+   * True when every unit this decision commands is held by an honourable pin —
+   * the search has no free variable left.
+   */
+  private everythingPinned(run: Run): boolean {
+    const sub = run.input.sub
+    if (typeof sub.commandable !== "function") return false
+    let roster: ReadonlyArray<UnitId>
+    try {
+      roster = sub.commandable(run.input.asTeam)
+    } catch {
+      return false
+    }
+    if (roster.length === 0) return false
+    const pinned = new Set(this.honorablePins(run).map((p) => p.unitId))
+    return roster.every((id) => pinned.has(id))
   }
 
   /** Every HONOURABLE committed pin's unit stands exactly where the operator
@@ -1274,23 +1699,42 @@ export class LobsterKernel implements Kernel {
   }
 
   /**
-   * Gate 4. Tier 1 is the independence test: if the units this record CHANGES
-   * cannot influence any cell the unchanged staged units can, no interleaving
-   * of the two writes differs from either and there is nothing to certify.
-   * Tier 2 needs a teammate floor, which the contract does not yet expose; in
-   * its absence overlapping writes pass and are counted as uncertified.
+   * Gate 4 — THE CROSSFADE CERTIFICATE.
+   *
+   * Tier 1, independence: if the units this record CHANGES cannot influence
+   * any cell the unchanged staged units can, no interleaving of the two writes
+   * differs from either and there is nothing to certify.
+   *
+   * Tier 2, THE TORN INTERLEAVING ITSELF (V4 B4). The wire cuts a revision
+   * into chunks from a stable partition, so the states it can actually hold
+   * mid-write are `chunks 0..k from the new revision ∪ chunks k+1.. from the
+   * old` — MIXED plans, which neither coherent plan represents. Comparing
+   * `hook(prevPlan, changed)` with `hook(plan, changed)` prices two coherent
+   * worlds and, worse, EXCLUDES every changed unit from both sums: the
+   * coordinated pair that pair-repair produces (A into the cell B is vacating)
+   * is invisible to it precisely because both units changed. With the wire's
+   * partition in hand the gate builds each reachable mixed plan and prices it
+   * whole, against the floor the wire is already guaranteeing.
+   *
+   * Without a partition the delta comparison is all there is, and it speaks
+   * only for an ADJACENT-REVISION atomic pair: it still BLOCKS a regression,
+   * but a pass is counted `uncertified` rather than claiming a certificate the
+   * torn state never got.
    */
-  private crossfade(run: Run, plan: JointPlan): boolean {
-    if (this.opts.crossfade === "off") return true
-    const prevPlan = run.basis.stagedPlan
-    if (prevPlan === null) return true
+  private crossfade(run: Run, plan: JointPlan): CrossfadeVerdict | "blocked" {
+    if (this.opts.crossfade === "off") return "off"
+    // What the WIRE holds, not what this basis remembers staging: a basis is
+    // dropped on every epoch and posture change, and the torn write is against
+    // whatever is actually out there.
+    const prevPlan = run.wirePlan
+    if (prevPlan === null) return "independent"
     const changed = new Set<UnitId>()
     for (const [unitId, c] of plan) {
       const before = prevPlan.get(unitId)
       if (before === undefined || before.to !== c.to || before.path.join(".") !== c.path.join("."))
         changed.add(unitId)
     }
-    if (changed.size === 0) return true
+    if (changed.size === 0) return "independent"
     const movedCells = new Set<number>()
     for (const unitId of changed) for (const c of run.input.sub.influenceOf(unitId)) movedCells.add(c)
     let overlaps = false
@@ -1304,23 +1748,47 @@ export class LobsterKernel implements Kernel {
       }
       if (overlaps) break
     }
-    if (!overlaps) {
+    // TIER 1½ — CHANGED UNITS CAN TEAR AGAINST EACH OTHER. The unchanged-unit
+    // test above misses the case the whole gate exists for: a coordinated pair
+    // whose members land in different chunks. Both are "changed", so the
+    // independence test finds no unchanged unit to worry about and passes a
+    // write whose torn state is precisely the collision between them. If the
+    // delta spans more than one chunk, the write is tearable.
+    const groups = this.opts.crossfadeGroups?.(plan)
+    const spansGroups =
+      groups !== undefined &&
+      groups.filter((g) => g.some((unitId) => changed.has(unitId))).length > 1
+    if (!overlaps && !spansGroups) {
       run.crossfade.independent++
-      return true
+      return "independent"
     }
     const hook = this.opts.teammateFloor
     if (hook === undefined) {
       run.crossfade.uncertified++
-      return true
+      return "uncertified"
     }
-    const before = hook(prevPlan, changed)
-    const after = hook(plan, changed)
-    if (after < before) {
-      run.crossfade.blocked++
-      return false
+    if (groups === undefined) {
+      // Adjacent-revision only. Still a veto, never a certificate.
+      const before = hook(prevPlan, changed)
+      const after = hook(plan, changed)
+      if (after < before) return "blocked"
+      run.crossfade.uncertified++
+      return "uncertified"
     }
+    const tears = tornPlans(prevPlan, plan, groups, changed)
+    if (tears.length === 0) {
+      // One chunk, or the change sits wholly inside one: the write IS atomic,
+      // so the only states the wire can hold are the two coherent plans.
+      run.crossfade.certified++
+      return "certified"
+    }
+    const baseline = hook(prevPlan, NO_UNITS)
+    for (const mixed of tears) {
+      if (hook(mixed, NO_UNITS) < baseline) return "blocked"
+    }
+    run.crossfade.tornPriced++
     run.crossfade.certified++
-    return true
+    return "certified"
   }
 
   private record(
@@ -1329,17 +1797,28 @@ export class LobsterKernel implements Kernel {
     row: StagingCandidate,
     slack: number,
     horizon: number,
+    crossfade: CrossfadeVerdict,
   ): EmitRecord {
+    const lo = row.lo
+    const hi = Math.max(row.hi, row.lo)
     return {
       plan: cand.plan,
-      lo: row.lo,
-      est: cand.bound.est,
-      hi: Math.max(row.hi, row.lo),
+      // THE RECORD CARRIES THE est THE GATE USED (V4 R6). `gate` ratchets on
+      // `row.est` — which comes from the lever view whenever the core exposes
+      // one, and from the kernel's own evaluation otherwise — so writing
+      // `cand.bound.est` here would publish a number the gate never approved,
+      // and `commit` would then seed `basis.floorChannel` from it. Clamped
+      // into the record's own bracket at record time, once, so nothing
+      // downstream can read `est > hi` as a promise.
+      est: Math.min(Math.max(row.est, lo), hi),
+      lo,
+      hi,
       horizon,
       slack,
       posture: run.governor.current,
       assumptions: this.assumptions(run, cand),
       epoch: run.epoch,
+      crossfade,
     }
   }
 
@@ -1360,6 +1839,10 @@ export class LobsterKernel implements Kernel {
       out.push({ kind: "operator-pin", unitId: p.unitId, to: p.to })
     }
     for (const a of run.input.assumptions ?? []) out.push(a)
+    // Narrowings the consumer discovered while draining this decision — see
+    // `declare`. A default is a narrowing and must be named, whichever module
+    // found it out.
+    for (const a of run.declared) out.push(a)
     if (cand.score !== null) for (const a of cand.score.bounds.assumptions) out.push(a)
     const seen = new Set<string>()
     return out.filter((a) => {
@@ -1382,6 +1865,9 @@ export class LobsterKernel implements Kernel {
       run.refusals.sink++
       return
     }
+    // The consumer took it: THIS is now what the wire holds, whatever happens
+    // to the ratchet basis afterwards.
+    run.wirePlan = rec.plan
     const basis = run.basis
     const value = basis.channel === "est" ? Math.min(Math.max(rec.est, rec.lo), rec.hi) : rec.lo
     basis.staged = rec
@@ -1400,7 +1886,7 @@ export class LobsterKernel implements Kernel {
 
   private finish(run: Run): KernelReport {
     const end = run.now()
-    const speculative: Array<{ key: string; lo: number; hi: number; cursor: number }> = []
+    const speculative: Array<KernelReport["speculative"][number]> = []
     const contexts: Array<KernelReport["contexts"][number]> = []
     for (const key of run.cache.keys()) {
       const e = run.cache.peek(key)
@@ -1415,13 +1901,23 @@ export class LobsterKernel implements Kernel {
         stepCostMs: e.stepCostMs,
       })
       if (!e.speculative || e.bounds === null) continue
-      speculative.push({ key: e.key, lo: e.bounds.lo, hi: e.bounds.hi, cursor: e.cursor })
+      speculative.push({
+        key: e.key,
+        lo: e.bounds.lo,
+        hi: e.bounds.hi,
+        cursor: e.cursor,
+        posture: e.boundsBasis?.posture ?? null,
+        epoch: e.boundsBasis?.epoch ?? null,
+      })
     }
     return {
       elapsedMs: end - run.t0,
       budgetMs: run.budgetMs,
       overshootMs: Math.max(0, end - run.deadline),
       slices: run.slices,
+      abandoned: run.aborted,
+      idleSlices: run.idleSlices,
+      yields: run.yields,
       improveCalls: run.improveCalls,
       refineCalls: run.refineCalls,
       conformCalls: run.conformCalls,
@@ -1440,6 +1936,7 @@ export class LobsterKernel implements Kernel {
       journal: run.journal,
       levers: run.voc.levers,
       crossfade: { ...run.crossfade },
+      committedUnits: [...run.committedUnits].sort((a, b) => a - b),
       speculative,
       contexts,
       activeContextKey: run.active.key,

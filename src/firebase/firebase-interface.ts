@@ -1106,7 +1106,10 @@ export class TacticToesFirebaseInterface {
    * these as constraint-epoch changes; anything else may watch them too, since
    * a subscriber cannot influence staging.
    */
-  onPinEvent(gameID: string, sink: (event: PinEvent) => void): () => void {
+  onPinEvent(
+    gameID: string,
+    sink: (event: PinEvent, turn: number | undefined) => void
+  ): () => void {
     return this.pinEvents.subscribe(gameID, sink);
   }
 
@@ -1358,8 +1361,17 @@ export class TacticToesFirebaseInterface {
     // arms the per-turn final-flush timer only for team-staged games — enabled
     // after it, turn 0's last write would ride on luck instead of a timer. The
     // team engine's own enableTeamStaging call is idempotent on top of this.
+    //
+    // AND THE FLAG IS READ AT CALL TIME, so it can flip back mid-game. Turning
+    // the team engine off without turning its TRANSPORT off leaves the batched
+    // submitter routing a per-snake game's staged writes (V4 H3): the switch
+    // has to be driven in both directions from the same branch, and the team
+    // engine's per-game state (its pin subscription included) goes with it.
     if (centaurEngine() === 'lobster') {
       this.gameManager.enableTeamStaging(watched.gameID);
+    } else {
+      this.gameManager.enableTeamStaging(watched.gameID, false);
+      this.teamEngine.release(watched.gameID);
     }
 
     // Read-back + finalization for this turn: confirm what Firebase actually

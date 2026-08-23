@@ -88,6 +88,10 @@ async function deadlineForTurn(gameID: string, startTimeMs: number | null): Prom
     applyResolvedMoves: jest.fn(),
     getActiveWaypointTarget: jest.fn().mockReturnValue(null),
     setBotRecommendation: jest.fn(),
+    // The flag branch drives this switch in BOTH directions (V4 H3): under
+    // legacy it must actively turn the team transport off, so a stub of the
+    // manager has to carry it.
+    enableTeamStaging: jest.fn(),
   };
   (fi as never as { gameLogger: unknown }).gameLogger = {
     startGame: jest.fn(),

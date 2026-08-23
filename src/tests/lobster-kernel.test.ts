@@ -10,6 +10,7 @@
 
 import type { Bound, EmitRecord, JointPlan, KernelInput, Pin } from "../lobster/contracts"
 import {
+  DEFAULT_KERNEL_OPTIONS,
   LobsterKernel,
   PinContextCache,
   canonicalPins,
@@ -815,5 +816,378 @@ describe("humans always win", () => {
     )
     expect(reportOf(r.kernel).refusals.nonconforming).toBeGreaterThan(0)
     for (const rec of out) expect(rec.plan.get(2)?.to).toBe(77)
+  })
+})
+
+// ===========================================================================
+// V4 / V1 / V3 REGRESSIONS
+// ===========================================================================
+
+describe("the operator's queue: arrival, survival, and the two frozen gates", () => {
+  it("R7b: an event queued before the first next() is not thrown away", async () => {
+    // `decide()` is an async iterable whose body does not run until the
+    // consumer's first `next()`. Clearing the queue in the body discarded
+    // every event that landed in that window — which is precisely the window
+    // the team engine opens when it installs the live handle before the loop.
+    const r = rig([step({ worst: 10, best: 50 })], {}, { budgetMs: 5 })
+    const it = r.kernel.decide(r.input())
+    r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+    const out = await collect(it)
+    const rep = reportOf(r.kernel)
+    expect(rep.epochs).toBe(2)
+    expect(rep.conformance.length).toBeGreaterThanOrEqual(1)
+    expect(out[out.length - 1].plan.get(2)?.to).toBe(77)
+  })
+
+  it("R2: conformance latency is measured from ARRIVAL, not from the dequeue", async () => {
+    const r = rig([step({ worst: 10, best: 50, costMs: 3 })], {}, { budgetMs: 40 })
+    const it = r.kernel.decide(r.input())
+    // The event arrives before the run exists: it is measured from the
+    // decision's own start, which is the earliest honest reading there is.
+    r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+    // The rung-0 conform charges 0.05 ms and the first slice charges 3 ms, so
+    // a latency measured from the DEQUEUE would be ~0.
+    await collect(it)
+    const sample = reportOf(r.kernel).conformance[0]
+    expect(sample).toBeDefined()
+    expect(sample?.latencyMs).toBeGreaterThan(0)
+  })
+
+  it("R7a: a commit for a unit with no staged move and no pin still freezes it", async () => {
+    // The kernel's committedUnits set and the wire ledger's committed set are
+    // the two humans-always-win gates, and they have to agree. A commit whose
+    // destination this kernel cannot name used to be dropped whole: the ledger
+    // froze the unit, the kernel did not, and a later pin could move it.
+    const r = rig([step({ worst: 10, best: 50 })], {}, { budgetMs: 5 })
+    const it = r.kernel.decide(r.input())
+    r.kernel.onPinEvent({ kind: "commit", unitId: 99 }) // no staged move, no pin
+    await collect(it)
+    expect(reportOf(r.kernel).committedUnits).toContain(99)
+  })
+
+  it("a commit freezes the unit against every later pin", async () => {
+    const r = rig([step({ worst: 10, best: 50 })], {}, { budgetMs: 20 })
+    const it = r.kernel.decide(r.input())
+    r.kernel.onPinEvent({ kind: "commit", unitId: 99 })
+    r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 99, to: 3, tentative: false } })
+    const out = await collect(it)
+    for (const rec of out) {
+      expect(rec.assumptions).not.toContainEqual({ kind: "operator-pin", unitId: 99, to: 3 })
+    }
+  })
+
+  it("V1-BUG-3: no write lands after an event queued during the same slice", async () => {
+    // Events are drained at the top of the NEXT iteration, but the iteration
+    // that queued them used to run its emit gates first — one wire write, one
+    // slice late, contradicting the operator.
+    const clock = new FakeClock()
+    const kernel = new LobsterKernel({ minWriteIntervalMs: 0, yieldIntervalMs: 0 })
+    const sub = new StubSubstrate()
+    const gen = new StubGenerator()
+    const evaluator = new StubEvaluator(() => RUNG0)
+    let armed = false
+    const core = new (class extends ScriptedSearchCore {
+      improve(ctx: Parameters<ScriptedSearchCore["improve"]>[0]) {
+        const out = super.improve(ctx)
+        if (!armed) {
+          armed = true
+          // The operator pins DURING the slice.
+          kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+        }
+        return out
+      }
+    })(clock, [step({ plan: P2, worst: 900, best: 901, costMs: 0.5 })], { baseline: P1 })
+    const out = await collect(
+      kernel.decide({
+        sub,
+        gen,
+        evaluate: evaluator,
+        search: core,
+        asTeam: 0,
+        deadlineMs: clock.value + 10,
+        initialPins: [],
+        now: clock.now,
+        initialStepCostMs: 0.05,
+      }),
+    )
+    // Rung 0 is before the event; everything after it honours the pin.
+    const afterRung0 = out.slice(1)
+    expect(afterRung0.length).toBeGreaterThan(0)
+    for (const rec of afterRung0) expect(rec.plan.get(2)?.to).toBe(77)
+  })
+})
+
+describe("the record says what the gate used", () => {
+  it("R6: est on the record is the gate's est, clamped into its own bracket", async () => {
+    const r = rig([step({ worst: 10, best: 50 })], {}, {
+      evaluator: new StubEvaluator(() => ({ lo: -990, est: 5000, hi: 990 })),
+    })
+    const out = await collect(r.kernel.decide(r.input()))
+    for (const rec of out) {
+      expect(rec.est).toBeGreaterThanOrEqual(rec.lo)
+      expect(rec.est).toBeLessThanOrEqual(rec.hi)
+    }
+  })
+})
+
+describe("crossfade prices the torn interleaving, not two coherent plans", () => {
+  const A = 1
+  const B = 2
+  // A and B influence a shared cell, so the gate is engaged.
+  const influence = new Map<number, ReadonlySet<number>>([
+    [A, new Set([9, 12])],
+    [B, new Set([9, 12])],
+  ])
+
+  it("B4: a coordinated pair torn across two chunks is priced and blocked", async () => {
+    // Pair repair moves A into the cell B is vacating. Both units are in the
+    // delta, so the old certificate — which EXCLUDED every changed unit from
+    // both sums — could not see the collision between new-A and old-B at all.
+    const seen: Array<{ plan: JointPlan; excluding: number }> = []
+    const r = rig(
+      [step({ plan: P3, worst: 20, best: 60 }), step({ plan: P3, worst: 20, best: 60 })],
+      {
+        minWriteIntervalMs: 0,
+        crossfade: "teammate",
+        // Each unit is its own chunk: the wire can hold new-A with old-B.
+        crossfadeGroups: () => [[A], [B]],
+        teammateFloor: (p, excluding) => {
+          seen.push({ plan: p, excluding: excluding.size })
+          const a = p.get(A)?.to
+          const b = p.get(B)?.to
+          // The torn state: A on 6 while B still holds 8 — a collision the
+          // two coherent plans never contain.
+          return a === 6 && b === 8 ? -100 : 0
+        },
+      },
+      { influence, budgetMs: 20 },
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    // The gate priced whole mixed plans (nothing excluded), and refused.
+    expect(seen.some((s) => s.excluding === 0)).toBe(true)
+    expect(rep.crossfade.blocked).toBeGreaterThan(0)
+    for (const rec of out) expect(planKey(rec.plan)).not.toBe(planKey(P3))
+  })
+
+  it("with no chunk partition a pass is uncertified, never certified", async () => {
+    const r = rig(
+      [step({ plan: P4, worst: 20, best: 60 })],
+      {
+        minWriteIntervalMs: 0,
+        crossfade: "teammate",
+        teammateFloor: () => 0,
+      },
+      { influence, budgetMs: 20 },
+    )
+    await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.crossfade.certified).toBe(0)
+    expect(rep.crossfade.uncertified).toBeGreaterThan(0)
+  })
+
+  it("V3-R5: a forced re-stage is never starved, and says it went uncertified", async () => {
+    const r = rig(
+      [step({ plan: P4, worst: 20, best: 60 })],
+      {
+        minWriteIntervalMs: 0,
+        crossfade: "teammate",
+        // Any plan honouring the pin prices worse than what the wire holds:
+        // an adversarial certificate that refuses the operator's re-stage.
+        teammateFloor: (p) => (p.get(2)?.to === 77 ? -1 : 0),
+      },
+      { influence, budgetMs: 20 },
+    )
+    const it = r.kernel.decide(r.input())
+    r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+    const out = await collect(it)
+    const rep = reportOf(r.kernel)
+    // The operator's re-stage reached the wire anyway…
+    expect(rep.epochs).toBe(2)
+    expect(out.some((rec) => rec.epoch === 1 && rec.plan.get(2)?.to === 77)).toBe(true)
+    // …and the record says the certificate would have refused it.
+    expect(rep.crossfade.forcedUncertified).toBeGreaterThan(0)
+    expect(out.some((rec) => rec.crossfade === "forced-uncertified")).toBe(true)
+    expect(rep.stagedNothing).toBe(false)
+  })
+})
+
+describe("the decision hands the process back (V3-R2)", () => {
+  it("yielding is the DEFAULT, not an opt-in", () => {
+    // A decision that holds the loop makes the whole mid-decision constraint
+    // machinery unreachable from a Firestore listener, collapses every staged
+    // revision into one post-decision burst, and starves the other games in
+    // the process. Off is a harness setting, never a production one.
+    expect(DEFAULT_KERNEL_OPTIONS.yieldIntervalMs).toBeGreaterThan(0)
+  })
+
+  it("a macrotask armed before the decision fires DURING it", async () => {
+    let firedDuring = false
+    let decisionDone = false
+    const r = rig([step({ worst: 10, best: 50, costMs: 0 })], {}, {})
+    // A real decision on the wall clock, driven by a real deadline.
+    const started = Date.now()
+    const input: KernelInput = {
+      ...r.input(),
+      now: () => Date.now(),
+      deadlineMs: started + 60,
+    }
+    setTimeout(() => {
+      firedDuring = !decisionDone
+    }, 10)
+    await collect(r.kernel.decide(input))
+    decisionDone = true
+    expect(firedDuring).toBe(true)
+    expect(reportOf(r.kernel).yields).toBeGreaterThan(0)
+  })
+
+  it("an event delivered by a macrotask opens an epoch mid-decision", async () => {
+    const r = rig([step({ worst: 10, best: 50, costMs: 0 })], {}, {})
+    const started = Date.now()
+    const kernel = r.kernel
+    setTimeout(() => {
+      kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+    }, 15)
+    const out = await collect(
+      kernel.decide({ ...r.input(), now: () => Date.now(), deadlineMs: started + 80 }),
+    )
+    expect(reportOf(kernel).epochs).toBe(2)
+    expect(out[out.length - 1].plan.get(2)?.to).toBe(77)
+  })
+})
+
+describe("an early-resolved turn is abandoned (V3-R4)", () => {
+  it("stops at the next slice boundary and writes nothing more", async () => {
+    let over = false
+    const r = rig([step({ plan: P2, worst: 900, best: 901 })], { minWriteIntervalMs: 0 }, {
+      budgetMs: 100,
+    })
+    const it = r.kernel.decide({ ...r.input(), abandoned: () => over })
+    const seen: EmitRecord[] = []
+    for await (const rec of it) {
+      seen.push(rec)
+      over = true // the turn resolved under us, right after rung 0
+    }
+    const rep = reportOf(r.kernel)
+    expect(rep.abandoned).toBe(true)
+    // Rung 0 only: nothing after the abandonment, and no final flush.
+    expect(seen).toHaveLength(1)
+    expect(rep.stagedNothing).toBe(false)
+    expect(rep.elapsedMs).toBeLessThan(rep.budgetMs)
+  })
+})
+
+describe("speculative contexts search the pin they are named for (V1-BUG-4)", () => {
+  it("the tentative pin is BINDING inside its own context, and never leaks out", async () => {
+    const seen: Array<ReadonlyArray<Pin>> = []
+    const clock = new FakeClock()
+    const sub = new StubSubstrate()
+    const gen = new StubGenerator()
+    const core = new (class extends ScriptedSearchCore {
+      improve(ctx: Parameters<ScriptedSearchCore["improve"]>[0]) {
+        seen.push(ctx.pins.map((p) => ({ ...p })))
+        return super.improve(ctx)
+      }
+    })(clock, [step({ worst: 10, best: 50 })], { baseline: P1 })
+    const kernel = new LobsterKernel({
+      minWriteIntervalMs: 0,
+      speculativePeriod: 2,
+      yieldIntervalMs: 0,
+    })
+    const out = await collect(
+      kernel.decide({
+        sub,
+        gen,
+        evaluate: new StubEvaluator(() => RUNG0),
+        search: core,
+        asTeam: 0,
+        deadlineMs: clock.value + 5,
+        initialPins: [{ unitId: 2, to: 77, tentative: true }],
+        now: clock.now,
+        initialStepCostMs: 0.05,
+      }),
+    )
+    // Some context searched the hovered pin as a real constraint…
+    const speculativeCalls = seen.filter((pins) => pins.some((p) => p.unitId === 2 && p.to === 77))
+    expect(speculativeCalls.length).toBeGreaterThan(0)
+    for (const pins of speculativeCalls) {
+      for (const p of pins) if (p.unitId === 2) expect(p.tentative).toBe(false)
+    }
+    // …and the report still names it as the tentative context it is.
+    const spec = reportOf(kernel).speculative
+    expect(spec.length).toBeGreaterThan(0)
+    expect(spec.some((s) => s.key.includes("2@77?"))).toBe(true)
+    // A tentative pin never becomes an operator-pin on a staged record.
+    for (const rec of out) {
+      expect(rec.assumptions).not.toContainEqual({ kind: "operator-pin", unitId: 2, to: 77 })
+    }
+  })
+})
+
+describe("a refused pin is a narrowing and NOT an operator-pin claim (V1-BUG-2)", () => {
+  it("the record carries the refusal, never the claim it refutes", async () => {
+    const sub = new StubSubstrate()
+    sub.setReachable(2, [8]) // 77 is not reachable
+    const clock = new FakeClock()
+    const kernel = new LobsterKernel({ minWriteIntervalMs: 0, yieldIntervalMs: 0 })
+    const core = new ScriptedSearchCore(clock, [step({ worst: 10, best: 50 })], { baseline: P1 })
+    const out = await collect(
+      kernel.decide({
+        sub,
+        gen: new StubGenerator(),
+        evaluate: new StubEvaluator(() => RUNG0),
+        search: core,
+        asTeam: 0,
+        deadlineMs: clock.value + 5,
+        initialPins: [{ unitId: 2, to: 77, tentative: false }],
+        now: clock.now,
+        initialStepCostMs: 0.05,
+      }),
+    )
+    expect(reportOf(kernel).refusals["pin-unreachable"]).toBe(1)
+    for (const rec of out) {
+      expect(rec.assumptions).not.toContainEqual({ kind: "operator-pin", unitId: 2, to: 77 })
+      expect(
+        rec.assumptions.some(
+          (a) => a.kind === "narrowing" && a.unitId === 2 && a.note.includes("unreachable@77"),
+        ),
+      ).toBe(true)
+    }
+    // The search never saw the refused pin as a constraint either.
+    for (const snapshot of core.improveLog) {
+      expect(snapshot.pins.some((p) => p.unitId === 2 && p.to === 77)).toBe(false)
+    }
+  })
+})
+
+describe("nothing commandable is free (V1-OBS-3)", () => {
+  it("the budget is not spent re-pricing a fully pinned incumbent", async () => {
+    const sub = new StubSubstrate()
+    sub.setRoster([1, 2])
+    const clock = new FakeClock()
+    const core = new ScriptedSearchCore(clock, [step({ worst: 10, best: 50, costMs: 0 })], {
+      baseline: P1,
+    })
+    const kernel = new LobsterKernel({ minWriteIntervalMs: 0, yieldIntervalMs: 0 })
+    await collect(
+      kernel.decide({
+        sub,
+        gen: new StubGenerator(),
+        evaluate: new StubEvaluator(() => RUNG0),
+        search: core,
+        asTeam: 0,
+        deadlineMs: clock.value + 20,
+        initialPins: [
+          { unitId: 1, to: 4, tentative: false },
+          { unitId: 2, to: 8, tentative: false },
+        ],
+        now: clock.now,
+        initialStepCostMs: 0.05,
+      }),
+    )
+    const rep = reportOf(kernel)
+    expect(rep.improveCalls).toBe(0)
+    expect(rep.idleSlices).toBeGreaterThan(0)
+    expect(rep.stagedNothing).toBe(false)
   })
 })

@@ -120,14 +120,30 @@ export class StubSubstrate implements Substrate {
   readonly state = {} as StateHandle
   resolveCalls = 0
   entangledCalls = 0
+  /** Units this stub claims to command. Empty by default — the kernel suites
+   * mostly do not care, and a roster is what makes "every unit is pinned"
+   * expressible. */
+  private roster: ReadonlyArray<UnitId> = []
 
   constructor(
     private readonly influence: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map(),
     /** Destinations `pathOf` treats as reachable, per unit. Empty map =
      * everything is reachable (the stub cannot judge, and refuses nothing —
      * the same posture the kernel takes toward an unanswerable substrate). */
-    private readonly reachable: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map(),
+    private reachable: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map(),
   ) {}
+
+  setRoster(ids: ReadonlyArray<UnitId>): void {
+    this.roster = ids
+  }
+
+  /** Only these destinations are reachable for `unitId`; everything else this
+   * unit is pinned to is refused by `pathOf`. */
+  setReachable(unitId: UnitId, tos: ReadonlyArray<number>): void {
+    const next = new Map(this.reachable)
+    next.set(unitId, new Set(tos))
+    this.reachable = next
+  }
 
   resolveBoundedFor(_plan: JointPlan, _asTeam: number): never {
     this.resolveCalls++
@@ -148,7 +164,7 @@ export class StubSubstrate implements Substrate {
   }
 
   commandable(_asTeam: number): ReadonlyArray<UnitId> {
-    return []
+    return this.roster
   }
 
   actionsOf(_unitId: UnitId): never {

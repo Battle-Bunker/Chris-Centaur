@@ -87,6 +87,7 @@ describe('fire-and-forget decision pass', () => {
       applyResolvedMoves: jest.fn(),
       getActiveWaypointTarget: jest.fn().mockReturnValue(null),
       setBotRecommendation,
+      enableTeamStaging: jest.fn(),
     };
     (fi as any).gameLogger = { startGame: jest.fn(), endGame: jest.fn() };
 

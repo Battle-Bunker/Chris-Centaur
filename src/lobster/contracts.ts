@@ -169,10 +169,25 @@ export type PinEvent =
   | { readonly kind: "unpin"; readonly unitId: UnitId }
   | { readonly kind: "commit"; readonly unitId: UnitId } // human Submit — permanent for the turn
 
-/** Proved price of an operator pin, offered as advice; never auto-applied. */
+/**
+ * Proved price of an operator pin, offered as advice; never auto-applied.
+ *
+ * THE TWO COSTS ARE ONE CHANNEL EACH, and they are never mixed. `costLo` is
+ * the FLOOR channel's delta and `costHi` is the CEILING channel's; a `min`/
+ * `max` across the pair would let the ceiling's delta be published as the
+ * floor's, which is the one comparison this field's name promises not to make.
+ * Both are clamped at zero: a pin that HELPS is free, not negative.
+ *
+ * Both deltas difference an incumbent's bracket against a speculative
+ * context's, so both are subject to basis identity (non-negotiable 5): the
+ * consumer that computes them must prove the two sides share a posture and a
+ * constraint epoch, or mark the advice degraded and say so.
+ */
 export interface PinAdvice {
   readonly pin: Pin
-  readonly costLo: number // floor(best unconstrained) − floor(best conforming); ≥ 0
+  /** floor(best unconstrained) − floor(best conforming); ≥ 0. lo vs lo. */
+  readonly costLo: number
+  /** ceiling(best unconstrained) − ceiling(best conforming); ≥ 0. hi vs hi. */
   readonly costHi: number
   readonly witness: Witness | null // the concrete punishing line, when known
   readonly alternative: Candidate | null
@@ -197,6 +212,21 @@ export type VacuityCause = "alive" | "material-dead" | "cloud-contingent-dead"
 
 // ------------------------------------------------------------------ emission
 
+export type CrossfadeVerdict =
+  /** The changed units cannot influence any cell an unchanged one can. */
+  | "independent"
+  /** Every interleaving the wire can produce was priced and passed. */
+  | "certified"
+  /** No certificate was available (no teammate floor, or no chunk partition):
+   * the write passed on an adjacent-revision comparison only. */
+  | "uncertified"
+  /** A FORCED write (rung 0, or the conformance re-stage an operator is
+   * waiting on) whose certificate would have refused. Forced paths are never
+   * starved — humans always win — so the record ships and says so here. */
+  | "forced-uncertified"
+  /** The gate is off. */
+  | "off"
+
 export interface EmitRecord {
   readonly plan: JointPlan
   readonly lo: number
@@ -207,6 +237,8 @@ export interface EmitRecord {
   readonly posture: Posture
   readonly assumptions: ReadonlyArray<Assumption>
   readonly epoch: number
+  /** What the crossfade gate could prove about THIS write. */
+  readonly crossfade: CrossfadeVerdict
 }
 
 // -------------------------------------------------------- refinement levers
@@ -461,4 +493,16 @@ export interface KernelInput {
    * slice of a turn is otherwise unmeasured, and at the bottom of the ladder
    * that one slice is the whole budget. Never module state. */
   readonly initialStepCostMs?: number
+  /**
+   * "This turn is over — stop." Asked once per slice boundary.
+   *
+   * A turn can resolve the instant every alive player commits (T1 fact 5), and
+   * the server then discards every later write for it. Without this the
+   * decision searches on to its own deadline for a board that no longer
+   * exists, spending the budget the NEXT turn needs and putting documents on
+   * the wire the resolution transaction will read and throw away. On abandon
+   * the kernel stops at the next slice boundary and emits nothing further —
+   * not even the final flush.
+   */
+  readonly abandoned?: () => boolean
 }

@@ -54,7 +54,18 @@ export interface PinTranslation {
   cellOf(snakeId: string, move: CentaurMove): CellIndex | null;
 }
 
-export type PinEventSink = (event: PinEvent) => void;
+/**
+ * A pin-event consumer. The second argument is the TURN the event constrains —
+ * this stream's current turn at emission time.
+ *
+ * It is not decoration. A turn resolves the instant every alive player
+ * commits, so the operator's first pins on turn N+1 can land while turn N's
+ * decision is still running, and a consumer that cannot tell the two apart
+ * either applies them to the wrong board or wipes them at the next turn
+ * boundary with no counter and no log (V4 B5). Sinks that do not care may
+ * ignore it.
+ */
+export type PinEventSink = (event: PinEvent, turn: number | undefined) => void;
 
 /** The staging sources that constitute an operator constraint. A bot or
  * fallback move is the search's own output and is never a pin. */
@@ -239,9 +250,10 @@ export class PinEventStream {
   }
 
   private emit(event: PinEvent): void {
+    const turn = this.turn ?? undefined;
     for (const sink of Array.from(this.sinks)) {
       try {
-        sink(event);
+        sink(event, turn);
       } catch (err) {
         // A subscriber must never be able to break staging observation.
         console.error('[pin-events] sink threw:', err);

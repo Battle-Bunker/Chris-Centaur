@@ -14,9 +14,16 @@
 import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
 import { MAX_FROZEN } from '../partial-engine/index';
-import type { PinEvent, UnitId } from '../lobster/contracts';
+import type {
+  Candidate,
+  JointPlan,
+  PinEvent,
+  SearchContext,
+  SearchCore,
+  UnitId,
+} from '../lobster/contracts';
 import { NO_ORDER_MOVE } from '../lobster/contracts';
-import { TooManyHeldError, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
+import { EngineSubstrate, TooManyHeldError, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { GrammarCandidateGenerator } from '../lobster/candidates';
 import type { KernelReport } from '../lobster/kernel';
 import { adviseFromReport } from '../lobster/pins';
@@ -67,14 +74,15 @@ interface Recorded {
 interface FakePorts extends TeamDecisionPorts {
   readonly staged: Recorded[];
   readonly enabled: string[];
-  fire(ev: PinEvent): void;
+  /** Deliver one wire event. `turn` is what the real stream stamps on it. */
+  fire(ev: PinEvent, turn?: number): void;
 }
 
 /** The fake manager/transport surface — the mandate's "fake submitter". */
 function fakePorts(registry: ReadonlyArray<string>): FakePorts {
   const staged: Recorded[] = [];
   const enabled: string[] = [];
-  let sink: ((ev: PinEvent) => void) | null = null;
+  let sink: ((ev: PinEvent, turn?: number) => void) | null = null;
   return {
     staged,
     enabled,
@@ -91,9 +99,9 @@ function fakePorts(registry: ReadonlyArray<string>): FakePorts {
       };
     },
     pinSnakeIdOf: (_gameId, unitId) => registry[unitId] ?? null,
-    fire: (ev) => {
+    fire: (ev, turn) => {
       if (sink === null) throw new Error('no pin sink subscribed');
-      sink(ev);
+      sink(ev, turn);
     },
     log: () => undefined,
   };
@@ -433,4 +441,379 @@ describe('index space sanity', () => {
       sub.release();
     }
   });
+});
+
+// ---------------------------------------------- overlapping decisions (V4 B1)
+
+/**
+ * A core that stages the real candidate layer's choices (pins honoured) and
+ * reports a bracket that halves every call.
+ *
+ * WHY A SCRIPTED CORE HERE. The bug under test is about two decisions running
+ * at once, and a kernel only ever hands the event loop back when it EMITS. A
+ * converged search stops emitting, so a real trio would let whichever decision
+ * is running monopolise the thread and the two would never interleave at all —
+ * the test would pass or fail on scheduling luck. A geometric bracket emits
+ * every slice by construction, so the interleaving is deterministic. Every
+ * other part of the path is real: the substrate, the candidate layer, the
+ * ledger, the kernel, the wire routing.
+ */
+function alwaysImprovingCore(): SearchCore {
+  let n = 0;
+  const planFor = (ctx: SearchContext): JointPlan => {
+    const plan = new Map<UnitId, Candidate>();
+    for (const unitId of ctx.sub.commandable(ctx.asTeam)) {
+      const set = ctx.gen.candidatesFor(ctx.sub, unitId);
+      const pin = ctx.pins.find((p) => !p.tentative && p.unitId === unitId);
+      const pick =
+        (pin ? set.candidates.find((c) => c.to === pin.to) : undefined) ??
+        (set.candidates[0] as Candidate);
+      plan.set(unitId, pick);
+    }
+    return plan;
+  };
+  return {
+    conform: (ctx) => planFor(ctx),
+    improve: (ctx) => {
+      n++;
+      const half = Math.pow(0.5, n);
+      return {
+        plan: planFor(ctx),
+        bounds: {
+          worst: -1000 * half,
+          best: 1000 * half,
+          ledger: [],
+          assumptions: [],
+          exact: false,
+        },
+        witnesses: [],
+      };
+    },
+  };
+}
+
+const WIDE_EVALUATOR = {
+  scorePlan: () => ({ lo: -2000, est: 0, hi: 2000 }),
+  evaluatePlan: () => ({
+    bound: { lo: -2000, est: 0, hi: 2000 },
+    parts: {},
+    exact: false,
+    basis: [],
+    ledgerSize: 0,
+  }),
+};
+
+describe('two decisions overlap by design: the live handle is turn-keyed', () => {
+  const smokeBoard = (): Board =>
+    boardOf([
+      piece('a', { x: 1, y: 3 }, 'king', 1, { teamID: 'red' }),
+      piece('b', { x: 1, y: 1 }, 'rook', 2, { teamID: 'red' }),
+      piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+
+  const unitsOf = (board: Board) => [
+    { snakeId: 'a', view: viewFor(board, 'a') },
+    { snakeId: 'b', view: viewFor(board, 'b') },
+  ];
+
+  test('a pin after the OLD decision expires still reaches the NEW kernel', async () => {
+    // T1 fact 5: a turn resolves the instant every alive player commits, so
+    // turn N+1's snapshot lands long before turn N's endTime and two decisions
+    // run at once. When turn N then reached its own deadline, its `finally`
+    // nulled `game.live` — turn N+1's handle — and every pin, unpin and commit
+    // for the LIVE turn was folded into the ledger and never reached the
+    // kernel: no epoch, no conformance re-stage, no counter. The ordinary
+    // human action the feature exists for, silently ignored.
+    const board = smokeBoard();
+    const probe = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const aUnit = probe.unitOfWireId('a')?.unitId as UnitId;
+    const aHead = probe.unitOfWireId('a')?.cells[0] as number;
+    const pinTo = probe
+      .actionsOf(aUnit)
+      .map((c) => c.to)
+      .find((to) => to !== aHead) as number;
+    probe.release();
+
+    const ports = fakePorts(['a', 'b']);
+    const engine = new TeamDecisionEngine(ports, {
+      makeCore: () => alwaysImprovingCore(),
+      evaluate: WIDE_EVALUATOR as never,
+      kernel: { reserveMs: 20, sliceMs: 5, minWriteIntervalMs: 0 },
+    });
+
+    // Turn N: a SHORT decision. Turn N+1: a long one, started while N runs.
+    const oldTurn = engine.decideTurn({
+      gameId: 'g-overlap',
+      turn: TURN,
+      board,
+      ourTeamId: 'red',
+      units: unitsOf(board),
+      deadlineMs: Date.now() + 200,
+    });
+    const newTurn = engine.decideTurn({
+      gameId: 'g-overlap',
+      turn: TURN + 1,
+      board,
+      ourTeamId: 'red',
+      units: unitsOf(board),
+      deadlineMs: Date.now() + 900,
+    });
+
+    // THE OPERATOR PINS THE INSTANT THE OLD DECISION DIES. Its `finally` has
+    // just run; the new decision is still emitting and still owns the wire.
+    // This is the exact moment the bug lived in.
+    let fired = false;
+    void oldTurn.then((oldResult) => {
+      expect(oldResult.report?.stagedNothing).toBe(false);
+      fired = true;
+      ports.fire({ kind: 'pin', pin: { unitId: 0, to: pinTo, tentative: false } }, TURN + 1);
+    });
+
+    const result = await newTurn;
+    expect(fired).toBe(true);
+    const report = result.report as KernelReport;
+    expect(report).not.toBeNull();
+    // The pin reached kernel₂: a constraint epoch, and a conformance sample.
+    expect(report.epochs).toBe(2);
+    expect(report.conformance.length).toBeGreaterThanOrEqual(1);
+    expect(report.conformance[0]?.epoch).toBe(1);
+    // And every record staged after it honours the operator exactly.
+    const after = report.journal.filter((rec) => rec.epoch >= 1);
+    expect(after.length).toBeGreaterThan(0);
+    for (const rec of after) expect(rec.plan.get(aUnit)?.to).toBe(pinTo);
+  }, 30_000);
+});
+
+// ------------------------------------------- the turn-boundary gap (V4 B5)
+
+describe('an operator event in the turn-boundary gap is delivered, never wiped', () => {
+  const board = (): Board =>
+    boardOf([
+      piece('a', { x: 1, y: 3 }, 'king', 1, { teamID: 'red' }),
+      piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+
+  test('a pin stamped for the NEXT turn survives that turn beginning', async () => {
+    const b = board();
+    const probe = makeSubstrate({ board: b, turn: TURN, asTeam: 'red' });
+    const aUnit = probe.unitOfWireId('a')?.unitId as UnitId;
+    const aHead = probe.unitOfWireId('a')?.cells[0] as number;
+    const pinTo = probe
+      .actionsOf(aUnit)
+      .map((c) => c.to)
+      .find((to) => to !== aHead) as number;
+    probe.release();
+
+    const ports = fakePorts(['a']);
+    const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 20, sliceMs: 10 } });
+    const units = [{ snakeId: 'a', view: viewFor(b, 'a') }];
+
+    // Turn N runs and finishes; the subscription now exists.
+    await engine.decideTurn({
+      gameId: 'g-gap',
+      turn: TURN,
+      board: b,
+      ourTeamId: 'red',
+      units,
+      deadlineMs: Date.now() + 250,
+    });
+
+    // THE GAP: turn N+1's snapshot has landed on the wire and the operator has
+    // pinned on it, but this engine has not begun turn N+1 yet. The ledger is
+    // still reporting on turn N.
+    ports.fire({ kind: 'pin', pin: { unitId: 0, to: pinTo, tentative: false } }, TURN + 1);
+
+    const result = await engine.decideTurn({
+      gameId: 'g-gap',
+      turn: TURN + 1,
+      board: b,
+      ourTeamId: 'red',
+      units,
+      deadlineMs: Date.now() + 400,
+    });
+    const report = result.report as KernelReport;
+    // It arrived as an INITIAL pin of the decision it constrained — honoured
+    // from the very first staged set, not lost at the turn boundary.
+    expect(report.journal.length).toBeGreaterThan(0);
+    for (const rec of report.journal) expect(rec.plan.get(aUnit)?.to).toBe(pinTo);
+    expect(result.refusals['pin-event-late']).toBe(0);
+  }, 30_000);
+
+  test('an event for a turn already resolved is COUNTED, never silently dropped', async () => {
+    const b = board();
+    const ports = fakePorts(['a']);
+    const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 20, sliceMs: 10 } });
+    const units = [{ snakeId: 'a', view: viewFor(b, 'a') }];
+    await engine.decideTurn({
+      gameId: 'g-late',
+      turn: TURN,
+      board: b,
+      ourTeamId: 'red',
+      units,
+      deadlineMs: Date.now() + 200,
+    });
+    // Late arrival for a turn that is over.
+    ports.fire({ kind: 'pin', pin: { unitId: 0, to: 9, tentative: false } }, TURN - 1);
+    const result = await engine.decideTurn({
+      gameId: 'g-late',
+      turn: TURN + 1,
+      board: b,
+      ourTeamId: 'red',
+      units,
+      deadlineMs: Date.now() + 250,
+    });
+    expect(result.refusals['pin-event-late']).toBe(1);
+  }, 30_000);
+});
+
+// ------------------------------------ an unexpressible staged move (V4 B6)
+
+describe('a staged move the wire cannot say is a named narrowing, not a skip', () => {
+  test('counted as a refusal and declared on every record after it', async () => {
+    const body = [
+      { x: 3, y: 3 },
+      { x: 3, y: 2 },
+    ];
+    const b = boardOf([
+      makeSnake('s', body, { teamID: 'red', orientation: { dx: 0, dy: -1 } }),
+      piece('K', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
+    ]);
+    const probe = makeSubstrate({ board: b, turn: TURN, asTeam: 'red' });
+    const sUnit = probe.unitOfWireId('s')?.unitId as UnitId;
+    const head = probe.unitOfWireId('s')?.cells[0] as number;
+    // Two cells up-board: a destination NO direction can express.
+    const unreachable = head - 2 * probe.grid.width;
+    probe.release();
+
+    // A scripted core that stages exactly that, and a stub evaluator so the
+    // engine is never asked to resolve a cell its rules do not admit — the
+    // question here is what the FORWARDING path does with a destination the
+    // wire has no word for.
+    const candidate = { unitId: sUnit, from: head, to: unreachable, path: [unreachable] };
+    const plan = new Map([[sUnit, candidate]]);
+    const bounds = { worst: 1, best: 1, ledger: [], assumptions: [], exact: false };
+    const scripted = {
+      improve: () => ({ plan, bounds, witnesses: [] }),
+      conform: () => plan,
+    };
+    // A wide bracket from the evaluator and a tight one from the core, so the
+    // second emission has a real improvement to sell and the worth gate lets
+    // it through — otherwise rung 0 is the only record there is.
+    const stubEvaluate = {
+      scorePlan: () => ({ lo: 1, est: 1, hi: 100 }),
+      evaluatePlan: () => ({
+        bound: { lo: 1, est: 1, hi: 100 },
+        parts: {},
+        exact: false,
+        basis: [],
+        ledgerSize: 0,
+      }),
+    };
+
+    const ports = fakePorts(['s']);
+    const engine = new TeamDecisionEngine(ports, {
+      makeCore: () => scripted as never,
+      evaluate: stubEvaluate as never,
+      kernel: { reserveMs: 20, sliceMs: 10, minWriteIntervalMs: 0 },
+    });
+    const result = await engine.decideTurn({
+      gameId: 'g-unexpressible',
+      turn: TURN,
+      board: b,
+      ourTeamId: 'red',
+      units: [{ snakeId: 's', view: viewFor(b, 's') }],
+      deadlineMs: Date.now() + 250,
+    });
+
+    // Nothing was forwarded — but it is not a silent skip any more.
+    expect(result.forwarded).toBe(0);
+    expect(ports.staged).toEqual([]);
+    expect(result.refusals['unexpressible-move']).toBeGreaterThan(0);
+
+    // A default is a narrowing and must be NAMED: every record emitted after
+    // the discovery carries one, shaped exactly like the pin-unreachable
+    // precedent (kind narrowing, the unit, a note naming the destination).
+    const report = result.report as KernelReport;
+    const later = report.journal.slice(1);
+    expect(later.length).toBeGreaterThan(0);
+    for (const rec of later) {
+      const narrowing = rec.assumptions.find(
+        (a) => a.kind === 'narrowing' && a.unitId === sUnit
+      );
+      expect(narrowing).toBeDefined();
+      if (narrowing?.kind === 'narrowing') {
+        expect(narrowing.note).toContain(`staged-move-unexpressible@${unreachable}`);
+      }
+    }
+  }, 30_000);
+});
+
+// -------------------------------- a wire→substrate lookup miss (V4 R5)
+
+describe('a modelling choice the substrate cannot name degrades, never crashes', () => {
+  const SIZE = 12;
+  const bigBoard = (): Board => {
+    const snakes: Snake[] = [
+      piece('a', { x: 0, y: 5 }, 'king', 1, { teamID: 'red' }),
+      piece('b', { x: 0, y: 7 }, 'king', 1, { teamID: 'red' }),
+      piece('n1', { x: 1, y: 5 }, 'king', 1, { teamID: 'blue' }),
+      piece('n2', { x: 1, y: 7 }, 'king', 1, { teamID: 'green' }),
+    ];
+    let i = 0;
+    for (let y = 0; y < SIZE && i < 32; y++) {
+      for (let x = SIZE - 4; x < SIZE && i < 32; x++) {
+        snakes.push(piece(`e${i}`, { x, y }, 'king', 1, { teamID: i % 2 === 0 ? 'blue' : 'green' }));
+        i++;
+      }
+    }
+    return boardOf(snakes, SIZE);
+  };
+
+  test('the miss is a counted refusal and a declared narrowing — not an UnknownUnitError', async () => {
+    const board = bigBoard();
+    // `unitId: sub.unitOfWireId(id)?.unitId as UnitId` used to carry `undefined`
+    // through the cast into a reference-action, into the plan, and out the
+    // other side as an UnknownUnitError deep inside resolveBounded — a whole
+    // turn lost to a lookup miss. The lookup is simulated here because the
+    // production probe and the real substrate are built from the same board,
+    // which is exactly why the cast looked safe.
+    const real = EngineSubstrate.prototype.unitOfWireId;
+    const spy = jest
+      .spyOn(EngineSubstrate.prototype, 'unitOfWireId')
+      .mockImplementation(function (this: EngineSubstrate, wireId: string) {
+        return wireId === 'n1' ? undefined : real.call(this, wireId);
+      });
+    try {
+      const ports = fakePorts(['a', 'b']);
+      const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 20, sliceMs: 10 } });
+      const result = await engine.decideTurn({
+        gameId: 'g-miss',
+        turn: TURN,
+        board,
+        ourTeamId: 'red',
+        units: [
+          { snakeId: 'a', view: viewFor(board, 'a') },
+          { snakeId: 'b', view: viewFor(board, 'b') },
+        ],
+        deadlineMs: Date.now() + 400,
+      });
+      // The decision survived and still staged a set.
+      expect(result.report?.stagedNothing).toBe(false);
+      expect(result.refusals['unit-lookup-miss']).toBe(1);
+      // One reference-action for the unit it could name, one NAMED narrowing
+      // for the one it could not — and no assumption carrying an undefined id.
+      // The choice it could not name was REPLACED from the ranked remainder,
+      // so the held set still fits — two reference actions, and one named
+      // narrowing recording the substitution.
+      const refs = result.assumptions.filter((a) => a.kind === 'reference-action');
+      const narrowings = result.assumptions.filter((a) => a.kind === 'narrowing');
+      expect(refs).toHaveLength(2);
+      expect(narrowings).toHaveLength(1);
+      for (const a of result.assumptions) {
+        if (a.kind !== 'posture') expect(a.unitId).toBeDefined();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  }, 30_000);
 });
