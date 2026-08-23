@@ -309,6 +309,36 @@ describe('oscillation: pin A → unpin → pin B → back to A', () => {
     }
   });
 
+  test('pinning a unit to the square it is ALREADY staged on still opens an epoch and re-stages in 0 slices', async () => {
+    const board = board7();
+    const [h] = handles(board, 'red', ['a', 'b']);
+    const unit = h as Handle;
+    // What is the unit staged on with no operator involved?
+    const control = await drive({ board, ourTeam: 'red', budgetMs: 150 });
+    const alreadyAt = (control.emissions[control.emissions.length - 1] as EmitRecord).plan.get(
+      unit.unitId
+    )?.to as number;
+    clearGeometryCache();
+
+    const run = await drive({
+      board,
+      ourTeam: 'red',
+      budgetMs: 150,
+      script: [
+        {
+          atSlice: 4,
+          event: { kind: 'pin', pin: { unitId: unit.unitId, to: alreadyAt, tentative: false } },
+        },
+      ],
+    });
+    expect(run.report.epochs).toBe(2);
+    expect(run.report.conformance).toHaveLength(1);
+    expect(run.report.conformance[0]?.slicesBefore).toBe(0);
+    for (const rec of run.emissions.filter((r) => r.epoch >= 1)) {
+      expect(rec.plan.get(unit.unitId)?.to).toBe(alreadyAt);
+    }
+  });
+
   test('oscillation costs nothing in end-of-decision quality against a same-budget control', async () => {
     const board = boardCostly();
     const [h] = handles(board, 'red', ['a', 'b']);
