@@ -55,16 +55,25 @@ const TIMER_MESSAGE_TAIL =
   "timers are registry-tracked, auto-unref'd, paused by scope while idle, and cleared " +
   'at shutdown; transient wrappers are the sanctioned auto-unref one-offs.';
 
-// The vendored TacticToes engine is a byte-for-byte copy of somebody else's
-// source (src/engine-vendor/VENDOR.md). It must stay identical to its origin,
-// so it is not ours to lint: a style fix here would break `npm run sync-engine`
-// and the vendor-sync spec. Rules changes go to TacticToes.
-const VENDORED = 'src/engine-vendor/**';
+// The two vendored trees are byte-for-byte copies of somebody else's source
+// (src/engine-vendor/VENDOR.md, src/partial-engine/VENDOR-MANIFEST.json). They
+// must stay identical to their origins, so they are not ours to lint: a style
+// fix here would break the sync scripts and the vendor drift tests. Rule
+// changes go upstream — to TacticToes, and to snek-centaur-platform.
+//
+// wire-adapter.ts sits in src/partial-engine/ but is OURS — the translation
+// between the wire's weight encoding and the engine's — so it is un-ignored
+// and linted like any other file we wrote.
+const VENDORED = [
+  'src/engine-vendor/**',
+  'src/partial-engine/**',
+  '!src/partial-engine/wire-adapter.ts',
+];
 
 module.exports = [
   {
     files: ['src/**/*.ts'],
-    ignores: ['dist/**', 'node_modules/**', '*.js', 'jest.config.js', 'eslint.config.js', VENDORED],
+    ignores: ['dist/**', 'node_modules/**', '*.js', 'jest.config.js', 'eslint.config.js', ...VENDORED],
     languageOptions: {
       parser: parser,
       parserOptions: {
@@ -102,7 +111,7 @@ module.exports = [
   // is not part of the TypeScript lint surface at all.
   {
     files: ['src/**/*.ts'],
-    ignores: ['src/server/activity-controller.ts', 'src/tests/**', VENDORED],
+    ignores: ['src/server/activity-controller.ts', 'src/tests/**', ...VENDORED],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -125,7 +134,7 @@ module.exports = [
   // ── Keepalive ownership: restricted imports (base — applies everywhere) ───
   {
     files: ['src/**/*.ts'],
-    ignores: ['src/tests/**', VENDORED],
+    ignores: ['src/tests/**', ...VENDORED],
     rules: {
       'no-restricted-imports': restrictedImports(),
     },

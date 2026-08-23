@@ -13,6 +13,7 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint \"src/**/*.ts\"",
     "sync-engine": "node scripts/sync-engine.js",
+    "sync-partial-engine": "node scripts/sync-partial-engine.js",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
