@@ -293,7 +293,12 @@ export class EngineSubstrate implements Substrate {
   private readonly holdCache = new Map<string, HoldSet>();
   /** Slabs handed out and not yet returned. A leak shows up here first. */
   private readonly borrowed = new Set<number>();
-  private claimView: { field: CloudField; assessor: RiskAssessor } | null = null;
+  private claimView: {
+    startField: CloudField;
+    field: CloudField;
+    assessor: RiskAssessor;
+    food: Board;
+  } | null = null;
   private targets: Board | null = null;
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
   private resolveCount = 0;
@@ -478,6 +483,16 @@ export class EngineSubstrate implements Substrate {
     return this.targets;
   }
 
+  /** Is this cell a hazard? Terrain, so a fact — no claim is involved. */
+  hazardAt(cell: CellIndex): boolean {
+    return bbTest(this.terrain.hazard, cell);
+  }
+
+  /** Did this cell hold food at the start of the turn? */
+  foodAt(cell: CellIndex): boolean {
+    return bbTest(this.claims().food, cell);
+  }
+
   /** Every distinct action this unit could take, from the engine's enumerator. */
   enumerate(unitId: UnitId): GrammarCandidate[] {
     const unit = this.byUnitId.get(unitId);
@@ -523,21 +538,49 @@ export class EngineSubstrate implements Substrate {
     return this.claims().assessor;
   }
 
-  private claims(): { field: CloudField; assessor: RiskAssessor } {
+  /**
+   * A risk layer over the SAME claim field with an empty overlay.
+   *
+   * `assessPath` accretes maybe-durable material into the assessor it runs
+   * through — by design, so that within ONE joint assignment a possible kill at
+   * sub-step j is material for another mover crossing at j' > j. Running two
+   * ALTERNATIVE candidates of the same unit through one assessor is a different
+   * thing entirely: the first candidate's possible kill would be cited against
+   * the second, which is sound but loose and makes the answer depend on
+   * enumeration order. Independent candidates each get their own.
+   */
+  freshAssessor(): RiskAssessor {
+    const view = this.claims();
+    return new RiskAssessor({
+      field: view.field,
+      startField: view.startField,
+      terrain: this.terrain,
+      hazardDamage: this.engine.config.hazardDamage,
+      maxHealth: this.engine.config.maxHealth,
+      food: view.food,
+    });
+  }
+
+  private claims(): {
+    startField: CloudField;
+    field: CloudField;
+    assessor: RiskAssessor;
+    food: Board;
+  } {
     if (this.claimView !== null) return this.claimView;
     const startField = this.fieldHolding(this.heldIdsOutside(this.modeledIds));
     const field = startField.isEmpty ? startField : startField.advanceTo(this.turn + 1);
-    const foodBoard = newBoard(this.grid);
-    this.engine.foodBoard(this.state, foodBoard);
+    const food = newBoard(this.grid);
+    this.engine.foodBoard(this.state, food);
     const assessor = new RiskAssessor({
       field,
       startField,
       terrain: this.terrain,
       hazardDamage: this.engine.config.hazardDamage,
       maxHealth: this.engine.config.maxHealth,
-      food: foodBoard,
+      food,
     });
-    this.claimView = { field, assessor };
+    this.claimView = { startField, field, assessor, food };
     return this.claimView;
   }
 
