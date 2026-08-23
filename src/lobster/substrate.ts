@@ -128,6 +128,19 @@ export interface BoundedResolve {
   readonly perTeam: ReadonlyMap<number, { worst: number; best: number }>;
   /** Subject-frame material bounds, with the field's assumptions as basis. */
   readonly bounds: EngineScoreBounds;
+  /**
+   * Every cell a MOVER occupied or entered during this turn, snapshotted.
+   *
+   * The claim layer answers "could this held unit have died" from terrain and
+   * from the other CLAIMS — mobile units never narrow a cloud — so a held unit
+   * that would walk straight into one of our movers is still reported as
+   * certainly alive. That is sound for a floor and NOT sound for a ceiling,
+   * which is what this board is for: a held unit whose claim touches a cell a
+   * mover was on has a world in which it dies, and a ceiling that prices it
+   * alive is too low. Snapshotted rather than read off `engine.touched`,
+   * because the engine zeroes that at the start of the next resolve.
+   */
+  readonly touched: Board;
 }
 
 export interface SubstrateOptions {
@@ -629,11 +642,13 @@ export class EngineSubstrate implements Substrate {
 
     this.resolveCount++;
     const out = resolveBounded(this.engine, working, assignment, asTeam);
+    const touched = newBoard(this.grid);
+    touched.set(this.engine.touched.subarray(0, this.grid.words));
     this.borrowed.add(out.resolution.state.slab);
     // `resolveBounded` forks again internally, so the working handle is spent
     // the moment it returns.
     this.releaseHandle(working);
-    return out;
+    return { ...out, touched };
   }
 
   /** Scoped resolution: the leak-proof door. */
