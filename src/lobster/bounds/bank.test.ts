@@ -10,7 +10,6 @@ import type { JointPlan, Substrate, UnitId } from '../contracts';
 import { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG, isDischarged, ledgerOf, witnessOf } from './index';
 import {
   allPlans,
-  at,
   makeEvaluator,
   makeGenerator,
   makeSubstrate,
@@ -423,5 +422,3 @@ describe('the est channel never adjudicates', () => {
     }
   });
 });
-
-void at;

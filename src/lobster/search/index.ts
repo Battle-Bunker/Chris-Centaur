@@ -3,7 +3,7 @@
  * inherited witnesses, and the epoch-change conformance path.
  */
 
-export { DEFAULT_TUNING, NoRosterError, makeSearchCore, worldOf } from "./core";
+export { DEFAULT_TUNING, NoRosterError, makeSearchCore } from "./core";
 export type { SearchTuning } from "./core";
 
 export { basisOf, referenceActionsOf } from "./basis";

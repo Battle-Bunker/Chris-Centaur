@@ -61,8 +61,14 @@ export function withMoves(plan: JointPlan, candidates: ReadonlyArray<Candidate>)
 export function footprintOf(plan: JointPlan): ReadonlyArray<{ cell: CellIndex; subStep: SubStep }> {
   const out: { cell: CellIndex; subStep: SubStep }[] = [];
   for (const candidate of plan.values()) {
+    // A path-less candidate (a stay, a rotate) contributes NOTHING here, and
+    // deliberately. `Candidate.to` is the staged ORDER, not a cell the unit
+    // stands on — for a rotate it is whichever destination encodes the turn —
+    // so treating it as occupancy would gate on a cell nobody is at. The unit
+    // still gets covered: the B0 resolution's entanglement ledger names every
+    // held unit that could have changed the outcome, standing units included,
+    // and the gate unions the two.
     candidate.path.forEach((cell, i) => out.push({ cell, subStep: (i + 1) as SubStep }));
-    if (candidate.path.length === 0) out.push({ cell: candidate.to, subStep: 0 as SubStep });
   }
   return out;
 }

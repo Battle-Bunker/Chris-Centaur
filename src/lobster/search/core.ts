@@ -39,7 +39,6 @@ import type {
   SearchCore,
   UnitId,
 } from "../contracts";
-import type { Resolution } from "../../partial-engine/index";
 import {
   BoundBank,
   compareFloors,
@@ -443,9 +442,4 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   return { improve, conform };
-}
-
-/** Exposed so the kernel and the tests can read a plan's world back. */
-export function worldOf(result: BankResult): Resolution {
-  return result.worstResolution;
 }

@@ -609,10 +609,16 @@ export class BoundBank {
     if (held.size === 0) return [];
     let pool: UnitId[];
     if (this.cfg.gateOnEntanglement) {
-      pool = this.memo.entangled(footprintOf(plan)).filter((id) => held.has(id));
-      // Nothing entangled: the ledger is still the honest second opinion,
-      // because a claim can implicate a unit the geometric gate missed.
-      if (pool.length === 0) pool = residueOf(ledger).filter((id) => held.has(id));
+      // TWO gates, unioned. The geometric one asks which claims meet a staged
+      // path in sub-step time; the ledger asks which held units the resolver
+      // actually blamed. Neither subsumes the other — a standing unit has no
+      // path for the first to test, and the second only sees what one branch
+      // happened to touch — and missing a unit here only loosens a floor, so
+      // the union is the cheap side to err on.
+      pool = [
+        ...this.memo.entangled(footprintOf(plan)).filter((id) => held.has(id)),
+        ...residueOf(ledger).filter((id) => held.has(id)),
+      ];
     } else {
       pool = [...held];
     }

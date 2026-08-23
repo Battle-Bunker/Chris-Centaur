@@ -48,7 +48,7 @@ import {
   seededBoard,
   trueWorstCase,
   unboundedBudget,
-  type BoardSpec,
+
   type TestBoard,
 } from './testkit';
 
@@ -56,7 +56,6 @@ const OURS = 0;
 const EPS = 1e-9;
 
 // ------------------------------------------------------------------ boards
-
 
 // ---------------------------------------------------- bank configurations
 
@@ -142,7 +141,7 @@ function planLabel(plan: JointPlan): string {
   return [...plan.entries()].map(([id, c]) => `${id}->${c.to}`).sort().join(',');
 }
 
-function sweepBoard(board: TestBoard, spec: BoardSpec, seed: number, stats: Stats): void {
+function sweepBoard(board: TestBoard, seed: number, stats: Stats): void {
   const truthCache = new Map<string, number>();
   for (const generator of GENERATORS) {
     const gen = makeGenerator({ pruneTail: generator.prune });
@@ -238,7 +237,6 @@ function sweepBoard(board: TestBoard, spec: BoardSpec, seed: number, stats: Stat
       sub.release();
     }
   }
-  void spec;
 }
 
 function report(label: string, stats: Stats): void {
@@ -263,7 +261,7 @@ describe('exhaustive completion: floor ≤ true worst ≤ ceiling', () => {
       const spec = seededBoard(seed, 6, 1);
       const board = makeTestBoard(spec);
       expect(replySpaceSize(board, OURS)).toBeGreaterThan(1); // anti-vacuity
-      sweepBoard(board, spec, seed, stats);
+      sweepBoard(board, seed, stats);
     }
     report('duel', stats);
     // The direction is the contract. A violation is a bug, not a tolerance.
@@ -276,7 +274,7 @@ describe('exhaustive completion: floor ≤ true worst ≤ ceiling', () => {
     for (const seed of [21, 22, 23, 24]) {
       const spec = seededBoard(seed, 7, 2);
       const board = makeTestBoard(spec);
-      sweepBoard(board, spec, seed, stats);
+      sweepBoard(board, seed, stats);
     }
     report('team', stats);
     expect(stats.violations).toEqual([]);
