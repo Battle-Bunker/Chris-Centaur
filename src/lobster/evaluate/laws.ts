@@ -57,6 +57,13 @@ export interface LawResult {
 
 const EPS = 1e-6;
 
+/** `a − b`, reading two equal lattice ends as zero slack rather than as NaN. */
+function gap(a: number, b: number): number {
+  if (a === b) return 0;
+  const d = a - b;
+  return Number.isNaN(d) ? 0 : d;
+}
+
 function substrateFor(c: LawCase, narrowings?: ReadonlyMap<string, ReadonlyArray<number>>) {
   return makeSubstrate({
     board: c.board,
@@ -166,8 +173,9 @@ export function checkSoundness(evaluator: BoundEvaluator, c: LawCase, cap = 400)
           `${c.name}: R1 hi — world ${v.bound.hi} > hi ${partial.bound.hi}`
         );
       }
-      slackLo = Math.min(slackLo, v.bound.lo - partial.bound.lo);
-      slackHi = Math.min(slackHi, partial.bound.hi - v.bound.hi);
+      // Two lattice ends subtract to NaN; that is agreement, not slack.
+      slackLo = Math.min(slackLo, gap(v.bound.lo, partial.bound.lo));
+      slackHi = Math.min(slackHi, gap(partial.bound.hi, v.bound.hi));
     }
   } finally {
     sub.release();
