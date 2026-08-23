@@ -237,8 +237,10 @@ export interface EmitRecord {
   readonly posture: Posture
   readonly assumptions: ReadonlyArray<Assumption>
   readonly epoch: number
-  /** What the crossfade gate could prove about THIS write. */
-  readonly crossfade: CrossfadeVerdict
+  /** What the crossfade gate could prove about THIS write. Always present on
+   * a record the kernel emitted; optional so a hand-built record (a harness,
+   * a fixture) need not assert a verdict it never computed. */
+  readonly crossfade?: CrossfadeVerdict
 }
 
 // -------------------------------------------------------- refinement levers

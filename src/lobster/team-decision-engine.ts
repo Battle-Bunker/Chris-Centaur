@@ -42,6 +42,7 @@ import { MAX_FROZEN, NEVER } from '../partial-engine/index';
 import type {
   Assumption,
   Candidate,
+  EmitRecord,
   Evaluator,
   JointPlan,
   KernelInput,
@@ -388,6 +389,7 @@ export class TeamDecisionEngine {
 
     const views = new Map(input.units.map((u) => [u.snakeId, u.view]));
     const lastForwarded = new Map<string, CentaurMove>();
+    let lastAdvice = '';
     let forwarded = 0;
     let emitted = 0;
     try {
@@ -403,6 +405,12 @@ export class TeamDecisionEngine {
           kernel,
           refusals
         );
+        // ADVICE WHILE THE OPERATOR IS STILL HOVERING. Computed from the
+        // record just emitted and the speculative contexts as they stand,
+        // rather than from `lastReport` — which does not exist until the
+        // decision has ended, i.e. until the turn is about to resolve and the
+        // hover is over. Deduplicated, so an unchanged price is not re-sent.
+        lastAdvice = this.publishAdvice(input.gameId, game, sub, kernel, rec, lastAdvice);
       }
     } finally {
       // ONLY THIS TURN'S HANDLE. An overlapping newer decision owns `live`
@@ -432,14 +440,8 @@ export class TeamDecisionEngine {
             threshold: this.options.adviceThreshold,
             snakeIdOf: (unitId) => sub.unitOf(unitId)?.wireId ?? null,
           });
-    if (advice.length > 0) {
-      for (const sink of [...this.adviceSinks]) {
-        try {
-          sink(input.gameId, advice);
-        } catch (err) {
-          this.log(`[team-engine] pin-advice sink threw: ${String(err)}`);
-        }
-      }
+    if (advice.length > 0 && adviceSignature(advice) !== lastAdvice) {
+      this.emitAdvice(input.gameId, advice);
     }
     return { report, forwarded, assumptions, advice, emitted, refusals };
   }
@@ -543,6 +545,46 @@ export class TeamDecisionEngine {
       live.sub
     );
     if (translated !== null) live.kernel.onPinEvent(translated);
+  }
+
+  /** Price the hovered pins against the record just emitted, and surface any
+   * advice that has changed. Returns the new signature. */
+  private publishAdvice(
+    gameId: string,
+    game: GameState_,
+    sub: EngineSubstrate,
+    kernel: LobsterKernel,
+    rec: EmitRecord,
+    previous: string
+  ): string {
+    if (this.adviceSinks.size === 0) return previous;
+    const tentative = this.tentativePins(game, sub);
+    if (tentative.length === 0) return previous;
+    const advice = adviseFromReport({
+      report: {
+        journal: [rec],
+        speculative: kernel.speculativeNow(),
+      } as unknown as KernelReport,
+      tentative,
+      witnesses: [],
+      threshold: this.options.adviceThreshold,
+      snakeIdOf: (unitId) => sub.unitOf(unitId)?.wireId ?? null,
+    });
+    if (advice.length === 0) return previous;
+    const signature = adviceSignature(advice);
+    if (signature === previous) return previous;
+    this.emitAdvice(gameId, advice);
+    return signature;
+  }
+
+  private emitAdvice(gameId: string, advice: ReadonlyArray<TeamPinAdvice>): void {
+    for (const sink of [...this.adviceSinks]) {
+      try {
+        sink(gameId, advice);
+      } catch (err) {
+        this.log(`[team-engine] pin-advice sink threw: ${String(err)}`);
+      }
+    }
   }
 
   private tentativePins(game: GameState_, sub: EngineSubstrate): Pin[] {
@@ -774,6 +816,15 @@ export class TeamDecisionEngine {
     }
     return direction;
   }
+}
+
+/** What an advice set says, for dedup. Two sets with the same signature say
+ * the same thing and the second one is noise. */
+function adviceSignature(advice: ReadonlyArray<TeamPinAdvice>): string {
+  return advice
+    .map((a) => `${a.pin.unitId}@${a.pin.to}:${a.costLo}/${a.costHi}:${a.degraded ? 'd' : ''}`)
+    .sort()
+    .join('|');
 }
 
 // ---------------------------------------------------------------- witnesses

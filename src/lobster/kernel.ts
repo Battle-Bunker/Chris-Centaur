@@ -1950,6 +1950,33 @@ export class LobsterKernel implements Kernel {
     }
   }
 
+  /**
+   * The speculative contexts AS THEY STAND, mid-decision.
+   *
+   * `lastReport` only exists once a decision has ended, so an advice layer
+   * built on it can only price a hovered pin at the deadline — which is when
+   * the turn is about to resolve and the operator has stopped hovering. This
+   * is the same data the report will carry, read live. Empty outside a run.
+   */
+  speculativeNow(): KernelReport["speculative"] {
+    const run = this.run
+    if (run === null) return []
+    const out: Array<KernelReport["speculative"][number]> = []
+    for (const key of run.cache.keys()) {
+      const e = run.cache.peek(key)
+      if (e === null || !e.speculative || e.bounds === null) continue
+      out.push({
+        key: e.key,
+        lo: e.bounds.lo,
+        hi: e.bounds.hi,
+        cursor: e.cursor,
+        posture: e.boundsBasis?.posture ?? null,
+        epoch: e.boundsBasis?.epoch ?? null,
+      })
+    }
+    return out
+  }
+
   /** Test/integrator seam: the live basis, with no way to reach a previous one. */
   basisSnapshot(): BasisSnapshot | null {
     return this.run === null ? null : basisSnapshot(this.run.basis)
