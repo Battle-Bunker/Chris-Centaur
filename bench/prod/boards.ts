@@ -86,6 +86,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     food: 5,
     hazards: 0,
   },
+  // SNAKES ONLY — the one shape where the legacy path speaks for every unit
+  // it owns, so the comparison isolates SEARCH from "legacy has no piece bot".
+  snakes11: {
+    name: 'snakes11',
+    size: 11,
+    teams: 2,
+    roster: ['snake', 'snake', 'snake'],
+    food: 4,
+    hazards: 0,
+  },
+  snakes13: {
+    name: 'snakes13',
+    size: 13,
+    teams: 2,
+    roster: ['snake', 'snake', 'snake', 'snake', 'snake'],
+    food: 5,
+    hazards: 0,
+  },
   // 12 units across THREE teams.
   three13: {
     name: 'three13',

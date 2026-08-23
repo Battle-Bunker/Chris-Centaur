@@ -36,6 +36,10 @@ interface Args {
   seeds: number[];
   turn: number;
   evaluator: 'material' | 'reach';
+  /** Kernel refinement-slice length. The team engine ships 25 ms. */
+  sliceMs: number | null;
+  /** Wire write throttle. The team engine ships the StageThrottle policy (1000 ms). */
+  minWriteMs: number | null;
   out: string | null;
 }
 
@@ -50,6 +54,8 @@ function parseArgs(argv: string[]): Args {
     seeds: get('seeds', '201,202,203').split(',').map(Number),
     turn: Number(get('turn', '10')),
     evaluator: get('evaluator', 'material') as 'material' | 'reach',
+    sliceMs: get('sliceMs', '') === '' ? null : Number(get('sliceMs', '')),
+    minWriteMs: get('minWriteMs', '') === '' ? null : Number(get('minWriteMs', '')),
     out: get('out', '') || null,
   };
 }
@@ -118,7 +124,7 @@ function advanceTo(scenario: string, seed: number, turn: number): { board: Retur
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const rows: Row[] = [];
-  console.log(`# ANYTIME PROFILE  evaluator=${args.evaluator}  node ${process.version}  cpus=${os.cpus().length}`);
+  console.log(`# ANYTIME PROFILE  evaluator=${args.evaluator}  sliceMs=${args.sliceMs ?? 'default 25'} minWriteMs=${args.minWriteMs ?? 'default 1000 (StageThrottle policy)'}  node ${process.version}  cpus=${os.cpus().length}`);
   console.log(`# loadavg at start ${os.loadavg().map((l) => l.toFixed(2)).join(' ')}`);
 
   for (const scenario of args.scenarios) {
@@ -126,9 +132,13 @@ async function main(): Promise<void> {
       const { board, turn } = advanceTo(scenario, seed, args.turn);
       const team = TEAM_IDS[0] as string;
       for (const budgetMs of args.budgets) {
-        const drv = lobsterDriver(
-          args.evaluator === 'reach' ? { evaluate: defaultEvaluator } : {}
-        );
+        const drv = lobsterDriver({
+          ...(args.evaluator === 'reach' ? { evaluate: defaultEvaluator } : {}),
+          kernel: {
+            ...(args.sliceMs === null ? {} : { sliceMs: args.sliceMs }),
+            ...(args.minWriteMs === null ? {} : { minWriteIntervalMs: args.minWriteMs }),
+          },
+        });
         const out = await drv.decide(board, turn, team, Date.now() + budgetMs);
         drv.release();
         clearGeometryCache();
