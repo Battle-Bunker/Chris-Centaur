@@ -28,6 +28,9 @@ node $B/anytime.js --scenario mid11,duel11 --budgets 1000,10000 --seeds 201,202,
 node $B/anytime.js --scenario mid11 --budgets 10000 --seeds 201,202,203 --turn 8 \
   --evaluator reach --minWriteMs 2 --out "$OUT/anytime-reach-write2.json" > "$OUT/anytime-reach-write2.txt" 2>&1
 
+say "floor diagnosis: is the claim layer deciding a body-block by weight?"
+node $B/floor-diag.js > "$OUT/floor-diag.txt" 2>&1
+
 say "bank hot spots"
 node $B/profile-bank.js --scenario mid11 --seed 302 --turn 6 --plans 40 > "$OUT/profile-bank.txt" 2>&1
 node $B/profile-bank.js --scenario big13 --seed 302 --turn 6 --plans 20 >> "$OUT/profile-bank.txt" 2>&1
