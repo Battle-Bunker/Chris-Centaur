@@ -71,6 +71,7 @@ import { GameLogger } from '../utils/logger';
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
+import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadline';
 import {
   ParsedTurn,
   buildBoardState,
@@ -344,6 +345,8 @@ export class TacticToesFirebaseInterface {
   private static appInstanceCounter = 0;
   private invitesUnsubscribe: Unsubscribe | null = null;
   private watchedGames = new Map<string, WatchedGame>();
+  // Clock-skew / delivery-latency estimator per game (see deadlineGuardFor).
+  private deadlineGuards = new Map<string, TurnDeadlineGuard>();
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
   // listener or turn pipeline is involved until the invite flips to started.
@@ -982,10 +985,29 @@ export class TacticToesFirebaseInterface {
     this.unwatchGame(watched);
   }
 
+  /**
+   * The clock-skew guard for one game, minted on first sight.
+   *
+   * Per GAME, not per process: delivery latency and arrival jitter are
+   * properties of one game's listener, and a game that has just started must
+   * not inherit another's history. Kept off `WatchedGame` deliberately — a
+   * turn can be processed against a hand-built watch record (the watchdog's
+   * replay path, tests), and the guard must exist for those too.
+   */
+  private deadlineGuardFor(gameID: string): TurnDeadlineGuard {
+    let guard = this.deadlineGuards.get(gameID);
+    if (!guard) {
+      guard = new TurnDeadlineGuard();
+      this.deadlineGuards.set(gameID, guard);
+    }
+    return guard;
+  }
+
   private unwatchGame(watched: WatchedGame): void {
     watched.unsubscribe();
     this.teardownTurnWatch(watched);
     this.watchedGames.delete(watched.gameID);
+    this.deadlineGuards.delete(watched.gameID);
     this.strategy.onGameEnd(watched.gameID);
     console.log(`[tt-firebase] Stopped watching game ${watched.gameID}`);
   }
@@ -1064,7 +1086,27 @@ export class TacticToesFirebaseInterface {
 
     ServerEventLogger.getInstance().recordGameActivity(watched.gameID);
 
-    const endTimeMs = pt.endTimeMs(Date.now() + 10_000);
+    const arrivalMs = Date.now();
+    const endTimeMs = pt.endTimeMs(arrivalMs + 10_000);
+
+    // Fold this turn's arrival into the clock-skew guard BEFORE anything
+    // downstream asks it for a deadline. Both timestamps on the left are
+    // server-issued and `arrivalMs` is local, so their difference is the only
+    // observation this host can make of the gap between the two clocks (plus
+    // the delivery latency that shortens every turn's usable budget and that
+    // nothing else measures). See src/wire/deadline.ts for why only one
+    // direction of that difference is acted on.
+    const timing = this.deadlineGuardFor(watched.gameID).observeTurn({
+      startTimeMs:
+        pt.turn.startTime instanceof Timestamp ? pt.turn.startTime.toMillis() : null,
+      endTimeMs,
+      arrivalMs,
+    });
+    if (timing.outlier || timing.skewCorrectionMs < 0 || timing.reserveMs > MIN_RESERVE_MS) {
+      console.warn(
+        `[tt-firebase] Turn ${turnNumber} of ${watched.gameID} timing: ${describeTiming(timing)}`
+      );
+    }
 
     // ONE canonical (you-less) board state per turn — the single truth the
     // manager, the logs, and every broadcast operate on. Per-snake views are
@@ -1266,7 +1308,19 @@ export class TacticToesFirebaseInterface {
     // handles its own errors.
     // Decisions are computed for our SNAKE units only — own pieces get no
     // engine recommendation (their moves are operator commands or stay).
-    const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
+    //
+    // THE DEADLINE. This was `Math.max(Date.now() + 200, endTimeMs - 150)`,
+    // which is exact only when this host's clock agrees with the server's to
+    // within the reserve. The guard computes the same expression whenever it
+    // has nothing measured, and tightens it — never loosens it — once it has:
+    // the reserve widens to max(150, 3-sigma) of the observed arrival jitter,
+    // and a provably-slow local clock is subtracted on top. Overrunning the
+    // real endTime is silent (the write is accepted and discarded), so the
+    // error this guards against has no other symptom.
+    const deadlineMs = this.deadlineGuardFor(watched.gameID).effectiveDeadlineMs(
+      endTimeMs,
+      Date.now()
+    );
     void Promise.all(
       // views holds SNAKE units only (pieces took the intake branch above),
       // so this fan-out is snake-only by construction.
