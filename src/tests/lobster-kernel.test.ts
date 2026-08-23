@@ -1,0 +1,815 @@
+/**
+ * The anytime kernel: clock discipline, the five emit gates, constraint
+ * epochs, and the pin-context cache.
+ *
+ * Every test drives an injected fake clock, so a "5 ms contention spike" is a
+ * number in a script rather than a race with the machine. Nothing here can be
+ * flaky under load, which matters more than usual: the bug this suite exists
+ * to prevent was itself a load artefact.
+ */
+
+import type { Bound, EmitRecord, JointPlan, KernelInput, Pin } from "../lobster/contracts"
+import {
+  LobsterKernel,
+  PinContextCache,
+  canonicalPins,
+  deadlineFromWallClock,
+  pinContextKey,
+  type KernelOptions,
+  type KernelReport,
+} from "../lobster/kernel"
+import { planKey, type CandidateView, type HeldUnitView, type LeverView } from "../lobster/voc"
+import {
+  FakeClock,
+  ScriptedRefinerCore,
+  ScriptedSearchCore,
+  StubEvaluator,
+  StubGenerator,
+  StubSubstrate,
+  cand,
+  collect,
+  ledgerEntry,
+  plan,
+  witness,
+  type ScriptStep,
+} from "./lobster-harness"
+
+const P1 = plan([1, 4], [2, 8])
+const P2 = plan([1, 5], [2, 8])
+const P3 = plan([1, 6], [2, 9])
+const P4 = plan([1, 6], [2, 8])
+
+const step = (over: Partial<ScriptStep> & { worst: number; best: number }): ScriptStep => ({
+  plan: P1,
+  costMs: 0.05,
+  ...over,
+})
+
+const RUNG0: Bound = { lo: -990, est: 1, hi: 990 }
+
+interface Rig {
+  readonly clock: FakeClock
+  readonly sub: StubSubstrate
+  readonly gen: StubGenerator
+  readonly evaluator: StubEvaluator
+  readonly core: ScriptedSearchCore
+  readonly kernel: LobsterKernel
+  input(over?: Partial<KernelInput>): KernelInput
+}
+
+function rig(
+  script: ReadonlyArray<ScriptStep>,
+  opts: Partial<KernelOptions> = {},
+  extras: {
+    readonly budgetMs?: number
+    readonly evaluator?: StubEvaluator
+    readonly core?: (clock: FakeClock) => ScriptedSearchCore
+    readonly influence?: ReadonlyMap<number, ReadonlySet<number>>
+    readonly baseline?: JointPlan
+    readonly conformCostMs?: number
+  } = {},
+): Rig {
+  const clock = new FakeClock()
+  const sub = new StubSubstrate(extras.influence)
+  const gen = new StubGenerator()
+  const evaluator = extras.evaluator ?? new StubEvaluator(() => RUNG0)
+  const core =
+    extras.core?.(clock) ??
+    new ScriptedSearchCore(clock, script, {
+      baseline: extras.baseline ?? P1,
+      conformCostMs: extras.conformCostMs ?? 0.05,
+    })
+  const kernel = new LobsterKernel({ minWriteIntervalMs: 0, ...opts })
+  const budgetMs = extras.budgetMs ?? 10
+  return {
+    clock,
+    sub,
+    gen,
+    evaluator,
+    core,
+    kernel,
+    input: (over = {}) => ({
+      sub,
+      gen,
+      evaluate: evaluator,
+      search: core,
+      asTeam: 0,
+      deadlineMs: clock.value + budgetMs,
+      initialPins: [],
+      now: clock.now,
+      initialStepCostMs: 0.05,
+      ...over,
+    }),
+  }
+}
+
+const reportOf = (k: LobsterKernel): KernelReport => {
+  const r = k.lastReport
+  if (r === null) throw new Error("no report")
+  return r
+}
+
+// ===========================================================================
+
+describe("rung 0 — a legal joint plan reaches the wire before anything is searched", () => {
+  it("stages a conforming plan at budget zero, and never resolves a board", async () => {
+    const r = rig([step({ worst: 10, best: 50 })], {}, { budgetMs: 0 })
+    const out = await collect(r.kernel.decide(r.input()))
+    expect(out).toHaveLength(1)
+    expect(out[0].plan.size).toBeGreaterThan(0)
+    expect(reportOf(r.kernel).stagedNothing).toBe(false)
+    expect(r.core.callOrder).toEqual(["conform"])
+    // A kernel that resolves a board has stopped being a kernel.
+    expect(r.sub.resolveCalls).toBe(0)
+  })
+
+  it("honours the initial pins in the very first record", async () => {
+    const pins: Pin[] = [{ unitId: 2, to: 77, tentative: false }]
+    const r = rig([step({ worst: 10, best: 50 })], {}, { budgetMs: 0 })
+    const out = await collect(r.kernel.decide(r.input({ initialPins: pins })))
+    expect(out[0].plan.get(2)?.to).toBe(77)
+    expect(out[0].assumptions).toContainEqual({ kind: "operator-pin", unitId: 2, to: 77 })
+  })
+})
+
+// ===========================================================================
+
+describe("the five emit gates", () => {
+  it("1. RATCHET — refuses a weaker promise, counts it, and never clamps it", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 10, best: 60 }), // the search broke the lattice
+      step({ plan: P2, worst: 41, best: 45 }),
+    ])
+    const out = await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.boundViolations).toBeGreaterThan(0)
+    expect(rep.refusals["ratchet-floor"]).toBeGreaterThan(0)
+    // Nothing on the wire ever carries the weaker floor — refused, not clamped.
+    expect(out.every((rec) => rec.lo !== 10)).toBe(true)
+    const withinBasis = out.filter((rec) => rec.epoch === 0).map((rec) => rec.lo)
+    expect(withinBasis).toEqual([...withinBasis].sort((a, b) => a - b))
+  })
+
+  it("1b. RATCHET — a plan change needs a strictly better proven floor", async () => {
+    // The stager works off the CURRENT rows; the ratchet works off what is
+    // actually on the wire. Here the search retracts P2 to 40→10 (refused, so
+    // the wire keeps 40) and then offers P3 at 20 — clear of the stager's
+    // margin over the retracted row, but well under the promise standing on
+    // the wire. The gate is the second line of defence, and it holds.
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 10, best: 60 }),
+      step({ plan: P3, worst: 20, best: 25 }),
+    ])
+    await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    // Either gate may catch it — the floor ratchet fires first whenever the
+    // wire's promise is still the higher one, and the switch rule is the
+    // defence behind it. What matters is that the weaker plan never lands.
+    expect(rep.refusals["ratchet-floor"] + rep.refusals["switch-floor"]).toBeGreaterThan(0)
+    expect(rep.journal.every((rec) => planKey(rec.plan) !== planKey(P3))).toBe(true)
+    expect(rep.journal[rep.journal.length - 1].lo).toBe(40)
+  })
+
+  it("1c. RATCHET — `dominance` additionally demands the old ceiling be reached", async () => {
+    const script = [step({ plan: P2, worst: 40, best: 90 }), step({ plan: P3, worst: 50, best: 60 })]
+    const loose = rig(script, { switchRule: "floor" })
+    await collect(loose.kernel.decide(loose.input()))
+    expect(reportOf(loose.kernel).journal.some((r) => planKey(r.plan) === planKey(P3))).toBe(true)
+
+    const strict = rig(script, { switchRule: "dominance" })
+    await collect(strict.kernel.decide(strict.input()))
+    expect(reportOf(strict.kernel).refusals["switch-dominance"]).toBeGreaterThan(0)
+  })
+
+  it("2. WORTH — a re-emission that removes nothing costs nothing to skip", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 40, best: 59 }), // 1 of 20 removed: under 15%
+      step({ plan: P2, worst: 40, best: 45 }), // 15 of 20 removed: worth a write
+    ])
+    await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.refusals.worth).toBeGreaterThan(0)
+    expect(rep.journal.some((rec) => rec.hi === 45)).toBe(true)
+    expect(rep.journal.some((rec) => rec.hi === 59)).toBe(false)
+  })
+
+  it("3. RATE — one decision does not monopolise a wire with no server-side throttle", async () => {
+    const script = [
+      step({ plan: P2, worst: 10, best: 90 }),
+      step({ plan: P2, worst: 10, best: 50 }),
+      step({ plan: P2, worst: 10, best: 20 }),
+    ]
+    const fast = rig(script, { minWriteIntervalMs: 0 })
+    await collect(fast.kernel.decide(fast.input()))
+    const slow = rig(script, { minWriteIntervalMs: 5 })
+    await collect(slow.kernel.decide(slow.input()))
+    expect(reportOf(slow.kernel).refusals.rate).toBeGreaterThan(0)
+    expect(reportOf(slow.kernel).emits).toBeLessThan(reportOf(fast.kernel).emits)
+  })
+
+  it("4. CROSSFADE — independent footprints skip the certificate; overlapping ones are counted", async () => {
+    const disjoint = new Map<number, ReadonlySet<number>>([
+      [1, new Set([1, 2, 3])],
+      [2, new Set([50, 51])],
+    ])
+    const r = rig(
+      [step({ plan: P2, worst: 40, best: 60 }), step({ plan: P4, worst: 55, best: 58 })],
+      { crossfade: "teammate" },
+      { influence: disjoint },
+    )
+    await collect(r.kernel.decide(r.input()))
+    expect(reportOf(r.kernel).crossfade.independent).toBeGreaterThan(0)
+
+    const overlapping = new Map<number, ReadonlySet<number>>([
+      [1, new Set([1, 2, 3])],
+      [2, new Set([3, 4])],
+    ])
+    const blocked = rig(
+      [step({ plan: P2, worst: 40, best: 60 }), step({ plan: P4, worst: 55, best: 58 })],
+      {
+        crossfade: "teammate",
+        // A teammate floor that says the change hurts the unit that got no say.
+        teammateFloor: (p: JointPlan) => (planKey(p) === planKey(P4) ? -100 : 0),
+      },
+      { influence: overlapping },
+    )
+    await collect(blocked.kernel.decide(blocked.input()))
+    expect(reportOf(blocked.kernel).crossfade.blocked).toBeGreaterThan(0)
+    expect(reportOf(blocked.kernel).refusals.crossfade).toBeGreaterThan(0)
+  })
+
+  it("5. SINK — a throw leaves the previous record standing and the news unspent", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 40, best: 42 }),
+    ])
+    const it = r.kernel.decide(r.input()) as AsyncGenerator<EmitRecord>
+    const first = await it.next() // rung 0
+    expect(first.done).toBe(false)
+    // The wire throws on the next record.
+    const after = await it.throw(new Error("wire down"))
+    void after
+    for (;;) {
+      const n = await it.next()
+      if (n.done === true) break
+    }
+    const rep = reportOf(r.kernel)
+    expect(rep.refusals.sink).toBe(1)
+    // The refused record never entered the journal, and the ratchet did not
+    // move — so the same news was still available to the next pass.
+    expect(rep.journal).toHaveLength(rep.emits)
+    expect(rep.journal.some((rec) => rec.lo === 40)).toBe(true)
+  })
+})
+
+// ===========================================================================
+
+describe("clock discipline and the latch bug class", () => {
+  /**
+   * THE LATCH REGRESSION TEST.
+   *
+   * The arena kernel kept its cost estimators at module scope and bailed
+   * before re-measuring, so ONE contention spike latched it into an immediate
+   * early return for the rest of the process (95.6% optimal uncontended →
+   * 41.0% in the round robin). Here: a 5 ms spike inside a 10 ms budget, then
+   * four more decisions on the same kernel instance. Every one of them must
+   * run at full budget.
+   */
+  it("runs at full budget on every decision after a contention spike", async () => {
+    const script: ScriptStep[] = [
+      step({ plan: P2, worst: 10, best: 90, costMs: 5 }), // the spike
+      step({ plan: P2, worst: 20, best: 60 }),
+      step({ plan: P2, worst: 30, best: 40 }),
+    ]
+    const r = rig(script, { sliceMs: 0.5, reserveMs: 1 }, { budgetMs: 10 })
+    const slices: number[] = []
+
+    await collect(r.kernel.decide(r.input()))
+    slices.push(reportOf(r.kernel).slices)
+    const spikeReport = reportOf(r.kernel)
+
+    for (let d = 0; d < 4; d++) {
+      await collect(r.kernel.decide(r.input()))
+      slices.push(reportOf(r.kernel).slices)
+    }
+
+    // The decision that absorbed the spike still did real work…
+    expect(slices[0]).toBeGreaterThan(20)
+    // …and every later decision ran at full budget, identically.
+    expect(new Set(slices.slice(1)).size).toBe(1)
+    expect(slices[1]).toBeGreaterThan(100)
+    expect(slices[1]).toBeGreaterThan(slices[0])
+    // The estimator is not a decaying MAXIMUM: it came back down inside the
+    // very decision that saw the spike.
+    expect(spikeReport.finalStepCostMs).toBeLessThan(0.5)
+    // Nothing overran.
+    for (const rep of [spikeReport]) expect(rep.overshootMs).toBe(0)
+  })
+
+  it("floors the affordability guard at 0.2 × budget — the fix, isolated", async () => {
+    const script: ScriptStep[] = [
+      step({ plan: P2, worst: 10, best: 90, costMs: 5 }),
+      step({ plan: P2, worst: 20, best: 60 }),
+    ]
+    // With the floor: a 5 ms spike inside 10 ms leaves 4 ms, and the guard may
+    // demand at most 2 ms, so work resumes.
+    const floored = rig(script, { guardBudgetFraction: 0.2 }, { budgetMs: 10 })
+    await collect(floored.kernel.decide(floored.input()))
+    expect(reportOf(floored.kernel).slices).toBeGreaterThan(20)
+
+    // Without it (the arena's shape): estimate 2.5 ms × 1.6 = 4 ms > the 3.95
+    // ms left, so the decision bails and never re-measures.
+    const unfloored = rig(script, { guardBudgetFraction: 1 }, { budgetMs: 10 })
+    await collect(unfloored.kernel.decide(unfloored.input()))
+    expect(reportOf(unfloored.kernel).slices).toBe(1)
+  })
+
+  it("keeps the estimator on the decision context, not on the module", async () => {
+    const script = [step({ plan: P2, worst: 10, best: 90, costMs: 5 })]
+    const a = rig(script, {}, { budgetMs: 10 })
+    await collect(a.kernel.decide(a.input()))
+    const spiked = reportOf(a.kernel).contexts[0].stepCostMs
+
+    // A SECOND kernel, same process, same module: it must know nothing about
+    // the first one's spike.
+    const b = rig([step({ plan: P2, worst: 10, best: 90 })], {}, { budgetMs: 10 })
+    await collect(b.kernel.decide(b.input()))
+    expect(spiked).toBeGreaterThan(0.5)
+    expect(reportOf(b.kernel).contexts[0].stepCostMs).toBeLessThan(0.5)
+  })
+
+  it("believes no slice costs more than a quarter of the budget", async () => {
+    const r = rig([step({ plan: P2, worst: 10, best: 90, costMs: 500 })], {}, { budgetMs: 10 })
+    await collect(r.kernel.decide(r.input()))
+    expect(reportOf(r.kernel).contexts[0].stepCostMs).toBeLessThanOrEqual(2.5)
+  })
+
+  it("converts a wall-clock deadline onto the kernel's own clock, once", () => {
+    const clock = new FakeClock(500)
+    const wall = () => 1_700_000_000_000
+    expect(deadlineFromWallClock(1_700_000_000_250, clock.now, wall)).toBe(750)
+  })
+})
+
+// ===========================================================================
+
+describe("constraint epochs", () => {
+  const pinAfter = (kernel: LobsterKernel, pin: Pin, afterIndex = 0) => {
+    let fired = false
+    return (_rec: EmitRecord, i: number) => {
+      if (fired || i < afterIndex) return
+      fired = true
+      kernel.onPinEvent({ kind: "pin", pin })
+    }
+  }
+
+  it("re-stages a conforming plan IMMEDIATELY, before any further refinement", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 45, best: 50 }),
+    ])
+    const out = await collect(
+      r.kernel.decide(r.input()),
+      pinAfter(r.kernel, { unitId: 2, to: 77, tentative: false }),
+    )
+    const rep = reportOf(r.kernel)
+    expect(rep.epochs).toBe(2)
+    expect(rep.conformance).toHaveLength(1)
+    const sample = rep.conformance[0]
+    expect(sample.epoch).toBe(1)
+    // The whole guarantee, in one assertion: not one refinement slice ran
+    // between the operator's event and the conforming re-stage.
+    expect(sample.slicesBefore).toBe(0)
+    expect(sample.conformCalls).toBe(1)
+    expect(sample.latencyMs).toBeCloseTo(0.05, 6)
+
+    const firstOfEpoch1 = out.find((rec) => rec.epoch === 1)
+    expect(firstOfEpoch1).toBeDefined()
+    expect(firstOfEpoch1?.plan.get(2)?.to).toBe(77)
+    expect(firstOfEpoch1?.assumptions).toContainEqual({
+      kind: "operator-pin",
+      unitId: 2,
+      to: 77,
+    })
+    // Every record after the event conforms to the pin.
+    for (const rec of out.filter((x) => x.epoch >= 1)) expect(rec.plan.get(2)?.to).toBe(77)
+  })
+
+  it("makes a cross-epoch ratchet comparison structurally impossible", async () => {
+    // Epoch 0 proves a floor of 400. The pin then forces a plan worth far
+    // less. A per-turn ratchet would refuse it forever and the wire would keep
+    // contradicting the operator; a per-epoch one stages it at once.
+    const r = rig([
+      step({ plan: P2, worst: 400, best: 500 }),
+      step({ plan: P2, worst: 401, best: 402 }),
+    ])
+    const out = await collect(
+      r.kernel.decide(r.input()),
+      // Let epoch 0 prove its floor first, then constrain it.
+      pinAfter(r.kernel, { unitId: 2, to: 77, tentative: false }, 1),
+    )
+    const rep = reportOf(r.kernel)
+    const epoch0 = out.filter((rec) => rec.epoch === 0)
+    const epoch1 = out.filter((rec) => rec.epoch === 1)
+    expect(epoch0.some((rec) => rec.lo === 400)).toBe(true)
+    expect(epoch1).not.toHaveLength(0)
+    // The first record of epoch 1 sits BELOW epoch 0's proven floor and is
+    // staged anyway: no floor crossed the epoch boundary.
+    expect(epoch1[0].lo).toBeLessThan(400)
+    // Within epoch 1 the ratchet is in force again, on its own floor.
+    const los = epoch1.map((rec) => rec.lo)
+    expect(los).toEqual([...los].sort((a, b) => a - b))
+    // Each basis carries its own floor; none is ever read by another.
+    const floors = rep.basisHistory.map((b) => b.epoch)
+    expect(new Set(floors).size).toBeGreaterThan(1)
+  })
+
+  it("does not start an epoch for a tentative pin, and never puts one on the wire", async () => {
+    const r = rig(
+      [step({ plan: P2, worst: 40, best: 60 }), step({ plan: P2, worst: 45, best: 50 })],
+      { speculativePeriod: 2 },
+    )
+    const out = await collect(
+      r.kernel.decide(r.input()),
+      pinAfter(r.kernel, { unitId: 2, to: 99, tentative: true }),
+    )
+    const rep = reportOf(r.kernel)
+    expect(rep.epochs).toBe(1)
+    expect(rep.conformance).toHaveLength(0)
+    // Searched, at lower priority, in its own context…
+    expect(rep.speculative.length).toBeGreaterThan(0)
+    expect(rep.speculative[0].key.startsWith("spec:")).toBe(true)
+    const spec = rep.contexts.filter((c) => c.speculative)
+    const committed = rep.contexts.filter((c) => !c.speculative)
+    expect(spec[0].cursor).toBeGreaterThan(0)
+    // …at strictly lower priority than the committed context.
+    expect(committed[0].cursor).toBeGreaterThan(spec[0].cursor)
+    // …and never on the wire.
+    for (const rec of out) expect(rec.plan.get(2)?.to).not.toBe(99)
+  })
+
+  it("treats a human commit as permanent and refuses to unpin it", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 40, best: 60 }),
+      step({ plan: P2, worst: 45, best: 50 }),
+    ])
+    let phase = 0
+    const out = await collect(r.kernel.decide(r.input()), () => {
+      if (phase === 0) {
+        phase = 1
+        r.kernel.onPinEvent({ kind: "commit", unitId: 1 })
+      } else if (phase === 1) {
+        phase = 2
+        // Humans always win: the bot never auto-unpins one.
+        r.kernel.onPinEvent({ kind: "unpin", unitId: 1 })
+      }
+    })
+    const rep = reportOf(r.kernel)
+    expect(rep.epochs).toBe(2) // the commit made one epoch; the unpin made none
+    const committedTo = out.filter((rec) => rec.epoch === 1)[0]?.plan.get(1)?.to
+    expect(committedTo).toBeDefined()
+    for (const rec of out.filter((x) => x.epoch >= 1)) {
+      expect(rec.plan.get(1)?.to).toBe(committedTo)
+      expect(rec.assumptions).toContainEqual({ kind: "operator-pin", unitId: 1, to: committedTo })
+    }
+  })
+
+  it("canonicalises a pin context: committed only, sorted, order-independent", () => {
+    const a: Pin[] = [
+      { unitId: 5, to: 2, tentative: false },
+      { unitId: 1, to: 9, tentative: false },
+      { unitId: 3, to: 4, tentative: true },
+    ]
+    expect(canonicalPins(a).map((p) => p.unitId)).toEqual([1, 5])
+    expect(pinContextKey(canonicalPins(a))).toBe(pinContextKey(canonicalPins([...a].reverse())))
+    expect(pinContextKey(canonicalPins(a))).toBe("pin:[1@9,5@2]")
+  })
+})
+
+// ===========================================================================
+
+describe("the pin-context cache (tier 3: context-exclusive)", () => {
+  it("resumes an exact hit: the incumbent, its witnesses and its cursor come back", async () => {
+    const w = [witness("punishing line", [[9, 3]])]
+    const r = rig([
+      step({ plan: P2, worst: 10, best: 90, witnesses: w }),
+      step({ plan: P2, worst: 20, best: 70, witnesses: w }),
+      step({ plan: P2, worst: 30, best: 60, witnesses: w }),
+      step({ plan: P2, worst: 31, best: 59, witnesses: w }),
+    ])
+    let phase = 0
+    await collect(r.kernel.decide(r.input()), () => {
+      if (phase === 0 && r.core.cursor >= 3) {
+        phase = 1
+        r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+      } else if (phase === 1) {
+        phase = 2
+        r.kernel.onPinEvent({ kind: "unpin", unitId: 2 })
+      }
+    })
+    const rep = reportOf(r.kernel)
+    expect(rep.epochs).toBe(3)
+    expect(rep.cache.resumes).toBeGreaterThan(0)
+    // The conform of epoch 2 was handed the epoch-0 incumbent back.
+    const resumeConform = r.core.conformLog[2]
+    expect(resumeConform.incumbentLo).toBe(30)
+    expect(resumeConform.incumbentKey).toBe(planKey(P2))
+    expect(resumeConform.witnesses).toBe(1)
+    // And the cursor did not restart: the resumed context kept its progress.
+    const base = rep.contexts.find((c) => c.key === "pin:[]")
+    expect(base?.cursor).toBeGreaterThanOrEqual(3)
+  })
+
+  it("keys by canonical PinSet, evicts LRU, and clears per turn", () => {
+    const cache = new PinContextCache(2)
+    const a = cache.obtain("pin:[1@2]", [], false, 0, 0.1)
+    expect(a.resumed).toBe(false)
+    a.entry.incumbent = { plan: P1, bounds: { worst: 1, best: 2, ledger: [], assumptions: [], exact: true }, witnesses: [] }
+    expect(cache.obtain("pin:[1@2]", [], false, 0, 0.1).resumed).toBe(true)
+    cache.obtain("pin:[1@3]", [], false, 0, 0.1)
+    cache.obtain("pin:[1@4]", [], false, 0, 0.1)
+    expect(cache.size).toBe(2)
+    expect(cache.stats.evictions).toBe(1)
+    cache.clear()
+    expect(cache.size).toBe(0)
+  })
+
+  it("invalidates on catch-up: a premise replaced is not a premise refined", () => {
+    const cache = new PinContextCache(8)
+    const stale = cache.obtain("pin:[]", [], false, 0, 0.1).entry
+    stale.citedUnits.add(7)
+    stale.incumbent = { plan: P1, bounds: { worst: 1, best: 2, ledger: [], assumptions: [], exact: true }, witnesses: [] }
+    stale.cursor = 4
+    const other = cache.obtain("pin:[1@2]", [], false, 0, 0.1).entry
+    other.citedUnits.add(7)
+    const untouched = cache.obtain("pin:[1@3]", [], false, 0, 0.1).entry
+    untouched.citedUnits.add(9)
+
+    expect(cache.invalidateCitingUnit(7, "pin:[]")).toBe(2)
+    // The active context cannot be dropped mid-flight, so it is reset in place.
+    expect(stale.incumbent).toBeNull()
+    expect(stale.cursor).toBe(0)
+    expect(cache.peek("pin:[1@2]")).toBeNull()
+    expect(cache.peek("pin:[1@3]")).toBe(untouched)
+  })
+
+  it("invalidates through the kernel when the orchestrator spends a catch-up", async () => {
+    const clock = new FakeClock()
+    const cited = [ledgerEntry(7)]
+    const script = [
+      step({ plan: P2, worst: 10, best: 90, ledger: cited }),
+      step({ plan: P2, worst: 20, best: 70, ledger: cited }),
+      step({ plan: P2, worst: 30, best: 60, ledger: cited }),
+    ]
+    const units: HeldUnitView[] = [
+      { unitId: 7, rung: "free", staleness: 3, cloudSize: 10, meet: 1, refinable: true },
+    ]
+    const candidates: CandidateView[] = [
+      {
+        key: planKey(P2),
+        plan: P2,
+        lo: 10,
+        est: 10,
+        hi: 90,
+        horizon: 1,
+        vacuity: "alive",
+        loCite: new Set([7]),
+        hiCite: new Set<number>(),
+        refuted: false,
+      },
+    ]
+    const viewOf = (): LeverView => ({
+      candidates,
+      leaderIdx: 0,
+      slack: 70,
+      horizon: 1,
+      depthMax: 2,
+      units,
+      interiorCells: 81,
+      epsilon: 1.5,
+      round: 0,
+    })
+    const r = rig(
+      script,
+      {},
+      {
+        core: (c) => new ScriptedRefinerCore(c, script, viewOf, { baseline: P1, conformCostMs: 0.05 }),
+      },
+    )
+    // The rig built its own clock; use the one the core was given.
+    void clock
+    await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.leverOrderBinding).toBe(true)
+    expect(rep.levers.some((l) => l.kind === "catchup")).toBe(true)
+    expect(rep.cache.invalidations).toBeGreaterThan(0)
+  })
+})
+
+// ===========================================================================
+
+describe("postures on the wire", () => {
+  it("flips on measured conditions, logs the flip, and stamps it on every record", async () => {
+    const cloudDead = [ledgerEntry(9)]
+    const r = rig(
+      [
+        step({ plan: P1, worst: -1000, best: 40, ledger: cloudDead }),
+        step({ plan: P1, worst: -1000, best: 30, ledger: cloudDead }),
+      ],
+      {},
+      { baseline: P1 },
+    )
+    await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.postureFlips.map((f) => f.to)).toContain("FOGGED-VACUOUS")
+    const late = rep.journal[rep.journal.length - 1]
+    expect(late.posture).toBe("FOGGED-VACUOUS")
+    expect(late.assumptions).toContainEqual({ kind: "posture", posture: "FOGGED-VACUOUS" })
+    // A posture flip opens a new basis: the ratchet never compares across
+    // channels (the leading channel changed underneath it).
+    expect(rep.basisHistory.some((b) => b.posture === "SIGHTED")).toBe(true)
+  })
+
+  it("keeps est off every adjudication it does not own", async () => {
+    const script = [
+      step({ plan: P2, worst: 10, best: 90 }),
+      step({ plan: P3, worst: 40, best: 60 }),
+      step({ plan: P3, worst: 50, best: 55 }),
+    ]
+    const strip = (rec: EmitRecord) => ({
+      key: planKey(rec.plan),
+      lo: rec.lo,
+      hi: rec.hi,
+      epoch: rec.epoch,
+      posture: rec.posture,
+      slack: rec.slack,
+      horizon: rec.horizon,
+    })
+    const quiet = rig(script, {}, { evaluator: new StubEvaluator(() => RUNG0) })
+    const loud = rig(
+      script,
+      {},
+      { evaluator: new StubEvaluator(() => ({ lo: -990, est: 1e9, hi: 990 })) },
+    )
+    const a = (await collect(quiet.kernel.decide(quiet.input()))).map(strip)
+    const b = (await collect(loud.kernel.decide(loud.input()))).map(strip)
+    // Floors are distinct throughout, so est has no tie to break — and with no
+    // tie to break it changes nothing at all.
+    expect(b).toEqual(a)
+  })
+})
+
+// ===========================================================================
+
+describe("journal integrity", () => {
+  it("makes every prefix a complete staged set, monotone within its basis", async () => {
+    const r = rig([
+      step({ plan: P2, worst: 10, best: 90 }),
+      step({ plan: P2, worst: 10, best: 40 }),
+      step({ plan: P3, worst: 30, best: 35 }),
+      step({ plan: P3, worst: 31, best: 32 }),
+    ])
+    const out = await collect(
+      r.kernel.decide(r.input()),
+      (() => {
+        let fired = false
+        return () => {
+          if (fired) return
+          fired = true
+          r.kernel.onPinEvent({ kind: "pin", pin: { unitId: 2, to: 77, tentative: false } })
+        }
+      })(),
+    )
+    const byBasis = new Map<string, EmitRecord[]>()
+    for (const rec of out) {
+      expect(rec.plan.size).toBeGreaterThan(0) // never a partial staged set
+      const k = `${rec.epoch}/${rec.posture}`
+      const list = byBasis.get(k) ?? []
+      list.push(rec)
+      byBasis.set(k, list)
+    }
+    for (const list of byBasis.values()) {
+      const channel = (rec: EmitRecord): number =>
+        rec.posture === "FOGGED-VACUOUS" ? Math.min(Math.max(rec.est, rec.lo), rec.hi) : rec.lo
+      for (let i = 1; i < list.length; i++) {
+        // The floor never falls, and the leading channel never falls, inside a
+        // basis. Across bases nothing is compared at all.
+        expect(list[i].lo).toBeGreaterThanOrEqual(list[i - 1].lo)
+        expect(channel(list[i])).toBeGreaterThanOrEqual(channel(list[i - 1]))
+        expect(list[i].hi - channel(list[i])).toBeLessThanOrEqual(
+          list[i - 1].hi - channel(list[i - 1]),
+        )
+      }
+    }
+    expect(reportOf(r.kernel).stagedNothing).toBe(false)
+  })
+
+  it("is deterministic: the same script and clock produce the same journal", async () => {
+    const script = [
+      step({ plan: P2, worst: 10, best: 90 }),
+      step({ plan: P3, worst: 40, best: 60 }),
+      step({ plan: P3, worst: 50, best: 51 }),
+    ]
+    const run = async (): Promise<string> => {
+      const r = rig(script)
+      const out = await collect(r.kernel.decide(r.input()))
+      return JSON.stringify(out.map((rec) => [planKey(rec.plan), rec.lo, rec.hi, rec.epoch]))
+    }
+    expect(await run()).toBe(await run())
+  })
+
+  it("never touches the parts of the substrate it has no business touching", async () => {
+    const r = rig([step({ plan: P2, worst: 10, best: 90 })])
+    await collect(r.kernel.decide(r.input()))
+    expect(r.sub.resolveCalls).toBe(0)
+    expect(r.sub.entangledCalls).toBe(0)
+    expect(() => r.gen.candidatesFor(r.sub, 1)).toThrow()
+  })
+
+  it("names the pin set on every record it emits", async () => {
+    const pins: Pin[] = [{ unitId: 1, to: 3, tentative: false }]
+    const r = rig([step({ plan: new Map([[1, cand(1, 3)]]), worst: 10, best: 20 })])
+    const out = await collect(r.kernel.decide(r.input({ initialPins: pins })))
+    for (const rec of out) {
+      expect(rec.assumptions).toContainEqual({ kind: "operator-pin", unitId: 1, to: 3 })
+      expect(rec.assumptions.filter((a) => a.kind === "posture")).toHaveLength(1)
+    }
+  })
+})
+
+// ===========================================================================
+
+describe("FOGGED-VACUOUS on the wire", () => {
+  const cloudDead = [ledgerEntry(9)]
+
+  it("keeps improving the staged set on the gradient when the floor cannot move", async () => {
+    // Every candidate sits on the cliff for cloud-contingent reasons, so a
+    // floor ratchet would freeze the wire at whatever was staged when the
+    // posture flipped. The leading channel ratchets instead — and lo keeps its
+    // own basis-scoped floor underneath, so the promise never weakens.
+    const ests = new Map<string, number>([
+      [planKey(P1), -900],
+      [planKey(P2), -500],
+      [planKey(P3), -100],
+    ])
+    const r = rig(
+      [
+        step({ plan: P1, worst: -1000, best: 40, ledger: cloudDead }),
+        step({ plan: P2, worst: -1000, best: 35, ledger: cloudDead }),
+        step({ plan: P3, worst: -1000, best: 30, ledger: cloudDead }),
+      ],
+      { switchMargin: 1 },
+      {
+        baseline: P1,
+        evaluator: new StubEvaluator((p: JointPlan) => ({
+          lo: -1000,
+          est: ests.get(planKey(p)) ?? -1000,
+          hi: 40,
+        })),
+      },
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    const rep = reportOf(r.kernel)
+    expect(rep.postureFlips.map((f) => f.to)).toContain("FOGGED-VACUOUS")
+    const vacuous = out.filter((rec) => rec.posture === "FOGGED-VACUOUS")
+    expect(vacuous.length).toBeGreaterThan(1)
+    // The staged plan moved along the gradient…
+    expect(planKey(vacuous[vacuous.length - 1].plan)).toBe(planKey(P3))
+    // …monotonically in est, and never at the cost of the floor.
+    const channel = vacuous.map((rec) => rec.est)
+    expect(channel).toEqual([...channel].sort((a, b) => a - b))
+    for (const rec of vacuous) expect(rec.lo).toBe(-1000)
+    // The basis that led with est is on the record as having done so.
+    expect(rep.basisHistory.some((b) => b.channel === "est")).toBe(true)
+    expect(rep.basisHistory.some((b) => b.channel === "lo")).toBe(true)
+  })
+})
+
+// ===========================================================================
+
+describe("humans always win", () => {
+  it("refuses a plan that contradicts a committed pin, however good the search says it is", async () => {
+    class RoguePlanner extends ScriptedSearchCore {
+      improve(ctx: Parameters<ScriptedSearchCore["improve"]>[0]) {
+        const s = super.improve(ctx)
+        // Strip the operator's constraint back out — the failure mode this
+        // gate exists for.
+        const stripped = new Map(s.plan)
+        stripped.set(2, cand(2, 8))
+        return { ...s, plan: stripped }
+      }
+    }
+    const clock = new FakeClock()
+    const script = [step({ plan: P2, worst: 900, best: 901 })]
+    const core = new RoguePlanner(clock, script, { baseline: P1, conformCostMs: 0.05 })
+    const r = rig(script, {}, { core: () => core })
+    const out = await collect(
+      r.kernel.decide({ ...r.input(), initialPins: [{ unitId: 2, to: 77, tentative: false }] }),
+    )
+    expect(reportOf(r.kernel).refusals.nonconforming).toBeGreaterThan(0)
+    for (const rec of out) expect(rec.plan.get(2)?.to).toBe(77)
+  })
+})
