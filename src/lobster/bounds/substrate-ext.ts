@@ -19,7 +19,7 @@
  *             floor it produces is still sound, only looser.
  *
  * Degrading is safe in exactly one direction and this is it: holding a unit
- * is a sound relaxation of enumerating it (bot-gametheory's held lemma), so a
+ * is a sound relaxation of enumerating it (the held lemma), so a
  * bank with no modelling under-promises. The reverse — pretending an
  * un-modelled unit was enumerated — is the fatal bug class.
  */

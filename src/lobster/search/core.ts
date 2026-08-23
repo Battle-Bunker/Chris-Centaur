@@ -24,10 +24,10 @@
  *     key)`, strictly, in that order, and a basis mismatch is a refusal rather
  *     than an acceptance. `est` orders among floor ties and never adjudicates.
  *
- * The sweep order is bot-a's danger order, the repair is bot-b's 2-opt over
- * exactly the pairs the resolution names as self-inflicted casualties, the
- * polish is the cross-product of the top-2 candidates of the ≤3 most contested
- * units, and restarts inherit the witness set.
+ * The sweep runs in danger order; the repair is a 2-opt over exactly the pairs
+ * the resolution names as self-inflicted casualties; the polish is the
+ * cross-product of the top-2 candidates of the ≤3 most contested units; and
+ * restarts inherit the witness set.
  */
 
 import type {
