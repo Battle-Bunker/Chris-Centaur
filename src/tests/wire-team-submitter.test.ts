@@ -414,6 +414,39 @@ describe('the submitter puts a joint set on the wire in batches', () => {
     expect(port.commits[1].docs).toEqual([{ playerID: 'a', move: 2 }]);
   });
 
+  test('a revision that writes NOTHING does not spend the allowance', async () => {
+    // Every read-back confirmation re-enters the pipeline. Those revisions
+    // plan nothing, and charging them would let a burst of acks hold back a
+    // real revision for a whole interval — the limit counts documents, not
+    // attempts.
+    const port = new FakePort();
+    const sub = makeSubmitter(port);
+    await sub.submitTeamSet('g', 5, [unit('a', 'up')]);
+    expect(port.commits.length).toBe(1);
+
+    port.clock = 5000;
+    // Nothing changed: 'a' is confirmed on 'up' already.
+    const empty = await sub.submitTeamSet('g', 5, [unit('a', 'up')]);
+    expect(empty.docs).toBe(0);
+    expect(port.commits.length).toBe(1);
+
+    // A genuine revision an instant later is still admitted, because the
+    // empty one never charged.
+    port.clock = 5001;
+    const real = await sub.submitTeamSet('g', 5, [unit('a', 'down')]);
+    expect(real.deferred).toBe(false);
+    expect(real.docs).toBe(1);
+    expect(port.commits.length).toBe(2);
+  });
+
+  test('a revision that DID write spends it', async () => {
+    const port = new FakePort();
+    const sub = makeSubmitter(port);
+    await sub.submitTeamSet('g', 5, [unit('a', 'up')]);
+    port.clock = 1;
+    expect((await sub.submitTeamSet('g', 5, [unit('a', 'down')])).deferred).toBe(true);
+  });
+
   test('a FINAL flush is never deferred', async () => {
     const port = new FakePort();
     const sub = makeSubmitter(port);

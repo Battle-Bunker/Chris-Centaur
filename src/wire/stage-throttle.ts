@@ -46,6 +46,34 @@
 /** See the module note: 1 s, in phase with the confirm backstop. */
 export const DEFAULT_MIN_WRITE_INTERVAL_MS = 1000;
 
+/** Environment override, for tuning against a real deployment's numbers
+ * without a rebuild. Deliberately NOT a way to disable the limit: zero and
+ * negative values are refused, because the transaction cost the limit bounds
+ * does not go away when someone would rather it did. */
+export const MIN_WRITE_INTERVAL_ENV = 'CENTAUR_STAGE_MIN_WRITE_MS';
+
+/**
+ * Read the configured interval, falling back to the default. A value that is
+ * absent, unparseable or not a positive number takes the default and says so —
+ * a typo must never silently uncap the write rate.
+ */
+export function minWriteIntervalFromEnv(
+  env: NodeJS.ProcessEnv,
+  log: (message: string) => void = (m) => console.warn(m)
+): number {
+  const raw = env[MIN_WRITE_INTERVAL_ENV];
+  if (raw === undefined || raw === '') return DEFAULT_MIN_WRITE_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    log(
+      `[stage-throttle] Ignoring ${MIN_WRITE_INTERVAL_ENV}="${raw}" — not a positive number of ` +
+        `milliseconds; keeping ${DEFAULT_MIN_WRITE_INTERVAL_MS}ms`
+    );
+    return DEFAULT_MIN_WRITE_INTERVAL_MS;
+  }
+  return parsed;
+}
+
 export interface StageThrottleConfig {
   /** Minimum ms between two admitted non-final writes for the same key. */
   readonly minWriteIntervalMs?: number;

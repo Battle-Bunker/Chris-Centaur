@@ -75,6 +75,7 @@ import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
 import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadline';
 import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
+import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import type { PinEvent } from '../lobster/contracts';
 import {
   ParsedTurn,
@@ -374,7 +375,7 @@ export class TacticToesFirebaseInterface {
     now: () => Date.now(),
     setTimeout: (fn, ms) => transientTimeout(fn, ms),
     clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
-  });
+  }, { minWriteIntervalMs: minWriteIntervalFromEnv(process.env) });
   /**
    * Typed pin events derived from the listeners this file ALREADY runs: the
    * per-snake privateMoves read-back, the moveStatuses commit listener, and

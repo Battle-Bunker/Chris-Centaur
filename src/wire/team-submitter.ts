@@ -331,14 +331,12 @@ export class TeamBatchSubmitter {
     for (const unit of units) state.desired.set(unit.snakeId, unit);
 
     const final = opts.final === true;
-    const key = `${gameId}:${turn}`;
-    const decision = this.throttle.check(key, this.port.now(), final);
+    const decision = this.throttle.check(this.keyFor(gameId, turn), this.port.now(), final);
     if (!decision.admit) {
       this.scheduleDeferredFlush(gameId, state, decision.retryAfterMs);
       return { ...EMPTY_RESULT, deferred: true, retryAfterMs: decision.retryAfterMs };
     }
-    this.throttle.record(key, this.port.now());
-    return this.flush(gameId, state, final);
+    return this.flushAndCharge(gameId, state, final);
   }
 
   /**
@@ -402,14 +400,38 @@ export class TeamBatchSubmitter {
     }
   }
 
+  private keyFor(gameId: string, turn: number): string {
+    return `${gameId}:${turn}`;
+  }
+
+  /**
+   * Flush, then charge the throttle only if the flush actually WROTE.
+   *
+   * The rate limit exists to bound documents in the resolution transaction, so
+   * it must count documents. Charging for an attempt instead would let a burst
+   * of read-back confirmations — each of which re-enters the pipeline and each
+   * of which usually plans nothing — spend the allowance and hold back a real
+   * revision for up to a full interval.
+   */
+  private async flushAndCharge(
+    gameId: string,
+    state: TurnState,
+    final: boolean
+  ): Promise<TeamSubmitResult> {
+    const result = await this.flush(gameId, state, final);
+    if (result.docs > 0 || result.failedChunkIndex !== null) {
+      this.throttle.record(this.keyFor(gameId, state.turn), this.port.now());
+    }
+    return result;
+  }
+
   private scheduleDeferredFlush(gameId: string, state: TurnState, delayMs: number): void {
     if (state.deferTimer !== null) return; // one pending flush per game is enough
     state.deferTimer = this.port.setTimeout(() => {
       state.deferTimer = null;
       const live = this.games.get(gameId);
       if (live !== state) return;
-      this.throttle.record(`${gameId}:${state.turn}`, this.port.now());
-      void this.flush(gameId, state, false);
+      void this.flushAndCharge(gameId, state, false);
     }, delayMs);
   }
 

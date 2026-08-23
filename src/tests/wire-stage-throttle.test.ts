@@ -8,7 +8,9 @@
 
 import {
   DEFAULT_MIN_WRITE_INTERVAL_MS,
+  MIN_WRITE_INTERVAL_ENV,
   StageThrottle,
+  minWriteIntervalFromEnv,
 } from '../wire/stage-throttle';
 
 describe('the min-write-interval gate', () => {
@@ -148,5 +150,38 @@ describe('the default is the one the budget arithmetic asks for', () => {
     expect(admitted).toBe(10);
     // Plus the deadline flush, which is never counted against the budget.
     expect(t.admit('g:1', 9_950, true).admit).toBe(true);
+  });
+});
+
+describe('the environment override', () => {
+  test('an unset variable takes the default', () => {
+    expect(minWriteIntervalFromEnv({})).toBe(DEFAULT_MIN_WRITE_INTERVAL_MS);
+    expect(minWriteIntervalFromEnv({ [MIN_WRITE_INTERVAL_ENV]: '' })).toBe(
+      DEFAULT_MIN_WRITE_INTERVAL_MS
+    );
+  });
+
+  test('a positive number is honoured', () => {
+    expect(minWriteIntervalFromEnv({ [MIN_WRITE_INTERVAL_ENV]: '2500' })).toBe(2500);
+  });
+
+  test('junk, zero and negatives keep the default and say so', () => {
+    for (const bad of ['nonsense', '0', '-1', 'NaN']) {
+      const said: string[] = [];
+      expect(minWriteIntervalFromEnv({ [MIN_WRITE_INTERVAL_ENV]: bad }, (m) => said.push(m))).toBe(
+        DEFAULT_MIN_WRITE_INTERVAL_MS
+      );
+      expect(said).toHaveLength(1);
+      expect(said[0]).toContain(MIN_WRITE_INTERVAL_ENV);
+    }
+  });
+
+  test('the override cannot be used to uncap the write rate', () => {
+    // The transaction-read cost the limit bounds does not go away because
+    // somebody would rather it did.
+    expect(minWriteIntervalFromEnv({ [MIN_WRITE_INTERVAL_ENV]: '0' }, () => {})).toBeGreaterThan(0);
+    expect(
+      minWriteIntervalFromEnv({ [MIN_WRITE_INTERVAL_ENV]: 'Infinity' }, () => {})
+    ).toBe(DEFAULT_MIN_WRITE_INTERVAL_MS);
   });
 });
