@@ -196,6 +196,11 @@ export interface BudgetHandle {
   remainingMs(): number
   elapsedMs(): number
   shouldStop(): boolean
+  /** The one clock. Every consumer times itself against THIS, never against
+   * `performance.now()` directly: the kernel injects it, so a test drives the
+   * whole system from a fake clock and no suite is wall-clock flaky. Values
+   * are on the same scale as `KernelInput.deadlineMs`. */
+  now(): number
 }
 
 /** B3 owns: the kernel loop. Ratchet is PER EPOCH: an emitted plan only ever
@@ -212,6 +217,15 @@ export interface KernelInput {
   readonly evaluate: Evaluator
   readonly search: SearchCore
   readonly asTeam: number
+  /** Absolute stop time ON THE SAME CLOCK AS `now`. The wire's deadline is
+   * wall-clock; convert it once at the seam (kernel.ts exports a helper). */
   readonly deadlineMs: number
   readonly initialPins: PinSet
+  /** Clock injection point. Defaults to a monotonic timer. Tests pass a fake
+   * clock so the anytime suite is deterministic. */
+  readonly now?: () => number
+  /** Carried across turns: the previous turn's measured slice cost. The FIRST
+   * slice of a turn is otherwise unmeasured, and at the bottom of the ladder
+   * that one slice is the whole budget. Never module state. */
+  readonly initialStepCostMs?: number
 }
