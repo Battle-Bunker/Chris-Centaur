@@ -396,10 +396,33 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * set is computed against the current position), or the teammate may now die
    * in a collision with the pinned unit. Both are repaired by re-picking from
    * that unit's own CandidateSet, and only for the units actually affected.
+   *
+   * RUNG 0 IS NOT A REPAIR (V4 B2). With an EMPTY incumbent nothing has been
+   * disturbed, because there was nothing there to disturb: every unit is
+   * "changed" only in the trivial sense that it had no previous entry. Running
+   * the repair loop over that set costs `1 + |ours| × conformRepairPerUnit`
+   * full `price()` calls — linear in the roster, which is exactly the
+   * guarantee the kernel is built on being false, and it runs BEFORE the first
+   * staged set on the whole remaining budget. The seed is already a complete
+   * legal plan by construction (the candidate layer's ordered-first option for
+   * every unit, pins spliced in), so rung 0 takes it, pays ONE B0-shaped
+   * `price()` to prove it resolves and to warm the bank's witness set, and
+   * stops: O(1) price calls plus generation, whatever the roster.
+   *
+   * The refinement slices that follow are what turn that seed into a good
+   * plan; conform's job is only that a legal joint set is on the wire first.
    */
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
     const s = open(ctx);
     try {
+      if (incumbent.size === 0) {
+        const seed = seedPlan(s, null);
+        // One resolution set. Deliberately unguarded: a bank that cannot price
+        // the seed at rung 0 must be loud, not silently skipped.
+        s.bank.price(seed);
+        return seed;
+      }
+
       // 1. splice: pins first, then whatever of the incumbent still stands.
       let plan = seedPlan(s, incumbent);
 
@@ -434,6 +457,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * is gone, plus the ones that share a cell with a newly-pinned unit's path.
    * Pinned units are never in the list — they are the constraint, not the
    * repair.
+   *
+   * Only ever called with a NON-EMPTY incumbent (see `conform`): with an empty
+   * one every unit lands in `previous === undefined` and the "cost tracks the
+   * disturbance" guarantee becomes "cost tracks the roster".
    */
   const disturbedBy = (s: Session, plan: JointPlan, incumbent: JointPlan): ReadonlyArray<UnitId> => {
     const pinnedCells = new Set<number>();

@@ -87,6 +87,22 @@ const DUEL = (): Board =>
     piece('N', { x: 5, y: 5 }, 'knight', 1, { teamID: 'blue' }),
   ]);
 
+/**
+ * `n` of our kings on a 12×12 board with one enemy — the roster-scaling
+ * fixture. Big enough that anything linear in the roster is unmistakable at
+ * n = 12, small enough to stay deterministic and fast.
+ */
+const ROSTER = (n: number): Board => {
+  const snakes: Snake[] = [];
+  for (let i = 0; i < n; i++) {
+    snakes.push(piece(`u${i}`, { x: 1 + (i % 5), y: 1 + Math.floor(i / 5) }, 'king', 1, {
+      teamID: 'red',
+    }));
+  }
+  snakes.push(piece('E', { x: 10, y: 10 }, 'king', 1, { teamID: 'blue' }));
+  return boardOf(snakes, { width: 12, height: 12 });
+};
+
 function unbounded(): BudgetHandle {
   const start = Date.now();
   return {
@@ -198,8 +214,13 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
     }
   });
 
-  test('conform is cheap: far fewer resolutions than improve on the same position', () => {
-    const a = trio();
+  test('conform is cheap: far fewer resolutions than improve, at 12 units', () => {
+    // AT TWELVE UNITS, deliberately. The ratio this test asserts holds at any
+    // roster size for the wrong reason if rung 0 is linear in the roster: two
+    // units is small enough that `1 + |ours| × repairs` still looks cheap next
+    // to six sweeps. A rung-0 regression has to show up as a FAILURE here, so
+    // the roster is the one the production regime actually runs.
+    const a = trio(ROSTER(12));
     let conformCost = 0;
     try {
       makeSearchCore().conform(a.ctx(), new Map());
@@ -207,7 +228,7 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
     } finally {
       a.close();
     }
-    const b = trio();
+    const b = trio(ROSTER(12));
     let improveCost = 0;
     try {
       makeSearchCore().improve(b.ctx());
@@ -217,10 +238,35 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
     }
     expect(conformCost).toBeGreaterThan(0);
     // Deterministic on this board (no clock in the loop): conform prices the
-    // seed and one repair pass; improve pays for sweeps, repair and polish on
-    // top. The point is the ORDER of magnitude, not a tuned ratio — conform's
-    // cost tracks the disturbance (here: none), improve's tracks the search.
-    expect(conformCost).toBeLessThan(improveCost * 0.75);
+    // seed ONCE; improve pays for sweeps, repair and polish on top.
+    expect(conformCost).toBeLessThan(improveCost * 0.1);
+  });
+
+  test('rung 0 costs a BOUNDED number of resolutions, not one per unit (V4 B2)', () => {
+    // The contract the whole kernel is built on: "conform is cheap and never
+    // searches — its cost tracks how much the pin disturbed, not the roster".
+    // With an empty incumbent NOTHING is disturbed, so the cost must not grow
+    // with the roster at all. The old rung 0 measured 7 / 19 / 37 resolutions
+    // at these three sizes (≈ 3n + 1, exactly linear); it must now be flat.
+    const costs = [2, 6, 12].map((n) => {
+      const t = trio(ROSTER(n));
+      try {
+        const plan = makeSearchCore().conform(t.ctx(), new Map());
+        // Still rung 0's contract: a complete legal plan for every unit.
+        expect(plan.size).toBeGreaterThanOrEqual(t.sub.commandable(0).length);
+        return t.sub.resolutions();
+      } finally {
+        t.close();
+      }
+    });
+    const [two, six, twelve] = costs as [number, number, number];
+    expect(two).toBeGreaterThan(0);
+    // Flat, not merely sub-linear: six times the roster may not cost six times
+    // the resolutions, and the twelve-unit rung must stay inside the same
+    // small constant the two-unit one paid.
+    expect(twelve).toBeLessThanOrEqual(two * 2);
+    expect(six).toBeLessThanOrEqual(two * 2);
+    expect(twelve).toBeLessThan(12);
   });
 
   test('a pinned conform honours the pin exactly', () => {
