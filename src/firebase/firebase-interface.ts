@@ -76,6 +76,8 @@ import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadl
 import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
+import { centaurEngine } from '../config/centaur-engine';
+import { TeamDecisionEngine } from '../lobster/team-decision-engine';
 import type { PinEvent } from '../lobster/contracts';
 import {
   ParsedTurn,
@@ -396,6 +398,22 @@ export class TacticToesFirebaseInterface {
       return directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
     },
   }));
+  /**
+   * The TEAM decision engine (CENTAUR_ENGINE=lobster only). Inert under the
+   * default flag: nothing constructs a substrate, subscribes an event, or
+   * enables team staging until the lobster full pass actually runs. Its ports
+   * are exactly the wire layer's documented integration surface — per-unit
+   * setBotRecommendation (precedence + consent gate untouched),
+   * enableTeamStaging, the typed pin-event stream, and the per-game unit-id
+   * registry's reverse lookup.
+   */
+  private readonly teamEngine = new TeamDecisionEngine({
+    setBotRecommendation: (gameId, snakeId, move, turnData) =>
+      this.gameManager.setBotRecommendation(gameId, snakeId, move, turnData),
+    enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
+    onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
+    pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
+  });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
   // listener or turn pipeline is involved until the invite flips to started.
@@ -1106,6 +1124,7 @@ export class TacticToesFirebaseInterface {
     this.teardownTurnWatch(watched);
     this.watchedGames.delete(watched.gameID);
     this.deadlineGuards.delete(watched.gameID);
+    this.teamEngine.release(watched.gameID);
     this.pinEvents.release(watched.gameID);
     this.unitIds.delete(watched.gameID);
     this.teamSubmitter.abandon(watched.gameID);
@@ -1335,6 +1354,14 @@ export class TacticToesFirebaseInterface {
       endTimeMs
     );
 
+    // Team staging must be on BEFORE the turn watch begins, because the watch
+    // arms the per-turn final-flush timer only for team-staged games — enabled
+    // after it, turn 0's last write would ride on luck instead of a timer. The
+    // team engine's own enableTeamStaging call is idempotent on top of this.
+    if (centaurEngine() === 'lobster') {
+      this.gameManager.enableTeamStaging(watched.gameID);
+    }
+
     // Read-back + finalization for this turn: confirm what Firebase actually
     // holds as each snake's staged move, and detect the turn's final
     // selection (deadline or all-committed) before the next board arrives.
@@ -1426,6 +1453,39 @@ export class TacticToesFirebaseInterface {
       endTimeMs,
       Date.now()
     );
+
+    // CENTAUR_ENGINE=lobster: the full pass routes the TEAM decision through
+    // the LOBSTER kernel — one joint decision for every alive unit we control,
+    // pieces included, staged through the same per-unit manager surface the
+    // legacy pass uses (precedence and the consent gate run untouched) and
+    // batched by the team submitter. The fast pass above already ran
+    // identically; under the default flag this branch is completely inert.
+    if (centaurEngine() === 'lobster') {
+      const teamUnits: Array<{ snakeId: string; view: GameState }> = [];
+      for (const snakeId of aliveOurs) {
+        const view = views.get(snakeId) ?? withYou(canonical, snakeId);
+        if (view) teamUnits.push({ snakeId, view });
+      }
+      if (teamUnits.length > 0) {
+        void this.teamEngine
+          .decideTurn({
+            gameId: watched.gameID,
+            turn: turnNumber,
+            board: canonical.board,
+            ourTeamId: this.config.centaurId,
+            units: teamUnits,
+            deadlineMs,
+          })
+          .catch((err) => {
+            console.error(
+              `[tt-firebase] Team decision failed for ${watched.gameID} turn ${turnNumber}:`,
+              err
+            );
+          });
+      }
+      return;
+    }
+
     void Promise.all(
       // views holds SNAKE units only (pieces took the intake branch above),
       // so this fan-out is snake-only by construction.

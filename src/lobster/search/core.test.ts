@@ -392,7 +392,12 @@ describe('reference actions: a teammate not ours to command', () => {
         },
       });
       expect(out.bounds.assumptions).toContainEqual(reference);
-      expectCompleteLegal(out.plan, h);
+      // The reference RIDES the returned plan (the plan's domain is the
+      // modelled set), fixed to exactly the declared action…
+      expect(out.plan.get(2 as UnitId)?.to).toBe(reference.to);
+      // …and the commanded half is complete and legal as ever.
+      const oursOnly = new Map([...out.plan].filter(([unitId]) => unitId !== 2));
+      expectCompleteLegal(oursOnly, h);
     } finally {
       h.close();
     }

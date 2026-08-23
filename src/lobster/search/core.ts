@@ -110,6 +110,13 @@ interface Session {
   readonly pinned: ReadonlySet<UnitId>;
   readonly sets: ReadonlyMap<UnitId, CandidateSet>;
   readonly pins: ReadonlyMap<UnitId, Candidate>;
+  /** Units not ours to command, FIXED to their declared actions. They ride in
+   * EVERY plan this core holds or returns — the plan's domain IS the modelled
+   * set, so a consumer evaluating a returned plan gets the same held
+   * configuration the search priced (a held-capacity overflow fixed by
+   * reference must stay fixed on the emission path too). Never swept,
+   * repaired, polished or perturbed. */
+  readonly references: ReadonlyMap<UnitId, Candidate>;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -118,8 +125,15 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   // ------------------------------------------------------------------ setup
 
   const rosterOf = (ctx: SearchContext): ReadonlyArray<UnitId> => {
-    if (hasRoster(ctx.sub)) return [...ctx.sub.commandable(ctx.asTeam)].sort((a, b) => a - b);
-    if (ctx.incumbent !== null) return [...ctx.incumbent.plan.keys()].sort((a, b) => a - b);
+    // A unit fixed by reference is never ours to sweep, whichever way the
+    // roster was learned — an incumbent plan CARRIES the references.
+    const referenced = new Set(
+      ctx.assumptions.filter((a) => a.kind === "reference-action").map((a) => a.unitId),
+    );
+    const sift = (ids: Iterable<UnitId>): UnitId[] =>
+      [...ids].filter((id) => !referenced.has(id)).sort((a, b) => a - b);
+    if (hasRoster(ctx.sub)) return sift(ctx.sub.commandable(ctx.asTeam));
+    if (ctx.incumbent !== null) return sift(ctx.incumbent.plan.keys());
     throw new NoRosterError();
   };
 
@@ -155,6 +169,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       pinned: new Set(pins.keys()),
       sets,
       pins,
+      references,
     };
   };
 
@@ -193,6 +208,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       }
       plan.set(unitId, first);
     }
+    // The declared reference actions ride every plan (see Session.references).
+    for (const [unitId, candidate] of s.references) plan.set(unitId, candidate);
     return plan;
   };
 

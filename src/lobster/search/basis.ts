@@ -73,11 +73,17 @@ export function referenceActionsOf(
       });
       continue;
     }
+    // The unit is HELD on the decision's own substrate — its options are only
+    // enumerable on a modelled sibling, whose release must not disturb the
+    // parent (the sibling contract).
     let set: CandidateSet;
+    const view = ctx.sub.withModelled([assumption.unitId]);
     try {
-      set = ctx.gen.candidatesFor(ctx.sub, assumption.unitId, "adversary");
+      set = ctx.gen.candidatesFor(view, assumption.unitId, "adversary");
     } catch {
       continue;
+    } finally {
+      view.release();
     }
     const match =
       set.candidates.find((c) => c.to === assumption.to) ??
