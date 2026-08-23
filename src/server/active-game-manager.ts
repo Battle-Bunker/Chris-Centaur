@@ -1,4 +1,9 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
+// Type-only: the wire layer's staged-unit shape, so the team path speaks one
+// vocabulary end to end. Erased at compile time, so there is no module cycle
+// with src/wire/team-submitter.ts (which imports IntendedMoveSource from here,
+// also type-only).
+import type { TeamStagedUnit } from '../wire/team-submitter';
 import { BoardGraph } from '../logic/board-graph';
 import {
   CasualtyContext,
@@ -127,6 +132,42 @@ export type MoveSubmitter = (
   move: CentaurMove,
   source: IntendedMoveSource
 ) => Promise<void>;
+
+// The TEAM-scoped write-through publisher, an OPT-IN alternative to the
+// per-unit MoveSubmitter above. Where MoveSubmitter is one call per unit —
+// one loose document each, a mixed set on the server if the process dies
+// between two of them — this is handed the team's whole staged set for one
+// turn and puts it on the wire as atomic writeBatch chunks (see
+// src/wire/team-submitter.ts, which owns the chunking, exclusion, throttling
+// and confirm/retry).
+//
+// It is never the default. A game uses this path only after an explicit
+// `enableTeamStaging(gameId, true)`, which the team decision engine calls for
+// the games it drives; every other game keeps the per-unit path unchanged,
+// down to the retry timer.
+export type TeamMoveSubmitter = (
+  gameId: string,
+  turn: number,
+  moves: ReadonlyArray<TeamStagedUnit>
+) => Promise<void>;
+
+// What a pin observer is told. `staged` is the manager binding a move (the
+// move's `source` is the rung of the precedence ladder it came from, which is
+// what makes it a pin or not); `considering` and `cleared` are the UI's
+// hover / selection-consideration, which has no wire representation at all.
+//
+// Observation only: nothing an observer does can change what is staged, and
+// the manager does not care whether anyone is listening.
+export type PinIntentKind = 'staged' | 'considering' | 'cleared';
+export interface PinIntentEvent {
+  readonly gameId: string;
+  readonly snakeId: string;
+  readonly turn: number;
+  readonly move: CentaurMove | null;
+  readonly source: IntendedMoveSource | null;
+  readonly kind: PinIntentKind;
+}
+export type PinIntentObserver = (event: PinIntentEvent) => void;
 
 // The optional HUMAN-triggered "done" signal (Submit All): marks one snake as
 // finished for the turn in Firebase (moveStatuses.movedPlayerIDs), letting the
@@ -474,6 +515,17 @@ export class ActiveGameManager {
   // Publisher for the human-triggered Submit All "done" signal. Optional and
   // never invoked automatically.
   private moveCommitter: MoveCommitter | null = null;
+  // OPT-IN team-scoped publisher (see TeamMoveSubmitter). Null, and the set
+  // below empty, means every game takes the per-unit path exactly as before.
+  private teamMoveSubmitter: TeamMoveSubmitter | null = null;
+  private teamStagedGames: Set<string> = new Set();
+  // Games whose team set changed this tick, and the turn it changed for.
+  // Coalesced like notifyStagedChange: a joint set is bound one unit at a
+  // time, and publishing after each unit would defeat the batching.
+  private teamStageDirty: Map<string, number> = new Map();
+  private teamStageFlushScheduled: boolean = false;
+  // Observers of pin-shaped intent (see PinIntentObserver). Purely a report.
+  private pinIntentObservers: PinIntentObserver[] = [];
 
   private constructor() {
     // The manager is the controller's game-progress source: a game counts
@@ -509,6 +561,154 @@ export class ActiveGameManager {
 
   setMoveCommitter(committer: MoveCommitter | null): void {
     this.moveCommitter = committer;
+  }
+
+  // ── Team staging (opt-in) ────────────────────────────────────────────────
+
+  setTeamMoveSubmitter(submitter: TeamMoveSubmitter | null): void {
+    this.teamMoveSubmitter = submitter;
+  }
+
+  /**
+   * Route a game's staged writes through the team submitter instead of the
+   * per-unit one. Off for every game until something explicitly turns it on;
+   * turning it off returns the game to the per-unit path immediately.
+   *
+   * This is the ONLY switch between the two transports. Everything upstream of
+   * it — intent precedence, the fatal-move consent gate, the atomic StagedMove
+   * record, the commit freeze — is identical on both paths, because both are
+   * fed by the same `stageMove`.
+   */
+  enableTeamStaging(gameId: string, enabled: boolean = true): void {
+    if (enabled) this.teamStagedGames.add(gameId);
+    else {
+      this.teamStagedGames.delete(gameId);
+      this.teamStageDirty.delete(gameId);
+    }
+  }
+
+  isTeamStagingEnabled(gameId: string): boolean {
+    return this.teamStagedGames.has(gameId);
+  }
+
+  /**
+   * The team's staged set for one turn: every controlled unit holding a bound
+   * staged record for `turn`, minus the units already committed (their
+   * privateMoves writes are refused server-side, so including one would fail
+   * the batch carrying it).
+   *
+   * A read-only projection of records `stageMove` already bound. It resolves
+   * nothing and decides nothing.
+   */
+  stagedTeamSet(gameId: string, turn: number): TeamStagedUnit[] {
+    const game = this.games.get(gameId);
+    if (!game) return [];
+    const set: TeamStagedUnit[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      const staged = controlled.staged;
+      if (!staged || staged.turn !== turn) continue;
+      if (controlled.lastCommittedTurn === turn) continue;
+      set.push({ snakeId, move: staged.move, source: staged.source });
+    }
+    return set;
+  }
+
+  /** The move Firebase's read-back confirms for this unit on `turn`, or null. */
+  confirmedStagedMove(gameId: string, snakeId: string, turn: number): CentaurMove | null {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    const confirmed = controlled?.confirmedStaged;
+    return confirmed && confirmed.turn === turn ? confirmed.move : null;
+  }
+
+  /** Whether this unit's commit for `turn` has been made — its staged writes
+   * are refused from that instant, so the team path must exclude it. */
+  hasCommittedTurn(gameId: string, snakeId: string, turn: number): boolean {
+    return this.games.get(gameId)?.controlledSnakes.get(snakeId)?.lastCommittedTurn === turn;
+  }
+
+  // ── Pin observation ─────────────────────────────────────────────────────
+
+  /**
+   * Observe pin-shaped intent: every staged bind (with the precedence rung it
+   * came from) plus the UI's tentative consideration. Report-only — an
+   * observer cannot stage, unstage or veto anything, and a throwing observer
+   * is contained here.
+   */
+  onPinIntent(observer: PinIntentObserver): void {
+    this.pinIntentObservers.push(observer);
+  }
+
+  /**
+   * The UI is CONSIDERING this move for this unit — a hover, a candidate under
+   * the cursor, a drag not yet released. Emits a tentative-pin observation and
+   * touches nothing else: no intent, no staged record, no write. A tentative
+   * pin is a hint the search may speculate on, never a constraint.
+   */
+  notePinConsideration(gameId: string, snakeId: string, move: CentaurMove): void {
+    const game = this.games.get(gameId);
+    if (!game || !game.controlledSnakes.has(snakeId)) return;
+    this.notifyPinIntent({
+      gameId,
+      snakeId,
+      turn: game.boardStateTurn,
+      move,
+      source: null,
+      kind: 'considering',
+    });
+  }
+
+  /** The UI stopped considering a move for this unit. */
+  clearPinConsideration(gameId: string, snakeId: string): void {
+    const game = this.games.get(gameId);
+    if (!game || !game.controlledSnakes.has(snakeId)) return;
+    this.notifyPinIntent({
+      gameId,
+      snakeId,
+      turn: game.boardStateTurn,
+      move: null,
+      source: null,
+      kind: 'cleared',
+    });
+  }
+
+  private notifyPinIntent(event: PinIntentEvent): void {
+    for (const observer of this.pinIntentObservers) {
+      try {
+        observer(event);
+      } catch (e) {
+        console.error('Error in pin intent observer:', e);
+      }
+    }
+  }
+
+  // Mark a game's team set as changed for `turn`, coalesced to one publish per
+  // event-loop tick. A joint set is bound one unit at a time (each unit's
+  // stageMove is its own call), so publishing per unit would produce exactly
+  // the per-unit write pattern the team path exists to replace.
+  private requestTeamPublish(gameId: string, turn: number): void {
+    const pending = this.teamStageDirty.get(gameId);
+    // Only ever move forward: a late stage for an older turn must not drag the
+    // publish back to a turn the board has left.
+    if (pending === undefined || turn > pending) this.teamStageDirty.set(gameId, turn);
+    if (this.teamStageFlushScheduled) return;
+    this.teamStageFlushScheduled = true;
+    setImmediate(() => {
+      this.teamStageFlushScheduled = false;
+      const dirty = Array.from(this.teamStageDirty.entries());
+      this.teamStageDirty.clear();
+      for (const [id, dirtyTurn] of dirty) {
+        if (!this.teamStagedGames.has(id)) continue;
+        const moves = this.stagedTeamSet(id, dirtyTurn);
+        if (moves.length === 0) continue;
+        if (!this.teamMoveSubmitter) {
+          console.error(`[ActiveGameManager] Team staging enabled for ${id} with no team submitter wired — turn ${dirtyTurn} NOT published`);
+          continue;
+        }
+        this.teamMoveSubmitter(id, dirtyTurn, moves).catch((err) => {
+          console.error(`[ActiveGameManager] Failed to publish team staged set for ${id} turn ${dirtyTurn}:`, err);
+        });
+      }
+    }).unref();
   }
 
   static getInstance(): ActiveGameManager {
@@ -750,6 +950,7 @@ export class ActiveGameManager {
       // events that would bounce the UI; just drop the empty shell.
       console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
       this.games.delete(gameId);
+      this.enableTeamStaging(gameId, false);
       this.logIfFullyIdle();
       ActivityController.getInstance().poke();
       return;
@@ -789,6 +990,7 @@ export class ActiveGameManager {
 
     console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
     this.games.delete(gameId);
+    this.enableTeamStaging(gameId, false);
     this.logIfFullyIdle();
     // Game gone — the awake rule may flip (no game branch left to hold it).
     ActivityController.getInstance().poke();
@@ -1942,6 +2144,11 @@ export class ActiveGameManager {
     };
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
+    // Report the bind to pin observers. AFTER the record is final, so what an
+    // observer sees is the move that will actually be written — the fatal gate
+    // above can replace a human's direction with the bot's, and a pin derived
+    // from the pre-gate value would name a move the game never plays.
+    this.notifyPinIntent({ gameId, snakeId, turn, move: direction, source, kind: 'staged' });
 
     // Refresh the derived green path AFTER `controlled.staged` is final: the
     // fatal-move gate above can replace the staged direction, and the drawn
@@ -2312,6 +2519,7 @@ export class ActiveGameManager {
     }
 
     controlled.staged = { snakeId, turn, move, source, fatalConsented: false, action };
+    this.notifyPinIntent({ gameId, snakeId, turn, move, source, kind: 'staged' });
     // Same ordering as stageMove: the drawn route follows the move that will
     // actually commit, so it is refreshed only once `staged` is final.
     this.refreshGotoRoute(gameId, snakeId);
@@ -2551,6 +2759,19 @@ export class ActiveGameManager {
       controlled.confirmedStaged.move === requested.move
     ) {
       clearRetry();
+      return;
+    }
+
+    // TEAM STAGING, opt-in per game. The team submitter owns publishing,
+    // throttling, confirm and retry for the whole set at once, so this unit's
+    // own submit and its own backstop timer would be redundant writes against
+    // the same documents. Every guard above still applies unchanged — a
+    // committed, finalized, confirmed or superseded request stops here on both
+    // paths. Nothing below this line runs for a team-staged game, and nothing
+    // above it behaves differently.
+    if (this.teamStagedGames.has(gameId)) {
+      clearRetry();
+      this.requestTeamPublish(gameId, requested.turn);
       return;
     }
 
@@ -3291,6 +3512,7 @@ export class ActiveGameManager {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);
+          this.enableTeamStaging(gameId, false);
           this.logIfFullyIdle();
           removedAny = true;
         }

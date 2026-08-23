@@ -251,6 +251,80 @@ export class PinEventStream {
 }
 
 /**
+ * One `PinEventStream` per game, created on demand.
+ *
+ * The transport watches several games at once and each has its own roster,
+ * board and turn cursor, so pins are per game by construction. The hub exists
+ * so the transport's listeners can forward observations with a `gameId` and
+ * nothing else — it owns the lifecycle, and a game it has never heard of costs
+ * one map lookup.
+ */
+export class PinEventHub {
+  private readonly streams = new Map<string, PinEventStream>();
+
+  /** `makeTranslation` is called once per game, the first time it is seen. */
+  constructor(private readonly makeTranslation: (gameId: string) => PinTranslation) {}
+
+  /** The stream for a game, minting it on first use. */
+  streamFor(gameId: string): PinEventStream {
+    let stream = this.streams.get(gameId);
+    if (!stream) {
+      stream = new PinEventStream(this.makeTranslation(gameId));
+      this.streams.set(gameId, stream);
+    }
+    return stream;
+  }
+
+  /** The stream for a game if it exists — never mints one. */
+  peek(gameId: string): PinEventStream | null {
+    return this.streams.get(gameId) ?? null;
+  }
+
+  beginTurn(gameId: string, turn: number): void {
+    this.streamFor(gameId).beginTurn(turn);
+  }
+
+  observeStaged(
+    gameId: string,
+    snakeId: string,
+    turn: number,
+    move: CentaurMove,
+    source: IntendedMoveSource
+  ): void {
+    this.streamFor(gameId).observeStaged(snakeId, turn, move, source);
+  }
+
+  observeConfirmed(gameId: string, snakeId: string, turn: number, move: CentaurMove): void {
+    this.streamFor(gameId).observeConfirmed(snakeId, turn, move);
+  }
+
+  observeCommit(gameId: string, snakeId: string, turn: number): void {
+    this.streamFor(gameId).observeCommit(snakeId, turn);
+  }
+
+  tentativePin(gameId: string, snakeId: string, move: CentaurMove): void {
+    this.streamFor(gameId).tentativePin(snakeId, move);
+  }
+
+  clearTentative(gameId: string, snakeId: string): void {
+    this.peek(gameId)?.clearTentative(snakeId);
+  }
+
+  subscribe(gameId: string, sink: PinEventSink): () => void {
+    return this.streamFor(gameId).subscribe(sink);
+  }
+
+  /** Game over / unwatched: drop the stream and its subscribers. */
+  release(gameId: string): void {
+    this.streams.delete(gameId);
+  }
+
+  get size(): number {
+    return this.streams.size;
+  }
+}
+
+/**
  * Stable numeric ids for wire unit ids, assigned in first-seen order.
  *
  * The engine speaks in `UnitId` numbers and the wire in opaque strings; the
