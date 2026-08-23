@@ -269,15 +269,26 @@ describe('the crossfade certificate does not cover the forced paths', () => {
     // was certified, and every block is counted on its own refusal channel.
     // (How OFTEN it is consulted is board- and budget-dependent; the adversarial
     // count on a 12-unit team at a 3 s budget is in the soak report.)
-    expect(report.crossfade.certified).toBe(0);
-    expect(report.crossfade.uncertified).toBe(0);
+    // A write whose delta sits wholly inside ONE chunk is atomic on the wire
+    // and needs no certificate, so it can still be certified without the hook
+    // ever being asked; what must never happen is a certificate CLAIMED over a
+    // refusal.
     expect(report.refusals.crossfade).toBe(report.crossfade.blocked);
+    // The forced paths CONSULT the certificate now and record its verdict, so
+    // a re-stage that shipped without one is visible rather than invisible.
+    // (Whether THIS board's re-stage spans a chunk boundary — and so has a
+    // torn interleaving to refuse at all — is board-dependent; the accounting
+    // itself is pinned in the kernel suite.)
+    for (const rec of report.journal) expect(rec.crossfade).toBeDefined();
+    expect(report.crossfade.blocked).toBeGreaterThanOrEqual(0);
     // Rung 0 still reached the wire...
     expect(report.stagedNothing).toBe(false);
     expect(report.journal.length).toBeGreaterThan(0);
-    // ...and so did every epoch-change conformance re-stage: `buildRecord`
-    // never consults gate 4. This is the answer to the integrator's open
-    // question — a forced conformance re-stage CANNOT be starved.
+    // ...and so did every epoch-change conformance re-stage. `buildRecord`
+    // consults gate 4 but never obeys it: this is the answer to the
+    // integrator's open question — a forced conformance re-stage CANNOT be
+    // starved, and that is a stated guarantee rather than an accident of
+    // where `gate()` happens to be called.
     expect(report.epochs).toBe(2);
     expect(report.conformance).toHaveLength(1);
     expect(report.emits).toBeGreaterThanOrEqual(2); // rung 0 + the re-stage

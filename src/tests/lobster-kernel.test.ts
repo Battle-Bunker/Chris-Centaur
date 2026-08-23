@@ -1191,3 +1191,58 @@ describe("nothing commandable is free (V1-OBS-3)", () => {
     expect(rep.stagedNothing).toBe(false)
   })
 })
+
+describe("a slice is long enough to contain the work it starts (V2-BUG-4)", () => {
+  it("grows with the measured slice cost, and never past the operator's bound", async () => {
+    // At production team sizes one bank `price()` is most of a 25 ms slice, so
+    // the loop priced a seed and stopped before it swept a second unit: 370
+    // slices over ten seconds produced the identical bracket to 18 over one.
+    // The slice is sized to what a slice has been measured to cost — bounded
+    // by the longest an operator's pin may wait to be drained, because events
+    // are taken between slices and never inside one.
+    const lengths: number[] = []
+    const clock = new FakeClock()
+    // Each slice charges 8 ms, well above the 1 ms floor.
+    const core = new ScriptedSearchCore(clock, [step({ worst: 10, best: 50, costMs: 8 })], {
+      baseline: P1,
+    })
+    const kernel = new LobsterKernel({
+      minWriteIntervalMs: 0,
+      yieldIntervalMs: 0,
+      sliceMs: 1,
+      sliceCostFactor: 5,
+      maxSliceFraction: 0.1,
+      initialStepCostMs: 8,
+    })
+    const sub = new StubSubstrate()
+    let last = clock.value
+    const budget = new StubEvaluator(() => RUNG0)
+    const wrapped: typeof core = Object.create(core) as typeof core
+    wrapped.improve = (ctx) => {
+      lengths.push(ctx.budget.remainingMs())
+      last = clock.value
+      return core.improve(ctx)
+    }
+    await collect(
+      kernel.decide({
+        sub,
+        gen: new StubGenerator(),
+        evaluate: budget,
+        search: wrapped,
+        asTeam: 0,
+        deadlineMs: clock.value + 1000,
+        initialPins: [],
+        now: clock.now,
+        initialStepCostMs: 8,
+      }),
+    )
+    expect(last).toBeGreaterThan(0)
+    expect(lengths.length).toBeGreaterThan(0)
+    // 5 x 8 ms of measured cost, and the 100 ms operator bound on a 1 s turn.
+    for (const remaining of lengths) {
+      expect(remaining).toBeGreaterThanOrEqual(8)
+      expect(remaining).toBeLessThanOrEqual(100)
+    }
+    expect(Math.max(...lengths)).toBeGreaterThan(1)
+  })
+})

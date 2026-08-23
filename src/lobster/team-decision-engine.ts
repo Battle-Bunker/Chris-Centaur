@@ -106,10 +106,24 @@ export interface TeamDecisionPorts {
 }
 
 export interface TeamDecisionOptions {
-  /** Evaluator for the decision. Defaults to the material profile — the
-   * engine's own exact fold, the 1 ms reflex rung; the calibrated
-   * reach/king-margin profile costs an arrival flood per unit per evaluation
-   * and is a verification-wave decision, not a default. */
+  /**
+   * Evaluator for the decision. Defaults to the MATERIAL profile — the
+   * engine's own exact fold — and that default is now a measured verdict, not
+   * a placeholder: on the production regime the calibrated reach/king-margin
+   * profile lost material at a one-second budget and overran at ten, because
+   * it costs an arrival flood per unit PER EVALUATION.
+   *
+   * Adopting it has three prerequisites, and none of them is a tuning knob:
+   *   1. per-decision caching of the arrival flood (it is recomputed from
+   *      scratch for every plan the search prices today);
+   *   2. per-kind maxHealth reaching the engine instead of being flattened to
+   *      the maximum — the flatten inflates OUR earliest-arrival flood, and
+   *      the reach feature reads that on its LO side, which is a floor above
+   *      the truth (the tripwire in the trio suite fails the moment reach is
+   *      switched on while the flatten stands);
+   *   3. a re-run of the production-regime bench, because (1) changes the
+   *      cost that made the verdict.
+   */
   readonly evaluate?: Evaluator;
   readonly search?: Partial<SearchTuning>;
   /** How the decision's SearchCore is assembled from the tuning. Defaults to
@@ -560,11 +574,25 @@ export class TeamDecisionEngine {
     if (this.adviceSinks.size === 0) return previous;
     const tentative = this.tentativePins(game, sub);
     if (tentative.length === 0) return previous;
+    const live = kernel.unconstrainedNow();
     const advice = adviseFromReport({
       report: {
         journal: [rec],
         speculative: kernel.speculativeNow(),
+        contexts: [],
+        activeContextKey: live?.key ?? '',
       } as unknown as KernelReport,
+      unconstrained:
+        live === null
+          ? null
+          : {
+              speculative: false,
+              key: live.key,
+              incumbentLo: live.lo,
+              incumbentHi: live.hi,
+              posture: live.posture,
+              epoch: live.epoch,
+            },
       tentative,
       witnesses: [],
       threshold: this.options.adviceThreshold,
@@ -843,6 +871,12 @@ function tapWitnesses(core: SearchCore, into: Witness[]): SearchCore {
     improve: (ctx: SearchContext) => absorb(core.improve(ctx)),
     conform: (ctx: SearchContext, incumbent: JointPlan) => core.conform(ctx, incumbent),
   };
+  if (core.drainRefusals !== undefined) {
+    wrapped.drainRefusals = core.drainRefusals.bind(core);
+  }
+  if (core.release !== undefined) {
+    wrapped.release = core.release.bind(core);
+  }
   if (core.refinementView !== undefined) {
     wrapped.refinementView = core.refinementView.bind(core);
   }

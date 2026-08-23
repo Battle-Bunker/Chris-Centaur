@@ -389,8 +389,20 @@ export interface KernelOptions {
    * after it.
    */
   readonly yieldIntervalMs: number
-  /** Target duration of one refinement slice. Bounds deadline overshoot. */
+  /** MINIMUM duration of one refinement slice. Bounds deadline overshoot.
+   * The actual slice grows with the measured cost — see `sliceCostFactor`. */
   readonly sliceMs: number
+  /** How many measured slice-costs one slice is allowed to run for. A slice
+   * must be long enough to contain the work it starts: below one `price()` the
+   * anytime loop re-prices its seed and stops, every time. */
+  readonly sliceCostFactor: number
+  /**
+   * The OPERATOR's bound on that growth. Queued events are drained between
+   * slices, so a slice is also the longest an operator's pin can wait to be
+   * seen. No slice may own more than this fraction of the turn, however
+   * expensive one has been measured to be.
+   */
+  readonly maxSliceFraction: number
   /** Minimum wall gap between writes. The wire has no server-side rate limit; this is it. */
   readonly minWriteIntervalMs: number
   /** Fraction of the standing gap a re-emission of the SAME plan must remove. */
@@ -444,6 +456,8 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   reserveMs: 1,
   yieldIntervalMs: 5,
   sliceMs: 0.5,
+  sliceCostFactor: 5,
+  maxSliceFraction: 0.1,
   minWriteIntervalMs: 2,
   gapImprovementFraction: 0.15,
   switchRule: "floor",
@@ -593,6 +607,12 @@ export interface KernelReport {
     readonly cursor: number
     readonly epochBaseline: number
     readonly incumbentLo: number | null
+    /** The context's best-known bracket and the basis it was proved under —
+     * the same shape `speculative` carries, so an advice layer differences
+     * two contexts rather than a context against a staged record. */
+    readonly incumbentHi: number | null
+    readonly posture: Posture | null
+    readonly epoch: number | null
     readonly witnesses: number
     readonly stepCostMs: number
   }>
@@ -916,6 +936,13 @@ export class LobsterKernel implements Kernel {
     } finally {
       run.basisHistory.push(basisSnapshot(run.basis))
       this.report = this.finish(run)
+      // The core may keep a bank and a memo alive between slices; a decision
+      // ending is where they must go back.
+      try {
+        run.input.search.release?.()
+      } catch {
+        /* a core that cannot close is not a reason to lose the report */
+      }
       this.run = null
       this.pending = []
     }
@@ -1040,7 +1067,21 @@ export class LobsterKernel implements Kernel {
       if (probe && remaining < need(entry)) run.probes++
 
       // 4. One refinement slice.
-      const sliceEnd = Math.min(run.searchDeadline, run.now() + this.opts.sliceMs)
+      // ADAPTIVE SLICE LENGTH. A slice shorter than the work inside it is not
+      // a slice, it is an interruption: at production team sizes one bank
+      // `price()` is most of a 25 ms slice, so the loop spent every slice
+      // pricing a seed and stopping before it swept a second unit — 370
+      // slices over ten seconds produced the identical bracket to 18 over
+      // one. The floor is the configured `sliceMs`; above it the slice is
+      // sized to what a slice has actually been MEASURED to cost, and capped
+      // so no single slice may believe it owns more than its share of the
+      // so no single slice may own more than its share of the turn — which is
+      // also the longest an operator's pin can wait to be drained, because
+      // events are taken between slices and never inside one.
+      const measured = entry.stepCostMs * this.opts.sliceCostFactor
+      const cap = Math.max(run.budgetMs * this.opts.maxSliceFraction, this.opts.sliceMs)
+      const sliceLength = Math.min(Math.max(this.opts.sliceMs, measured), cap)
+      const sliceEnd = Math.min(run.searchDeadline, run.now() + sliceLength)
       const budget = new SliceBudget(run.now, run.t0, sliceEnd)
       const ctx = this.searchContext(run, entry, budget)
       const s0 = run.now()
@@ -1390,6 +1431,16 @@ export class LobsterKernel implements Kernel {
     return Math.max(0, row.hi - row.lo)
   }
 
+  /** Fold in whatever the core absorbed on our behalf. A refusal it swallowed
+   * to keep a legal plan on the wire is still a refusal, and it is counted on
+   * the same channel a slice's would be. */
+  private drainCoreRefusals(run: Run): void {
+    const drained = run.input.search.drainRefusals?.()
+    if (drained === undefined || drained.boundsInversions <= 0) return
+    run.boundViolations += drained.boundsInversions
+    run.refusals["bounds-inversion"] += drained.boundsInversions
+  }
+
   private evaluateBound(run: Run, plan: JointPlan): Bound {
     run.evaluateCalls++
     return run.input.evaluate.scorePlan(run.input.sub, plan, run.input.asTeam)
@@ -1400,6 +1451,7 @@ export class LobsterKernel implements Kernel {
     const ctx = this.searchContext(run, run.active, budget)
     run.conformCalls++
     const plan = run.input.search.conform(ctx, from)
+    this.drainCoreRefusals(run)
     const key = planKey(plan)
     const bound = this.evaluateBound(run, plan)
     const existing = run.plans.get(key)
@@ -1902,6 +1954,9 @@ export class LobsterKernel implements Kernel {
         cursor: e.cursor,
         epochBaseline: e.epochBaseline,
         incumbentLo: e.incumbent === null ? null : e.incumbent.bounds.worst,
+        incumbentHi: e.incumbent === null ? null : e.incumbent.bounds.best,
+        posture: e.boundsBasis?.posture ?? null,
+        epoch: e.boundsBasis?.epoch ?? null,
         witnesses: e.witnesses.length,
         stepCostMs: e.stepCostMs,
       })
@@ -1975,6 +2030,30 @@ export class LobsterKernel implements Kernel {
       })
     }
     return out
+  }
+
+  /**
+   * The COMMITTED context's best-known bracket as it stands, mid-decision —
+   * the unconstrained side of a pin price. Null before the first score lands.
+   */
+  unconstrainedNow(): {
+    key: string
+    lo: number
+    hi: number
+    posture: Posture | null
+    epoch: number | null
+  } | null {
+    const run = this.run
+    if (run === null) return null
+    const e = run.active
+    if (e.bounds === null) return null
+    return {
+      key: e.key,
+      lo: e.bounds.lo,
+      hi: e.bounds.hi,
+      posture: e.boundsBasis?.posture ?? null,
+      epoch: e.boundsBasis?.epoch ?? null,
+    }
   }
 
   /** Test/integrator seam: the live basis, with no way to reach a previous one. */

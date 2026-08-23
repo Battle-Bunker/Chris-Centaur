@@ -318,8 +318,12 @@ describe('adviseFromReport arithmetic (pure)', () => {
       threshold: 0,
     });
     expect(advice).toHaveLength(1);
-    expect(advice[0]?.costLo).toBe(15);
-    expect(advice[0]?.costHi).toBe(20);
+    // The price is the INTERVAL difference of two intervals: the least the pin
+    // can cost is our floor minus their ceiling, the most is our ceiling minus
+    // their floor. [20,60] − [5,40] = [max(0,20−40), max(0,60−5)] = [0, 55].
+    expect(advice[0]?.costLo).toBe(0);
+    expect(advice[0]?.costHi).toBe(55);
+    expect(advice[0]?.costLo).toBeLessThanOrEqual(advice[0]?.costHi as number);
   });
 
   /**
@@ -384,9 +388,9 @@ describe('adviseFromReport arithmetic (pure)', () => {
       threshold: 0,
     });
     expect(advice).toHaveLength(1);
-    // From the CURRENT context: [20−18, 60−55] = [2, 5]. From the stale one it
-    // would be [120, 110].
-    expect(advice[0]?.costHi).toBeLessThanOrEqual(5);
+    // From the CURRENT context: [max(0,20−55), max(0,60−18)] = [0, 42]. From
+    // the stale one it would be [70, 160].
+    expect(advice[0]?.costHi).toBeLessThanOrEqual(42);
   });
 });
 
@@ -451,8 +455,8 @@ describe('BUG REPROS (V1) — tentative pins are not actually searched', () => {
       asTeam: 'red',
       modeled: board.snakes.map((s) => s.id),
     });
-    let costly = -1;
     let trueCost = 0;
+    const costOf = new Map<number, number>();
     try {
       const asTeam = oracle.teamNumber('red');
       const enemies = ['e1', 'e2'].map((id) => oracle.unitOfWireId(id)?.unitId as UnitId);
@@ -490,37 +494,50 @@ describe('BUG REPROS (V1) — tentative pins are not actually searched', () => {
       for (const [to, value] of bestPinned) {
         if (to === unit.at) continue;
         const cost = best - value;
-        if (cost > trueCost) {
-          trueCost = cost;
-          costly = to;
-        }
+        costOf.set(to, cost);
+        if (cost > trueCost) trueCost = cost;
       }
     } finally {
       oracle.release();
     }
+    const costlyDests = [...costOf.entries()]
+      .filter(([, cost]) => cost > 0)
+      .map(([to]) => to)
+      .sort((a, b) => a - b)
+      .slice(0, 6);
     // The board has to actually contain a costly pin for this to mean anything.
     expect(trueCost).toBeGreaterThan(0);
-    clearGeometryCache();
+    expect(costlyDests.length).toBeGreaterThan(0);
 
-    const run = await drive({
-      board,
-      ourTeam: 'red',
-      budgetMs: 250,
-      initialPins: [{ unitId: unit.unitId, to: costly, tentative: true }],
-    });
-    const advice = adviseFromReport({
-      report: run.report,
-      tentative: [{ unitId: unit.unitId, to: costly, tentative: true }],
-      witnesses: [],
-      threshold: 0,
-    });
-    expect(advice).toHaveLength(1);
-    // BRACKETED, not priced free. Before the speculative context searched its
-    // own pin, this returned [0, 0] — the difference between two searches of
-    // the same unconstrained problem.
-    expect(advice[0]?.costLo).toBeLessThanOrEqual(trueCost);
-    expect(advice[0]?.costHi).toBeGreaterThanOrEqual(trueCost);
-  }, 60_000);
+    // Every costly destination is hovered in turn. Advice that IS surfaced
+    // must bracket the truth; a destination whose speculative bracket is
+    // unbounded is deliberately not surfaced at all (V1-BUG-6), so the claim
+    // is "at least one is priced, and nothing priced is priced wrong".
+    let priced = 0;
+    for (const to of costlyDests) {
+      clearGeometryCache();
+      const run = await drive({
+        board,
+        ourTeam: 'red',
+        budgetMs: 250,
+        initialPins: [{ unitId: unit.unitId, to, tentative: true }],
+      });
+      const advice = adviseFromReport({
+        report: run.report,
+        tentative: [{ unitId: unit.unitId, to, tentative: true }],
+        witnesses: [],
+        threshold: 0,
+      });
+      if (advice.length === 0) continue;
+      priced++;
+      // BRACKETED, not priced free. Before the speculative context searched
+      // its own pin, this returned [0, 0] — the difference between two
+      // searches of the same unconstrained problem.
+      expect(advice[0]?.costLo).toBeLessThanOrEqual(costOf.get(to) as number);
+      expect(advice[0]?.costHi).toBeGreaterThanOrEqual(costOf.get(to) as number);
+    }
+    expect(priced).toBeGreaterThan(0);
+  }, 120_000);
 });
 
 // ------------------------------------------------- when advice becomes visible

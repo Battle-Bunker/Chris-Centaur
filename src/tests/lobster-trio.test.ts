@@ -484,21 +484,56 @@ describe('withModelled on the real substrate lights the bank ladder (B2 open ite
 // ------------------------------------------------------------ slab discipline
 
 describe('slab discipline across the search (B1 integration invariant)', () => {
-  test('outstanding() === 1 between decisions, 0 after release', () => {
+  test('the memo holds slabs BETWEEN calls, and release() hands every one back', () => {
+    // THE INVARIANT MOVED, DELIBERATELY. It used to be `outstanding() === 1
+    // between search calls`, which held because every `improve` built a bank
+    // and dropped it — and dropping it is what made the anytime loop idle at
+    // production team sizes: each slice re-generated the grammar, started from
+    // a cold memo, and spent its first `price()` on the seed the previous
+    // slice had already priced. The core keeps its session alive between calls
+    // now, so between calls the count is `1 + what the memo caches`, bounded
+    // by the memo's capacity; `release()` is where it comes back to 1, and the
+    // substrate's own `release()` takes the base state with it.
     const t = trio();
+    const CAP = 256;
     try {
       expect(t.sub.outstanding()).toBe(1);
-      const core = makeSearchCore();
+      const core = makeSearchCore({ bank: { memoCapacity: CAP } });
       core.improve(t.ctx());
-      expect(t.sub.outstanding()).toBe(1);
+      const held = t.sub.outstanding();
+      expect(held).toBeGreaterThan(1); // the memo really is warm
+      expect(held).toBeLessThanOrEqual(1 + CAP);
       core.conform(t.ctx(), new Map());
-      expect(t.sub.outstanding()).toBe(1);
+      expect(t.sub.outstanding()).toBeLessThanOrEqual(1 + CAP);
       core.improve(t.ctx());
+      expect(t.sub.outstanding()).toBeLessThanOrEqual(1 + CAP);
+      // Closing the session returns every cached slab, and only those.
+      core.release?.();
       expect(t.sub.outstanding()).toBe(1);
     } finally {
       t.close();
     }
     // After release the base state itself is returned.
+  });
+
+  test('a warm session re-prices nothing: the second improve is far cheaper', () => {
+    // The whole point of keeping the session: at 26 units one `price()` is
+    // most of a slice, and the first price of every slice used to be the seed
+    // the previous slice had just priced.
+    const t = trio(ROSTER(6));
+    try {
+      const core = makeSearchCore();
+      core.improve(t.ctx());
+      const afterFirst = t.sub.resolutions();
+      const incumbent = core.improve(t.ctx());
+      const afterSecond = t.sub.resolutions();
+      expect(incumbent.plan.size).toBeGreaterThan(0);
+      // A cold rebuild would re-run every resolution the first call ran.
+      expect(afterSecond - afterFirst).toBeLessThan(afterFirst / 2);
+      core.release?.();
+    } finally {
+      t.close();
+    }
   });
 
   test('release() returns the base state too', () => {
@@ -857,4 +892,62 @@ describe('S1 TRIPWIRE: per-kind maxHealth is flattened, so reach may not lead', 
       sub.release();
     }
   });
+});
+
+// ------------------------------------------- rung 0 survives an unsound bank
+
+describe('a bank that proves itself unsound at rung 0 does not take the turn down', () => {
+  test('V2-BUG-2: the seed is staged anyway, and the refusal is counted', async () => {
+    // The integrator's ruling was that rung 0 should be deliberately unguarded
+    // — "a broken bank at rung 0 must be loud". The evidence reversed it: a
+    // BoundsInversionError escaping conform() aborted the whole team decision
+    // and left every alive unit unstaged, on 5 of 300 measured decisions,
+    // against a contract gate that requires zero. The plan's legality does not
+    // come from the price: the candidate layer's ordered-first option for
+    // every unit is legal by construction. So the seed goes on the wire and
+    // the loud signal is the counter.
+    const t = trio();
+    const inverted = {
+      scorePlan: () => ({ lo: 10, est: 0, hi: -10 }),
+      evaluatePlan: () => ({
+        bound: { lo: 10, est: 0, hi: -10 },
+        parts: {},
+        exact: false,
+        basis: [],
+        ledgerSize: 0,
+      }),
+    };
+    try {
+      const core = makeSearchCore();
+      // The bank refuses to build bounds it can prove unsound…
+      const plan = core.conform(t.ctx({ evaluate: inverted as never }), new Map());
+      // …and conform still returns a complete legal plan for every unit.
+      expect([...plan.keys()].sort((a, b) => a - b)).toEqual(
+        [...t.sub.commandable(0)].sort((a, b) => a - b)
+      );
+      // The refusal is on the record, not swallowed.
+      expect(core.drainRefusals?.().boundsInversions).toBeGreaterThan(0);
+
+      // End to end: the kernel counts it and still stages.
+      const kernel = new LobsterKernel({ minWriteIntervalMs: 0, sliceMs: 5, reserveMs: 1 });
+      const out = await drain(
+        kernel.decide({
+          sub: t.sub,
+          gen: t.gen,
+          evaluate: inverted as never,
+          search: makeSearchCore(),
+          asTeam: 0,
+          deadlineMs: deadlineFromWallClock(Date.now() + 120),
+          initialPins: [],
+        })
+      );
+      const report = kernel.lastReport as NonNullable<typeof kernel.lastReport>;
+      expect(out).toBeGreaterThan(0);
+      expect(report.stagedNothing).toBe(false);
+      expect(report.refusals['bounds-inversion']).toBeGreaterThan(0);
+      expect(report.boundViolations).toBeGreaterThan(0);
+    } finally {
+      t.close();
+    }
+  }, 30_000);
 });

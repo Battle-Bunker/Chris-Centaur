@@ -172,11 +172,14 @@ export type PinEvent =
 /**
  * Proved price of an operator pin, offered as advice; never auto-applied.
  *
- * THE TWO COSTS ARE ONE CHANNEL EACH, and they are never mixed. `costLo` is
- * the FLOOR channel's delta and `costHi` is the CEILING channel's; a `min`/
- * `max` across the pair would let the ceiling's delta be published as the
- * floor's, which is the one comparison this field's name promises not to make.
- * Both are clamped at zero: a pin that HELPS is free, not negative.
+ * THE PRICE IS AN INTERVAL, because both sides of the subtraction are. With
+ * the unconstrained decision proved in [u.lo, u.hi] and the conforming one in
+ * [c.lo, c.hi], the cost is proved in [u.lo − c.hi, u.hi − c.lo]: `costLo` is
+ * the LEAST the pin can be costing, `costHi` the MOST, and the width is how
+ * little the decision knows. Both clamped at zero: a pin that HELPS is free,
+ * not negative. A `min`/`max` across the two same-channel deltas is NOT this —
+ * it can publish the ceiling's delta as the floor's answer and brackets
+ * nothing.
  *
  * Both deltas difference an incumbent's bracket against a speculative
  * context's, so both are subject to basis identity (non-negotiable 5): the
@@ -185,9 +188,9 @@ export type PinEvent =
  */
 export interface PinAdvice {
   readonly pin: Pin
-  /** floor(best unconstrained) − floor(best conforming); ≥ 0. lo vs lo. */
+  /** floor(best unconstrained) − ceiling(best conforming); ≥ 0. */
   readonly costLo: number
-  /** ceiling(best unconstrained) − ceiling(best conforming); ≥ 0. hi vs hi. */
+  /** ceiling(best unconstrained) − floor(best conforming); ≥ 0. */
   readonly costHi: number
   readonly witness: Witness | null // the concrete punishing line, when known
   readonly alternative: Candidate | null
@@ -434,6 +437,30 @@ export interface SearchCore {
   refinementView?(ctx: SearchContext): LeverView
   /** Optional: apply one lever. Catch-up invalidates the pin-context cache. */
   refine?(ctx: SearchContext, lever: Lever): PlanScore
+  /**
+   * Optional: refusals the core ABSORBED rather than propagating, since the
+   * last call. Drained by the kernel, which owns the counters.
+   *
+   * `conform(ctx, ∅)` is rung 0 and there is no fallback behind it: a throw
+   * there is a decision with nothing staged. The core therefore keeps its
+   * legal seed and swallows a bounds inversion — but a swallowed refusal that
+   * nobody counts is exactly the silence this build has a rule against, so it
+   * is reported here instead.
+   */
+  drainRefusals?(): { boundsInversions: number }
+  /**
+   * Optional: drop every live session and return every slab cached in one.
+   *
+   * A core is allowed to keep its candidate sets, its bound bank and the
+   * bank's resolution memo alive BETWEEN calls — rebuilding them per slice
+   * makes an anytime loop idle, because at production team sizes one
+   * `price()` is most of a slice and the first one is always the seed the
+   * previous slice already priced. What it may not do is keep them across a
+   * decision, so the kernel calls this when one ends. Between calls the slab
+   * count is therefore `1 + what the memo caches`, bounded by its capacity;
+   * after this it is back to the substrate's own baseline.
+   */
+  release?(): void
 }
 
 export interface SearchContext {

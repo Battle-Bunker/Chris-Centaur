@@ -376,10 +376,14 @@ describe('oscillation: pin A → unpin → pin B → back to A', () => {
       { kind: 'unpin', unitId: unit.unitId },
       { kind: 'pin', pin: { unitId: unit.unitId, to: a, tentative: false } },
     ];
+    // One event per slice. V1 spaced them three slices apart, which assumed a
+    // slice count that a warm search no longer produces: the bank and its memo
+    // now live across slices, so a slice covers far more ground and this
+    // harness's read-driven clock reaches the deadline in fewer of them.
     const oscillated = await drive({
       board,
       ourTeam: 'red',
-      script: evs.map((event, i) => ({ atSlice: (i + 1) * 3, event })),
+      script: evs.map((event, i) => ({ atSlice: i + 1, event })),
       budgetMs: 200,
     });
     clearGeometryCache();

@@ -41,6 +41,7 @@ import type {
 } from "../contracts";
 import {
   BoundBank,
+  DEFAULT_BANK_CONFIG,
   compareFloors,
   hasRoster,
   refutedAt,
@@ -75,6 +76,13 @@ export interface SearchTuning {
   readonly seed: number;
   /** Candidates re-picked per unit during `conform`'s legality repair. */
   readonly conformRepairPerUnit: number;
+  /**
+   * How many BASES keep a live session (candidate sets + bound bank + memo)
+   * between calls. One committed context and its speculative companions is
+   * the shape the kernel alternates over; a session dropped between slices
+   * throws away the memo and re-prices the seed on every single one.
+   */
+  readonly sessionCacheSize: number;
 }
 
 export const DEFAULT_TUNING: SearchTuning = {
@@ -87,6 +95,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   restarts: 2,
   seed: 0x5eed,
   conformRepairPerUnit: 4,
+  sessionCacheSize: 2,
 };
 
 /** The search could not determine which units it commands. */
@@ -103,7 +112,9 @@ export class NoRosterError extends Error {
 }
 
 interface Session {
-  readonly ctx: SearchContext;
+  /** The substrate this session's candidate sets and memo were built against.
+   * A session is only ever reused on the same one. */
+  readonly sub: SearchContext["sub"];
   readonly bank: BoundBank;
   readonly ours: ReadonlyArray<UnitId>;
   readonly ourSet: ReadonlySet<UnitId>;
@@ -121,6 +132,35 @@ interface Session {
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
+  /** Bounds inversions this core absorbed rather than letting them end a
+   * decision. Drained by the kernel, which owns the refusal counters. */
+  let absorbedInversions = 0;
+
+  /**
+   * LIVE SESSIONS, KEYED BY BASIS.
+   *
+   * A session is the expensive half of a search call: every unit's candidate
+   * set, the bound bank, and the bank's resolution memo. Building one per
+   * `improve()` meant every slice re-generated the grammar, started from a
+   * COLD memo, and spent its first `price()` re-pricing the seed it had priced
+   * on the previous slice — at 26 units, where one price is ~18 ms against a
+   * 25 ms slice, that is the entire slice. 370 slices over ten seconds then
+   * produced the identical bracket to 18 slices over one.
+   *
+   * A session is valid for a BASIS: the pins and assumptions the bank was
+   * constructed with. The kernel alternates between the committed context and
+   * a speculative one, so a one-entry cache would thrash; the cache is small
+   * and LRU, and each session's memo gets a share of the slab budget so the
+   * total ceiling is unchanged.
+   */
+  const sessions = new Map<string, Session>();
+  const memoShare = Math.max(
+    64,
+    Math.floor((cfg.bank.memoCapacity ?? DEFAULT_BANK_CONFIG.memoCapacity) / Math.max(1, cfg.sessionCacheSize)),
+  );
+
+  const sessionKey = (ctx: SearchContext): string =>
+    JSON.stringify(basisOf(ctx)) + `#${ctx.asTeam}`;
 
   // ------------------------------------------------------------------ setup
 
@@ -137,6 +177,42 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     throw new NoRosterError();
   };
 
+  /** A session for this basis, reused when one is already live. */
+  const sessionFor = (ctx: SearchContext): Session => {
+    const key = sessionKey(ctx);
+    const hit = sessions.get(key);
+    if (hit !== undefined && hit.sub === ctx.sub) {
+      // Keep the LRU order, and take whatever witnesses the caller has learned
+      // since — the double oracle's memory is the one thing that must cross
+      // every boundary.
+      sessions.delete(key);
+      sessions.set(key, hit);
+      hit.bank.adoptWitnesses(ctx.witnesses);
+      return hit;
+    }
+    if (hit !== undefined) closeSession(key);
+    const made = open(ctx);
+    sessions.set(key, made);
+    while (sessions.size > Math.max(1, cfg.sessionCacheSize)) {
+      const oldest = sessions.keys().next();
+      if (oldest.done) break;
+      closeSession(oldest.value);
+    }
+    return made;
+  };
+
+  const closeSession = (key: string): void => {
+    const s = sessions.get(key);
+    if (s === undefined) return;
+    sessions.delete(key);
+    s.bank.release();
+  };
+
+  /** Drop every live session and return every slab they cached. */
+  const release = (): void => {
+    for (const key of [...sessions.keys()]) closeSession(key);
+  };
+
   const open = (ctx: SearchContext): Session => {
     const ours = rosterOf(ctx);
     const sets = new Map<UnitId, CandidateSet>();
@@ -150,7 +226,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       budget: ctx.budget,
       basis: basisOf(ctx),
       referenceActions: references,
-      config: cfg.bank,
+      config: { ...cfg.bank, memoCapacity: memoShare },
     });
     bank.adoptWitnesses(ctx.witnesses);
     // A pin is a constraint on a unit we command; a pin naming a unit we do
@@ -162,7 +238,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (match !== null) pins.set(pin.unitId, match);
     }
     return {
-      ctx,
+      sub: ctx.sub,
       bank,
       ours,
       ourSet: new Set(ours),
@@ -249,14 +325,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   // ------------------------------------------------------------------ moves
 
-  const sweep = (s: Session, start: BankResult): BankResult => {
+  const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
     let best = start;
     for (const unitId of dangerOrder(s.ours, best.worstResolution, s.pinned)) {
-      if (s.ctx.budget.shouldStop()) break;
+      if (budget.shouldStop()) break;
       const set = s.sets.get(unitId) as CandidateSet;
       const current = best.plan.get(unitId) as Candidate;
       for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
-        if (s.ctx.budget.shouldStop()) break;
+        if (budget.shouldStop()) break;
         if (candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = s.bank.price(withMove(best.plan, candidate));
         if (better(trial, best)) best = trial;
@@ -272,11 +348,15 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * Only the named pairs are exhausted, so the cost is bounded by the number
    * of accidents rather than by the roster.
    */
-  const pairRepair = (s: Session, start: BankResult): BankResult => {
+  const pairRepair = (
+    s: Session,
+    budget: SearchContext["budget"],
+    start: BankResult,
+  ): BankResult => {
     let best = start;
     const pairs = selfInflictedPairs(best.worstResolution, s.ourSet, best.plan);
     for (const [a, b] of pairs) {
-      if (s.ctx.budget.shouldStop()) break;
+      if (budget.shouldStop()) break;
       if (s.pinned.has(a) && s.pinned.has(b)) continue;
       const optionsA = s.pinned.has(a)
         ? [best.plan.get(a) as Candidate]
@@ -285,9 +365,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         ? [best.plan.get(b) as Candidate]
         : topCandidates((s.sets.get(b) as CandidateSet).candidates, cfg.pairRepairPerUnit);
       for (const ca of optionsA) {
-        if (s.ctx.budget.shouldStop()) break;
+        if (budget.shouldStop()) break;
         for (const cb of optionsB) {
-          if (s.ctx.budget.shouldStop()) break;
+          if (budget.shouldStop()) break;
           const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
           if (better(trial, best)) best = trial;
         }
@@ -302,7 +382,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * do: escape a local optimum that needs two units to move together for a
    * reason the resolver did not report as an accident.
    */
-  const jointPolish = (s: Session, start: BankResult): BankResult => {
+  const jointPolish = (
+    s: Session,
+    budget: SearchContext["budget"],
+    start: BankResult,
+  ): BankResult => {
     let best = start;
     const units = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
     if (units.length === 0) return best;
@@ -310,7 +394,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       topCandidates((s.sets.get(id) as CandidateSet).candidates, cfg.polishPerUnit),
     );
     const walk = (i: number, acc: Candidate[]): void => {
-      if (s.ctx.budget.shouldStop()) return;
+      if (budget.shouldStop()) return;
       const list = lists[i];
       if (list === undefined) {
         const trial = s.bank.price(withMoves(best.plan, acc));
@@ -319,7 +403,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       }
       for (const candidate of list) {
         walk(i + 1, [...acc, candidate]);
-        if (s.ctx.budget.shouldStop()) return;
+        if (budget.shouldStop()) return;
       }
     };
     walk(0, []);
@@ -343,20 +427,20 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   // ---------------------------------------------------------------- improve
 
   const improve = (ctx: SearchContext): PlanScore => {
-    const s = open(ctx);
-    try {
+    const s = sessionFor(ctx);
+    {
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
-        best = sweep(s, best);
-        best = pairRepair(s, best);
+        best = sweep(s, ctx.budget, best);
+        best = pairRepair(s, ctx.budget, best);
         if (best === before) {
           // Converged unit-wise. Polish first — it is cheap and it is the
           // escape a sweep cannot make — then spend what is left on perturbed
           // restarts, which inherit the whole witness set by construction
           // because the bank outlives them.
-          const polished = jointPolish(s, best);
+          const polished = jointPolish(s, ctx.budget, best);
           if (polished !== best) {
             best = polished;
             continue;
@@ -366,8 +450,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             const seed = perturb(s, best.plan, r);
             if (seed === null) break;
             let local = s.bank.price(seed);
-            local = sweep(s, local);
-            local = pairRepair(s, local);
+            local = sweep(s, ctx.budget, local);
+            local = pairRepair(s, ctx.budget, local);
             if (better(local, best)) {
               best = local;
               restarted = true;
@@ -378,8 +462,6 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         }
       }
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
-    } finally {
-      s.bank.release();
     }
   };
 
@@ -413,13 +495,28 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * plan; conform's job is only that a legal joint set is on the wire first.
    */
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
-    const s = open(ctx);
-    try {
+    const s = sessionFor(ctx);
+    {
       if (incumbent.size === 0) {
         const seed = seedPlan(s, null);
-        // One resolution set. Deliberately unguarded: a bank that cannot price
-        // the seed at rung 0 must be loud, not silently skipped.
-        s.bank.price(seed);
+        // One resolution set — and the SEED IS RETURNED WHATEVER IT SAYS.
+        //
+        // The price warms the bank's witness set and proves the plan resolves,
+        // but it is not what makes the plan legal: the candidate layer's own
+        // ordered-first option for every unit already is, by construction. So
+        // a bank that proves one of its own members unsound while pricing it
+        // must not take the turn down with it. Letting a BoundsInversionError
+        // escape rung 0 aborted the whole decision and left every unit
+        // unstaged — measured at 5 of 300 decisions on an 11-snake board,
+        // against a contract gate that requires zero. A legal conforming plan
+        // on the wire beats nothing; the loud signal is the counter the kernel
+        // keeps, not a dead turn.
+        try {
+          s.bank.price(seed);
+        } catch (err) {
+          if ((err as { code?: string }).code !== "bounds_inversion") throw err;
+          absorbedInversions++;
+        }
         return seed;
       }
 
@@ -444,11 +541,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        plan = pairRepair(s, s.bank.price(plan)).plan;
+        plan = pairRepair(s, ctx.budget, s.bank.price(plan)).plan;
       }
       return plan;
-    } finally {
-      s.bank.release();
     }
   };
 
@@ -485,5 +580,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return out;
   };
 
-  return { improve, conform };
+  const drainRefusals = (): { boundsInversions: number } => {
+    const out = { boundsInversions: absorbedInversions };
+    absorbedInversions = 0;
+    return out;
+  };
+
+  return { improve, conform, drainRefusals, release };
 }

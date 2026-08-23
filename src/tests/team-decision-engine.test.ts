@@ -343,9 +343,11 @@ describe('pin advice from the speculative seam', () => {
   test('prices a considered pin against the staged incumbent, above threshold only', () => {
     const alternative = { unitId: 4 as UnitId, from: 10, to: 11, path: [11] };
     const plan = new Map([[4 as UnitId, alternative]]);
+    // A settled decision, so the interval difference is sharp: the costly pin
+    // is proved worse, the free one is proved equal.
     const report = {
-      journal: [record(plan, 20, 60)],
-      speculative: [spec('spec:[4@77?]', 5, 40, 8), spec('spec:[9@12?]', 20, 60, 2)],
+      journal: [record(plan, 20, 20)],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8), spec('spec:[9@12?]', 20, 20, 2)],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,
@@ -360,8 +362,8 @@ describe('pin advice from the speculative seam', () => {
     expect(advice).toHaveLength(1);
     const a = advice[0];
     expect(a?.pin.unitId).toBe(4);
-    expect(a?.costLo).toBe(15); // 20 − 5
-    expect(a?.costHi).toBe(20); // 60 − 40
+    expect(a?.costLo).toBe(10); // 20 − 10: the LEAST it can cost
+    expect(a?.costHi).toBe(15); // 20 − 5:  the MOST
     expect(a?.alternative).toEqual(alternative);
     expect(a?.confidence).toBe(1);
     expect(a?.snakeId).toBe('a');
@@ -370,8 +372,8 @@ describe('pin advice from the speculative seam', () => {
   test('a helping pin prices free, never negative', () => {
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
-      journal: [record(plan, 20, 60)],
-      speculative: [spec('spec:[4@77?]', 30, 70, 4)],
+      journal: [record(plan, 20, 20)],
+      speculative: [spec('spec:[4@77?]', 30, 30, 4)],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,
@@ -415,13 +417,14 @@ describe('pin advice from the speculative seam', () => {
     expect(own[0]?.costLo).toBe(60);
   });
 
-  test('V4 B7: costLo is the LO channel and costHi the HI channel, never crossed', () => {
-    // A pin that gives up a lot of floor and little ceiling. A min/max across
-    // the two channels reports the ceiling's delta as the floor's.
+  test('V4 B7: the price is an interval, and costLo is never above costHi', () => {
+    // The shipped `min`/`max` across the two same-channel deltas could publish
+    // the CEILING's delta as the floor's answer, and bracketed nothing. Each
+    // end is derived from the pair that bounds it now.
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
       journal: [record(plan, 50, 60)],
-      speculative: [spec('spec:[4@77?]', 10, 58, 8)],
+      speculative: [spec('spec:[4@77?]', 10, 20, 8)],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,
@@ -430,9 +433,19 @@ describe('pin advice from the speculative seam', () => {
       threshold: 0,
     });
     expect(advice).toHaveLength(1);
-    expect(advice[0]?.costLo).toBe(40); // 50 − 10, the floor channel
-    expect(advice[0]?.costHi).toBe(2); // 60 − 58, the ceiling channel
+    expect(advice[0]?.costLo).toBe(30); // 50 − 20: the least it can cost
+    expect(advice[0]?.costHi).toBe(50); // 60 − 10: the most
+    expect(advice[0]?.costLo).toBeLessThanOrEqual(advice[0]?.costHi as number);
     expect(advice[0]?.degraded).toBe(false);
+    // The true cost of any plan in [50,60] against any in [10,20] lies inside
+    // the reported interval, which is the property an operator can act on.
+    for (const base of [50, 55, 60]) {
+      for (const pinned of [10, 15, 20]) {
+        const truth = base - pinned;
+        expect(advice[0]?.costLo).toBeLessThanOrEqual(truth);
+        expect(advice[0]?.costHi).toBeGreaterThanOrEqual(truth);
+      }
+    }
   });
 
   test('V1-BUG-6: an unbounded speculative ceiling is not a free pin', () => {
@@ -456,10 +469,10 @@ describe('pin advice from the speculative seam', () => {
     // hover leaves a trail across epochs and both keys mention the pin.
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
-      journal: [{ ...record(plan, 20, 60), epoch: 1 }],
+      journal: [{ ...record(plan, 20, 20), epoch: 1 }],
       speculative: [
         spec('spec:[4@77?]', 0, 0, 4, { epoch: 0 }),
-        spec('spec:[0@30,4@77?]', 15, 55, 20, { epoch: 1 }),
+        spec('spec:[0@30,4@77?]', 15, 15, 20, { epoch: 1 }),
       ],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
@@ -469,7 +482,7 @@ describe('pin advice from the speculative seam', () => {
       threshold: 0,
     });
     expect(advice).toHaveLength(1);
-    // The epoch-1 context: 20−15 and 60−55, not 20−0 and 60−0.
+    // The epoch-1 context: [20−15, 20−15], not [20−0, 20−0].
     expect(advice[0]?.costLo).toBe(5);
     expect(advice[0]?.costHi).toBe(5);
     expect(advice[0]?.degraded).toBe(false);
@@ -479,8 +492,8 @@ describe('pin advice from the speculative seam', () => {
   test('a cross-basis reading is surfaced DEGRADED, never as a clean price', () => {
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
-      journal: [record(plan, 20, 60)],
-      speculative: [spec('spec:[4@77?]', 5, 40, 8, { posture: 'FOGGED-VACUOUS' })],
+      journal: [record(plan, 20, 20)],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { posture: 'FOGGED-VACUOUS' })],
     } as unknown as KernelReport;
     const advice = adviseFromReport({
       report,

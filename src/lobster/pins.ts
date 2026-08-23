@@ -272,6 +272,15 @@ export interface AdviceInput {
   readonly witnesses: ReadonlyArray<Witness>;
   readonly threshold?: number;
   readonly snakeIdOf?: (unitId: number) => string | null;
+  /** The unconstrained side, when the caller has it live (mid-decision). */
+  readonly unconstrained?: {
+    readonly speculative: boolean;
+    readonly key: string;
+    readonly incumbentLo: number | null;
+    readonly incumbentHi: number | null;
+    readonly posture: Posture | null;
+    readonly epoch: number | null;
+  } | null;
 }
 
 /**
@@ -279,15 +288,25 @@ export interface AdviceInput {
  * contexts (report.speculative: {key, lo, hi, cursor} — the seam B3 built for
  * exactly this consumer).
  *
- *   costLo/costHi  the unconstrained-vs-conforming brackets, CHANNEL BY
- *                  CHANNEL: `costLo` is the floor the operator's considered
- *                  constraint gives up (staged.lo − speculative.lo) and
- *                  `costHi` is the ceiling it gives up (staged.hi −
- *                  speculative.hi). Each is clamped at zero — a pin that HELPS
- *                  is priced free, not negative — and neither is ever mixed
- *                  with the other: a `min`/`max` across the two channels can
- *                  report the ceiling's delta as the floor's, which is exactly
- *                  what the contract's `costLo` doc forbids (V4 B7).
+ *   costLo/costHi  the price as an INTERVAL, because both sides of the
+ *                  subtraction are intervals. The unconstrained decision is
+ *                  proved to lie in [u.lo, u.hi] and the conforming one in
+ *                  [c.lo, c.hi], so the cost `u − c` is proved to lie in
+ *                  [u.lo − c.hi, u.hi − c.lo]: `costLo` is the LEAST the pin
+ *                  can be costing and `costHi` the MOST. Both clamped at zero
+ *                  — a pin that helps is priced free, never negative.
+ *
+ *                  This is not the `min`/`max`-across-the-two-deltas the
+ *                  build shipped with (V4 B7), which could report the
+ *                  ceiling's delta as the floor's ANSWER and had no claim to
+ *                  bracketing anything; and it is not a same-channel
+ *                  subtraction either, which reads two overlapping brackets as
+ *                  [0, 0] and prices a pin free on the strength of neither
+ *                  side being settled. Each end here is derived from the pair
+ *                  of ends that actually bounds it, so `costLo ≤ trueCost ≤
+ *                  costHi` holds whenever both brackets are sound — which is
+ *                  the only property an operator can act on. The width is the
+ *                  honest measure of how little the decision knows.
  *   witness        the punishing line, when the speculative bracket is
  *                  already refuted by the incumbent's proved floor and the
  *                  decision holds a concrete reply to show for it.
@@ -308,6 +327,29 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
   const threshold = input.threshold ?? DEFAULT_ADVICE_THRESHOLD;
   const staged = report.journal[report.journal.length - 1];
   if (staged === undefined) return [];
+  // THE UNCONSTRAINED SIDE IS THE COMMITTED CONTEXT'S BEST-KNOWN BRACKET, not
+  // the staged record. The contract says `costLo = floor(best unconstrained) −
+  // floor(best conforming)`, and "best unconstrained" is what the decision
+  // KNOWS, which the sticky stager may deliberately not have put on the wire:
+  // a rival that ties the incumbent's floor never dethrones it, so the staged
+  // record can be several points of ceiling behind the incumbent and every pin
+  // then prices free against it. Both sides of the subtraction are context
+  // incumbents now — same machinery, same provenance, same recorded basis.
+  const active =
+    input.unconstrained ??
+    (report.contexts ?? []).find(
+      (c) => !c.speculative && c.key === report.activeContextKey && c.incumbentLo !== null
+    ) ??
+    null;
+  const base =
+    active === null || active.incumbentLo === null || active.incumbentHi === null
+      ? { lo: staged.lo, hi: staged.hi, posture: staged.posture, epoch: staged.epoch }
+      : {
+          lo: active.incumbentLo,
+          hi: active.incumbentHi,
+          posture: active.posture ?? staged.posture,
+          epoch: active.epoch ?? staged.epoch,
+        };
   const out: TeamPinAdvice[] = [];
   for (const pin of input.tentative) {
     if (!pin.tentative) continue;
@@ -323,7 +365,7 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
     // pin. Take the one proved in the record's own epoch; failing that, the
     // most-searched one, marked degraded (V1-BUG-7).
     const spec =
-      matches.find((s) => s.epoch === staged.epoch) ??
+      matches.find((s) => s.epoch === base.epoch) ??
       matches.reduce((best, s) => (s.cursor > best.cursor ? s : best));
     // AN UNBOUNDED BRACKET IS NOT A FREE PIN (V1-BUG-6). With `spec.hi = +∞`
     // the ceiling delta is −∞, the clamp turns it into 0, and a pin whose real
@@ -332,22 +374,22 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
     if (
       !Number.isFinite(spec.lo) ||
       !Number.isFinite(spec.hi) ||
-      !Number.isFinite(staged.lo) ||
-      !Number.isFinite(staged.hi)
+      !Number.isFinite(base.lo) ||
+      !Number.isFinite(base.hi)
     ) {
       continue;
     }
-    // Channel by channel. lo against lo, hi against hi, no crossing.
-    const costLo = Math.max(0, staged.lo - spec.lo);
-    const costHi = Math.max(0, staged.hi - spec.hi);
+    // The interval difference, each end from the pair that bounds it.
+    const costLo = Math.max(0, base.lo - spec.hi);
+    const costHi = Math.max(0, base.hi - spec.lo);
     if (Math.max(costLo, costHi) < threshold) continue;
     const specBasis = { posture: spec.posture ?? null, epoch: spec.epoch ?? null };
     const degraded =
       specBasis.posture === null ||
       specBasis.epoch === null ||
-      specBasis.posture !== staged.posture ||
-      specBasis.epoch !== staged.epoch;
-    const refuted = spec.hi < staged.lo;
+      specBasis.posture !== base.posture ||
+      specBasis.epoch !== base.epoch;
+    const refuted = spec.hi < base.lo;
     out.push({
       pin,
       costLo,
@@ -358,7 +400,7 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
       snakeId: input.snakeIdOf?.(pin.unitId) ?? null,
       degraded,
       basis: {
-        staged: { posture: staged.posture, epoch: staged.epoch },
+        staged: { posture: base.posture, epoch: base.epoch },
         speculative: specBasis,
       },
     });
