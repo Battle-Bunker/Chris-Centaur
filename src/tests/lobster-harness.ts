@@ -53,7 +53,9 @@ export class FakeClock {
 // -------------------------------------------------------------- constructors
 
 export function cand(unitId: number, to: number, path?: ReadonlyArray<number>): Candidate {
-  return { unitId, to, path: path ?? [to] }
+  // `from: -1` (NO_ORDER_MOVE): these are abstract plan tokens, not board
+  // moves — nothing in the kernel suites gates on a candidate's origin cell.
+  return { unitId, from: -1, to, path: path ?? [to] }
 }
 
 export function plan(...entries: ReadonlyArray<readonly [number, number]>): JointPlan {
@@ -119,20 +121,63 @@ export class StubSubstrate implements Substrate {
   resolveCalls = 0
   entangledCalls = 0
 
-  constructor(private readonly influence: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map()) {}
+  constructor(
+    private readonly influence: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map(),
+    /** Destinations `pathOf` treats as reachable, per unit. Empty map =
+     * everything is reachable (the stub cannot judge, and refuses nothing —
+     * the same posture the kernel takes toward an unanswerable substrate). */
+    private readonly reachable: ReadonlyMap<UnitId, ReadonlySet<number>> = new Map(),
+  ) {}
 
-  resolveBoundedFor(_plan: JointPlan, _asTeam: number): Resolution {
+  resolveBoundedFor(_plan: JointPlan, _asTeam: number): never {
     this.resolveCalls++
     throw new Error("StubSubstrate: the kernel must never resolve a board")
   }
 
-  entangled(_cells: ReadonlyArray<{ cell: number; subStep: number }>): ReadonlyArray<UnitId> {
+  releaseResolution(_resolution: Resolution): void {
+    /* nothing is ever resolved here */
+  }
+
+  withResolution<T>(_plan: JointPlan, _asTeam: number, _fn: (r: never) => T): never {
+    this.resolveCalls++
+    throw new Error("StubSubstrate: the kernel must never resolve a board")
+  }
+
+  unitIds(): ReadonlyArray<UnitId> {
+    return []
+  }
+
+  commandable(_asTeam: number): ReadonlyArray<UnitId> {
+    return []
+  }
+
+  actionsOf(_unitId: UnitId): never {
+    throw new Error("StubSubstrate: the kernel must never enumerate a grammar")
+  }
+
+  pathOf(unitId: UnitId, to: number): ReadonlyArray<number> | null {
+    const allowed = this.reachable.get(unitId)
+    if (allowed === undefined) return []
+    return allowed.has(to) ? [] : null
+  }
+
+  withModelled(_modelled: ReadonlyArray<UnitId>): Substrate {
+    return this
+  }
+
+  entangled(
+    _cells: ReadonlyArray<{ cell: number; fromSubStep: number; toSubStep: number }>,
+  ): ReadonlyArray<UnitId> {
     this.entangledCalls++
     return []
   }
 
   influenceOf(unitId: UnitId): ReadonlySet<number> {
     return this.influence.get(unitId) ?? new Set<number>()
+  }
+
+  outstanding(): number {
+    return 0
   }
 
   release(): void {
@@ -156,6 +201,11 @@ export class StubEvaluator implements Evaluator {
     this.calls++
     this.seen.push(planKey(p))
     return this.of(p)
+  }
+
+  evaluatePlan(sub: Substrate, p: JointPlan, asTeam: number): import("../lobster/contracts").PlanEvaluation {
+    const bound = this.scorePlan(sub, p, asTeam)
+    return { bound, parts: {}, exact: bound.lo === bound.hi, basis: [], ledgerSize: 0 }
   }
 }
 

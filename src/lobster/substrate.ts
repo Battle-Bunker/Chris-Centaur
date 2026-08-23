@@ -68,7 +68,6 @@ import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 
 import {
   MAX_FROZEN,
-  NO_ORDER,
   PartialEngine,
   RiskAssessor,
   bbSet,
@@ -92,7 +91,6 @@ import type {
   Grid,
   HoldSet,
   Resolution,
-  ScoreBounds as EngineScoreBounds,
   StateHandle,
   Terrain,
   UnitSpec,
@@ -100,48 +98,44 @@ import type {
 } from '../partial-engine/index';
 import { toUnitSpec } from '../partial-engine/wire-adapter';
 
-import type { CellIndex, JointPlan, SubStep, Substrate, UnitId } from './contracts';
+import { NO_ORDER_MOVE } from './contracts';
+import type {
+  BoundedResolution,
+  Candidate,
+  CellIndex,
+  JointPlan,
+  SubStep,
+  Substrate,
+  UnitId,
+} from './contracts';
 
 /**
- * The explicit "no order" destination. Naming a unit with this asks for the
- * KIND's own default action (a trail unit continues straight, a piece holds).
+ * The explicit "no order" destination — the contract's own sentinel, pinned by
+ * test to the engine's NO_ORDER. Naming a unit with this asks for the KIND's
+ * own default action (a trail unit continues straight, a piece holds).
  * Omitting the unit from a plan does something else entirely: it becomes a
  * held claim. Rule 4 of the build contract — a default is a narrowing and must
  * be named — lives on this constant.
  */
-export const NO_ORDER_MOVE: CellIndex = NO_ORDER;
+export { NO_ORDER_MOVE };
 
-/** A `Candidate`-shaped explicit default for `unitId`. */
-export function noOrderCandidate(unitId: UnitId): {
-  unitId: UnitId;
-  to: CellIndex;
-  path: ReadonlyArray<CellIndex>;
-} {
-  return { unitId, to: NO_ORDER_MOVE, path: [] };
+/** A `Candidate`-shaped explicit default for `unitId`. `from` may be omitted
+ * when the caller cannot cheaply know the origin cell. */
+export function noOrderCandidate(unitId: UnitId, from: CellIndex = NO_ORDER_MOVE): Candidate {
+  return { unitId, from, to: NO_ORDER_MOVE, path: [] };
 }
 
-/** What a bounded resolution actually produces. See `resolveBoundedFull`. */
-export interface BoundedResolve {
-  /** The engine's resolution. Its `state` is a BORROWED slab — release it. */
-  readonly resolution: Resolution;
-  /** Per-team [worst, best] in the subject's frame. */
-  readonly perTeam: ReadonlyMap<number, { worst: number; best: number }>;
-  /** Subject-frame material bounds, with the field's assumptions as basis. */
-  readonly bounds: EngineScoreBounds;
-  /**
-   * Every cell a MOVER occupied or entered during this turn, snapshotted.
-   *
-   * The claim layer answers "could this held unit have died" from terrain and
-   * from the other CLAIMS — mobile units never narrow a cloud — so a held unit
-   * that would walk straight into one of our movers is still reported as
-   * certainly alive. That is sound for a floor and NOT sound for a ceiling,
-   * which is what this board is for: a held unit whose claim touches a cell a
-   * mover was on has a world in which it dies, and a ceiling that prices it
-   * alive is too low. Snapshotted rather than read off `engine.touched`,
-   * because the engine zeroes that at the start of the next resolve.
-   */
-  readonly touched: Board;
-}
+/**
+ * What a bounded resolution actually produces — the contract's own shape.
+ * `touched` is the ceiling widening: the claim layer answers "could this held
+ * unit have died" from terrain and from the other CLAIMS — mobile units never
+ * narrow a cloud — so a held unit that would walk straight into one of our
+ * movers is still reported as certainly alive. That is sound for a floor and
+ * NOT sound for a ceiling; a claim touching any cell a mover was on has a
+ * world in which it dies. Snapshotted rather than read off `engine.touched`,
+ * because the engine zeroes that at the start of the next resolve.
+ */
+export type BoundedResolve = BoundedResolution;
 
 export interface SubstrateOptions {
   /** This repo's canonical board, in api coordinates. */
@@ -205,6 +199,28 @@ export class UnknownUnitError extends Error {
   constructor(readonly unitId: UnitId) {
     super(`plan names unit ${unitId}, which is not a live unit of this board`);
     this.name = 'UnknownUnitError';
+  }
+}
+
+/**
+ * Thrown when two DIFFERENT units share a turn-start cell. Not a board the
+ * rules can produce — and B2's soundness harness measured the cost of letting
+ * one through: the additive per-enemy floor lemma fails outright on such a
+ * board (a floor above the exhaustive truth), which looks exactly like a
+ * soundness bug in the bank until you look at the board. The engine's own
+ * `create` does not check it, so the one translation door does.
+ */
+export class OverlappingUnitsError extends Error {
+  readonly code = 'overlapping_units' as const;
+  constructor(
+    readonly cell: CellIndex,
+    readonly wireIds: readonly [string, string]
+  ) {
+    super(
+      `units ${wireIds[0]} and ${wireIds[1]} both occupy cell ${cell} at turn start — ` +
+        'not a reachable board, so nothing measured on it means anything'
+    );
+    this.name = 'OverlappingUnitsError';
   }
 }
 
@@ -395,6 +411,21 @@ export class EngineSubstrate implements Substrate {
     this.specs = specs;
     this.units = units;
 
+    // The disjointness guard on the marshalling path: a piece's weight IS its
+    // cell repeated, so only cells shared between DIFFERENT units are
+    // impossible. See OverlappingUnitsError for what letting one through costs.
+    const owner = new Map<number, string>();
+    for (const spec of specs) {
+      const wireId = units[spec.unitId as number]?.wireId ?? String(spec.unitId);
+      for (const cell of new Set(spec.cells)) {
+        const held = owner.get(cell);
+        if (held !== undefined && held !== wireId) {
+          throw new OverlappingUnitsError(cell, [held, wireId]);
+        }
+        owner.set(cell, wireId);
+      }
+    }
+
     const narrowings = new Map<UnitId, ReadonlyArray<number>>();
     for (const [wireId, options_] of options.narrowings ?? []) {
       const unit = this.byWireId.get(wireId);
@@ -519,6 +550,29 @@ export class EngineSubstrate implements Substrate {
     );
   }
 
+  /** The contract face of `enumerate`: the same options as `Candidate`s. */
+  actionsOf(unitId: UnitId): ReadonlyArray<Candidate> {
+    const unit = this.byUnitId.get(unitId);
+    if (unit === undefined) throw new UnknownUnitError(unitId);
+    const from = unit.cells[0] as CellIndex;
+    return this.enumerate(unitId).map((a) => ({
+      unitId,
+      from,
+      to: a.dest,
+      path: a.action.kind === 'move' ? [...a.action.path] : [],
+    }));
+  }
+
+  /** Live units on `asTeam` this decision is entitled to move. */
+  commandable(asTeam: number): ReadonlyArray<UnitId> {
+    return this.units.filter((u) => u.team === asTeam).map((u) => u.unitId);
+  }
+
+  /** The contract name for `pathFor`. */
+  pathOf(unitId: UnitId, to: CellIndex): ReadonlyArray<CellIndex> | null {
+    return this.pathFor(unitId, to);
+  }
+
   /** The cells a staged destination actually enters, or null when illegal. */
   pathFor(unitId: UnitId, dest: CellIndex): ReadonlyArray<CellIndex> | null {
     const unit = this.byUnitId.get(unitId);
@@ -609,8 +663,8 @@ export class EngineSubstrate implements Substrate {
    * decision rather than a leak across turns — but the assertion a test should
    * make is `outstanding() === 1` (the base state) between decisions.
    */
-  resolveBoundedFor(plan: JointPlan, asTeam: number): Resolution {
-    return this.resolveBoundedFull(plan, asTeam).resolution;
+  resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolve {
+    return this.resolveBoundedFull(plan, asTeam);
   }
 
   /**
@@ -675,17 +729,21 @@ export class EngineSubstrate implements Substrate {
   /**
    * Which held units' claims touch these cells in sub-step time.
    *
-   * `subStep` is read as the LAST sub-step at which the caller occupies the
-   * cell — the conservative reading, because a mover that comes to rest stands
-   * there for the rest of the turn and meets everything. Pass
-   * `Number.MAX_SAFE_INTEGER` for a terminal cell; a cell merely passed through
-   * takes its own index.
+   * Each probe carries the occupancy WINDOW `[fromSubStep, toSubStep]`: a cell
+   * merely passed through has both ends at its own path index, and a cell come
+   * to rest on takes `toSubStep: Number.MAX_SAFE_INTEGER`, because a rested
+   * unit stands there for the rest of the turn and meets everything. The gate
+   * below reads `toSubStep` — the conservative end for a head arrival —
+   * and `fromSubStep` is carried for the tightening a later version may take
+   * (a claim that can only arrive after the window closes cannot contest it).
    *
    * Everything ABSENT from the answer is proved irrelevant to those cells, so
    * its bound is tight rather than merely sound. That is what makes the worst
    * case affordable enough to be the default.
    */
-  entangled(cells: ReadonlyArray<{ cell: CellIndex; subStep: SubStep }>): ReadonlyArray<UnitId> {
+  entangled(
+    cells: ReadonlyArray<{ cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }>
+  ): ReadonlyArray<UnitId> {
     const out = new Set<UnitId>();
     for (const slot of this.claimField().slots) {
       const lb = headSubStepLBOf(slot.cloud, this.grid);
@@ -699,13 +757,37 @@ export class EngineSubstrate implements Substrate {
         // A head arrival is gated in time: a unit that cannot get there before
         // the window closes cannot contest it. Body material is not — it is
         // already standing there when the turn opens.
-        if (Math.max(0, (lb[probe.cell] as number) - 1) <= probe.subStep) {
+        if (Math.max(0, (lb[probe.cell] as number) - 1) <= probe.toSubStep) {
           out.add(slot.record.unitId);
           break;
         }
       }
     }
     return [...out].sort((a, b) => a - b);
+  }
+
+  /**
+   * A modelled sibling — the contract's `withModelled`, under the PLAN-DOMAIN
+   * RULE this substrate already lives by: naming a unit in a plan makes it
+   * live, so a sibling needs no new engine state, only independent release
+   * semantics. The proxy shares every slab and cache with its parent and its
+   * `release()` is a no-op, so releasing a sibling can never disturb the
+   * parent (nor return a slab the parent still owns).
+   */
+  withModelled(_modelled: ReadonlyArray<UnitId>): Substrate {
+    const parent = this;
+    return new Proxy(parent, {
+      get(target, prop, receiver): unknown {
+        if (prop === 'release') return () => undefined;
+        if (prop === 'withModelled') {
+          return (m: ReadonlyArray<UnitId>) => parent.withModelled(m);
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function'
+          ? (value as (...a: never[]) => unknown).bind(target)
+          : value;
+      },
+    }) as unknown as Substrate;
   }
 
   /**

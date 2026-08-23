@@ -336,22 +336,34 @@ describe('entanglement gating decides WHO', () => {
 
 describe('degrading when the substrate cannot model', () => {
   test('the bank falls back to B0 and stays sound', () => {
-    // A substrate with only the pinned surface: no withModelled, so B1/B2/B3
-    // are not expressible. The floor must get LOOSER, never wrong.
+    // A substrate WITHOUT withModelled — a deliberate violation of the
+    // unified contract (hence the cast), because this test IS the bank's
+    // degradation arm: B1/B2/B3 are not expressible against it, and the floor
+    // must get LOOSER, never wrong.
     const board = makeTestBoard(CONTACT);
     const rich = makeSubstrate(board, OURS);
-    const poor: Substrate = {
+    const poor = {
       state: rich.state,
-      resolveBoundedFor: (plan, team) => rich.resolveBoundedFor(plan, team),
-      entangled: (cells) => rich.entangled(cells),
-      influenceOf: (unitId) => rich.influenceOf(unitId),
+      unitIds: () => rich.unitIds(),
+      commandable: (team: number) => rich.commandable(team),
+      resolveBoundedFor: (plan: JointPlan, team: number) => rich.resolveBoundedFor(plan, team),
+      releaseResolution: () => undefined,
+      entangled: (
+        cells: ReadonlyArray<{ cell: number; fromSubStep: number; toSubStep: number }>,
+      ) => rich.entangled(cells),
+      influenceOf: (unitId: number) => rich.influenceOf(unitId),
       release: () => undefined,
-    };
+    } as unknown as Substrate;
     // The evaluator still needs the bounds channel the stub substrate exposes.
+    const scorePlan = (_sub: Substrate, plan: JointPlan, team: number) => {
+      const { worst, best } = rich.boundedFor(plan, team);
+      return { lo: worst, est: (worst + best) / 2, hi: best };
+    };
     const evaluate = {
-      scorePlan: (_sub: Substrate, plan: JointPlan, team: number) => {
-        const { worst, best } = rich.boundedFor(plan, team);
-        return { lo: worst, est: (worst + best) / 2, hi: best };
+      scorePlan,
+      evaluatePlan: (sub: Substrate, plan: JointPlan, team: number) => {
+        const bound = scorePlan(sub, plan, team);
+        return { bound, parts: {}, exact: bound.lo === bound.hi, basis: [], ledgerSize: 0 };
       },
     };
     const gen = makeGenerator();
@@ -385,11 +397,11 @@ describe('the ledger translation', () => {
     try {
       const gen = makeGenerator();
       const plan = allPlans(sub, gen, OURS, 24).find((p) => {
-        const resolution = sub.resolveBoundedFor(p, OURS);
+        const { resolution } = sub.resolveBoundedFor(p, OURS);
         return resolution.ledger.length > 0;
       });
       expect(plan).toBeDefined();
-      const resolution = sub.resolveBoundedFor(plan as JointPlan, OURS);
+      const { resolution } = sub.resolveBoundedFor(plan as JointPlan, OURS);
       const translated = ledgerOf(resolution);
       expect(translated.length).toBeGreaterThan(0);
       for (const raw of resolution.ledger) {

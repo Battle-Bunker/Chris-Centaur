@@ -14,7 +14,12 @@ import {
   vetoed,
   type PostureConditions,
 } from "../lobster/postures"
+import { DEAD } from "../lobster/bounds"
 import { bounds, ledgerEntry } from "./lobster-harness"
+
+/** These suites script a FINITE cliff — the orchestration workspace's value —
+ * so the cases stay readable; the default is pinned to the system DEAD below. */
+const CLIFF = -1000
 
 const conditions = (over: Partial<PostureConditions> = {}): PostureConditions => ({
   holdsPresent: true,
@@ -27,33 +32,38 @@ const conditions = (over: Partial<PostureConditions> = {}): PostureConditions =>
 
 describe("cause-tagged vacuity detection", () => {
   it("reads a floor above the cliff as alive", () => {
-    const v = detectVacuity(bounds(10, 40, { ledger: [ledgerEntry(3)] }))
+    const v = detectVacuity(bounds(10, 40, { ledger: [ledgerEntry(3)] }), CLIFF)
     expect(v.cause).toBe("alive")
     expect(v.demand).toBe(false)
   })
 
   it("reads DEAD-with-a-living-ceiling and an if_present citation as a DEMAND", () => {
-    const v = detectVacuity(bounds(-1000, 40, { ledger: [ledgerEntry(3), ledgerEntry(7)] }))
+    const v = detectVacuity(bounds(-1000, 40, { ledger: [ledgerEntry(3), ledgerEntry(7)] }), CLIFF)
     expect(v.cause).toBe("cloud-contingent-dead")
     expect(v.demand).toBe(true)
     expect([...v.citedUnits].sort()).toEqual([3, 7])
   })
 
   it("reads DEAD-in-the-optimistic-world-too as material — a verdict, not a demand", () => {
-    const v = detectVacuity(bounds(-1000, -1000, { ledger: [ledgerEntry(3)] }))
+    const v = detectVacuity(bounds(-1000, -1000, { ledger: [ledgerEntry(3)] }), CLIFF)
     expect(v.cause).toBe("material-dead")
     expect(v.demand).toBe(false)
   })
 
   it("reads DEAD with nothing in the if_present ledger as material: no cloud is to blame", () => {
-    const v = detectVacuity(bounds(-1000, 5, { ledger: [ledgerEntry(3, "if_absent")] }))
+    const v = detectVacuity(bounds(-1000, 5, { ledger: [ledgerEntry(3, "if_absent")] }), CLIFF)
     expect(v.cause).toBe("material-dead")
   })
 
   it("takes the cliff from the caller, not from a constant of its own", () => {
     expect(detectVacuity(bounds(-40, 10), -30).cause).toBe("material-dead")
     expect(detectVacuity(bounds(-40, 10), -50).cause).toBe("alive")
-    expect(DEFAULT_DEAD_BELOW).toBe(-1000)
+    // THE AGREEMENT PIN (integrator wire-up): the governor's default cliff IS
+    // the system's own DEAD sentinel — the lattice bottom the engine, the
+    // evaluate module and the bounds layer share — so default vacuity tagging
+    // can never disagree with the evaluator that produced the bounds.
+    expect(DEFAULT_DEAD_BELOW).toBe(DEAD)
+    expect(DEFAULT_DEAD_BELOW).toBe(Number.NEGATIVE_INFINITY)
   })
 })
 

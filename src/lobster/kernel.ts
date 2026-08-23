@@ -381,6 +381,17 @@ export type EmitRefusal =
   | "nonconforming"
   | "crossfade"
   | "sink"
+  /** A committed pin names a destination the unit's grammar cannot reach.
+   * Humans always win, but an unreachable order cannot be staged: the unit
+   * keeps its existing choice, the refusal is counted here once per refused
+   * pin, and every emitted record carries a named `narrowing` assumption in
+   * place of the operator-pin it could not honour. Never auto-unpinned. */
+  | "pin-unreachable"
+  /** The bounds layer proved one of its own members unsound
+   * (BoundsInversionError). The slice's result is discarded — refused, never
+   * clamped — the violation is counted, and the decision continues on the
+   * standing incumbent. */
+  | "bounds-inversion"
 
 export interface ConformanceSample {
   readonly epoch: number
@@ -515,6 +526,9 @@ interface Run {
   pins: Pin[]
   tentative: Pin[]
   committedUnits: Set<UnitId>
+  /** Committed pins whose destination the unit's grammar cannot reach, keyed
+   * by unitId → the refused destination. See EmitRefusal "pin-unreachable". */
+  refusedPins: Map<UnitId, number>
   epoch: number
   basis: RatchetBasis
   active: PinContextEntry
@@ -594,6 +608,7 @@ export class LobsterKernel implements Kernel {
       pins,
       tentative: input.initialPins.filter((p) => p.tentative),
       committedUnits: new Set<UnitId>(),
+      refusedPins: new Map<UnitId, number>(),
       epoch: 0,
       basis: newBasis(0, "SIGHTED"),
       active: seeded.entry,
@@ -618,11 +633,14 @@ export class LobsterKernel implements Kernel {
         nonconforming: 0,
         crossfade: 0,
         sink: 0,
+        "pin-unreachable": 0,
+        "bounds-inversion": 0,
       },
       crossfade: { independent: 0, certified: 0, uncertified: 0, blocked: 0 },
     }
     this.pending = []
     this.run = run
+    this.auditPins(run)
     try {
       yield* this.drive(run)
     } finally {
@@ -698,27 +716,39 @@ export class LobsterKernel implements Kernel {
       const budget = new SliceBudget(run.now, run.t0, sliceEnd)
       const ctx = this.searchContext(run, entry, budget)
       const s0 = run.now()
-      let score: PlanScore
+      let score: PlanScore | null = null
       let lever: Lever | null = null
-      if (run.refiner !== null) {
-        const view = run.refiner.refinementView(ctx)
-        if (!entry.speculative) run.lastView = view
-        lever = run.voc.next(view, run.governor.policy)
-        if (lever.kind === "stop") {
+      try {
+        if (run.refiner !== null) {
+          const view = run.refiner.refinementView(ctx)
+          if (!entry.speculative) run.lastView = view
+          lever = run.voc.next(view, run.governor.policy)
+          if (lever.kind === "stop") {
+            score = run.input.search.improve(ctx)
+            run.improveCalls++
+          } else {
+            score = run.refiner.refine(ctx, lever)
+            run.refineCalls++
+          }
+        } else {
           score = run.input.search.improve(ctx)
           run.improveCalls++
-        } else {
-          score = run.refiner.refine(ctx, lever)
-          run.refineCalls++
         }
-      } else {
-        score = run.input.search.improve(ctx)
-        run.improveCalls++
+      } catch (err) {
+        // A BoundsInversionError means some bounds-layer member is UNSOUND.
+        // The bank throws it deliberately loudly; the kernel's job is to
+        // refuse the slice's result — never to clamp it into a confident lie —
+        // count the violation, and keep the decision alive on the standing
+        // incumbent (B2 open item 5). Anything else still kills the decision.
+        if ((err as { code?: string }).code !== "bounds_inversion") throw err
+        run.boundViolations++
+        run.refusals["bounds-inversion"]++
       }
       const s1 = run.now()
       run.slices++
       this.observeSliceCost(run, entry, s1 - s0)
       entry.cursor++
+      if (score === null) continue
       this.absorb(run, entry, score)
 
       // A catch-up consumes observations, so every cached conclusion that
@@ -802,6 +832,7 @@ export class LobsterKernel implements Kernel {
       }
     }
     if (!epochChanged) return false
+    this.auditPins(run)
     run.basisHistory.push(basisSnapshot(run.basis))
     run.epoch++
     // A NEW basis object. The old one is dropped on the floor: no map from
@@ -813,6 +844,44 @@ export class LobsterKernel implements Kernel {
     run.plans.clear()
     run.lastView = null
     return true
+  }
+
+  /**
+   * Which committed pins the substrate's grammar cannot honour. HUMANS ALWAYS
+   * WIN — but an unreachable order cannot be staged, and pretending otherwise
+   * would freeze the wire behind a conformance gate no plan can pass. The
+   * ruling (integrator decision, B2 open item 6): the unit keeps its existing
+   * choice; each refusal is counted ONCE (per pin destination) on the
+   * "pin-unreachable" channel; every emitted record substitutes a named
+   * `narrowing` assumption for the operator-pin it could not honour; and the
+   * pin itself is NEVER dropped — the operator sees the refusal, and only the
+   * operator unpins.
+   *
+   * Reachability is asked of the substrate's own grammar (`pathOf`), the same
+   * oracle the staged wire order would be interpreted by. A substrate that
+   * cannot answer (a stub without a live board) refuses no pins.
+   */
+  private auditPins(run: Run): void {
+    const next = new Map<UnitId, number>()
+    for (const pin of run.pins) {
+      let reachable = true
+      try {
+        reachable = run.input.sub.pathOf(pin.unitId, pin.to) !== null
+      } catch {
+        reachable = true // an unanswerable substrate refuses nothing
+      }
+      if (reachable) continue
+      next.set(pin.unitId, pin.to)
+      if (run.refusedPins.get(pin.unitId) !== pin.to) {
+        run.refusals["pin-unreachable"]++
+      }
+    }
+    run.refusedPins = next
+  }
+
+  /** Every committed pin this run can actually honour. */
+  private honorablePins(run: Run): Pin[] {
+    return run.pins.filter((p) => run.refusedPins.get(p.unitId) !== p.to)
   }
 
   /** Point the active context at the new pin set; report an exact-hit resume. */
@@ -850,6 +919,13 @@ export class LobsterKernel implements Kernel {
       evaluate: run.input.evaluate,
       asTeam: run.input.asTeam,
       pins: entry.pins,
+      // The decision's standing basis (reference actions, held-capacity
+      // narrowings) plus the CURRENT posture — so every plan a context prices
+      // shares one basis, and a posture flip re-bases rather than compares.
+      assumptions: [
+        ...(run.input.assumptions ?? []),
+        { kind: "posture", posture: run.governor.current },
+      ],
       incumbent: entry.incumbent,
       witnesses: entry.witnesses,
       budget,
@@ -1150,9 +1226,12 @@ export class LobsterKernel implements Kernel {
         // flush waives the THRESHOLD (it must be able to put a small last
         // improvement on the wire) but not the requirement that there BE an
         // improvement: a byte-identical re-write is not a flush, it is noise.
+        // `!(removed > 0)` rather than `removed <= 0`: with an infinite cliff
+        // (DEAD = −∞) two identical infinite gaps subtract to NaN, and NaN
+        // must read as "no improvement demonstrated", not as a free pass.
         const removed = basis.maxGap - gap
         const need = forced ? 0 : this.opts.gapImprovementFraction * Math.max(basis.maxGap, 1e-9)
-        if (removed <= 0 || removed < need) {
+        if (!(removed > 0) || removed < need) {
           run.refusals.worth++
           return null
         }
@@ -1184,9 +1263,11 @@ export class LobsterKernel implements Kernel {
     return this.record(run, cand, row, slack, horizon)
   }
 
-  /** Every committed pin's unit stands exactly where the operator put it. */
+  /** Every HONOURABLE committed pin's unit stands exactly where the operator
+   * put it. A refused (unreachable) pin is excluded — no plan can pass it,
+   * and it is surfaced through the assumption channel instead. */
   private conformsToPins(run: Run, p: JointPlan): boolean {
-    for (const pin of run.pins) {
+    for (const pin of this.honorablePins(run)) {
       if (p.get(pin.unitId)?.to !== pin.to) return false
     }
     return true
@@ -1264,7 +1345,21 @@ export class LobsterKernel implements Kernel {
 
   private assumptions(run: Run, cand: PlanCandidate): ReadonlyArray<Assumption> {
     const out: Assumption[] = [{ kind: "posture", posture: run.governor.current }]
-    for (const p of run.pins) out.push({ kind: "operator-pin", unitId: p.unitId, to: p.to })
+    for (const p of run.pins) {
+      if (run.refusedPins.get(p.unitId) === p.to) {
+        // The pin stands (the bot never unpins) but the plan does not honour
+        // it — say so on the record, in place of an operator-pin claim the
+        // staged set would contradict.
+        out.push({
+          kind: "narrowing",
+          unitId: p.unitId,
+          note: `operator-pin-unreachable@${p.to}: unit keeps its own choice`,
+        })
+        continue
+      }
+      out.push({ kind: "operator-pin", unitId: p.unitId, to: p.to })
+    }
+    for (const a of run.input.assumptions ?? []) out.push(a)
     if (cand.score !== null) for (const a of cand.score.bounds.assumptions) out.push(a)
     const seen = new Set<string>()
     return out.filter((a) => {

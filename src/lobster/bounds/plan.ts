@@ -51,24 +51,46 @@ export function withMoves(plan: JointPlan, candidates: ReadonlyArray<Candidate>)
 }
 
 /**
- * The cells a plan touches, with the sub-step each is entered at. This is what
- * `Substrate.entangled` is asked about, and the sub-step precision is what
- * stops a long ray from being condemned for cells nothing can reach in time.
+ * The cells a plan touches, with the sub-step WINDOW each is occupied over.
+ * This is what `Substrate.entangled` is asked about, and the sub-step
+ * precision is what stops a long ray from being condemned for cells nothing
+ * can reach in time.
  *
  * `Candidate.path` is the cells ENTERED, in order, origin excluded — the
- * engine's own `UnitAction.path` shape. Sub-step `i + 1` for `path[i]`.
+ * engine's own `UnitAction.path` shape. A cell passed through occupies
+ * `[i + 1, i + 1]`; the LAST path cell is where the move comes to rest, so its
+ * window stays open to the end of the turn (`Number.MAX_SAFE_INTEGER` — the
+ * conservative reading the entanglement contract requires; a capture-stop
+ * that halts the move short only ever rests EARLIER on the same path, which
+ * this window covers).
+ *
+ * A path-less candidate (a stay, a rotate) is gated on `from` — the one cell
+ * such a candidate actually stands on (`to` is the staged ORDER; for a rotate
+ * it is whichever destination encodes the turn). When a hand-built candidate
+ * carries no usable `from` (NO_ORDER_MOVE), it contributes nothing here and
+ * the unit is still covered: the B0 resolution's entanglement ledger names
+ * every held unit that could have changed the outcome, standing units
+ * included, and the gate unions the two.
  */
-export function footprintOf(plan: JointPlan): ReadonlyArray<{ cell: CellIndex; subStep: SubStep }> {
-  const out: { cell: CellIndex; subStep: SubStep }[] = [];
+export function footprintOf(
+  plan: JointPlan,
+): ReadonlyArray<{ cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }> {
+  const out: { cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }[] = [];
   for (const candidate of plan.values()) {
-    // A path-less candidate (a stay, a rotate) contributes NOTHING here, and
-    // deliberately. `Candidate.to` is the staged ORDER, not a cell the unit
-    // stands on — for a rotate it is whichever destination encodes the turn —
-    // so treating it as occupancy would gate on a cell nobody is at. The unit
-    // still gets covered: the B0 resolution's entanglement ledger names every
-    // held unit that could have changed the outcome, standing units included,
-    // and the gate unions the two.
-    candidate.path.forEach((cell, i) => out.push({ cell, subStep: (i + 1) as SubStep }));
+    if (candidate.path.length === 0) {
+      if (candidate.from >= 0) {
+        out.push({ cell: candidate.from, fromSubStep: 0, toSubStep: Number.MAX_SAFE_INTEGER });
+      }
+      continue;
+    }
+    const last = candidate.path.length - 1;
+    candidate.path.forEach((cell, i) =>
+      out.push({
+        cell,
+        fromSubStep: (i + 1) as SubStep,
+        toSubStep: i === last ? Number.MAX_SAFE_INTEGER : ((i + 1) as SubStep),
+      }),
+    );
   }
   return out;
 }

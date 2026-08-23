@@ -81,6 +81,7 @@ function harness(
     evaluate,
     asTeam: OURS,
     pins: options.pins ?? [],
+    assumptions: [],
     incumbent: options.incumbent ?? null,
     witnesses: options.witnesses ?? [],
     budget: options.budget ?? unboundedBudget(),
@@ -161,19 +162,23 @@ describe('a complete legal JointPlan at every instant', () => {
     const board = makeTestBoard(CROWD);
     const rich = makeSubstrate(board, OURS);
     const gen = makeGenerator();
+    // Deliberately NOT a full Substrate: the roster accessor is withheld to
+    // exercise the search's refusal arm, hence the cast.
     const rosterless = {
       state: rich.state,
       resolveBoundedFor: rich.resolveBoundedFor.bind(rich),
+      releaseResolution: () => undefined,
       entangled: rich.entangled.bind(rich),
       influenceOf: rich.influenceOf.bind(rich),
       release: () => undefined,
-    };
+    } as unknown as SearchContext['sub'];
     const ctx: SearchContext = {
       sub: rosterless,
       gen,
       evaluate: makeEvaluator(),
       asTeam: OURS,
       pins: [],
+      assumptions: [],
       incumbent: null,
       witnesses: [],
       budget: unboundedBudget(),
@@ -353,9 +358,10 @@ describe('witnesses survive the search', () => {
 
 describe('reference actions: a teammate not ours to command', () => {
   test('a declared reference action rides the basis and is not held', () => {
-    // The assumption arrives on the incumbent's bounds, which is where the
-    // contract puts it. The unit is FIXED to it, never held — holding your own
-    // side is strictly looser and strictly more expensive than fixing it.
+    // The assumption arrives on ctx.assumptions — the contract's A6 home for
+    // the decision's standing basis. The unit is FIXED to it, never held —
+    // holding your own side is strictly looser and strictly more expensive
+    // than fixing it.
     const spec: BoardSpec = {
       width: 7,
       height: 7,
@@ -378,6 +384,7 @@ describe('reference actions: a teammate not ours to command', () => {
       };
       const out = makeSearchCore().improve({
         ...h.ctx,
+        assumptions: [reference],
         incumbent: {
           plan: seedPlan,
           bounds: { worst: 0, best: 0, ledger: [], assumptions: [reference], exact: false },

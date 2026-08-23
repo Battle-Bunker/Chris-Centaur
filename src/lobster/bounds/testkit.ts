@@ -21,12 +21,14 @@
 
 import type {
   Bound,
+  BoundedResolution,
   Candidate,
   CandidateGenerator,
   CandidateSet,
   CellIndex,
   Evaluator,
   JointPlan,
+  PlanEvaluation,
   Substrate,
   SubStep,
   UnitId,
@@ -148,11 +150,15 @@ export const at = (spec: BoardSpec, x: number, y: number): number => y * spec.wi
 // --------------------------------------------------------------- substrate
 
 /**
- * `Substrate.resolveBoundedFor` hands back only a `Resolution`, and an
- * evaluator cannot derive `[worst, best]` from one without engine access the
- * contract does not grant. Until that amendment lands, the stub exposes the
- * whole `resolveBounded` triple and the stub evaluator reads it — the shape
- * the real substrate is expected to grow.
+ * The unified contract's `resolveBoundedFor` returns the whole bounded triple,
+ * so `boundedFor` is now only the harness's own convenience face over it (it
+ * carries the scalar-vs-interval pricing arm the negative controls need).
+ *
+ * SLAB NOTE. This stub releases every resolution slab as soon as the fold is
+ * computed and caches the result as plain data — the arrays its consumers
+ * (bank, search, ground truth) read survive release. It is therefore paired
+ * with the STUB evaluator only: the real BoundEvaluator reads live unit views
+ * off a resolution's slab and belongs on the real EngineSubstrate.
  */
 export interface BoundedSubstrate extends Substrate {
   boundedFor(
@@ -167,11 +173,19 @@ export interface BoundedSubstrate extends Substrate {
 
 export type HeldPricing = "interval" | "scalar";
 
+interface CachedResolve {
+  readonly full: BoundedResolution;
+  /** Per the heldPricing arm — the scalar negative control lives HERE, in the
+   * harness's own face, never in the contract-shaped triple. */
+  readonly worst: number;
+  readonly best: number;
+}
+
 class TestSubstrate implements BoundedSubstrate, ModellingSubstrate, RosterSubstrate {
   readonly state: StateHandle;
   /** Shared with every modelled child, so the count is per DECISION. */
   private readonly meter: { resolves: number };
-  private readonly cache = new Map<string, { resolution: Resolution; worst: number; best: number }>();
+  private readonly cache = new Map<string, CachedResolve>();
   private readonly children: Substrate[] = [];
   private released = false;
 
@@ -215,32 +229,76 @@ class TestSubstrate implements BoundedSubstrate, ModellingSubstrate, RosterSubst
     return orders;
   }
 
-  boundedFor(plan: JointPlan, asTeam: number): { resolution: Resolution; worst: number; best: number } {
+  private resolveInto(plan: JointPlan, asTeam: number): CachedResolve {
     const key = `${asTeam}#${planKey(plan)}`;
     const hit = this.cache.get(key);
     if (hit !== undefined) return hit;
     this.meter.resolves++;
-    const out = resolveBounded(this.board.engine, this.state, this.assignmentOf(plan), asTeam);
-    const value =
-      this.heldPricing === "interval"
-        ? { resolution: out.resolution, worst: out.bounds.worst, best: out.bounds.best }
-        : { resolution: out.resolution, ...scalarFold(this.board.engine, out.resolution, asTeam) };
+    const engine = this.board.engine;
+    const out = resolveBounded(engine, this.state, this.assignmentOf(plan), asTeam);
+    const grid = this.board.terrain.grid;
+    const touched = newBoard(grid);
+    touched.set(engine.touched.subarray(0, grid.words));
+    const scalar =
+      this.heldPricing === "interval" ? null : scalarFold(engine, out.resolution, asTeam);
     // The forked slab has served its purpose; the arrays we keep reading
     // (ledger, clashes, deaths, the shared CloudField) are plain objects.
-    this.board.engine.release(out.resolution.state);
+    engine.release(out.resolution.state);
+    const value: CachedResolve = {
+      full: { resolution: out.resolution, perTeam: out.perTeam, bounds: out.bounds, touched },
+      worst: scalar === null ? out.bounds.worst : scalar.worst,
+      best: scalar === null ? out.bounds.best : scalar.best,
+    };
     this.cache.set(key, value);
     return value;
+  }
+
+  boundedFor(plan: JointPlan, asTeam: number): { resolution: Resolution; worst: number; best: number } {
+    const v = this.resolveInto(plan, asTeam);
+    return { resolution: v.full.resolution, worst: v.worst, best: v.best };
   }
 
   get resolves(): number {
     return this.meter.resolves;
   }
 
-  resolveBoundedFor(plan: JointPlan, asTeam: number): Resolution {
-    return this.boundedFor(plan, asTeam).resolution;
+  /** The contract triple is always the engine's honest interval — the scalar
+   * negative control is only ever visible through `boundedFor`. */
+  resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolution {
+    return this.resolveInto(plan, asTeam).full;
   }
 
-  entangled(cells: ReadonlyArray<{ cell: CellIndex; subStep: SubStep }>): ReadonlyArray<UnitId> {
+  /** Slabs are returned at resolve time here (see the class note), so the
+   * contract's release door has nothing left to do. Idempotent by contract. */
+  releaseResolution(_resolution: Resolution): void {
+    /* already returned at resolve time */
+  }
+
+  withResolution<T>(plan: JointPlan, asTeam: number, fn: (r: BoundedResolution) => T): T {
+    return fn(this.resolveBoundedFor(plan, asTeam));
+  }
+
+  unitIds(): ReadonlyArray<UnitId> {
+    return [...this.board.spec.units.map((u) => u.id)].sort((a, b) => a - b);
+  }
+
+  actionsOf(unitId: UnitId): ReadonlyArray<Candidate> {
+    return this.optionsFor(unitId);
+  }
+
+  pathOf(unitId: UnitId, to: CellIndex): ReadonlyArray<CellIndex> | null {
+    const match = this.optionsFor(unitId).find((c) => c.to === to);
+    return match === undefined ? null : match.path;
+  }
+
+  outstanding(): number {
+    // One live state per substrate; resolution slabs are returned eagerly.
+    return this.released ? 0 : 1;
+  }
+
+  entangled(
+    cells: ReadonlyArray<{ cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }>
+  ): ReadonlyArray<UnitId> {
     const field = this.state.field.advanceTo(this.state.turn + 1);
     const out: UnitId[] = [];
     for (const slot of field.slots) {
@@ -302,6 +360,7 @@ class TestSubstrate implements BoundedSubstrate, ModellingSubstrate, RosterSubst
       targets,
     ).map((c) => ({
       unitId,
+      from: view.cells[0] as number,
       to: c.dest,
       path: c.action.kind === "move" ? [...c.action.path] : [],
     }));
@@ -421,7 +480,11 @@ export interface GeneratorOptions {
 export function makeGenerator(options: GeneratorOptions = {}): CandidateGenerator {
   const prune = options.pruneTail ?? 0;
   return {
-    candidatesFor(sub: Substrate, unitId: UnitId): CandidateSet {
+    // `purpose` is deliberately IGNORED: this generator is the harness's
+    // adversarial control, and its whole point is to hand the bank an
+    // A4-violating truncated adversary list and watch the bank refuse to
+    // raise a floor on it. The pruned ledger keeps it honest about the count.
+    candidatesFor(sub: Substrate, unitId: UnitId, _purpose?: "ours" | "adversary"): CandidateSet {
       const all = (sub as TestSubstrate).optionsFor(unitId);
       const wanted = prune > 0 && (options.pruneOnly === undefined || options.pruneOnly.has(unitId));
       const keep = wanted ? Math.max(1, all.length - prune) : all.length;
@@ -447,10 +510,21 @@ export function makeGenerator(options: GeneratorOptions = {}): CandidateGenerato
  * the bank clamps it into the bracket rather than trusting it.
  */
 export function makeEvaluator(): Evaluator {
+  const scorePlan = (sub: Substrate, plan: JointPlan, asTeam: number): Bound => {
+    const { worst, best } = (sub as BoundedSubstrate).boundedFor(plan, asTeam);
+    return { lo: worst, est: (worst + best) / 2, hi: best };
+  };
   return {
-    scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {
-      const { worst, best } = (sub as BoundedSubstrate).boundedFor(plan, asTeam);
-      return { lo: worst, est: (worst + best) / 2, hi: best };
+    scorePlan,
+    evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation {
+      const bound = scorePlan(sub, plan, asTeam);
+      return {
+        bound,
+        parts: {},
+        exact: bound.lo === bound.hi,
+        basis: [],
+        ledgerSize: 0,
+      };
     },
   };
 }
@@ -628,12 +702,18 @@ export function seededBoard(seed: number, size = 6, perSide = 1, foodCount = 0):
 // --------------------------------------------------------------- the clock
 
 /** A budget that never stops — the exhaustive arm of the harness. */
-export function unboundedBudget(): { remainingMs(): number; elapsedMs(): number; shouldStop(): boolean } {
+export function unboundedBudget(): {
+  remainingMs(): number;
+  elapsedMs(): number;
+  shouldStop(): boolean;
+  now(): number;
+} {
   const start = Date.now();
   return {
     remainingMs: () => Number.POSITIVE_INFINITY,
     elapsedMs: () => Date.now() - start,
     shouldStop: () => false,
+    now: () => Date.now(),
   };
 }
 
@@ -641,18 +721,20 @@ export function unboundedBudget(): { remainingMs(): number; elapsedMs(): number;
  * A budget that trips after exactly `n` questions — an ADVERSARIAL clock. It
  * cuts sweeps short at every possible point, which is precisely the condition
  * under which an unfinished enumeration must lower a ceiling and never raise a
- * floor.
+ * floor. `now()` advances one unit per question asked, so it is deterministic.
  */
 export function countingBudget(n: number): {
   remainingMs(): number;
   elapsedMs(): number;
   shouldStop(): boolean;
+  now(): number;
   asked: number;
 } {
   const handle = {
     asked: 0,
     remainingMs: (): number => Math.max(0, n - handle.asked),
     elapsedMs: (): number => handle.asked,
+    now: (): number => handle.asked,
     shouldStop: (): boolean => {
       handle.asked++;
       return handle.asked > n;
@@ -662,6 +744,11 @@ export function countingBudget(n: number): {
 }
 
 /** A budget that has already expired — the pathological anytime entry point. */
-export function expiredBudget(): { remainingMs(): number; elapsedMs(): number; shouldStop(): boolean } {
-  return { remainingMs: () => 0, elapsedMs: () => 0, shouldStop: () => true };
+export function expiredBudget(): {
+  remainingMs(): number;
+  elapsedMs(): number;
+  shouldStop(): boolean;
+  now(): number;
+} {
+  return { remainingMs: () => 0, elapsedMs: () => 0, shouldStop: () => true, now: () => 0 };
 }

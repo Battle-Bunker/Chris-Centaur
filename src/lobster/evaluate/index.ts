@@ -28,7 +28,12 @@
  * enforces it with.
  */
 
-import type { Bound, Evaluator, JointPlan, UnitId } from '../contracts';
+import type {
+  Bound,
+  Evaluator,
+  JointPlan,
+  PlanEvaluation as ContractPlanEvaluation,
+} from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
@@ -56,25 +61,9 @@ export type { EvalContext, Standing } from './features';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
-/** Everything a consumer might want from one evaluation, not just the triple. */
-export interface PlanEvaluation {
-  readonly bound: Bound;
-  /** Per-feature contributions, before weighting. */
-  readonly parts: Readonly<Record<string, Bound>>;
-  /**
-   * True when the value is a proof: nothing held could have changed it. This is
-   * the discharge theorem's local form — an empty ledger AND an empty
-   * assumption basis AND a collapsed interval.
-   */
-  readonly exact: boolean;
-  /**
-   * The unit ids whose caller-declared narrowings this value is conditional on.
-   * A score carrying a non-empty basis may never be compared with one carrying
-   * a different basis.
-   */
-  readonly basis: ReadonlyArray<UnitId>;
-  /** How many contingency entries the resolution recorded — the work list. */
-  readonly ledgerSize: number;
+/** Everything a consumer might want from one evaluation — the contract's
+ * `PlanEvaluation` plus this evaluator's own terminal telemetry. */
+export interface PlanEvaluation extends ContractPlanEvaluation {
   /** Whether the two terminal readings fired, and which way. */
   readonly terminal: { readonly loClamped: boolean; readonly hiClamped: boolean };
 }

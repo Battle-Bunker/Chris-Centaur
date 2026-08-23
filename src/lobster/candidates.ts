@@ -190,15 +190,25 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     this.knobs = { ...DEFAULT_KNOBS, ...knobs };
   }
 
-  candidatesFor(sub: Substrate, unitId: UnitId): CandidateSet {
+  candidatesFor(sub: Substrate, unitId: UnitId, purpose: 'ours' | 'adversary' = 'ours'): CandidateSet {
     if (!(sub instanceof EngineSubstrate)) {
-      // The Substrate interface carries the resolution surface but not the
-      // grammar surface this layer needs (see the amendment proposed in the
-      // build report). Refuse loudly rather than guess at the rules.
+      // This implementation is engine-specific: the risk layer behind the
+      // assessment is not on the Substrate interface. The contract's modelled
+      // siblings and memo wrappers are proxies over an EngineSubstrate, so
+      // they pass this check; only a genuinely foreign substrate is refused.
       throw new TypeError(
         'candidatesFor needs the engine substrate: the grammar enumerator and the ' +
           'risk layer are not on the Substrate interface'
       );
+    }
+    if (purpose === 'adversary') {
+      // ADVERSARY COMPLETENESS (contract A4): the complete legal option list,
+      // nothing pruned, nothing assessed. Pruning an enemy's replies is a
+      // WHICH-truncation only the bound bank may declare — and the exact
+      // prunes, though outcome-preserving, would read as incompleteness to a
+      // consumer counting candidates against legalCount.
+      const candidates = sub.actionsOf(unitId);
+      return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
     return generate(sub, unitId, this.knobs, this.shadowsFor(sub));
   }
@@ -269,8 +279,10 @@ function generateAssessed(
   const legalCount = actions.length;
   const pruned: PrunedEntry[] = [];
 
+  const from = unit.cells[0] as CellIndex;
   const raw: Candidate[] = actions.map((a) => ({
     unitId,
+    from,
     to: a.dest,
     path: a.action.kind === 'move' ? [...a.action.path] : [],
   }));

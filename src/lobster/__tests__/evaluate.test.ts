@@ -74,7 +74,7 @@ const at = (board: Board, cell: Coord): number =>
 /** Every unit named with its own default — the zero-assumption joint plan. */
 function defaultPlan(sub: ReturnType<typeof makeSubstrate>): JointPlan {
   const plan = new Map<UnitId, Candidate>();
-  for (const u of sub.roster()) plan.set(u.unitId, { unitId: u.unitId, to: NO_ORDER_MOVE, path: [] });
+  for (const u of sub.roster()) plan.set(u.unitId, { unitId: u.unitId, from: -1, to: NO_ORDER_MOVE, path: [] });
   return plan;
 }
 
@@ -212,7 +212,7 @@ describe('the cliff', () => {
 
     const feared = defaultEvaluator.evaluatePlan(
       sub,
-      new Map([[rook, { unitId: rook, to, path: sub.pathFor(rook, to) ?? [] }]]),
+      new Map([[rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }]]),
       0
     );
     // Now name the queen's move that actually takes the rook there, if one
@@ -220,11 +220,12 @@ describe('the cliff', () => {
     let worstConfirmed = Number.POSITIVE_INFINITY;
     for (const action of sub.enumerate(queen)) {
       const plan = new Map<UnitId, Candidate>([
-        [rook, { unitId: rook, to, path: sub.pathFor(rook, to) ?? [] }],
+        [rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }],
         [
           queen,
           {
             unitId: queen,
+            from: -1,
             to: action.dest,
             path: action.action.kind === 'move' ? [...action.action.path] : [],
           },
@@ -262,8 +263,8 @@ describe('the cliff', () => {
       const b = materialEvaluator.scorePlan(
         sub,
         new Map([
-          [r, { unitId: r, to, path: sub.pathFor(r, to) ?? [] }],
-          [spare, { unitId: spare, to: NO_ORDER_MOVE, path: [] }],
+          [r, { unitId: r, from: -1, to, path: sub.pathFor(r, to) ?? [] }],
+          [spare, { unitId: spare, from: -1, to: NO_ORDER_MOVE, path: [] }],
         ]),
         0
       );
@@ -298,7 +299,7 @@ describe('the one place this fold differs from the engine’s own', () => {
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const to = at(board, { x: 1, y: 0 });
     sub.withResolution(
-      new Map([[rook, { unitId: rook, to, path: sub.pathFor(rook, to) ?? [] }]]),
+      new Map([[rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }]]),
       0,
       ({ resolution, bounds, touched }) => {
         const ctx = makeContext(sub, resolution, bounds, touched, 0, 0);
@@ -320,7 +321,7 @@ describe('the one place this fold differs from the engine’s own', () => {
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const to = at(board, { x: 2, y: 3 });
     sub.withResolution(
-      new Map([[rook, { unitId: rook, to, path: sub.pathFor(rook, to) ?? [] }]]),
+      new Map([[rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }]]),
       0,
       ({ resolution, bounds, touched }) => {
         const ctx = makeContext(sub, resolution, bounds, touched, 0, 0);
@@ -349,8 +350,8 @@ describe('terminal clamps are ORDERED, not additive', () => {
     const theirs = sub.unitOfWireId('k')?.unitId as UnitId;
     const meet = at(board, { x: 3, y: 4 });
     const plan = new Map<UnitId, Candidate>([
-      [ours, { unitId: ours, to: meet, path: sub.pathFor(ours, meet) ?? [] }],
-      [theirs, { unitId: theirs, to: meet, path: sub.pathFor(theirs, meet) ?? [] }],
+      [ours, { unitId: ours, from: -1, to: meet, path: sub.pathFor(ours, meet) ?? [] }],
+      [theirs, { unitId: theirs, from: -1, to: meet, path: sub.pathFor(theirs, meet) ?? [] }],
     ]);
     const v = defaultEvaluator.evaluatePlan(sub, plan, 0);
     expect(v.bound.lo).toBe(DEAD);
@@ -379,9 +380,9 @@ describe('terminal clamps are ORDERED, not additive', () => {
     const king = sub.unitOfWireId('k')?.unitId as UnitId;
     const target = at(board, { x: 3, y: 4 });
     const plan = new Map<UnitId, Candidate>([
-      [pawn, { unitId: pawn, to: target, path: sub.pathFor(pawn, target) ?? [] }],
-      [rook, { unitId: rook, to: NO_ORDER_MOVE, path: [] }],
-      [king, { unitId: king, to: NO_ORDER_MOVE, path: [] }],
+      [pawn, { unitId: pawn, from: -1, to: target, path: sub.pathFor(pawn, target) ?? [] }],
+      [rook, { unitId: rook, from: -1, to: NO_ORDER_MOVE, path: [] }],
+      [king, { unitId: king, from: -1, to: NO_ORDER_MOVE, path: [] }],
     ]);
     const v = defaultEvaluator.evaluatePlan(sub, plan, 0);
     expect(v.bound.lo).toBe(WIN);
@@ -443,6 +444,7 @@ describe('est is advisory only', () => {
         if (unit === undefined) continue;
         plan.set(unit.unitId, {
           unitId: unit.unitId,
+          from: -1,
           to,
           path: sub.pathFor(unit.unitId, to) ?? [],
         });
@@ -494,7 +496,7 @@ describe('the discharge theorem, locally', () => {
 
     const partial = defaultEvaluator.evaluatePlan(
       sub,
-      new Map([[0, { unitId: 0, to: NO_ORDER_MOVE, path: [] }]]),
+      new Map([[0, { unitId: 0, from: -1, to: NO_ORDER_MOVE, path: [] }]]),
       0
     );
     expect(partial.exact).toBe(false);
@@ -520,7 +522,7 @@ describe('the discharge theorem, locally', () => {
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const v = defaultEvaluator.evaluatePlan(
       sub,
-      new Map([[rook, { unitId: rook, to: NO_ORDER_MOVE, path: [] }]]),
+      new Map([[rook, { unitId: rook, from: -1, to: NO_ORDER_MOVE, path: [] }]]),
       0
     );
     expect(v.basis).toContain(sub.unitOfWireId('r')?.unitId);

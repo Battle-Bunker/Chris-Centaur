@@ -31,7 +31,7 @@ const COLLIDE: BoardSpec = {
 };
 
 function collisionWorld(): {
-  resolution: ReturnType<ReturnType<typeof makeSubstrate>['resolveBoundedFor']>;
+  resolution: ReturnType<ReturnType<typeof makeSubstrate>['resolveBoundedFor']>['resolution'];
   plan: JointPlan;
   close(): void;
 } {
@@ -45,7 +45,7 @@ function collisionWorld(): {
     [1 as UnitId, pick(1 as UnitId)],
     [2 as UnitId, pick(2 as UnitId)],
   ]);
-  return { resolution: sub.resolveBoundedFor(plan, OURS), plan, close: () => sub.release() };
+  return { resolution: sub.resolveBoundedFor(plan, OURS).resolution, plan, close: () => sub.release() };
 }
 
 describe('the salt', () => {
@@ -55,8 +55,8 @@ describe('the salt', () => {
   });
 
   test('a plan tie key is order-free over the units', () => {
-    const a: Candidate = { unitId: 1, to: 5, path: [4, 5] };
-    const b: Candidate = { unitId: 2, to: 9, path: [9] };
+    const a: Candidate = { unitId: 1, from: -1, to: 5, path: [4, 5] };
+    const b: Candidate = { unitId: 2, from: -1, to: 9, path: [9] };
     const forward: JointPlan = new Map([
       [1 as UnitId, a],
       [2 as UnitId, b],
@@ -71,8 +71,8 @@ describe('the salt', () => {
   test('two candidates with the same destination and different paths are different moves', () => {
     // PATH IDENTITY: a rook that stopped short because a capture halted it took
     // a different move, and the resolver adjudicates the prefix.
-    const short: JointPlan = new Map([[1 as UnitId, { unitId: 1, to: 5, path: [5] }]]);
-    const long: JointPlan = new Map([[1 as UnitId, { unitId: 1, to: 5, path: [3, 4, 5] }]]);
+    const short: JointPlan = new Map([[1 as UnitId, { unitId: 1, from: -1, to: 5, path: [5] }]]);
+    const long: JointPlan = new Map([[1 as UnitId, { unitId: 1, from: -1, to: 5, path: [3, 4, 5] }]]);
     expect(planTieKey(short, 0)).not.toBe(planTieKey(long, 0));
   });
 });
@@ -156,7 +156,7 @@ describe('contested units — the joint-polish selection', () => {
 
 describe('candidate capping is a MAX-side restriction', () => {
   test('it takes a prefix of an already-ordered list and never reorders it', () => {
-    const list: Candidate[] = [1, 2, 3, 4].map((to) => ({ unitId: 1, to, path: [to] }));
+    const list: Candidate[] = [1, 2, 3, 4].map((to) => ({ unitId: 1, from: -1, to, path: [to] }));
     expect(topCandidates(list, 2)).toEqual(list.slice(0, 2));
     expect(topCandidates(list, 99)).toBe(list);
   });

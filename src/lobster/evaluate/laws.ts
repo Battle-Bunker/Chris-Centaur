@@ -82,7 +82,7 @@ function planFor(sub: EngineSubstrate, c: LawCase): JointPlan {
     if (unit === undefined) throw new Error(`law case ${c.name}: no unit ${wireId}`);
     const to = c.orders.get(wireId);
     if (to === undefined) throw new Error(`law case ${c.name}: no order for ${wireId}`);
-    plan.set(unit.unitId, { unitId: unit.unitId, to, path: sub.pathFor(unit.unitId, to) ?? [] });
+    plan.set(unit.unitId, { unitId: unit.unitId, from: -1, to, path: sub.pathFor(unit.unitId, to) ?? [] });
   }
   return plan;
 }
@@ -125,6 +125,7 @@ export function* worldsOf(
         const extended = new Map(roster);
         extended.set(unitId, {
           unitId,
+          from: -1,
           to: action.dest,
           path: action.action.kind === 'move' ? [...action.action.path] : [],
         });
@@ -254,6 +255,7 @@ export function checkCollapse(evaluator: BoundEvaluator, c: LawCase): LawResult 
       const dest = to ?? (sub.enumerate(unit.unitId)[0]?.dest as number);
       all.set(unit.unitId, {
         unitId: unit.unitId,
+        from: -1,
         to: dest,
         path: sub.pathFor(unit.unitId, dest) ?? [],
       });

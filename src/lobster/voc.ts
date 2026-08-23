@@ -42,9 +42,15 @@
 
 import type {
   Candidate,
+  CandidateView,
+  HeldUnitView,
   JointPlan,
+  Lever,
+  LeverView,
   PlanScore,
+  RefinementRung,
   SearchContext,
+  StagingCandidate,
   UnitId,
 } from "./contracts"
 import {
@@ -52,7 +58,6 @@ import {
   detectVacuity,
   vetoed,
   type ChannelPolicy,
-  type VacuityCause,
   type VacuityVerdict,
 } from "./postures"
 
@@ -152,16 +157,8 @@ export function bestJoin(a: NodeVerdict, b: NodeVerdict): NodeVerdict {
 
 // ------------------------------------------------------------ staging policy
 
-/** What the stager compares. One row per root candidate. */
-export interface StagingCandidate {
-  readonly key: string
-  readonly lo: number
-  readonly est: number
-  readonly hi: number
-  /** Horizon this candidate's value was proved at. */
-  readonly horizon: number
-  readonly vacuity: VacuityCause
-}
+/** What the stager compares — the contract's own type, re-exported. */
+export type { StagingCandidate }
 
 /** Derive a staging row from a scored plan. */
 export function stagingRowOf(
@@ -340,54 +337,19 @@ export class StickyStager {
 }
 
 // ------------------------------------------------------------------- levers
+//
+// The lever vocabulary — Rung, Lever, HeldUnitView, CandidateView, LeverView —
+// was PROMOTED to contracts.ts with the SearchCore refiner amendment (the
+// optional refinementView/refine members are typed against it there).
+// Re-exported here so this module remains the reference point for VOC
+// consumers and the pre-promotion import paths keep working.
 
-export type Rung = "free" | "narrowed" | "advanced"
+/** The pre-promotion name for the contract's RefinementRung. */
+export type Rung = RefinementRung
 
 export type LeverFamily = "prove" | "disprove" | "repair" | "depth"
 
-export type Lever =
-  | { readonly kind: "catchup"; readonly unit: UnitId }
-  | { readonly kind: "narrow"; readonly unit: UnitId }
-  | { readonly kind: "advance"; readonly unit: UnitId }
-  | { readonly kind: "deepen"; readonly planKey: string; readonly reason: "preview" | "ration" }
-  | { readonly kind: "stop" }
-
-/** One uncontrolled unit as the orchestrator sees it. */
-export interface HeldUnitView {
-  readonly unitId: UnitId
-  readonly rung: Rung
-  /** currentTurn − observedTurn; this turn's unmade choice not counted. */
-  readonly staleness: number
-  readonly cloudSize: number
-  /** Meeting time with our staged paths; Infinity when it cannot contact us. */
-  readonly meet: number
-  /** Can this unit be refined at all (false = stale-unrefinable)? */
-  readonly refinable: boolean
-}
-
-export interface CandidateView extends StagingCandidate {
-  /** The joint plan this row scores. Carried so the stager's choice of a RIVAL
-   * row is stageable: a leader the kernel cannot map back to a plan is a
-   * silently dropped emission. */
-  readonly plan: JointPlan
-  readonly loCite: ReadonlySet<UnitId>
-  readonly hiCite: ReadonlySet<UnitId>
-  readonly refuted: boolean
-}
-
-/** Everything a lever choice may read. */
-export interface LeverView {
-  readonly candidates: ReadonlyArray<CandidateView>
-  readonly leaderIdx: number
-  readonly slack: number
-  readonly horizon: number
-  readonly depthMax: number
-  readonly units: ReadonlyArray<HeldUnitView>
-  readonly interiorCells: number
-  /** Stability threshold floor for the horizon ration. */
-  readonly epsilon: number
-  readonly round: number
-}
+export type { CandidateView, HeldUnitView, Lever, LeverView }
 
 interface LeverEstimate {
   readonly lever: Lever
@@ -627,13 +589,14 @@ export class VocOrchestrator {
 // -------------------------------------------------------- the refiner seam
 
 /**
- * The lever surface a search must expose for VOC's ordering to bind.
+ * The lever surface a search exposes for VOC's ordering to bind.
  *
- * PROPOSED CONTRACT AMENDMENT (see the build report): `SearchCore` gains these
- * two optional members. Until it does, `asRefiner` narrows a SearchCore that
- * happens to implement them, and the kernel runs the plain `improve()` loop
- * when it does not — the lever order is then advisory rather than binding, and
- * the kernel says so in its report.
+ * LANDED as the contract's optional `SearchCore.refinementView`/`refine`
+ * members. `asRefiner` narrows a SearchCore that implements BOTH, and the
+ * kernel runs the plain `improve()` loop when it does not — the lever order
+ * is then advisory rather than binding, and the kernel says so in its report
+ * (`leverOrderBinding: false`; watch it in the integration profile — the
+ * production search core does not implement the surface yet).
  */
 export interface Refiner {
   refinementView(ctx: SearchContext): LeverView

@@ -61,13 +61,13 @@ const TURN = 20;
 function move(sub: EngineSubstrate, unitId: UnitId, to: number): Candidate {
   const path = sub.pathFor(unitId, to);
   if (path === null) throw new Error(`illegal staged cell ${to} for unit ${unitId}`);
-  return { unitId, to, path };
+  return { unitId, from: -1, to, path };
 }
 
 /** Every unit named, each with its own default. The zero-assumption plan. */
 function defaultPlan(sub: EngineSubstrate): JointPlan {
   const plan = new Map<UnitId, Candidate>();
-  for (const u of sub.roster()) plan.set(u.unitId, { unitId: u.unitId, to: NO_ORDER_MOVE, path: [] });
+  for (const u of sub.roster()) plan.set(u.unitId, { unitId: u.unitId, from: -1, to: NO_ORDER_MOVE, path: [] });
   return plan;
 }
 
@@ -288,7 +288,7 @@ describe('a default is a narrowing and must be named', () => {
       turn: TURN,
       asTeam: 'red',
     });
-    const plan = new Map<UnitId, Candidate>([[99, { unitId: 99, to: 0, path: [] }]]);
+    const plan = new Map<UnitId, Candidate>([[99, { unitId: 99, from: -1, to: 0, path: [] }]]);
     expect(() => sub.resolveBoundedFor(plan, 0)).toThrow(UnknownUnitError);
     sub.release();
   });
@@ -362,8 +362,8 @@ describe('entanglement gates who has to be modelled', () => {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const m = marshalBoard(board, TURN);
     const probe = [
-      { cell: m.toIndex({ x: 2, y: 1 }), subStep: 1 },
-      { cell: m.toIndex({ x: 3, y: 1 }), subStep: 2 },
+      { cell: m.toIndex({ x: 2, y: 1 }), fromSubStep: 1, toSubStep: 1 },
+      { cell: m.toIndex({ x: 3, y: 1 }), fromSubStep: 2, toSubStep: 2 },
     ];
     const named = sub.entangled(probe).map((id) => sub.unitOf(id)?.wireId);
     expect(named).toContain('near');
@@ -383,7 +383,7 @@ describe('entanglement gates who has to be modelled', () => {
     );
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const m = marshalBoard(board, TURN);
-    expect(sub.entangled([{ cell: m.toIndex({ x: 1, y: 5 }), subStep: 4 }])).toHaveLength(0);
+    expect(sub.entangled([{ cell: m.toIndex({ x: 1, y: 5 }), fromSubStep: 4, toSubStep: 4 }])).toHaveLength(0);
     sub.release();
   });
 });
@@ -440,7 +440,7 @@ describe('every slab is returned', () => {
     for (const candidate of sub.enumerate(me.unitId)) {
       if (candidate.action.kind !== 'move') continue;
       const plan = new Map<UnitId, Candidate>([
-        [me.unitId, { unitId: me.unitId, to: candidate.dest, path: candidate.action.path }],
+        [me.unitId, { unitId: me.unitId, from: -1, to: candidate.dest, path: candidate.action.path }],
       ]);
       sub.withResolution(plan, 0, () => {
         ran++;
@@ -465,7 +465,7 @@ describe('every slab is returned', () => {
     for (const candidate of sub.enumerate(me.unitId)) {
       if (candidate.action.kind !== 'move') continue;
       const plan = new Map<UnitId, Candidate>([
-        [me.unitId, { unitId: me.unitId, to: candidate.dest, path: candidate.action.path }],
+        [me.unitId, { unitId: me.unitId, from: -1, to: candidate.dest, path: candidate.action.path }],
       ]);
       sub.withResolution(plan, 0, ({ resolution }) => {
         expect(resolution.state.field.slotOf(them.unitId)).toBeDefined();

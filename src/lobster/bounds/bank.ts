@@ -74,7 +74,7 @@ import type {
 } from "../contracts";
 import type { BudgetHandle } from "../contracts";
 import type { Resolution } from "../../partial-engine/index";
-import { evaluatorResidueEntry, heldUnitsOf, ledgerOf, residueOf } from "./ledger";
+import { evaluatorResidueEntry, ledgerOf, residueOf } from "./ledger";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { modelledView, isModelling } from "./substrate-ext";
@@ -253,10 +253,25 @@ export class BoundBank {
     return true;
   }
 
-  /** Release every modelled sibling this bank created. Never the input. */
+  /** Release every modelled sibling this bank created, and every resolution
+   * slab the memo still caches. Never the input substrate itself. */
   release(): void {
     for (const v of this.views.values()) v.release();
     this.views.clear();
+    this.memo.release();
+  }
+
+  /**
+   * The units this decision does not control and has not fixed by reference —
+   * the held set under the plan-domain rule, asked of the SUBSTRATE rather
+   * than of an engine field (the substrate's base state keeps every unit live
+   * and holds per-resolve, so its field carries no slots to read).
+   */
+  private uncontrolled(): ReadonlyArray<UnitId> {
+    const ours = new Set(this.memo.commandable(this.input.asTeam));
+    return this.memo
+      .unitIds()
+      .filter((id) => !ours.has(id) && !this.referenceActions.has(id));
   }
 
   // ------------------------------------------------------------------ views
@@ -290,7 +305,7 @@ export class BoundBank {
     rung: Rung,
     replies: ReadonlyMap<UnitId, Candidate> | null,
   ): Branch {
-    const resolution = view.resolveBoundedFor(plan, this.input.asTeam);
+    const { resolution } = view.resolveBoundedFor(plan, this.input.asTeam);
     const bound: Bound = this.input.evaluate.scorePlan(view, plan, this.input.asTeam);
     let ledger: ReadonlyArray<LedgerEntry> = ledgerOf(resolution);
     if (ledger.length === 0 && bound.hi - bound.lo > BOUND_EPSILON) {
@@ -322,7 +337,10 @@ export class BoundBank {
   private optionsFor(view: Substrate, unitId: UnitId): { options: ReadonlyArray<Candidate>; complete: boolean } {
     const hit = this.optionCache.get(unitId);
     if (hit) return hit;
-    const set = this.input.gen.candidatesFor(view, unitId);
+    // ADVERSARY purpose: the complete legal option list, by contract. The
+    // generator's own-side prunes — exact ones included — would read as
+    // incompleteness here, and an enemy's pruning rationale is ours, not its.
+    const set = this.input.gen.candidatesFor(view, unitId, "adversary");
     // COMPLETE means every legal staged move is in the list. A pruned option
     // is a WHICH-truncation whatever the prune's own confidence: an enemy's
     // pruning rationale is ours, not its.
@@ -367,7 +385,7 @@ export class BoundBank {
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;
       if (this.cfg.b3 && gated.length > 0) {
-        const held = heldUnitsOf(this.memo.state).filter((id) => !this.referenceActions.has(id));
+        const held = this.uncontrolled();
         const coversEverything = held.every((id) => gated.includes(id));
         const view = this.viewFor(gated);
         const lists = gated.map((id) => ({ id, ...this.optionsFor(view, id) }));
@@ -605,7 +623,7 @@ export class BoundBank {
    * a unit left out simply stays held at a sound bound.
    */
   private gate(plan: JointPlan, ledger: ReadonlyArray<LedgerEntry>): ReadonlyArray<UnitId> {
-    const held = new Set(heldUnitsOf(this.memo.state).filter((id) => !this.referenceActions.has(id)));
+    const held = new Set(this.uncontrolled());
     if (held.size === 0) return [];
     let pool: UnitId[];
     if (this.cfg.gateOnEntanglement) {

@@ -28,6 +28,11 @@ import {
 import { bounds, cand, ledgerEntry, plan, score } from "./lobster-harness"
 
 const SIGHTED = channelPolicyFor("SIGHTED")
+
+/** These suites script a FINITE cliff (the orchestration workspace's value);
+ * the production default is the system DEAD (−∞), pinned in the postures
+ * suite. Passed explicitly wherever a scripted −1000 must read as the cliff. */
+const CLIFF = -1000
 const FOGGED = channelPolicyFor("FOGGED-DISCRIMINATING")
 const VACUOUS = channelPolicyFor("FOGGED-VACUOUS")
 
@@ -255,7 +260,7 @@ describe("sticky staging (F1/F2 and the dead-dethroned-by-the-living rule)", () 
 
   it("derives its rows from a scored plan, cliff included", () => {
     const p = plan([1, 4])
-    const r = stagingRowOf(score(p, -1000, 60, { ledger: [ledgerEntry(9)] }), 12, 2)
+    const r = stagingRowOf(score(p, -1000, 60, { ledger: [ledgerEntry(9)] }), 12, 2, CLIFF)
     expect(r).toMatchObject({ key: planKey(p), lo: -1000, est: 12, hi: 60, horizon: 2 })
     expect(r.vacuity).toBe("cloud-contingent-dead")
   })
@@ -476,14 +481,14 @@ describe("the corrected lever order", () => {
 describe("the demand a vacuous floor makes", () => {
   it("is serviceable when a cited unit is refinable, and not when none is", () => {
     const s = score(plan([1, 4]), -1000, 40, { ledger: [ledgerEntry(7)] })
-    expect(demandOf(s, [unit({ unitId: 7, refinable: true })]).serviceable).toBe(true)
-    expect(demandOf(s, [unit({ unitId: 7, refinable: false })]).serviceable).toBe(false)
-    expect(demandOf(s, [unit({ unitId: 9, refinable: true })]).serviceable).toBe(false)
+    expect(demandOf(s, [unit({ unitId: 7, refinable: true })], CLIFF).serviceable).toBe(true)
+    expect(demandOf(s, [unit({ unitId: 7, refinable: false })], CLIFF).serviceable).toBe(false)
+    expect(demandOf(s, [unit({ unitId: 9, refinable: true })], CLIFF).serviceable).toBe(false)
   })
 
   it("is not a demand at all when the death is material", () => {
     const s = score(plan([1, 4]), -1000, -1000, { ledger: [ledgerEntry(7)] })
-    expect(demandOf(s, [unit({ unitId: 7 })])).toMatchObject({
+    expect(demandOf(s, [unit({ unitId: 7 })], CLIFF)).toMatchObject({
       cause: "material-dead",
       demand: false,
       serviceable: false,

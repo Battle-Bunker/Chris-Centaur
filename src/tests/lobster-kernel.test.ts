@@ -47,6 +47,10 @@ const step = (over: Partial<ScriptStep> & { worst: number; best: number }): Scri
 
 const RUNG0: Bound = { lo: -990, est: 1, hi: 990 }
 
+/** The scripted FINITE cliff these suites use where vacuity must trigger; the
+ * production default is the system DEAD (−∞), pinned in the postures suite. */
+const CLIFF = -1000
+
 interface Rig {
   readonly clock: FakeClock
   readonly sub: StubSubstrate
@@ -619,7 +623,7 @@ describe("postures on the wire", () => {
         step({ plan: P1, worst: -1000, best: 40, ledger: cloudDead }),
         step({ plan: P1, worst: -1000, best: 30, ledger: cloudDead }),
       ],
-      {},
+      { deadBelow: CLIFF },
       { baseline: P1 },
     )
     await collect(r.kernel.decide(r.input()))
@@ -761,7 +765,7 @@ describe("FOGGED-VACUOUS on the wire", () => {
         step({ plan: P2, worst: -1000, best: 35, ledger: cloudDead }),
         step({ plan: P3, worst: -1000, best: 30, ledger: cloudDead }),
       ],
-      { switchMargin: 1 },
+      { switchMargin: 1, deadBelow: CLIFF },
       {
         baseline: P1,
         evaluator: new StubEvaluator((p: JointPlan) => ({

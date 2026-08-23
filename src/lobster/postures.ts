@@ -33,30 +33,24 @@
  * never compared with one computed under another).
  */
 
-import type { Assumption, Posture, ScoreBounds, UnitId } from "./contracts"
+import type { Assumption, Posture, ScoreBounds, UnitId, VacuityCause } from "./contracts"
+import { DEAD } from "./bounds"
 
 /**
  * Scores at or below this are DEAD — a lattice bottom, not a point on the
- * heuristic scale. The evaluator owns the real constant; this is the default
- * the governor uses when the caller does not say. It MUST agree with the
- * evaluator's own DEAD sentinel (integrator item).
+ * heuristic scale. The default IS the system's own sentinel (−∞, shared by
+ * the engine, the evaluate module and the bounds layer; the agreement is
+ * pinned by test), so the governor's cliff and the evaluator's cliff can
+ * never disagree by default. Callers pairing the governor with an evaluator
+ * that uses a DIFFERENT finite cliff (a scripted harness, say) pass that
+ * value explicitly — every entry point takes it as a parameter.
  */
-export const DEFAULT_DEAD_BELOW = -1000
+export const DEFAULT_DEAD_BELOW: number = DEAD
 
 // ---------------------------------------------------------- vacuity detector
 
-/**
- * Why a candidate's floor sits on the cliff.
- *
- *   alive                 lo is above the cliff; nothing to explain.
- *   material-dead         dead in the optimistic reading too, or with nothing
- *                         in the pessimistic ledger to blame — the death is
- *                         real, not a cloud artefact. A VERDICT.
- *   cloud-contingent-dead lo is DEAD only because feared presences were read
- *                         at their worst; hi survives. A DEMAND on the
- *                         refiner, never a verdict (orchestration F2).
- */
-export type VacuityCause = "alive" | "material-dead" | "cloud-contingent-dead"
+/** Re-exported from the contract, where the kernel/voc lever types read it. */
+export type { VacuityCause }
 
 export interface VacuityVerdict {
   readonly cause: VacuityCause
