@@ -380,7 +380,7 @@ describe('BUG REPROS (V1) — tentative pins are not actually searched', () => {
    * The kernel builds the speculative context by CONCATENATING the tentative
    * pin as-is (`pickContext`), so the speculative search receives the pin and
    * ignores it: it searches the UNCONSTRAINED problem under a name that claims
-   * otherwise. Measured over 8 boards: 0 of 296 speculative slices honoured the
+   * otherwise. Measured over 8 boards: 0 of 289 speculative slices honoured the
    * tentative pin they were named for.
    */
   test.skip('V1-BUG-4: a speculative context honours the tentative pin it is named for', async () => {
