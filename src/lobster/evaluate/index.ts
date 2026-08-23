@@ -1,0 +1,168 @@
+/**
+ * THE EVALUATOR — one joint plan in, one {lo, est, hi} triple out.
+ *
+ * The whole layer is three moves:
+ *
+ *   1. RESOLVE ONCE. The engine's own subject-frame fold comes back with the
+ *      resolution, so material (with the cliff inside it) costs nothing extra
+ *      and cannot disagree with the position it is scoring.
+ *   2. FOLD the non-negatively weighted features. A weighted sum of
+ *      monotone-bounded features is itself monotone-bounded, so R1–R3 lift to
+ *      the total for free.
+ *   3. CLAMP, ORDERED. Terminal outcomes are lattice elements, applied by
+ *      replacement and not by addition, with our own elimination checked before
+ *      anyone else's.
+ *
+ * ── WHAT THIS IS NOT ───────────────────────────────────────────────────────
+ *
+ * It is not a per-unit score that a search may sum. Every evaluation is of the
+ * FULL joint move set, resolved as one turn; per-unit quantities may order work
+ * and may never compose into a value. Summed per-unit values fail to cover
+ * joint value in both directions — measured, repeatedly, by more than one
+ * workspace.
+ *
+ * It is also not a comparator. `est` orders moves among floor ties and never
+ * decides anything; a floor comparison reads `lo`, a ceiling reads `hi`, and
+ * two bounds built over different assumption sets are not comparable at all —
+ * that refusal is the bound bank's to enforce, and `basis` below is what it
+ * enforces it with.
+ */
+
+import type { Bound, Evaluator, JointPlan, UnitId } from '../contracts';
+import { EngineSubstrate } from '../substrate';
+import type { Substrate } from '../contracts';
+import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
+import type { Evaluation, Weights } from './bound';
+import { DEFAULT_PROFILE } from './calibration';
+import type { CriterionProfile } from './calibration';
+import { FEATURES, makeContext, terminalVerdicts } from './features';
+import type { EvalContext } from './features';
+
+export * from './bound';
+export * from './calibration';
+export {
+  FEATURES,
+  buildArrivals,
+  healthEconomyFeature,
+  kingMarginFeature,
+  makeContext,
+  materialBounds,
+  materialFeature,
+  reachFeature,
+  standingOf,
+  terminalVerdicts,
+} from './features';
+export type { EvalContext, Standing } from './features';
+export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
+export type { LawCase, LawResult } from './laws';
+
+/** Everything a consumer might want from one evaluation, not just the triple. */
+export interface PlanEvaluation {
+  readonly bound: Bound;
+  /** Per-feature contributions, before weighting. */
+  readonly parts: Readonly<Record<string, Bound>>;
+  /**
+   * True when the value is a proof: nothing held could have changed it. This is
+   * the discharge theorem's local form — an empty ledger AND an empty
+   * assumption basis AND a collapsed interval.
+   */
+  readonly exact: boolean;
+  /**
+   * The unit ids whose caller-declared narrowings this value is conditional on.
+   * A score carrying a non-empty basis may never be compared with one carrying
+   * a different basis.
+   */
+  readonly basis: ReadonlyArray<UnitId>;
+  /** How many contingency entries the resolution recorded — the work list. */
+  readonly ledgerSize: number;
+  /** Whether the two terminal readings fired, and which way. */
+  readonly terminal: { readonly loClamped: boolean; readonly hiClamped: boolean };
+}
+
+export class BoundEvaluator implements Evaluator {
+  readonly profile: CriterionProfile;
+  private readonly weights: Weights;
+
+  constructor(profile: CriterionProfile = DEFAULT_PROFILE) {
+    this.profile = profile;
+    this.weights = profile.weights;
+  }
+
+  scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {
+    return this.evaluatePlan(sub, plan, asTeam).bound;
+  }
+
+  evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation {
+    if (!(sub instanceof EngineSubstrate)) {
+      throw new TypeError(
+        'the evaluator needs the engine substrate: the per-team fold and the claim ' +
+          'field are not on the Substrate interface'
+      );
+    }
+    return sub.withResolution(plan, asTeam, ({ resolution, bounds, touched }) => {
+      const ctx = makeContext(
+        sub,
+        resolution,
+        bounds,
+        touched,
+        asTeam,
+        this.profile.reachHorizonTurns
+      );
+      const evaluation: Evaluation = fold(FEATURES, ctx, this.weights);
+      return finish(ctx, evaluation);
+    });
+  }
+}
+
+/**
+ * The clamp step, kept separate so the law harness can exercise it directly.
+ *
+ * ORDERING, AND WHY IT IS NOT A SUM. Our own elimination is checked before
+ * anyone else's, in each reading independently. Adding a "my team wiped" term to
+ * a "their team wiped" term lets the two cancel, and a mutual annihilation then
+ * scores as a wash — which is how an evaluator ends up trading its own last unit
+ * for the opponent's. It is not a wash: it is a loss.
+ */
+export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
+  const { worst, best } = terminalVerdicts(ctx);
+
+  const lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : evaluation.total.lo;
+  const hi = best.subjectGone ? DEAD : best.othersGone ? WIN : evaluation.total.hi;
+
+  // Elimination in the BEST world implies elimination in the worst (our
+  // best-world alive set contains our worst-world one), and a clean sweep in
+  // the worst world implies one in the best. So the clamps can only ever
+  // tighten an interval, never invert it — asserted rather than assumed.
+  const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
+
+  const basis = ctx.resolution.state.field.assumptions();
+  return {
+    bound: {
+      lo: clamped.lo,
+      est: clampEst(evaluation.total.est, clamped.lo, clamped.hi),
+      hi: clamped.hi,
+    },
+    parts: evaluation.parts,
+    exact:
+      evaluation.exact &&
+      ctx.resolution.ledger.length === 0 &&
+      basis.length === 0 &&
+      clamped.lo === clamped.hi,
+    basis,
+    ledgerSize: ctx.resolution.ledger.length,
+    terminal: {
+      loClamped: worst.subjectGone || worst.othersGone,
+      hiClamped: best.subjectGone || best.othersGone,
+    },
+  };
+}
+
+/** The evaluator with the calibrated profile. */
+export const defaultEvaluator = new BoundEvaluator();
+
+/** A material-only evaluator: the reflex rung's, and the differential's. */
+export const materialEvaluator = new BoundEvaluator({
+  name: 'material-only',
+  weights: { material: 10, reach: 0, healthEconomy: 0, kingMargin: 0 },
+  reachHorizonTurns: 0,
+});
