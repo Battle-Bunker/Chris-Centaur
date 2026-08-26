@@ -19,9 +19,13 @@ import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
   BoundEvaluator,
+  CLIFF_MATERIAL_WEIGHT,
   DEAD,
+  DEFAULT_PROFILE,
   DEFAULT_WEIGHTS,
+  REACH_HORIZON_TURNS,
   SPECIALIST_FACTS,
+  TERRITORY_PROFILE,
   WIN,
   checkCollapse,
   checkMonotone,
@@ -566,10 +570,43 @@ describe('calibration is data', () => {
     for (const [, w] of Object.entries(DEFAULT_WEIGHTS)) expect(w).toBeGreaterThanOrEqual(0);
   });
 
-  test('material dominates the ordering terms by an order of magnitude', () => {
-    const others = Object.entries(DEFAULT_WEIGHTS)
-      .filter(([k]) => k !== 'material')
-      .map(([, w]) => w);
-    expect(DEFAULT_WEIGHTS.material).toBeGreaterThanOrEqual(10 * Math.max(...others));
+  test('material is the scale, and every ordering term is priced under it', () => {
+    // The old form of this test asserted `material >= 10 × every other weight`,
+    // which is a PROXY for the thing that actually matters and stops being a
+    // safe one the moment a feature's range is not ~1. The real invariant is
+    // the cliff inequality — `w_feature × observed range < 10 × lightest unit
+    // weight` — and it is asserted against MEASURED ranges on the acceptance
+    // boards in src/tests/territory-acceptance.test.ts. What belongs here is
+    // the structural half: material sets the scale, and nothing else comes
+    // close to the cost of one unit.
+    for (const [key, w] of Object.entries(DEFAULT_WEIGHTS)) {
+      if (key === 'material') continue;
+      expect([key, w < DEFAULT_WEIGHTS.material]).toEqual([key, true]);
+      // A single unit of material is 10; no ordering term may price a whole
+      // unit's worth of anything per unit of its own range.
+      expect([key, w * 1 < CLIFF_MATERIAL_WEIGHT]).toEqual([key, true]);
+    }
+  });
+
+  test('the territory profile is what production runs, and material stays available', () => {
+    expect(DEFAULT_PROFILE).toBe(TERRITORY_PROFILE);
+    expect(TERRITORY_PROFILE.name).toBe('lobster-territory');
+    expect(TERRITORY_PROFILE.weights.reach).toBe(1);
+    expect(TERRITORY_PROFILE.weights.room).toBe(3);
+    expect(TERRITORY_PROFILE.reachHorizonTurns).toBe(REACH_HORIZON_TURNS);
+    expect(REACH_HORIZON_TURNS).toBe(4);
+    // No food weight on territory, and no horizon discount: both measured
+    // worthless at the sound floor, and both are absent rather than zeroed.
+    expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual([
+      'healthEconomy',
+      'kingMargin',
+      'material',
+      'reach',
+      'room',
+    ]);
+    // The fallback profile is a real, reachable profile — not a comment.
+    expect(materialEvaluator.profile.weights.reach).toBe(0);
+    expect(materialEvaluator.profile.weights.room).toBe(0);
+    expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
   });
 });

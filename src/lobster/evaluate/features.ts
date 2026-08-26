@@ -43,17 +43,21 @@
  * the horizon and reads the answer.
  */
 
-import { Fate, NEVER, bbTest } from '../../partial-engine/index';
+import { Fate } from '../../partial-engine/index';
 import type {
   FieldSlot,
   Resolution,
   ScoreBounds,
-  StateHandle,
+  UnitKind,
 } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { type Bound, type Feature, bound, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
+import { ShellTable, buildShells } from './shells';
+import type { UnitShells } from './shells';
+import { partitionOf, workspaceFor } from './territory';
+import type { Admission, Partition } from './territory';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -62,11 +66,19 @@ import { REACH_HORIZON_TURNS } from './calibration';
 export interface Standing {
   readonly unitId: UnitId;
   readonly team: number;
+  /** The rules' own kind index. Read for CLASS properties, never by name. */
+  readonly kind: UnitKind;
   readonly isKing: boolean;
   /** True for a unit carried as a CLAIM rather than as a mover. */
   readonly held: boolean;
   readonly weightMin: number;
   readonly weightMax: number;
+  /** Invulnerability tier, as an interval: a held unit's is not known exactly. */
+  readonly tierMin: number;
+  readonly tierMax: number;
+  /** The turn the tier reverts toward 0, when known. Contests read tier at the
+   * ARRIVAL turn, so a claim's tier ceiling drops at the expiry. */
+  readonly tierExpiresAtTurn: number | null;
   /** Weight a trail unit could lose to a sever without dying. */
   readonly partialLossMax: number;
   /** Observed health. A held unit's true health is at most this. */
@@ -94,7 +106,21 @@ export interface EvalContext {
    * clamp.
    */
   readonly teams: ReadonlySet<number>;
-  /** Absolute-turn arrival grids, one per unit, built once and shared. */
+  /**
+   * Absolute-turn dilation shells, one set per unit, interned per DECISION.
+   * These are the boards the engine's own timelines hold; nothing here builds
+   * an `ArrivalGrid`, so the eager `minCost` Dijkstra behind `arrival()` — 94%
+   * of a cold flood, and read by nothing — never runs.
+   */
+  shells(): ReadonlyMap<UnitId, UnitShells>;
+  /** The two-plane partition, per reading, computed once and shared by every
+   * feature that reads territory. */
+  partition(reading: 'lo' | 'hi'): Partition<Standing>;
+  /**
+   * Absolute-turn arrival grids. Stamped from the same shells, so this is the
+   * same array `CloudTimeline.arrival().earliest` returns — pinned cell for
+   * cell by the drift differential — at none of its cost.
+   */
   arrivals(): ReadonlyMap<UnitId, Int32Array>;
 }
 
@@ -123,10 +149,14 @@ export function standingOf(
     out.push({
       unitId: view.unitId,
       team: view.team,
+      kind: view.kind,
       isKing: sub.unitOf(view.unitId)?.isKing === true,
       held: false,
       weightMin: view.weight,
       weightMax: view.weight,
+      tierMin: view.tier,
+      tierMax: view.tier,
+      tierExpiresAtTurn: view.tierExpiresAtTurn,
       partialLossMax: 0,
       health: view.health,
       cell: view.cells[0] as number,
@@ -155,10 +185,14 @@ export function standingOf(
     out.push({
       unitId: slot.record.unitId,
       team: slot.record.team,
+      kind: slot.record.kind,
       isKing: sub.unitOf(slot.record.unitId)?.isKing === true,
       held: true,
       weightMin: slot.bounds.weightMin,
       weightMax: slot.bounds.weightMax,
+      tierMin: slot.bounds.tierMin,
+      tierMax: slot.bounds.tierMax,
+      tierExpiresAtTurn: slot.record.tierExpiresAtTurn ?? null,
       partialLossMax: Math.max(0, slot.record.weight - slot.bounds.weightMin),
       health: slot.record.health,
       cell: slot.record.occupancy[0] as number,
@@ -172,39 +206,25 @@ export function standingOf(
 /**
  * ABSOLUTE-TURN ARRIVAL GRIDS for every unit on the resolved board.
  *
- * Live units are held at the resolution's own turn, which gives a located unit
+ * Live units are read at the resolution's own turn, which gives a located unit
  * exactly its true reach; already-held units keep their OWN `heldAtTurn`, so
- * their head start rides in as a seed. One fork, one hold, one grid per unit,
- * and the fork goes straight back.
+ * their head start rides in as a seed.
+ *
+ * There is no fork and no hold set here any more: a live unit's frozen record
+ * is a pure function of its view, and building one directly is 8–19 µs per
+ * evaluation cheaper than asking the engine to stage the unit just so we can
+ * read its dilation. And the grids are stamped from the shells rather than
+ * taken off `arrival()`, so the eager `minCost` Dijkstra never runs.
  */
 export function buildArrivals(
   sub: EngineSubstrate,
   resolution: Resolution,
-  horizonTurns: number
+  horizonTurns: number,
+  table: ShellTable = new ShellTable(sub.grid)
 ): Map<UnitId, Int32Array> {
   const out = new Map<UnitId, Int32Array>();
-  if (horizonTurns <= 0) return out;
-  const engine = sub.engine;
-  const horizon = resolution.state.turn + horizonTurns;
-
-  // Already-claimed units first: their timelines are on the resolution's own
-  // field and need no fork at all.
-  for (const slot of resolution.state.field.slots) {
-    out.set(slot.record.unitId, slot.timeline.arrival(horizon).earliest);
-  }
-
-  const live = engine.liveSlots(resolution.state);
-  if (live.length === 0) return out;
-  let fork: StateHandle | null = null;
-  try {
-    fork = engine.fork(resolution.state);
-    const held = engine.holdMany(fork, live);
-    for (const slot of held.field.slots) {
-      if (out.has(slot.record.unitId)) continue;
-      out.set(slot.record.unitId, slot.timeline.arrival(horizon).earliest);
-    }
-  } finally {
-    if (fork !== null) engine.release(fork);
+  for (const [unitId, sh] of buildShells(sub, resolution, horizonTurns, table)) {
+    out.set(unitId, sh.earliest());
   }
   return out;
 }
@@ -218,8 +238,14 @@ export function makeContext(
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
-  let cached: ReadonlyMap<UnitId, Int32Array> | null = null;
-  return {
+  const ws = workspaceFor(sub);
+  let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
+  let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
+  const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
+    lo: null,
+    hi: null,
+  };
+  const ctx: EvalContext = {
     sub,
     asTeam,
     resolution,
@@ -227,12 +253,45 @@ export function makeContext(
     standing,
     horizonTurns,
     teams,
+    shells() {
+      if (shellsCache === null) {
+        shellsCache = buildShells(sub, resolution, horizonTurns, ws.table);
+      }
+      return shellsCache;
+    },
+    partition(reading) {
+      const hit = parts[reading];
+      if (hit !== null) return hit;
+      const made = partitionOf(ws, standing, ctx.shells(), asTeam, ADMISSION[reading]);
+      parts[reading] = made;
+      return made;
+    },
     arrivals() {
-      if (cached === null) cached = buildArrivals(sub, resolution, horizonTurns);
-      return cached;
+      if (arrivalsCache === null) {
+        const out = new Map<UnitId, Int32Array>();
+        for (const [unitId, sh] of ctx.shells()) out.set(unitId, sh.earliest());
+        arrivalsCache = out;
+      }
+      return arrivalsCache;
     },
   };
+  return ctx;
 }
+
+/**
+ * WHO IS ON THE BOARD, per reading. Not mirror images, and the asymmetry is the
+ * soundness: a cloud's `earliest` is a LOWER bound on when a unit could be
+ * somewhere, so it is optimistic about that unit — right for an ENEMY in our
+ * worst reading and for OURSELVES in our best, and exactly wrong the other way
+ * round. A held teammate contributes nothing to `lo` because nothing bounds its
+ * arrival from above; a held enemy contributes nothing to `hi` for the same
+ * reason. With nothing held both readings admit the same units at the same
+ * exact arrivals, so every territory feature collapses to a point.
+ */
+export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
+  lo: { ours: (s) => s.worstAlive && !s.held, theirs: (s) => s.worstAlive },
+  hi: { ours: (s) => s.bestAlive, theirs: (s) => s.bestAlive && !s.held },
+};
 
 // ---------------------------------------------------------------------------
 // F1 — material (the cliff lives inside it)
@@ -300,24 +359,13 @@ export function materialBounds(ctx: EvalContext): { worst: number; best: number 
 // ---------------------------------------------------------------------------
 
 /**
- * Contested reach: cells our team arrives at strictly before anyone else, minus
- * theirs, normalised by the open board.
+ * Contested reach: cells our team holds under the two-plane rule, minus theirs,
+ * normalised by the open board.
  *
- * THE TWO READINGS ARE NOT MIRROR IMAGES, and the asymmetry is the soundness.
- * A cloud's `earliest` is a LOWER bound on when a unit could be somewhere, so
- * it is optimistic about that unit — which is what we want for an ENEMY in our
- * worst reading and for OURSELVES in our best reading, and exactly wrong the
- * other way round. So:
- *
- *   lo  our LOCATED units only, against every enemy the worst world admits at
- *       its earliest possible arrival. A held teammate contributes nothing,
- *       because nothing bounds its arrival from above.
- *   hi  every unit of ours the best world admits, at its earliest, against our
- *       enemies' located units only.
- *
- * With nothing held both readings see the same units at the same exact
- * arrivals, so the feature collapses to a point — R3, visibly rather than by
- * assertion.
+ * The partition is `./territory.ts` — trail units divide the board, pieces
+ * displace at the decisive turn — and it is computed once per reading and
+ * shared with `room`, because two features reading the same partition through
+ * two encodings is exactly the drift the one-pipeline rule exists to forbid.
  */
 export const reachFeature: Feature<EvalContext> = {
   key: 'reach',
@@ -325,6 +373,8 @@ export const reachFeature: Feature<EvalContext> = {
   contract: {
     reads: [
       { input: 'held-arrival', monotone: 'up' },
+      { input: 'held-weight', monotone: 'down' },
+      { input: 'held-tier', monotone: 'down' },
       { input: 'contingent-survival', monotone: 'down' },
     ],
     cliff: false,
@@ -332,59 +382,75 @@ export const reachFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const arrivals = ctx.arrivals();
-    if (arrivals.size === 0) return point(0);
-
-    const lo = territory(ctx, arrivals, {
-      ours: (s) => s.worstAlive && !s.held,
-      theirs: (s) => s.worstAlive,
-    });
-    const hi = territory(ctx, arrivals, {
-      ours: (s) => s.bestAlive,
-      theirs: (s) => s.bestAlive && !s.held,
-    });
+    const lo = ctx.partition('lo').balance;
+    const hi = ctx.partition('hi').balance;
     return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
   },
 };
 
-function territory(
-  ctx: EvalContext,
-  arrivals: ReadonlyMap<UnitId, Int32Array>,
-  admit: { ours: (s: Standing) => boolean; theirs: (s: Standing) => boolean }
-): number {
-  const cells = ctx.sub.grid.cells;
-  const wall = ctx.sub.terrain.wall;
-  const ourBest = new Int32Array(cells).fill(NEVER);
-  const theirBest = new Int32Array(cells).fill(NEVER);
+// ---------------------------------------------------------------------------
+// F3 — per-unit room (the death predictor a team partition cannot see)
+// ---------------------------------------------------------------------------
 
-  for (const s of ctx.standing) {
-    const grid = arrivals.get(s.unitId);
-    if (grid === undefined) continue;
-    const mine = s.team === ctx.asTeam;
-    if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
-    const dst = mine ? ourBest : theirBest;
-    for (let c = 0; c < cells; c++) {
-      const e = grid[c] as number;
-      if (e < (dst[c] as number)) dst[c] = e;
-    }
-  }
+/**
+ * A team-partition difference is blind to WHICH of our units is suffocating:
+ * one boxed snake and two roomy ones nets a perfectly healthy team territory,
+ * and then the boxed one dies. The signal that actually discriminates is
+ * per-unit and continuous — a unit's own region dropping through its own body
+ * length, five to nine turns before the death, on positions where material is
+ * flat and the binary trapped flag never fires at all.
+ *
+ *     R(u)  cells u reaches strictly before every other admitted trail unit,
+ *           teammates included — plane 1 only, so the tie-dominated all-kinds
+ *           reading can never starve it
+ *     g(u)  min(1, sqrt(R(u) / len(u)))
+ *     room  Σ ours g(u) − Σ theirs g(u)
+ *
+ * A SUM OF SATURATING TERMS, NEVER A MIN. A min over our units is unbounded
+ * below the moment any teammate is held — `lo` collapses to 0 and reproduces
+ * exactly the vacuity the bound exists to avoid. The sum bounds cleanly (a held
+ * teammate contributes between 0 and 1), still punishes confinement, collapses
+ * under R3 and is monotone under R2.
+ *
+ * The LENGTH each term divides by is an interval endpoint too, and it is chosen
+ * against the term: a term being maximised in a reading takes the SMALLEST
+ * admissible length, one being minimised takes the largest. For a located unit
+ * the two are equal, so this only moves where something is genuinely held.
+ */
+export const roomFeature: Feature<EvalContext> = {
+  key: 'room',
+  defaultWeight: 3,
+  contract: {
+    reads: [
+      { input: 'held-arrival', monotone: 'up' },
+      { input: 'held-weight', monotone: 'down' },
+      { input: 'contingent-survival', monotone: 'down' },
+    ],
+    cliff: false,
+    dischargeable: true,
+  },
+  evaluate(ctx) {
+    if (ctx.horizonTurns <= 0) return point(0);
+    const lo = roomSum(ctx.partition('lo'), 'lo');
+    const hi = roomSum(ctx.partition('hi'), 'hi');
+    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+  },
+};
 
-  let ours = 0;
-  let theirs = 0;
-  let open = 0;
-  for (let c = 0; c < cells; c++) {
-    if (bbTest(wall, c)) continue;
-    open++;
-    const a = ourBest[c] as number;
-    const b = theirBest[c] as number;
-    if (a < b) ours++;
-    else if (b < a) theirs++;
+function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
+  let total = 0;
+  for (const t of partition.trails) {
+    // The endpoint that hurts the reading: our term shrinks, theirs grows.
+    const wantSmall = reading === 'lo' ? t.mine : !t.mine;
+    const len = Math.max(1, wantSmall ? t.subject.weightMax : t.subject.weightMin);
+    const g = Math.min(1, Math.sqrt(t.owned / len));
+    total += t.mine ? g : -g;
   }
-  return open === 0 ? 0 : (ours - theirs) / open;
+  return total;
 }
 
 // ---------------------------------------------------------------------------
-// F3 — health economy
+// F4 — health economy
 // ---------------------------------------------------------------------------
 
 /**
@@ -432,7 +498,7 @@ export const healthEconomyFeature: Feature<EvalContext> = {
 };
 
 // ---------------------------------------------------------------------------
-// F4 — the king weight margin (specialist data row 2)
+// F5 — the king weight margin (specialist data row 2)
 // ---------------------------------------------------------------------------
 
 /**
@@ -468,7 +534,9 @@ export const kingMarginFeature: Feature<EvalContext> = {
     if (ctx.horizonTurns <= 0) return point(0);
     const kings = ctx.standing.filter((s) => s.isKing && s.team === ctx.asTeam);
     if (kings.length === 0) return point(0);
-    const arrivals = ctx.arrivals();
+    // One membership test on the shells, not a whole arrival grid: the question
+    // is "can this unit be on that ONE square by next turn".
+    const shells = ctx.shells();
     const cap = Math.max(1, ...ctx.standing.map((s) => s.weightMax));
     const nextTurn = ctx.resolution.state.turn + 1;
 
@@ -480,9 +548,9 @@ export const kingMarginFeature: Feature<EvalContext> = {
       let bestThreat = 0;
       for (const s of ctx.standing) {
         if (s.team === ctx.asTeam) continue;
-        const grid = arrivals.get(s.unitId);
-        if (grid === undefined) continue;
-        if ((grid[king.cell] as number) > nextTurn) continue;
+        const sh = shells.get(s.unitId);
+        if (sh === undefined) continue;
+        if (!sh.reachesBy(king.cell, nextTurn)) continue;
         if (s.worstAlive) worstThreat = Math.max(worstThreat, s.weightMax);
         if (s.bestAlive && !s.held) bestThreat = Math.max(bestThreat, s.weightMax);
       }
@@ -549,6 +617,7 @@ export function terminalVerdicts(ctx: EvalContext): {
 export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   materialFeature,
   reachFeature,
+  roomFeature,
   healthEconomyFeature,
   kingMarginFeature,
 ];
@@ -556,3 +625,5 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
 /** Re-exported so a consumer can read a held unit's interval without the engine. */
 export type { FieldSlot };
 export type { Bound };
+export type { UnitShells } from './shells';
+export type { Partition, TrailRoom } from './territory';

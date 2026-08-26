@@ -47,13 +47,47 @@
 export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
   /** Subject-frame material with the survival cliff already folded in. */
   material: 10,
-  /** Contested reach, grammar-flooded with absolute-turn seeding. */
+  /**
+   * Contested reach under the two-plane partition. ONE is the value the
+   * measured head-to-head win was obtained at (paired, side-swapped, 22 seeds,
+   * +1.59 [+1.00, +2.14] in paired score against the material-only profile),
+   * and it sits an order of magnitude inside the cliff ceiling below.
+   */
   reach: 1,
+  /**
+   * Per-unit room — the death predictor. Territory-count carries the food and
+   * growth share of the deficit; this carries the ~20–24% that is deaths, and
+   * a team partition structurally cannot see it. Three is a starting point
+   * backed by the acceptance positions and by the cliff inequality, and NOT
+   * (yet) by a head-to-head of its own: say so rather than implying otherwise.
+   */
+  room: 3,
   /** Health as a movement budget, not a clock. */
   healthEconomy: 0.5,
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
 };
+
+/**
+ * THE CLIFF INEQUALITY — the one thing that turns "territory is a tie-breaker"
+ * from a convention into a checked invariant.
+ *
+ *     w_feature × (observed range of the feature across candidates)
+ *         <  10 × (lightest unit weight)
+ *
+ * The binding constraint is not the cliff itself: the cliff is preserved at any
+ * weight, by construction. A contingent unit of ours has `worstAlive = false`,
+ * so it is dropped from `lo` by the SAME predicate material uses — territory of
+ * a unit that might die is zero in the floor, exactly as its material is. What
+ * needs protecting is the TRADE: an ordering term must never outrank a
+ * contingent death, and losing the lightest possible unit costs
+ * `10 × weight`. Terminal outcomes need no protection at all, because DEAD is a
+ * lattice bottom applied by replacement and never by addition.
+ *
+ * `src/tests/territory-acceptance.test.ts` measures the observed range on the
+ * acceptance boards and asserts this for both territory features.
+ */
+export const CLIFF_MATERIAL_WEIGHT = 10;
 
 /**
  * How many turns ahead the reach flood runs. Shells are keyed by ABSOLUTE
@@ -118,15 +152,34 @@ export interface CriterionProfile {
   readonly reachHorizonTurns: number;
 }
 
-export const DEFAULT_PROFILE: CriterionProfile = {
-  name: 'lobster-default',
+/**
+ * THE PRODUCTION PROFILE. Territory-carrying, because the deficit against the
+ * legacy path was measured to be in the OBJECTIVE and not in the search: a
+ * material-only maximin is blind to food more than one move away and to a unit
+ * suffocating five turns before it dies, and it plays positionally passive over
+ * thirty turns as a result.
+ *
+ * No food weight on territory: measured worthless at the sound floor, because a
+ * floor concedes every cell an optimistic enemy could beat you to and food is
+ * precisely what both sides run at (the floor owned 0.08 food cells per board
+ * and conceded 0.62; the argmax moved in 1 of 48 samples). The food race is
+ * bought INDIRECTLY, through the ordering.
+ *
+ * No horizon discounting: Kendall τ 0.96–1.00 against the undiscounted argmin.
+ * It is a re-parameterisation of the same ordering, not information.
+ */
+export const TERRITORY_PROFILE: CriterionProfile = {
+  name: 'lobster-territory',
   weights: DEFAULT_WEIGHTS,
   reachHorizonTurns: REACH_HORIZON_TURNS,
 };
 
-/** Material only — the profile a differential or a 1 ms reflex rung wants. */
+export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
+
+/** Material only — the profile a differential or a 1 ms reflex rung wants, and
+ * the explicit fallback if the territory profile ever has to be backed out. */
 export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
   name: 'material-only',
-  weights: { material: 10, reach: 0, healthEconomy: 0, kingMargin: 0 },
+  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0 },
   reachHorizonTurns: 0,
 };

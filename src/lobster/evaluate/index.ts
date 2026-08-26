@@ -38,7 +38,7 @@ import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
 import type { Evaluation, Weights } from './bound';
-import { DEFAULT_PROFILE } from './calibration';
+import { DEFAULT_PROFILE, MATERIAL_ONLY_PROFILE } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
 import type { EvalContext } from './features';
@@ -46,6 +46,7 @@ import type { EvalContext } from './features';
 export * from './bound';
 export * from './calibration';
 export {
+  ADMISSION,
   FEATURES,
   buildArrivals,
   healthEconomyFeature,
@@ -54,10 +55,14 @@ export {
   materialBounds,
   materialFeature,
   reachFeature,
+  roomFeature,
   standingOf,
   terminalVerdicts,
 } from './features';
-export type { EvalContext, Standing } from './features';
+export type { EvalContext, Standing, UnitShells } from './features';
+export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
+export { partitionOf, tierAtTurn, workspaceFor } from './territory';
+export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
@@ -145,12 +150,13 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
   };
 }
 
-/** The evaluator with the calibrated profile. */
+/** The evaluator with the calibrated profile — the TERRITORY profile, which is
+ * what production runs. */
 export const defaultEvaluator = new BoundEvaluator();
 
-/** A material-only evaluator: the reflex rung's, and the differential's. */
-export const materialEvaluator = new BoundEvaluator({
-  name: 'material-only',
-  weights: { material: 10, reach: 0, healthEconomy: 0, kingMargin: 0 },
-  reachHorizonTurns: 0,
-});
+/** The same thing under the name that says what it carries. */
+export const territoryEvaluator = defaultEvaluator;
+
+/** A material-only evaluator: the reflex rung's, the differential's, and the
+ * explicit fallback profile if territory ever has to be backed out. */
+export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);
