@@ -100,7 +100,8 @@ export class BoundEvaluator implements Evaluator {
         resolution,
         bounds,
         asTeam,
-        this.profile.reachHorizonTurns
+        this.profile.reachHorizonTurns,
+        this.profile.royalReachers
       );
       const evaluation: Evaluation = fold(FEATURES, ctx, this.weights);
       return finish(ctx, evaluation);

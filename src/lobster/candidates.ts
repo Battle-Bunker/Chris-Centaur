@@ -70,6 +70,8 @@ import { profileOf, scalarOf } from '../partial-engine/index';
 import type { EncounterVerdict, RiskAssessor, TraversalVerdict } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
+import { certainlySelfFatal, killsOwnKing, stagingSafety } from './staging-safety';
+import type { StagingSafety } from './staging-safety';
 import type {
   Candidate,
   CandidateGenerator,
@@ -93,6 +95,8 @@ export const PRUNE = {
   kingUnsafe: 'king-unsafe',
   selfRegicide: 'self-regicide',
   promotionRefusal: 'promotion-refusal',
+  certainSelfFatal: 'certain-self-fatal',
+  royalPath: 'royal-path',
 } as const;
 
 export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
@@ -125,6 +129,12 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.kingUnsafe]: false,
   [PRUNE.selfRegicide]: false,
   [PRUNE.promotionRefusal]: false,
+  // NOT exact, and the distinction matters. The pruned action really is fatal
+  // by rule, so no candidate that stayed resolves identically to it — the
+  // action is DELETED, not represented. That is a policy, and a policy is
+  // lossy however certain its premise.
+  [PRUNE.certainSelfFatal]: false,
+  [PRUNE.royalPath]: false,
 };
 
 /** What each lossy prune can cost, in the class of tactic it deletes. */
@@ -145,6 +155,10 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     'a move that ends our own team — kept only when the option set would otherwise be empty',
   [PRUNE.promotionRefusal]:
     'the promotion itself — a weight-1 queen is fragile, but promoting is the only way a pawn ever gains range',
+  [PRUNE.certainSelfFatal]:
+    'a move that is fatal to its own mover BY RULE with no other unit involved — a step into the perimeter, or into a body cell of the mover that cannot vacate. It costs the sacrifice whose CORPSE is worth more than the unit, which these rules do not otherwise reward: nothing is captured by walking into a wall',
+  [PRUNE.royalPath]:
+    'a move whose path crosses our own king at a strength that wins or ties the contest — certain team elimination WHILE THE KING STANDS THERE, and only while it does. It costs an escort that would have been safe because the king was leaving',
 };
 
 // ---------------------------------------------------------------------------
@@ -162,6 +176,13 @@ export interface CandidateKnobs {
   readonly refusePromotion?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
+  /**
+   * Assess a rules-certainly-self-fatal move as `doomed` and take it with a
+   * declared prune. See `./staging-safety.ts` for why the risk layer cannot.
+   */
+  readonly pruneCertainSelfFatal?: boolean;
+  /** Take a move whose path crosses our own king at a winning-or-tying strength. */
+  readonly pruneRoyalPath?: boolean;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -170,7 +191,27 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   kingHardSafety: true,
   refusePromotion: false,
   escortShadowOrdering: true,
+  // Both default OFF; `flaggedKnobs()` turns them on when the staging-safety
+  // flag asks for them, so an explicit knob in a test still wins.
+  pruneCertainSelfFatal: false,
+  pruneRoyalPath: false,
 };
+
+/**
+ * The knobs the CENTAUR_STAGING_SAFETY flag implies. Read once per generator —
+ * that is once per team decision — and overridden by anything the caller passes
+ * explicitly, so a test can exercise either polarity without touching the
+ * environment.
+ */
+export function knobsForSafety(level: StagingSafety): CandidateKnobs {
+  if (level === 'off') return {};
+  return { pruneCertainSelfFatal: true, pruneRoyalPath: true };
+}
+
+/** The knobs the process-wide flag implies, for a caller that names none. */
+export function flaggedKnobs(): CandidateKnobs {
+  return knobsForSafety(stagingSafety());
+}
 
 // ---------------------------------------------------------------------------
 // What the risk layer says about one action
@@ -205,7 +246,7 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
 
   constructor(knobs: CandidateKnobs = {}) {
-    this.knobs = { ...DEFAULT_KNOBS, ...knobs };
+    this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
   }
 
   candidatesFor(sub: Substrate, unitId: UnitId, purpose: 'ours' | 'adversary' = 'ours'): CandidateSet {
@@ -309,7 +350,19 @@ function generateAssessed(
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
 
   // ---- assessment ---------------------------------------------------------
-  const assessed = surviving.map((candidate) => assessOne(sub, unit, candidate, shadows));
+  // The risk layer answers for the CLAIM FIELD; the mover's own body and the
+  // perimeter are not in it (see ./staging-safety.ts). Correcting the tier here
+  // rather than in the prune is deliberate: `doomed` is what a certainly-fatal
+  // move IS, so the danger ORDER is right even with the prune knob off, and a
+  // sweep's candidate cap stops being spent on moves that cannot survive.
+  const certainFatal = knobs.pruneCertainSelfFatal;
+  const assessed = surviving.map((candidate) => {
+    const one = assessOne(sub, unit, candidate, shadows);
+    if (!certainFatal || one.tier === 'doomed') return one;
+    return certainlySelfFatal(sub, unit, candidate) === null
+      ? one
+      : { ...one, tier: 'doomed' as SafetyTier };
+  });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
   const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
@@ -601,6 +654,19 @@ function policyPrunes(
     }
     if (lastKing && a.tier === 'doomed') {
       pruned.push({ candidate: a.candidate, prune: PRUNE.selfRegicide, exact: false });
+      continue;
+    }
+    // Before `fatal-no-gain`, and separately from it, because the two have
+    // different premises: this one needs no assessment at all, it needs the
+    // rules. It also does not exempt a capture — nothing is captured by walking
+    // into a wall or into your own neck, so the exemption has no instances, and
+    // stating that is cheaper than relying on it.
+    if (knobs.pruneCertainSelfFatal && certainlySelfFatal(sub, unit, a.candidate) !== null) {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.certainSelfFatal, exact: false });
+      continue;
+    }
+    if (knobs.pruneRoyalPath && killsOwnKing(sub, unit, a.candidate)) {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.royalPath, exact: false });
       continue;
     }
     if (knobs.pruneFatalNoGain && a.tier === 'doomed' && a.capture === 'no') {

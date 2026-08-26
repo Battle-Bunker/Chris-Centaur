@@ -234,6 +234,10 @@ const exactOnly = new GrammarCandidateGenerator({
   pruneFatalNoGain: false,
   kingHardSafety: false,
   refusePromotion: false,
+  // Named explicitly so the suite reads the same under any environment: these
+  // two follow CENTAUR_STAGING_SAFETY when a caller leaves them out.
+  pruneCertainSelfFatal: false,
+  pruneRoyalPath: false,
 });
 
 describe('an exact prune really is exact', () => {
@@ -388,6 +392,8 @@ describe('lossy prunes are the ones behind knobs', () => {
       pruneFatalNoGain: false,
       kingHardSafety: false,
       refusePromotion: false,
+      pruneCertainSelfFatal: false,
+      pruneRoyalPath: false,
     });
     let lossy = 0;
     for (let seed = 200; seed <= 240; seed++) {

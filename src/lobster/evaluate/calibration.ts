@@ -150,6 +150,13 @@ export interface CriterionProfile {
   readonly name: string;
   readonly weights: Readonly<Record<string, number>>;
   readonly reachHorizonTurns: number;
+  /**
+   * Whether `kingMargin` counts OUR OWN units among the things that can stand
+   * on our king's square next turn. These rules have no friendly-fire
+   * exemption, so the honest answer is yes; left undefined the profile defers
+   * to `CENTAUR_ROYAL_MARGIN`, which defaults to the behaviour that shipped.
+   */
+  readonly royalReachers?: boolean;
 }
 
 /**

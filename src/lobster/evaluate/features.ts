@@ -54,6 +54,7 @@ import type {
 } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
+import { royalMargin } from '../staging-safety';
 import { type Bound, type Feature, bound, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import { ShellTable, buildShells } from './shells';
@@ -131,6 +132,8 @@ export interface EvalContext {
    * cell by the drift differential — at none of its cost.
    */
   arrivals(): ReadonlyMap<UnitId, Int32Array>;
+  /** See `CriterionProfile.royalReachers`. Read by `kingMargin` only. */
+  readonly royalReachers: boolean;
 }
 
 /**
@@ -243,7 +246,8 @@ export function makeContext(
   resolution: Resolution,
   engineMaterial: ScoreBounds,
   asTeam: number,
-  horizonTurns: number = REACH_HORIZON_TURNS
+  horizonTurns: number = REACH_HORIZON_TURNS,
+  royalReachers: boolean = royalMargin()
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
@@ -264,6 +268,7 @@ export function makeContext(
     horizonTurns,
     teams,
     roomScale,
+    royalReachers,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -557,6 +562,24 @@ export const healthEconomyFeature: Feature<EvalContext> = {
  * The two readings differ in WHO counts as a reacher: `lo` admits every unit a
  * claim allows onto the square, `hi` only located ones. With nothing held they
  * are the same set.
+ *
+ * ── WHO COUNTS AS A REACHER (CENTAUR_ROYAL_MARGIN) ─────────────────────────
+ *
+ * "The heaviest THING that can stand on its square" — and the code read only
+ * the units on other teams. These rules grant no friendly-fire exemption and
+ * spawn the king at the lightest weight on the board, so a team-mate reaching
+ * that square is not a lesser version of the danger, it is the SAME danger with
+ * the same rule behind it; and it is the larger half of it in practice —
+ * 27.0% of every king death in the measured corpus was inflicted by the dying
+ * king's own team, against a bot whose own material term prices its king at one
+ * point. Under the flag the loop reads every unit that is not this king,
+ * team-mates included, which is what the sentence above already said.
+ *
+ * It stays an ORDERING term. The floor does not need it: a resolution in which
+ * our king dies is `subjectGone`, which the terminal clamp replaces with DEAD.
+ * What this moves is `est` and `hi` — the channels that lead under fog and that
+ * order candidates the floor ties — so the king's danger is visible on the
+ * channel a starved decision actually reads.
  */
 export const kingMarginFeature: Feature<EvalContext> = {
   key: 'kingMargin',
@@ -580,6 +603,8 @@ export const kingMarginFeature: Feature<EvalContext> = {
     const cap = Math.max(1, ...ctx.standing.map((s) => s.weightMax));
     const nextTurn = ctx.resolution.state.turn + 1;
 
+    const friendlyReachers = ctx.royalReachers;
+
     let lo = Number.POSITIVE_INFINITY;
     let hi = Number.POSITIVE_INFINITY;
     for (const king of kings) {
@@ -587,7 +612,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
       let worstThreat = 0;
       let bestThreat = 0;
       for (const s of ctx.standing) {
-        if (s.team === ctx.asTeam) continue;
+        if (friendlyReachers ? s.unitId === king.unitId : s.team === ctx.asTeam) continue;
         const sh = shells.get(s.unitId);
         if (sh === undefined) continue;
         if (!sh.reachesBy(king.cell, nextTurn)) continue;
