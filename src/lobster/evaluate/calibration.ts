@@ -177,21 +177,33 @@ export interface CommandKnobs {
   /** Multiplier on food cells inside the command set. */
   readonly food: number;
   /**
-   * Whether a ROYAL unit earns command. Off, and off is not a tuning choice.
+   * Whether a ROYAL unit earns command. Off — and the honest account of why is
+   * that the ARGUMENT survived and the MEASUREMENT did not settle it.
    *
-   * A king's only protections under these rules are unreachability, out-
-   * weighing everything that reaches it, and tier (`SPECIALIST_FACTS`
-   * king-weight-margin). A term that pays a unit for the ground it can act on
-   * pays it, in exactly those units, for giving up the first of the three —
-   * and a king's death is TERMINAL, which is a lattice element and not
-   * something a positional term is allowed to trade against.
+   * The argument: a king's only protections under these rules are
+   * unreachability, out-weighing everything that reaches it, and tier
+   * (`SPECIALIST_FACTS` king-weight-margin). A term that pays a unit for the
+   * ground it can act on pays it, in exactly those units, for giving up the
+   * first of the three — and a king's death is TERMINAL, a lattice element and
+   * not something a positional term may trade against.
    *
-   * Measured rather than argued, on 48 games a side of `s3-mix23-base` at
-   * 150 ms with royals included: the king's stay share fell 90.8% -> 80.8% and
-   * its deaths rose 17 -> 24, against the queen's stay share falling
-   * 45.6% -> 26.3%, which is the intended half. That cell is also where D2's
-   * self-regicide class lives (every recorded territory case at four plans a
-   * decision or fewer; this cell runs at 3.1).
+   * The measurement, and it is a negative one. `TERRITORY_SLIDER_ROYAL_PROFILE`
+   * lifts this flag; run as a third concurrent arm on `s3-mix23-base` at 150 ms
+   * over 16 seed blocks a side, it moves the king's stay share by
+   * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
+   * and placement by +0.052 [-0.104, +0.188] — i.e. the flag is close to inert
+   * and what signal there is points the other way. The king's real activation
+   * under this profile comes from `healthReserveRatio`, which applies to every
+   * stay-legal kind: its stay share falls 80.4% -> 59.3% with THIS flag already
+   * off.
+   *
+   * An earlier, louder reading (stay 90.8% -> 80.8%, deaths 17 -> 24) came from
+   * a run whose two arms were sequential on a machine carrying six other
+   * sweeps, and it did not survive a paired-concurrent rerun. It is recorded
+   * here because it is what the flag was originally set on.
+   *
+   * So: off, on the argument, with the ablation arm kept so the next person can
+   * settle it at a block count that resolves 0.05.
    */
   readonly royal: boolean;
 }
