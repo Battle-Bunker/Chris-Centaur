@@ -21,6 +21,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { describeArrivalShellDifferential } from './arrival-shell-differential';
 
 // The sync script is the one definition of the file list, the header format
 // and the hash; importing it here means the test and the tool can never
@@ -147,6 +148,23 @@ describe('the vendored partial engine matches its manifest', () => {
     expect(sync.checkManifest()).toEqual([]);
   });
 });
+
+/**
+ * THE BEHAVIOURAL HALF OF THE DRIFT GATE.
+ *
+ * Everything above proves the copies are UNEDITED. That is not the same claim
+ * as "the one place we reproduce engine arithmetic still agrees with it", and
+ * the copies moving is exactly when that second claim breaks.
+ *
+ * `src/lobster/evaluate/shells.ts` reproduces `CloudTimeline.arrival()`'s
+ * stamping loop, so the evaluator can read the dilation shells without the
+ * eager `minCost` Dijkstra behind them — the one deliberate second encoding in
+ * the repository. It drifts silently and only in a soft positional signal, so
+ * the differential runs HERE, in the same run as the hashes, and a re-vendor
+ * that changes how `earliest` is derived fails the vendor gate rather than
+ * quietly degrading the reach feature.
+ */
+describeArrivalShellDifferential('vendor drift gate');
 
 (haveSource ? describe : describe.skip)(
   'the vendored partial engine is byte-identical to the sibling engine checkout',
