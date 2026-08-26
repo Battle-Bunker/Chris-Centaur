@@ -19,9 +19,7 @@
  *   PLANE 2  a piece p takes c off its owner iff arrival_p(c) ≤ D(c) AND p wins
  *            the stationary contest at D(c) — tier projected onto D, then
  *            strictly greater weight, through the resolver's own comparator.
- *            An inconclusive contest leaves the trail claim standing. Cells no
- *            trail unit reaches take their decisive turn from the pieces and are
- *            decided among pieces alone.
+ *            An inconclusive contest leaves the trail claim standing.
  *
  * Gating a piece's claim on the contest only ever REMOVES claims, and a removed
  * enemy claim raises `lo` — legitimate exactly because the claim exists in no
@@ -29,6 +27,25 @@
  * the resolver says it does not hold c. Held enemies enter that contest at their
  * strongest admissible endpoint (`weightMax`, best tier), which is what keeps
  * the removal on the pessimistic side.
+ *
+ * ── AND WHAT PIECES CANNOT DO: DIVIDE GROUND NOBODY WALKS ──────────────────
+ *
+ * A cell no admitted trail unit reaches is counted for NOBODY. The doctrine
+ * this transplants decides such cells among the pieces by earliest arrival, and
+ * that was measured degenerate here for the same reason the all-kinds fold is:
+ * a held enemy is a turn behind us on the clock, so its one-move cloud already
+ * covers the board while ours starts from where we actually landed, and every
+ * unwalked cell goes to whoever moved last. On a real mixed board that was 31
+ * cells of 121 handed over for free, on top of a plane-1 reading that was
+ * healthy (31 ours / 53 theirs / 6 tied).
+ *
+ * Ignoring them is a NARROWER claim than making them, so it stays sound: a
+ * cell no admitted trail unit reaches is not reached by any enemy trail unit at
+ * its OPTIMISTIC arrival either, so no world turns it into theirs — only our
+ * own held teammates, becoming located, can bring it into the count, and they
+ * bring it in on our side. Under refinement it behaves the same way round.
+ * A piece-only board therefore scores zero territory rather than a fiction,
+ * which is what it is worth.
  *
  * ── THE SWEEP ──────────────────────────────────────────────────────────────
  *
@@ -395,59 +412,45 @@ function displace<S extends TerritorySubject>(
   for (let c = 0; c < cells; c++) {
     if (!bbTest(ws.notWall, c)) continue;
     const D = ws.decisive[c] as number;
+    // Ground no trail unit walks belongs to nobody — see the header.
+    if (D === NEVER) continue;
 
     // The claim standing on the cell, and the strongest pair among a tie.
     let claimTier = 0;
     let claimWeight = 0;
-    let haveClaim = false;
-    if (D !== NEVER) {
-      for (let k = 0; k < trails.length; k++) {
-        if ((trailGrids[k] as Int32Array)[c] !== D) continue;
-        const s = (trails[k] as Entry<S>).s;
-        const tier = tierAtTurn(s, D);
-        if (!haveClaim || tier > claimTier || (tier === claimTier && s.weightMax > claimWeight)) {
-          claimTier = tier;
-          claimWeight = s.weightMax;
-        }
-        haveClaim = true;
+    for (let k = 0; k < trails.length; k++) {
+      if ((trailGrids[k] as Int32Array)[c] !== D) continue;
+      const s = (trails[k] as Entry<S>).s;
+      const tier = tierAtTurn(s, D);
+      if (tier > claimTier || (tier === claimTier && s.weightMax > claimWeight)) {
+        claimTier = tier;
+        claimWeight = s.weightMax;
       }
     }
+    const claim = scalarOf(claimTier, claimWeight);
 
     // Challengers: pieces that get there in time AND beat what is standing.
-    let dEff = D;
-    if (!haveClaim) {
-      dEff = NEVER;
-      for (let k = 0; k < pieces.length; k++) {
-        const a = (pieceGrids[k] as Int32Array)[c] as number;
-        if (a < dEff) dEff = a;
-      }
-    }
     let bestArrival = NEVER;
     let winner: Entry<S> | null = null;
     let tied = false;
-    if (dEff !== NEVER) {
-      for (let k = 0; k < pieces.length; k++) {
-        const e = pieces[k] as Entry<S>;
-        const a = (pieceGrids[k] as Int32Array)[c] as number;
-        if (a > dEff) continue;
-        const tier = tierAtTurn(e.s, dEff);
-        if (haveClaim && !beats(scalarOf(tier, e.s.weightMax), scalarOf(claimTier, claimWeight))) {
-          continue;
-        }
-        if (winner === null || a < bestArrival) {
-          bestArrival = a;
+    for (let k = 0; k < pieces.length; k++) {
+      const e = pieces[k] as Entry<S>;
+      const a = (pieceGrids[k] as Int32Array)[c] as number;
+      if (a > D) continue;
+      const mine = scalarOf(tierAtTurn(e.s, D), e.s.weightMax);
+      if (!beats(mine, claim)) continue;
+      if (winner === null || a < bestArrival) {
+        bestArrival = a;
+        winner = e;
+        tied = false;
+      } else if (a === bestArrival) {
+        const cur = winner as Entry<S>;
+        const held = scalarOf(tierAtTurn(cur.s, D), cur.s.weightMax);
+        if (beats(mine, held)) {
           winner = e;
           tied = false;
-        } else if (a === bestArrival) {
-          const cur = winner as Entry<S>;
-          const mine = scalarOf(tier, e.s.weightMax);
-          const held = scalarOf(tierAtTurn(cur.s, dEff), cur.s.weightMax);
-          if (beats(mine, held)) {
-            winner = e;
-            tied = false;
-          } else if (!beats(held, mine)) {
-            tied = true;
-          }
+        } else if (!beats(held, mine)) {
+          tied = true;
         }
       }
     }
@@ -457,9 +460,8 @@ function displace<S extends TerritorySubject>(
       else theirs++;
       continue;
     }
-    // A mutual kill vacates only a cell nobody had claimed: a piece layer can
-    // change WHO holds ground, never vacate ground a trail unit holds.
-    if (tied && !haveClaim) continue;
+    // A mutual kill among challengers settles nothing: a piece layer can change
+    // WHO holds ground, never vacate ground a trail unit holds.
     if (bbTest(ws.oursBoard, c)) ours++;
     else if (bbTest(ws.theirsBoard, c)) theirs++;
   }

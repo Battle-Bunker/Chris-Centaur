@@ -58,6 +58,7 @@ export {
   roomFeature,
   standingOf,
   terminalVerdicts,
+  trailScaleOf,
 } from './features';
 export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';

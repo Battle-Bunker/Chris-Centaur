@@ -158,6 +158,91 @@ const LAW_CASES: LawCase[] = [
       observedTurns: new Map([['them', TURN - 2]]),
     };
   })(),
+  (() => {
+    // BOTH PLANES LIVE. Trail units partition, and a held enemy queen is heavy
+    // enough to displace what our snake claims — so R1 here is checking the
+    // displacement gate against real worlds, not just the argmin.
+    const board = boardOf(
+      [
+        makeSnake(
+          'me',
+          [
+            { x: 2, y: 3 },
+            { x: 1, y: 3 },
+          ],
+          { teamID: 'red', orientation: { dx: 1, dy: 0 }, health: 60 }
+        ),
+        piece('guard', { x: 1, y: 0 }, 'rook', 3, { teamID: 'red', health: 60 }),
+        piece('Q', { x: 5, y: 5 }, 'queen', 4, { teamID: 'blue', health: 60 }),
+        makeSnake(
+          'theirs',
+          [
+            { x: 5, y: 1 },
+            { x: 6, y: 1 },
+          ],
+          { teamID: 'blue', orientation: { dx: -1, dy: 0 }, health: 60 }
+        ),
+      ],
+      { food: [{ x: 3, y: 3 }] }
+    );
+    return {
+      name: 'a trail partition with a held queen heavy enough to displace it',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['me', 'guard'],
+      orders: new Map([
+        ['me', at(board, { x: 3, y: 3 })],
+        ['guard', at(board, { x: 1, y: 2 })],
+      ]),
+    };
+  })(),
+  (() => {
+    // Two held enemies on the SAME team, so a narrowing of one can free a cell
+    // the two of them were tying at. That is the case the per-unit tie rule's
+    // held-teammate exemption exists for: without it, R2 fails here because the
+    // enemy's ROOM rises on a refinement.
+    // Each side keeps a spare in a far corner, so no world here eliminates a
+    // team and the reading is the FEATURE rather than a terminal clamp. Ours is
+    // held too, which puts the same exemption on the ceiling's side of the
+    // asymmetry.
+    const board = boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 1, y: 3 },
+          { x: 0, y: 3 },
+        ],
+        { teamID: 'red', orientation: { dx: 1, dy: 0 }, health: 60 }
+      ),
+      piece('mySpare', { x: 0, y: 6 }, 'knight', 1, { teamID: 'red', health: 60 }),
+      makeSnake(
+        'e1',
+        [
+          { x: 5, y: 2 },
+          { x: 6, y: 2 },
+        ],
+        { teamID: 'blue', orientation: { dx: -1, dy: 0 }, health: 60 }
+      ),
+      makeSnake(
+        'e2',
+        [
+          { x: 5, y: 4 },
+          { x: 6, y: 4 },
+        ],
+        { teamID: 'blue', orientation: { dx: -1, dy: 0 }, health: 60 }
+      ),
+      piece('theirSpare', { x: 6, y: 6 }, 'knight', 1, { teamID: 'blue', health: 60 }),
+    ]);
+    return {
+      name: 'two held enemies of one team, tying over the same ground',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['me'],
+      orders: new Map([['me', at(board, { x: 2, y: 3 })]]),
+    };
+  })(),
 ];
 
 describe('the admission laws, over the real world set', () => {

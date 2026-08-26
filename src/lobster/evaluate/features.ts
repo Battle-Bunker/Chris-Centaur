@@ -1,10 +1,12 @@
 /**
  * THE FEATURE LIBRARY, and the context it reads.
  *
- * Four features, all class-level: nothing here branches on a kind name. What a
- * feature reads is a PROPERTY the rules read — occupancy shape, whether staying
- * is legal, what movement costs, whether the unit is royal — which is the whole
- * generality claim, and the reason a new kind needs no new code.
+ * Five features, all class-level: nothing here branches on a kind name. What a
+ * feature reads is a PROPERTY the rules read — occupancy shape, whether it
+ * leaves a trail, whether staying is legal, what movement costs, whether the
+ * unit is royal — which is the whole generality claim, and the reason a new
+ * kind needs no new code. `leavesTrail` is what decides which plane of the
+ * territory partition a unit belongs to, and it is a rule, not a taxonomy.
  *
  * ── ONE PIPELINE ───────────────────────────────────────────────────────────
  *
@@ -36,14 +38,14 @@
  *
  * ── ABSOLUTE-TURN SEEDING ──────────────────────────────────────────────────
  *
- * `reach` floods each unit's OWN grammar with shells keyed by absolute turn, so
- * a unit last seen three turns ago starts its flood three turns early — a SEED,
- * not an inexpressible negative delay. The flood is the engine's `arrival`
- * grid, and the seed is the record's `heldAtTurn`, so this file only chooses
- * the horizon and reads the answer.
+ * `reach` and `room` read each unit's OWN grammar through shells keyed by
+ * absolute turn, so a unit last seen three turns ago starts its flood three
+ * turns early — a SEED, not an inexpressible negative delay. The shells are the
+ * engine's own dilation, and the seed is the record's `heldAtTurn`, so this
+ * file only chooses the horizon and reads the answer.
  */
 
-import { Fate } from '../../partial-engine/index';
+import { Fate, profileOf } from '../../partial-engine/index';
 import type {
   FieldSlot,
   Resolution,
@@ -116,6 +118,13 @@ export interface EvalContext {
   /** The two-plane partition, per reading, computed once and shared by every
    * feature that reads territory. */
   partition(reading: 'lo' | 'hi'): Partition<Standing>;
+  /**
+   * What one team's worth of room is, on THIS board: the largest trail-unit
+   * count any team started the turn with. A board constant — read off the
+   * turn-start roster, not off who a reading admits — so dividing by it is a
+   * positive rescale and nothing more. See `roomFeature`.
+   */
+  readonly roomScale: number;
   /**
    * Absolute-turn arrival grids. Stamped from the same shells, so this is the
    * same array `CloudTimeline.arrival().earliest` returns — pinned cell for
@@ -239,6 +248,7 @@ export function makeContext(
   const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
   const ws = workspaceFor(sub);
+  const roomScale = trailScaleOf(sub);
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
@@ -253,6 +263,7 @@ export function makeContext(
     standing,
     horizonTurns,
     teams,
+    roomScale,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table);
@@ -288,6 +299,26 @@ export function makeContext(
  * reason. With nothing held both readings admit the same units at the same
  * exact arrivals, so every territory feature collapses to a point.
  */
+/**
+ * The largest trail-unit count any team fielded at the START of the turn.
+ *
+ * Read off the roster and NOT off who a reading admits, because that is what
+ * makes it a CONSTANT: the same number in the partial reading, in every world
+ * the soundness law enumerates, and under every refinement. A divisor derived
+ * from the admitted set instead would turn a sum into a mean, and a mean is not
+ * monotone in admission — our floor would read a single roomy unit as a whole
+ * team's worth of room and then find the world, with two boxed teammates also
+ * on the board, scoring below it.
+ */
+export function trailScaleOf(sub: EngineSubstrate): number {
+  const byTeam = new Map<number, number>();
+  for (const u of sub.roster()) {
+    if (!profileOf(u.kind).leavesTrail) continue;
+    byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
+  }
+  return Math.max(1, ...byTeam.values());
+}
+
 export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
   lo: { ours: (s) => s.worstAlive && !s.held, theirs: (s) => s.worstAlive },
   hi: { ours: (s) => s.bestAlive, theirs: (s) => s.bestAlive && !s.held },
@@ -404,13 +435,22 @@ export const reachFeature: Feature<EvalContext> = {
  *           teammates included — plane 1 only, so the tie-dominated all-kinds
  *           reading can never starve it
  *     g(u)  min(1, sqrt(R(u) / len(u)))
- *     room  Σ ours g(u) − Σ theirs g(u)
+ *     room  ( Σ ours g(u) − Σ theirs g(u) ) / one team's worth of trail units
  *
  * A SUM OF SATURATING TERMS, NEVER A MIN. A min over our units is unbounded
  * below the moment any teammate is held — `lo` collapses to 0 and reproduces
  * exactly the vacuity the bound exists to avoid. The sum bounds cleanly (a held
  * teammate contributes between 0 and 1), still punishes confinement, collapses
  * under R3 and is monotone under R2.
+ *
+ * A BARE SUM, THOUGH, IS NOT A CONSTANT-WEIGHTABLE FEATURE. Its range across
+ * candidates is roughly the number of units we command, so a weight that sits
+ * safely under the cliff on a three-snake board sits over it on a five-snake
+ * one — 3 × 5 = 15 against a lightest-unit cost of 10. `reach` already divides
+ * by the open board for exactly this reason; `room` divides by the largest
+ * trail count any team started the turn with, which is a BOARD constant rather
+ * than a property of who a reading admits, so the sum keeps its monotonicity
+ * and the feature keeps a bounded range on every board shape.
  *
  * The LENGTH each term divides by is an interval endpoint too, and it is chosen
  * against the term: a term being maximised in a reading takes the SMALLEST
@@ -431,8 +471,8 @@ export const roomFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = roomSum(ctx.partition('lo'), 'lo');
-    const hi = roomSum(ctx.partition('hi'), 'hi');
+    const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
+    const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
     return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
   },
 };
