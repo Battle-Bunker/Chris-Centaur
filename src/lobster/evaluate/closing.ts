@@ -180,12 +180,20 @@ function foodCellsOf(sub: EngineSubstrate): Int32Array {
  * One team's worth of units, on THIS board: the largest unit count any team
  * started the turn with. A board constant, for the reason `room` divides by
  * one — a bare sum's range scales with the roster, and a divisor read off the
- * admitted set is not monotone in admission.
+ * admitted set is not monotone in admission. Cached with the food list, because
+ * a roster walk per evaluation at ten thousand evaluations a second is not a
+ * board constant in any useful sense.
  */
+const scaleCache = new WeakMap<EngineSubstrate, number>();
+
 function unitScaleOf(sub: EngineSubstrate): number {
+  const hit = scaleCache.get(sub);
+  if (hit !== undefined) return hit;
   const byTeam = new Map<number, number>();
   for (const u of sub.roster()) byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
-  return Math.max(1, ...byTeam.values());
+  const made = Math.max(1, ...byTeam.values());
+  scaleCache.set(sub, made);
+  return made;
 }
 
 /** Credit for a unit that can be on food in `d` turns. Linear, saturating at
@@ -198,15 +206,18 @@ function approachSum(ctx: EvalContext, reading: 'lo' | 'hi'): number {
   const food = foodCellsOf(ctx.sub);
   if (food.length === 0) return 0;
   const admit = ADMISSION[reading];
-  const arrivals = ctx.arrivals();
+  // `ctx.shells()` and not `ctx.arrivals()`: the latter builds a fresh Map per
+  // evaluation to hold grids the shells already own and memoise.
+  const shells = ctx.shells();
   const turn = ctx.resolution.state.turn;
   const horizon = ctx.horizonTurns;
   let total = 0;
   for (const s of ctx.standing) {
     const mine = s.team === ctx.asTeam;
     if (!(mine ? admit.ours(s) : admit.theirs(s))) continue;
-    const grid = arrivals.get(s.unitId);
-    if (grid === undefined) continue;
+    const sh = shells.get(s.unitId);
+    if (sh === undefined) continue;
+    const grid = sh.earliest();
     let best = Number.POSITIVE_INFINITY;
     for (let i = 0; i < food.length; i++) {
       const at = grid[food[i] as number] as number;
