@@ -67,7 +67,7 @@
  */
 
 import { profileOf, scalarOf } from '../partial-engine/index';
-import type { EncounterVerdict, RiskAssessor, TraversalVerdict } from '../partial-engine/index';
+import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import type {
@@ -90,6 +90,7 @@ export const PRUNE = {
   certainEdgeHorizon: 'certain-edge-horizon',
   quietThinning: 'quiet-thinning',
   fatalNoGain: 'fatal-no-gain',
+  terrainFatal: 'terrain-fatal',
   kingUnsafe: 'king-unsafe',
   selfRegicide: 'self-regicide',
   promotionRefusal: 'promotion-refusal',
@@ -122,6 +123,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.certainEdgeHorizon]: true,
   [PRUNE.quietThinning]: false,
   [PRUNE.fatalNoGain]: false,
+  [PRUNE.terrainFatal]: false,
   [PRUNE.kingUnsafe]: false,
   [PRUNE.selfRegicide]: false,
   [PRUNE.promotionRefusal]: false,
@@ -139,6 +141,8 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     'a purely positional intermediate stop — blocking a line, parking out of a ring, or approaching a maybe without contesting it',
   [PRUNE.fatalNoGain]:
     'a deliberate sacrifice whose CORPSE blocks a cell for the rest of this turn (a durable collision object)',
+  [PRUNE.terrainFatal]:
+    'a sacrifice to TERRAIN paid for a capture that is only possible — the mover certainly cannot afford its own move, and the kill it might make does not depend on that',
   [PRUNE.kingUnsafe]:
     'a king move that gambles — kept whenever nothing safer exists, because an empty escape set loses the team',
   [PRUNE.selfRegicide]:
@@ -162,6 +166,17 @@ export interface CandidateKnobs {
   readonly refusePromotion?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
+  /**
+   * Charge the STATIONARY terrain dose against a hold. See `restVerdict`.
+   * Off restores the pre-fix reading, where holding a square was free
+   * everywhere — including on a hazard, where the rules charge a full dose.
+   */
+  readonly chargeStandingTerrain?: boolean;
+  /**
+   * Drop a move the mover certainly cannot AFFORD unless the kill it makes is
+   * certain too. See the `terrain-fatal` prune in `policyPrunes`.
+   */
+  readonly refuseTerrainFatal?: boolean;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -170,6 +185,8 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   kingHardSafety: true,
   refusePromotion: false,
   escortShadowOrdering: true,
+  chargeStandingTerrain: true,
+  refuseTerrainFatal: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,6 +204,14 @@ export interface AssessedCandidate {
   readonly capture: 'yes' | 'maybe' | 'no';
   /** Health the move spends, at its interval endpoints. */
   readonly healthSpent: { readonly lo: number; readonly hi: number };
+  /**
+   * Does the mover run out of health paying for this move? Read straight off
+   * the risk fold (`TraversalVerdict.exhaustionFatal`), and for a HOLD off the
+   * stationary terrain charge. Kept beside the tier because the two ways to be
+   * `doomed` are not the same fact: a contest loss is something an enemy does,
+   * exhaustion is something the mover does to itself.
+   */
+  readonly exhaustionFatal: Trit;
   /** Terminal cells the move could come to rest on. */
   readonly landing: ReadonlyArray<CellIndex>;
   /** How many held units' claims this move's outcome rests on. */
@@ -309,7 +334,7 @@ function generateAssessed(
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
 
   // ---- assessment ---------------------------------------------------------
-  const assessed = surviving.map((candidate) => assessOne(sub, unit, candidate, shadows));
+  const assessed = surviving.map((candidate) => assessOne(sub, unit, candidate, shadows, knobs));
 
   // ---- lossy prunes, each behind its knob ---------------------------------
   const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
@@ -460,26 +485,84 @@ function assessPathOf(
   });
 }
 
-const EMPTY_VERDICT = {
-  perCell: [] as ReadonlyArray<EncounterVerdict>,
-  survival: 'yes' as const,
-  landing: { certain: null, cells: [] as ReadonlyArray<number> },
+/** The part of a `TraversalVerdict` a resting unit has an answer for. */
+interface RestVerdict {
+  readonly perCell: ReadonlyArray<EncounterVerdict>;
+  readonly survival: Trit;
+  readonly landing: { readonly certain: number | null; readonly cells: ReadonlyArray<number> };
+  readonly healthSpent: { readonly lo: number; readonly hi: number };
+  readonly exhaustionFatal: Trit;
+}
+
+const EMPTY_VERDICT: RestVerdict = {
+  perCell: [],
+  survival: 'yes',
+  landing: { certain: null, cells: [] },
   healthSpent: { lo: 0, hi: 0 },
-  exhaustionFatal: 'no' as const,
+  exhaustionFatal: 'no',
 };
+
+/**
+ * WHAT A HOLD COSTS. A stay or a rotation enters no cell, and for everything
+ * another unit might do that is the end of it: whatever contests the square
+ * contests it either way, so the risk of STANDING is the evaluator's business
+ * and not this layer's.
+ *
+ * TERRAIN IS NOT LIKE THAT, AND IT IS THE ONE ASYMMETRY THE RULES CONTAIN.
+ * `PartialEngine.healthPhase` charges a unit that staged no path a full
+ * stationary hazard dose at sub-step 1 — the vendored resolver's
+ * `turnEngine.ts` does the same — while stepping onto ordinary ground costs
+ * the kind's `costPerCell`, which is one. So on a hazard, holding is strictly
+ * dominated by any safe step, by the whole dose minus one; and when the dose
+ * is at least the health the mover has LEFT, holding is not a cost at all but
+ * a death, indistinguishable from walking into the same cell.
+ *
+ * Reading a hold as free made both of those invisible at once. It priced the
+ * dominated move at zero, which put the hold FIRST in `orderKey` (least health
+ * spent) and therefore made it rung 0's seed for every unit standing on a
+ * hazard; and it tiered a certainly-fatal hold `safe`, where no policy prune
+ * can reach it. Neither is a judgement call — the charge is in the resolver.
+ *
+ * Only terrain is priced here, and only the mover's own square. The interval
+ * is a point (`lo === hi`) because the charge depends on nothing anyone else
+ * chooses. Off a hazard the answer is byte-for-byte the old `EMPTY_VERDICT`,
+ * so a board without hazards cannot tell the difference.
+ */
+function restVerdict(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  charge: boolean
+): RestVerdict {
+  const at = unit.cells[0] as CellIndex;
+  if (!charge || !sub.hazardAt(at)) return EMPTY_VERDICT;
+  const dose = sub.engine.config.hazardDamage;
+  if (dose <= 0) return EMPTY_VERDICT;
+  // The food phase runs after the health phase and restores in full, so a unit
+  // standing on food that the dose would exhaust may yet recover — the same
+  // rescue `RiskAssessor.assessPath` grades for a mover. We cannot know here
+  // whether a frozen claim eats it first, so the rescue only ever softens the
+  // verdict to `maybe`; it never proves survival.
+  const fatal: Trit = unit.health - dose > 0 ? 'no' : sub.foodAt(at) ? 'maybe' : 'yes';
+  return {
+    perCell: EMPTY_VERDICT.perCell,
+    survival: 'yes',
+    landing: { certain: at, cells: [at] },
+    healthSpent: { lo: dose, hi: dose },
+    exhaustionFatal: fatal,
+  };
+}
 
 function assessOne(
   sub: EngineSubstrate,
   unit: SubstrateUnit,
   candidate: Candidate,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  knobs: Required<CandidateKnobs>
 ): AssessedCandidate {
-  // A stay or a rotation enters no cell, so there is no traversal to assess:
-  // the unit stands where it already stands, and whatever contests that square
-  // contests it either way. The risk of STANDING is the evaluator's business,
-  // not the candidate layer's.
   const verdict =
-    candidate.path.length === 0 ? EMPTY_VERDICT : assessPathOf(sub, unit, candidate.path);
+    candidate.path.length === 0
+      ? restVerdict(sub, unit, knobs.chargeStandingTerrain)
+      : assessPathOf(sub, unit, candidate.path);
 
   const tier: SafetyTier =
     verdict.survival === 'no' || verdict.exhaustionFatal === 'yes'
@@ -509,6 +592,7 @@ function assessOne(
     tier,
     capture,
     healthSpent: verdict.healthSpent,
+    exhaustionFatal: verdict.exhaustionFatal,
     landing,
     contingencies,
     shadowBonus,
@@ -594,8 +678,11 @@ function policyPrunes(
   const out: AssessedCandidate[] = [];
   for (const a of assessed) {
     // Standing still is the baseline every prune is judged against, and it is
-    // never pruned: it costs no health and cannot walk into anything.
-    if (a.candidate.path.length === 0) {
+    // never pruned WHERE IT IS FREE — which off a hazard is everywhere. On one
+    // it is not free (see `restVerdict`), and a hold the stationary dose kills
+    // is exactly as doomed as walking into the same cell, so it is judged on
+    // the same evidence as every other option rather than waved through.
+    if (a.candidate.path.length === 0 && a.tier !== 'doomed') {
       out.push(a);
       continue;
     }
@@ -605,6 +692,29 @@ function policyPrunes(
     }
     if (knobs.pruneFatalNoGain && a.tier === 'doomed' && a.capture === 'no') {
       pruned.push({ candidate: a.candidate, prune: PRUNE.fatalNoGain, exact: false });
+      continue;
+    }
+    // THE SACRIFICE THAT PAYS FOR NOTHING CERTAIN.
+    //
+    // `fatal-no-gain` above asks for `capture === 'no'`, and on lethal terrain
+    // that condition is met for free: nothing survives standing on a cell whose
+    // dose exceeds every kind's maximum, so no enemy is ever there to take and
+    // the prune fires every time. Drop the dose below the kind's maximum and
+    // enemies cross those cells like any other — the same square now offers a
+    // POSSIBLE capture, `capture` reads `maybe`, and the prune stops firing for
+    // a mover whose own health the dose already exceeds. That is the whole of
+    // the asymmetry the corpus measured as "the lethality line is drawn against
+    // the kind's maximum, not against the health this unit has left": no code
+    // ever compared against a maximum, but the CONDITION that hides the
+    // comparison is satisfied exactly in the maximum-exceeding regime.
+    //
+    // So exhaustion gets its own refusal. Running out of health is unilateral —
+    // the mover cannot afford its own path, whatever anyone else does — while
+    // the capture it is buying is only possible. A CERTAIN kill still buys the
+    // trade, and the emptiness guarantee still owns the case where refusing
+    // leaves nothing.
+    if (knobs.refuseTerrainFatal && a.exhaustionFatal === 'yes' && a.capture !== 'yes') {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.terrainFatal, exact: false });
       continue;
     }
     if (knobs.refusePromotion && promotes(sub, unit, a)) {
