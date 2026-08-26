@@ -1,15 +1,20 @@
 /**
- * CENTAUR_ENGINE: exact flag semantics, and the proof that the default
- * changes NOTHING observable.
+ * CENTAUR_ENGINE: exact flag semantics, and the proof that BOTH values are
+ * whole routes rather than one route and a fallback.
  *
- *   legacy (default, and any unrecognised value): the full pass is the same
- *   per-snake strategy fan-out it has always been — the strategy is called,
- *   the team engine is never consulted, team staging is never enabled.
+ *   lobster (default since 2026-08-26, and what any unrecognised value keeps):
+ *   the full pass routes the TEAM decision through the new engine — the
+ *   strategy is NOT called, the team engine receives the canonical board, the
+ *   roster, and the guard's measured deadline, and staging leaves on the TEAM
+ *   transport.
  *
- *   lobster: the full pass routes the TEAM decision through the new engine —
- *   the strategy is NOT called, the team engine receives the canonical board,
- *   the roster, and the guard's measured deadline. The fast pass is identical
- *   under both values (same code path, before the branch).
+ *   legacy: the full pass is the per-snake strategy fan-out it always was —
+ *   the strategy is called, the team engine is never consulted, team staging
+ *   is never enabled, and staging leaves on the PER-UNIT transport.
+ *
+ * The fast pass is identical under both values (same code path, before the
+ * branch). The legacy route is not deprecated by the flip: it is one
+ * environment variable away and this file is what keeps it working.
  */
 
 import { Timestamp } from 'firebase/firestore';
@@ -19,6 +24,7 @@ import {
 } from '../firebase/firebase-interface';
 import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
 import {
+  CENTAUR_ENGINE_DEFAULT,
   CENTAUR_ENGINE_ENV,
   centaurEngine,
   centaurEngineFrom,
@@ -36,31 +42,37 @@ jest.mock('../logic/command-logger', () => {
 // ----------------------------------------------------------- flag semantics
 
 describe('the flag itself', () => {
-  test('default is legacy: absent, empty, or explicitly legacy', () => {
-    expect(centaurEngineFrom({})).toBe('legacy');
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: '' })).toBe('legacy');
+  test('the default is lobster: absent or empty', () => {
+    expect(CENTAUR_ENGINE_DEFAULT).toBe('lobster');
+    expect(centaurEngineFrom({})).toBe('lobster');
+    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: '' })).toBe('lobster');
+  });
+
+  test('legacy is still reachable, by name, exactly', () => {
     expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'legacy' })).toBe('legacy');
   });
 
-  test('lobster opts in; junk keeps legacy and says so', () => {
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'lobster' })).toBe('lobster');
+  test('junk keeps the default and says so — a typo must not reroute production', () => {
     const warnings: string[] = [];
     expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'LOBSTER' }, (m) => warnings.push(m))).toBe(
-      'legacy'
+      CENTAUR_ENGINE_DEFAULT
     );
     expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'on' }, (m) => warnings.push(m))).toBe(
-      'legacy'
+      CENTAUR_ENGINE_DEFAULT
     );
-    expect(warnings).toHaveLength(2);
+    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'LEGACY' }, (m) => warnings.push(m))).toBe(
+      CENTAUR_ENGINE_DEFAULT
+    );
+    expect(warnings).toHaveLength(3);
   });
 
   test('the live flag reads the process environment at call time', () => {
     const before = process.env[CENTAUR_ENGINE_ENV];
     try {
       delete process.env[CENTAUR_ENGINE_ENV];
-      expect(centaurEngine()).toBe('legacy');
-      process.env[CENTAUR_ENGINE_ENV] = 'lobster';
       expect(centaurEngine()).toBe('lobster');
+      process.env[CENTAUR_ENGINE_ENV] = 'legacy';
+      expect(centaurEngine()).toBe('legacy');
     } finally {
       if (before === undefined) delete process.env[CENTAUR_ENGINE_ENV];
       else process.env[CENTAUR_ENGINE_ENV] = before;
@@ -283,8 +295,8 @@ describe('the full pass routes on the flag', () => {
     else process.env[CENTAUR_ENGINE_ENV] = savedFlag;
   });
 
-  test('LEGACY (default): the strategy runs, and the staged move rides the PER-UNIT transport', async () => {
-    delete process.env[CENTAUR_ENGINE_ENV];
+  test('LEGACY (opt-in): the strategy runs, and the staged move rides the PER-UNIT transport', async () => {
+    process.env[CENTAUR_ENGINE_ENV] = 'legacy';
     const drive = await driveTurn('game-legacy');
     expect(drive.strategyCalls).toBe(1);
     expect(drive.teamCalls).toHaveLength(0);
@@ -299,8 +311,8 @@ describe('the full pass routes on the flag', () => {
     expect(drive.teamPublished).toEqual([]);
   });
 
-  test('LOBSTER: the team engine gets the turn, and staging switches to the TEAM transport', async () => {
-    process.env[CENTAUR_ENGINE_ENV] = 'lobster';
+  test('LOBSTER (default): the team engine gets the turn, and staging is the TEAM transport', async () => {
+    delete process.env[CENTAUR_ENGINE_ENV];
     const drive = await driveTurn('game-lobster');
     expect(drive.strategyCalls).toBe(0);
     expect(drive.teamCalls).toHaveLength(1);
