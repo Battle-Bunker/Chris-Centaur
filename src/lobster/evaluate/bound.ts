@@ -179,15 +179,30 @@ export interface Evaluation {
  * The fold. A non-negatively weighted sum of monotone-bounded features is
  * itself monotone-bounded, so R1–R3 lift to the total for free — which is the
  * only reason demanding a per-feature contract is worth anything.
+ *
+ * ── THE INVOKED GATE ───────────────────────────────────────────────────────
+ *
+ * `invoked` is the COMPUTE gate and it is checked FIRST, before the weight and
+ * before `evaluateFeature`: a key outside it is not evaluated, contributes no
+ * addend, and writes NO `parts` entry — its absence from `parts` is the honest
+ * report that the number was never computed, which a zero would misstate.
+ *
+ * This is deliberately not `w !== 0`. A zero weight already skipped the
+ * ADDITION and paid the evaluation regardless, so every consumer of the whole
+ * evaluator's cost — a cheap rung, a cheap cohort — bought exactly nothing.
+ * Omitting `invoked` invokes everything, which is what every caller that has
+ * not opted into a profile wants.
  */
 export function fold<C>(
   features: ReadonlyArray<Feature<C>>,
   ctx: C,
-  weights?: Weights
+  weights?: Weights,
+  invoked?: ReadonlySet<string>
 ): Evaluation {
   let total = ZERO;
   const parts: Record<string, Bound> = {};
   for (const f of features) {
+    if (invoked !== undefined && !invoked.has(f.key)) continue;
     const w = weights?.[f.key] ?? f.defaultWeight;
     const b = evaluateFeature(f, ctx);
     parts[f.key] = b;

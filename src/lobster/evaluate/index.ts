@@ -102,7 +102,11 @@ export class BoundEvaluator implements Evaluator {
         asTeam,
         this.profile.reachHorizonTurns
       );
-      const evaluation: Evaluation = fold(FEATURES, ctx, this.weights);
+      // The invoked set is the COMPUTE gate: an un-invoked feature is never
+      // handed to `evaluateFeature`, so it never touches `ctx.shells()` or
+      // `ctx.partition()` and the profile actually buys the milliseconds its
+      // weights imply. See `CriterionProfile.invoked`.
+      const evaluation: Evaluation = fold(FEATURES, ctx, this.weights, this.profile.invoked);
       return finish(ctx, evaluation);
     });
   }

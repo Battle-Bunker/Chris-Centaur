@@ -18,6 +18,8 @@ import { marshalBoard } from '../../logic/turn-oracle';
 import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
+  ALL_FEATURES,
+  ALL_FEATURE_KEYS,
   BoundEvaluator,
   CLIFF_MATERIAL_WEIGHT,
   DEAD,
@@ -569,6 +571,9 @@ describe('est is advisory only', () => {
     const quiet = new BoundEvaluator({
       name: 'no-reach',
       weights: { ...DEFAULT_WEIGHTS, reach: 0 },
+      // Still INVOKES everything: this test is about the weight channel, so the
+      // compute gate stays wide and `parts.reach` keeps being reported.
+      invoked: ALL_FEATURES,
       reachHorizonTurns: 0,
     });
     const board = boardOf([
@@ -680,6 +685,11 @@ describe('calibration is data', () => {
     expect(TERRITORY_PROFILE.weights.room).toBe(3);
     expect(TERRITORY_PROFILE.reachHorizonTurns).toBe(REACH_HORIZON_TURNS);
     expect(REACH_HORIZON_TURNS).toBe(4);
+    // The production profile invokes everything: the compute gate is a knob for
+    // cheaper profiles, and turning it on for the default one would be a
+    // behaviour change wearing a performance change's clothes.
+    expect([...TERRITORY_PROFILE.invoked].sort()).toEqual([...ALL_FEATURE_KEYS].sort());
+    expect(TERRITORY_PROFILE.invoked).toBe(ALL_FEATURES);
     // No food weight on territory, and no horizon discount: both measured
     // worthless at the sound floor, and both are absent rather than zeroed.
     expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual([
@@ -693,5 +703,9 @@ describe('calibration is data', () => {
     expect(materialEvaluator.profile.weights.reach).toBe(0);
     expect(materialEvaluator.profile.weights.room).toBe(0);
     expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
+    // …and it now says what it computes rather than relying on a horizon of 0
+    // to say it. `healthEconomy` is in the set because it has no horizon guard:
+    // it was always evaluated in full here and then dropped by its zero weight.
+    expect([...materialEvaluator.profile.invoked].sort()).toEqual(['healthEconomy', 'material']);
   });
 });

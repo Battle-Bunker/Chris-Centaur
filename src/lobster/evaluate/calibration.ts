@@ -142,14 +142,71 @@ export const SPECIALIST_FACTS: ReadonlyArray<SpecialistFact> = [
 ];
 
 /**
+ * EVERY FEATURE KEY THE LIBRARY DEFINES, in the fold's summation order.
+ *
+ * It lives here, as data, rather than being read off `FEATURES` — `features.ts`
+ * imports this file, so the dependency only runs one way. A test pins the two
+ * lists equal so they cannot drift.
+ */
+export const ALL_FEATURE_KEYS: ReadonlyArray<string> = [
+  'material',
+  'reach',
+  'room',
+  'healthEconomy',
+  'kingMargin',
+];
+
+/** The invoked set of a profile that computes everything. */
+export const ALL_FEATURES: ReadonlySet<string> = new Set(ALL_FEATURE_KEYS);
+
+/**
  * The harness-criterion profile. Regret is only meaningful against what the bot
  * actually maximises, so the profile is pluggable and the evaluation harness is
  * expected to pass the same one the search used.
+ *
+ * ── WHY `invoked` IS NOT `weights[k] !== 0` ────────────────────────────────
+ *
+ * A zero weight is a SCORING switch: the fold skips the addition and pays the
+ * evaluation anyway — `ctx.shells()`, `ctx.partition()`, the whole two-plane
+ * sweep. `invoked` is the COMPUTE switch: a key outside it is never handed to
+ * `evaluateFeature` at all and writes no `parts` entry, so an evaluator that
+ * does not want territory does not pay for territory. The two are independent
+ * on purpose — a feature may be invoked and weighted zero (measure it without
+ * scoring it), and it is a contradiction to weight a key that is not invoked,
+ * which `assertProfileCoherent` refuses.
+ *
+ * `reachHorizonTurns` is now ONLY the reach flood's depth. It used to double as
+ * the off-switch for the three shell-reading features — that is what made
+ * `MATERIAL_ONLY_PROFILE` accidentally cheap — and it cannot express per-feature
+ * choice ("reach off, room on" is inexpressible in one shared knob). Profiles
+ * that still set it to 0 keep exactly their old numbers; the guards inside
+ * `reachFeature`/`roomFeature`/`kingMarginFeature` stay for that compatibility
+ * and are documented there as horizon semantics, not as gating.
  */
 export interface CriterionProfile {
   readonly name: string;
   readonly weights: Readonly<Record<string, number>>;
+  /** The COMPUTE gate: keys outside this set are never evaluated. */
+  readonly invoked: ReadonlySet<string>;
+  /** The reach flood's depth. No longer a gate. */
   readonly reachHorizonTurns: number;
+}
+
+/**
+ * A profile that scores a key it never computes is asking for a number that
+ * does not exist. Checked at construction rather than discovered as a silently
+ * missing addend.
+ */
+export function assertProfileCoherent(p: CriterionProfile): CriterionProfile {
+  for (const [key, w] of Object.entries(p.weights)) {
+    if (w !== 0 && !p.invoked.has(key)) {
+      throw new Error(
+        `profile ${p.name} weights ${key} at ${w} but does not invoke it: ` +
+          'a weighted key must be computed'
+      );
+    }
+  }
+  return p;
 }
 
 /**
@@ -168,18 +225,29 @@ export interface CriterionProfile {
  * No horizon discounting: Kendall τ 0.96–1.00 against the undiscounted argmin.
  * It is a re-parameterisation of the same ordering, not information.
  */
-export const TERRITORY_PROFILE: CriterionProfile = {
+export const TERRITORY_PROFILE: CriterionProfile = assertProfileCoherent({
   name: 'lobster-territory',
   weights: DEFAULT_WEIGHTS,
+  invoked: ALL_FEATURES,
   reachHorizonTurns: REACH_HORIZON_TURNS,
-};
+});
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
 
-/** Material only — the profile a differential or a 1 ms reflex rung wants, and
- * the explicit fallback if the territory profile ever has to be backed out. */
-export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
+/**
+ * Material only — the profile a differential or a 1 ms reflex rung wants, and
+ * the explicit fallback if the territory profile ever has to be backed out.
+ *
+ * `invoked` names what this profile ALREADY computed before the gate existed,
+ * so the numbers are unchanged: `reachHorizonTurns: 0` short-circuited `reach`,
+ * `room` and `kingMargin` to a point at zero, while `healthEconomy` — which has
+ * no horizon guard — was evaluated in full and then dropped by its zero weight.
+ * The gate now says that in one place instead of two, and `reachHorizonTurns`
+ * is kept at 0 only so the profile is bit-identical under BOTH mechanisms.
+ */
+export const MATERIAL_ONLY_PROFILE: CriterionProfile = assertProfileCoherent({
   name: 'material-only',
   weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0 },
+  invoked: new Set(['material', 'healthEconomy']),
   reachHorizonTurns: 0,
-};
+});

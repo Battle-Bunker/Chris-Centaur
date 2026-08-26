@@ -99,6 +99,11 @@ export interface EvalContext {
   /** The ENGINE's own subject-frame fold, carried for comparison and telemetry. */
   readonly engineMaterial: ScoreBounds;
   readonly standing: ReadonlyArray<Standing>;
+  /**
+   * How deep the reach flood runs. A FEATURE PARAMETER and nothing else: which
+   * features run at all is `CriterionProfile.invoked`, checked in `fold` before
+   * a feature is ever handed this context.
+   */
   readonly horizonTurns: number;
   /**
    * Every team that had a unit at the START of the turn, subject included.
@@ -412,6 +417,11 @@ export const reachFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
+    // HORIZON, NOT GATING. A zero-turn flood contests nothing, so the balance
+    // is a point at zero and building the shells to discover that would be
+    // waste. Turning the FEATURE off is `CriterionProfile.invoked`'s job now —
+    // this branch survives only so a profile that still sets
+    // `reachHorizonTurns: 0` keeps its numbers exactly.
     if (ctx.horizonTurns <= 0) return point(0);
     const lo = ctx.partition('lo').balance;
     const hi = ctx.partition('hi').balance;
@@ -470,6 +480,7 @@ export const roomFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
+    // Horizon semantics, not the off-switch — see `reachFeature`.
     if (ctx.horizonTurns <= 0) return point(0);
     const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
     const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
@@ -571,6 +582,10 @@ export const kingMarginFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
+    // Horizon semantics, not the off-switch — see `reachFeature`. This one is
+    // the sharpest reminder that the old knob was never a per-feature gate:
+    // `kingMargin` reads nothing territorial, yet the shared horizon killed it
+    // alongside reach and room.
     if (ctx.horizonTurns <= 0) return point(0);
     const kings = ctx.standing.filter((s) => s.isKing && s.team === ctx.asTeam);
     if (kings.length === 0) return point(0);

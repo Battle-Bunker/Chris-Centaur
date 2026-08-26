@@ -24,6 +24,7 @@ import type { Board } from '../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { EngineSubstrate } from '../lobster/substrate';
 import {
+  ALL_FEATURES,
   BoundEvaluator,
   CLIFF_MATERIAL_WEIGHT,
   DEFAULT_WEIGHTS,
@@ -96,6 +97,9 @@ interface Reading {
 const reachOnly = new BoundEvaluator({
   name: 'reach-only',
   weights: { ...DEFAULT_WEIGHTS, room: 0 },
+  // Room is measured and not scored here, so it stays INVOKED: the compute gate
+  // and the weight are independent knobs (see `CriterionProfile.invoked`).
+  invoked: ALL_FEATURES,
   reachHorizonTurns: TERRITORY_PROFILE.reachHorizonTurns,
 });
 
