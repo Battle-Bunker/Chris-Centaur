@@ -70,6 +70,7 @@ import { profileOf, scalarOf } from '../partial-engine/index';
 import type { EncounterVerdict, RiskAssessor, TraversalVerdict } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
+import { TIER_DEFENSE } from './tier-truth';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import type {
@@ -192,8 +193,8 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   pruneFatalNoGain: true,
   kingHardSafety: true,
   refusePromotion: false,
-  tierSafeStaging: true,
-  selfDebuffOrdering: true,
+  tierSafeStaging: TIER_DEFENSE,
+  selfDebuffOrdering: TIER_DEFENSE,
   escortShadowOrdering: true,
 };
 

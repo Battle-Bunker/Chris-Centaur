@@ -52,3 +52,15 @@ export function tierExpiryEnabled(mode: TierTruth = TIER_TRUTH): boolean {
 export function potionBoardEnabled(mode: TierTruth = TIER_TRUTH): boolean {
   return mode === 'full';
 }
+
+/**
+ * The SECOND seam, and it is a different question from the first.
+ *
+ * Feeding the cloud the truth about tier changes what the search BELIEVES;
+ * the tier-window filter in `candidates.ts` changes what it is allowed to
+ * CONSIDER. One is a correction, the other is a policy, and an arm that moves
+ * both at once can only report their sum. Default on; `off` gives the
+ * corrected-beliefs-only arm.
+ */
+export const TIER_DEFENSE: boolean =
+  String(process.env.CENTAUR_TIER_DEFENSE ?? '').trim().toLowerCase() !== 'off';
