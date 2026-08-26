@@ -622,6 +622,27 @@ export interface KernelReport {
   readonly stagedNothing: boolean
   /** False when the SearchCore exposed no lever surface: the lever order was advisory. */
   readonly leverOrderBinding: boolean
+  /**
+   * WORLD ARBITRATION (per-team adversary, C5) — zeroes when the core prices
+   * only the unconditional coalition.
+   *
+   *   decisions      `improve` calls the core completed this decision.
+   *   relaxed        of those, the ones whose leader was proved in the
+   *                  DECLARED per-team world. Every record emitted from one
+   *                  carries the narrowing in `EmitRecord.assumptions`.
+   *   disagreements  the unconditional channel's leader over the SAME priced
+   *                  plans was a different plan. Reported, never resolved:
+   *                  the world was chosen before the search began.
+   *   vetoes         relaxed improvements refused because the plan's strict
+   *                  ceiling was DEAD — convicted in the un-relaxed game, so
+   *                  no assumption about rival coordination may stage it.
+   */
+  readonly world: {
+    readonly decisions: number
+    readonly relaxed: number
+    readonly disagreements: number
+    readonly vetoes: number
+  }
 }
 
 // ------------------------------------------------------------------ internals
@@ -756,6 +777,8 @@ interface Run {
    * by unitId → the refused destination. See EmitRefusal "pin-unreachable". */
   refusedPins: Map<UnitId, number>
   epoch: number
+  /** World arbitration counters, folded in from the core's drains. */
+  world: { decisions: number; relaxed: number; disagreements: number; vetoes: number }
   basis: RatchetBasis
   active: PinContextEntry
   lastView: LeverView | null
@@ -904,6 +927,7 @@ export class LobsterKernel implements Kernel {
       evaluateCalls: 0,
       sliceCostTotal: 0,
       boundViolations: 0,
+      world: { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0 },
       refusals: {
         "ratchet-floor": 0,
         "ratchet-gap": 0,
@@ -1113,6 +1137,11 @@ export class LobsterKernel implements Kernel {
         run.boundViolations++
         run.refusals["bounds-inversion"]++
       }
+      // Fold in what the core absorbed and what world it worked in. The drain
+      // has to happen on the SEARCH path too, not only after `conform`: a
+      // world choice is made inside `improve`, and a counter nobody drains is
+      // the same silence as no counter at all.
+      this.drainCoreRefusals(run)
       const s1 = run.now()
       run.slices++
       this.observeSliceCost(run, entry, s1 - s0)
@@ -1436,7 +1465,14 @@ export class LobsterKernel implements Kernel {
    * the same channel a slice's would be. */
   private drainCoreRefusals(run: Run): void {
     const drained = run.input.search.drainRefusals?.()
-    if (drained === undefined || drained.boundsInversions <= 0) return
+    if (drained === undefined) return
+    if (drained.world !== undefined) {
+      run.world.decisions += drained.world.decisions
+      run.world.relaxed += drained.world.relaxed
+      run.world.disagreements += drained.world.disagreements
+      run.world.vetoes += drained.world.vetoes
+    }
+    if (drained.boundsInversions <= 0) return
     run.boundViolations += drained.boundsInversions
     run.refusals["bounds-inversion"] += drained.boundsInversions
   }
@@ -2002,6 +2038,7 @@ export class LobsterKernel implements Kernel {
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,
       leverOrderBinding: run.refiner !== null,
+      world: { ...run.world },
     }
   }
 

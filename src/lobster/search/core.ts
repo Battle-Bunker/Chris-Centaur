@@ -44,6 +44,7 @@ import {
   DEFAULT_BANK_CONFIG,
   compareFloors,
   hasRoster,
+  planKey,
   refutedAt,
   withMove,
   withMoves,
@@ -128,6 +129,15 @@ interface Session {
    * reference must stay fixed on the emission path too). Never swept,
    * repaired, polished or perturbed. */
   readonly references: ReadonlyMap<UnitId, Candidate>;
+  /**
+   * THE STRICT SHADOW. In a per-team decision the ascent runs in the DECLARED
+   * relaxed world, so `best` is a statement about that world. This tracks the
+   * leader the UNCONDITIONAL channel would have picked over exactly the same
+   * priced plans, so the two worlds' disagreement is a measured number rather
+   * than an assumption. It is never compared with `best` — the two live in
+   * different games — it is only reported. Reset per `improve` call.
+   */
+  shadow: { best: BankResult | null };
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -135,6 +145,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
+  /**
+   * WORLD ARBITRATION ACCOUNTING (per-team adversary, C5). Drained by the
+   * kernel with the refusals, because a world choice is exactly as much of an
+   * explicit decision as a refusal is and neither may be silent.
+   */
+  const worldCounters = { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0 };
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -246,6 +262,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       sets,
       pins,
       references,
+      shadow: { best: null },
     };
   };
 
@@ -300,6 +317,56 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const samePath = (a: Candidate, b: Candidate): boolean =>
     a.path.length === b.path.length && a.path.every((cell, i) => cell === b.path[i]);
 
+  // --------------------------------------------------------- world shadow
+
+  /**
+   * Price a plan and keep the UNCONDITIONAL channel's own leader up to date.
+   *
+   * Both readings come out of one `price()` — the bank computes the strict
+   * bound whether or not it also computes a relaxed one — so the shadow costs
+   * a comparison, not a resolution.
+   */
+  /** Start a fresh shadow for one `improve` call. A function rather than an
+   * inline assignment so the narrowing of `s.shadow.best` belongs to this
+   * scope and not to the caller's control flow. */
+  const resetShadow = (s: Session): void => {
+    s.shadow.best = null;
+  };
+
+  const priced = (s: Session, plan: JointPlan): BankResult => {
+    const trial = s.bank.price(plan);
+    const cur = s.shadow.best;
+    if (cur === null) {
+      s.shadow.best = trial;
+      return trial;
+    }
+    const cmp = compareFloors(trial.strictBounds, cur.strictBounds);
+    if (!cmp.comparable) return trial;
+    if (cmp.order > 0 || (cmp.order === 0 && trial.strictBounds.best > cur.strictBounds.best)) {
+      s.shadow.best = trial;
+    }
+    return trial;
+  };
+
+  /**
+   * THE SAFETY VETO — the ONE thing the strict world is allowed to say about a
+   * plan the relaxed world likes, and it is a PREDICATE on the strict bound
+   * alone, never a comparison between the two games.
+   *
+   * `strictBounds.best === DEAD` means: in the full, un-relaxed game there is
+   * no reply under which this plan survives — dead in the OPTIMISTIC reading,
+   * `material-dead` in the posture governor's vocabulary, a verdict rather
+   * than a fear. A declared world may break ties among plans whose floors are
+   * merely cloud-contingent-dead. It may never stage a plan the unconditional
+   * game has already convicted, because no assumption about how two rivals
+   * coordinate can bring such a plan back to life.
+   *
+   * It applies only to ACCEPTING AN IMPROVEMENT. Rung 0's seed is never
+   * vetoed: a decision that stages nothing is worse than any of this.
+   */
+  const strictlyConvicted = (r: BankResult): boolean =>
+    r.strictBounds.best === Number.NEGATIVE_INFINITY;
+
   // ------------------------------------------------------------- acceptance
 
   /**
@@ -310,7 +377,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * number is exactly the laundering the whole bounds layer exists to prevent.
    * The incumbent keeps its place.
    */
-  const better = (trial: BankResult, incumbent: BankResult): boolean => {
+  const better = (s: Session, trial: BankResult, incumbent: BankResult): boolean => {
+    // The world arbitration's veto, before anything else is read.
+    if (trial.speaks === "per-team" && strictlyConvicted(trial) && !strictlyConvicted(incumbent)) {
+      worldCounters.vetoes++;
+      return false;
+    }
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
     // PROVED floor cannot be an improvement, however good its own floor looks.
@@ -334,8 +406,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
         if (budget.shouldStop()) break;
         if (candidate.to === current.to && samePath(candidate, current)) continue;
-        const trial = s.bank.price(withMove(best.plan, candidate));
-        if (better(trial, best)) best = trial;
+        const trial = priced(s, withMove(best.plan, candidate));
+        if (better(s, trial, best)) best = trial;
       }
     }
     return best;
@@ -368,8 +440,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
-          const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
-          if (better(trial, best)) best = trial;
+          const trial = priced(s, withMoves(best.plan, [ca, cb]));
+          if (better(s, trial, best)) best = trial;
         }
       }
     }
@@ -397,8 +469,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (budget.shouldStop()) return;
       const list = lists[i];
       if (list === undefined) {
-        const trial = s.bank.price(withMoves(best.plan, acc));
-        if (better(trial, best)) best = trial;
+        const trial = priced(s, withMoves(best.plan, acc));
+        if (better(s, trial, best)) best = trial;
         return;
       }
       for (const candidate of list) {
@@ -429,7 +501,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
     {
-      let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      resetShadow(s);
+      let best = priced(s, seedPlan(s, ctx.incumbent?.plan ?? null));
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -449,16 +522,31 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           for (let r = 0; r < cfg.restarts && !ctx.budget.shouldStop(); r++) {
             const seed = perturb(s, best.plan, r);
             if (seed === null) break;
-            let local = s.bank.price(seed);
+            let local = priced(s, seed);
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
-            if (better(local, best)) {
+            if (better(s, local, best)) {
               best = local;
               restarted = true;
               break;
             }
           }
           if (!restarted) break;
+        }
+      }
+      // WORLD ARBITRATION, RECORDED. The relaxed world is what the ascent
+      // maximised and what the kernel will stage — its narrowing rides
+      // `best.bounds.assumptions` all the way onto the EmitRecord — so the one
+      // thing left to do is say, in a counter the kernel drains, whether the
+      // unconditional channel would have chosen differently. Never resolved
+      // here: two worlds do not vote, one of them was chosen before the search
+      // started and the other one is a witness to the price of that choice.
+      worldCounters.decisions++;
+      if (best.speaks === "per-team") {
+        worldCounters.relaxed++;
+        const shadow: BankResult | null = s.shadow.best;
+        if (shadow !== null && planKey(shadow.plan) !== planKey(best.plan)) {
+          worldCounters.disagreements++;
         }
       }
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
@@ -512,7 +600,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         // on the wire beats nothing; the loud signal is the counter the kernel
         // keeps, not a dead turn.
         try {
-          s.bank.price(seed);
+          priced(s, seed);
         } catch (err) {
           if ((err as { code?: string }).code !== "bounds_inversion") throw err;
           absorbedInversions++;
@@ -526,14 +614,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // 2. repair legality — only the units the splice actually disturbed.
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
-        let scored = s.bank.price(plan);
+        let scored = priced(s, plan);
         for (const unitId of disturbed) {
           if (ctx.budget.shouldStop()) break;
           const set = s.sets.get(unitId) as CandidateSet;
           for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
             if (ctx.budget.shouldStop()) break;
-            const trial = s.bank.price(withMove(scored.plan, candidate));
-            if (better(trial, scored)) scored = trial;
+            const trial = priced(s, withMove(scored.plan, candidate));
+            if (better(s, trial, scored)) scored = trial;
           }
         }
         plan = scored.plan;
@@ -541,7 +629,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        plan = pairRepair(s, ctx.budget, s.bank.price(plan)).plan;
+        plan = pairRepair(s, ctx.budget, priced(s, plan)).plan;
       }
       return plan;
     }
@@ -580,9 +668,19 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return out;
   };
 
-  const drainRefusals = (): { boundsInversions: number } => {
-    const out = { boundsInversions: absorbedInversions };
+  const drainRefusals = (): {
+    boundsInversions: number
+    world: { decisions: number; relaxed: number; disagreements: number; vetoes: number }
+  } => {
+    const out = {
+      boundsInversions: absorbedInversions,
+      world: { ...worldCounters },
+    };
     absorbedInversions = 0;
+    worldCounters.decisions = 0;
+    worldCounters.relaxed = 0;
+    worldCounters.disagreements = 0;
+    worldCounters.vetoes = 0;
     return out;
   };
 

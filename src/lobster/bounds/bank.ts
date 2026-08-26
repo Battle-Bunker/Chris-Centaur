@@ -75,6 +75,13 @@ import type {
 import type { BudgetHandle } from "../contracts";
 import type { Resolution } from "../../partial-engine/index";
 import { evaluatorResidueEntry, ledgerOf, residueOf } from "./ledger";
+import {
+  INADMISSIBLE,
+  isTeamAware,
+  planPerTeamWorlds,
+  type CoalitionMode,
+  type PerTeamWorlds,
+} from "./coalition";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { modelledView, isModelling } from "./substrate-ext";
@@ -87,7 +94,14 @@ import {
   withNarrowing,
 } from "./score";
 
-export type Rung = "B0" | "B1" | "B2" | "B3";
+/**
+ * `C0`/`C1` are the B0/B1 shapes priced inside a DECLARED per-team adversary
+ * world (see `coalition.ts`). They are kept as their own rungs, never folded
+ * into B0/B1, because a rung name is how the report says which GAME a number
+ * belongs to, and a conditional number wearing an unconditional rung's name is
+ * exactly the laundering basis identity exists to stop.
+ */
+export type Rung = "B0" | "B1" | "B2" | "B3" | "C0" | "C1";
 
 export interface BankConfig {
   /** Per-enemy complete enumeration. */
@@ -114,6 +128,31 @@ export interface BankConfig {
   readonly gateOnEntanglement: boolean;
   /** Resolutions cached per decision context. */
   readonly memoCapacity: number;
+  /**
+   * Which adversary world the REPORTED bound speaks about.
+   *
+   *   "strict"    the one-coalition worst case. Every uncontrolled unit of
+   *               every rival team realises worst-for-us in the same world.
+   *               Unconditional. The default, and the only thing that ships
+   *               without an owner ruling on G-4.
+   *   "per-team"  additionally price the DECLARED per-team world set and
+   *               report it (`relaxedBounds`, and `bounds` when it exists).
+   *               `strictBounds` is still computed and still unconditional —
+   *               nothing is lost, a second, named game is added.
+   *
+   * Structurally a no-op with fewer than two rival teams: `planPerTeamWorlds`
+   * refuses, `relaxedBounds` is null, and `bounds === strictBounds`.
+   */
+  readonly coalition: CoalitionMode;
+  /** Require a cross-rival engagement before the per-team world is offered. */
+  readonly coalitionEngagementGate: boolean;
+  /**
+   * Also run the per-enemy enumeration INSIDE each per-team world (C1). Costs
+   * a sweep per gated hostile unit per world per plan; C0 alone already
+   * carries the whole de-coordination effect, so this is off by default and
+   * exists to be measured.
+   */
+  readonly coalitionB1: boolean;
 }
 
 export const DEFAULT_BANK_CONFIG: BankConfig = {
@@ -125,6 +164,9 @@ export const DEFAULT_BANK_CONFIG: BankConfig = {
   declareTruncatedFloor: false,
   gateOnEntanglement: true,
   memoCapacity: 4096,
+  coalition: "strict",
+  coalitionEngagementGate: true,
+  coalitionB1: false,
 };
 
 /** B0 alone: the cheap end of the ladder, one resolution per plan. */
@@ -180,6 +222,30 @@ export interface BankResult extends PlanScore {
    * why.
    */
   readonly narrowings: ReadonlyArray<Assumption>;
+
+  // ------------------------------------------- the per-team adversary world
+  //
+  // TWO GAMES, SIDE BY SIDE, NEVER MIXED. `strictBounds` is the one-coalition
+  // worst case and is unconditional. `relaxedBounds` is a floor on a DIFFERENT
+  // game, named by a narrowing in its own basis. `bounds` is whichever of the
+  // two this bank was configured to SPEAK about, so every consumer that reads
+  // `bounds` also reads its assumptions and cannot lose the condition.
+  //
+  // Nothing here compares the two. A consumer that wants both must use each in
+  // its own game — see the search core's world arbitration, which uses the
+  // strict side only as a VETO PREDICATE (a statement about the strict bound
+  // alone) and never as a comparand.
+
+  /** The unconditional bound. Always computed, always sound on the full game. */
+  readonly strictBounds: ScoreBounds;
+  /** The declared per-team world's bound, or null when it is not admissible. */
+  readonly relaxedBounds: ScoreBounds | null;
+  /** Which game `bounds` speaks about. */
+  readonly speaks: "strict" | "per-team";
+  /** Members of the declared world set that were actually priced. */
+  readonly worldsPriced: number;
+  /** Why the per-team world is or is not available — reported, never guessed. */
+  readonly coalitionReason: string;
 }
 
 export interface BankInput {
@@ -231,6 +297,11 @@ export class BoundBank {
   private readonly narrowingList: Assumption[] = [];
   private readonly views = new Map<string, { sub: Substrate; release(): void }>();
   private readonly canModel: boolean;
+  /** The declared per-team world set. DECISION-LEVEL and computed once: a
+   * narrowing that appeared on one plan and not another would give the two
+   * plans two bases, `compareFloors` would refuse, and the ascent would freeze
+   * without saying so. Lazy only to keep the constructor free of engine work. */
+  private worldsMemo: PerTeamWorlds | null = null;
 
   constructor(private readonly input: BankInput) {
     this.cfg = { ...DEFAULT_BANK_CONFIG, ...(input.config ?? {}) };
@@ -252,6 +323,28 @@ export class BoundBank {
   /** Everything this bank could not prove and had to say so about. */
   get narrowings(): ReadonlyArray<Assumption> {
     return this.narrowingList;
+  }
+
+  /**
+   * The declared per-team world set for this decision, or an inadmissible
+   * record saying why there is none. Computed once and reused, so the
+   * narrowing it produces is identical on every plan this bank prices.
+   */
+  get worlds(): PerTeamWorlds {
+    if (this.worldsMemo !== null) return this.worldsMemo;
+    if (this.cfg.coalition !== "per-team" || !this.canModel) {
+      this.worldsMemo = INADMISSIBLE(
+        this.cfg.coalition !== "per-team"
+          ? "coalition=strict"
+          : "substrate cannot model: a relaxed world cannot be priced",
+      );
+      return this.worldsMemo;
+    }
+    this.worldsMemo = planPerTeamWorlds(this.memo, this.uncontrolled(), this.input.asTeam, {
+      requireEngagement: this.cfg.coalitionEngagementGate,
+    });
+    if (this.worldsMemo.narrowing !== null) this.declare(this.worldsMemo.narrowing);
+    return this.worldsMemo;
   }
 
   /** Seed the set from a previous context (restarts inherit witnesses). */
@@ -601,24 +694,182 @@ export class BoundBank {
       note: `bank floor=${floorPick.report.rung} ceiling=${widened ? floorPick.report.rung : ceilPick.rung}`,
     });
 
+    // ---- the DECLARED per-team world, priced beside the strict one --------
+    //
+    // Deliberately AFTER the strict assembly, and deliberately not given the
+    // ceiling pool: a conditional branch may never lower the unconditional
+    // ceiling, and the cheapest way to guarantee that is for the conditional
+    // branches not to exist until the unconditional answer is finished.
+    const relaxed = this.priceRelaxed(base, bounds, members);
+
+    const speaks: "strict" | "per-team" = relaxed === null ? "strict" : "per-team";
+    const reported = relaxed === null ? bounds : relaxed.bounds;
+    const reportedFloorRung = relaxed === null ? floorPick.report.rung : relaxed.floorFrom;
+    const reportedCeilRung =
+      relaxed === null ? (widened ? floorPick.report.rung : ceilPick.rung) : relaxed.ceilingFrom;
+
     // `est` orders among floor ties and never adjudicates. Clamp it into the
-    // bracket so a stale estimate can never be read as a promise.
-    if (!isFinite_(est)) est = bounds.worst;
-    est = Math.min(Math.max(est, bounds.worst), bounds.best);
+    // bracket of the game this result SPEAKS about, so a stale estimate can
+    // never be read as a promise in either world.
+    if (!isFinite_(est)) est = reported.worst;
+    est = Math.min(Math.max(est, reported.worst), reported.best);
 
     return {
       plan,
-      bounds,
+      bounds: reported,
       witnesses: this.witnessList,
       members,
       resolutions: this.memo.stats.resolutions - before,
       finished,
-      floorFrom: floorPick.report.rung,
-      floorComplete: floorPick.report.complete,
-      ceilingFrom: widened ? floorPick.report.rung : ceilPick.rung,
-      worstResolution: floorPick.resolution,
+      floorFrom: reportedFloorRung,
+      floorComplete: relaxed === null ? floorPick.report.complete : false,
+      ceilingFrom: reportedCeilRung,
+      worstResolution: relaxed === null ? floorPick.resolution : relaxed.worstResolution,
       est,
       narrowings: this.narrowingList,
+      strictBounds: bounds,
+      relaxedBounds: relaxed === null ? null : relaxed.bounds,
+      speaks,
+      worldsPriced: relaxed === null ? 0 : relaxed.worldsPriced,
+      coalitionReason: this.worlds.reason,
+    };
+  }
+
+  /**
+   * Price the DECLARED per-team world set for one plan.
+   *
+   *   floor_W   = max( strict floor,  min over worlds of that world's floor )
+   *   ceiling_W = min over worlds of that world's ceiling
+   *
+   * The `max` against the strict floor is the one legal direction of traffic
+   * between the two games: a floor on the FULL reply set is also a floor on
+   * any subset of it, so an unconditional floor may strengthen a conditional
+   * one. The reverse never happens, and the ceiling never crosses at all —
+   * restricting the reply set RAISES the min, so an unconditional ceiling is
+   * not an upper bound on the restricted value and must not be used as one.
+   *
+   * Returns null when the world set is inadmissible: `bounds` then stays the
+   * strict bound, byte-for-byte, and no narrowing is attached to anything.
+   */
+  private priceRelaxed(
+    base: JointPlan,
+    strict: ScoreBounds,
+    members: MemberReport[],
+  ): {
+    bounds: ScoreBounds;
+    worstResolution: Resolution;
+    floorFrom: Rung;
+    ceilingFrom: Rung;
+    worldsPriced: number;
+  } | null {
+    const worlds = this.worlds;
+    if (!worlds.admissible || worlds.narrowing === null) return null;
+
+    // THE WORLD SET IS ITSELF A MIN, SO IT IS ITSELF WHICH-TRUNCATABLE. The
+    // relaxed floor is `min over r of F_r`; price a SUBSET of the worlds and
+    // that min is an over-estimate of the min over all of them — the exact
+    // failure mode `closeGroup` refuses on an unfinished enemy sweep, one
+    // level up. A clock that cuts the world loop short therefore publishes NO
+    // relaxed bound at all: the result falls back to the unconditional strict
+    // bound, which is always computed and always sound. (Measured: without
+    // this, an adversarial clock at cut@3 put four relaxed floors above the
+    // exhaustive truth OF THEIR OWN WORLD SET.)
+    const perWorld: Array<{ bounds: ScoreBounds; resolution: Resolution; rung: Rung }> = [];
+    for (const world of worlds.worlds) {
+      if (this.input.budget.shouldStop()) return null;
+      const ids = world.fixes.map((c) => c.unitId);
+      const view = this.viewFor(ids);
+      const fixedPlan = withMoves(base, [...world.fixes]);
+      const c0 = this.priceBranch(view, fixedPlan, "C0", null);
+      let floor = c0.bounds;
+      let resolution = c0.resolution;
+      let rung: Rung = "C0";
+      members.push({
+        rung: "C0",
+        unitId: null,
+        branches: 1,
+        // Complete as a cover of THIS world (nothing of the hostile team was
+        // truncated — it is held, which is the sound relaxation), but the
+        // world itself is declared, so `floorComplete` on the result is false.
+        complete: true,
+        floor: c0.bounds.worst,
+        ceiling: c0.bounds.best,
+      });
+
+      // C1: the per-enemy sweep INSIDE this world. Same additive lemma as B1
+      // — the hostile team's enumerated unit contributes a min over a complete
+      // option set — only the remainder differs, and the remainder is what the
+      // narrowing names.
+      if (this.cfg.coalitionB1) {
+        const teamAware = isTeamAware(this.memo) ? this.memo : null;
+        const gated = this.gate(base, c0.bounds.ledger).filter(
+          (id) => !ids.includes(id) && teamAware?.teamOf(id) === world.hostile,
+        );
+        for (const enemy of gated.slice(0, this.cfg.enemyCap)) {
+          if (this.input.budget.shouldStop()) break;
+          const enemyView = this.viewFor([...ids, enemy]);
+          const { options, complete } = this.optionsFor(enemyView, enemy);
+          if (options.length === 0 || !complete) continue;
+          const leaves: Branch[] = [];
+          let swept = true;
+          for (const option of options) {
+            if (this.input.budget.shouldStop()) {
+              swept = false;
+              break;
+            }
+            leaves.push(
+              this.priceBranch(enemyView, withMove(fixedPlan, option), "C1", new Map([[enemy, option]])),
+            );
+          }
+          if (!swept || leaves.length === 0) continue;
+          const group = backupMin(
+            leaves.map((l) => l.bounds),
+            "C1 group",
+          );
+          let worstLeaf = leaves[0] as Branch;
+          for (const leaf of leaves) if (leaf.bounds.worst < worstLeaf.bounds.worst) worstLeaf = leaf;
+          members.push({
+            rung: "C1",
+            unitId: enemy,
+            branches: leaves.length,
+            complete: true,
+            floor: group.worst,
+            ceiling: group.best,
+          });
+          if (group.worst > floor.worst) {
+            floor = group;
+            resolution = worstLeaf.resolution;
+            rung = "C1";
+          }
+        }
+      }
+      perWorld.push({ bounds: floor, resolution, rung });
+    }
+    if (perWorld.length !== worlds.worlds.length) return null;
+
+    // MIN over the worlds: we do not get to choose which rival is the one free
+    // to come at us, so the promise has to hold in every member of W.
+    const across = backupMin(
+      perWorld.map((w) => w.bounds),
+      "per-team world set",
+    );
+    let minWorld = perWorld[0] as { bounds: ScoreBounds; resolution: Resolution; rung: Rung };
+    for (const w of perWorld) if (w.bounds.worst < minWorld.bounds.worst) minWorld = w;
+
+    const useStrictFloor = strict.worst > across.worst;
+    const bounds = makeScoreBounds({
+      worst: useStrictFloor ? strict.worst : across.worst,
+      best: across.best,
+      ledger: unionLedgers(useStrictFloor ? strict.ledger : across.ledger, across.ledger),
+      assumptions: unionAssumptions(this.input.basis, across.assumptions, [worlds.narrowing]),
+      note: `per-team floor=${useStrictFloor ? "strict" : minWorld.rung} over ${perWorld.length} worlds`,
+    });
+    return {
+      bounds,
+      worstResolution: minWorld.resolution,
+      floorFrom: useStrictFloor ? "B0" : minWorld.rung,
+      ceilingFrom: minWorld.rung,
+      worldsPriced: perWorld.length,
     };
   }
 

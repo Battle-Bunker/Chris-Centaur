@@ -55,3 +55,12 @@ export { WitnessSet, refutedAt, sameWitness, witnessKey, witnessOf, witnessUnits
 
 export { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG } from "./bank";
 export type { BankConfig, BankInput, BankResult, MemberReport, Rung } from "./bank";
+
+export { INADMISSIBLE, engagedRivals, isTeamAware, narrowingFor, planPerTeamWorlds } from "./coalition";
+export type {
+  CoalitionMode,
+  PerTeamWorlds,
+  RivalWorld,
+  TeamAwareSubstrate,
+  WorldOptions,
+} from "./coalition";

@@ -672,6 +672,17 @@ export class EngineSubstrate implements Substrate {
     return this.byWireId.get(wireId);
   }
 
+  /**
+   * The engine-side team of one unit, or undefined for a unit this substrate
+   * does not carry. A one-line accessor rather than a `roster()` scan because
+   * the bounds layer feature-detects exactly this capability: a substrate that
+   * cannot name a unit's team cannot price a per-team adversary world, and the
+   * bank stays on the unconditional coalition floor when it is missing.
+   */
+  teamOf(unitId: UnitId): number | undefined {
+    return this.byUnitId.get(unitId)?.team;
+  }
+
   /** The engine-side number for a wire team id. Throws on an unknown team. */
   teamNumber(teamId: string): number {
     const n = this.teamNumbers.get(teamId);

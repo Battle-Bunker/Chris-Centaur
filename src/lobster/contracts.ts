@@ -443,7 +443,29 @@ export interface SearchCore {
    * nobody counts is exactly the silence this build has a rule against, so it
    * is reported here instead.
    */
-  drainRefusals?(): { boundsInversions: number }
+  drainRefusals?(): {
+    boundsInversions: number
+    /**
+     * WORLD ARBITRATION (per-team adversary, C5). A core that prices a
+     * DECLARED relaxed adversary world reports, per drain, how many decisions
+     * it made, how many of them it made IN the relaxed world, how often the
+     * unconditional channel would have led with a different plan, and how many
+     * relaxed improvements the strict-side safety veto refused. Optional: a
+     * core that only ever prices the unconditional coalition omits it, and the
+     * kernel reports zeroes.
+     *
+     * These are not refusals (except `vetoes`, which is one). They are here
+     * because a world choice is an explicit decision of exactly the kind this
+     * build refuses to make silently, and the kernel is where explicit
+     * decisions are counted.
+     */
+    world?: {
+      readonly decisions: number
+      readonly relaxed: number
+      readonly disagreements: number
+      readonly vetoes: number
+    }
+  }
   /**
    * Optional: drop every live session and return every slab cached in one.
    *

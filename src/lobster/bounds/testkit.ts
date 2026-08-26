@@ -165,6 +165,9 @@ export interface BoundedSubstrate extends Substrate {
     plan: JointPlan,
     asTeam: number,
   ): { resolution: Resolution; worst: number; best: number };
+  /** The team of one unit — the capability the per-team adversary world
+   * feature-detects on the real substrate. */
+  teamOf(unitId: UnitId): number | undefined;
   /** Held-unit pricing mode, so the harness can measure the interval law. */
   readonly heldPricing: "interval" | "scalar";
   /** Real engine resolutions this substrate and its children have spent. */
@@ -339,6 +342,12 @@ class TestSubstrate implements BoundedSubstrate, ModellingSubstrate, RosterSubst
       .units(this.state)
       .filter((u) => u.team === asTeam && this.commanded.has(u.unitId))
       .map((u) => u.unitId);
+  }
+
+  /** The team of one unit — the capability the per-team adversary world
+   * feature-detects. Read off the board spec, which is this harness's truth. */
+  teamOf(unitId: UnitId): number | undefined {
+    return this.board.spec.units.find((u) => u.id === unitId)?.team;
   }
 
   /** The complete legal option list for a LIVE unit, engine-enumerated. */
@@ -597,6 +606,61 @@ export function trueWorstCase(
   }
 }
 
+/**
+ * GROUND TRUTH INSIDE A DECLARED WORLD SET — the conditional analogue of
+ * `trueWorstCase`, and the only honest oracle for a relaxed floor.
+ *
+ * For each world (one rival team left free, a named set of rival units FIXED
+ * to a declared action) this enumerates every completion of every unit that is
+ * NOT fixed — the free team's units and any un-fixed rival — through the same
+ * resolver, and takes the minimum. The value returned is
+ *
+ *     min over W of V(plan, .)
+ *
+ * exactly, which is what a relaxed bracket claims to contain. It is NOT the
+ * true security value of the game: `trueWorstCase` is, it is lower, and the
+ * gap between the two is precisely the price of the declaration.
+ */
+export function trueWorstCaseInWorlds(
+  board: TestBoard,
+  ourTeam: number,
+  plan: JointPlan,
+  worlds: ReadonlyArray<{ readonly hostile: number; readonly fixes: ReadonlyArray<Candidate> }>,
+): { value: number; hostile: number } {
+  const commanded = new Set<UnitId>(board.spec.units.filter((u) => u.team === ourTeam).map((u) => u.id));
+  const others = board.spec.units.filter((u) => u.team !== ourTeam).map((u) => u.id);
+  const live = new TestSubstrate(board, commanded, others, "interval", 0);
+  try {
+    let value = Number.POSITIVE_INFINITY;
+    let hostile = -1;
+    for (const world of worlds) {
+      const fixedIds = new Set(world.fixes.map((c) => c.unitId));
+      const free = others.filter((id) => !fixedIds.has(id));
+      const lists = free.map((id) => ({ id, options: live.optionsFor(id) }));
+      const seed = new Map(plan);
+      for (const c of world.fixes) seed.set(c.unitId, c);
+      const walk = (i: number, acc: Candidate[]): void => {
+        const list = lists[i];
+        if (list === undefined) {
+          const full = new Map(seed);
+          for (const c of acc) full.set(c.unitId, c);
+          const out = live.boundedFor(full, ourTeam);
+          if (out.worst < value) {
+            value = out.worst;
+            hostile = world.hostile;
+          }
+          return;
+        }
+        for (const option of list.options) walk(i + 1, [...acc, option]);
+      };
+      walk(0, []);
+    }
+    return { value, hostile };
+  } finally {
+    live.release();
+  }
+}
+
 /** How many resolutions `trueWorstCase` costs — the harness reports it. */
 export function replySpaceSize(board: TestBoard, ourTeam: number): number {
   const commanded = new Set<UnitId>(board.spec.units.filter((u) => u.team === ourTeam).map((u) => u.id));
@@ -633,7 +697,16 @@ export const SEEDED_KINDS: readonly UnitType[] = ['knight', 'king', 'rook', 'bis
  * about contests and deaths — and the whole point for the one property that is
  * about held material.
  */
-export function seededBoard(seed: number, size = 6, perSide = 1, foodCount = 0): BoardSpec {
+export function seededBoard(
+  seed: number,
+  size = 6,
+  perSide = 1,
+  foodCount = 0,
+  /** How many TEAMS to field. Two by default, so every existing caller and
+   * every existing seed keeps its board byte-for-byte; three is what the
+   * per-team adversary world needs to exist at all. */
+  teamCount = 2,
+): BoardSpec {
   const random = mulberry32(seed);
   const interior: number[] = [];
   for (let y = 1; y < size - 1; y++) for (let x = 1; x < size - 1; x++) interior.push(y * size + x);
@@ -648,7 +721,9 @@ export function seededBoard(seed: number, size = 6, perSide = 1, foodCount = 0):
   const used = new Set<number>();
   const inside = new Set(interior);
   let id = 1;
-  for (const team of [0, 1]) {
+  const teams: number[] = [];
+  for (let t = 0; t < teamCount; t++) teams.push(t);
+  for (const team of teams) {
     for (let n = 0; n < perSide; n++) {
       let kind = SEEDED_KINDS[Math.floor(random() * SEEDED_KINDS.length)] as UnitType;
       while (next < interior.length && used.has(interior[next] as number)) next++;
