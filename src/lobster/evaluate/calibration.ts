@@ -170,12 +170,30 @@ export interface CriterionProfile {
   readonly healthReserveRatio?: number;
 }
 
-/** The two things a piece's next-turn command set is counted for. */
+/** What a piece's next-turn command set is counted for, and for whom. */
 export interface CommandKnobs {
   /** Multiplier on contested ground: cells a trail unit also reaches. */
   readonly ground: number;
   /** Multiplier on food cells inside the command set. */
   readonly food: number;
+  /**
+   * Whether a ROYAL unit earns command. Off, and off is not a tuning choice.
+   *
+   * A king's only protections under these rules are unreachability, out-
+   * weighing everything that reaches it, and tier (`SPECIALIST_FACTS`
+   * king-weight-margin). A term that pays a unit for the ground it can act on
+   * pays it, in exactly those units, for giving up the first of the three —
+   * and a king's death is TERMINAL, which is a lattice element and not
+   * something a positional term is allowed to trade against.
+   *
+   * Measured rather than argued, on 48 games a side of `s3-mix23-base` at
+   * 150 ms with royals included: the king's stay share fell 90.8% -> 80.8% and
+   * its deaths rose 17 -> 24, against the queen's stay share falling
+   * 45.6% -> 26.3%, which is the intended half. That cell is also where D2's
+   * self-regicide class lives (every recorded territory case at four plans a
+   * decision or fewer; this cell runs at 3.1).
+   */
+  readonly royal: boolean;
 }
 
 /**
@@ -247,7 +265,7 @@ export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
  * `TERRITORY_PROFILE` — asserted, not asserted-by-comment, in
  * `src/tests/territory-slider.test.ts`.
  */
-export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20 };
+export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
 
 /**
  * Half a kind's maximum. A piece at or above it has a movement budget that does
@@ -262,6 +280,19 @@ export const TERRITORY_SLIDER_PROFILE: CriterionProfile = {
   reachHorizonTurns: REACH_HORIZON_TURNS,
   command: COMMAND_KNOBS,
   healthReserveRatio: HEALTH_RESERVE_RATIO,
+};
+
+/**
+ * THE ABLATION ARM. Identical to the repair except that a royal unit earns
+ * command too. It exists so `CommandKnobs.royal` is a measured ruling rather
+ * than an argued one — the king is the one piece whose activity trades against
+ * a terminal, and a knob that is off on reasoning alone is a knob nobody has
+ * checked. Not a production profile.
+ */
+export const TERRITORY_SLIDER_ROYAL_PROFILE: CriterionProfile = {
+  ...TERRITORY_SLIDER_PROFILE,
+  name: 'lobster-territory-a',
+  command: { ...COMMAND_KNOBS, royal: true },
 };
 
 /** Material only — the profile a differential or a 1 ms reflex rung wants, and

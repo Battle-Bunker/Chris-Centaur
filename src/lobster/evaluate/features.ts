@@ -664,6 +664,9 @@ export function budgetShare(
  * so with nothing held the two readings are the same set at the same fronts and
  * the feature collapses to a point (R3).
  *
+ * NOT FOR A ROYAL UNIT. `knobs.royal` is off, and it is off for a reason the
+ * rules supply rather than a tuning one — see `CommandKnobs.royal`.
+ *
  * OFF BY DEFAULT, and off costs one branch. A board with no piece on it scores
  * exactly zero here whatever the knobs say, which is what makes this profile
  * bit-identical to the plain territory one on an all-snake board.
@@ -711,6 +714,8 @@ function commandSum(
   let total = 0;
   for (const s of ctx.standing) {
     if (profileOf(s.kind).leavesTrail) continue;
+    // A royal unit is not paid for activity: see CommandKnobs.royal.
+    if (s.isKing && !knobs.royal) continue;
     const mine = s.team === ctx.asTeam;
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
     const sh = ctx.shells().get(s.unitId);

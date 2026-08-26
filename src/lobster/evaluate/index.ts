@@ -42,6 +42,7 @@ import {
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
   TERRITORY_SLIDER_PROFILE,
+  TERRITORY_SLIDER_ROYAL_PROFILE,
 } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
@@ -177,3 +178,9 @@ export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);
  * `TERRITORY_SLIDER_PROFILE` for the measurement that motivates it.
  */
 export const territorySliderEvaluator = new BoundEvaluator(TERRITORY_SLIDER_PROFILE);
+
+/** The ablation arm — the repair with the royal exclusion lifted. Measured
+ * against `territorySliderEvaluator`; never a production default. */
+export const territorySliderRoyalEvaluator = new BoundEvaluator(
+  TERRITORY_SLIDER_ROYAL_PROFILE
+);
