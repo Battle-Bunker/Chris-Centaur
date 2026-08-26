@@ -37,12 +37,35 @@
  * ── WHAT IS AND IS NOT CERTAIN ─────────────────────────────────────────────
  *
  * A trail unit's occupancy next turn is `[newHead, cells[0] .. cells[len-2]]`:
- * the body shifts by one and only the TAIL vacates. So `cells[1 .. len-2]` is
- * occupied in every world, whatever anyone else does, and entering one is a
- * self-collision by rule. `cells[len-1]` is the tail and vacates (unless the
- * unit grows), so it is NOT in the certain set — which is exactly why a
- * length-2 reversal is safe and a length-3 one is not, and why the corpus shows
- * 1295 of 1295 length->=3 reversals fatal and 0 of 3385 length-2 ones.
+ * the body shifts by one and only the TAIL vacates. So for EVERY trail unit on
+ * the board — ours, a team-mate's, an enemy's — `cells[0 .. len-2]` is occupied
+ * in every world, whatever that unit chooses, because a trail unit must step and
+ * its body follows. `cells[len-1]` is the tail and vacates (unless the unit
+ * grows), so it is NOT in the certain set — which is exactly why a length-2
+ * reversal is safe and a length-3 one is not, and why the corpus shows 1295 of
+ * 1295 length->=3 reversals fatal and 0 of 3385 length-2 ones.
+ *
+ * A TEAM-MATE'S BODY IS ALMOST, BUT NOT QUITE, THE SAME FACT — see
+ * `allyBodyCollision`, which is kept OUT of the certain set for the one reason
+ * that breaks it: if the team-mate DIES this turn its occupancy becomes a
+ * durable pile, and a pile is settled on WEIGHT, so a heavy enough mover
+ * survives a cell a living body would have killed it on. The living-body rule
+ * is tier-only; the corpse rule is not. That is a policy prune with a declared
+ * cost, not a theorem.
+ *
+ * THE TEAM-MATE HALF WAS MEASURED, NOT ASSUMED. With only the mover's OWN body
+ * refused, the queen-cell arm's rule-certain self-kills went 4.17 -> 0.00 per
+ * game and its deaths did not fall at all: 22 of them reappeared as `bodyBlock`
+ * on a team-mate's body (13 mid-body, 9 on the cell the team-mate's head was
+ * vacating — which becomes its new neck). The blindness is not about the mover,
+ * it is about the MODELLED set: our own units carry no claim slot, so the risk
+ * layer reads every one of our bodies as empty. The mover's own body was just
+ * the first instance of it anyone noticed.
+ *
+ * The one rule that is not pure geometry is the tier: a body cell kills an
+ * arriver whose tier is at most the owner's, and a strictly higher tier SEVERS
+ * and lives (`risk.ts` `bodyOutcome`). So the refusal asks the tier, and a
+ * mover that would sever is not refused.
  *
  * A wall cell kills whatever enters it, and only a trail unit can even stage
  * one (`profile.mayEnterWall`); a piece's off-board destination is not
@@ -156,17 +179,59 @@ export function certainlySelfFatal(
     }
   }
 
-  // OWN BODY. `cells[1 .. len-2]` is occupied next turn in every world; the tail
-  // vacates and is deliberately excluded.
+  // OWN BODY. `cells[1 .. len-2]` is occupied next turn in every world: the body
+  // shifts by one and only the tail vacates. Index 0 is the mover's own head,
+  // which a trail unit cannot stage.
   if (profile.leavesTrail && unit.cells.length >= 3) {
-    const certain = new Set<CellIndex>();
-    for (let i = 1; i <= unit.cells.length - 2; i++) certain.add(unit.cells[i] as CellIndex);
-    for (const cell of candidate.path) {
-      if (certain.has(cell as CellIndex)) return 'own-body';
+    const last = unit.cells.length - 2;
+    for (let i = 1; i <= last; i++) {
+      if (candidate.path.includes(unit.cells[i] as CellIndex)) return 'own-body';
     }
   }
 
   return null;
+}
+
+/**
+ * Would this candidate walk into a MODELLED TEAM-MATE's body?
+ *
+ * The same arithmetic as the mover's own body, one unit over: a trail unit's
+ * `cells[0 .. len-2]` is occupied next turn whatever it chooses, INDEX 0
+ * INCLUDED — the cell a team-mate's head is vacating becomes its own new neck.
+ * And our team-mates are modelled, so they carry no claim slot and the risk
+ * layer reads every one of their bodies as empty ground.
+ *
+ * NOT in the certain set, for one reason: if the team-mate dies this turn its
+ * occupancy becomes a durable pile, and a pile is settled on WEIGHT where a
+ * living body is settled on TIER alone. So a mover heavy enough to win the pile
+ * survives a cell the living body would have killed it on. That makes this a
+ * policy prune with a declared cost rather than a theorem — and the cost is
+ * exactly "a slide that would have paid off because a team-mate was about to
+ * die on it", which is not a tactic anyone is playing on purpose.
+ *
+ * ENEMY bodies are deliberately absent: they obey the same arithmetic, but the
+ * risk layer already carries them as claims and answers for them, and a second
+ * reading of the same units is the drift the one-pipeline rule forbids.
+ */
+export function allyBodyCollision(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  candidate: Candidate
+): boolean {
+  if (candidate.path.length === 0) return false;
+  const modelled = sub.modeled();
+  for (const other of sub.roster()) {
+    if (other.unitId === unit.unitId) continue;
+    if (other.team !== unit.team || !modelled.has(other.unitId)) continue;
+    if (!profileOf(other.kind).leavesTrail) continue;
+    // A strictly higher tier SEVERS the body and lives (risk.ts bodyOutcome).
+    if (unit.tier > other.tier) continue;
+    const last = other.cells.length - 2; // the tail vacates
+    for (let i = 0; i <= last; i++) {
+      if (candidate.path.includes(other.cells[i] as CellIndex)) return true;
+    }
+  }
+  return false;
 }
 
 /**

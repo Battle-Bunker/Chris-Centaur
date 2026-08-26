@@ -369,7 +369,11 @@ export class TeamDecisionEngine {
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
     const search = tapWitnesses(
-      buildCore({ rungZeroRepair: safety === 'full', ...(this.options.search ?? {}) }),
+      buildCore({
+        rungZeroRepair: safety === 'full',
+        seedDeconflict: safety !== 'off',
+        ...(this.options.search ?? {}),
+      }),
       witnesses
     );
 

@@ -23,8 +23,15 @@
 
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../substrate';
-import { GrammarCandidateGenerator, PRUNE, PRUNE_EXACT, PRUNE_NOTES } from '../candidates';
 import {
+  GrammarCandidateGenerator,
+  PRUNE,
+  PRUNE_EXACT,
+  PRUNE_NOTES,
+  knobsForSafety,
+} from '../candidates';
+import {
+  allyBodyCollision,
   certainlySelfFatal,
   killsOwnKing,
   royalMarginFrom,
@@ -153,6 +160,14 @@ afterEach(() => clearGeometryCache());
 // --------------------------------------------------------------------- the flag
 
 describe('the flag', () => {
+  test('a named level names BOTH polarities, so it beats the environment', () => {
+    // The whole point of the per-engine override: a seat asked to stay at the
+    // shipped build stays there even when the process flag says otherwise.
+    expect(knobsForSafety('off')).toEqual({ pruneCertainSelfFatal: false, pruneRoyalPath: false });
+    expect(knobsForSafety('guard')).toEqual({ pruneCertainSelfFatal: true, pruneRoyalPath: true });
+    expect(knobsForSafety('full')).toEqual({ pruneCertainSelfFatal: true, pruneRoyalPath: true });
+  });
+
   test('parses its three values and keeps the shipped default on anything else', () => {
     expect(stagingSafetyFrom({})).toBe('off');
     expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: '' })).toBe('off');
@@ -244,6 +259,87 @@ describe('a refused action really is fatal — through the real resolver', () =>
     }
   });
 
+  test("a team-mate's body is refused, and dies when the team-mate holds its shape", () => {
+    // Two of ours nose to tail. The mover's only forward step is the ally's
+    // mid-body, which cannot vacate whatever the ally does.
+    const board = boardOf(
+      [
+        makeSnake(
+          'A',
+          [
+            { x: 4, y: 4 },
+            { x: 4, y: 3 },
+            { x: 4, y: 2 },
+          ],
+          { teamID: 'red', orientation: { dx: 0, dy: 1 } }
+        ),
+        makeSnake(
+          'B',
+          [
+            { x: 5, y: 3 },
+            { x: 6, y: 3 },
+            { x: 7, y: 3 },
+          ],
+          { teamID: 'red', orientation: { dx: -1, dy: 0 } }
+        ),
+        piece('E', { x: 10, y: 10 }, 'knight', 2, { teamID: 'blue' }),
+      ],
+      { width: 11, height: 11 }
+    );
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const mover = sub.unitOfWireId('B')!;
+    const ally = sub.unitOfWireId('A')!;
+    const set = GUARDED().candidatesFor(sub, mover.unitId);
+    const refused = set.prunedLedger.filter((e) => e.prune === PRUNE.allyBody);
+    expect(refused.length).toBeGreaterThan(0);
+    let escapes = 0;
+    let checked = 0;
+    for (const entry of refused) {
+      expect(allyBodyCollision(sub, mover, entry.candidate)).toBe(true);
+      // Resolve it against EVERY legal move of the ally. The cell is occupied
+      // in each of them, so the mover dies in each of them — which is the
+      // quantifier the refusal rests on, checked rather than asserted.
+      for (const action of sub.enumerate(ally.unitId)) {
+        const allyMove: Candidate = {
+          unitId: ally.unitId,
+          from: ally.cells[0],
+          to: action.dest,
+          path: action.action.kind === 'move' ? [...action.action.path] : [],
+        };
+        const [moverDead, allyDead] = sub.withResolution(
+          new Map<UnitId, Candidate>([
+            [mover.unitId, entry.candidate],
+            [ally.unitId, allyMove],
+          ]),
+          sub.teamNumber('red'),
+          ({ resolution }) => [
+            resolution.deaths.some((d) => d.unitId === mover.unitId),
+            resolution.deaths.some((d) => d.unitId === ally.unitId),
+          ]
+        );
+        // The ONE world the refusal does not own, and it is the one the prune
+        // note names: a team-mate that dies leaves a pile settled on weight, not
+        // a body settled on tier, and a heavy enough mover wins a pile. Skipped
+        // here rather than papered over — and it is why `ally-body` is a policy
+        // prune and not part of `certainlySelfFatal`.
+        if (allyDead) {
+          escapes++;
+          continue;
+        }
+        expect([entry.candidate.to, action.dest, moverDead]).toEqual([
+          entry.candidate.to,
+          action.dest,
+          true,
+        ]);
+        checked++;
+      }
+    }
+    // Both branches must actually occur, or the exception above is untested.
+    expect(checked).toBeGreaterThan(0);
+    expect(escapes).toBeGreaterThan(0);
+    sub.release();
+  });
+
   test('a path THROUGH our own king at a winning strength ends the team', () => {
     // The measured shape: not "destination is the king's cell" — the king's own
     // cell had already been thinned out of the queen's option set — but a slide
@@ -329,7 +425,12 @@ describe('the invariants the candidate layer promises still hold', () => {
           const id = e.prune as keyof typeof PRUNE_EXACT;
           expect(PRUNE_EXACT[id]).toBe(e.exact);
           expect(typeof PRUNE_NOTES[id]).toBe('string');
-          if (e.prune === PRUNE.certainSelfFatal || e.prune === PRUNE.royalPath) refusals++;
+          if (
+            e.prune === PRUNE.certainSelfFatal ||
+            e.prune === PRUNE.allyBody ||
+            e.prune === PRUNE.royalPath
+          )
+            refusals++;
         }
       }
       sub.release();
@@ -412,11 +513,15 @@ describe('the ordering, which is what rung 0 actually reads', () => {
       for (const unit of sub.roster()) {
         const a = guarded.candidatesFor(sub, unit.unitId);
         const b = shipped.candidatesFor(sub, unit.unitId);
-        const safeExists = b.candidates.some((c) => certainlySelfFatal(sub, unit, c) === null);
+        const safeExists = b.candidates.some(
+          (c) => certainlySelfFatal(sub, unit, c) === null && !allyBodyCollision(sub, unit, c)
+        );
         if (!safeExists) continue;
         firsts++;
-        if (certainlySelfFatal(sub, unit, a.candidates[0] as Candidate) !== null) fatalFirsts++;
-        if (certainlySelfFatal(sub, unit, b.candidates[0] as Candidate) !== null) shippedFatalFirsts++;
+        const bad = (c: Candidate): boolean =>
+          certainlySelfFatal(sub, unit, c) !== null || allyBodyCollision(sub, unit, c);
+        if (bad(a.candidates[0] as Candidate)) fatalFirsts++;
+        if (bad(b.candidates[0] as Candidate)) shippedFatalFirsts++;
       }
       sub.release();
     }
@@ -554,6 +659,29 @@ describe('rung 0 reads the verdict it already paid for', () => {
     // Still a complete plan over exactly the units we command.
     expect([...h.plan.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
     h.close();
+  });
+
+  test('the seed reserves what it has spent: two of ours never start on one cell', () => {
+    // Both units' ordered-first option names the same square. The candidate
+    // layer is per unit and cannot see that; the seed can.
+    const shared = 3 * 7 + 3;
+    const both = new Map<UnitId, number>([
+      [1, shared],
+      [2, shared],
+    ]);
+    process.env.CENTAUR_STAGING_SAFETY = 'off';
+    const off = conformWith(FRATRICIDE, generatorForcing(both));
+    expect(off.plan.get(1)?.to).toBe(shared);
+    expect(off.plan.get(2)?.to).toBe(shared);
+    off.close();
+
+    process.env.CENTAUR_STAGING_SAFETY = 'guard';
+    const on = conformWith(FRATRICIDE, generatorForcing(both));
+    expect(on.plan.get(1)?.to === shared && on.plan.get(2)?.to === shared).toBe(false);
+    // Still complete, still legal, and no casualty of ours.
+    expect([...on.plan.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
+    expect(on.ourDead).toEqual([]);
+    on.close();
   });
 
   test('a clean seed costs the SAME number of evaluations with the repair on', () => {

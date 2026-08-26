@@ -99,6 +99,12 @@ export interface SearchTuning {
    * board does not.
    */
   readonly rungZeroRepair: boolean | undefined;
+  /**
+   * Whether the seed reserves the cells it has already spent, so two of our
+   * units do not both start on the same square. Undefined follows
+   * `CENTAUR_STAGING_SAFETY`; named by a caller it is that caller's answer.
+   */
+  readonly seedDeconflict: boolean | undefined;
 }
 
 export const DEFAULT_TUNING: SearchTuning = {
@@ -114,6 +120,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   sessionCacheSize: 2,
   rungZeroRepairVictims: 4,
   rungZeroRepair: undefined,
+  seedDeconflict: undefined,
 };
 
 /** The search could not determine which units it commands. */
@@ -279,18 +286,54 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return null;
   };
 
+  /**
+   * THE SEED — one candidate per unit, pins first, the incumbent's choice where
+   * it still stands, and otherwise the generator's ordered-first option.
+   *
+   * WHY IT DE-CONFLICTS (and why that is not a search). The candidate layer is
+   * PER UNIT: it cannot see a team-mate, so two of our units whose best options
+   * name the same cell both get it, and the seed walks them into each other. In
+   * the queen cell that showed up as 20 `contest` deaths on an empty cell and 9
+   * same-team edge swaps per twelve games — the exact residue left after the
+   * rules-certain classes were refused.
+   *
+   * So the seed reserves what it has already spent: a unit takes its first
+   * option whose PATH claims no cell an earlier unit's path already claims, and
+   * falls back to its ordered-first option when every option collides. It costs
+   * one pass and NO resolution — this is still the O(1)-price rung 0 — and it
+   * cannot change what is legal, only which complete legal plan the search
+   * starts from. Pins are seeded first and their cells are reserved before any
+   * free unit picks, so an operator's cell is never the one taken away.
+   */
   const seedPlan = (s: Session, from: JointPlan | null): JointPlan => {
     const plan = new Map<UnitId, Candidate>();
+    const deconflict = cfg.seedDeconflict ?? stagingSafety() !== "off";
+    const taken = new Set<number>();
+    const claim = (c: Candidate): void => {
+      taken.add(c.to);
+      for (const cell of c.path) taken.add(cell);
+    };
+    const clear = (c: Candidate): boolean => {
+      if (taken.has(c.to)) return false;
+      for (const cell of c.path) if (taken.has(cell)) return false;
+      return true;
+    };
+
+    // Pins first, and their cells reserved, so a constraint is never the thing
+    // a free unit's de-confliction takes away.
     for (const unitId of s.ours) {
       const pinned = s.pins.get(unitId);
-      if (pinned !== undefined) {
-        plan.set(unitId, pinned);
-        continue;
-      }
+      if (pinned === undefined) continue;
+      plan.set(unitId, pinned);
+      claim(pinned);
+    }
+    for (const unitId of s.ours) {
+      if (plan.has(unitId)) continue;
       const existing = from?.get(unitId);
       const set = s.sets.get(unitId) as CandidateSet;
       if (existing !== undefined && isStillOffered(set, existing)) {
         plan.set(unitId, existing);
+        claim(existing);
         continue;
       }
       const first = set.candidates[0] ?? set.prunedLedger[0]?.candidate;
@@ -300,7 +343,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             "which the completeness invariant forbids",
         );
       }
-      plan.set(unitId, first);
+      let pick = first;
+      if (deconflict && taken.size > 0) {
+        for (const candidate of set.candidates) {
+          if (clear(candidate)) {
+            pick = candidate;
+            break;
+          }
+        }
+      }
+      plan.set(unitId, pick);
+      claim(pick);
     }
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) plan.set(unitId, candidate);
