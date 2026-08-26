@@ -194,9 +194,17 @@ function sourceIdOf(src: CloudSource): number {
 export class ShellTable {
   private readonly grid: Grid;
   private readonly map = new Map<string, Shells>();
+  /**
+   * The identity tier. A held unit's record is one stable object for the whole
+   * decision, so recognising it by identity skips `frozenRecordKey` — which
+   * builds a string, joins the occupancy array, and is otherwise paid once per
+   * unit per evaluation at ten thousand evaluations a second.
+   */
+  private readonly byIdentity = new WeakMap<FrozenRecord, Shells>();
   private readonly capacity: number;
   hits = 0;
   misses = 0;
+  identityHits = 0;
   evictions = 0;
 
   constructor(grid: Grid, capacity = 4096) {
@@ -209,11 +217,24 @@ export class ShellTable {
     return this.map.size;
   }
 
-  private intern(key: string, unitId: UnitId, make: () => CloudTimeline, heldAtTurn: number, horizonTurn: number): UnitShells {
+  private intern(
+    record: FrozenRecord,
+    prefix: string,
+    make: () => CloudTimeline,
+    horizonTurn: number
+  ): UnitShells {
+    const known = this.byIdentity.get(record);
+    if (known !== undefined) {
+      this.hits++;
+      this.identityHits++;
+      known.extendTo(horizonTurn);
+      return known;
+    }
+    const key = prefix + frozenRecordKey(record);
     let entry = this.map.get(key);
     if (entry === undefined) {
       this.misses++;
-      entry = new Shells(unitId, make(), heldAtTurn, this.grid);
+      entry = new Shells(record.unitId, make(), record.heldAtTurn, this.grid);
       this.map.set(key, entry);
       if (this.map.size > this.capacity) {
         const oldest = this.map.keys().next();
@@ -225,35 +246,19 @@ export class ShellTable {
     } else {
       this.hits++;
     }
+    this.byIdentity.set(record, entry);
     entry.extendTo(horizonTurn);
     return entry;
   }
 
   /** Shells for a record whose timeline the caller already holds. */
-  forTimeline(
-    unitId: UnitId,
-    timeline: CloudTimeline,
-    record: FrozenRecord,
-    horizonTurn: number
-  ): UnitShells {
-    return this.intern(
-      `H|${frozenRecordKey(record)}`,
-      unitId,
-      () => timeline,
-      record.heldAtTurn,
-      horizonTurn
-    );
+  forTimeline(timeline: CloudTimeline, record: FrozenRecord, horizonTurn: number): UnitShells {
+    return this.intern(record, 'H|', () => timeline, horizonTurn);
   }
 
   /** Shells for a record the engine must dilate — never through `arrival()`. */
   forRecord(source: CloudSource, record: FrozenRecord, horizonTurn: number): UnitShells {
-    return this.intern(
-      `${sourceIdOf(source)}|${frozenRecordKey(record)}`,
-      record.unitId,
-      () => source.timelineFor(record),
-      record.heldAtTurn,
-      horizonTurn
-    );
+    return this.intern(record, `${sourceIdOf(source)}|`, () => source.timelineFor(record), horizonTurn);
   }
 }
 
@@ -291,31 +296,29 @@ export function buildShells(
   sub: EngineSubstrate,
   resolution: Resolution,
   horizonTurns: number,
-  table: ShellTable
+  table: ShellTable,
+  into: Map<UnitId, UnitShells> = new Map()
 ): Map<UnitId, UnitShells> {
-  const out = new Map<UnitId, UnitShells>();
-  if (horizonTurns <= 0) return out;
+  into.clear();
+  if (horizonTurns <= 0) return into;
   const horizon = resolution.state.turn + horizonTurns;
 
   for (const slot of resolution.state.field.slots) {
-    out.set(
-      slot.record.unitId,
-      table.forTimeline(slot.record.unitId, slot.timeline, slot.record, horizon)
-    );
+    into.set(slot.record.unitId, table.forTimeline(slot.timeline, slot.record, horizon));
   }
 
   const engine = sub.engine;
   const live = engine.liveSlots(resolution.state);
-  if (live.length === 0) return out;
+  if (live.length === 0) return into;
   const source = engine.sourceOf(resolution.state);
   for (const slot of live) {
     const view = engine.unitAt(resolution.state, slot);
     if (view === null || !view.alive) continue;
-    if (out.has(view.unitId)) continue;
-    out.set(
+    if (into.has(view.unitId)) continue;
+    into.set(
       view.unitId,
       table.forRecord(source, recordOfView(view, resolution.state.turn), horizon)
     );
   }
-  return out;
+  return into;
 }

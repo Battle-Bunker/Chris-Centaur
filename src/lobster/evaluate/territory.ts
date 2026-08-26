@@ -76,13 +76,12 @@
 import {
   NEVER,
   beats,
-  bbForEach,
   bbPopcount,
   bbTest,
   profileOf,
   scalarOf,
 } from '../../partial-engine/index';
-import type { Grid, Terrain } from '../../partial-engine/index';
+import type { Grid, Scalar, Terrain } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import type { UnitShells } from './shells';
@@ -192,16 +191,19 @@ export class TerritoryWorkspace {
     return this.own[index] as Uint32Array;
   }
 
-  teamSlabs(team: number): { seen: Uint32Array; multi: Uint32Array } {
+  /** Grow the per-team slabs to cover `team`, then read them directly. Two
+   * accessors rather than one returning a pair: a pair is an allocation, and
+   * this is called once per team per unit per horizon turn. */
+  ensureTeam(team: number): void {
     while (this.seenByTeam.length <= team) {
       this.seenByTeam.push(new Uint32Array(this.grid.words));
       this.multiByTeam.push(new Uint32Array(this.grid.words));
     }
-    return {
-      seen: this.seenByTeam[team] as Uint32Array,
-      multi: this.multiByTeam[team] as Uint32Array,
-    };
   }
+
+  /** The shells map handed to one evaluation. Reused: one evaluation runs at a
+   * time, and a fresh Map per plan is pure garbage at ten thousand a second. */
+  readonly shellsOut = new Map<UnitId, UnitShells>();
 }
 
 const workspaces = new WeakMap<EngineSubstrate, TerritoryWorkspace>();
@@ -230,6 +232,14 @@ interface Entry<S> {
   readonly s: S;
   readonly sh: UnitShells;
   readonly mine: boolean;
+  /**
+   * This unit's contest strength at each absolute turn of the sweep, indexed
+   * `turn - tMin`. Built once per partition, because the alternative is
+   * constructing a `Scalar` per challenger PER CELL — 169 cells times thirteen
+   * pieces of pure garbage per reading, which measured as most of the piece
+   * plane's cost. The comparator stays the resolver's own.
+   */
+  scalars: Scalar[];
 }
 
 /**
@@ -250,41 +260,45 @@ export function partitionOf<S extends TerritorySubject>(
   const trails: Array<Entry<S>> = [];
   const pieces: Array<Entry<S>> = [];
 
+  let tMin = Number.POSITIVE_INFINITY;
+  let tMax = Number.NEGATIVE_INFINITY;
   for (const s of subjects) {
     const sh = shells.get(s.unitId);
     if (sh === undefined) continue;
     const mine = s.team === asTeam;
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
-    (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine });
+    if (sh.heldAtTurn < tMin) tMin = sh.heldAtTurn;
+    if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
+    (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine, scalars: [] });
   }
   if (trails.length === 0 && pieces.length === 0) return EMPTY as unknown as Partition<S>;
 
-  let tMin = Number.POSITIVE_INFINITY;
-  let tMax = Number.NEGATIVE_INFINITY;
-  for (const e of [...trails, ...pieces]) {
-    if (e.sh.heldAtTurn < tMin) tMin = e.sh.heldAtTurn;
-    if (e.sh.horizonTurn > tMax) tMax = e.sh.horizonTurn;
-  }
-
-  const needDecisive = pieces.length > 0;
+  const needDecisive = pieces.length > 0 && trails.length > 0;
   const { ourCum, theirCum, ourStep, theirStep, oursBoard, theirsBoard } = ws;
-  const { coveredPrev, coveredNow, newT, hit, others } = ws;
+  const { coveredPrev, coveredNow, newT, hit, others, decisive, notWall } = ws;
+  const seenByTeam = ws.seenByTeam;
+  const multiByTeam = ws.multiByTeam;
   ourCum.fill(0);
   theirCum.fill(0);
   oursBoard.fill(0);
   theirsBoard.fill(0);
   coveredPrev.fill(0);
   for (let k = 0; k < trails.length; k++) ws.planeFor(k).fill(0);
-  if (needDecisive) ws.decisive.fill(NEVER);
+  if (needDecisive) decisive.fill(NEVER);
 
-  const teams = new Set<number>();
-  for (const e of trails) teams.add(e.s.team);
+  const teams: number[] = [];
+  for (let k = 0; k < trails.length; k++) {
+    const team = (trails[k] as Entry<S>).s.team;
+    ws.ensureTeam(team);
+    if (!teams.includes(team)) teams.push(team);
+  }
 
   for (let t = tMin; t <= tMax; t++) {
     // --- team-level cover, the exact `ours ⟺ ∃t` identity -------------------
     ourStep.fill(0);
     theirStep.fill(0);
-    for (const e of trails) {
+    for (let k = 0; k < trails.length; k++) {
+      const e = trails[k] as Entry<S>;
       const f = e.sh.frontAt(t);
       if (f === null) continue;
       const dst = e.mine ? ourStep : theirStep;
@@ -302,17 +316,25 @@ export function partitionOf<S extends TerritorySubject>(
     if (trails.length === 0) continue;
 
     // --- cells decided at t, and who decided them --------------------------
+    let anyNew = 0;
     for (let i = 0; i < w; i++) {
       const now = ((coveredPrev[i] as number) | (ourStep[i] as number) | (theirStep[i] as number)) >>> 0;
       coveredNow[i] = now;
-      newT[i] = (now & ~(coveredPrev[i] as number)) >>> 0;
+      const fresh = (now & ~(coveredPrev[i] as number)) >>> 0;
+      newT[i] = fresh;
+      anyNew |= fresh;
     }
+    coveredPrev.set(coveredNow);
+    if (anyNew === 0) continue;
 
-    for (const team of teams) {
-      const { seen, multi } = ws.teamSlabs(team);
+    for (let ti = 0; ti < teams.length; ti++) {
+      const team = teams[ti] as number;
+      const seen = seenByTeam[team] as Uint32Array;
+      const multi = multiByTeam[team] as Uint32Array;
       seen.fill(0);
       multi.fill(0);
-      for (const e of trails) {
+      for (let k = 0; k < trails.length; k++) {
+        const e = trails[k] as Entry<S>;
         // A HELD teammate is not in this team's blocking set: its tie must not
         // take a cell off a unit it is standing in for.
         if (e.s.held && e.s.team === team) continue;
@@ -330,7 +352,8 @@ export function partitionOf<S extends TerritorySubject>(
       const e = trails[k] as Entry<S>;
       const f = e.sh.frontAt(t);
       if (f === null) continue;
-      const { seen, multi } = ws.teamSlabs(e.s.team);
+      const seen = seenByTeam[e.s.team] as Uint32Array;
+      const multi = multiByTeam[e.s.team] as Uint32Array;
       for (let i = 0; i < w; i++) hit[i] = (((f[i] as number) & (newT[i] as number)) >>> 0);
       if (e.s.held) {
         for (let i = 0; i < w; i++) others[i] = seen[i] as number;
@@ -348,12 +371,19 @@ export function partitionOf<S extends TerritorySubject>(
     }
 
     if (needDecisive) {
-      const decisive = ws.decisive;
-      bbForEach(newT, w, (c) => {
-        decisive[c] = t;
-      });
+      for (let i = 0; i < w; i++) {
+        let word = newT[i] as number;
+        const base = i << 5;
+        while (word !== 0) {
+          // Lowest set bit, then its index. Inlined rather than `bbForEach`
+          // because that takes a callback, and a closure per horizon turn per
+          // reading is an allocation on the hot path.
+          const lowest = word & -word;
+          decisive[base + (31 - Math.clz32(lowest))] = t;
+          word = (word & (word - 1)) >>> 0;
+        }
+      }
     }
-    coveredPrev.set(coveredNow);
   }
 
   // --- counts -------------------------------------------------------------
@@ -361,20 +391,22 @@ export function partitionOf<S extends TerritorySubject>(
   for (let k = 0; k < trails.length; k++) {
     const own = ws.planeFor(k);
     let owned = 0;
-    for (let i = 0; i < w; i++) owned += popcount32(((own[i] as number) & (ws.notWall[i] as number)) >>> 0);
+    for (let i = 0; i < w; i++) owned += popcount32(((own[i] as number) & (notWall[i] as number)) >>> 0);
     trailRooms.push({ subject: (trails[k] as Entry<S>).s, mine: (trails[k] as Entry<S>).mine, owned });
   }
 
   let ours = 0;
   let theirs = 0;
-  if (pieces.length === 0) {
+  if (pieces.length === 0 || trails.length === 0) {
     for (let i = 0; i < w; i++) {
-      const mask = ws.notWall[i] as number;
+      const mask = notWall[i] as number;
       ours += popcount32(((oursBoard[i] as number) & mask) >>> 0);
       theirs += popcount32(((theirsBoard[i] as number) & mask) >>> 0);
     }
   } else {
-    const counted = displace(ws, trails, pieces, asTeam);
+    for (const e of trails) fillScalars(e, tMin, tMax);
+    for (const e of pieces) fillScalars(e, tMin, tMax);
+    const counted = displace(ws, trails, pieces, asTeam, tMin);
     ours = counted.ours;
     theirs = counted.theirs;
   }
@@ -389,6 +421,13 @@ export function partitionOf<S extends TerritorySubject>(
   };
 }
 
+/** One `Scalar` per absolute turn of the sweep, so the cell loop allocates none. */
+function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax: number): void {
+  const out = e.scalars;
+  out.length = 0;
+  for (let t = tMin; t <= tMax; t++) out.push(scalarOf(tierAtTurn(e.s, t), e.s.weightMax));
+}
+
 /**
  * PLANE 2. Per cell, because a contest is not a set operation: the challenger
  * set is "pieces that arrive by D and beat what stands there", the earliest of
@@ -400,54 +439,54 @@ function displace<S extends TerritorySubject>(
   ws: TerritoryWorkspace,
   trails: ReadonlyArray<Entry<S>>,
   pieces: ReadonlyArray<Entry<S>>,
-  asTeam: number
+  asTeam: number,
+  tMin: number
 ): { ours: number; theirs: number } {
   const grid = ws.grid;
   const cells = grid.cells;
   const trailGrids = trails.map((e) => e.sh.earliest());
   const pieceGrids = pieces.map((e) => e.sh.earliest());
+  const decisive = ws.decisive;
   let ours = 0;
   let theirs = 0;
 
   for (let c = 0; c < cells; c++) {
     if (!bbTest(ws.notWall, c)) continue;
-    const D = ws.decisive[c] as number;
+    const D = decisive[c] as number;
     // Ground no trail unit walks belongs to nobody — see the header.
     if (D === NEVER) continue;
+    const at = D - tMin;
 
-    // The claim standing on the cell, and the strongest pair among a tie.
-    let claimTier = 0;
-    let claimWeight = 0;
+    // The claim standing on the cell: the strongest pair among a tie.
+    let claim: Scalar | null = null;
     for (let k = 0; k < trails.length; k++) {
       if ((trailGrids[k] as Int32Array)[c] !== D) continue;
-      const s = (trails[k] as Entry<S>).s;
-      const tier = tierAtTurn(s, D);
-      if (tier > claimTier || (tier === claimTier && s.weightMax > claimWeight)) {
-        claimTier = tier;
-        claimWeight = s.weightMax;
-      }
+      const mine = (trails[k] as Entry<S>).scalars[at] as Scalar;
+      if (claim === null || beats(mine, claim)) claim = mine;
     }
-    const claim = scalarOf(claimTier, claimWeight);
+    if (claim === null) continue;
 
     // Challengers: pieces that get there in time AND beat what is standing.
     let bestArrival = NEVER;
     let winner: Entry<S> | null = null;
+    let winnerScalar: Scalar | null = null;
     let tied = false;
     for (let k = 0; k < pieces.length; k++) {
-      const e = pieces[k] as Entry<S>;
       const a = (pieceGrids[k] as Int32Array)[c] as number;
       if (a > D) continue;
-      const mine = scalarOf(tierAtTurn(e.s, D), e.s.weightMax);
+      const e = pieces[k] as Entry<S>;
+      const mine = e.scalars[at] as Scalar;
       if (!beats(mine, claim)) continue;
       if (winner === null || a < bestArrival) {
         bestArrival = a;
         winner = e;
+        winnerScalar = mine;
         tied = false;
       } else if (a === bestArrival) {
-        const cur = winner as Entry<S>;
-        const held = scalarOf(tierAtTurn(cur.s, D), cur.s.weightMax);
+        const held = winnerScalar as Scalar;
         if (beats(mine, held)) {
           winner = e;
+          winnerScalar = mine;
           tied = false;
         } else if (!beats(held, mine)) {
           tied = true;

@@ -266,7 +266,7 @@ export function makeContext(
     roomScale,
     shells() {
       if (shellsCache === null) {
-        shellsCache = buildShells(sub, resolution, horizonTurns, ws.table);
+        shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
       }
       return shellsCache;
     },
