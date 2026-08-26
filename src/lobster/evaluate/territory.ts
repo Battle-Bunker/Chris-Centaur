@@ -120,7 +120,15 @@ export interface Partition<S> {
   readonly trails: ReadonlyArray<TrailRoom<S>>;
 }
 
-const EMPTY: Partition<never> = { balance: 0, ours: 0, theirs: 0, open: 0, trails: [] };
+/** Nobody admitted: no ground is claimed either way, and `open` is still the
+ * board's, so a consumer dividing by it does not meet a zero. */
+const emptyPartition = <S>(open: number): Partition<S> => ({
+  balance: 0,
+  ours: 0,
+  theirs: 0,
+  open,
+  trails: [],
+});
 
 /** The invulnerability tier a unit still carries at an absolute turn. */
 export function tierAtTurn(s: TerritorySubject, turn: number): number {
@@ -271,7 +279,7 @@ export function partitionOf<S extends TerritorySubject>(
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
     (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine, scalars: [] });
   }
-  if (trails.length === 0 && pieces.length === 0) return EMPTY as unknown as Partition<S>;
+  if (trails.length === 0 && pieces.length === 0) return emptyPartition<S>(ws.open);
 
   const needDecisive = pieces.length > 0 && trails.length > 0;
   const { ourCum, theirCum, ourStep, theirStep, oursBoard, theirsBoard } = ws;

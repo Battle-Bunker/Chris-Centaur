@@ -58,7 +58,7 @@ import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
-import { defaultEvaluator, standingOf } from './evaluate';
+import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import {
@@ -687,7 +687,16 @@ export class TeamDecisionEngine {
           for (const slot of held.field.slots) {
             const wireId = probe.unitOf(slot.record.unitId)?.wireId;
             if (wireId === undefined) continue;
-            const earliest = slot.timeline.arrival(horizon).earliest;
+            // The SHELLS, not `arrival()`: the grid is read at a handful of
+            // cells and the eager whole-board Dijkstra behind that call is
+            // read by nothing. This is the last consumer in the lobster layer
+            // that used to trigger it.
+            const earliest = earliestShells(
+              slot.timeline,
+              slot.record.heldAtTurn,
+              horizon,
+              probe.grid
+            );
             let d = NEVER;
             for (const cell of ourCells) {
               const at = earliest[cell] as number;
