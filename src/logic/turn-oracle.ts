@@ -141,6 +141,33 @@ export interface MarshalledBoard {
   units: ResolveUnit[];
   /** Static input the engine needs, minus the units. */
   config: Omit<ResolveTurnInput, 'units'>;
+  /**
+   * Invulnerability potion cells on the board, as engine indices.
+   *
+   * The VENDORED RESOLVER knows nothing about potions (resolveTurn.ts:27-30) —
+   * tier is an input that already captures their effect. This field is
+   * therefore deliberately NOT part of `config` (which is the resolver's own
+   * `ResolveTurnInput`): it exists for the possibility-cloud layer, whose
+   * `CloudPremise.potions` prices how far a tier interval can move while a
+   * unit is frozen. An empty array is what a potion-free game carries and is
+   * exactly the behaviour every consumer had before this field existed.
+   */
+  potions: number[];
+  /**
+   * Per unit, PARALLEL TO `units`: the first absolute turn at which the unit's
+   * tier no longer governs a contest, or null when the wire carries no effect
+   * schedule for it.
+   *
+   * EXCLUSIVE, and the offset is the whole point. The server expires effects
+   * AFTER the collision phase, so an effect whose `expiryTurn` is E still
+   * decides every contest resolved during turn E (TeamSnekProcessor.ts:558-575;
+   * potions.test.ts:233-261). `Snake.invulnerabilityExpiryTurn` carries that
+   * inclusive E. The engine's `UnitSpec.tierExpiresAtTurn` is read as "at this
+   * turn the tier has already reverted" (`cloud.ts:783`: expired when
+   * `heldAtTurn + n >= tierExpiresAtTurn`), so the two conventions differ by
+   * one and the conversion belongs here, once, next to the citation.
+   */
+  tierExpiry: (number | null)[];
   /** Weight (occupancy length) each unit started the turn with. */
   startWeight: Map<string, number>;
   /** Health each unit started the turn with. */
@@ -178,6 +205,7 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
   }
 
   const living = (board.snakes ?? []).filter((s) => s.health > 0 && s.body.length > 0);
+  const tierExpiry: (number | null)[] = [];
   const startWeight = new Map<string, number>();
   const startHealth = new Map<string, number>();
   const teamOf = new Map<string, string>();
@@ -194,6 +222,12 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     startWeight.set(snake.id, occupancy.length);
     startHealth.set(snake.id, snake.health);
     if (isKingUnit(snake)) regicideTeamIDs.add(teamID);
+    // See `MarshalledBoard.tierExpiry`: inclusive on the wire, exclusive in the
+    // engine. A unit carrying no level has nothing to expire and is recorded as
+    // "no schedule" rather than as an expiry in the past, so a cloud never
+    // pretends to know a horizon the wire did not give it.
+    const expiry = snake.invulnerabilityExpiryTurn;
+    tierExpiry.push(expiry === undefined || !Number.isFinite(expiry) ? null : expiry + 1);
     return {
       id: snake.id,
       type,
@@ -232,7 +266,21 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     maxHealth,
   };
 
-  return { fullWidth, fullHeight, units, config, startWeight, startHealth, teamOf, toIndex, toCell };
+  const potions = (board.invulnerabilityPotions ?? []).map(toIndex);
+
+  return {
+    fullWidth,
+    fullHeight,
+    units,
+    config,
+    potions,
+    tierExpiry,
+    startWeight,
+    startHealth,
+    teamOf,
+    toIndex,
+    toCell,
+  };
 }
 
 /** One assumed enemy intent: the staged cell for each unit that is not ours. */
