@@ -58,6 +58,7 @@ import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
+import type { CandidateKnobs } from './candidates';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -136,6 +137,13 @@ export interface TeamDecisionOptions {
    * script one, replaces this rather than reaching inside. */
   readonly makeCore?: (tuning: Partial<SearchTuning>) => SearchCore;
   readonly kernel?: Partial<KernelOptions>;
+  /**
+   * Knobs for the candidate layer. Defaults to `DEFAULT_KNOBS`, which is what
+   * every shipped profile runs. The layer's prunes are declared and its
+   * orderings are not bounds, so this is a legitimate per-profile seam and not
+   * a back door into adjudication.
+   */
+  readonly candidates?: CandidateKnobs;
   /** Horizon (turns) for the held-capacity arrival-distance ranking. */
   readonly arrivalHorizonTurns?: number;
   /** Advice threshold passed through to pins.adviseFromReport. */
@@ -351,7 +359,7 @@ export class TeamDecisionEngine {
       assumptions.push({ kind: 'reference-action', unitId: unit.unitId, to: NO_ORDER_MOVE });
     }
 
-    const gen = new GrammarCandidateGenerator();
+    const gen = new GrammarCandidateGenerator(this.options.candidates ?? {});
     const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
