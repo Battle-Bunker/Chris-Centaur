@@ -377,7 +377,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * number is exactly the laundering the whole bounds layer exists to prevent.
    * The incumbent keeps its place.
    */
-  const better = (s: Session, trial: BankResult, incumbent: BankResult): boolean => {
+  const better = (trial: BankResult, incumbent: BankResult): boolean => {
     // The world arbitration's veto, before anything else is read.
     if (trial.speaks === "per-team" && strictlyConvicted(trial) && !strictlyConvicted(incumbent)) {
       worldCounters.vetoes++;
@@ -407,7 +407,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         if (candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = priced(s, withMove(best.plan, candidate));
-        if (better(s, trial, best)) best = trial;
+        if (better(trial, best)) best = trial;
       }
     }
     return best;
@@ -441,7 +441,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
           const trial = priced(s, withMoves(best.plan, [ca, cb]));
-          if (better(s, trial, best)) best = trial;
+          if (better(trial, best)) best = trial;
         }
       }
     }
@@ -470,7 +470,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const list = lists[i];
       if (list === undefined) {
         const trial = priced(s, withMoves(best.plan, acc));
-        if (better(s, trial, best)) best = trial;
+        if (better(trial, best)) best = trial;
         return;
       }
       for (const candidate of list) {
@@ -525,7 +525,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             let local = priced(s, seed);
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
-            if (better(s, local, best)) {
+            if (better(local, best)) {
               best = local;
               restarted = true;
               break;
@@ -621,7 +621,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
             if (ctx.budget.shouldStop()) break;
             const trial = priced(s, withMove(scored.plan, candidate));
-            if (better(s, trial, scored)) scored = trial;
+            if (better(trial, scored)) scored = trial;
           }
         }
         plan = scored.plan;

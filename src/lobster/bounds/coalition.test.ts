@@ -271,8 +271,6 @@ function runWorldLaws(config: Partial<BankConfig>, prune: number, cutAt: number 
     const sub = makeSubstrate(board, OURS);
     const gen = makeGenerator({ pruneTail: prune });
     const list = allPlans(sub, gen, OURS, 6);
-    const ours = new Set(sub.commandable(OURS));
-    const uncontrolled = sub.unitIds().filter((id) => !ours.has(id));
     sub.release();
 
     const bank = new BoundBank({
