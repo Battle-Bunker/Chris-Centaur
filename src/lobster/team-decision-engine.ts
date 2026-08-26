@@ -58,7 +58,7 @@ import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
-import { materialEvaluator, standingOf } from './evaluate';
+import { defaultEvaluator, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import {
@@ -107,24 +107,26 @@ export interface TeamDecisionPorts {
 
 export interface TeamDecisionOptions {
   /**
-   * Evaluator for the decision. Defaults to the MATERIAL profile — the
-   * engine's own exact fold — and that default is now a measured verdict, not
-   * a placeholder: on the production regime the calibrated reach/king-margin
-   * profile lost material at a one-second budget and overran at ten, because
-   * it costs an arrival flood per unit PER EVALUATION.
+   * Evaluator for the decision. Defaults to the TERRITORY profile, and that
+   * default is a measured verdict rather than a preference.
    *
-   * Adopting it had three prerequisites, and none of them is a tuning knob.
-   * ONE IS NOW MET:
-   *   1. per-decision caching of the arrival flood — OPEN. It is recomputed
-   *      from scratch for every plan the search prices, which is what made the
-   *      profile lose material at a one-second budget.
+   * It used to default to material-only, because the reach-carrying profile
+   * lost to it at a one-second budget: it cost an arrival flood per unit per
+   * evaluation, and the flood dragged an eager whole-board Dijkstra behind it
+   * that nothing read. All three prerequisites that verdict named are met now:
+   *   1. per-decision interning of the flood — MET. `evaluate/shells.ts` keeps
+   *      the dilation shells in a table scoped to the decision and sized to its
+   *      own working set, and reads them without `arrival()`, so a miss costs a
+   *      dilation instead of a Dijkstra (24 µs against 431 µs at 26 units).
    *   2. per-kind maxHealth reaching the engine instead of being flattened to
    *      the maximum — MET. The flatten inflated OUR earliest-arrival flood
    *      and the reach feature reads that on its LO side, so a floor above the
-   *      truth. `EngineConfig.maxHealthPerKind` carries the table now and the
-   *      substrate threads it; the trio suite tests it positively.
-   *   3. a re-run of the production-regime bench — OPEN, and blocked on (1),
-   *      because (1) changes the cost that produced the verdict.
+   *      truth. `EngineConfig.maxHealthPerKind` carries the table now.
+   *   3. a re-run of the production-regime bench — MET, and it is what moved
+   *      this default. See `src/config/centaur-engine.ts` for the numbers.
+   *
+   * `materialEvaluator` remains exported as the explicit fallback profile: a
+   * caller that wants the 1 ms reflex reading asks for it by name.
    */
   readonly evaluate?: Evaluator;
   readonly search?: Partial<SearchTuning>;
@@ -350,7 +352,7 @@ export class TeamDecisionEngine {
     }
 
     const gen = new GrammarCandidateGenerator();
-    const evaluate = this.options.evaluate ?? materialEvaluator;
+    const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
     const search = tapWitnesses(buildCore(this.options.search ?? {}), witnesses);
