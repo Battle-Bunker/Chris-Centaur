@@ -700,7 +700,7 @@ export class BoundBank {
     // ceiling pool: a conditional branch may never lower the unconditional
     // ceiling, and the cheapest way to guarantee that is for the conditional
     // branches not to exist until the unconditional answer is finished.
-    const relaxed = this.priceRelaxed(base, bounds, members);
+    const relaxed = this.priceRelaxed(base, bounds, floorPick.resolution, members);
 
     const speaks: "strict" | "per-team" = relaxed === null ? "strict" : "per-team";
     const reported = relaxed === null ? bounds : relaxed.bounds;
@@ -754,6 +754,7 @@ export class BoundBank {
   private priceRelaxed(
     base: JointPlan,
     strict: ScoreBounds,
+    strictResolution: Resolution,
     members: MemberReport[],
   ): {
     bounds: ScoreBounds;
@@ -769,14 +770,28 @@ export class BoundBank {
     // relaxed floor is `min over r of F_r`; price a SUBSET of the worlds and
     // that min is an over-estimate of the min over all of them — the exact
     // failure mode `closeGroup` refuses on an unfinished enemy sweep, one
-    // level up. A clock that cuts the world loop short therefore publishes NO
-    // relaxed bound at all: the result falls back to the unconditional strict
-    // bound, which is always computed and always sound. (Measured: without
-    // this, an adversarial clock at cut@3 put four relaxed floors above the
-    // exhaustive truth OF THEIR OWN WORLD SET.)
+    // level up. (Measured: without the guard, an adversarial clock at cut@3
+    // put four relaxed floors above the exhaustive truth OF THEIR OWN WORLD
+    // SET.) So a truncated world sweep may not use `min over the worlds it
+    // reached` as a floor.
+    //
+    // BUT IT MAY NOT FALL BACK TO REPORTING THE STRICT BOUND EITHER, and that
+    // is the subtler half. The world is a property of the DECISION; if a
+    // clock-cut plan reported an unconditional bracket while its neighbours
+    // reported a conditional one, the two would carry different bases,
+    // `compareFloors` would refuse, and the ascent would silently freeze —
+    // exactly the failure B2 flagged for `declareTruncatedFloor`. So an
+    // admissible decision ALWAYS reports on the relaxed basis, and a truncated
+    // sweep simply contributes nothing:
+    //
+    //   floor   = strict floor          (a floor on the full game is a floor
+    //                                    on any subset of it — always legal)
+    //   ceiling = min over the worlds actually priced, or +INFINITY when none
+    //             were (an unconditional ceiling is NOT an upper bound on a
+    //             restricted minimum, so it may not stand in here).
     const perWorld: Array<{ bounds: ScoreBounds; resolution: Resolution; rung: Rung }> = [];
     for (const world of worlds.worlds) {
-      if (this.input.budget.shouldStop()) return null;
+      if (this.input.budget.shouldStop()) break;
       const ids = world.fixes.map((c) => c.unitId);
       const view = this.viewFor(ids);
       const fixedPlan = withMoves(base, [...world.fixes]);
@@ -845,7 +860,25 @@ export class BoundBank {
       }
       perWorld.push({ bounds: floor, resolution, rung });
     }
-    if (perWorld.length !== worlds.worlds.length) return null;
+    const complete = perWorld.length === worlds.worlds.length;
+    if (perWorld.length === 0) {
+      // Nothing priced at all. The basis still has to match its neighbours, so
+      // the strict floor is republished on the relaxed basis under a ceiling
+      // that claims nothing.
+      return {
+        bounds: makeScoreBounds({
+          worst: strict.worst,
+          best: Number.POSITIVE_INFINITY,
+          ledger: strict.ledger,
+          assumptions: unionAssumptions(this.input.basis, [worlds.narrowing]),
+          note: "per-team: no world priced (clock)",
+        }),
+        worstResolution: strictResolution,
+        floorFrom: "B0",
+        ceilingFrom: "C0",
+        worldsPriced: 0,
+      };
+    }
 
     // MIN over the worlds: we do not get to choose which rival is the one free
     // to come at us, so the promise has to hold in every member of W.
@@ -856,17 +889,17 @@ export class BoundBank {
     let minWorld = perWorld[0] as { bounds: ScoreBounds; resolution: Resolution; rung: Rung };
     for (const w of perWorld) if (w.bounds.worst < minWorld.bounds.worst) minWorld = w;
 
-    const useStrictFloor = strict.worst > across.worst;
+    const useStrictFloor = !complete || strict.worst > across.worst;
     const bounds = makeScoreBounds({
       worst: useStrictFloor ? strict.worst : across.worst,
       best: across.best,
       ledger: unionLedgers(useStrictFloor ? strict.ledger : across.ledger, across.ledger),
       assumptions: unionAssumptions(this.input.basis, across.assumptions, [worlds.narrowing]),
-      note: `per-team floor=${useStrictFloor ? "strict" : minWorld.rung} over ${perWorld.length} worlds`,
+      note: `per-team floor=${useStrictFloor ? "strict" : minWorld.rung} over ${perWorld.length}/${worlds.worlds.length} worlds`,
     });
     return {
       bounds,
-      worstResolution: minWorld.resolution,
+      worstResolution: useStrictFloor ? strictResolution : minWorld.resolution,
       floorFrom: useStrictFloor ? "B0" : minWorld.rung,
       ceilingFrom: minWorld.rung,
       worldsPriced: perWorld.length,
