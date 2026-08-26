@@ -162,6 +162,11 @@ describe('the relaxed world reaches the emission', () => {
       expect(drained?.world?.decisions).toBe(1);
       expect(drained?.world?.relaxed).toBe(1);
       expect(drained?.world?.disagreements).toBeGreaterThanOrEqual(0);
+      // THE BASIS-LEAK TRIPWIRE. Every plan a session prices carries the same
+      // basis, so an ascent must never refuse a comparison for a mismatch. A
+      // non-zero count here is the failure mode the decision-level narrowing
+      // exists to prevent, and it is measured rather than assumed.
+      expect(drained?.world?.refusedComparisons).toBe(0);
       // Drained means drained: the kernel owns the counters, so a second drain
       // must not double-count.
       expect(core.drainRefusals?.().world?.decisions).toBe(0);
@@ -190,6 +195,7 @@ describe('two teams: nothing happens, and the counters say so', () => {
       expect(drained?.world?.relaxed).toBe(0);
       expect(drained?.world?.disagreements).toBe(0);
       expect(drained?.world?.vetoes).toBe(0);
+      expect(drained?.world?.refusedComparisons).toBe(0);
     } finally {
       a.close();
       b.close();

@@ -82,6 +82,21 @@ const CONFIGS: readonly NamedConfig[] = [
   { name: 'full/enemyCap=1', config: { ...DEFAULT_BANK_CONFIG, enemyCap: 1 } },
   { name: 'full/tinyProductCap', config: { ...DEFAULT_BANK_CONFIG, productCap: 2 } },
   { name: 'full/declaredTruncation', config: { ...DEFAULT_BANK_CONFIG, declareTruncatedFloor: true } },
+  // THE PER-TEAM ADVERSARY WORLD (C5) belongs in the mixture, not beside it.
+  // The architectural claim this file tests is that members with different
+  // completeness and different declared narrowings are safe to run AT ONCE;
+  // a declared WORLD is one more such member, and if it is unsound it is
+  // unsound here. On a two-team board it is inert by construction — which is
+  // exactly why the trio case below exists.
+  { name: 'full/perTeam', config: { ...DEFAULT_BANK_CONFIG, coalition: 'per-team' } },
+  {
+    name: 'full/perTeam-ungated',
+    config: { ...DEFAULT_BANK_CONFIG, coalition: 'per-team', coalitionEngagementGate: false },
+  },
+  {
+    name: 'full/perTeam-C1',
+    config: { ...DEFAULT_BANK_CONFIG, coalition: 'per-team', coalitionB1: true },
+  },
 ];
 
 /** Clock regimes: the exhaustive one, and adversarial cut-offs at every depth. */
@@ -280,6 +295,30 @@ describe('exhaustive completion: floor ≤ true worst ≤ ceiling', () => {
     expect(stats.violations).toEqual([]);
     expect(stats.checks).toBeGreaterThan(500);
   }, 600_000);
+
+  test('THREE teams — where the declared per-team world is live in the mixture', () => {
+    // R1 is stated here about the UNCONDITIONAL bound, which the bank computes
+    // on every plan whether or not it also computes a relaxed one; a relaxed
+    // bracket is exempt from the floor half (it promises something about a
+    // restricted game) and NOT from the ceiling half (restricting the reply
+    // set raises the minimum, so a relaxed ceiling still sits above the
+    // unconditional truth — a relaxed ceiling below it would be a real bug).
+    // The conditional floor law itself — floor_W ≤ min over W ≤ ceiling_W,
+    // against exhaustive enumeration of W — lives in `coalition.test.ts`,
+    // which is the only place the world set is available to enumerate.
+    const stats = freshStats();
+    for (const seed of [31, 32, 33, 34, 35, 36]) {
+      const board = makeTestBoard(seededBoard(seed, 6, 1, 0, 3));
+      sweepBoard(board, seed, stats);
+    }
+    report('trio', stats);
+    expect(stats.violations).toEqual([]);
+    expect(stats.checks).toBeGreaterThan(500);
+    // The declared world must actually have been exercised, or this test is
+    // reporting that nothing happened.
+    expect(stats.conditional).toBeGreaterThan(0);
+    expect(stats.conditionalAboveTruth).toBeGreaterThan(0);
+  }, 900_000);
 });
 
 describe('the finished-sweep rule', () => {

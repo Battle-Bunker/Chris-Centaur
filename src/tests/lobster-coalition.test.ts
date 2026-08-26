@@ -84,6 +84,7 @@ interface WorldCounters {
   readonly relaxed: number;
   readonly disagreements: number;
   readonly vetoes: number;
+  readonly refusedComparisons: number;
 }
 
 async function run(
@@ -108,6 +109,10 @@ async function run(
     expect(report).not.toBeNull();
     expect(report?.stagedNothing).toBe(false);
     expect(report?.refusals['bounds-inversion']).toBe(0);
+    // Basis leaks would present here first: an ascent refusing its own
+    // comparisons is the silent-freeze failure mode, and it must be zero on
+    // every arm, on every board.
+    expect((report?.world as WorldCounters).refusedComparisons).toBe(0);
     expect(sub.outstanding()).toBe(1);
     return { records, world: report?.world as WorldCounters };
   } finally {

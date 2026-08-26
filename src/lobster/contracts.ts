@@ -464,6 +464,14 @@ export interface SearchCore {
       readonly relaxed: number
       readonly disagreements: number
       readonly vetoes: number
+      /**
+       * Plan-to-plan comparisons REFUSED for a basis mismatch inside one
+       * ascent. The basis is derived from the context and is meant to be
+       * identical across every plan a session prices, so a non-zero count here
+       * is the signature of a declared narrowing leaking onto some plans and
+       * not others — an ascent that has silently stopped improving.
+       */
+      readonly refusedComparisons: number
     }
   }
   /**

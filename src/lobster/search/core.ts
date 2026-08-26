@@ -150,7 +150,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * kernel with the refusals, because a world choice is exactly as much of an
    * explicit decision as a refusal is and neither may be silent.
    */
-  const worldCounters = { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0 };
+  const worldCounters = { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0, refusedComparisons: 0 };
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -388,7 +388,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // PROVED floor cannot be an improvement, however good its own floor looks.
     if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return false;
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
-    if (!cmp.comparable) return false;
+    if (!cmp.comparable) {
+      // A BASIS MISMATCH INSIDE ONE ASCENT IS A BUG SIGNATURE, not a routine
+      // refusal: the basis is derived from the CONTEXT and is supposed to be
+      // identical across every plan one session prices. If a declared world
+      // ever leaked onto some plans and not others, this is where it would
+      // present — as an ascent that silently stops improving. Counted, so the
+      // silence is measurable rather than inferred.
+      worldCounters.refusedComparisons++;
+      return false;
+    }
     if (cmp.order !== 0) return cmp.order > 0;
     if (trial.est !== incumbent.est) return trial.est > incumbent.est;
     if (trial.bounds.best !== incumbent.bounds.best) return trial.bounds.best > incumbent.bounds.best;
@@ -670,7 +679,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const drainRefusals = (): {
     boundsInversions: number
-    world: { decisions: number; relaxed: number; disagreements: number; vetoes: number }
+    world: {
+      decisions: number
+      relaxed: number
+      disagreements: number
+      vetoes: number
+      refusedComparisons: number
+    }
   } => {
     const out = {
       boundsInversions: absorbedInversions,
@@ -681,6 +696,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     worldCounters.relaxed = 0;
     worldCounters.disagreements = 0;
     worldCounters.vetoes = 0;
+    worldCounters.refusedComparisons = 0;
     return out;
   };
 

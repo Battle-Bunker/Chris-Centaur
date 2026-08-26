@@ -636,12 +636,19 @@ export interface KernelReport {
    *   vetoes         relaxed improvements refused because the plan's strict
    *                  ceiling was DEAD — convicted in the un-relaxed game, so
    *                  no assumption about rival coordination may stage it.
+   *   refusedComparisons
+   *                  plan-to-plan comparisons the core refused for a BASIS
+   *                  MISMATCH inside one ascent. MUST be zero: the basis is a
+   *                  property of the decision, so a non-zero count is a
+   *                  declared narrowing leaking per-plan and an ascent that
+   *                  has quietly stopped improving.
    */
   readonly world: {
     readonly decisions: number
     readonly relaxed: number
     readonly disagreements: number
     readonly vetoes: number
+    readonly refusedComparisons: number
   }
 }
 
@@ -778,7 +785,13 @@ interface Run {
   refusedPins: Map<UnitId, number>
   epoch: number
   /** World arbitration counters, folded in from the core's drains. */
-  world: { decisions: number; relaxed: number; disagreements: number; vetoes: number }
+  world: {
+    decisions: number
+    relaxed: number
+    disagreements: number
+    vetoes: number
+    refusedComparisons: number
+  }
   basis: RatchetBasis
   active: PinContextEntry
   lastView: LeverView | null
@@ -927,7 +940,7 @@ export class LobsterKernel implements Kernel {
       evaluateCalls: 0,
       sliceCostTotal: 0,
       boundViolations: 0,
-      world: { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0 },
+      world: { decisions: 0, relaxed: 0, disagreements: 0, vetoes: 0, refusedComparisons: 0 },
       refusals: {
         "ratchet-floor": 0,
         "ratchet-gap": 0,
@@ -1471,6 +1484,7 @@ export class LobsterKernel implements Kernel {
       run.world.relaxed += drained.world.relaxed
       run.world.disagreements += drained.world.disagreements
       run.world.vetoes += drained.world.vetoes
+      run.world.refusedComparisons += drained.world.refusedComparisons ?? 0
     }
     if (drained.boundsInversions <= 0) return
     run.boundViolations += drained.boundsInversions
