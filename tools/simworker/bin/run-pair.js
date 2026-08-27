@@ -89,12 +89,19 @@ function parseArm(text) {
   const bundle = path.resolve(head.slice(eq + 1));
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) fail(`arm name "${name}" must be alphanumeric/dash/underscore`);
   const env = {};
+  let armSpec = null;
   for (const p of parts) {
     const j = p.indexOf('=');
     if (j <= 0) fail(`--arm "${text}": "${p}" is not KEY=VALUE`);
-    env[p.slice(0, j)] = p.slice(j + 1);
+    const k = p.slice(0, j);
+    const v = p.slice(j + 1);
+    // A lowercase `spec=` selects a per-arm spec VARIANT (same sweepId, e.g. a
+    // different subject bot for P3's slider seam). Engine env keys are all
+    // uppercase, so the namespace cannot collide.
+    if (k === 'spec') armSpec = path.resolve(v);
+    else env[k] = v;
   }
-  return { name, bundle, env };
+  return { name, bundle, env, armSpec };
 }
 
 const args = parseArgs(process.argv);
@@ -114,6 +121,14 @@ if (args.arms.length < 2) {
 }
 
 const arms = args.arms.map(parseArm);
+for (const arm of arms) {
+  if (!arm.armSpec) continue;
+  if (!fs.existsSync(arm.armSpec)) fail(`arm "${arm.name}": spec variant not found: ${arm.armSpec}`);
+  const v = JSON.parse(fs.readFileSync(arm.armSpec, 'utf8'));
+  if (v.sweepId !== JSON.parse(fs.readFileSync(path.resolve(args.spec), 'utf8')).sweepId) {
+    fail(`arm "${arm.name}": spec variant sweepId "${v.sweepId}" differs from the pair's sweepId — a variant must be the same sweep`);
+  }
+}
 const names = new Set(arms.map((a) => a.name));
 if (names.size !== arms.length) fail('two arms share a name; names are directory names and must be distinct');
 
@@ -121,6 +136,12 @@ const specPath = path.resolve(args.spec);
 if (!fs.existsSync(specPath)) fail(`spec not found: ${specPath}`);
 const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
 if (typeof spec.sweepId !== 'string' || spec.sweepId === '') fail('spec has no sweepId');
+
+// A per-arm spec variant must be the SAME sweep (same sweepId, so gameIds
+// pair) — it exists to move seat contents, not to smuggle in a different
+// experiment. aggregate.js still checks configHash and seats game by game;
+// a deliberate subject swap is declared there with --subject-map.
+
 
 const batchDir = path.resolve(args.batch);
 
@@ -166,7 +187,7 @@ const children = arms.map((arm) => {
 
   const argv = [
     path.join(arm.bundle, 'harness', 'build', 'bin', 'run-sweep.js'),
-    '--spec', specPath,
+    '--spec', arm.armSpec ?? specPath,
     '--out', outRoot,
     '--workers', args.workers,
   ];
@@ -183,7 +204,8 @@ const children = arms.map((arm) => {
     bundleStamp: readJson(path.join(arm.bundle, 'bundle.json')),
     envOverrides: arm.env,
     spec: spec.sweepId,
-    specPath,
+    specPath: arm.armSpec ?? specPath,
+    specVariantOf: arm.armSpec ? specPath : null,
     workers: Number(args.workers),
     startedAt: stamp,
     note: args.note,
@@ -246,6 +268,7 @@ function finish() {
       bundle: a.bundle,
       bundleStamp: readJson(path.join(a.bundle, 'bundle.json')),
       envOverrides: a.env,
+      specPath: a.armSpec ?? specPath,
       exit: results.find((r) => r.arm === a.name) ?? null,
       games: countManifest(path.join(batchDir, 'arms', a.name, spec.sweepId, 'manifest.jsonl')),
     })),
