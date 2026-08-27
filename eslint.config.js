@@ -27,9 +27,13 @@ const RESTRICTED_IMPORTS = {
   workerThreads: {
     name: 'worker_threads',
     message:
-      'worker_threads is owned by src/logic/decision-worker-pool.ts (and its worker ' +
-      'entry src/logic/decision-worker.ts) — the pool idle entry terminates and ' +
-      'graceful shutdown tears down. Submit work through DecisionWorkerPool.',
+      'worker_threads has exactly two owners, each of which terminates its own ' +
+      'workers on idle entry AND at graceful shutdown: src/logic/decision-worker-pool.ts ' +
+      '(legacy per-snake chunks; submit through DecisionWorkerPool) and ' +
+      'src/lobster/parallel/pool.ts (the lobster evaluation pool; ask the ' +
+      'TeamDecisionEngine, whose lifecycle owns it). Their worker entries — ' +
+      'src/logic/decision-worker.ts and src/lobster/parallel/worker-entry.ts — are ' +
+      'exempt too, because a worker entry is the one file that must read parentPort.',
   },
   ws: {
     name: 'ws',
@@ -149,7 +153,12 @@ module.exports = [
     rules: { 'no-restricted-imports': restrictedImports(['pgPool']) },
   },
   {
-    files: ['src/logic/decision-worker-pool.ts', 'src/logic/decision-worker.ts'],
+    files: [
+      'src/logic/decision-worker-pool.ts',
+      'src/logic/decision-worker.ts',
+      'src/lobster/parallel/pool.ts',
+      'src/lobster/parallel/worker-entry.ts',
+    ],
     rules: { 'no-restricted-imports': restrictedImports(['workerThreads']) },
   },
   {
