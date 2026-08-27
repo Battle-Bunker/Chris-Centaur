@@ -60,6 +60,8 @@ import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
+import { pinWasmMode, wasmMode } from './wasm/policy';
+import type { WasmMode } from './wasm/policy';
 import type { StagingSafety } from './staging-safety';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
@@ -213,6 +215,16 @@ export interface TeamDecisionOptions {
   readonly parcelBudgetMs?: number;
   /** Plans in one parcel — a latency cap. Defaults to `DEFAULT_SPECULATION`. */
   readonly maxPlansPerParcel?: number;
+  /**
+   * Whether this ENGINE runs the territory evaluator's hot kernels in
+   * WebAssembly, overriding `CENTAUR_WASM` for this instance only.
+   *
+   * Per-engine for the reason `stagingSafety` is: the experiment that has to be
+   * possible is one SEAT against unchanged opponents. The default is `off` and
+   * the JS path stays the source of truth; see `lobster/wasm/policy.ts` and
+   * `scratchpad/perf-w3-report.md` for the evidence behind that default.
+   */
+  readonly wasm?: WasmMode;
 }
 
 /**
@@ -902,7 +914,7 @@ export class TeamDecisionEngine {
    * to respect. The probe is released before the real substrate is built.
    */
   private substrateFor(input: TeamTurnInput, modelled: ReadonlyArray<string>): EngineSubstrate {
-    return makeSubstrate({
+    const sub = makeSubstrate({
       gameId: input.gameId,
       board: input.board,
       turn: input.turn,
@@ -912,6 +924,12 @@ export class TeamDecisionEngine {
       // referenced units are modelled, so they must not be claims either.
       modeled: [...input.units.map((u) => u.snakeId), ...modelled],
     });
+    // Pinned HERE and not at the call sites: the retry loop builds a second
+    // substrate when a modelling choice cannot be named, and a mode pinned once
+    // at the top would silently not reach it. The evaluator reads this when it
+    // builds the substrate's workspace, which is before anything evaluates.
+    pinWasmMode(sub, this.options.wasm ?? wasmMode());
+    return sub;
   }
 
   private planCapacity(input: TeamTurnInput): {
