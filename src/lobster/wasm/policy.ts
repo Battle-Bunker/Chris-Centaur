@@ -57,19 +57,39 @@ export function wasmMode(): WasmMode {
   return wasmModeFrom(process.env);
 }
 
-const pinned = new WeakMap<EngineSubstrate, WasmMode>();
-
 /**
- * Pin the mode for one substrate. Called once, immediately after the substrate
- * is built and before anything evaluates on it — the workspace reads it when it
- * is constructed, and a workspace already built keeps the mode it was built
- * with.
+ * WHY THIS IS A PROPERTY AND NOT A WeakMap.
+ *
+ * A `WeakMap` was the obvious answer and it was WRONG, in a way that measured
+ * as "the flag does nothing": the evaluator does not run on the substrate the
+ * decision built. It runs on `withModelled` SIBLINGS — a `Proxy` per bank view,
+ * eight of them in a one-second decision on the piece board — and a `WeakMap`
+ * keys on identity, so a sibling is a miss and falls back to the env default.
+ * The first whole-decision bench reported `wasmRuns: 0` with the flag on.
+ *
+ * A symbol-keyed property is right for exactly the reason the sibling exists:
+ * the proxy forwards every unhandled read to its parent, so a sibling INHERITS
+ * the parent's mode, which is the same rule it already follows for every slab
+ * and cache it shares. `Symbol.for` rather than a fresh symbol so two copies of
+ * this module (a bench that loads a second build) still agree.
  */
-export function pinWasmMode(sub: EngineSubstrate, mode: WasmMode): void {
-  pinned.set(sub, mode);
+const MODE = Symbol.for('centaur.lobster.wasmMode');
+
+interface Pinned {
+  [MODE]?: WasmMode;
 }
 
-/** The mode this substrate was pinned to, or the process default. */
+/**
+ * Pin the mode for one substrate and its siblings. Called once, immediately
+ * after the substrate is built and before anything evaluates on it — the
+ * workspace reads it when it is constructed, and a workspace already built
+ * keeps the mode it was built with.
+ */
+export function pinWasmMode(sub: EngineSubstrate, mode: WasmMode): void {
+  (sub as unknown as Pinned)[MODE] = mode;
+}
+
+/** The mode this substrate (or its parent) was pinned to, else the default. */
 export function wasmModeFor(sub: EngineSubstrate): WasmMode {
-  return pinned.get(sub) ?? wasmMode();
+  return (sub as unknown as Pinned)[MODE] ?? wasmMode();
 }

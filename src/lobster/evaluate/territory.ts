@@ -280,9 +280,14 @@ export class TerritoryWorkspace {
    * bitboards and `decisive` are allocated once in the constructor — but three
    * genuinely can: the entry columns double when a roster outgrows them, the
    * caller supplies the domain board, and a unit's arrival grid is a heap array
-   * whenever the arena had no room for it. Caching the immovable ones and
-   * checking only the rest would save about ten buffer-identity compares out of
-   * a 26 µs partition, which is not worth a cache that can go stale.
+   * whenever the arena had no room for it.
+   *
+   * MEASURED: `pointerOf` is 1.07% of a one-second decision's self time
+   * (`scratchpad/w3bench/prof-on.txt`), against a whole-decision gain of ~10%.
+   * So caching the immovable two thirds is worth roughly 0.7 points — a tenth
+   * of the win — in exchange for a cache that goes stale silently and hands the
+   * kernel a pointer into a buffer nobody owns any more. Not taken; recorded so
+   * the next person does not have to re-derive the size of it.
    */
   private readonly descPtr: number;
 
@@ -691,17 +696,22 @@ const DESC_SLOTS = 64;
  * How many `Shells` objects get a resident arrival grid before the rest fall
  * back to the heap.
  *
- * MEASURED, not chosen: a one-second decision on the five W2 board classes
- * creates 35–140 distinct `Shells` and evicts none
- * (`scratchpad/w3bench/shellstats.js`). 512 is ~4× the worst of those, and at
- * 625 cells it is 1.25 MB — small enough that one arena per decision is not a
- * lifecycle problem, which is the whole reason this is a constant and not a
- * pool with an eviction policy.
+ * MEASURED, not chosen. A one-second decision creates SEVEN OR EIGHT
+ * workspaces, not one — the evaluator runs on `withModelled` siblings and each
+ * gets its own — and across them 611 distinct `Shells`, i.e. 46–142 each, with
+ * no evictions (`scratchpad/w3bench/shellstats.js`, `wscount.js`). 256 is ~1.8×
+ * the worst of those per workspace, which at 625 cells reserves 640 KB of
+ * arrival grids against ~220 KB actually used.
+ *
+ * The reservation is what costs, not the use: the memory cannot grow (see
+ * `wasm/arena.ts`), so it is committed at construction. Seven arenas a decision
+ * is the number to keep an eye on, and it is why this is 256 and not 4 096 —
+ * see the RSS column in `scratchpad/perf-w3-report.md`.
  */
-const RESIDENT_SHELLS = 512;
+const RESIDENT_SHELLS = 256;
 
 /** Horizon turns budgeted per resident front block. The shipped profile is 4–8. */
-const MAX_RESIDENT_TURNS = 16;
+const MAX_RESIDENT_TURNS = 12;
 
 /** The arena is refused outright past this, and the workspace runs JS. */
 const MAX_ARENA_BYTES = 64 * 1024 * 1024;
