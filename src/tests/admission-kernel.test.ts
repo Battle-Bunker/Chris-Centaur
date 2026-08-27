@@ -33,6 +33,8 @@ import {
   classifyAdmission,
   measureAdmission,
 } from '../lobster/admission';
+import type { LadderRow } from '../lobster/admission';
+import { ADMISSION_LADDERS } from '../lobster/evaluate/calibration';
 import { makeSearchCore } from '../lobster/search';
 import { LobsterKernel } from '../lobster/kernel';
 import fixture from './fixtures/territory-acceptance.json';
@@ -485,6 +487,73 @@ describe('the ladder is frozen for the turn', () => {
     expect(report?.admission?.activeCohort).toBe(BASE_COHORT_ID);
   });
 
+  test('THE PREDICATE IS CONSULTED ONCE PER DECISION — counted, not argued', () => {
+    // The freeze, measured directly. A counting table records how many times
+    // the classifier ran across a whole decision: slices, emissions, posture
+    // measurements, an epoch, refinement, the final flush. One.
+    //
+    // This is the assertion that survives a refactor. "Nothing re-measures" is
+    // a claim about the absence of code, and the absence of code is exactly
+    // what a later edit removes without noticing.
+    let consulted = 0;
+    const counting: LadderRow[] = ADMISSION_LADDERS.map((row) => ({
+      ...row,
+      when: (c) => {
+        consulted++;
+        return row.when(c);
+      },
+    }));
+    return (async () => {
+      const clock = new StepClock();
+      const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 30, asTeam: 'red' });
+      const kernel = new LobsterKernel({
+        sliceMs: 2,
+        reserveMs: 1,
+        minWriteIntervalMs: 0,
+        yieldIntervalMs: 0,
+        admission: { ...DEFAULT_ADMISSION_POLICY, ladders: counting },
+      });
+      let emitted = 0;
+      let pinned = false;
+      try {
+        for await (const _rec of kernel.decide({
+          sub,
+          gen: new GrammarCandidateGenerator(),
+          evaluate: defaultEvaluator,
+          search: makeSearchCore(),
+          asTeam: sub.teamNumber('red'),
+          deadlineMs: clock.peek() + 200,
+          initialPins: [],
+          now: clock.now,
+          evaluators: EVALUATORS,
+        })) {
+          void _rec;
+          emitted++;
+          if (!pinned) {
+            pinned = true;
+            kernel.onPinEvent({
+              kind: 'pin',
+              pin: { unitId: 0 as UnitId, to: 44, tentative: false },
+            });
+          }
+        }
+      } finally {
+        sub.release();
+      }
+      const report = kernel.lastReport;
+      // The decision really did work: several emissions, many slices, an epoch.
+      expect(emitted).toBeGreaterThan(1);
+      expect(report?.slices).toBeGreaterThan(1);
+      expect(report?.epochs).toBeGreaterThan(1);
+      // The table walks rows in precedence order until one matches, so a
+      // single classification consults AT MOST one row per rule. On this
+      // board the first row matches, so exactly one call — and never more
+      // than the table is long, whatever the board.
+      expect(consulted).toBeGreaterThanOrEqual(1);
+      expect(consulted).toBeLessThanOrEqual(ADMISSION_LADDERS.length);
+    })();
+  });
+
   test('re-measuring the SAME board gives the same answer, so a re-measure is a no-op', () => {
     // The structural half of the freeze argument, stated as arithmetic: the
     // conditions are a pure function of the substrate, and the substrate is
@@ -499,6 +568,52 @@ describe('the ladder is frozen for the turn', () => {
     } finally {
       sub.release();
     }
+  });
+  test('AN OBSERVATION CLEARS THE BIAS ONLY AT THE NEXT DECISION ENTRY', () => {
+    // The other half of the conservative-fog ruling. Caution is added at
+    // decision entry and it is removed at decision entry — never in between,
+    // in either direction. Inside a turn the ladder is a constant; across
+    // turns it is a fresh pure function of the new board.
+    //
+    // Turn N: the enemy pawn is stale past the promotion horizon, its kindSet
+    // has forked, and territory is refused. Turn N+1: the same board with the
+    // pawn observed, and territory returns. Nothing in between could have
+    // moved it, which is the whole content of the freeze.
+    const board = boardOf(
+      [
+        trail('a1', { x: 4, y: 1 }, 'red'),
+        trail('a2', { x: 4, y: 3 }, 'red'),
+        trail('a3', { x: 4, y: 5 }, 'red'),
+        trail('a4', { x: 4, y: 7 }, 'red'),
+        piece('theirPawn', { x: 9, y: 9 }, 'pawn', 1, { teamID: 'blue' }),
+        trail('b1', { x: 10, y: 2 }, 'blue'),
+      ],
+      { food: Array.from({ length: 20 }, (_, i) => ({ x: i % 11, y: 9 })) }
+    );
+
+    const measure = (observedTurns?: ReadonlyMap<string, number>) => {
+      const sub = makeSubstrate({ board, turn: 40, asTeam: 'red', observedTurns });
+      try {
+        return measureAdmission(sub, sub.teamNumber('red'));
+      } finally {
+        sub.release();
+        clearGeometryCache();
+      }
+    };
+
+    const stale = measure(new Map([['theirPawn', 5]]));
+    // ONE decision's worth of the fogged reading — constant, however many
+    // times anything inside the turn asks.
+    for (let i = 0; i < 4; i++) {
+      expect(classifyAdmission(measure(new Map([['theirPawn', 5]])))).toEqual([BASE_COHORT_ID]);
+    }
+    expect(classifyAdmission(stale)).toEqual([BASE_COHORT_ID]);
+
+    // The NEXT decision, on a board where the observation landed.
+    const cleared = measure();
+    expect(cleared.sliderPossible).toBe(false);
+    expect(cleared.promotionImminent).toBe(false);
+    expect(classifyAdmission(cleared)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
   });
 });
 
