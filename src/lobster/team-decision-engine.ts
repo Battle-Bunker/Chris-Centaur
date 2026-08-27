@@ -57,8 +57,10 @@ import type {
 import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { GrammarCandidateGenerator } from './candidates';
+import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
+import { stagingSafety } from './staging-safety';
+import type { StagingSafety } from './staging-safety';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -150,6 +152,16 @@ export interface TeamDecisionOptions {
   readonly arrivalHorizonTurns?: number;
   /** Advice threshold passed through to pins.adviseFromReport. */
   readonly adviceThreshold?: number;
+  /**
+   * How much of the staging-safety layer this ENGINE runs, overriding
+   * `CENTAUR_STAGING_SAFETY` for this instance only.
+   *
+   * Per-engine and not per-process because the thing it must be possible to
+   * measure is one SEAT against unchanged opponents: a process-wide flag moves
+   * every lobster seat on the board at once, and a paired experiment on it
+   * measures nothing.
+   */
+  readonly stagingSafety?: StagingSafety;
 }
 
 export interface TeamTurnInput {
@@ -361,11 +373,31 @@ export class TeamDecisionEngine {
       assumptions.push({ kind: 'reference-action', unitId: unit.unitId, to: NO_ORDER_MOVE });
     }
 
-    const gen = new GrammarCandidateGenerator(this.options.candidates ?? {});
+    const safety = this.options.stagingSafety ?? stagingSafety();
+    // INTEGRATION NOTE (integ/round-a): the staging-safety level supplies the
+    // BASE knobs and the caller's explicit `candidates` override them. Both
+    // seams' own docstrings ask for exactly this precedence — I1's says the
+    // flag's knobs are "overridden by anything the caller passes explicitly",
+    // and I3/I6's says an arm overrides one knob to run a controlled arm. Taking
+    // either side alone would have broken the other: `knobsForSafety(safety)`
+    // by itself silently drops every per-arm knob (gainOrdering, the terrain
+    // pair, the tier knobs), and `this.options.candidates` by itself makes the
+    // stagingSafety option inert.
+    const gen = new GrammarCandidateGenerator({
+      ...knobsForSafety(safety),
+      ...(this.options.candidates ?? {}),
+    });
     const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
-    const search = tapWitnesses(buildCore(this.options.search ?? {}), witnesses);
+    const search = tapWitnesses(
+      buildCore({
+        rungZeroRepair: safety === 'full',
+        seedDeconflict: safety !== 'off',
+        ...(this.options.search ?? {}),
+      }),
+      witnesses
+    );
 
     const kernel = new LobsterKernel({
       // The tier-2 crossfade certificate, bound to this decision's substrate.

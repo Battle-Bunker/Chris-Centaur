@@ -53,11 +53,13 @@ import {
 import {
   contestedUnits,
   dangerOrder,
+  deadIn,
   planTieKey,
   selfInflictedPairs,
   topCandidates,
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
+import { stagingSafety } from "../staging-safety";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -83,6 +85,26 @@ export interface SearchTuning {
    * throws away the memo and re-prices the seed on every single one.
    */
   readonly sessionCacheSize: number;
+  /**
+   * How many of our OWN casualties rung 0's self-harm repair will try to move.
+   * A cap, not a policy: the repair is already bounded by how many units the
+   * resolution names, and this stops a pathological turn (every unit staged
+   * into its own neck) from spending the whole pre-emission budget.
+   */
+  readonly rungZeroRepairVictims: number;
+  /**
+   * Whether rung 0 reads the verdict of the price it already pays. Left
+   * undefined it follows `CENTAUR_STAGING_SAFETY`; named by a caller it is that
+   * caller's answer, so one seat can carry the repair while the seat across the
+   * board does not.
+   */
+  readonly rungZeroRepair: boolean | undefined;
+  /**
+   * Whether the seed reserves the cells it has already spent, so two of our
+   * units do not both start on the same square. Undefined follows
+   * `CENTAUR_STAGING_SAFETY`; named by a caller it is that caller's answer.
+   */
+  readonly seedDeconflict: boolean | undefined;
 }
 
 export const DEFAULT_TUNING: SearchTuning = {
@@ -96,6 +118,9 @@ export const DEFAULT_TUNING: SearchTuning = {
   seed: 0x5eed,
   conformRepairPerUnit: 4,
   sessionCacheSize: 2,
+  rungZeroRepairVictims: 4,
+  rungZeroRepair: undefined,
+  seedDeconflict: undefined,
 };
 
 /** The search could not determine which units it commands. */
@@ -282,18 +307,54 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return null;
   };
 
+  /**
+   * THE SEED — one candidate per unit, pins first, the incumbent's choice where
+   * it still stands, and otherwise the generator's ordered-first option.
+   *
+   * WHY IT DE-CONFLICTS (and why that is not a search). The candidate layer is
+   * PER UNIT: it cannot see a team-mate, so two of our units whose best options
+   * name the same cell both get it, and the seed walks them into each other. In
+   * the queen cell that showed up as 20 `contest` deaths on an empty cell and 9
+   * same-team edge swaps per twelve games — the exact residue left after the
+   * rules-certain classes were refused.
+   *
+   * So the seed reserves what it has already spent: a unit takes its first
+   * option whose PATH claims no cell an earlier unit's path already claims, and
+   * falls back to its ordered-first option when every option collides. It costs
+   * one pass and NO resolution — this is still the O(1)-price rung 0 — and it
+   * cannot change what is legal, only which complete legal plan the search
+   * starts from. Pins are seeded first and their cells are reserved before any
+   * free unit picks, so an operator's cell is never the one taken away.
+   */
   const seedPlan = (s: Session, from: JointPlan | null): JointPlan => {
     const plan = new Map<UnitId, Candidate>();
+    const deconflict = cfg.seedDeconflict ?? stagingSafety() !== "off";
+    const taken = new Set<number>();
+    const claim = (c: Candidate): void => {
+      taken.add(c.to);
+      for (const cell of c.path) taken.add(cell);
+    };
+    const clear = (c: Candidate): boolean => {
+      if (taken.has(c.to)) return false;
+      for (const cell of c.path) if (taken.has(cell)) return false;
+      return true;
+    };
+
+    // Pins first, and their cells reserved, so a constraint is never the thing
+    // a free unit's de-confliction takes away.
     for (const unitId of s.ours) {
       const pinned = s.pins.get(unitId);
-      if (pinned !== undefined) {
-        plan.set(unitId, pinned);
-        continue;
-      }
+      if (pinned === undefined) continue;
+      plan.set(unitId, pinned);
+      claim(pinned);
+    }
+    for (const unitId of s.ours) {
+      if (plan.has(unitId)) continue;
       const existing = from?.get(unitId);
       const set = s.sets.get(unitId) as CandidateSet;
       if (existing !== undefined && isStillOffered(set, existing)) {
         plan.set(unitId, existing);
+        claim(existing);
         continue;
       }
       const first = set.candidates[0] ?? set.prunedLedger[0]?.candidate;
@@ -303,7 +364,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             "which the completeness invariant forbids",
         );
       }
-      plan.set(unitId, first);
+      let pick = first;
+      if (deconflict && taken.size > 0) {
+        for (const candidate of set.candidates) {
+          if (clear(candidate)) {
+            pick = candidate;
+            break;
+          }
+        }
+      }
+      plan.set(unitId, pick);
+      claim(pick);
     }
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) plan.set(unitId, candidate);
@@ -532,13 +603,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         // against a contract gate that requires zero. A legal conforming plan
         // on the wire beats nothing; the loud signal is the counter the kernel
         // keeps, not a dead turn.
+        let scored: BankResult | null = null;
         try {
-          s.bank.price(seed);
+          scored = s.bank.price(seed);
         } catch (err) {
           if ((err as { code?: string }).code !== "bounds_inversion") throw err;
           absorbedInversions++;
         }
-        return seed;
+        const repairing = cfg.rungZeroRepair ?? stagingSafety() === "full";
+        if (scored === null || !repairing) return seed;
+        return repairSelfHarm(s, ctx, scored).plan;
       }
 
       // 1. splice: pins first, then whatever of the incumbent still stands.
@@ -566,6 +640,77 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       }
       return plan;
     }
+  };
+
+  /**
+   * RUNG 0'S LAST LINE — the self-harm repair.
+   *
+   * Rung 0 already pays for one full `price()`, and until now it threw the
+   * answer away: the seed was returned WHATEVER the resolution said, including
+   * on the 58 decisions in the measured corpus whose chosen plan came back
+   * `lo = est = hi = DEAD` and whose team was wiped that same turn, 58 times out
+   * of 58. The bot had computed its own warning and did not read it.
+   *
+   * So it reads it, and the reading costs nothing when there is nothing to say:
+   *
+   *   · NO CASUALTIES OF OURS -> return immediately. This is the overwhelmingly
+   *     common case and the O(1)-price guarantee rung 0 is built on is intact.
+   *   · CASUALTIES -> re-pick each victim from its OWN candidate set, then run
+   *     ONE pair-repair pass over exactly the pairs the resolution names as
+   *     self-inflicted. Cost tracks the number of accidents, never the roster,
+   *     and both loops watch the clock.
+   *
+   * Acceptance is `better()` and nothing else, so this cannot lower the floor:
+   * a repair that does not strictly improve on the proved floor is refused and
+   * the seed stands. Pinned units are never moved — a pin is a constraint, and
+   * an operator who pinned a unit into a fatal cell has said so on purpose.
+   */
+  const repairSelfHarm = (s: Session, ctx: SearchContext, seed: BankResult): BankResult => {
+    const victims = ourCasualties(s, seed);
+    if (victims.length === 0) return seed;
+    let best = seed;
+    for (const unitId of victims.slice(0, Math.max(0, cfg.rungZeroRepairVictims))) {
+      if (ctx.budget.shouldStop()) break;
+      const set = s.sets.get(unitId);
+      if (set === undefined) continue;
+      for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
+        if (ctx.budget.shouldStop()) break;
+        const trial = s.bank.price(withMove(best.plan, candidate));
+        if (better(trial, best)) best = trial;
+      }
+    }
+    // The 2-opt the coordinate step above structurally cannot make: a pair
+    // where moving either unit alone is no improvement while moving both is.
+    // Skipped when the single-unit pass already cleared the board.
+    if (!ctx.budget.shouldStop() && ourCasualties(s, best).length > 0) {
+      best = pairRepair(s, ctx.budget, best);
+    }
+    return best;
+  };
+
+  /**
+   * Our own units the floor-justifying resolution removed, in danger order and
+   * without the pinned ones. Both the VICTIM and whichever team-mate the
+   * resolver named alongside it are worth moving — when a queen steps on its
+   * own king the king is the casualty and the queen is the unit with somewhere
+   * else to be — so a clash contributes every one of our participants.
+   */
+  const ourCasualties = (s: Session, result: BankResult): ReadonlyArray<UnitId> => {
+    const resolution = result.worstResolution;
+    const dead = deadIn(resolution);
+    const out: UnitId[] = [];
+    const seen = new Set<UnitId>();
+    const push = (id: UnitId): void => {
+      if (seen.has(id) || s.pinned.has(id) || !s.ourSet.has(id)) return;
+      seen.add(id);
+      out.push(id);
+    };
+    for (const clash of resolution.clashes) {
+      if (!clash.victimIDs.some((id) => s.ourSet.has(id))) continue;
+      for (const id of clash.playerIDs) push(id);
+    }
+    for (const id of dead) push(id);
+    return out;
   };
 
   /**
