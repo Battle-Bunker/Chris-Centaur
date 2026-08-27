@@ -919,6 +919,20 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           scored = s.bank.price(seed);
         } catch (err) {
           if ((err as { code?: string }).code !== "bounds_inversion") throw err;
+          // THE SEAM MUST FIRE WHERE THE INVERSION HAPPENS. The kernel keeps
+          // the identical env-gated print beside its own slice-level catch
+          // (`kernel.ts`'s `bounds-inversion` refusal), but a rung-0 absorb
+          // never reaches that catch: it is swallowed here and only the COUNT
+          // survives, folded in through `drainRefusals`. That asymmetry cost a
+          // whole re-measure — the counter climbed on the shipped default and
+          // the seam stayed silent, so the class (`bank floor=… ceiling=…`,
+          // which is the only thing that identifies the unsound member) had to
+          // be recovered by patching a scratch worktree. Same gate, same
+          // format, so one `CENTAUR_DEBUG_INVERSION=1` covers both channels —
+          // and each names its own, because the counter does not.
+          if (process.env.CENTAUR_DEBUG_INVERSION) {
+            process.stderr.write(`INVERSION rung-0: ${(err as Error).message}\n`);
+          }
           absorbedInversions++;
         }
         const repairing =

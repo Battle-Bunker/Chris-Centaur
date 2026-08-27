@@ -18,6 +18,10 @@
  *     Always on: it is the floor of last resort, and without it the bank has
  *     no ceiling either.
  *
+ *     "Rounds every unknown our way" is true of the ways a claim can KILL us
+ *     and false of the one way it can SAVE us — see `admissibleCeiling`, which
+ *     is where the exception is taken out of the ceiling.
+ *
  * B1  PER-ENEMY COMPLETE ENUMERATION, ADDITIVE. For an enemy `e` whose option
  *     set is enumerated COMPLETELY,
  *
@@ -81,6 +85,7 @@ import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
 import { modelledView, isModelling } from "./substrate-ext";
 import {
   BOUND_EPSILON,
+  DEAD,
   backupMin,
   basisKeyOf,
   makeScoreBounds,
@@ -249,6 +254,63 @@ interface View {
 }
 
 const isFinite_ = (n: number): boolean => Number.isFinite(n);
+
+/**
+ * THE CERTAIN-WIPE CEILING, AND WHEN IT IS NOT ONE.
+ *
+ * `DEAD` is not a number on the heuristic scale; it is the lattice bottom, and
+ * a bound whose `best` is `DEAD` is not saying "very bad" but "NO WORLD DOES
+ * BETTER THAN OUR TEAM BEING GONE". That is the strongest claim a ceiling can
+ * make, and it is exactly the claim a resolution with a non-empty entanglement
+ * ledger has not earned.
+ *
+ * WHY — the evaluator's terminal clamp reads `Fate` off the OPTIMISTIC
+ * timeline: `hi` collapses to `DEAD` when our last unit (or our king) is gone
+ * there, on the engine's rule that "dead in the optimistic timeline ⇒ dead
+ * however the unknowns fall". That implication holds for the ways a claim can
+ * KILL us — the optimistic timeline already rounds those our way. It does NOT
+ * hold for the way a claim can SAVE us: a held unit is a claim, and a claim
+ * never blocks, severs or capture-stops a mover, so the optimistic timeline is
+ * also the timeline in which our own units travel FURTHEST. Where the extra
+ * travel is what kills us, the death exists only in that timeline.
+ *
+ * The measured case, `pot-rich-e3-s3104-r2` turn 35 (the shipped default, both
+ * arms, every depth): the seed staged our king onto a cell that a longer unit
+ * of OURS transits at sub-step 6. With the enemy held, our unit walked the
+ * whole path and contested its own king off the board — `Fate.Dead`, so
+ * `hi = DEAD`. With the same enemy MODELLED, its body severs and capture-stops
+ * our unit three cells earlier, in all four of its legal replies, and the king
+ * lives. The engine had already published the fact on the branch that used it:
+ * a `Transit` entanglement at that cell whose `assumedPresent` is true, which
+ * `ledger.ts` translates to polarity `if_absent` — "it is `best` that is riding
+ * on the unit being where it was assumed". `evaluate/laws.ts`'s R1 harness
+ * agrees by brute force: every determinate completion of that board scores
+ * between +8.9 and +50.9 against a ceiling of −∞.
+ *
+ * So the rule is the ledger's own: a branch that still has an entanglement is
+ * pricing ONE READING of the turn, not the turn, and a terminal verdict reached
+ * only in that reading may FLOOR the branch (a floor at the bottom is free) and
+ * may not CEILING it. The branch keeps `worst`; its ceiling widens to the top,
+ * which is what "we do not know" looks like on this lattice.
+ *
+ * WHAT IT DOES NOT TOUCH. An empty ledger is the engine's proof that nothing
+ * held could have changed this outcome, so a wipe proved there is still a wipe:
+ * every exact branch, every B3 cover that empties the residue, and every
+ * potions-off board with nothing in contact keeps its `DEAD` ceiling unchanged.
+ * The widening can only ever raise a ceiling, so it cannot turn a sound bracket
+ * unsound, and it cannot lower a floor.
+ *
+ * THE DUAL IS REAL AND IS NOT FIXED HERE. `lo` collapses to `WIN` on the same
+ * argument from the pessimistic timeline, and a held claim that halts one of
+ * our movers can avert a sweep exactly as it can avert a wipe. No inversion of
+ * that shape has been measured on any corpus, and lowering a floor on an
+ * unmeasured argument would move numbers nobody has priced, so it is named
+ * here rather than changed.
+ */
+function admissibleCeiling(bound: Bound, ledger: ReadonlyArray<LedgerEntry>): number {
+  if (ledger.length === 0) return bound.hi;
+  return bound.hi === DEAD ? Number.POSITIVE_INFINITY : bound.hi;
+}
 
 export class BoundBank {
   private readonly cfg: BankConfig;
@@ -459,6 +521,7 @@ export class BoundBank {
       this.input.evaluate.scorePlan(view.sub, plan, this.input.asTeam),
     );
     let ledger: ReadonlyArray<LedgerEntry> = ledgerOf(resolution);
+    const best = admissibleCeiling(bound, ledger);
     if (ledger.length === 0 && bound.hi - bound.lo > BOUND_EPSILON) {
       // The engine proved nothing held could have changed this outcome, and
       // the evaluator still reports a gap. Something narrowed that is not an
@@ -473,7 +536,7 @@ export class BoundBank {
     return {
       bounds: makeScoreBounds({
         worst: bound.lo,
-        best: bound.hi,
+        best,
         ledger,
         assumptions: this.input.basis,
         // A thunk: this text is read only when a bound inverts, and building it

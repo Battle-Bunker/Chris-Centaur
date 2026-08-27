@@ -6,8 +6,16 @@
  * answering [-∞, +∞] would pass the soundness harness and be worthless.
  */
 
-import type { JointPlan, Substrate, UnitId } from '../contracts';
-import { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG, isDischarged, ledgerOf, witnessOf } from './index';
+import type { Bound, Evaluator, JointPlan, PlanEvaluation, Substrate, UnitId } from '../contracts';
+import {
+  B0_ONLY,
+  BoundBank,
+  DEAD,
+  DEFAULT_BANK_CONFIG,
+  isDischarged,
+  ledgerOf,
+  witnessOf,
+} from './index';
 import {
   allPlans,
   makeEvaluator,
@@ -608,5 +616,113 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
     expect(own.outstanding()).toBe(1);
     own.release();
     expect(own.outstanding()).toBe(0);
+  });
+});
+
+describe('the certain-wipe ceiling', () => {
+  /**
+   * THE `[-63.9, -Infinity]` INVERSION, as an arithmetic.
+   *
+   * Measured on the shipped default at `pot-rich-e3-s3104-r2` turn 35, green,
+   * deterministically and arm-independently: the bank published
+   *
+   *     inverted ScoreBounds [-63.91754883427852, -Infinity]: bank floor=B1 ceiling=B1
+   *
+   * A DEAD ceiling under a finite floor, both from complete B1 covers — the
+   * fatal class this file's `price` reserves ("an unconditional floor above a
+   * sound ceiling ... still throws"). On the board it was the terminal clamp
+   * reading `Fate.Dead` off the OPTIMISTIC timeline: our own king was contested
+   * off the board by a longer unit of ours that, with the enemy merely CLAIMED,
+   * walked its whole path — where the enemy's real body severs and
+   * capture-stops it three cells earlier in every one of its legal replies.
+   *
+   * The evaluator here is that reading in miniature, and nothing else: a
+   * certain wipe whenever the enemy is a claim, a finite bracket whenever it is
+   * a mover. That is exactly the disagreement the bank has to survive, and the
+   * shape is the measured one — the enemy the floor comes from is not the enemy
+   * the DEAD comes from, so both members are complete and neither is truncated.
+   */
+  const REPRO_FLOOR = -63.91754883427852;
+
+  /** DEAD both ends while `named` is a claim; finite once it is a mover. */
+  function terminalEvaluator(named: UnitId): Evaluator {
+    const scorePlan = (_sub: Substrate, plan: JointPlan, _asTeam: number): Bound =>
+      plan.has(named)
+        ? { lo: REPRO_FLOOR, est: REPRO_FLOOR, hi: Number.POSITIVE_INFINITY }
+        : { lo: DEAD, est: DEAD, hi: DEAD };
+    return {
+      scorePlan,
+      evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation {
+        const bound = scorePlan(sub, plan, asTeam);
+        return { bound, parts: {}, exact: false, basis: [], ledgerSize: 0 };
+      },
+    };
+  }
+
+  /**
+   * `entangled` picks a plan the held units actually touch, because the whole
+   * rule is about what an entanglement means: with an EMPTY ledger the engine
+   * has proved nothing held could have changed the outcome, and the second test
+   * below is that case. Asking for one of each keeps the pair honest.
+   */
+  function priceWith(spec: typeof CONTACT, evaluate: Evaluator, entangled: boolean) {
+    const board = makeTestBoard(spec);
+    const own = makeSubstrate(board, OURS);
+    const gen = makeGenerator();
+    const bank = new BoundBank({
+      sub: own,
+      gen,
+      evaluate,
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      // Every held unit enumerated ONE AT A TIME, so the floor and the ceiling
+      // really do come from two different enemies, as they do on the board.
+      // (Which rung the CEILING is attributed to is a tie-break on ledger
+      // length and is not the claim: this two-enemy board reports
+      // `floor=B1 ceiling=B0` where the corpus reports `floor=B1 ceiling=B1`.
+      // The floor, the DEAD ceiling and the disagreement are the same.)
+      config: { ...DEFAULT_BANK_CONFIG, b3: false, gateOnEntanglement: false },
+    });
+    const plans = allPlans(own, gen, OURS, 64);
+    const plan = plans.find((p) => {
+      const { resolution } = own.resolveBoundedFor(p, OURS);
+      return (ledgerOf(resolution).length > 0) === entangled;
+    });
+    if (plan === undefined) throw new Error(`no ${entangled ? '' : 'un'}entangled plan on this board`);
+    try {
+      return { out: bank.price(plan), plan };
+    } finally {
+      bank.release();
+      own.release();
+    }
+  }
+
+  test('a DEAD ceiling under a finite floor does not survive an entangled branch', () => {
+    // Unit 2 is one of the two enemies; unit 3 is the other, so the branches
+    // that price unit 3 still hold unit 2 and still read the wipe.
+    const { out } = priceWith(CONTACT, terminalEvaluator(2 as UnitId), true);
+
+    // The precondition the whole rule rests on: something really was held and
+    // really was entangled with this turn.
+    expect(out.bounds.ledger.length).toBeGreaterThan(0);
+
+    // The bracket exists at all — pre-fix this call threw
+    // `BoundsInversionError` with the message quoted above.
+    expect(out.bounds.worst).toBeLessThanOrEqual(out.bounds.best);
+    expect(out.bounds.worst).toBe(REPRO_FLOOR);
+    // A ceiling may only ever become CORRECT, and the correct one here is the
+    // one that admits the worlds where the enemy's body stops us.
+    expect(out.bounds.best).not.toBe(DEAD);
+  });
+
+  test('an unentangled branch keeps its DEAD ceiling — the wipe is proved there', () => {
+    // Opposite corners: nothing can reach anything, so the engine's ledger is
+    // empty and "dead in the optimistic timeline" really is dead in all of
+    // them. The widening must not touch this.
+    const { out } = priceWith(DISTANT, terminalEvaluator(-1 as UnitId), false);
+    expect(out.bounds.ledger).toEqual([]);
+    expect(out.bounds.best).toBe(DEAD);
+    expect(out.bounds.worst).toBe(DEAD);
   });
 });
