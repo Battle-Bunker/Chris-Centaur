@@ -227,6 +227,70 @@ describe('the wire reaches the cloud', () => {
     expect(sub.potionAt(m.toIndex({ x: 4, y: 5 }))).toBe(false);
     sub.release();
   });
+
+  /**
+   * O-P5's SAFETY PROPERTY, from the consumer's side.
+   *
+   * `potion-tier-bounds.test.ts` pins the arithmetic at the engine layer: a
+   * potion taken on the move being resolved is applied at THAT turn's commit,
+   * so it governs nothing in the contest being asked about, and
+   * `couldCollectPotion` is gated on `n >= 2`. This is the same fact where it
+   * is actually load-bearing — on a substrate built from a real board, through
+   * the seam, on the field the risk layer and the evaluator read.
+   *
+   * IT IS WHY THE WIDENING IS CHEAP TO TURN ON. The turn-start field is the
+   * only one a ply-1 decision consults, and the potion board cannot move it.
+   * Measured over 160 replays of the full trio on 40 potion-bearing piece
+   * boards at two budgets, `CENTAUR_TIER_TRUTH=full` moves the argmax on 0 of
+   * them and the published bracket on 0 of them, while `couldCollectPotion`
+   * fires on 36 of the 40 boards once the field is dilated. The belief changes;
+   * the ply-1 decision does not.
+   *
+   * Written to be non-vacuous in BOTH arms, because a test that quietly does
+   * nothing under the shipped default is not a gate on the arm that matters.
+   */
+  it('cannot move the turn-start field, whichever arm is running', () => {
+    const board = boardOf(
+      [
+        piece('A1', { x: 4, y: 4 }, 'king', 1, { teamID: 'A' }),
+        piece('B1', { x: 5, y: 5 }, 'rook', 3, { teamID: 'B' }),
+        piece('B2', { x: 2, y: 6 }, 'knight', 2, { teamID: 'B' }),
+      ],
+      {
+        invulnerabilityPotions: [
+          { x: 4, y: 5 },
+          { x: 5, y: 4 },
+          { x: 3, y: 6 },
+        ],
+      }
+    );
+    const sub = subFor(board);
+    const field = sub.claimField();
+
+    // n = 1 — the ONE reading a ply-1 decision makes. Nothing has been
+    // collected yet in any continuation, in either arm.
+    for (const slot of field.slots) {
+      expect([slot.record.unitId, slot.cloud.couldCollectPotion]).toEqual([
+        slot.record.unitId,
+        false,
+      ]);
+    }
+
+    // Beyond it, the two arms diverge, and each one is asserted rather than
+    // assumed: the widening is either live or dark, never "probably off".
+    const laterCollectors = [2, 3, 4].flatMap((n) =>
+      field
+        .advanceTo(TURN + n)
+        .slots.filter((s) => s.cloud.couldCollectPotion)
+        .map((s) => `${n}:${s.record.unitId}`)
+    );
+    if (potionBoardEnabled()) {
+      expect(laterCollectors.length).toBeGreaterThan(0);
+    } else {
+      expect(laterCollectors).toEqual([]);
+    }
+    sub.release();
+  });
 });
 
 // ------------------------------------------------------------- O-P4 / D-0
