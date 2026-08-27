@@ -24,6 +24,7 @@ import {
   PRUNE_NOTES,
   defaultCandidateGenerator,
 } from '../candidates';
+import type { AssessedCandidate } from '../candidates';
 import type { Candidate, CandidateSet, UnitId } from '../contracts';
 
 // --------------------------------------------------------------------- fixtures
@@ -201,6 +202,46 @@ describe('the completeness invariant', () => {
     expect(prunedLossy).toBeGreaterThan(0);
   });
 
+  test('the partition survives hazards, at every damage regime — 40 random boards', () => {
+    // The random-board corpus above has no terrain, so it cannot see the
+    // stationary charge or the terrain-fatal refusal. Both add ways for a
+    // candidate to leave the kept set; neither may lose one.
+    let terrainPrunes = 0;
+    let holds = 0;
+    for (let seed = 300; seed <= 339; seed++) {
+      const base = randomBoard(seed);
+      const r = rng(seed * 7 + 1);
+      const hazards: Coord[] = [];
+      for (let i = 0; i < 10; i++) {
+        hazards.push({ x: Math.floor(r() * base.width), y: Math.floor(r() * base.height) });
+      }
+      // 5 doses, 2 doses, 1 dose — the ladder S2 runs, on the same boards.
+      for (const hazardDamage of [20, 50, 100]) {
+        const board = { ...base, hazards, hazardDamage } as Board;
+        const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+        for (const unit of sub.roster()) {
+          const set = defaultCandidateGenerator.candidatesFor(sub, unit.unitId);
+          expect(set.candidates.length + set.prunedLedger.length).toBe(set.legalCount);
+          expect(set.candidates.length).toBeGreaterThan(0);
+          const seen = new Set<number>();
+          for (const c of set.candidates) seen.add(c.to);
+          for (const e of set.prunedLedger) seen.add(e.candidate.to);
+          expect(seen.size).toBe(set.legalCount);
+          for (const e of set.prunedLedger) {
+            const id = e.prune as keyof typeof PRUNE_EXACT;
+            expect(PRUNE_EXACT[id]).toBe(e.exact);
+            if (id === PRUNE.terrainFatal) terrainPrunes++;
+          }
+          if (set.candidates.some((c) => c.path.length === 0)) holds++;
+        }
+        sub.release();
+      }
+    }
+    // An invariant that holds because nothing fired proves nothing.
+    expect(terrainPrunes).toBeGreaterThan(0);
+    expect(holds).toBeGreaterThan(0);
+  });
+
   test('any staged cell at all lands inside the enumerated set (containment)', () => {
     const board = randomBoard(7);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
@@ -234,6 +275,7 @@ const exactOnly = new GrammarCandidateGenerator({
   pruneFatalNoGain: false,
   kingHardSafety: false,
   refusePromotion: false,
+  refuseTerrainFatal: false,
 });
 
 describe('an exact prune really is exact', () => {
@@ -388,6 +430,7 @@ describe('lossy prunes are the ones behind knobs', () => {
       pruneFatalNoGain: false,
       kingHardSafety: false,
       refusePromotion: false,
+      refuseTerrainFatal: false,
     });
     let lossy = 0;
     for (let seed = 200; seed <= 240; seed++) {
@@ -549,6 +592,203 @@ describe('refusals', () => {
       asTeam: 'red',
     });
     expect(() => defaultCandidateGenerator.candidatesFor(sub, 42)).toThrow(/no unit 42/);
+    sub.release();
+  });
+});
+
+// ------------------------------------------------- the stationary terrain charge
+
+/**
+ * HOLDING A SQUARE IS NOT FREE ON A HAZARD, AND THE RULES SAY SO.
+ *
+ * `PartialEngine.healthPhase` charges a unit that staged no path a full
+ * stationary dose at sub-step 1, while a step onto ordinary ground costs the
+ * kind's `costPerCell` — one. So holding on a hazard is strictly dominated by
+ * any safe step, and holding on one whose dose exceeds the health the unit has
+ * LEFT is a death the layer used to tier `safe`.
+ *
+ * The charge is checked against the RESOLVER rather than against a number
+ * written here, because the whole point is that the two agree.
+ */
+describe('the stationary terrain charge', () => {
+  const HAZ = 20;
+
+  /** A rook alone in the middle, standing on or beside one hazard cell. */
+  const rookAt = (at: Coord, hazard: Coord, health: number): Board =>
+    boardOf(
+      [
+        piece('R', at, 'rook', 3, { teamID: 'red', health }),
+        piece('K', { x: 8, y: 8 }, 'king', 1, { teamID: 'red', health: 100 }),
+        piece('E', { x: 0, y: 0 }, 'king', 1, { teamID: 'blue', health: 100 }),
+      ],
+      { width: 9, height: 9, hazards: [hazard], hazardDamage: HAZ } as Partial<Board>
+    );
+
+  const holdOf = (assessed: ReadonlyArray<AssessedCandidate>): AssessedCandidate =>
+    assessed.find((a) => a.candidate.path.length === 0) as AssessedCandidate;
+
+  test('the assessed spend for a hold is exactly what the resolver charges', () => {
+    for (const [on, health] of [
+      [true, 81],
+      [false, 81],
+    ] as ReadonlyArray<[boolean, number]>) {
+      const board = rookAt({ x: 4, y: 4 }, on ? { x: 4, y: 4 } : { x: 7, y: 7 }, health);
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+      const hold = holdOf(defaultCandidateGenerator.assess(sub, rook));
+      expect(hold).toBeDefined();
+      const spent = hold.healthSpent;
+      expect(spent.lo).toBe(spent.hi);
+
+      const after = sub.withResolution(
+        new Map<UnitId, Candidate>([[rook, hold.candidate]]),
+        0,
+        ({ resolution }) => {
+          for (const v of sub.engine.units(resolution.state)) if (v.unitId === rook) return v.health;
+          return -1;
+        }
+      );
+      expect(health - after).toBe(spent.hi);
+      expect(spent.hi).toBe(on ? HAZ : 0);
+      sub.release();
+    }
+  });
+
+  test('a hold on a hazard no longer outranks every step off it', () => {
+    const board = rookAt({ x: 4, y: 4 }, { x: 4, y: 4 }, 81);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    const holdRank = set.candidates.findIndex((c) => c.path.length === 0);
+    expect(holdRank).toBeGreaterThan(0);
+    // Every single-step escape onto clean ground is ordered ahead of it.
+    for (let i = 0; i < holdRank; i++) {
+      const c = set.candidates[i] as Candidate;
+      expect(sub.hazardAt(c.to)).toBe(false);
+    }
+    sub.release();
+  });
+
+  test('off a hazard the hold is free and still leads the order', () => {
+    const board = rookAt({ x: 4, y: 4 }, { x: 7, y: 7 }, 81);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    expect((set.candidates[0] as Candidate).path.length).toBe(0);
+    sub.release();
+  });
+
+  test('a hold the dose kills is doomed and pruned, and the option set survives', () => {
+    const board = rookAt({ x: 4, y: 4 }, { x: 4, y: 4 }, HAZ - 5);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    // `assess` reports the KEPT set, so the tier is read off a generator with
+    // the policy prunes open — the prune is what the rest of the test checks.
+    const hold = holdOf(
+      new GrammarCandidateGenerator({ pruneFatalNoGain: false, refuseTerrainFatal: false }).assess(
+        sub,
+        rook
+      )
+    );
+    expect(hold.tier).toBe('doomed');
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    expect(set.candidates.some((c) => c.path.length === 0)).toBe(false);
+    expect(set.prunedLedger.some((e) => e.candidate.path.length === 0)).toBe(true);
+    expect(set.candidates.length).toBeGreaterThan(0);
+    sub.release();
+  });
+
+  test('the knob restores the old free-hold reading', () => {
+    const board = rookAt({ x: 4, y: 4 }, { x: 4, y: 4 }, 81);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const off = new GrammarCandidateGenerator({ chargeStandingTerrain: false });
+    const hold = holdOf(off.assess(sub, rook));
+    expect(hold.healthSpent.hi).toBe(0);
+    expect(off.candidatesFor(sub, rook).candidates[0]?.path.length).toBe(0);
+    sub.release();
+  });
+});
+
+// ------------------------------------------------------ the terrain-fatal line
+
+/**
+ * THE LINE THE CORPUS READ AS "MAX HEALTH, NOT CURRENT HEALTH".
+ *
+ * `fatal-no-gain` asks for `capture === 'no'`, and above the kind's maximum that
+ * costs nothing: no enemy survives standing on such a cell, so none is ever
+ * there to take and the prune fires every time. Below the maximum, enemies cross
+ * hazard cells like any other ground, the same square offers a POSSIBLE capture,
+ * and the prune stops firing for a mover whose own remaining health the dose
+ * already exceeds. No comparison against a maximum exists anywhere in the code —
+ * the condition that hides it is simply satisfied in that regime.
+ */
+describe('a certainly-unaffordable move is refused unless the kill is certain too', () => {
+  const withEnemyNear = (health: number, occupied: boolean): Board =>
+    boardOf(
+      [
+        piece('R', { x: 4, y: 4 }, 'rook', 3, { teamID: 'red', health }),
+        // On the hazard cell it is a capture we would certainly make; one file
+        // away it is a capture we only MIGHT make.
+        piece('P', occupied ? { x: 5, y: 4 } : { x: 5, y: 0 }, occupied ? 'pawn' : 'queen', 1, {
+          teamID: 'blue',
+          health: 100,
+        }),
+        piece('K', { x: 8, y: 8 }, 'king', 1, { teamID: 'red', health: 100 }),
+        piece('E', { x: 0, y: 0 }, 'king', 1, { teamID: 'blue', health: 100 }),
+      ],
+      { width: 9, height: 9, hazards: [{ x: 5, y: 4 }], hazardDamage: 20 } as Partial<Board>
+    );
+
+  test('a hurt mover is refused the fatal hazard cell even when it MIGHT take something', () => {
+    const sub = makeSubstrate({ board: withEnemyNear(18, false), turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const assessed = defaultCandidateGenerator.assess(sub, rook);
+    // The board is built so the cell really is both fatal and a maybe-capture.
+    const raw = new GrammarCandidateGenerator({ refuseTerrainFatal: false }).assess(sub, rook);
+    const onHazard = raw.find((a) => sub.hazardAt(a.candidate.to) && a.candidate.path.length === 1);
+    expect(onHazard).toBeDefined();
+    expect((onHazard as AssessedCandidate).exhaustionFatal).toBe('yes');
+    expect((onHazard as AssessedCandidate).capture).toBe('maybe');
+
+    const cell = (onHazard as AssessedCandidate).candidate.to;
+    expect(assessed.some((a) => a.candidate.to === cell)).toBe(false);
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    expect(set.prunedLedger.some((e) => e.prune === PRUNE.terrainFatal)).toBe(true);
+    expect(PRUNE_EXACT[PRUNE.terrainFatal]).toBe(false);
+    sub.release();
+  });
+
+  test('a healthy mover keeps the same cell — the refusal is about the health it HAS', () => {
+    const sub = makeSubstrate({ board: withEnemyNear(90, false), turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    expect(set.candidates.some((c) => sub.hazardAt(c.to))).toBe(true);
+    expect(set.prunedLedger.some((e) => e.prune === PRUNE.terrainFatal)).toBe(false);
+    sub.release();
+  });
+
+  test('the door left open is a CERTAIN kill, and a live enemy never gives one', () => {
+    // An enemy standing ON the fatal cell is still only a `maybe` capture: it
+    // is a mover, moves are simultaneous, and it may not be there when we
+    // arrive (the same reason a piece in the way is not a certain stop). So the
+    // refusal fires here too, and the escape hatch the prune leaves open —
+    // `capture === 'yes'` — is reserved for a defeat the claim layer proves.
+    const sub = makeSubstrate({ board: withEnemyNear(18, true), turn: TURN, asTeam: 'red' });
+    const rook = sub.unitOfWireId('R')?.unitId as UnitId;
+    const raw = new GrammarCandidateGenerator({ refuseTerrainFatal: false }).assess(sub, rook);
+    const onHazard = raw.find(
+      (a) => sub.hazardAt(a.candidate.to) && a.candidate.path.length === 1
+    ) as AssessedCandidate;
+    expect(onHazard.capture).toBe('maybe');
+    expect(onHazard.exhaustionFatal).toBe('yes');
+    const set = defaultCandidateGenerator.candidatesFor(sub, rook);
+    expect(set.candidates.some((c) => c.to === onHazard.candidate.to)).toBe(false);
+    expect(
+      set.prunedLedger.some(
+        (e) => e.candidate.to === onHazard.candidate.to && e.prune === PRUNE.terrainFatal
+      )
+    ).toBe(true);
     sub.release();
   });
 });

@@ -58,6 +58,7 @@ import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
+import type { CandidateKnobs } from './candidates';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -129,6 +130,12 @@ export interface TeamDecisionOptions {
    * caller that wants the 1 ms reflex reading asks for it by name.
    */
   readonly evaluate?: Evaluator;
+  /**
+   * Candidate-layer knobs. Defaults are `DEFAULT_KNOBS`; a caller overrides
+   * one to run a controlled arm against it, which is the only reason the seam
+   * exists — production takes the defaults.
+   */
+  readonly candidates?: CandidateKnobs;
   readonly search?: Partial<SearchTuning>;
   /** How the decision's SearchCore is assembled from the tuning. Defaults to
    * the production `makeSearchCore`. The one composition seam the engine
@@ -351,7 +358,7 @@ export class TeamDecisionEngine {
       assumptions.push({ kind: 'reference-action', unitId: unit.unitId, to: NO_ORDER_MOVE });
     }
 
-    const gen = new GrammarCandidateGenerator();
+    const gen = new GrammarCandidateGenerator(this.options.candidates ?? {});
     const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
