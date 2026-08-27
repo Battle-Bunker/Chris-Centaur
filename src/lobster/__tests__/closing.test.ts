@@ -664,13 +664,69 @@ describe('the gain ordering fixes two mis-orderings, and only when asked', () =>
       sub.release();
     }
   });
+
+  /**
+   * THE PROMOTION ITSELF (integ/round-a). Every test above names `gainOrdering`
+   * explicitly, so all of them would still pass with the default set either
+   * way — they gate the MECHANISM, not the SHIPPING of it. This one gates the
+   * shipping: it builds the generator the way production does, with no knobs
+   * at all, and asserts the gain order is what comes back.
+   */
+  it('the DEFAULT generator — no knobs named — carries the gain order', () => {
+    const sub = makeSubstrate({ board: foodBoard, turn: TURN, asTeam: 'red' });
+    try {
+      const q = sub.unitOfWireId('q');
+      if (q === undefined) throw new Error('no q');
+      const shipped = new GrammarCandidateGenerator().assess(sub, q.unitId);
+      const prePromotion = new GrammarCandidateGenerator({ gainOrdering: false }).assess(
+        sub,
+        q.unitId
+      );
+
+      // `foodGain` is computed ONLY when the gain keys are live, so a non-zero
+      // one under a knob-free generator is proof the default carries them.
+      expect(shipped.filter((c) => c.foodGain === 1).length).toBeGreaterThan(0);
+      expect(prePromotion.filter((c) => c.foodGain === 1).length).toBe(0);
+
+      // And the promotion actually moves the order.
+      const seq = (s: typeof shipped): string => s.map((c) => c.candidate.to).join(',');
+      expect(seq(shipped)).not.toEqual(seq(prePromotion));
+
+      // I3's measured mis-ordering #1, corrected by default: the eat is reached
+      // before the `stay` that used to outrank it.
+      const stay = shipped.findIndex((c) => c.candidate.path.length === 0);
+      const firstEat = shipped.findIndex((c) => c.foodGain === 1);
+      expect(firstEat).toBeGreaterThanOrEqual(0);
+      expect(firstEat).toBeLessThan(stay);
+    } finally {
+      sub.release();
+    }
+  });
 });
 
 // ------------------------------------------------------------------ additive
 
 describe('nothing shipped moved', () => {
-  it('the default candidate knobs still order the way they did', () => {
-    expect(DEFAULT_KNOBS.gainOrdering).toBe(false);
+  /**
+   * RETIRED AND REPLACED (integ/round-a). This pinned
+   * `DEFAULT_KNOBS.gainOrdering === false`, which was the right assertion while
+   * I3 was an unpromoted arm: the branch's whole claim was "an arm that does
+   * not opt in pays nothing".
+   *
+   * The coordinator has promoted gainOrdering, so that assertion now pins the
+   * OPPOSITE of the shipped intent and had to go. It is replaced rather than
+   * deleted, because what it was really protecting — that the promotion is a
+   * deliberate, visible act and not an accident — is still worth a gate. The
+   * ORDERING tests above ('the gain ordering fixes two mis-orderings, and only
+   * when asked') are untouched and still drive both polarities explicitly, so
+   * the mechanism keeps its full cover either way.
+   *
+   * Note the sibling assertions in this block are NOT retired: the shipped
+   * WEIGHTS and the shipped FEATURE LIST still carry neither new key. Ordering
+   * was promoted; the two evaluator features were not.
+   */
+  it('the gain ordering is promoted, deliberately and visibly', () => {
+    expect(DEFAULT_KNOBS.gainOrdering).toBe(true);
   });
 
   it('the shipped weights carry neither new key, so no profile pays by default', () => {
@@ -771,8 +827,10 @@ describe('the approach carve-out holds', () => {
   });
 
   it('the two SHIPPERS are present and reachable on their own seams', () => {
-    // gainOrdering is a candidate-layer knob, off by default as measured.
-    expect('gainOrdering' in DEFAULT_KNOBS).toBe(true);
+    // gainOrdering is a candidate-layer knob, and it is the one thing in this
+    // branch that is PROMOTED — on by default, per the ledger's "promote
+    // gainOrdering FIRST".
+    expect(DEFAULT_KNOBS.gainOrdering).toBe(true);
     // regicideCascade rides the same dark list as approach today; promoting it
     // is a separate, deliberate act and not this merge's business.
     expect(I3_FEATURES.map((f) => f.key)).toContain('regicideCascade');

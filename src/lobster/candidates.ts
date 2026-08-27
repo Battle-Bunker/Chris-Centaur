@@ -250,8 +250,14 @@ export interface CandidateKnobs {
    *    index.
    *
    * Ordering "carries no soundness weight whatsoever" — this changes which
-   * moves the anytime path reaches first and nothing else. Default off, so the
-   * shipped generator is untouched.
+   * moves the anytime path reaches first and nothing else.
+   *
+   * DEFAULT ON as of integ/round-a (it was off on I3's branch). The ledger's
+   * I3 verdict is "promote gainOrdering FIRST — reproduces the WHOLE effect
+   * alone", and its mechanism evidence sits 5–25x outside the null band in
+   * every arm, cell and budget. The placement CI was the only part not
+   * claimable, and mechanism metrics are the promotion currency (A3 section
+   * 4.2). Set it false to get the pre-promotion order back.
    */
   readonly gainOrdering?: boolean;
   /**
@@ -273,7 +279,7 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   escortShadowOrdering: true,
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
-  gainOrdering: false,
+  gainOrdering: true,
   // Both default OFF; `flaggedKnobs()` turns them on when the staging-safety
   // flag asks for them, so an explicit knob in a test still wins.
   pruneCertainSelfFatal: false,
