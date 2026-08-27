@@ -52,7 +52,7 @@ import {
   type SessionSpec,
   type ToWorker,
 } from "./protocol"
-import { Counter } from "./protocol"
+import { Counter, EPOCH_SLOTS } from "./protocol"
 
 export interface PoolStats {
   readonly size: number
@@ -216,6 +216,9 @@ export class WorkerEvaluationPool implements EvaluationPool {
   private session = 0
   /** Live board epochs, oldest first. Bounded: see `MAX_BOARDS`. */
   private boards: number[] = []
+  /** The same list, in memory every worker can read between plans. See
+   * `EPOCH_SLOTS` for why this is the one thing that is shared. */
+  private readonly liveEpochs: Int32Array
   /** sessionId → the board epoch it was opened against. */
   private readonly openSessions = new Map<number, number>()
   private degraded: string | null = null
@@ -241,6 +244,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
   constructor(options: WorkerPoolOptions) {
     this.size = Math.max(0, options.size)
     this.log = options.log ?? ((m) => console.log(m))
+    this.liveEpochs = new Int32Array(new SharedArrayBuffer(EPOCH_SLOTS * 4))
     const env = { ...(options.env ?? process.env) }
     for (let id = 0; id < this.size; id++) {
       const slot = this.spawn(id, env)
@@ -293,6 +297,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
       if (oldest === undefined) break
       this.forget(oldest)
     }
+    this.publishEpochs()
     return epoch
   }
 
@@ -305,7 +310,18 @@ export class WorkerEvaluationPool implements EvaluationPool {
     const at = this.boards.indexOf(epoch)
     if (at < 0) return
     this.boards.splice(at, 1)
+    // FIRST the shared table, so a worker mid-parcel abandons it on its very
+    // next plan; the `drop-board` message that follows only frees the
+    // substrate, and it will not be read until the parcel has stopped anyway.
+    this.publishEpochs()
     this.forget(epoch)
+  }
+
+  /** Publish the live epochs where a busy worker can see them. */
+  private publishEpochs(): void {
+    for (let i = 0; i < EPOCH_SLOTS; i++) {
+      Atomics.store(this.liveEpochs, i, this.boards[i] ?? 0)
+    }
   }
 
   openSession(spec: SessionSpec): void {
@@ -405,6 +421,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
     this.stopped = true
     this.inbox = []
     this.boards = []
+    this.publishEpochs()
     this.openSessions.clear()
     await Promise.all(
       this.slots.map(async (slot) => {
@@ -436,7 +453,9 @@ export class WorkerEvaluationPool implements EvaluationPool {
 
   private spawn(id: number, env: NodeJS.ProcessEnv): Slot | null {
     try {
-      const worker = new Worker(...workerArgs({ workerId: id, env }))
+      const worker = new Worker(
+        ...workerArgs({ workerId: id, env, liveEpochs: this.liveEpochs.buffer }),
+      )
       // An unref'd worker never holds the process open — a pool the caller
       // forgot to shut down must not turn a CLI into a hang.
       worker.unref()

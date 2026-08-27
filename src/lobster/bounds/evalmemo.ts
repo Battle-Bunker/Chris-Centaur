@@ -174,10 +174,19 @@ export class EvaluationMemo {
    * hit and nothing else.
    */
   private importedKeys: Set<string> | null = null;
-  /** Keys inserted since `startRecording()`. Null when nobody is recording —
-   * which is every main-thread bank. A worker turns it on to learn what its
-   * own pricing produced, since that delta IS the parcel result. */
-  private recorded: string[] | null = null;
+  /**
+   * Keys this memo SERVED since `startRecording()` — hits included. Null when
+   * nobody is recording, which is every main-thread bank.
+   *
+   * Hits included, and that is the whole point. A worker's output is "the
+   * evaluations these plans need", not "the evaluations I happened not to have
+   * yet": its own memo persists across parcels, so a key it computed for an
+   * earlier parcel would otherwise be sent once — at a moment the coordinator
+   * very likely already had it — and then never again, even though a later
+   * slice will ask for it. Recording what was READ makes a parcel's answer a
+   * function of the parcel rather than of the worker's history.
+   */
+  private recorded: Set<string> | null = null;
 
   constructor(
     private readonly capacity: number,
@@ -213,6 +222,7 @@ export class EvaluationMemo {
     const hit = this.entries.get(key);
     if (hit !== undefined) {
       this.hits++;
+      this.recorded?.add(key);
       if (this.importedKeys !== null && this.importedKeys.delete(key)) {
         this.importHitCount++;
         const local = compute();
@@ -252,7 +262,7 @@ export class EvaluationMemo {
 
   private remember(key: string, bound: Bound): void {
     this.entries.set(key, bound);
-    this.recorded?.push(key);
+    this.recorded?.add(key);
     // Oldest-first, one line, no LRU bookkeeping: the access pattern here is a
     // search re-visiting recent plans, and promoting on read costs more than
     // the occasional early eviction it would save.
@@ -264,16 +274,16 @@ export class EvaluationMemo {
     }
   }
 
-  /** Start collecting the keys this memo fills. A worker's whole output. */
+  /** Start collecting the keys this memo serves. A worker's whole output. */
   startRecording(): void {
-    if (this.recorded === null) this.recorded = [];
+    if (this.recorded === null) this.recorded = new Set();
   }
 
-  /** The keys filled since the last take, with their values. Empties the log. */
+  /** The keys served since the last take, with their values. Empties the log. */
   takeRecording(): ReadonlyArray<readonly [string, Bound]> {
     const keys = this.recorded;
     if (keys === null) return [];
-    this.recorded = [];
+    this.recorded = new Set();
     const out: Array<readonly [string, Bound]> = [];
     for (const key of keys) {
       const bound = this.entries.get(key);
@@ -293,6 +303,6 @@ export class EvaluationMemo {
     this.importHitCount = 0;
     this.auditedCount = 0;
     this.importedKeys?.clear();
-    if (this.recorded !== null) this.recorded = [];
+    if (this.recorded !== null) this.recorded = new Set();
   }
 }

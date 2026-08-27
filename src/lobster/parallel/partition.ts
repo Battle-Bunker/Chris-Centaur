@@ -37,11 +37,17 @@
  * work the current slice is about to do itself is speculating on a race the
  * worker cannot win.
  *
- * What pays instead is the TAIL: the main thread sweeps the frontier in danger
- * order from the front and gets through some prefix of it before its slice
- * ends; the workers take contiguous chunks of what is left, and slice N+1 finds
- * them already evaluated. With W workers the frontier is cut into W+1 chunks,
- * the main thread implicitly owning chunk 0 by simply doing what it always did.
+ * What pays instead is the frontier of the NEXT slice. `SearchCore.improve`
+ * dispatches at the END of a slice, from the incumbent that slice settled on:
+ * `sweep` starts from that plan next time, and the plans one move away from it
+ * are exactly what it perturbs. Those are unpriced (the sweep priced variations
+ * of the intermediate plans it passed through, not of the one it stopped on),
+ * and the workers get a whole slice boundary of head start on them.
+ *
+ * Measured, because the difference is not subtle. Dispatched at the START of a
+ * slice on the bench board at a one-second budget: 423 entries imported, ZERO
+ * ever read — the coordinator swept the whole frontier before any message could
+ * be delivered.
  */
 
 import type { Candidate, CandidateSet, UnitId } from "../contracts"
@@ -99,12 +105,13 @@ export interface WorkPartition {
  * that invents plans the search never tries is not speculation, it is a second
  * search, and a second search is exactly what a pure evaluator must not be.
  *
- * `headroom` is how many of the leading plans to leave alone: the main thread
- * is about to price them itself and would beat any worker to them. It is set
- * by the caller from what a slice has actually been MEASURED to get through,
- * never guessed here.
+ * `headroom` is how many of the leading plans to leave alone — how much of the
+ * next slice's frontier the coordinator is assumed to reach before a worker can
+ * answer. Zero in the shipped tuning, because the end-of-slice dispatch already
+ * gives the workers a slice boundary of head start; it is a knob so a bench can
+ * ask the opposite question.
  */
-export function planBatchPartition(headroom: number): WorkPartition {
+export function planBatchPartition(headroom: number, maxPerChunk: number): WorkPartition {
   return {
     name: "plan-batch",
     partition(frontier: Frontier, slots: number): ReadonlyArray<PlanChunk> {
@@ -114,9 +121,18 @@ export function planBatchPartition(headroom: number): WorkPartition {
       const plans = sweepFrontier(frontier)
       const tail = plans.slice(Math.max(0, headroom))
       if (tail.length === 0) return []
-      const per = Math.ceil(tail.length / slots)
+      // A CHUNK IS SIZED BY LATENCY, NOT BY FAIRNESS. Cutting the frontier
+      // evenly across the free workers is the obvious partition and it is the
+      // wrong one: a parcel is only worth anything if it comes back before the
+      // slice that needs it, and at production roster sizes one price is
+      // several milliseconds against a slice of a few tens. An even cut on a
+      // wide frontier gives every worker a parcel that lands after the turn is
+      // over. So the cut is capped, and what does not fit is simply not sent —
+      // the next slice re-derives the frontier from wherever the search has
+      // got to, which is a better question than the leftovers of this one.
+      const per = Math.max(1, Math.min(maxPerChunk, Math.ceil(tail.length / slots)))
       const out: PlanChunk[] = []
-      for (let from = 0; from < tail.length; from += per) {
+      for (let from = 0; from < tail.length && out.length < slots; from += per) {
         const take = tail.slice(from, Math.min(tail.length, from + per))
         const codes = new Int32Array(take.length * width)
         for (let i = 0; i < take.length; i++) codes.set(take[i] as Int32Array, i * width)

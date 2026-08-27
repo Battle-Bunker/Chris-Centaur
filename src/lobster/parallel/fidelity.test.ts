@@ -24,6 +24,7 @@
  * this decision must leave the search running, not break it.
  */
 
+import { transientDelay } from "../../server/activity-controller"
 import type { Board, Coord, Snake } from "../../types/battlesnake"
 import type { Bound, BudgetHandle, CandidateSet, UnitId } from "../contracts"
 import { BoundBank, DEFAULT_BANK_CONFIG } from "../bounds"
@@ -222,13 +223,14 @@ describe("a worker's board is this thread's board", () => {
         budgetMs: 20_000,
         count,
         codes: Int32Array.from(codes),
+        witnesses: [],
       })).toBe(true)
 
       // The worker boots its transpiler, builds its own substrate and prices;
       // poll rather than guess, and fail loudly if it never answers.
       let entries: ReadonlyArray<readonly [string, Bound]> = []
       for (let waited = 0; waited < 240 && entries.length === 0; waited++) {
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        await transientDelay(250)
         entries = pool.drain(sessionId)
       }
       expect(entries.length).toBeGreaterThan(0)
@@ -297,6 +299,7 @@ describe("degradation", () => {
         budgetMs: 1,
         count: 1,
         codes: new Int32Array([0]),
+        witnesses: [],
       }),
     ).toBe(false)
     expect(off.drain(1)).toEqual([])
@@ -335,9 +338,10 @@ describe("degradation", () => {
         budgetMs: 5_000,
         count: 1,
         codes: new Int32Array([0, 0]),
+        witnesses: [],
       })
       for (let waited = 0; waited < 240 && pool.stats.degraded === null; waited++) {
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        await transientDelay(250)
       }
       expect(pool.stats.degraded).toMatch(/catalogue mismatch/)
       expect(pool.live).toBe(false)

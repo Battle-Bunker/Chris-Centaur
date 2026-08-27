@@ -1,9 +1,10 @@
 /**
  * CENTAUR_WORKERS — how many evaluation workers a team-decision engine owns.
  *
- *   unset / "auto"   → `min(cores - 1, 3)`, the shipped default. ON.
- *   "off" / "0"      → no pool at all: today's single-threaded path, bit for
- *                      bit, with none of the plumbing constructed.
+ *   unset / "off"    → no pool at all: today's single-threaded path, bit for
+ *                      bit, with none of the plumbing constructed. THE SHIPPED
+ *                      DEFAULT, and see below for why it is not "auto".
+ *   "auto" / "on"    → `min(cores - 1, 3)`.
  *   "N"              → exactly N, clamped to [0, 8].
  *
  * `off` and `0` are the same NUMBER and deliberately different WORDS: `off`
@@ -11,6 +12,32 @@
  * They run the same code path in the search — a pool of size zero never
  * dispatches and never folds — which is what makes the pool-0 bit-identity
  * gate and the pool-N determinism gate the same statement.
+ *
+ * ── WHY THE DEFAULT IS OFF, AGAINST THE INTENT THIS WAS BUILT TO ──────────
+ *
+ * This subsystem was commissioned DEFAULT ON, on the strength of a prototype
+ * that measured 1.45-1.72x at two workers. That measurement is real and it
+ * reproduces: pricing 1 500 INDEPENDENT plans in parallel really is that much
+ * faster. What it does not model is that the production search never has 1 500
+ * independent plans to price.
+ *
+ * Measured on this tree (see `perf-w1-report.md`), on replayed decisions at
+ * 150 ms and 1 s:
+ *
+ *   · 94-99% of branch evaluations are already served by the P0 EVALUATION
+ *     MEMO. Only 0.9-5.6% are fresh work, and that is the entire ceiling on
+ *     what any evaluator-offload can save.
+ *   · Of the entries the workers computed and sent back, 0-1.3% were new to
+ *     the coordinator — 3 344 offered / 0 new on one board, 4 748 / 64 on
+ *     another. The coordinate-ascent sweep, once converged, has by
+ *     construction already priced the whole one-move neighbourhood of its
+ *     incumbent, which is exactly what a speculative evaluator would predict.
+ *   · The cost is not zero: at two and three workers the coordinator measured
+ *     0.77-0.83x on a four-core box, entirely from contention.
+ *
+ * So the flag ships OFF, the machinery ships whole and gated, and the report
+ * names the two things that would make it pay. Turning it on is this one
+ * word, and every gate that guards it already passes at pool 1, 2 and 3.
  *
  * Read per ENGINE, not per process: the thing that has to be measurable is one
  * SEAT against unchanged opponents, and a process-wide flag moves every lobster
@@ -43,22 +70,23 @@ export function autoPoolSize(cores = cpus().length): number {
   return Math.max(0, Math.min(cores - 1, 3))
 }
 
-/** Parse the flag's raw text. Junk is refused loudly and treated as `auto`. */
+/** Parse the flag's raw text. Junk is refused loudly and treated as `off` —
+ * the safe side is the one that changes nothing. */
 export function parseWorkerSetting(
   raw: string | undefined,
   warn?: (message: string) => void,
 ): WorkerSetting {
   const text = String(raw ?? "").trim().toLowerCase()
-  if (text === "") return "auto"
-  if (text === "auto" || text === "on" || text === "default") return "auto"
-  if (text === "off" || text === "no" || text === "false") return "off"
+  if (text === "") return "off"
+  if (text === "auto" || text === "on") return "auto"
+  if (text === "off" || text === "no" || text === "false" || text === "default") return "off"
   const n = Number(text)
   if (!Number.isInteger(n) || n < 0 || n > MAX_POOL) {
     warn?.(
       `[lobster/parallel] ${WORKERS_ENV}=${String(raw)} is not "off", "auto" or an ` +
-        `integer 0..${MAX_POOL} — using auto`,
+        `integer 0..${MAX_POOL} — using off`,
     )
-    return "auto"
+    return "off"
   }
   return n
 }

@@ -174,11 +174,17 @@ export interface TeamDecisionOptions {
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
    *
-   * `"off"` is today's single-threaded path, bit for bit, with no pool
-   * constructed at all. `"auto"` (the default, and ON) is `min(cores - 1, 3)`.
-   * A number is that many, and `0` is the same search as `"off"` with the
-   * plumbing present and inert — which is what makes the pool-0 identity gate
-   * and the pool-N determinism gate the same statement.
+   * `"off"` — THE DEFAULT — is today's single-threaded path, bit for bit, with
+   * no pool constructed at all. `"auto"` is `min(cores - 1, 3)`. A number is
+   * that many, and `0` is the same search as `"off"` with the plumbing present
+   * and inert — which is what makes the pool-0 identity gate and the pool-N
+   * determinism gate the same statement.
+   *
+   * The default is off against the intent this was built to, on the strength of
+   * the measurement in `parallel/config.ts`: after P0's evaluation memo there
+   * is almost no fresh evaluator work left for a worker to take, and the
+   * contention is real. The machinery ships whole and every gate passes at pool
+   * 1, 2 and 3; turning it on is one word.
    *
    * Per-engine and not per-process for the same reason `stagingSafety` is: the
    * thing that has to be measurable is ONE SEAT against unchanged opponents.
@@ -190,35 +196,49 @@ export interface TeamDecisionOptions {
    */
   readonly pool?: EvaluationPool;
   /**
-   * How many plans of each slice's frontier the MAIN thread is assumed to
-   * price itself before the workers' share begins. Speculating on plans this
-   * slice is about to reach is speculating on a race a worker cannot win — no
-   * message is delivered while a synchronous slice runs — so the workers take
-   * the tail. Defaults to `DEFAULT_SPECULATION.headroom`.
+   * How many plans of the NEXT slice's frontier to leave to the main thread
+   * before the workers' share begins.
+   *
+   * Zero by default, and that is a consequence of where the dispatch sits: it
+   * fires at the END of a slice from the incumbent that slice settled on, so a
+   * worker has a whole slice boundary of head start on plans nothing has priced
+   * yet. Raising it is how a bench asks "what if the coordinator is faster than
+   * we think"; it was 8 while the dispatch was at the START of a slice, where
+   * the coordinator won every race and the answer was measurably worthless.
    */
   readonly speculationHeadroom?: number;
-  /** How long a worker may spend on one parcel. Defaults to
-   * `DEFAULT_SPECULATION.parcelBudgetMs`. */
+  /** How many SLICES a worker may spend on one parcel, and the ceiling on that
+   * in milliseconds. Defaults to `DEFAULT_SPECULATION`. */
+  readonly parcelSlices?: number;
   readonly parcelBudgetMs?: number;
+  /** Plans in one parcel — a latency cap. Defaults to `DEFAULT_SPECULATION`. */
+  readonly maxPlansPerParcel?: number;
 }
 
 /**
  * The speculation defaults, named so a bench can move one and say which.
  *
- * `headroom` is a plan count, not a time: the frontier is enumerated in the
- * exact order `sweep` walks it, and eight is roughly one unit's worth of
- * candidates at the shipped `candidateCap`. Leaving one unit to the main
- * thread and giving the workers the rest is the smallest cut that cannot have
- * a worker and the coordinator racing for the same plan.
+ * `headroom` is a plan count, not a time — how much of the next slice's
+ * frontier the coordinator is assumed to reach before a worker can answer. It
+ * is ZERO because the dispatch happens at the END of a slice, from the plan
+ * that slice settled on: the worker has a whole slice boundary of head start,
+ * and the plans it is given are ones nothing has priced.
  *
- * `parcelBudgetMs` is deliberately larger than a slice: a parcel is speculation
- * for the NEXT slice, and a worker cut off at this slice's boundary would
- * return half a chunk every time. It is bounded because a worker still holding
- * a board the decision has finished with is memory and heat for nothing.
+ * `parcelSlices` is 2 because a parcel is speculation for the NEXT slice and a
+ * worker cut off at this slice's boundary would return half a chunk every time
+ * — but a worker still pricing after the turn resolves is a core taken from the
+ * coordinator, so it is 2 and not 10, with `parcelBudgetMs` as the ceiling for
+ * the first slice of a decision (whose length nobody has measured yet).
+ *
+ * `maxPlansPerParcel` is 4 for the same reason and it is the knob that mattered
+ * most: an even cut of the frontier across the free workers gave, at production
+ * roster sizes, a parcel that landed after the turn was over — every time.
  */
 export const DEFAULT_SPECULATION = {
-  headroom: 8,
-  parcelBudgetMs: 250,
+  headroom: 0,
+  parcelSlices: 2,
+  parcelBudgetMs: 120,
+  maxPlansPerParcel: 4,
 } as const;
 
 export interface TeamTurnInput {
@@ -736,7 +756,10 @@ export class TeamDecisionEngine {
       knobs,
       evaluator: this.evaluatorSpec,
       headroom: this.options.speculationHeadroom ?? DEFAULT_SPECULATION.headroom,
+      parcelSlices: this.options.parcelSlices ?? DEFAULT_SPECULATION.parcelSlices,
       parcelBudgetMs: this.options.parcelBudgetMs ?? DEFAULT_SPECULATION.parcelBudgetMs,
+      maxPlansPerParcel:
+        this.options.maxPlansPerParcel ?? DEFAULT_SPECULATION.maxPlansPerParcel,
     };
   }
 

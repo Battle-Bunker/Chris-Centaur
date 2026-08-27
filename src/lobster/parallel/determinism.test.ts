@@ -30,6 +30,7 @@
  * actually read entries it did not compute.
  */
 
+import { transientDelay } from "../../server/activity-controller"
 import type { Board, Coord, GameState, Snake } from "../../types/battlesnake"
 import type { CentaurMove } from "../../types/battlesnake"
 import type { EmitRecord, PinEvent, UnitId } from "../contracts"
@@ -173,16 +174,22 @@ function portsFor(forwarded: string[]): TeamDecisionPorts {
 }
 
 /**
- * Warm the pool: workers boot in a couple of seconds under the test
- * transpiler, and a decision that finished before its workers were awake is a
- * decision that proves nothing. Runs throwaway turns until parcels come back.
+ * Warm the pool, and be patient about it.
+ *
+ * A worker boots its own transpiler and loads the whole lobster tree — a couple
+ * of seconds on an idle box, and this suite runs three of them alongside jest's
+ * own workers on a four-core machine. A decision that finished before its
+ * workers were awake is a decision that proves nothing, and the gate below
+ * asserts non-vacuity, so an impatient warm-up is a FLAKY GATE rather than a
+ * fast one. Throwaway turns until parcels come back, then stop.
  */
-async function warm(engine: TeamDecisionEngine, forwarded: string[]): Promise<void> {
-  for (let turn = 1; turn <= 12; turn++) {
-    await runArm(engine, forwarded, turn, 0)
-    if ((engine.workerStats?.parcelsReturned ?? 0) > 0) return
-    await new Promise((resolve) => setTimeout(resolve, 250))
+async function warm(engine: TeamDecisionEngine, forwarded: string[]): Promise<boolean> {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await runArm(engine, forwarded, attempt + 1, 0)
+    if ((engine.workerStats?.entriesReturned ?? 0) > 0) return true
+    await transientDelay(250)
   }
+  return false
 }
 
 // ----------------------------------------------------------------- the gates
@@ -246,7 +253,9 @@ describe("worker parallelism is invisible to the answer", () => {
         search: { bank: { auditImports: true } },
       })
       try {
-        await warm(engine, forwarded)
+        // A gate that cannot get its workers awake has not measured anything,
+        // and saying so is better than passing quietly or failing obscurely.
+        expect(await warm(engine, forwarded)).toBe(true)
         clearGeometryCache()
         const arm = await runArm(engine, forwarded, 40, 0)
         const stats = engine.workerStats

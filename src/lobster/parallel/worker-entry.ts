@@ -35,6 +35,8 @@ import type { TransferListItem } from "worker_threads"
 interface Boot {
   readonly workerId: number
   readonly env: Record<string, string | undefined>
+  /** The shared live-epoch table — see `EPOCH_SLOTS`. */
+  readonly liveEpochs: SharedArrayBuffer
 }
 
 const boot = workerData as Boot
@@ -66,7 +68,25 @@ import type {
   SessionSpec,
   ToWorker,
 } from "./protocol"
-import { Counter } from "./protocol"
+import { Counter, EPOCH_SLOTS } from "./protocol"
+
+/**
+ * The coordinator's live board epochs, readable between plans.
+ *
+ * A parcel is a synchronous price loop, so a `drop-board` message cannot reach
+ * this thread while one is running. Without this table a worker spends its
+ * whole parcel budget on a turn that resolved a slice after it started —
+ * measured at 3.0 s of worker CPU across 12 decisions whose combined wall time
+ * was 1.3 s, taken straight out of the coordinator's cores.
+ */
+const liveEpochs = new Int32Array(boot.liveEpochs)
+
+function epochLives(epoch: number): boolean {
+  for (let i = 0; i < EPOCH_SLOTS; i++) {
+    if (Atomics.load(liveEpochs, i) === epoch) return true
+  }
+  return false
+}
 
 const now = (): number => Number(process.hrtime.bigint()) / 1e6
 
@@ -238,6 +258,17 @@ function runParcel(parcel: Parcel): void {
   const t0 = now()
   const deadline = t0 + Math.max(0, parcel.budgetMs)
   session.bank.adoptBudget(until(deadline))
+  // The coordinator's witnesses, so this worker's B2 rung prices the same
+  // branches the coordinator's will. Deduplicated and additive inside the
+  // bank; nothing goes back the other way. See `WitnessWire`.
+  if (parcel.witnesses.length > 0) {
+    session.bank.adoptWitnesses(
+      parcel.witnesses.map((w) => ({
+        note: w.note,
+        replies: new Map(w.replies.map((c) => [c.unitId, c])),
+      })),
+    )
+  }
   // Drop anything left over from a parcel that was cut short: what a parcel
   // returns is what THAT parcel computed.
   session.bank.takeRecordedEvaluations()
@@ -246,8 +277,17 @@ function runParcel(parcel: Parcel): void {
   const width = roster.length
   let priced = 0
   let resolutions = 0
+  let abandoned = false
   for (let j = 0; j < parcel.count; j++) {
     if (now() >= deadline) break
+    // THE TURN IS OVER. Whatever is already computed still goes back — every
+    // entry is a completed evaluation of a named world, and the coordinator
+    // drops it by epoch if it has moved on — but not one more plan is priced
+    // for a board that no longer exists.
+    if (!epochLives(parcel.boardEpoch)) {
+      abandoned = true
+      break
+    }
     const plan = decodePlan(roster, session.sets, parcel.codes, j * width, decodeCandidate)
     if (plan === null) continue
     try {
@@ -290,6 +330,7 @@ function runParcel(parcel: Parcel): void {
   counters[Counter.Resolutions] = resolutions
   counters[Counter.Truncated] = recorded.length - n
   counters[Counter.BusyMs] = Math.round(now() - t0)
+  counters[Counter.Abandoned] = abandoned ? 1 : 0
   post(
     {
       kind: "parcel-result",

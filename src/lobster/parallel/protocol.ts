@@ -203,6 +203,29 @@ export interface SessionSpec {
  */
 export type Parcel = PlanBatchParcel
 
+/**
+ * A witness as it crosses the boundary: the double oracle's memory, in plain
+ * data.
+ *
+ * WHY THIS IS ON THE PARCEL AND NOT THE SESSION, and why it goes one way only.
+ * The bank's B2 rung prices every plan against every banked witness, so a
+ * witness admitted at slice k makes a FRESH branch of every plan re-priced
+ * after it — and on the measured boards that is where essentially all of the
+ * remaining fresh evaluator work is (0.9-5.6% of branch evaluations are fresh;
+ * the rest the evaluation memo already serves). A worker that does not know the
+ * coordinator's witnesses computes a different B2 set and its answers are
+ * correct, complete and never asked for.
+ *
+ * It travels DOWN only. A worker's own witnesses are never adopted by the main
+ * bank: they would change WHICH branches it prices, and the answer would then
+ * depend on how many workers were running. Speculation may fill a cache; it may
+ * not join the search.
+ */
+export interface WitnessWire {
+  readonly note: string
+  readonly replies: ReadonlyArray<Candidate>
+}
+
 export interface PlanBatchParcel {
   readonly kind: "plan-batch"
   readonly sessionId: number
@@ -215,7 +238,29 @@ export interface PlanBatchParcel {
   readonly count: number
   /** `count * roster.length` candidate indices, transferred. */
   readonly codes: Int32Array
+  /** The coordinator's witness set at dispatch. See `WitnessWire`. */
+  readonly witnesses: ReadonlyArray<WitnessWire>
 }
+
+/**
+ * THE LIVE-EPOCH TABLE — the one thing that is SHARED rather than sent.
+ *
+ * A worker prices plans in a synchronous loop, so no message can reach it
+ * while a parcel is running: a `drop-board` posted the instant a turn ends
+ * sits in the queue until the parcel it would have cancelled has finished.
+ * Measured, and it is not a rounding error — on the 13x13 bench board at a
+ * 150 ms budget the workers spent 3.0 s of CPU across 12 decisions whose
+ * combined wall time was 1.3 s, all of it on turns that had already resolved,
+ * all of it stealing cores from the coordinator. Three workers came out at
+ * 0.88x for exactly that reason.
+ *
+ * So the live board epochs live in a `SharedArrayBuffer` the coordinator
+ * writes and every worker reads with `Atomics.load` between plans. It is the
+ * only shared memory in the subsystem and it carries no game state — just
+ * "which turns still exist" — which is why it can be read without a lock and
+ * acted on without a protocol.
+ */
+export const EPOCH_SLOTS = 8
 
 /**
  * Telemetry slots inside `ParcelResult.counters`.
@@ -234,7 +279,9 @@ export const Counter = {
   Truncated: 2,
   /** Whole milliseconds the worker was busy on this parcel. */
   BusyMs: 3,
-  Size: 4,
+  /** 1 when the worker stopped because its board stopped being live. */
+  Abandoned: 4,
+  Size: 5,
 } as const
 
 export interface ParcelResult {

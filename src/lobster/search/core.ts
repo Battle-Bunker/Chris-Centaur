@@ -146,10 +146,23 @@ export interface ParallelTuning {
    * the tail, and slice N+1 finds it already evaluated.
    */
   readonly headroom: number;
-  /** How long a worker may spend on one parcel. The main thread owns this
-   * number, as it owns every other budget in the system. */
+  /**
+   * How long a worker may spend on one parcel, as a MULTIPLE OF THIS SLICE.
+   *
+   * A parcel is speculation for the next slice, so it has to outlive this one —
+   * but not by much: a worker still pricing when the turn resolves is burning a
+   * core the coordinator needs, and the shared live-epoch table can only stop it
+   * at a plan boundary. The main thread owns this number, as it owns every other
+   * budget in the system; the slice it is a multiple of is the one the kernel
+   * handed down.
+   */
+  readonly parcelSlices: number;
+  /** Ceiling on the wall time in the line above, for the first slice of a
+   * decision (whose length nobody has measured yet) and for a pathological one. */
   readonly parcelBudgetMs: number;
-  /** How the frontier is cut. Defaults to `planBatchPartition(headroom)`; the
+  /** Plans in one parcel. A cap, and a latency one: see `planBatchPartition`. */
+  readonly maxPlansPerParcel: number;
+  /** How the frontier is cut. Defaults to `planBatchPartition`; the
    * cluster-lookahead program replaces exactly this. */
   readonly partition?: WorkPartition;
 }
@@ -412,21 +425,36 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   /**
-   * Fire one parcel per free worker over the tail of the sweep frontier.
+   * Fire one parcel per free worker over the frontier of the NEXT slice.
    *
-   * AFFORDABILITY IS THE MAIN THREAD'S CALL, made here and nowhere else: a
-   * parcel is dispatched only when this slice has more time left than it will
-   * spend dispatching, and a worker is told exactly how long it may spend.
-   * Nothing about a late parcel can hurt — its entries land in the memo of a
-   * later slice, or in no slice at all — so there is no wait, no join and no
-   * synchronisation point anywhere on the decision path.
+   * WHY THIS RUNS AT THE END OF A SLICE AND NOT AT THE START — measured, and it
+   * is the difference between the workers earning their keep and not. A slice
+   * is synchronous JavaScript, so a parcel fired at the START of one is racing
+   * the very sweep that is about to price the same plans, and it loses every
+   * time: the coordinator gets through the whole frontier before any message
+   * can be delivered, and the answers arrive for work already done. Measured on
+   * the bench board at a one-second budget: 423 entries imported, ZERO ever
+   * read.
+   *
+   * Fired at the END, from the incumbent the slice actually settled on, the
+   * parcel names the plans slice N+1 will try FIRST — `sweep` starts from this
+   * plan, and the plans one move away from it are exactly what it perturbs.
+   * Those have not been priced (the sweep priced variations of the intermediate
+   * plans it passed through, not of the one it stopped on), and the workers have
+   * a whole slice boundary of head start.
+   *
+   * AFFORDABILITY IS THE MAIN THREAD'S CALL, made here and nowhere else. There
+   * is no wait, no join and no synchronisation point: a parcel that comes back
+   * late lands in a later slice's memo, or in none, and either way it is a
+   * cached evaluation and cannot change an answer. What this costs the
+   * coordinator is one frontier encode — arithmetic over the roster, no
+   * pricing — which is why it can run after the slice clock has expired.
    */
-  const speculate = (s: Session, ctx: SearchContext, incumbent: BankResult): void => {
+  const speculate = (s: Session, incumbent: BankResult, sliceMs: number): void => {
     const par = cfg.parallel;
     if (par === null || s.parallel === null || !par.pool.live) return;
     const slots = par.pool.freeSlots;
     if (slots <= 0) return;
-    if (ctx.budget.shouldStop()) return;
     const frontier: Frontier = {
       roster: s.ours,
       sets: s.sets,
@@ -434,7 +462,22 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       incumbent,
       candidateCap: cfg.candidateCap,
     };
-    const partition = par.partition ?? planBatchPartition(par.headroom);
+    const partition =
+      par.partition ?? planBatchPartition(par.headroom, par.maxPlansPerParcel);
+    const budgetMs = Math.min(
+      par.parcelBudgetMs,
+      Math.max(1, sliceMs) * Math.max(1, par.parcelSlices),
+    );
+    // THE WITNESS SET GOES DOWN WITH THE PARCEL, and it is what makes the
+    // parcel worth sending. A witness admitted this slice makes a fresh B2
+    // branch of every plan priced after it, and on the measured boards that is
+    // where nearly all the remaining fresh evaluator work lives. A worker
+    // without them prices a different B2 set and answers a question nobody
+    // asked. Nothing comes back the other way — see `WitnessWire`.
+    const witnesses = s.bank.witnesses.map((w) => ({
+      note: w.note,
+      replies: [...w.replies.values()],
+    }));
     const chunks = partition.partition(frontier, slots);
     for (const chunk of chunks) {
       if (chunk.count === 0) continue;
@@ -444,9 +487,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         sessionId: s.parallel.sessionId,
         boardEpoch: par.boardEpoch,
         seq,
-        budgetMs: par.parcelBudgetMs,
+        budgetMs,
         count: chunk.count,
         codes: chunk.codes,
+        witnesses,
       });
       if (!sent) break;
     }
@@ -683,14 +727,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
     {
-      // The two parallel seams, and they bracket the SEED rather than the
-      // sweep: the fold has to happen before anything is priced (an entry that
-      // arrives after the price it would have served is an entry wasted), and
-      // the speculation has to happen after the seed, because the seed's own
-      // resolution is what names the danger order the frontier is built in.
+      // The two parallel seams BRACKET THE SLICE. The fold comes first, because
+      // an entry that arrives after the price it would have served is an entry
+      // wasted; the speculation comes last, from the incumbent this slice
+      // settled on, because that is the plan the NEXT slice sweeps from. See
+      // `speculate` for what happens when it is fired at the start instead.
       foldParallel(s);
+      // The slice's own length, read before any of it is spent — the only
+      // honest basis for "how long may a worker spend on the NEXT one".
+      const sliceMs = ctx.budget.remainingMs();
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
-      speculate(s, ctx, best);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -722,6 +768,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           if (!restarted) break;
         }
       }
+      speculate(s, best, sliceMs);
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
     }
   };
