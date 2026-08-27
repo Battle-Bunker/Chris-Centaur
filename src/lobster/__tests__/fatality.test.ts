@@ -499,3 +499,167 @@ describe('the generator wiring', () => {
     sub.release();
   });
 });
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE LAWS THE NEW KNOB HAS TO KEEP.
+ *
+ * Every one of these already holds for the shipped knobs and is checked
+ * elsewhere; what is checked here is that turning the classifier on does not
+ * break any of them. A knob that quietly voids an invariant is worse than a
+ * knob that does nothing.
+ */
+describe('the laws, with the classifier on', () => {
+  const rand = (seed: number): Board => {
+    let s = (seed * 2654435761) >>> 0;
+    const r = (): number => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+    const size = 9;
+    const used = new Set<string>();
+    const snakes: Snake[] = [];
+    const dirs: ReadonlyArray<readonly [number, number]> = [
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+      [0, -1],
+    ];
+    const take = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= size || y >= size || used.has(`${x},${y}`)) return false;
+      used.add(`${x},${y}`);
+      return true;
+    };
+    const count = 3 + Math.floor(r() * 3);
+    for (let i = 0; i < count; i++) {
+      const edge = r() < 0.5;
+      const x = edge ? (r() < 0.5 ? 0 : size - 1) : 1 + Math.floor(r() * (size - 2));
+      const y = edge ? Math.floor(r() * size) : 1 + Math.floor(r() * (size - 2));
+      if (!take(x, y)) continue;
+      const team = i % 2 === 0 ? 'red' : 'blue';
+      if (r() < 0.7) {
+        const body: Coord[] = [{ x, y }];
+        const len = 3 + Math.floor(r() * 3);
+        let d = Math.floor(r() * 4);
+        for (let j = 1; j < len; j++) {
+          if (r() < 0.35) d = (d + (r() < 0.5 ? 1 : 3)) % 4;
+          const prev = body[body.length - 1] as Coord;
+          const step = dirs[d] as readonly [number, number];
+          if (!take(prev.x + step[0], prev.y + step[1])) break;
+          body.push({ x: prev.x + step[0], y: prev.y + step[1] });
+        }
+        snakes.push(makeSnake(`u${i}`, body, { teamID: team, health: 20 + Math.floor(r() * 70) }));
+      } else {
+        const kinds = ['queen', 'rook', 'bishop', 'knight', 'king', 'pawn'];
+        snakes.push(
+          piece(`u${i}`, { x, y }, kinds[Math.floor(r() * kinds.length)] as string, 1 + Math.floor(r() * 3), {
+            teamID: team,
+            health: 30 + Math.floor(r() * 60),
+          })
+        );
+      }
+    }
+    return { width: size, height: size, food: [], hazards: [], snakes } as Board;
+  };
+
+  /** Every polarity of the knobs the classifier interacts with. */
+  const arms = [
+    { unitFatality: true, pruneCertainSelfFatal: false, pruneRoyalPath: false },
+    { unitFatality: true, pruneCertainSelfFatal: true, pruneRoyalPath: true },
+    { unitFatality: true, pruneCertainSelfFatal: true, pruneRoyalPath: false },
+  ] as const;
+
+  test('L11 + completeness: the sets still partition, and never empty, in every arm', () => {
+    let forcedFirings = 0;
+    let sealedFirings = 0;
+    let boards = 0;
+    for (const knobs of arms) {
+      const gen = new GrammarCandidateGenerator(knobs);
+      for (let seed = 1; seed <= 40; seed++) {
+        const sub = makeSubstrate({ board: rand(seed), turn: TURN, asTeam: 'red' });
+        boards++;
+        for (const unit of sub.roster()) {
+          const set = gen.candidatesFor(sub, unit.unitId);
+          expect(set.candidates.length + set.prunedLedger.length).toBe(set.legalCount);
+          expect(set.candidates.length).toBeGreaterThan(0);
+          const seen = new Set<number>();
+          for (const c of set.candidates) seen.add(c.to);
+          for (const e of set.prunedLedger) seen.add(e.candidate.to);
+          expect(seen.size).toBe(set.legalCount);
+          for (const e of set.prunedLedger) {
+            const id = e.prune as keyof typeof PRUNE_EXACT;
+            expect(PRUNE_EXACT[id]).toBe(e.exact);
+            expect(typeof PRUNE_NOTES[id]).toBe('string');
+          }
+          if (set.marks?.forced === true) forcedFirings++;
+          if (set.marks?.sealed === true) sealedFirings++;
+        }
+        sub.release();
+      }
+    }
+    expect(boards).toBe(arms.length * 40);
+    // The FORCED mark actually fires on this corpus. An invariant that holds
+    // only because nothing happened proves nothing.
+    //
+    // SEALED is not asserted here and the count is reported instead: it is a
+    // 0.08–0.30% event by the census's own measurement, so demanding it on a
+    // forty-board random corpus would be demanding a coin land the same way
+    // every run. Its own fixture above exercises it deterministically.
+    expect(forcedFirings).toBeGreaterThan(0);
+    expect(sealedFirings).toBeGreaterThanOrEqual(0);
+  });
+
+  test('L5: the adversary path is a verbatim passthrough under the new knob too', () => {
+    for (const knobs of arms) {
+      const gen = new GrammarCandidateGenerator(knobs);
+      for (let seed = 1; seed <= 20; seed++) {
+        const sub = makeSubstrate({ board: rand(seed), turn: TURN, asTeam: 'red' });
+        for (const unit of sub.roster()) {
+          const set = gen.candidatesFor(sub, unit.unitId, 'adversary');
+          const actions = sub.actionsOf(unit.unitId);
+          expect(set.candidates).toEqual(actions);
+          expect(set.prunedLedger).toEqual([]);
+          expect(set.legalCount).toBe(actions.length);
+          // And no mark rides out on it: the classifier is ours-only, and a
+          // mark on an enemy set is a statement nobody is entitled to make.
+          expect('marks' in set).toBe(false);
+        }
+        sub.release();
+      }
+    }
+  });
+
+  test('L12: the forced collapse removes only condemned siblings, and only when one lives', () => {
+    const gen = new GrammarCandidateGenerator({
+      unitFatality: true,
+      pruneCertainSelfFatal: false,
+      pruneRoyalPath: false,
+    });
+    let checked = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const sub = makeSubstrate({ board: rand(seed), turn: TURN, asTeam: 'red' });
+      for (const unit of sub.roster()) {
+        const set = gen.candidatesFor(sub, unit.unitId);
+        const taken = set.prunedLedger.filter((e) => e.prune === PRUNE.forcedSibling);
+        if (taken.length === 0) continue;
+        checked++;
+        // Removing a DEAD child from a max node changes no maximum while one
+        // child survives — which is what makes this floor-PRESERVING and not
+        // merely floor-safe.
+        expect(set.candidates).toHaveLength(1);
+        expect(set.marks?.forced).toBe(true);
+        const occ = new CertainOccupancy(sub, unit.team);
+        for (const entry of taken) {
+          const out = classifyUnit(sub, unit, [entry.candidate], occ, false);
+          expect([entry.candidate.to, out.options[0]?.cause !== null]).toEqual([
+            entry.candidate.to,
+            true,
+          ]);
+        }
+      }
+      sub.release();
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});

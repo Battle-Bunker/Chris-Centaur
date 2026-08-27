@@ -22,6 +22,8 @@
  * verdict comes from `withResolution`.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../substrate';
 import { GrammarCandidateGenerator } from '../candidates';
@@ -830,5 +832,186 @@ describe('the seed stays inside its budget', () => {
     expect(ours.length).toBe(6);
     expect(best).toBeLessThan(60);
     sub.release();
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE PLACEMENT LAWS THIS LAYER HAS TO KEEP.
+ *
+ * The seed reads enemy geometry and it writes a number that steers which plan
+ * the search starts from. Both of those are exactly the shapes the contract
+ * fences, so both are checked rather than argued.
+ */
+describe('the placement laws', () => {
+  test('L16: friendly fire is POLICY — the seed writes no ledger entry, anywhere', () => {
+    // The grep half of the law, on the module itself. A pair veto has no home
+    // in `prunedLedger` — its completeness invariant is per unit and cannot
+    // express one — and plan-local friendly fire must not be there in any case,
+    // because the next sweep may move the team-mate.
+    const source = readFileSync(
+      join(__dirname, '..', 'search', 'cluster-seed.ts'),
+      'utf8'
+    );
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // Nothing is WRITTEN to a ledger: no push, no assignment, no literal.
+    expect(code).not.toMatch(/prunedLedger\s*\.\s*push/);
+    expect(code).not.toMatch(/prunedLedger\s*[:=][^:=]/);
+    expect(code).not.toMatch(/\bPRUNE\b/);
+    expect(code).not.toMatch(/declareTruncatedFloor|withNarrowing/);
+    // The one mention that survives is the READ the shipped seed also makes:
+    // a unit whose whole option set was refused still has to be handed
+    // something, and the ledger is where that something is.
+    const mentions = code.split('\n').filter((l) => l.includes('prunedLedger'));
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0]).toContain('candidates[0]');
+  });
+
+  test('L16: the behavioural half — no candidate set differs with the seed on', () => {
+    // The generator runs before the seed and the seed never touches what it
+    // produced, so every unit's option set and ledger are identical in both
+    // arms. This is what "ordering carries no soundness weight" cashes out to.
+    const board = snakesBoard(5);
+    const shape = (clusterSeed: boolean): string => {
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      const gen = new GrammarCandidateGenerator({
+        pruneCertainSelfFatal: false,
+        pruneRoyalPath: false,
+      });
+      const core = makeSearchCore({ clusterSeed, seedDeconflict: !clusterSeed });
+      const ctx: SearchContext = {
+        sub,
+        gen,
+        evaluate: defaultEvaluator,
+        asTeam: sub.teamNumber('red'),
+        pins: [],
+        assumptions: [],
+        incumbent: null,
+        witnesses: [],
+        budget: unboundedBudget(),
+      };
+      core.conform(ctx, new Map());
+      const out = [...sub.commandable(sub.teamNumber('red'))]
+        .map((id) => {
+          const set = gen.candidatesFor(sub, id);
+          return `${id}:${set.legalCount}:${set.candidates.map((c) => c.to).join(',')}` +
+            `:${set.prunedLedger.map((e) => `${e.candidate.to}/${e.prune}`).join(',')}`;
+        })
+        .join('|');
+      core.release?.();
+      sub.release();
+      return out;
+    };
+    expect(shape(true)).toEqual(shape(false));
+  });
+
+  test('every staged move is a member of the unit\'s own candidate set', () => {
+    // The seed CHOOSES; it does not invent. A plan naming a move no generator
+    // offered is a plan the bank would refuse to corroborate.
+    for (let seed = 0; seed < 20; seed++) {
+      const board = snakesBoard(seed);
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      const gen = new GrammarCandidateGenerator({
+        pruneCertainSelfFatal: false,
+        pruneRoyalPath: false,
+      });
+      const core = makeSearchCore({ clusterSeed: true, seedDeconflict: false });
+      const ctx: SearchContext = {
+        sub,
+        gen,
+        evaluate: defaultEvaluator,
+        asTeam: sub.teamNumber('red'),
+        pins: [],
+        assumptions: [],
+        incumbent: null,
+        witnesses: [],
+        budget: unboundedBudget(),
+      };
+      const plan = core.conform(ctx, new Map());
+      for (const [unitId, candidate] of plan) {
+        const set = gen.candidatesFor(sub, unitId);
+        const offered = set.candidates.some(
+          (c) => c.to === candidate.to && c.path.join('.') === candidate.path.join('.')
+        );
+        expect([seed, unitId, offered]).toEqual([seed, unitId, true]);
+      }
+      core.release?.();
+      sub.release();
+    }
+  });
+
+  test('rule 21: enemy geometry may only WITHHOLD a penalty, never add attraction', () => {
+    // The one enemy-derived input this layer has is "does a held claim reach
+    // this cell", and it is used to decide whether a team-mate kill is a
+    // sacrifice worth making. That is the sanctioned polarity and only just:
+    // it must express itself as "do not penalise", never as "prefer". So the
+    // pair sum is bounded ABOVE by what it would be with no enemy on the
+    // board, and above by zero in every branch that involves one.
+    const board = {
+      width: 9,
+      height: 9,
+      food: [],
+      hazards: [],
+      snakes: [
+        makeSnake('A', [{ x: 3, y: 4 }, { x: 2, y: 4 }, { x: 1, y: 4 }], { teamID: 'red' }),
+        makeSnake('B', [{ x: 5, y: 4 }, { x: 6, y: 4 }], { teamID: 'red' }),
+      ],
+    } as Board;
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const a = sub.unitOfWireId('A') as SubstrateUnit;
+    const b = sub.unitOfWireId('B') as SubstrateUnit;
+    const cell = 4 * 9 + 4;
+    const index = new ConflictIndex();
+    const candidate: Candidate = {
+      unitId: a.unitId,
+      from: a.cells[0] as CellIndex,
+      to: cell as CellIndex,
+      path: [cell as CellIndex],
+    };
+    const withEnemy = (enemy: boolean): number => {
+      const facts: SeedFacts = {
+        cells: sub.grid.cells,
+        units: new Map([
+          [a.unitId, a],
+          [b.unitId, b],
+        ]),
+        regicideTeams: new Set<number>(),
+        enemyClaimAt: () => enemy,
+        tailFreedAt: () => 0,
+        bodyOwnerAt: () => -1,
+        bodyIndexAt: () => -1,
+      };
+      index.begin(sub.grid.cells, 2);
+      index.claim(b.unitId, b.cells[0] as CellIndex, [cell as CellIndex]);
+      return pairPotential(facts, index, a, candidate, new Set<UnitId>());
+    };
+    const quiet = withEnemy(false);
+    const contested = withEnemy(true);
+    expect(quiet).toBeLessThan(0);
+    // Enemy geometry moved it TOWARD zero, and stopped there.
+    expect(contested).toBeGreaterThan(quiet);
+    expect(contested).toBeLessThanOrEqual(0);
+    sub.release();
+  });
+
+  test('rule 21: the one POSITIVE term is sourced from our own team, not the enemy', () => {
+    // Follow-the-tail is the only term that raises a score, and its input is a
+    // team-mate's own trail — nothing an opponent does can produce it. Stated
+    // as a test so a later term cannot be added on the other polarity by
+    // accident.
+    const source = readFileSync(
+      join(__dirname, '..', 'search', 'cluster-seed.ts'),
+      'utf8'
+    );
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // `enemyClaimAt` appears exactly where the gate reads it and in the fact
+    // table that builds it — never in an arithmetic expression that adds.
+    for (const line of code.split('\n')) {
+      if (!line.includes('enemyClaimAt')) continue;
+      expect(line).not.toMatch(/\+=|total\s*\+/);
+    }
+    expect(code).toContain('EPS_FOLLOW');
+    expect(code).toMatch(/total \+= EPS_FOLLOW/);
   });
 });
