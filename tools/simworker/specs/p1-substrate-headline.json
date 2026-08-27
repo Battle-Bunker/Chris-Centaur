@@ -1,0 +1,138 @@
+{
+ "_comment": [
+  "P1 — does the perf substrate change STRENGTH, or only speed?",
+  "",
+  "Arms are two BUILDS: `integrated` (claude/mid-turn-collision-logic-mkxurg) and",
+  "`perf-substrate` (claude/cluster-lookahead). Both run their shipped defaults.",
+  "This is the question the whole substrate programme has deferred: W1/W2/W3 and",
+  "CL0 were measured as throughput, and a throughput change that moves the number",
+  "of plans a 2000ms budget can price is a STRENGTH change whether or not anyone",
+  "intended it. At 2000ms there is enough budget for that to show.",
+  "",
+  "snake6 is the inert-roster null cell and mix-king is the headline. Run the A/A",
+  "null pair alongside (spec n0-aa-null) in the same batch, on the same box."
+ ],
+ "sweepId": "p1-substrate-headline",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  70801,
+  70802,
+  70803,
+  70804,
+  70805,
+  70806,
+  70807,
+  70808,
+  70809,
+  70810,
+  70811,
+  70812,
+  70813,
+  70814,
+  70815,
+  70816
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

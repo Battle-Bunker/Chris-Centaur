@@ -1,0 +1,174 @@
+{
+ "_comment": [
+  "P3 — I2's TERRITORY_SLIDER_PROFILE, extended from 1000ms to 2000ms.",
+  "",
+  "I2 found the repair WINS at 1000ms and not at 150ms: the profile adds terms",
+  "(command, movement budget) that only pay once the search has budget to act on",
+  "them. That is a BUDGET GRADIENT, and a gradient measured at two points is a",
+  "line drawn through two points. 2000ms is the third.",
+  "",
+  "Both arms are the SAME bundle. The arms differ only in which bot name is",
+  "seated in the subject seat, because the profile has NO env flag and no config",
+  "field — `TeamDecisionOptions.evaluate` is the only seam that reaches it, and",
+  "the harness holds that seam. See the bot-version map in HANDOFF.md.",
+  "",
+  "null-snake6 is a PROVABLY INERT cell for this arm: with no piece on the board",
+  "the two profiles are bit-identical. If a delta appears there, it is noise, and",
+  "its size is the yardstick for the piece cells in the same batch."
+ ],
+ "sweepId": "p3-slider-2000",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  84801,
+  84802,
+  84803,
+  84804,
+  84805,
+  84806,
+  84807,
+  84808,
+  84809,
+  84810,
+  84811,
+  84812,
+  84813,
+  84814,
+  84815,
+  84816
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-pawn",
+   "config": {
+    "name": "snake5-pawn",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "pawn",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

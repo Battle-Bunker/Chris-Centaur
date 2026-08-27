@@ -1,0 +1,165 @@
+{
+ "_comment": [
+  "THE BOARD-CONDITION LADDER — for a batch that has budget left after its",
+  "priority cell, or for exploration at 4-8 blocks.",
+  "",
+  "Baseline plus one axis moved at a time: potions on, hazards interior, food",
+  "sparse. Never two at once — a cell that moves two axes cannot say which one",
+  "did the work, and at these block counts there is no power to interact them.",
+  "",
+  "MECHANISM-FIRST. At 4-8 blocks nothing here can support a placement claim.",
+  "Read the mechanism rows (overrun rate, unstaged rate, assumption rate, decision",
+  "wall time, turns-to-decisive) and treat the placement rows as descriptive."
+ ],
+ "sweepId": "x1-conditions-ladder",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  35501,
+  35502,
+  35503,
+  35504,
+  35505,
+  35506,
+  35507,
+  35508
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "base-mix-king",
+   "config": {
+    "name": "base-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "potion-mix-king",
+   "config": {
+    "name": "potion-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "sparse-mix-king",
+   "config": {
+    "name": "sparse-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 4,
+     "spawnRate": 0.15
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

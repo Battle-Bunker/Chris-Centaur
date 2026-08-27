@@ -1,0 +1,34 @@
+{
+ "_comment": [
+  "SMOKE TEST — the gate that must pass before any real run, and the acceptance",
+  "test for the kit itself.",
+  "",
+  "Deliberately tiny: 2 games, 11x11, 150ms, no seat rotation. It proves the",
+  "toolchain end to end — build, seat, play, resolve, gzip a replay, write a",
+  "manifest row — and proves nothing at all about any bot. It takes seconds.",
+  "",
+  "It uses `control11`, whose shape is pinned to the h2h ladder's `snakes11` row.",
+  "At 150ms the lobster bots run their real anytime path; do not read the",
+  "outcome."
+ ],
+ "sweepId": "smoke",
+ "bots": [
+  "lobster-territory",
+  "reflex"
+ ],
+ "seeds": [
+  11,
+  12
+ ],
+ "rotateSeats": false,
+ "cells": [
+  {
+   "cell": "smoke-control11",
+   "config": {
+    "preset": "control11",
+    "budgetMs": 150,
+    "turnCap": 25
+   }
+  }
+ ]
+}

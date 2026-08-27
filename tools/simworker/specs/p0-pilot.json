@@ -1,0 +1,55 @@
+{
+ "_comment": [
+  "THROUGHPUT PILOT — run this FIRST on a new machine, before any real batch.",
+  "Two blocks, one cell, at the headline shape. Its only job is to tell you how",
+  "long one game of the real thing takes on YOUR box, so the overnight batch can",
+  "be sized instead of guessed. Read `games/hour` off the runner output and",
+  "multiply: a 16-block cell is 48 games per arm.",
+  "Do NOT quote anything from this run. Two blocks resolve nothing."
+ ],
+ "sweepId": "p0-pilot",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  51501,
+  51502
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

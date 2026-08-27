@@ -1,0 +1,144 @@
+{
+ "_comment": [
+  "P6 — CENTAUR_COHORT_POLICY=on against off (the flag-gated cohort governor).",
+  "",
+  "BLOCKED AS SHIPPED. The governor lives on branch `arch/s2`, which at the time",
+  "this kit was cut existed ONLY on the cloud session's machine and was never",
+  "pushed to GitHub. build-bot.sh cannot check out a branch that is not in the",
+  "clone, and it will say so rather than substituting a different branch.",
+  "",
+  "Run this only after someone confirms arch/s2 is on origin. Verify with:",
+  "    git ls-remote --heads origin arch/s2",
+  "If that prints nothing, skip P6, and say in findings.md that it was skipped",
+  "because the branch is unpublished. Do NOT silently run it against a branch",
+  "that happens to build.",
+  "",
+  "Its target boards are the crowded ones — the governor decides which units get",
+  "admitted to a joint decision, so a roster with more claimants than budget is",
+  "where it can act at all."
+ ],
+ "sweepId": "p6-admission",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  17001,
+  17002,
+  17003,
+  17004,
+  17005,
+  17006,
+  17007,
+  17008,
+  17009,
+  17010,
+  17011,
+  17012,
+  17013,
+  17014,
+  17015,
+  17016
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}
