@@ -38,7 +38,7 @@ import type {
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
-import type { Evaluation, Weights } from './bound';
+import type { Evaluation, Feature, Weights } from './bound';
 import { DEFAULT_PROFILE, MATERIAL_ONLY_PROFILE } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
@@ -77,10 +77,22 @@ export interface PlanEvaluation extends ContractPlanEvaluation {
 
 export class BoundEvaluator implements Evaluator {
   readonly profile: CriterionProfile;
+  /**
+   * The features this evaluator folds. `FEATURES` by default, so nothing that
+   * does not ask for more pays for more: an additive feature carried in a
+   * separate list costs a caller that never names it exactly nothing, whereas a
+   * zero WEIGHT on a feature in the shipped list still pays for the evaluation.
+   * That difference is the only reason the seam exists.
+   */
+  readonly features: ReadonlyArray<Feature<EvalContext>>;
   private readonly weights: Weights;
 
-  constructor(profile: CriterionProfile = DEFAULT_PROFILE) {
+  constructor(
+    profile: CriterionProfile = DEFAULT_PROFILE,
+    features: ReadonlyArray<Feature<EvalContext>> = FEATURES
+  ) {
     this.profile = profile;
+    this.features = features;
     this.weights = profile.weights;
   }
 
@@ -124,7 +136,7 @@ export class BoundEvaluator implements Evaluator {
         asTeam,
         this.profile.reachHorizonTurns
       );
-      const evaluation: Evaluation = fold(FEATURES, ctx, this.weights);
+      const evaluation: Evaluation = fold(this.features, ctx, this.weights);
       return finish(ctx, evaluation);
     });
   }

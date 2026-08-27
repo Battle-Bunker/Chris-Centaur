@@ -131,9 +131,12 @@ export interface TeamDecisionOptions {
    */
   readonly evaluate?: Evaluator;
   /**
-   * Candidate-layer knobs. Defaults are `DEFAULT_KNOBS`; a caller overrides
-   * one to run a controlled arm against it, which is the only reason the seam
-   * exists — production takes the defaults.
+   * Candidate-layer knobs. Defaults are `DEFAULT_KNOBS`, which is what every
+   * shipped profile runs; a caller overrides one to run a controlled arm
+   * against it, which is the only reason the seam exists — production takes
+   * the defaults. The layer's prunes are declared and its orderings are not
+   * bounds, so this is a legitimate per-profile seam and not a back door into
+   * adjudication.
    */
   readonly candidates?: CandidateKnobs;
   readonly search?: Partial<SearchTuning>;

@@ -177,6 +177,35 @@ export interface CandidateKnobs {
    * certain too. See the `terrain-fatal` prune in `policyPrunes`.
    */
   readonly refuseTerrainFatal?: boolean;
+  /**
+   * ORDER BY WHAT THE MOVE TAKES, before ordering by what it costs.
+   *
+   * Two measured mis-orderings, both of them in `orderKey` and neither of them
+   * a bound:
+   *
+   * 1. A MEAL IS FREE AND IS CHARGED FULL PRICE. `resolveTurn` sets an eater's
+   *    health to its kind's max, so a nine-cell queen slide onto food costs
+   *    nothing in health. The order sorts on `healthSpent.hi` ascending and
+   *    knows nothing about the refund, so a `stay` — zero health, always legal,
+   *    always generated — outranks every eat a slider has. With `candidateCap`
+   *    at 8 on a queen with two dozen distinct actions, the eat is not merely
+   *    ranked below `stay`: it is often not handed to the search at all. The
+   *    corpus reads that back as pieces staging `stay` on 51–64% of decisions
+   *    and queens converting 11–15% of the cheap, legal, unblocked eats they
+   *    have on 26% of their turns, against 85% for a trail unit on the same
+   *    boards under the same evaluator.
+   *
+   * 2. EVERY CAPTURE RANKS THE SAME. Stepping onto the square of a team's last
+   *    king ends that team outright under `applyRegicide`; stepping onto a pawn
+   *    takes a pawn. `capture` cannot tell them apart, so the one move on the
+   *    board that can win the game sorts among the rest on health and cell
+   *    index.
+   *
+   * Ordering "carries no soundness weight whatsoever" — this changes which
+   * moves the anytime path reaches first and nothing else. Default off, so the
+   * shipped generator is untouched.
+   */
+  readonly gainOrdering?: boolean;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -187,6 +216,7 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   escortShadowOrdering: true,
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
+  gainOrdering: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -218,6 +248,18 @@ export interface AssessedCandidate {
   readonly contingencies: number;
   /** Ordering hint only — never a bound. See SPECIALIST ordering below. */
   readonly shadowBonus: number;
+  /**
+   * Could this move come to rest on food? Ordering hint only. `landing` is the
+   * set of cells the move could END on, so this is "a world exists in which the
+   * mover eats", which is the right question for an ordering key: the search
+   * decides whether that world is worth anything.
+   */
+  readonly foodGain: number;
+  /**
+   * Could this move come to rest on the square of an enemy team's LAST king,
+   * with a capture the engine does not rule out? Ordering hint only.
+   */
+  readonly regicideShot: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +270,8 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly knobs: Required<CandidateKnobs>;
   /** Ray-shadow cells, per substrate. An ordering hint, computed once. */
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
+  /** Enemy last-king squares, per substrate. An ordering hint, computed once. */
+  private readonly regicideCells = new WeakMap<EngineSubstrate, ReadonlyMap<CellIndex, number>>();
 
   constructor(knobs: CandidateKnobs = {}) {
     this.knobs = { ...DEFAULT_KNOBS, ...knobs };
@@ -253,12 +297,13 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(sub, unitId, this.knobs, this.shadowsFor(sub));
+    return generate(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub));
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub)).kept;
+    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub))
+      .kept;
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -266,6 +311,15 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     if (hit !== undefined) return hit;
     const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
     this.shadows.set(sub, made);
+    return made;
+  }
+
+  private regicideFor(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> | null {
+    if (!this.knobs.gainOrdering) return null;
+    const hit = this.regicideCells.get(sub);
+    if (hit !== undefined) return hit;
+    const made = enemyRegicideCells(sub);
+    this.regicideCells.set(sub, made);
     return made;
   }
 }
@@ -293,9 +347,16 @@ function generate(
   sub: EngineSubstrate,
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(sub, unitId, knobs, shadows);
+  const { kept, pruned, legalCount } = generateAssessed(
+    sub,
+    unitId,
+    knobs,
+    shadows,
+    regicideCells
+  );
   return {
     unitId,
     candidates: kept.map((k) => k.candidate),
@@ -308,7 +369,8 @@ function generateAssessed(
   sub: EngineSubstrate,
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
@@ -334,7 +396,9 @@ function generateAssessed(
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
 
   // ---- assessment ---------------------------------------------------------
-  const assessed = surviving.map((candidate) => assessOne(sub, unit, candidate, shadows, knobs));
+  const assessed = surviving.map((candidate) =>
+    assessOne(sub, unit, candidate, shadows, knobs, regicideCells)
+  );
 
   // ---- lossy prunes, each behind its knob ---------------------------------
   const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
@@ -347,7 +411,7 @@ function generateAssessed(
   // never restored, because their representatives are still in the set.
   const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
 
-  kept.sort(orderKey);
+  kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
   return { kept, pruned, legalCount };
 }
 
@@ -557,7 +621,11 @@ function assessOne(
   unit: SubstrateUnit,
   candidate: Candidate,
   shadows: ReadonlySet<CellIndex>,
-  knobs: Required<CandidateKnobs>
+  knobs: Required<CandidateKnobs>,
+  /** Enemy last-king squares, or null when `gainOrdering` is off — in which
+   * case neither gain key is computed at all, so the shipped path pays nothing
+   * for a key it does not read. */
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): AssessedCandidate {
   const verdict =
     candidate.path.length === 0
@@ -587,6 +655,20 @@ function assessOne(
   let shadowBonus = 0;
   for (const cell of landing) if (shadows.has(cell)) shadowBonus = 1;
 
+  let foodGain = 0;
+  let regicideShot = 0;
+  if (regicideCells !== null) {
+    for (const cell of landing) {
+      if (sub.foodAt(cell)) foodGain = 1;
+      // A capture the engine rules OUT is not a shot; `maybe` is, because the
+      // king only has to still be there. The map carries the king's TEAM, so
+      // our own king's square can never be read as a target — the one way an
+      // offensive ordering hint could turn into the self-regicide class.
+      const owner = regicideCells.get(cell);
+      if (capture !== 'no' && owner !== undefined && owner !== unit.team) regicideShot = 1;
+    }
+  }
+
   return {
     candidate,
     tier,
@@ -596,6 +678,8 @@ function assessOne(
     landing,
     contingencies,
     shadowBonus,
+    foodGain,
+    regicideShot,
   };
 }
 
@@ -808,6 +892,43 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
 const captureRank = (c: AssessedCandidate['capture']): number =>
   c === 'yes' ? 2 : c === 'maybe' ? 1 : 0;
 
+/**
+ * THE GAIN ORDER — `orderKey` with what a move TAKES sorted before what it
+ * COSTS. Behind `gainOrdering`; see the knob for the two measured
+ * mis-orderings it exists to correct.
+ *
+ * Two deliberate placements:
+ *
+ * · `regicideShot` above `capture`, because ending a team is not a capture that
+ *   happens to be worth more — under `applyRegicide` it removes every unit that
+ *   team has left, and there is exactly one square on the board where that is
+ *   true per enemy team.
+ * · `foodGain` above `healthSpent`, and health charged at ZERO when the move
+ *   could eat. That is not a fudge: `resolveTurn` sets an eater's health to its
+ *   kind's max, so the health a slider spends reaching food is refunded on
+ *   arrival, and charging it is simply wrong about the rules. Everything else
+ *   is charged exactly as before.
+ *
+ * `tier` stays first. Ordering never licenses a move — it decides which of the
+ * generated options the anytime path reaches before its budget runs out — so a
+ * doomed regicide shot still sorts behind a safe one, and whether the trade is
+ * worth taking remains the evaluator's ordered terminal clamps' question.
+ */
+function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
+  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
+  if (tier !== 0) return tier;
+  if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
+  const capture = captureRank(b.capture) - captureRank(a.capture);
+  if (capture !== 0) return capture;
+  if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
+  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
+  const ha = a.foodGain === 1 ? 0 : a.healthSpent.hi;
+  const hb = b.foodGain === 1 ? 0 : b.healthSpent.hi;
+  if (ha !== hb) return ha - hb;
+  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
+  return a.candidate.to - b.candidate.to;
+}
+
 // ---------------------------------------------------------------------------
 // The one imported specialist geometry: escort ray-shadowing
 // ---------------------------------------------------------------------------
@@ -849,6 +970,41 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
         out.add(from + (uy * i) * width + ux * i);
       }
     }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// The offensive mirror of the escort geometry: where regicide lives
+// ---------------------------------------------------------------------------
+
+/**
+ * The squares on which an enemy team's LAST king is standing.
+ *
+ * Not "every enemy king": the rule that makes this square special is
+ * `applyRegicide`, which fires when a team's last king dies, so a team fielding
+ * two of them offers no such square at all. The test is the same one
+ * `isLastKingOfItsTeam` runs for our own side, read the other way round — and
+ * "enemy" is every team that is not the one whose kings we are counting, so
+ * this is correct in a three-team game without knowing which seat is ours.
+ *
+ * Computed once per substrate. It is an ORDERING hint and never a bound: the
+ * king may not be there next turn, which is precisely why the corpus's attempt
+ * rate converts at only one in five.
+ */
+function enemyRegicideCells(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> {
+  const out = new Map<CellIndex, number>();
+  const regicide = sub.regicideTeamNumbers();
+  const kingsByTeam = new Map<number, SubstrateUnit[]>();
+  for (const u of sub.roster()) {
+    if (!u.isKing || !regicide.has(u.team)) continue;
+    const group = kingsByTeam.get(u.team);
+    if (group === undefined) kingsByTeam.set(u.team, [u]);
+    else group.push(u);
+  }
+  for (const [team, group] of kingsByTeam) {
+    if (group.length !== 1) continue;
+    out.set((group[0] as SubstrateUnit).cells[0] as CellIndex, team);
   }
   return out;
 }
