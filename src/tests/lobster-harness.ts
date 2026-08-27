@@ -31,6 +31,7 @@ import type {
   Witness,
 } from "../lobster/contracts"
 import type { Resolution, StateHandle } from "../partial-engine/index"
+import { isConditioning } from "../lobster/bounds"
 import { planKey, type Lever, type LeverView, type Refiner } from "../lobster/voc"
 
 // ------------------------------------------------------------------- clock
@@ -87,7 +88,10 @@ export function bounds(
     best,
     ledger,
     assumptions,
-    exact: ledger.length === 0 && assumptions.length === 0,
+    // The PRODUCTION predicate, imported rather than restated: discharge is
+    // measured over conditioning assumptions only, so a stub that spelled it
+    // out by hand would be free to disagree with `makeScoreBounds`.
+    exact: ledger.length === 0 && !assumptions.some(isConditioning),
   }
 }
 

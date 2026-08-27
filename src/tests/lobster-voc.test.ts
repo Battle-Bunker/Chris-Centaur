@@ -506,11 +506,18 @@ describe("the refiner seam", () => {
 })
 
 describe("bounds helper sanity (the discharge theorem in the stubs)", () => {
-  it("marks a bound exact exactly when the ledger and assumptions are empty", () => {
+  it("marks a bound exact exactly when the ledger is empty and nothing CONDITIONS it", () => {
     expect(bounds(1, 1).exact).toBe(true)
     expect(bounds(1, 1, { ledger: [ledgerEntry(1)] }).exact).toBe(false)
-    expect(bounds(1, 1, { assumptions: [{ kind: "posture", posture: "SIGHTED" }] }).exact).toBe(
+    // A CONDITIONING assumption narrows the game: there is more to learn.
+    expect(bounds(1, 1, { assumptions: [{ kind: "operator-pin", unitId: 1, to: 4 }] }).exact).toBe(
       false,
+    )
+    // A FRAMING assumption names the question. It gates comparability and NOT
+    // discharge — the kernel stamps a posture on every context, so the old
+    // reading made `exact` unreachable in production.
+    expect(bounds(1, 1, { assumptions: [{ kind: "posture", posture: "SIGHTED" }] }).exact).toBe(
+      true,
     )
   })
 })

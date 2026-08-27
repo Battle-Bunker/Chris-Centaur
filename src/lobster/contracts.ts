@@ -113,7 +113,13 @@ export interface LedgerEntry {
  * refuse comparison (basis identity). Operator pins are assumptions.
  * A `reference-action` with `to: NO_ORDER_MOVE` fixes a unit that is not ours
  * to command to its KIND's own default — the declared form of the held-
- * capacity modelling choice (MAX_FROZEN overflow names its nearest units). */
+ * capacity modelling choice (MAX_FROZEN overflow names its nearest units).
+ *
+ * Two CLASSES live in this union, and `bounds/score.ts`'s `assumptionClassOf`
+ * is the one place that says which is which. CONDITIONING assumptions
+ * (`reference-action`, `operator-pin`, `narrowing`) narrow the GAME and defeat
+ * discharge. FRAMING assumptions (`posture`) name the QUESTION: they gate
+ * comparability and do NOT defeat discharge. */
 export type Assumption =
   | { readonly kind: "reference-action"; readonly unitId: UnitId; readonly to: CellIndex }
   | { readonly kind: "operator-pin"; readonly unitId: UnitId; readonly to: CellIndex }
@@ -125,10 +131,13 @@ export interface ScoreBounds {
   readonly best: number // sound upper bound (≡ Bound.hi)
   readonly ledger: ReadonlyArray<LedgerEntry>
   readonly assumptions: ReadonlyArray<Assumption>
-  /** exact ⟺ ledger empty ∧ assumptions empty (discharge theorem). NOTE: as
-   * pinned, a PINNED decision can never report exact even when its restricted
-   * game is fully resolved — consumers wanting "nothing left to learn" as a
-   * stop condition should test `ledger.length === 0`, not `exact`. */
+  /** exact ⟺ ledger empty ∧ no CONDITIONING assumption present (discharge
+   * theorem). NOTE: as pinned, a PINNED decision can never report exact even
+   * when its restricted game is fully resolved — an operator pin is a
+   * conditioning assumption, and consumers wanting "nothing left to learn" as a
+   * stop condition should test `ledger.length === 0`, not `exact`. A FRAMING
+   * assumption (`posture`) does not defeat exactness: it says which question
+   * was asked, not that the answer is incomplete. */
   readonly exact: boolean
 }
 

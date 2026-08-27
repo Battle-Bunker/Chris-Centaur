@@ -11,13 +11,17 @@ export {
   BoundsInversionError,
   DEAD,
   UNKNOWN_BOUNDS,
+  assumptionClassOf,
   assumptionKey,
   backupMax,
   backupMin,
   basisKeyOf,
   compareFloors,
+  conditioningAssumptions,
   dominates,
+  isConditioning,
   isDischarged,
+  isFraming,
   ledgerKey,
   makeScoreBounds,
   normalizeAssumptions,
@@ -30,7 +34,15 @@ export {
   widthOf,
   withNarrowing,
 } from "./score";
-export type { BasisKey, BasisRefusal, BoundsInput, DominanceVerdict, FloorComparison, TightenResult } from "./score";
+export type {
+  AssumptionClass,
+  BasisKey,
+  BasisRefusal,
+  BoundsInput,
+  DominanceVerdict,
+  FloorComparison,
+  TightenResult,
+} from "./score";
 
 export {
   EVALUATOR_RESIDUE_UNIT,

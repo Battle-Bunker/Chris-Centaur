@@ -14,8 +14,11 @@
  *     sets is a typed refusal, not a `false` — an aggressive narrowing must be
  *     impossible to mistake for a proof.
  *  3. DISCHARGE. `exact` is computed, never passed in: exact ⟺ the ledger is
- *     empty AND the assumptions are empty. `makeScoreBounds` additionally
- *     refuses to mint a bound that claims both and is not a point, because
+ *     empty AND no CONDITIONING assumption is present. Framing assumptions
+ *     (`posture`, later `cohort`) name which question was asked and leave
+ *     nothing further to learn about the world, so they gate comparability and
+ *     not discharge — see `assumptionClassOf`. `makeScoreBounds` additionally
+ *     refuses to mint a bound that claims discharge and is not a point, because
  *     that combination is the shape of the one bug class that matters.
  *  4. EVERY MIN-SIDE RESTRICTION IS DECLARED. `withNarrowing` is the only way
  *     to record one, and it forces `exact` to false and widens the basis.
@@ -66,6 +69,63 @@ export function assumptionKey(a: Assumption): string {
     case "posture":
       return `posture:${a.posture}`;
   }
+}
+
+/**
+ * TWO KINDS OF ASSUMPTION, AND ONLY ONE OF THEM DEFEATS DISCHARGE.
+ *
+ * `basisKeyOf` was doing double duty: deciding COMPARABILITY and, through
+ * `assumptions.length === 0`, deciding DISCHARGE. Those are different
+ * questions, and conflating them had a consequence in production.
+ *
+ *  - CONDITIONING assumptions narrow the GAME. `reference-action` fixes a unit
+ *    we do not command; `operator-pin` restricts our own options; `narrowing`
+ *    declares a min-side restriction the search took. Under any of these,
+ *    something is genuinely unknown or genuinely forbidden, so the bound is a
+ *    statement about a restricted game and there IS more to learn. They defeat
+ *    discharge.
+ *  - FRAMING assumptions name the QUESTION. `posture` says which channel
+ *    weighting the score was computed under; a future `cohort` will say which
+ *    feature set. Choosing a different objective leaves nothing further to
+ *    learn about the WORLD — a fully sighted, fully resolved position is fully
+ *    resolved under either framing. They gate comparability (two framings are
+ *    not the same statement and must never be mixed) and must NOT defeat
+ *    discharge.
+ *
+ * THE DEFECT THIS FIXES. `kernel.ts`'s `searchContext` appends
+ * `{kind: "posture", ...}` to every context's assumptions, unconditionally, and
+ * the bank stamps that basis on every bound it mints. With discharge testing
+ * `assumptions.length === 0`, no bound the kernel produced could EVER report
+ * `exact` — not even in a fully sighted, fully resolved, un-narrowed position.
+ * The contract's own note anticipated this for pins ("a PINNED decision can
+ * never report exact"); the posture quietly made it universal.
+ *
+ * Classification is one explicit total function, here, so nothing downstream
+ * has to string-match a kind name.
+ */
+export type AssumptionClass = "conditioning" | "framing";
+
+export function assumptionClassOf(a: Assumption): AssumptionClass {
+  switch (a.kind) {
+    case "reference-action":
+    case "operator-pin":
+    case "narrowing":
+      return "conditioning";
+    case "posture":
+      return "framing";
+  }
+}
+
+export const isConditioning = (a: Assumption): boolean =>
+  assumptionClassOf(a) === "conditioning";
+
+export const isFraming = (a: Assumption): boolean => assumptionClassOf(a) === "framing";
+
+/** The conditioning subset — the only assumptions discharge is measured over. */
+export function conditioningAssumptions(
+  assumptions: ReadonlyArray<Assumption>,
+): ReadonlyArray<Assumption> {
+  return assumptions.filter(isConditioning);
 }
 
 /**
@@ -155,13 +215,17 @@ export function makeScoreBounds(input: BoundsInput): ScoreBounds {
   }
   // Float drift inside epsilon collapses to a point rather than inverting.
   const hi = best < worst ? worst : best;
-  const exact = ledger.length === 0 && assumptions.length === 0;
+  // DISCHARGE IS MEASURED OVER CONDITIONING ASSUMPTIONS ONLY. A framing
+  // assumption names the question, not a gap in the answer — see
+  // `assumptionClassOf`. Comparability still runs over ALL of them
+  // (`basisKeyOf` is unchanged), so nothing here launders a mixed comparison.
+  const exact = ledger.length === 0 && !assumptions.some(isConditioning);
   if (exact && hi - worst > BOUND_EPSILON) {
     throw new BoundsInversionError(
       worst,
       hi,
-      `${input.note ?? "discharge"}: empty ledger and empty assumptions must mean a point bound — ` +
-        "a gap with nothing to blame it on is an unrecorded narrowing",
+      `${input.note ?? "discharge"}: an empty ledger and no conditioning assumption must mean a ` +
+        "point bound — a gap with nothing to blame it on is an unrecorded narrowing",
     );
   }
   return { worst, best: hi, ledger, assumptions, exact };
@@ -185,9 +249,11 @@ export const UNKNOWN_BOUNDS: ScoreBounds = makeScoreBounds({
   note: "UNKNOWN_BOUNDS",
 });
 
-/** The discharge theorem, as a predicate. */
+/** The discharge theorem, as a predicate. Conditioning assumptions only — a
+ * framing assumption is not something left to learn. Same predicate
+ * `makeScoreBounds` derives `exact` from, so the two cannot drift. */
 export function isDischarged(b: ScoreBounds): boolean {
-  return b.ledger.length === 0 && b.assumptions.length === 0;
+  return b.ledger.length === 0 && !b.assumptions.some(isConditioning);
 }
 
 export function widthOf(b: ScoreBounds): number {
