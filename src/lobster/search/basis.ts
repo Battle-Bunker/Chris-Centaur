@@ -29,8 +29,10 @@ import { NO_ORDER_MOVE } from "../contracts";
 import type {
   Assumption,
   Candidate,
+  CandidateGenerator,
   CandidateSet,
   SearchContext,
+  Substrate,
   UnitId,
 } from "../contracts";
 import { normalizeAssumptions } from "../bounds";
@@ -60,8 +62,26 @@ export function referenceActionsOf(
   ctx: SearchContext,
   ourSets: ReadonlyMap<UnitId, CandidateSet>,
 ): ReadonlyMap<UnitId, Candidate> {
+  return referenceActionsFrom(ctx.sub, ctx.gen, ctx.assumptions, ourSets);
+}
+
+/**
+ * The same derivation from the PARTS rather than from a `SearchContext`.
+ *
+ * An evaluation worker (`lobster/parallel`) has to build the identical
+ * reference map for its own bank and has no context to build it from — it is
+ * handed a substrate, a generator and a basis. Splitting the function this way
+ * is what keeps the two sides from growing two derivations: there is one, and
+ * `referenceActionsOf` is the context-shaped door onto it.
+ */
+export function referenceActionsFrom(
+  sub: Substrate,
+  gen: CandidateGenerator,
+  assumptions: ReadonlyArray<Assumption>,
+  ourSets: ReadonlyMap<UnitId, CandidateSet>,
+): ReadonlyMap<UnitId, Candidate> {
   const out = new Map<UnitId, Candidate>();
-  for (const assumption of ctx.assumptions) {
+  for (const assumption of assumptions) {
     if (assumption.kind !== "reference-action") continue;
     if (ourSets.has(assumption.unitId)) continue; // ours to command: not a reference
     if (assumption.to === NO_ORDER_MOVE) {
@@ -77,9 +97,9 @@ export function referenceActionsOf(
     // enumerable on a modelled sibling, whose release must not disturb the
     // parent (the sibling contract).
     let set: CandidateSet;
-    const view = ctx.sub.withModelled([assumption.unitId]);
+    const view = sub.withModelled([assumption.unitId]);
     try {
-      set = ctx.gen.candidatesFor(view, assumption.unitId, "adversary");
+      set = gen.candidatesFor(view, assumption.unitId, "adversary");
     } catch {
       continue;
     } finally {

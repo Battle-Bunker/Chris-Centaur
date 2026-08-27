@@ -122,6 +122,12 @@ export interface BankConfig {
    * holds no arena slab (see evalmemo.ts). Zero turns the memo off.
    */
   readonly evalMemoCapacity: number;
+  /**
+   * Recompute every IMPORTED evaluation on first read and throw on a
+   * disagreement — see `CENTAUR_WORKERS_AUDIT`. Roughly doubles the evaluator's
+   * work on prefetched branches, so it is a test and soak instrument.
+   */
+  readonly auditImports: boolean;
 }
 
 export const DEFAULT_BANK_CONFIG: BankConfig = {
@@ -134,6 +140,7 @@ export const DEFAULT_BANK_CONFIG: BankConfig = {
   gateOnEntanglement: true,
   memoCapacity: 4096,
   evalMemoCapacity: 8192,
+  auditImports: false,
 };
 
 /** B0 alone: the cheap end of the ladder, one resolution per plan. */
@@ -290,9 +297,48 @@ export class BoundBank {
     this.referenceActions = input.referenceActions ?? new Map();
     this.referenceIds = [...this.referenceActions.keys()].sort((a, b) => a - b);
     this.canModel = isModelling(this.memo);
-    this.evalMemo = new EvaluationMemo(this.cfg.evalMemoCapacity);
+    this.evalMemo = new EvaluationMemo(this.cfg.evalMemoCapacity, this.cfg.auditImports);
     this.basisKey = basisKeyOf(input.basis);
     this.budget = input.budget;
+  }
+
+  /**
+   * THE PARALLEL SEAM, and it is deliberately this narrow.
+   *
+   * An evaluation worker returns exactly this: (key, bound) pairs for the
+   * evaluation memo. The bank takes them and nothing else — no bound is
+   * published from a worker, no witness crosses the boundary (a worker's
+   * witness set would change WHICH branches the main bank prices, and that
+   * would make the answer depend on how many workers are running), no ledger,
+   * no resolution, no narrowing. Everything a worker can affect is confined to
+   * "was this number already computed", which is a wall-clock question.
+   *
+   * Keys that name a different evaluator, basis, frame, view or plan simply
+   * never get looked up — see `parallel/protocol.ts` for why that is a
+   * structural property of the key rather than a promise about the worker.
+   *
+   * Returns how many entries were new.
+   */
+  importEvaluations(entries: Iterable<readonly [string, Bound]>): number {
+    let taken = 0;
+    for (const [key, bound] of entries) {
+      if (this.evalMemo.import(key, bound)) taken++;
+    }
+    return taken;
+  }
+
+  /**
+   * Start logging every evaluation this bank computes, so a worker can hand
+   * the delta back. Never called on a main-thread bank: the log is the
+   * worker's output channel, not a cache.
+   */
+  recordEvaluations(): void {
+    this.evalMemo.startRecording();
+  }
+
+  /** The evaluations computed since the last take. */
+  takeRecordedEvaluations(): ReadonlyArray<readonly [string, Bound]> {
+    return this.evalMemo.takeRecording();
   }
 
   /**
