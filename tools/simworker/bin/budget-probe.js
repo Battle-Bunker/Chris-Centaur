@@ -64,7 +64,10 @@ async function main() {
 
   // Sample games first, then a turn+team inside each, so long games do not
   // dominate the sample and each position costs one replay load.
-  const bot = makeBot(BOT);
+  // A TeamDecisionEngine carries per-game ledger state (see runner.ts: "bots
+  // are rebuilt per game"), so reusing one bot across positions from different
+  // games corrupts decisions — v1 of this probe did exactly that and returned
+  // instant degenerate results. Fresh bot per position, released after.
   const rows = [];
   let flipsLoHi = 0, flipsAA = 0, done = 0, skipped = 0;
   const t0 = Date.now();
@@ -78,8 +81,9 @@ async function main() {
     const seat = rep.header.seats[seatIdx];
     const units = teamUnits(turnRow.board, seat.teamID);
     if (units.length === 0) { skipped++; continue; }
+    const bot = makeBot(BOT);
     const spoken = bot.speaksFor(turnRow.board, seat.teamID);
-    if (spoken.length === 0) { skipped++; continue; }
+    if (spoken.length === 0) { skipped++; bot.release(); continue; }
     const seed = rep.header.config.seed;
 
     // three decisions: HI (A), HI again (A2), LO (B) — interleaved order
@@ -90,7 +94,9 @@ async function main() {
       const budget = which === 'B' ? LO : HI;
       const out = await bot.decide(turnRow.board, turnRow.turn, seat.teamID, Date.now() + budget, seed);
       got[which] = movesKey(out.moves, spoken);
+      if (out.telemetry.error) { console.log('#   decide error at ' + rep.header.gameId + ' t' + turnRow.turn + ': ' + out.telemetry.error); }
     }
+    bot.release();
     const flipAA = got.A !== got.A2;
     const flipLoHi = got.B !== got.A;
     flipsAA += flipAA ? 1 : 0;
@@ -102,7 +108,7 @@ async function main() {
     });
     if (done % 10 === 0) console.log(`#   ${done}/${N}  flips ${LO}v${HI}: ${flipsLoHi}  A/A@${HI}: ${flipsAA}  (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
-  bot.release(); shutdownDecisionPool();
+  shutdownDecisionPool();
 
   const p = flipsLoHi / done, q = flipsAA / done;
   const se = (x) => Math.sqrt((x * (1 - x)) / done);
