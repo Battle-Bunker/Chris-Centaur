@@ -19,6 +19,8 @@
 import type { Board, Grid } from "./bitgrid.js";
 import { bbAnd, bbCopy, bbForEach, bbIntersects, bbOr, bbSubset, bbTest } from "./bitgrid.js";
 import type { Cloud, CloudSource, CloudTimeline, FrozenRecord, StrengthBounds } from "./cloud.js";
+import { BUFF_LEVEL } from "./cloud.js";
+import { cmpLex, cornerForEndpointEvaluation } from "./contest.js";
 import { profileOf } from "./grammar.js";
 
 /** One frozen unit's standing in a field. Slot index is its bit in every mask. */
@@ -27,7 +29,11 @@ export interface FieldSlot {
   readonly record: FrozenRecord;
   readonly timeline: CloudTimeline;
   readonly cloud: Cloud;
-  /** The cloud's own interval, widened for what the OTHER clouds make possible. */
+  /**
+   * The cloud's own interval, widened for what the OTHER clouds make possible:
+   * a weight floor another claim could have severed, and a tier ceiling a
+   * TEAM-MATE's potion could have raised. See `build` for both derivations.
+   */
   readonly bounds: StrengthBounds;
 }
 
@@ -61,6 +67,46 @@ export class CloudField {
    * and worth one number to know.
    */
   readonly unconditionalCandidates: SlotMask;
+  /**
+   * THE THIRD HALF OF `deathPossible` — slots whose claim ANOTHER CLAIM could
+   * have killed.
+   *
+   * `Cloud.deathPossible` answers from the claim's own side of the board
+   * (a wall, a hazard, exhaustion, its own body) and `Resolution.mayHaveDied`
+   * supplies this turn's modelled footprint. Neither can answer for a pair of
+   * FROZEN claims, because a cloud is a pure function of its own record and a
+   * resolution is per-branch while the overlap is not. So it lives here, on
+   * the object that holds every claim of the turn at once, computed when the
+   * field is built and shared by pointer with every state that reads it.
+   *
+   * WHY IT IS NOT A CURIOSITY. Two claims whose grammars overlap can kill each
+   * other, and a tie kills BOTH. Naming only one side leaves a WIN world — the
+   * one where both of them are gone — outside a ceiling that reads finite, and
+   * a searcher's decisive test `hi[m] <= lo[best]` then retires that line
+   * PERMANENTLY. It fires for any two held units with overlapping grammars,
+   * same-team included: a king and a knight of one team sharing a square is
+   * self-regicide, and the rules have no friendly-fire exemption.
+   *
+   * WHAT IT ASKS, per ordered pair, and it is deliberately not "do the clouds
+   * overlap":
+   *
+   *   · HEAD TO HEAD — both arriving fronts admit one cell, and the other
+   *     claim does not strictly lose there. Strength is a box, so the question
+   *     is asked at the two corners the lex contest attains
+   *     (`cornerForEndpointEvaluation`): this claim's lex-min against the
+   *     other's lex-max. A claim that strictly beats every world of its
+   *     neighbour keeps its tight ceiling; the neighbour does not.
+   *   · A LIVING BODY — this claim's front admits a cell the other's body
+   *     might hold, at a tier the body rule condemns. TIER ONLY: the rules'
+   *     body rule is `mover.tier <= maxOwnerTier` and weight is not in it
+   *     anywhere (DECISIONS 4.12).
+   *
+   * NOT included, because neither is a death of the claim: being severed by
+   * another claim (a partial loss, already priced by the weight-floor
+   * widening), and a durable corpse pile on a body cell (engine backlog 6,
+   * which has no verdict anywhere yet).
+   */
+  readonly contestedClaims: SlotMask;
 
   /**
    * The field one turn on, memoized. Sibling states share a field by pointer, so
@@ -110,6 +156,9 @@ export class CloudField {
       }
     }
     for (let i = 0; i < w; i++) this.unionCertain[i] = (seen[i] as number) & ~(clash[i] as number);
+    // One claim cannot contest itself, so a field of one is the common case
+    // that pays nothing at all.
+    this.contestedClaims = slots.length > 1 ? contestedAmong(grid, slots) : 0;
   }
 
   get size(): number {
@@ -351,11 +400,41 @@ export class CloudField {
 
 /**
  * Assemble a field from records and their timelines, reading each cloud at the
- * requested turn and widening every weight interval for what the OTHER clouds
- * make possible: a trail unit whose claim overlaps another frozen unit's may
+ * requested turn and widening every strength interval for what the OTHER
+ * clouds make possible. Two widenings live here, and both are here for the
+ * same reason: they are facts about a PAIR of claims, and a cloud is a pure
+ * function of its own record.
+ *
+ * WEIGHT FLOOR — a trail unit whose claim overlaps another frozen unit's may
  * have been severed by it while nobody was watching, and a sever the field
  * cannot see is weight the field cannot vouch for. Pieces are not severed —
  * they die — so they keep their floor.
+ *
+ * TIER CEILING — a potion COLLECTOR takes the debuff and every other living
+ * member of its team takes the buff (game-engine/team-potion-effects), so the
+ * thing that can raise a held unit's tier is never its own reach: it is a
+ * TEAM-MATE's. `Cloud.couldCollectPotion` is the per-unit half of that
+ * question, and this is the only place a field-wide answer may be assembled
+ * from it — combining tier intervals across team-mates is exactly what the
+ * per-unit-marginal rule forbids a CONSUMER to do, and the reason it forbids
+ * it is that the combination has to happen once, here, where every claim of
+ * the team is in hand.
+ *
+ * The widening is deliberately coarse in the one direction that is sound: it
+ * asks only WHETHER a team-mate could have collected, never how many times,
+ * because one collection is the whole effect (replace semantics) and a second
+ * changes nothing. It is exactly inert on a potion-free board, where no cloud
+ * ever sets the flag.
+ *
+ * WHAT IT STILL DOES NOT SEE, recorded so nobody reads more into it than it
+ * says: a MODELLED team-mate of a held unit — a mover this branch is
+ * simulating — can collect a potion too, and its buff reaches the held unit on
+ * the turn after the one being resolved. That is outside the field entirely
+ * (the field is the frozen half of the board), and it cannot affect the
+ * resolution the field was built for, because a collection at turn U first
+ * governs a contest at U+1. A consumer that carries a claim forward across its
+ * own collection re-observes it; one that does not, holds a ceiling that is
+ * low by one level for as long as it does not.
  */
 interface Member {
   readonly slot: number;
@@ -370,6 +449,10 @@ function build(grid: Grid, turn: number, members: ReadonlyArray<Member>): CloudF
   // so with fewer than two frozen units nothing can widen and the O(K²) scan is
   // skipped entirely.
   const canWiden = members.length > 1 && members.some((m) => profileOf(m.record.kind).leavesTrail);
+  // Likewise for the tier ceiling: it takes a second claim, on the same team,
+  // that could have collected. Nothing on a potion-free board sets the flag, so
+  // this is a cheap `some` and then no scan at all.
+  const anyCollector = members.length > 1 && clouds.some((c) => c.couldCollectPotion);
   const slots: FieldSlot[] = members.map((m, i) => {
     const cloud = clouds[i] as Cloud;
     let bounds = cloud.bounds;
@@ -382,9 +465,67 @@ function build(grid: Grid, turn: number, members: ReadonlyArray<Member>): CloudF
         }
       }
     }
+    if (anyCollector && bounds.tierMax < BUFF_LEVEL) {
+      for (let j = 0; j < clouds.length; j++) {
+        if (j === i) continue;
+        if (members[j]?.record.team !== m.record.team) continue;
+        if (!(clouds[j] as Cloud).couldCollectPotion) continue;
+        bounds = { ...bounds, tierMax: BUFF_LEVEL };
+        break;
+      }
+    }
     return { slot: m.slot, record: m.record, timeline: m.timeline, cloud, bounds };
   });
   return new CloudField(grid, turn, slots);
+}
+
+/**
+ * `CloudField.contestedClaims` — see its docblock for what the question is and
+ * why it is asked here. This is the shape of the answer.
+ *
+ * O(K²) over slots, with a bitboard intersection as the gate on each pair and
+ * an early break as soon as one killer is found, so the real cost is closer to
+ * O(K) on the boards where nothing overlaps. Held-held pairs are the term that
+ * grows — 15 pairs at five held units, 120 at sixteen — which is why the
+ * strength comparison is a pair of integer compares behind an intersection
+ * test rather than anything per cell.
+ *
+ * A claim that is CERTAINLY GONE is skipped as a victim: every reader takes
+ * `certainlyGone` first and never consults the mask for it. It is NOT skipped
+ * as a killer — a unit that starves at end of turn still moved, still arrived,
+ * and a head-to-head tie there kills its opponent just the same.
+ */
+function contestedAmong(grid: Grid, slots: ReadonlyArray<FieldSlot>): SlotMask {
+  const w = grid.words;
+  let mask = 0;
+  for (const victim of slots) {
+    if (victim.cloud.certainlyGone) continue;
+    const front = victim.cloud.headPossible;
+    // The lex contest is antitone, so this claim is safe from another exactly
+    // when its WEAKEST world still strictly beats the other's STRONGEST.
+    const weakest = cornerForEndpointEvaluation(victim.bounds.tierMin, victim.bounds.weightMin);
+    for (const other of slots) {
+      if (other.slot === victim.slot) continue;
+      let killed = false;
+      if (bbIntersects(front, other.cloud.headPossible, w)) {
+        const strongest = cornerForEndpointEvaluation(other.bounds.tierMax, other.bounds.weightMax);
+        killed = cmpLex(weakest, strongest) <= 0;
+      }
+      if (
+        !killed &&
+        profileOf(other.record.kind).leavesTrail &&
+        victim.bounds.tierMin <= other.bounds.tierMax &&
+        bbIntersects(front, other.cloud.bodyPossible, w)
+      ) {
+        killed = true;
+      }
+      if (killed) {
+        mask |= 1 << victim.slot;
+        break;
+      }
+    }
+  }
+  return mask;
 }
 
 export function emptyField(grid: Grid, turn: number): CloudField {

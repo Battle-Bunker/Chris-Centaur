@@ -54,6 +54,20 @@ import {
   standableFor,
 } from "./grammar.js";
 
+/**
+ * THE TWO LEVELS ONE INVULNERABILITY POTION CAN PUT ON A UNIT.
+ *
+ * A collection grants exactly one effect per family, replacing any it had, so
+ * the level a contest reads is a trit and not a running total: `+1` to every
+ * other living member of the collector's team, `−1` to the collector itself,
+ * `0` to anyone holding neither (game-engine/team-potion-effects,
+ * game-engine/collisions-and-severing). Named here because the two places that
+ * price a potion — this file's tier FLOOR and `field.ts`'s tier CEILING — are
+ * the two ends of one rule and must not drift apart.
+ */
+export const BUFF_LEVEL = 1;
+export const DEBUFF_LEVEL = -1;
+
 /** The crystallized record of a unit at the moment it was frozen. Never mutated. */
 export interface FrozenRecord {
   readonly unitId: number;
@@ -168,6 +182,22 @@ export interface Cloud {
   readonly kindSet: number;
   /** Some continuation kills it before this turn, which makes `certain` soft. */
   readonly deathPossible: boolean;
+  /**
+   * Some continuation has this unit COLLECTING an invulnerability potion by
+   * now — a potion cell inside its cumulative reach, with at least one move
+   * made (collection is destination-only, and a claim that has not moved has
+   * not arrived anywhere).
+   *
+   * It is published rather than folded into this cloud's own `bounds` because
+   * of WHOSE tier it moves. The rules give the collector the DEBUFF and every
+   * other living member of its team the BUFF (game-engine/team-potion-effects;
+   * game-engine/collisions-and-severing derives the level as +1 buff / −1
+   * debuff / 0), so a unit's own reachable potions can only ever LOWER its own
+   * tier — the raising is a fact about its TEAM-MATES, and teams meet at the
+   * field, not inside a per-unit cloud. `CloudField` reads this flag across
+   * team-mates and widens the ceiling there.
+   */
+  readonly couldCollectPotion: boolean;
   /** No continuation leaves it alive (it was walled in, or ran out of health). */
   readonly certainlyGone: boolean;
   /** `possible` covers every cell this kind could stand on — queries short-circuit. */
@@ -499,6 +529,7 @@ export class CloudTimeline {
       bounds: { tierMin: r.tier, tierMax: r.tier, weightMin: r.weight, weightMax: r.weight },
       kindSet: 1 << r.kind,
       deathPossible: false,
+      couldCollectPotion: false,
       certainlyGone: false,
       saturated: false,
       possibleCount: bbPopcount(possible, grid.words),
@@ -527,11 +558,20 @@ export class CloudTimeline {
     // An oriented kind is excluded too, because its pose fronts may still be
     // converging even when their union covers the board.
     if (prev.saturated && !profile.leavesTrail && !profile.oriented) {
+      // The cumulative reach is the same board, so the potion count is the same
+      // number — but the tier FLOOR is not a function of the count alone (a
+      // self-debuff needs a turn to land), so it is re-derived rather than
+      // carried across with the rest of the fixed point.
+      const stillReachablePotions = bbPopcount(
+        this.andCount(prev.everPossible, this.premise.potions),
+        w,
+      );
       const fixed: Cloud = {
         ...prev,
         turnsHeld: n,
         certain: prev.certain,
-        bounds: this.boundsAt(n, prev.everPossible, prev.kindSet),
+        bounds: this.boundsAt(n, prev.everPossible, prev.kindSet, stillReachablePotions),
+        couldCollectPotion: stillReachablePotions > 0,
         kindSet: prev.kindSet,
         deathPossible:
           prev.deathPossible || r.health <= n || bbIntersects(prev.everPossible, terrain.hazard, w),
@@ -729,6 +769,13 @@ export class CloudTimeline {
     // the previous front's pointer.
     const isSlider = profile.rays.length > 0 && !profile.oriented;
 
+    // One AND over the potion board, read twice: it prices this unit's own tier
+    // FLOOR (a collector takes the debuff) and, at the field, its team-mates'
+    // tier CEILING (everyone else on the team takes the buff). The scratch
+    // board `andCount` returns is reused by the food count below, so the number
+    // is taken here and the board is not held.
+    const reachablePotions = bbPopcount(this.andCount(everPossible, this.premise.potions), w);
+
     return {
       record: r,
       turnsHeld: n,
@@ -739,9 +786,13 @@ export class CloudTimeline {
       subStepBoundsApply: isSlider,
       everPossible,
       certain: certainlyGone ? growBoard(grid) : certain,
-      bounds: this.boundsAt(n, everPossible, kindSet),
+      bounds: this.boundsAt(n, everPossible, kindSet, reachablePotions),
       kindSet,
       deathPossible,
+      // A collection needs an ARRIVAL, so a claim that has made no move has
+      // collected nothing; `everPossible` at n ≥ 1 is exactly "somewhere it
+      // could have arrived by now".
+      couldCollectPotion: n >= 1 && reachablePotions > 0,
       certainlyGone,
       saturated: bbSubset(standable, possible, w),
       possibleCount: bbPopcount(possible, w),
@@ -751,30 +802,61 @@ export class CloudTimeline {
 
   /**
    * Strength intervals, derived from the ITEM SET rather than config
-   * constants (delta §2):
+   * constants (delta §2).
    *
-   * - tier ceiling = max(0, frozen tier) + |potion cells ∩ cumulative field|,
-   *   capped by turns held (potions collect at destinations only; one per
-   *   turn at most). The frozen buff can also simply persist, hence max().
-   * - tier floor admits DEBUFFS: a unit that itself collected becomes the
-   *   debuff-holder, so any reachable potion drops the floor below zero; a
-   *   frozen buff can meanwhile expire toward 0.
-   * - weight rises by at most one per turn, by eating; it falls only through a
-   *   sever (field-level widening, where the other clouds are known) — or
-   *   through PROMOTION, which resets a pawn to weight 1: past the promotion
-   *   horizon the floor is 1 (delta §2).
+   * THE TIER INTERVAL, DERIVED FROM THE POTION RULES RATHER THAN FROM
+   * ARITHMETIC. Three facts about invulnerability decide the whole shape, and
+   * an earlier reading of this function contradicted all three:
    *
-   * These are PER-UNIT MARGINALS: no consumer may combine tier intervals
-   * across teammates (ally-buff expiry correlates them; marginals only push
-   * down) — recorded here because the type cannot say it.
+   *   1. WHO GETS WHAT. A collection grants the COLLECTOR `(invulnerability,
+   *      debuff)` and every OTHER living member of its team `(invulnerability,
+   *      buff)` (game-engine/team-potion-effects). The level a contest reads is
+   *      +1 for the buff, −1 for the debuff, 0 for neither
+   *      (game-engine/collisions-and-severing). So a unit's own reachable
+   *      potions can only ever push its own tier DOWN. Adding them to its own
+   *      ceiling had the polarity backwards: the raising is a fact about its
+   *      TEAM-MATES' reach, and these are PER-UNIT MARGINALS — no consumer may
+   *      combine tier intervals across team-mates, and this function may not
+   *      either. `couldCollectPotion` publishes the team-mate half; `field.ts`
+   *      is where the teams meet and where the ceiling is widened.
+   *
+   *   2. WHEN IT LANDS. Collection is destination-only (the rule fires on a
+   *      surviving head standing on the item) and the effect is applied at
+   *      COMMIT, after the collision phase — so a potion taken on the move
+   *      resolved at turn U first governs a contest at turn U+1. A claim that
+   *      has made n moves has resolved turns heldAtTurn..heldAtTurn+n−1, so a
+   *      self-debuff can be in force at the field's turn only from n ≥ 2. At
+   *      the risk layer's n = 1 the potion board cannot move this unit's tier
+   *      at all. (The set is still read off the cumulative reach at n rather
+   *      than at n−1, which over-counts by one step in the SOUND direction:
+   *      a floor may be lower than the truth, never higher.)
+   *
+   *   3. HOW FAR IT GOES. At most one effect per family is held at a time
+   *      (replace semantics), so collecting three potions is collecting one:
+   *      the level is a trit, not a running total. `+ |potion cells|` could
+   *      hand a held claim a tier no unit in the game can have, which is not
+   *      a loose ceiling but a wrong one — every mover reads it as unbeatable.
+   *
+   * What is left after those three is: the interval moves toward zero on
+   * expiry, admits −1 once a self-collection could have landed, and otherwise
+   * is the frozen level.
+   *
+   * Weight rises by at most one per turn, by eating; it falls only through a
+   * sever (field-level widening, where the other clouds are known) — or
+   * through PROMOTION, which resets a pawn to weight 1: past the promotion
+   * horizon the floor is 1 (delta §2).
    */
-  private boundsAt(n: number, everPossible: Board, kindSet: number): StrengthBounds {
-    const { food, potions } = this.premise;
+  private boundsAt(
+    n: number,
+    everPossible: Board,
+    kindSet: number,
+    reachablePotions: number,
+  ): StrengthBounds {
+    const { food } = this.premise;
     const w = this.premise.terrain.grid.words;
     const r = this.record;
     const profile = profileOf(r.kind);
     const reachableFood = bbPopcount(this.andCount(everPossible, food), w);
-    const reachablePotions = bbPopcount(this.andCount(everPossible, potions), w);
     const promoted = profile.promotesTo !== null && (kindSet & (1 << profile.promotesTo)) !== 0;
     // Tier expiry, when declared, is a fact about the TURN, not the unit's
     // choice — past it the frozen effect reverts to base 0, and only fresh
@@ -783,9 +865,10 @@ export class CloudTimeline {
     const expired = expiry !== null && r.heldAtTurn + n >= expiry;
     const baseCeil = expired ? 0 : Math.max(0, r.tier);
     const baseFloor = expired ? 0 : Math.min(0, r.tier);
+    const selfDebuffPossible = n >= 2 && reachablePotions > 0;
     return {
-      tierMin: reachablePotions > 0 ? Math.min(baseFloor, -1) : baseFloor,
-      tierMax: baseCeil + Math.min(n, reachablePotions),
+      tierMin: selfDebuffPossible ? Math.min(baseFloor, DEBUFF_LEVEL) : baseFloor,
+      tierMax: baseCeil,
       weightMin: promoted ? 1 : r.weight,
       weightMax: r.weight + Math.min(n, reachableFood),
     };

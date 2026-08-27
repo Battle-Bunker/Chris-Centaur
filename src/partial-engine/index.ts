@@ -67,8 +67,10 @@ export {
 export type { Candidate, KindProfile, OrientationIndex, Terrain, UnitAction } from "./grammar.js";
 
 export {
+  BUFF_LEVEL,
   CloudSource,
   CloudTimeline,
+  DEBUFF_LEVEL,
   DEFAULT_TIMELINE_CACHE,
   FROZEN_RECORD_KEY_FIELDS,
   NEVER,
