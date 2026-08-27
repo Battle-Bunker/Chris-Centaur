@@ -42,6 +42,73 @@ import type {
 
 export type Trit = "yes" | "maybe" | "no"
 
+// ------------------------------------------------------------------ identity
+
+/**
+ * A stable identity token for an arbitrary object, interned per process.
+ *
+ * Lives here because it is the seam's own machinery: the evaluate module needs
+ * it to say what a criterion profile IS, and the bounds module needs it to say
+ * what an evaluator is, and neither is allowed to import the other. It is the
+ * conservative half of both answers — two distinct objects never collide, the
+ * same object always matches.
+ */
+const identityTokens = new WeakMap<object, string>()
+let nextIdentityToken = 0
+export function objectIdentity(value: object): string {
+  const hit = identityTokens.get(value)
+  if (hit !== undefined) return hit
+  const made = `#${++nextIdentityToken}`
+  identityTokens.set(value, made)
+  return made
+}
+
+/**
+ * A canonical, order-free identity for a plain record of settings — a
+ * criterion profile, a config object, anything whose CONTENT decides whether
+ * two consumers of it are computing the same function.
+ *
+ * DELIBERATELY NOT A FIELD LIST. Anything that keys a cache on "which profile
+ * is this" must keep working when the profile grows a field, because the
+ * failure mode of forgetting to amend a hand-written key is a WRONG NUMBER
+ * served at cache latency, not a slow one. So every own enumerable key is
+ * walked in sorted order; primitives serialise; arrays and plain records
+ * recurse; and anything else — a function, a class instance, a symbol — falls
+ * back to `objectIdentity` rather than being dropped. Unrecognised is never
+ * treated as absent.
+ *
+ * Not a hash and not stable across processes: it is an identity for caches
+ * that live inside one decision, never a key that gets written down.
+ */
+export function structuralIdentity(value: unknown): string {
+  if (value === null) return "null"
+  switch (typeof value) {
+    case "undefined":
+      return "undef"
+    case "number":
+    case "boolean":
+    case "bigint":
+      return String(value)
+    case "string":
+      return JSON.stringify(value)
+    case "symbol":
+      return `sym${objectIdentity(Object(value) as object)}`
+    case "function":
+      return `fn${objectIdentity(value)}`
+    default:
+      break
+  }
+  const obj = value as object
+  if (Array.isArray(obj)) return `[${obj.map(structuralIdentity).join(",")}]`
+  const proto: unknown = Object.getPrototypeOf(obj)
+  if (proto !== Object.prototype && proto !== null) return `obj${objectIdentity(obj)}`
+  const record = obj as Record<string, unknown>
+  return `{${Object.keys(record)
+    .sort()
+    .map((k) => `${k}:${structuralIdentity(record[k])}`)
+    .join(",")}}`
+}
+
 /** Evaluation triple. `est` is advisory ordering only — it must never gate a
  * decision that lo/hi make (contract non-negotiable: est never adjudicates). */
 export interface Bound {

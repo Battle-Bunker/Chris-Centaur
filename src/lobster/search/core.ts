@@ -154,9 +154,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * total ceiling is unchanged.
    */
   const sessions = new Map<string, Session>();
-  const memoShare = Math.max(
-    64,
-    Math.floor((cfg.bank.memoCapacity ?? DEFAULT_BANK_CONFIG.memoCapacity) / Math.max(1, cfg.sessionCacheSize)),
+  const share = (total: number, floor: number): number =>
+    Math.max(floor, Math.floor(total / Math.max(1, cfg.sessionCacheSize)));
+  const memoShare = share(cfg.bank.memoCapacity ?? DEFAULT_BANK_CONFIG.memoCapacity, 64);
+  // The EVALUATION memo gets its own share of its own budget, for the same
+  // reason and by the same arithmetic: a live session per basis must not
+  // multiply the decision's ceiling. Its entries hold no slabs, so its total
+  // is set independently of the resolution memo's (see bounds/evalmemo.ts).
+  const evalMemoShare = share(
+    cfg.bank.evalMemoCapacity ?? DEFAULT_BANK_CONFIG.evalMemoCapacity,
+    0,
   );
 
   const sessionKey = (ctx: SearchContext): string =>
@@ -240,7 +247,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       budget: ctx.budget,
       basis: basisOf(ctx),
       referenceActions: references,
-      config: { ...cfg.bank, memoCapacity: memoShare },
+      config: { ...cfg.bank, memoCapacity: memoShare, evalMemoCapacity: evalMemoShare },
     });
     bank.adoptWitnesses(ctx.witnesses);
     // A pin is a constraint on a unit we command; a pin naming a unit we do
