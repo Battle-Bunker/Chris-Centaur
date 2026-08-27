@@ -90,6 +90,8 @@ const ENGINE_ENV_KEYS = [
   'CENTAUR_WORKERS',
   'CENTAUR_WORKERS_AUDIT',
   'CENTAUR_COHORT_POLICY',
+  'CENTAUR_CLUSTER_SEED',
+  'CENTAUR_UNIT_FATALITY',
 ] as const;
 
 function capturedEnv(): Record<string, string | null> {
