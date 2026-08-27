@@ -938,7 +938,11 @@ describe('a modelling choice the substrate cannot name degrades, never crashes',
       expect(refs).toHaveLength(2);
       expect(narrowings).toHaveLength(1);
       for (const a of result.assumptions) {
-        if (a.kind !== 'posture') expect(a.unitId).toBeDefined();
+        // `posture` and `cohort` are FRAMING assumptions: they name the
+        // question, not a unit, so neither carries a unitId. (This array is
+        // the engine's own standing basis and holds neither today; the guard
+        // is written against the union, not against today's contents.)
+        if (a.kind !== 'posture' && a.kind !== 'cohort') expect(a.unitId).toBeDefined();
       }
     } finally {
       spy.mockRestore();

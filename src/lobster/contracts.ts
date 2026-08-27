@@ -118,13 +118,22 @@ export interface LedgerEntry {
  * Two CLASSES live in this union, and `bounds/score.ts`'s `assumptionClassOf`
  * is the one place that says which is which. CONDITIONING assumptions
  * (`reference-action`, `operator-pin`, `narrowing`) narrow the GAME and defeat
- * discharge. FRAMING assumptions (`posture`) name the QUESTION: they gate
- * comparability and do NOT defeat discharge. */
+ * discharge. FRAMING assumptions (`posture`, `cohort`) name the QUESTION: they
+ * gate comparability and do NOT defeat discharge. */
 export type Assumption =
   | { readonly kind: "reference-action"; readonly unitId: UnitId; readonly to: CellIndex }
   | { readonly kind: "operator-pin"; readonly unitId: UnitId; readonly to: CellIndex }
   | { readonly kind: "narrowing"; readonly unitId: UnitId; readonly note: string }
   | { readonly kind: "posture"; readonly posture: Posture }
+  /**
+   * WHICH OBJECTIVE THIS NUMBER MAXIMISES. `features` is the profile's
+   * *invoked* key set, sorted — the set actually computed, not merely the set
+   * with a non-zero weight, which is a different (and, before the S0a gate,
+   * routinely wrong) claim. It rides for the reader: the id alone is enough
+   * for comparability, and `assumptionKey` deliberately keys on the id only,
+   * so a cohort's feature list may be corrected in the registry without
+   * re-basing every historical bound that named it. */
+  | { readonly kind: "cohort"; readonly id: CohortId; readonly features: readonly string[] }
 
 export interface ScoreBounds {
   readonly worst: number // sound lower bound on the true score (≡ Bound.lo)
@@ -136,8 +145,8 @@ export interface ScoreBounds {
    * when its restricted game is fully resolved — an operator pin is a
    * conditioning assumption, and consumers wanting "nothing left to learn" as a
    * stop condition should test `ledger.length === 0`, not `exact`. A FRAMING
-   * assumption (`posture`) does not defeat exactness: it says which question
-   * was asked, not that the answer is incomplete. */
+   * assumption (`posture`, `cohort`) does not defeat exactness: it says which
+   * question was asked, not that the answer is incomplete. */
   readonly exact: boolean
 }
 
@@ -220,6 +229,25 @@ export type Posture = "SIGHTED" | "FOGGED-DISCRIMINATING" | "FOGGED-VACUOUS"
  *                         refiner, never a verdict.
  */
 export type VacuityCause = "alive" | "material-dead" | "cloud-contingent-dead"
+
+// ------------------------------------------------------------------- cohorts
+
+/**
+ * WHICH EVALUATION COHORT A NUMBER WAS PROVED UNDER.
+ *
+ * A cohort names one criterion profile's *invoked* feature set — the question
+ * the score answers. It is a stable string because the registry that owns the
+ * ids is a data table (`evaluate/calibration.ts`'s `COHORTS`), not a class
+ * hierarchy: adding a cohort is a row, and the id is what a refit corpus and
+ * an operator audit read months later. Never derive it from a profile's
+ * `name`, never mint one at a call site — `COHORTS` is the authority, and
+ * `cohortRow` is the only lookup.
+ *
+ * Cohort is to the OBJECTIVE what posture is to the CHANNEL: both are framing
+ * assumptions (`bounds/score.ts`'s `assumptionClassOf`), both gate
+ * comparability, neither defeats discharge.
+ */
+export type CohortId = string
 
 // ------------------------------------------------------------------ emission
 

@@ -36,6 +36,12 @@
  *    three specialist items survived, and they are below, as data rows.
  */
 
+// TYPE-ONLY, and it only ever runs one way: `contracts.ts` knows nothing about
+// this file. The cohort registry lives here because a cohort IS a calibration
+// row — the objective and the numbers that define it are one thing — and the
+// id's type lives in `contracts` because the `Assumption` union needs it.
+import type { Assumption, CohortId } from '../contracts';
+
 /**
  * Default feature weights. Non-negative by contract — a penalty feature returns
  * negative numbers itself.
@@ -251,3 +257,108 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = assertProfileCoherent({
   invoked: new Set(['material', 'healthEconomy']),
   reachHorizonTurns: 0,
 });
+
+// ------------------------------------------------------------ the cohort table
+
+/**
+ * THE COHORT REGISTRY — objectives as data rows, exactly as the profiles are.
+ *
+ * A cohort is a named objective: one `CriterionProfile`, and therefore one
+ * invoked feature set, one weight vector, one flood depth. Its `id` is what
+ * rides on every bound proved under it (`Assumption` kind `"cohort"`), what a
+ * refit corpus groups on, and what an operator reads six months later — so it
+ * is stable, it is short, and it is never derived from the profile's `name`.
+ *
+ * ── STAGE 1 SHIPS EXACTLY ONE ROW, AND THAT IS THE POINT ───────────────────
+ *
+ * The basis machinery (cohort in the ratchet, on every staging row, in every
+ * emitted record, and a flip path that re-measures rather than mixes) is what
+ * Stage 1 builds; a second row is what Stage 2 adds once an admission governor
+ * exists to choose between them and a measurement exists to justify the
+ * choice. With one row the whole stage is a behavioural no-op: every number is
+ * proved under `territory`, nothing ever flips in production, and the only
+ * observable difference from the stage before it is one more assumption on the
+ * wire — which is the assumption that makes the rest legible.
+ *
+ * The row's id is `territory` rather than a placeholder because the default
+ * profile IS the territory profile: naming the shipped objective after what it
+ * actually computes means Stage 2 adds `base` beside it and renames nothing,
+ * and no historical corpus carries an id that was retired for being a
+ * placeholder.
+ *
+ * ADDING A ROW: add it here, give it a profile that `assertProfileCoherent`
+ * accepts, and the per-cohort law harness picks it up. Nothing else in the
+ * system learns a new name (anti-spaghetti rule 12).
+ */
+export interface CohortRow {
+  /** Stable, corpus-visible identity. Never re-used for a different objective. */
+  readonly id: CohortId;
+  readonly profile: CriterionProfile;
+}
+
+/**
+ * The invoked keys of a profile, sorted — the `features` list an `Assumption`
+ * carries. Sorted so the list is a canonical account of the objective and not
+ * an artefact of `Set` insertion order.
+ */
+export function invokedFeaturesOf(p: CriterionProfile): ReadonlyArray<string> {
+  return [...p.invoked].sort();
+}
+
+export const COHORTS: ReadonlyArray<CohortRow> = [
+  { id: 'territory', profile: TERRITORY_PROFILE },
+];
+
+/** The cohort a decision opens under when its caller names none. */
+export const DEFAULT_COHORT_ID: CohortId = 'territory';
+
+/**
+ * THE REGISTRY LOOKUP, AND WHY IT TAKES THE REGISTRY.
+ *
+ * `COHORTS` is the production table and the default everywhere. The table is a
+ * PARAMETER rather than an ambient global because the alternative — a
+ * module-scope registry a caller can add rows to — is the arena latch this
+ * codebase has been bitten by before: one decision's registration would be
+ * every concurrent decision's, and a per-game cohort policy (the shape Stage 2
+ * needs, since a process-wide flag measures nothing) would be inexpressible.
+ * The kernel holds its registry as an option, a test passes its own, and
+ * nothing mutates a shared table.
+ *
+ * A call site that builds its own profile instead of naming a row has left the
+ * table behind, and the table is where the measurement that paid for each row
+ * lives.
+ */
+export function cohortRowIn(
+  rows: ReadonlyArray<CohortRow>,
+  id: CohortId
+): CohortRow | undefined {
+  return rows.find((c) => c.id === id);
+}
+
+/**
+ * The registry is asked to name itself. Throws rather than returning a
+ * fallback: a bound stamped with an objective nobody can look up is worse than
+ * a decision that refuses to start, because it is indistinguishable from a
+ * sound one until someone tries to compare it.
+ */
+export function requireCohortRowIn(rows: ReadonlyArray<CohortRow>, id: CohortId): CohortRow {
+  const row = cohortRowIn(rows, id);
+  if (row === undefined) {
+    throw new Error(
+      `unknown cohort ${JSON.stringify(id)}: registered cohorts are ` +
+        (rows.length === 0 ? '(none)' : rows.map((c) => c.id).join(', '))
+    );
+  }
+  return row;
+}
+
+/**
+ * The `Assumption` a cohort rides as. ONE constructor, so no call site ever
+ * assembles the variant by hand and no two of them can disagree about what
+ * `features` means: it is the INVOKED set — what was actually computed — and
+ * not the weighted set, which is a different and weaker claim, and was the
+ * wrong one everywhere before the S0a compute gate existed.
+ */
+export function cohortAssumptionOf(row: CohortRow): Assumption {
+  return { kind: 'cohort', id: row.id, features: invokedFeaturesOf(row.profile) };
+}

@@ -15,7 +15,7 @@
  *     impossible to mistake for a proof.
  *  3. DISCHARGE. `exact` is computed, never passed in: exact ⟺ the ledger is
  *     empty AND no CONDITIONING assumption is present. Framing assumptions
- *     (`posture`, later `cohort`) name which question was asked and leave
+ *     (`posture`, `cohort`) name which question was asked and leave
  *     nothing further to learn about the world, so they gate comparability and
  *     not discharge — see `assumptionClassOf`. `makeScoreBounds` additionally
  *     refuses to mint a bound that claims discharge and is not a point, because
@@ -68,6 +68,16 @@ export function assumptionKey(a: Assumption): string {
       return `narrow:${a.unitId}:${a.note}`;
     case "posture":
       return `posture:${a.posture}`;
+    case "cohort":
+      // THE ID ONLY, NEVER THE FEATURE LIST. The id is the objective's stable
+      // name; `features` is the registry's current account of what that
+      // objective computes, and it rides on the assumption so a reader of an
+      // emitted record does not have to hold the registry to interpret it.
+      // Keying on both would make a registry correction re-base every bound
+      // that named the cohort — a comparability break with no semantic content
+      // — and would let two rows claiming the same objective refuse each other
+      // over a sort order. One cohort, one basis.
+      return `cohort:${a.id}`;
   }
 }
 
@@ -85,12 +95,15 @@ export function assumptionKey(a: Assumption): string {
  *    statement about a restricted game and there IS more to learn. They defeat
  *    discharge.
  *  - FRAMING assumptions name the QUESTION. `posture` says which channel
- *    weighting the score was computed under; a future `cohort` will say which
- *    feature set. Choosing a different objective leaves nothing further to
+ *    weighting the score was computed under; `cohort` says which feature set
+ *    was invoked. Choosing a different objective leaves nothing further to
  *    learn about the WORLD — a fully sighted, fully resolved position is fully
  *    resolved under either framing. They gate comparability (two framings are
  *    not the same statement and must never be mixed) and must NOT defeat
- *    discharge.
+ *    discharge. This is why a cohort could be introduced at all: under the old
+ *    predicate a second framing assumption would have made `exact` doubly
+ *    unreachable, and the whole cohort design would have been paid for in
+ *    permanently un-discharged bounds.
  *
  * THE DEFECT THIS FIXES. `kernel.ts`'s `searchContext` appends
  * `{kind: "posture", ...}` to every context's assumptions, unconditionally, and
@@ -112,6 +125,7 @@ export function assumptionClassOf(a: Assumption): AssumptionClass {
     case "narrowing":
       return "conditioning";
     case "posture":
+    case "cohort":
       return "framing";
   }
 }
