@@ -13,6 +13,8 @@
  *               -byte what they were: an arm that does not opt in pays nothing.
  */
 
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { marshalBoard } from '../../logic/turn-oracle';
 import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
@@ -709,5 +711,70 @@ describe('nothing shipped moved', () => {
   it('a feature nobody weights still costs nothing, because it is not in the list', () => {
     expect(regicideCascadeFeature.defaultWeight).toBe(0);
     expect(approachFeature.defaultWeight).toBe(0);
+  });
+});
+
+/**
+ * STAGE 3 CARVE-OUT — `approach` is HELD, and this is what holds it.
+ *
+ * The ledger's Stage 2.5 verdict on I3 ships `gainOrdering` + `regicideCascade`
+ * and holds `approach` for its own arm: the eliminated +0.12 has aggression's
+ * sign and is not yet separable from its null. So `approach` must not be able
+ * to reach a decision this build makes.
+ *
+ * On the branch as built that is true INCIDENTALLY rather than by construction:
+ * `evaluate/closing.ts` has no importer outside this test file, so both of its
+ * features — `approach` AND `regicideCascade` — are dark, reachable only via
+ * `i3TerritoryEvaluator` / `i3MaterialEvaluator`, which exist to be the arm's
+ * harness. No surgery was needed at merge time, and none was done: cutting the
+ * feature out would have destroyed the material its own arm still needs.
+ *
+ * What was missing is a TRIPWIRE. The moment anything on a production path
+ * imports this module — a later idea branch, an i2 follow-on, a profile
+ * promotion — `approach` ships silently, because `I3_TERRITORY_PROFILE` carries
+ * it at weight 1. This block is that tripwire. If it fails, the question to ask
+ * is "has approach's arm reported yet?", not "how do I make this pass?".
+ */
+describe('the approach carve-out holds', () => {
+  const CLOSING = join(__dirname, '..', 'evaluate', 'closing.ts');
+
+  const sourceFiles = (dir: string, found: string[] = []): string[] => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '__tests__') continue;
+        sourceFiles(full, found);
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+        found.push(full);
+      }
+    }
+    return found;
+  };
+
+  it('no non-test module imports the closing fold, so neither feature can ship', () => {
+    // Both forms: a named/default import (`from '.../evaluate/closing'`) and a
+    // bare side-effect import (`import '.../evaluate/closing'`), plus
+    // `require()`. A side-effect import is enough to construct the evaluators,
+    // so a pattern that only understood `from` would miss a live promotion.
+    const reaches = /(?:from\s*|import\s*|require\s*\(\s*)['"][^'"]*evaluate\/closing['"]/;
+    const importers = sourceFiles(join(__dirname, '..', '..')).filter((file) =>
+      reaches.test(readFileSync(file, 'utf8'))
+    );
+    expect(importers).toEqual([]);
+    expect(existsSync(CLOSING)).toBe(true);
+  });
+
+  it('the held feature is still intact for the arm that has to measure it', () => {
+    // Held, not deleted. The arm needs the feature and its profile to exist.
+    expect(I3_FEATURES.map((f) => f.key)).toContain('approach');
+    expect(I3_WEIGHTS.approach).toBe(1);
+  });
+
+  it('the two SHIPPERS are present and reachable on their own seams', () => {
+    // gainOrdering is a candidate-layer knob, off by default as measured.
+    expect('gainOrdering' in DEFAULT_KNOBS).toBe(true);
+    // regicideCascade rides the same dark list as approach today; promoting it
+    // is a separate, deliberate act and not this merge's business.
+    expect(I3_FEATURES.map((f) => f.key)).toContain('regicideCascade');
   });
 });
