@@ -138,6 +138,14 @@ export interface DecisionTelemetry {
   readonly firstStageMs: number | null;
   /** Distinct recommendations that reached the manager surface. */
   readonly emissions: number;
+  /**
+   * Every emission, timestamped: ms since decision start plus the unit and
+   * move it staged. `emissions` is this array's length; the trail is what
+   * makes budget-threshold questions answerable from logs alone (which
+   * recommendation was standing at ANY ms mark). Null on paths that do not
+   * emit progressively.
+   */
+  readonly emissionTrail: ReadonlyArray<{ ms: number; unit: string; move: string }> | null;
   /** Plans the evaluator scored. Lobster only (`report.evaluateCalls`). */
   readonly plansEvaluated: number | null;
   /** Anytime refinement slices taken. Lobster only. */
@@ -301,6 +309,7 @@ const IDLE: DecisionOutcome = {
     overrunMs: 0,
     firstStageMs: null,
     emissions: 0,
+    emissionTrail: null,
     plansEvaluated: null,
     slices: null,
     chosen: null,
@@ -320,6 +329,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
   let started = 0;
   let firstStageMs: number | null = null;
   let emissions = 0;
+  let trail: Array<{ ms: number; unit: string; move: string }> = [];
   const moves = new Map<string, CentaurMove>();
   let registry: string[] = [];
 
@@ -328,6 +338,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
       emissions++;
       const at = Date.now() - started;
       if (firstStageMs === null) firstStageMs = at;
+      trail.push({ ms: at, unit: snakeId, move: JSON.stringify(move) });
       moves.set(snakeId, move);
     },
     enableTeamStaging: () => undefined,
@@ -348,6 +359,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
       started = Date.now();
       firstStageMs = null;
       emissions = 0;
+      trail = [];
       moves.clear();
       const alive = aliveOf(board, teamID);
       registry = alive.map((s) => s.id);
@@ -388,6 +400,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
           overrunMs: Math.max(0, Date.now() - deadlineMs),
           firstStageMs,
           emissions,
+          emissionTrail: trail.slice(),
           plansEvaluated: report?.evaluateCalls ?? null,
           slices: report?.slices ?? null,
           chosen:
@@ -458,6 +471,7 @@ function legacyBot(): Bot {
       const moves = new Map<string, CentaurMove>();
       let emissions = 0;
       let firstStageMs: number | null = null;
+      const trail: Array<{ ms: number; unit: string; move: string }> = [];
 
       await Promise.all(
         ourSnakes.map(async (snake) => {
@@ -469,6 +483,7 @@ function legacyBot(): Bot {
             emissions++;
             const at = Date.now() - started;
             if (firstStageMs === null) firstStageMs = at;
+            trail.push({ ms: at, unit: snake.id, move: JSON.stringify(move) });
             moves.set(snake.id, move);
           };
           try {
@@ -492,6 +507,7 @@ function legacyBot(): Bot {
           overrunMs: Math.max(0, Date.now() - deadlineMs),
           firstStageMs,
           emissions,
+          emissionTrail: trail.slice(),
           plansEvaluated: null,
           slices: null,
           chosen: null,
@@ -569,6 +585,7 @@ function reflexBot(): Bot {
           overrunMs: 0,
           firstStageMs,
           emissions: moves.size,
+          emissionTrail: null,
           plansEvaluated: null,
           slices: null,
           chosen: null,
@@ -684,6 +701,7 @@ function neutralBot(): Bot {
           overrunMs: 0,
           firstStageMs: moves.size > 0 ? Date.now() - started : null,
           emissions: moves.size,
+          emissionTrail: null,
           plansEvaluated: null,
           slices: null,
           chosen: null,
