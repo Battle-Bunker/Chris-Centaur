@@ -47,36 +47,98 @@ export function teamOfHeld(state: StateHandle, unitId: UnitId): number | null {
   return state.field.slots.find((s) => s.record.unitId === unitId)?.record.team ?? null;
 }
 
+/**
+ * INTERNED NOTES.
+ *
+ * The note is a pure function of `(channel, liveId, couldBeat)` — three small
+ * integers — and it is the same handful of sentences over and over: a decision
+ * builds ~20 of them per resolution at thousands of resolutions a second, and
+ * the measured cost of `ledgerOf` was 11 µs a branch of which the note strings
+ * were 10. The obvious fix, a lazy `get note()`, was tried and MEASURED WORSE
+ * (11 µs → 25): a getter puts the entry object into dictionary mode, and every
+ * later read of every field pays for it. Interning instead keeps the entry a
+ * plain shape and makes the string free after the first sighting.
+ *
+ * The map is unbounded in principle and tiny in practice: `channel` is a fixed
+ * enum, `liveId` is a unit id, and there is one process-wide table rather than
+ * one per decision, so a long-running server converges on a fixed working set.
+ */
+const NOTES = new Map<number, string>();
+
+function makeNote(channel: number, liveId: number, couldBeat: boolean): string {
+  const name = CHANNEL_NAMES[channel] ?? String(channel);
+  return `${name} with live ${liveId}${couldBeat ? " (could beat it)" : ""}`;
+}
+
+function noteFor(channel: number, liveId: number, couldBeat: boolean): string {
+  // The packed key is exact only inside these ranges. Anything outside them is
+  // built uncached rather than risking two different notes on one key: an
+  // interning table that can collide is a wrong ledger entry, which is worse
+  // than a slow one.
+  if (channel < 0 || channel > 0x3f || liveId < 0 || liveId > 0xffff || (liveId | 0) !== liveId) {
+    return makeNote(channel, liveId, couldBeat);
+  }
+  const key = ((channel << 17) | (liveId << 1) | (couldBeat ? 1 : 0)) >>> 0;
+  const hit = NOTES.get(key);
+  if (hit !== undefined) return hit;
+  const made = makeNote(channel, liveId, couldBeat);
+  NOTES.set(key, made);
+  return made;
+}
+
 function entriesOfOne(
   e: Entanglement,
   bySlot: ReadonlyMap<number, UnitId>,
   out: LedgerEntry[],
 ): void {
   const polarity: LedgerEntry["polarity"] = e.assumedPresent ? "if_absent" : "if_present";
-  const channel = CHANNEL_NAMES[e.channel] ?? String(e.channel);
   let mask = e.frozen >>> 0;
+  if (mask === 0) return;
+  const note = noteFor(e.channel, e.liveId, e.couldBeat);
+  const cell = e.cell as CellIndex;
+  const subStep = e.subStep as SubStep;
   while (mask !== 0) {
     const bit = 31 - Math.clz32(mask);
     mask &= ~(1 << bit);
     const unitId = bySlot.get(bit);
     if (unitId === undefined) continue;
-    out.push({
-      unitId,
-      cell: e.cell as CellIndex,
-      subStep: e.subStep as SubStep,
-      polarity,
-      note: `${channel} with live ${e.liveId}${e.couldBeat ? " (could beat it)" : ""}`,
-    });
+    out.push({ unitId, cell, subStep, polarity, note });
   }
 }
 
 /**
  * The contract-shaped ledger of one resolution. Deduplicated and canonically
  * ordered, because it becomes part of a bound's identity.
+ *
+ * The slot→unit map is cached per CLOUD FIELD, which is what it is actually a
+ * function of: `CloudField` is immutable and shared by pointer across every
+ * sibling state of a search, so one map serves the thousands of resolutions a
+ * decision runs against one hold configuration. Keying on the STATE would have
+ * been wrong twice over — the handle's slab is returned to a pool on release,
+ * and two states sharing a field would each rebuild the same answer.
+ */
+const BY_SLOT = new WeakMap<object, ReadonlyMap<number, UnitId>>();
+
+/**
+ * NOT CACHED PER RESOLUTION — a measured null result, kept as a note.
+ *
+ * The resolution memo serves the same `Resolution` object to every branch that
+ * re-visits a plan, so caching the translation on it looked free. Measured on
+ * 450 full B0–B3 prices it was worth nothing at all (14 814 ms without it,
+ * 14 776 ms with — inside the noise) and cost 2.1 MB of weak-table growth per
+ * 450 prices, because the memo keeps its resolutions ALIVE and the `WeakMap`
+ * therefore grows to the memo's whole capacity instead of shedding entries.
+ * The branch path re-prices distinct plans; it does not re-ask for the same
+ * resolution's ledger.
  */
 export function ledgerOf(resolution: Resolution): ReadonlyArray<LedgerEntry> {
   if (resolution.ledger.length === 0) return [];
-  const bySlot = frozenUnitBySlot(resolution.state);
+  const field = resolution.state.field as unknown as object;
+  let bySlot = BY_SLOT.get(field);
+  if (bySlot === undefined) {
+    bySlot = frozenUnitBySlot(resolution.state);
+    BY_SLOT.set(field, bySlot);
+  }
   const out: LedgerEntry[] = [];
   for (const e of resolution.ledger) entriesOfOne(e, bySlot, out);
   return normalizeLedger(out);

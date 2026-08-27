@@ -19,9 +19,12 @@ import {
   isDischarged,
   makeScoreBounds,
   normalizeAssumptions,
+  normalizeLedger,
   onBasis,
   pointBounds,
   tighten,
+  unionAssumptions,
+  unionLedgers,
   widthOf,
   withNarrowing,
 } from './index';
@@ -186,5 +189,153 @@ describe('declared narrowing', () => {
   test('declaring the same narrowing twice does not widen the basis', () => {
     const n: Assumption = { kind: 'narrowing', unitId: 8, note: 'top-2 replies only' };
     expect(withNarrowing(withNarrowing(pointBounds(3), n), n).assumptions).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE CANONICAL REGISTER, AND THE INTERNING AROUND IT
+//
+// These pin the exact behaviour the W2 allocation work leans on: normalisation
+// is idempotent, and the SHORTCUTS taken because it is idempotent produce the
+// same array a full normalisation would. Every one of them is a place where a
+// wrong answer would be a wrong bound identity, not a slow one.
+// ---------------------------------------------------------------------------
+
+describe('ledger normalisation', () => {
+  const led = (unitId: number, cell: number, subStep = 1, note = 'n'): LedgerEntry => ({
+    unitId,
+    cell,
+    subStep,
+    polarity: 'if_present',
+    note,
+  });
+
+  test('orders by the STRING key, which is not the numeric one', () => {
+    // "10:..." sorts before "9:..." as a string and after it as a number. The
+    // string order is the one a bound's identity is built on.
+    const out = normalizeLedger([led(9, 1), led(10, 1)]);
+    expect(out.map((e) => e.unitId)).toEqual([10, 9]);
+  });
+
+  test('deduplicates on (unitId, cell, subStep, polarity), keeping the FIRST', () => {
+    const first = led(3, 7, 1, 'first');
+    const second = led(3, 7, 1, 'second');
+    const out = normalizeLedger([first, second, led(1, 2)]);
+    expect(out).toHaveLength(2);
+    expect(out.find((e) => e.unitId === 3)?.note).toBe('first');
+  });
+
+  test('keeps the first occurrence even when the duplicates straddle a sort move', () => {
+    const a = led(2, 5, 1, 'A');
+    const b2 = led(2, 5, 1, 'B');
+    const out = normalizeLedger([led(9, 9), a, led(1, 1), b2]);
+    expect(out.filter((e) => e.unitId === 2).map((e) => e.note)).toEqual(['A']);
+  });
+
+  test('is idempotent, and re-normalising returns the SAME array', () => {
+    const once = normalizeLedger([led(9, 1), led(10, 1), led(9, 1)]);
+    const twice = normalizeLedger(once);
+    expect(twice).toBe(once);
+    expect(twice.map((e) => e.unitId)).toEqual([10, 9]);
+  });
+
+  test('the shortcut agrees with a full normalisation of an unregistered copy', () => {
+    const raw = [led(9, 1), led(10, 1), led(2, 3), led(9, 1), led(10, 1)];
+    const once = normalizeLedger(raw);
+    // A structurally identical array the register has never seen takes the
+    // long path; the two must agree entry for entry and in order.
+    const fresh = normalizeLedger(raw.map((e) => ({ ...e })));
+    expect(fresh.map((e) => `${e.unitId}:${e.cell}:${e.subStep}`)).toEqual(
+      once.map((e) => `${e.unitId}:${e.cell}:${e.subStep}`),
+    );
+  });
+
+  test('a union of one canonical ledger with itself is that ledger', () => {
+    const one = normalizeLedger([led(4, 4), led(3, 3)]);
+    expect(unionLedgers(one, one)).toBe(one);
+    expect(unionLedgers(one, [])).toBe(one);
+    expect(unionLedgers([], one)).toBe(one);
+  });
+
+  test('a union of two DIFFERENT ledgers is still a full normalisation', () => {
+    const a = normalizeLedger([led(4, 4), led(3, 3)]);
+    const c = normalizeLedger([led(5, 5), led(3, 3)]);
+    const u = unionLedgers(a, c);
+    expect(u.map((e) => e.unitId)).toEqual([3, 4, 5]);
+  });
+
+  test('a bound built from an already-normalised ledger carries it unchanged', () => {
+    const one = normalizeLedger([led(9, 1), led(10, 1)]);
+    expect(makeScoreBounds({ worst: 0, best: 1, ledger: one }).ledger).toBe(one);
+  });
+});
+
+describe('assumption normalisation and basis keys', () => {
+  test('normalisation is idempotent and returns the SAME array', () => {
+    const once = normalizeAssumptions([pin(2, 5), pin(1, 4), pin(2, 5)]);
+    expect(normalizeAssumptions(once)).toBe(once);
+    expect(once).toHaveLength(2);
+  });
+
+  test('a union over one canonical basis is that basis', () => {
+    const basis = normalizeAssumptions([pin(2, 5), pin(1, 4)]);
+    expect(unionAssumptions(basis, basis, basis)).toBe(basis);
+    expect(unionAssumptions(basis, [])).toBe(basis);
+  });
+
+  test('a union that really adds something still normalises', () => {
+    const basis = normalizeAssumptions([pin(1, 4)]);
+    const wider = unionAssumptions(basis, [pin(2, 5)]);
+    expect(wider).toHaveLength(2);
+    expect(basisKeyOf(wider)).not.toBe(basisKeyOf(basis));
+  });
+
+  test('the cached basis key is the key a fresh array would get', () => {
+    const a = [pin(2, 5), pin(1, 4)];
+    const first = basisKeyOf(a);
+    expect(basisKeyOf(a)).toBe(first);
+    expect(basisKeyOf([pin(2, 5), pin(1, 4)])).toBe(first);
+    // ...and it is order-free.
+    expect(basisKeyOf([pin(1, 4), pin(2, 5)])).toBe(first);
+  });
+
+  test('the empty basis is the empty key', () => {
+    expect(basisKeyOf([])).toBe('');
+  });
+});
+
+describe('the provenance note is lazy', () => {
+  test('a thunk is not called when the bound is fine', () => {
+    let calls = 0;
+    makeScoreBounds({
+      worst: 1,
+      best: 2,
+      ledger: [{ unitId: 1, cell: 1, subStep: 1, polarity: 'if_present', note: 'n' }],
+      note: () => {
+        calls++;
+        return 'expensive';
+      },
+    });
+    expect(calls).toBe(0);
+  });
+
+  test('a thunk IS called when the bound inverts, and its text reaches the error', () => {
+    let calls = 0;
+    expect(() =>
+      makeScoreBounds({
+        worst: 9,
+        best: 1,
+        note: () => {
+          calls++;
+          return 'B2 branch 7>3';
+        },
+      }),
+    ).toThrow(/B2 branch 7>3/);
+    expect(calls).toBe(1);
+  });
+
+  test('a plain string still works, on both error paths', () => {
+    expect(() => makeScoreBounds({ worst: 9, best: 1, note: 'plain' })).toThrow(/plain/);
+    expect(() => makeScoreBounds({ worst: 0, best: 5, note: 'plain' })).toThrow(/plain/);
   });
 });
