@@ -229,6 +229,111 @@ describe('the wire reaches the cloud', () => {
   });
 });
 
+// ------------------------------------------------------------- O-P4 / D-0
+
+/**
+ * THE TWO SIDES, ON ONE BOARD, AT ONE PLY (O-P4, la-inside.md's D-0).
+ *
+ * A unit is priced by one of two machines depending on whether this decision
+ * MODELS it. Modelled, its tier is a number in the engine's arena, read
+ * verbatim by every contest (`engine.ts` U_TIER). Held, its tier is an
+ * INTERVAL the cloud derives from the frozen record, lapsed at the record's
+ * expiry (`cloud.ts` `expired`). Nothing makes those two machines agree except
+ * that they are fed the same fact, so this is the test that they are.
+ *
+ * WHAT THIS PINS, AND WHAT IT DOES NOT. `marshalBoard` collapses the wire's
+ * level+expiry to `tierAtArrival(unit, currentTurn)` for BOTH sides, so at one
+ * ply the agreement is by construction, and the interesting boundary is the
+ * arrival turn itself: a window whose last governing turn IS the current turn
+ * does not govern the arrival. The DILATED side is where the two machines can
+ * come apart, and it is where the fix shows: with the expiry threaded, a frozen
+ * ceiling lapses as the field advances; without it the cloud prices a
+ * three-turn buff as a permanent one. The live side has no advance of its own
+ * at one ply — recomputing its tier at a NEW arrival turn is the door's job
+ * (la-inside D-1), and what CL0 owes that work is the fact itself, which is now
+ * in the arena beside the tier (`U_TIEREXP`) rather than dropped at marshal
+ * time.
+ */
+describe('the live and frozen sides price one tier the same way', () => {
+  const boardWithExpiry = (wireExpiry: number): Board =>
+    boardOf([
+      piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
+      piece('B1', { x: 5, y: 5 }, 'rook', 3, {
+        teamID: 'B',
+        invulnerabilityLevel: 1,
+        invulnerabilityExpiryTurn: wireExpiry,
+      }),
+    ]);
+
+  it.each([
+    // [wire expiry, the tier that governs the ARRIVAL turn]
+    ['lapsed two turns before the arrival', 29, 0],
+    ['lapses exactly ON the arrival boundary', TURN, 0],
+    ['still governs the arrival turn', ARRIVAL, 1],
+    ['governs the arrival turn and one more', TURN + 2, 1],
+  ])('a window that %s is one number to both machines', (_name, wireExpiry, governing) => {
+    const board = boardWithExpiry(wireExpiry as number);
+
+    // LIVE: B1 is a mover, so its tier is whatever the engine's arena holds.
+    const live = subFor(board, 'A');
+    const liveUnit = unitNamed(live, 'B1');
+    const view = live.viewOf(liveUnit.unitId);
+    expect(view).not.toBeNull();
+    expect(liveUnit.tier).toBe(governing);
+    expect((view as { tier: number }).tier).toBe(governing);
+    // The arena carries the SCHEDULE too, not just the collapsed level — this
+    // is what a ply-2 root will recompute from, and dropping it here is the
+    // half of D-0 that made the whole thing undebuggable.
+    expect((view as { tierExpiresAtTurn: number | null }).tierExpiresAtTurn).toBe(
+      (wireExpiry as number) + 1
+    );
+    live.release();
+    clearGeometryCache();
+
+    // FROZEN: B1 is a claim, so its tier comes off the record through the cloud.
+    const frozen = makeSubstrate({ board, turn: TURN, asTeam: 'A', modeled: ['A1'] });
+    const slot = slotNamed(frozen, 'B1');
+    expect(slot.record.tier).toBe(governing);
+    expect(slot.record.tierExpiresAtTurn).toBe((wireExpiry as number) + 1);
+    expect(heldTierAt(slot.record, ARRIVAL)).toBe(governing);
+    // The interval's own ceiling agrees at the arrival turn: it may sit ABOVE
+    // the governing tier only when a widening is live, and it never sits below.
+    expect(slot.bounds.tierMax).toBeGreaterThanOrEqual(governing as number);
+    expect(slot.bounds.tierMin).toBeLessThanOrEqual(governing as number);
+    frozen.release();
+  });
+
+  /**
+   * THE REGRESSION, in the shape the pre-fix code actually had.
+   *
+   * The defect was never visible at ply 1 — it was that the frozen side had
+   * NOTHING TO LAPSE, because `substrate.ts` hard-coded `tierExpiresAtTurn:
+   * null` onto every record it built. So the way to assert the fix is to
+   * advance the field past the window and watch the ceiling come down; the
+   * `off` arm of the tier-truth seam reproduces the pre-fix behaviour exactly
+   * and is the control.
+   */
+  it('a frozen buff LAPSES as the field advances, which it could not do before', () => {
+    const board = boardWithExpiry(TURN + 1); // governs the arrival, then stops
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'A', modeled: ['A1'] });
+    const unit = unitNamed(sub, 'B1');
+    const field = sub.claimField();
+    const at = (turn: number): number => {
+      const s = field.advanceTo(turn).slots.find((x) => x.record.unitId === unit.unitId);
+      return (s as { bounds: { tierMax: number } }).bounds.tierMax;
+    };
+
+    // Threaded: the record knows its horizon, so the ceiling falls to 0 once
+    // the window is behind the field.
+    expect(heldTierAt(unit, ARRIVAL)).toBe(1);
+    expect(heldTierAt(unit, TURN + 2)).toBe(0);
+    expect(at(TURN + 6)).toBe(0);
+    // ... and it is a real drop, not a ceiling that was 0 the whole way.
+    expect(at(ARRIVAL)).toBeGreaterThan(0);
+    sub.release();
+  });
+});
+
 // --------------------------------------------------------------------- DEFENDED
 
 describe('tier-safe staging', () => {
