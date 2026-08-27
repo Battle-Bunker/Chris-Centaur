@@ -60,6 +60,15 @@ import {
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
 import { resolveStagingSafety, stagingSafety } from "../staging-safety";
+import {
+  catalogueDigest,
+  planBatchPartition,
+  type EvaluationPool,
+  type EvaluatorSpec,
+  type Frontier,
+  type WorkPartition,
+} from "../parallel";
+import type { CandidateKnobs } from "../candidates";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -105,6 +114,44 @@ export interface SearchTuning {
    * `CENTAUR_STAGING_SAFETY`; named by a caller it is that caller's answer.
    */
   readonly seedDeconflict: boolean | undefined;
+  /**
+   * WORKER PARALLELISM, or `null` for the single-threaded path.
+   *
+   * Null is the default and is bit-for-bit the search that shipped: no fold, no
+   * dispatch, no extra allocation, no extra branch inside a hot loop. Present,
+   * it is everything this core needs to describe its own session to a worker —
+   * the pool, the board the pool is holding, the RESOLVED candidate knobs (the
+   * core only ever sees an opaque `CandidateGenerator`, so the knobs have to
+   * arrive from whoever built it) and how the evaluator is to be rebuilt.
+   *
+   * `TeamDecisionEngine` fills this in; nothing else does.
+   */
+  readonly parallel: ParallelTuning | null;
+}
+
+export interface ParallelTuning {
+  readonly pool: EvaluationPool;
+  /** The epoch `pool.pushBoard` returned for THIS decision's board. */
+  readonly boardEpoch: number;
+  readonly knobs: CandidateKnobs;
+  readonly evaluator: EvaluatorSpec;
+  /**
+   * How many plans of the frontier to leave to the main thread before
+   * speculation starts.
+   *
+   * A slice is synchronous, so no worker result can land inside one: the plans
+   * this slice is about to price itself are plans no worker can beat it to, and
+   * speculating on them is speculating on a race that is already lost. The
+   * headroom is what the main thread expects to get through; the workers take
+   * the tail, and slice N+1 finds it already evaluated.
+   */
+  readonly headroom: number;
+  /** How long a worker may spend on one parcel. The main thread owns this
+   * number, as it owns every other budget in the system. */
+  readonly parcelBudgetMs: number;
+  /** How the frontier is cut. Defaults to `planBatchPartition(headroom)`; the
+   * cluster-lookahead program replaces exactly this. */
+  readonly partition?: WorkPartition;
 }
 
 export const DEFAULT_TUNING: SearchTuning = {
@@ -121,6 +168,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   rungZeroRepairVictims: 4,
   rungZeroRepair: undefined,
   seedDeconflict: undefined,
+  parallel: null,
 };
 
 /** The search could not determine which units it commands. */
@@ -153,6 +201,12 @@ interface Session {
    * reference must stay fixed on the emission path too). Never swept,
    * repaired, polished or perturbed. */
   readonly references: ReadonlyMap<UnitId, Candidate>;
+  /**
+   * This session's identity to the worker pool, or null when there is none.
+   * `seq` is the parcel counter the fold orders on, and it is mutable because
+   * a session outlives every parcel it fires.
+   */
+  readonly parallel: { readonly sessionId: number; seq: number } | null;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -251,6 +305,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     const s = sessions.get(key);
     if (s === undefined) return;
     sessions.delete(key);
+    // Hand the memo's counters to the pool BEFORE the bank clears them: how
+    // many speculative evaluations were taken, and how many were ever read, is
+    // the only honest measure of whether the workers paid for themselves, and
+    // after `release()` there is nobody left to ask.
+    if (cfg.parallel !== null && s.parallel !== null) {
+      cfg.parallel.pool.noteSession(s.bank.evalMemoStats);
+    }
     s.bank.release();
   };
 
@@ -292,7 +353,103 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       sets,
       pins,
       references,
+      parallel: openParallelSession(ctx, ours, sets),
     };
+  };
+
+  // -------------------------------------------------------------- parallel
+  //
+  // Three functions, none of which the single-threaded path executes: with
+  // `cfg.parallel === null` the first returns null and the other two return
+  // immediately on a null session handle.
+
+  /**
+   * Tell the pool about this basis, and get back the id its parcels ride on.
+   *
+   * The CATALOGUE DIGEST goes with it. A worker builds its own candidate lists
+   * and compares; a mismatch means the two sides would decode the same index to
+   * different moves, every entry the worker returns would be under a planKey
+   * this thread never asks for, and the honest thing is to stop dispatching
+   * rather than to keep paying for inert answers. It is a performance guard,
+   * not a soundness one — see `parallel/protocol.ts`.
+   */
+  const openParallelSession = (
+    ctx: SearchContext,
+    ours: ReadonlyArray<UnitId>,
+    sets: ReadonlyMap<UnitId, CandidateSet>,
+  ): Session["parallel"] => {
+    const par = cfg.parallel;
+    if (par === null || !par.pool.live || ours.length === 0) return null;
+    const sessionId = par.pool.nextSessionId();
+    par.pool.openSession({
+      sessionId,
+      boardEpoch: par.boardEpoch,
+      asTeam: ctx.asTeam,
+      knobs: par.knobs,
+      evaluator: par.evaluator,
+      basis: basisOf(ctx),
+      bankConfig: { ...cfg.bank, memoCapacity: memoShare, evalMemoCapacity: evalMemoShare },
+      roster: [...ours],
+      catalogueDigest: catalogueDigest(ours, sets),
+    });
+    return { sessionId, seq: 0 };
+  };
+
+  /**
+   * Take whatever the workers have finished, as CACHED EVALUATIONS.
+   *
+   * Called once at the top of a call and never inside one, because that is the
+   * only place a result can be: a slice is synchronous JavaScript and no
+   * message is delivered while one runs. So "fold what arrived in time,
+   * otherwise carry it to the next slice" is not a policy this code implements
+   * — it is what the event loop does, and the memo is what makes it safe.
+   */
+  const foldParallel = (s: Session): void => {
+    const par = cfg.parallel;
+    if (par === null || s.parallel === null) return;
+    const entries = par.pool.drain(s.parallel.sessionId);
+    if (entries.length > 0) s.bank.importEvaluations(entries);
+  };
+
+  /**
+   * Fire one parcel per free worker over the tail of the sweep frontier.
+   *
+   * AFFORDABILITY IS THE MAIN THREAD'S CALL, made here and nowhere else: a
+   * parcel is dispatched only when this slice has more time left than it will
+   * spend dispatching, and a worker is told exactly how long it may spend.
+   * Nothing about a late parcel can hurt — its entries land in the memo of a
+   * later slice, or in no slice at all — so there is no wait, no join and no
+   * synchronisation point anywhere on the decision path.
+   */
+  const speculate = (s: Session, ctx: SearchContext, incumbent: BankResult): void => {
+    const par = cfg.parallel;
+    if (par === null || s.parallel === null || !par.pool.live) return;
+    const slots = par.pool.freeSlots;
+    if (slots <= 0) return;
+    if (ctx.budget.shouldStop()) return;
+    const frontier: Frontier = {
+      roster: s.ours,
+      sets: s.sets,
+      pinned: s.pinned,
+      incumbent,
+      candidateCap: cfg.candidateCap,
+    };
+    const partition = par.partition ?? planBatchPartition(par.headroom);
+    const chunks = partition.partition(frontier, slots);
+    for (const chunk of chunks) {
+      if (chunk.count === 0) continue;
+      const seq = s.parallel.seq++;
+      const sent = par.pool.dispatch({
+        kind: "plan-batch",
+        sessionId: s.parallel.sessionId,
+        boardEpoch: par.boardEpoch,
+        seq,
+        budgetMs: par.parcelBudgetMs,
+        count: chunk.count,
+        codes: chunk.codes,
+      });
+      if (!sent) break;
+    }
   };
 
   /**
@@ -526,7 +683,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
     {
+      // The two parallel seams, and they bracket the SEED rather than the
+      // sweep: the fold has to happen before anything is priced (an entry that
+      // arrives after the price it would have served is an entry wasted), and
+      // the speculation has to happen after the seed, because the seed's own
+      // resolution is what names the danger order the frontier is built in.
+      foldParallel(s);
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      speculate(s, ctx, best);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -594,6 +758,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
     const s = sessionFor(ctx);
     {
+      // Fold, but never speculate. `conform` runs while an operator is waiting
+      // to see their pin honoured and its cost must track the disturbance, not
+      // the roster; building a frontier and cutting it is roster-shaped work.
+      // Taking free answers that are already here is not.
+      foldParallel(s);
       if (incumbent.size === 0) {
         const seed = seedPlan(s, null);
         // One resolution set — and the SEED IS RETURNED WHATEVER IT SAYS.

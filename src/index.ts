@@ -166,6 +166,16 @@ activityController.onIdle('decision-worker-pool', () => {
   DecisionWorkerPool.shutdownSharedIfRunning();
 });
 
+// The same for the LOBSTER evaluation pool, which is a second and separate set
+// of worker threads (src/lobster/parallel): unref'd, so they never hold the
+// loop open, but each one holds its own EngineSubstrate for every board it was
+// pushed. It respawns warm on the next decision after a wake.
+if (ttFirebase) {
+  activityController.onIdle('lobster-evaluation-workers', () => {
+    void ttFirebase.releaseEvaluationWorkers();
+  });
+}
+
 // Firebase connection status surface: the centaur is nonfunctional without its
 // Firebase connection, so the web UI shows a red banner (with a Retry button)
 // whenever it is down. Status changes are pushed over the WebSocket; these

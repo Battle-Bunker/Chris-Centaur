@@ -73,6 +73,14 @@ import {
   type KernelReport,
 } from './kernel';
 import { TeamPinLedger, adviseFromReport, type TeamPinAdvice } from './pins';
+import {
+  auditFrom,
+  evaluatorSpecOf,
+  makeEvaluationPool,
+  type EvaluationPool,
+  type EvaluatorSpec,
+  type PoolStats,
+} from './parallel';
 
 // ------------------------------------------------------------------- ports
 
@@ -162,7 +170,56 @@ export interface TeamDecisionOptions {
    * measures nothing.
    */
   readonly stagingSafety?: StagingSafety;
+  /**
+   * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
+   * instance only.
+   *
+   * `"off"` is today's single-threaded path, bit for bit, with no pool
+   * constructed at all. `"auto"` (the default, and ON) is `min(cores - 1, 3)`.
+   * A number is that many, and `0` is the same search as `"off"` with the
+   * plumbing present and inert — which is what makes the pool-0 identity gate
+   * and the pool-N determinism gate the same statement.
+   *
+   * Per-engine and not per-process for the same reason `stagingSafety` is: the
+   * thing that has to be measurable is ONE SEAT against unchanged opponents.
+   */
+  readonly workers?: 'off' | 'auto' | number;
+  /**
+   * A pool the caller already owns, used instead of building one. The seam the
+   * benches and the determinism gate drive; production never passes it.
+   */
+  readonly pool?: EvaluationPool;
+  /**
+   * How many plans of each slice's frontier the MAIN thread is assumed to
+   * price itself before the workers' share begins. Speculating on plans this
+   * slice is about to reach is speculating on a race a worker cannot win — no
+   * message is delivered while a synchronous slice runs — so the workers take
+   * the tail. Defaults to `DEFAULT_SPECULATION.headroom`.
+   */
+  readonly speculationHeadroom?: number;
+  /** How long a worker may spend on one parcel. Defaults to
+   * `DEFAULT_SPECULATION.parcelBudgetMs`. */
+  readonly parcelBudgetMs?: number;
 }
+
+/**
+ * The speculation defaults, named so a bench can move one and say which.
+ *
+ * `headroom` is a plan count, not a time: the frontier is enumerated in the
+ * exact order `sweep` walks it, and eight is roughly one unit's worth of
+ * candidates at the shipped `candidateCap`. Leaving one unit to the main
+ * thread and giving the workers the rest is the smallest cut that cannot have
+ * a worker and the coordinator racing for the same plan.
+ *
+ * `parcelBudgetMs` is deliberately larger than a slice: a parcel is speculation
+ * for the NEXT slice, and a worker cut off at this slice's boundary would
+ * return half a chunk every time. It is bounded because a worker still holding
+ * a board the decision has finished with is memory and heat for nothing.
+ */
+export const DEFAULT_SPECULATION = {
+  headroom: 8,
+  parcelBudgetMs: 250,
+} as const;
 
 export interface TeamTurnInput {
   readonly gameId: string;
@@ -262,6 +319,27 @@ export class TeamDecisionEngine {
   private readonly monotonic: () => number;
   private readonly env: NodeJS.ProcessEnv;
   private readonly log: (message: string) => void;
+  /**
+   * THE WARM EVALUATION POOL — one per engine, reused across every decision of
+   * every game, torn down by `shutdown()`.
+   *
+   * Engine-lifetime and never decision-lifetime: a cold worker is ~2× slower
+   * than a warm one and a pool costs 236–512 ms to spawn against a 150 ms
+   * decision. The boards inside it are epoch-keyed, so two overlapping turns
+   * (and two concurrent games) do not evict each other's substrates.
+   *
+   * BUILT ON FIRST USE, not in the constructor. This engine is a field of
+   * `FirebaseInterface` and is constructed unconditionally — it is inert until
+   * `CENTAUR_ENGINE=lobster` actually routes a turn through it — and spawning
+   * three threads in a process that will never take a lobster decision is a
+   * cost with no decision to amortise it against. `shutdown()` clears the
+   * handle, so an idle teardown that stops the workers gets a fresh warm pool
+   * on the next decision, exactly like `DecisionWorkerPool`.
+   */
+  private pool: EvaluationPool | null = null;
+  /** How this decision's evaluator is rebuilt on a worker, or why it cannot
+   * be. Computed once — the evaluator is fixed for the engine's life. */
+  private readonly evaluatorSpec: EvaluatorSpec;
 
   constructor(
     private readonly ports: TeamDecisionPorts,
@@ -271,6 +349,50 @@ export class TeamDecisionEngine {
     this.monotonic = ports.monotonic ?? defaultNow;
     this.env = ports.env ?? process.env;
     this.log = ports.log ?? ((m) => console.log(m));
+    this.evaluatorSpec = evaluatorSpecOf(this.options.evaluate ?? defaultEvaluator);
+    if (this.options.pool !== undefined) this.pool = this.options.pool;
+  }
+
+  /** The pool, built on first use. See the field's own note for why not in the
+   * constructor. */
+  private poolFor(): EvaluationPool {
+    if (this.pool !== null) return this.pool;
+    const made = makeEvaluationPool({
+      setting: this.options.workers,
+      env: this.env,
+      log: this.log,
+    });
+    this.pool = made;
+    if (made.size > 0 && this.evaluatorSpec.kind === 'unsupported') {
+      // Loudly, and once. A pool that cannot rebuild the evaluator produces
+      // entries under a namespace this thread never queries — harmless, and
+      // pure waste — so it is never dispatched to at all.
+      this.log(
+        `[team-engine] evaluation workers are OFF for this engine: ${this.evaluatorSpec.why}`
+      );
+    }
+    return made;
+  }
+
+  /** Pool counters, for the bench and the soak. Zero before the first decision
+   * and on an `off` engine. */
+  get workerStats(): PoolStats | null {
+    return this.pool?.stats ?? null;
+  }
+
+  /**
+   * Stop the workers.
+   *
+   * A process that keeps the engine for its whole life never HAS to call this —
+   * the workers are unref'd, so they never hold the event loop open — but idle
+   * teardown does (three threads' worth of substrate is memory held for a game
+   * nobody is playing) and graceful shutdown does. The handle is cleared, so
+   * the next decision after a wake gets a fresh warm pool.
+   */
+  async shutdown(): Promise<void> {
+    const pool = this.pool;
+    this.pool = null;
+    await pool?.shutdown();
   }
 
   /** Subscribe to pin advice; informational only, never applied. */
@@ -334,6 +456,16 @@ export class TeamDecisionEngine {
     // held, which is looser and sound.
     const capacity = this.planCapacity(input);
     let chosen: string[] = [...capacity.wireIds];
+    // THE BOARD PUSH, as early as the modelled set is known.
+    //
+    // On the overwhelmingly common board nothing overflows MAX_FROZEN, so the
+    // modelled set is settled here and the workers start their 33–132 ms
+    // substrate build NOW — in parallel with this thread's own build, the
+    // safety resolution, the generator, the kernel, the pin routing and rung 0.
+    // On an overflowing board the modelled set is not known until the retry
+    // loop below settles, and a board pushed with the wrong `modeled` is a
+    // board whose claim view differs, so the push waits.
+    let boardEpoch = chosen.length === 0 ? this.pushBoard(input, chosen) : 0;
     let sub = this.substrateFor(input, chosen);
     const missed: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -358,6 +490,7 @@ export class TeamDecisionEngine {
       chosen = [...keep, ...replacements];
       sub = this.substrateFor(input, chosen);
     }
+    if (boardEpoch === 0) boardEpoch = this.pushBoard(input, chosen);
     for (const wireId of missed) {
       assumptionsFor.push({
         kind: 'narrowing',
@@ -392,10 +525,11 @@ export class TeamDecisionEngine {
     // by itself silently drops every per-arm knob (gainOrdering, the terrain
     // pair, the tier knobs), and `this.options.candidates` by itself makes the
     // stagingSafety option inert.
-    const gen = new GrammarCandidateGenerator({
+    const knobs: CandidateKnobs = {
       ...knobsForSafety(safety),
       ...(this.options.candidates ?? {}),
-    });
+    };
+    const gen = new GrammarCandidateGenerator(knobs);
     const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
@@ -404,6 +538,17 @@ export class TeamDecisionEngine {
         rungZeroRepair: safety === 'full',
         seedDeconflict: safety !== 'off',
         ...(this.options.search ?? {}),
+        // AFTER the caller's tuning, and deliberately: these two are not
+        // preferences the caller expresses, they are facts about THIS
+        // decision that only this line knows. `parallel.knobs` must be the
+        // RESOLVED knobs — `knobsForSafety` is board-conditional, and a worker
+        // that generated a different catalogue would answer under plan keys
+        // nobody asks for. `bank.auditImports` rides CENTAUR_WORKERS_AUDIT.
+        bank: {
+          ...(this.options.search?.bank ?? {}),
+          auditImports: auditFrom(this.env),
+        },
+        parallel: this.parallelTuning(boardEpoch, knobs),
       }),
       witnesses
     );
@@ -494,6 +639,12 @@ export class TeamDecisionEngine {
         game.stepCostTurn = input.turn;
       }
       sub.release();
+      // The workers' copy of this board has no future either. Released here
+      // and not in `release(gameId)`, because the unit of a board is a TURN:
+      // an epoch that outlives its decision is a whole EngineSubstrate per
+      // worker held for nothing, and the pool's own LRU would be evicting the
+      // LIVE turn's board to make room for a dead one.
+      if (boardEpoch !== 0) this.pool?.releaseBoard(boardEpoch);
     }
     refusals['pin-event-late'] += game.ledger.droppedEvents - game.dropsReported;
     game.dropsReported = game.ledger.droppedEvents;
@@ -545,6 +696,49 @@ export class TeamDecisionEngine {
   }
 
   // ---------------------------------------------------------------- internals
+
+  /**
+   * Serialize this turn's board to the workers, and return the epoch they hold
+   * it under. Zero when there is no pool, which is what makes every caller of
+   * this a no-op on the `off` path.
+   *
+   * The `modeled` set is the SAME list `substrateFor` passes — our own units
+   * plus whatever the held-capacity walk had to model — because the claim view
+   * it produces is what `entangled`, `influenceOf` and the evaluator's
+   * held-survival reading are computed from. A worker whose claim view differs
+   * is a worker scoring a different board.
+   */
+  private pushBoard(input: TeamTurnInput, modelled: ReadonlyArray<string>): number {
+    if (this.evaluatorSpec.kind !== 'profile') return 0;
+    const pool = this.poolFor();
+    if (pool.size === 0) return 0;
+    return pool.pushBoard({
+      gameId: input.gameId,
+      turn: input.turn,
+      board: input.board,
+      asTeamId: input.ourTeamId,
+      modeled: [...input.units.map((u) => u.snakeId), ...modelled],
+      observedTurns: input.observedTurns === undefined ? [] : [...input.observedTurns],
+    });
+  }
+
+  /** What the search core needs to speculate, or null when it must not. */
+  private parallelTuning(
+    boardEpoch: number,
+    knobs: CandidateKnobs
+  ): NonNullable<SearchTuning['parallel']> | null {
+    const pool = this.pool;
+    if (boardEpoch === 0 || pool === null || pool.size === 0) return null;
+    if (this.evaluatorSpec.kind !== 'profile') return null;
+    return {
+      pool,
+      boardEpoch,
+      knobs,
+      evaluator: this.evaluatorSpec,
+      headroom: this.options.speculationHeadroom ?? DEFAULT_SPECULATION.headroom,
+      parcelBudgetMs: this.options.parcelBudgetMs ?? DEFAULT_SPECULATION.parcelBudgetMs,
+    };
+  }
 
   private gameFor(gameId: string): GameState_ {
     let game = this.games.get(gameId);
