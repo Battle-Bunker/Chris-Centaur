@@ -1152,8 +1152,14 @@ export class LobsterKernel implements Kernel {
         // handful of decisions — so printing them unconditionally would bury a
         // log, and printing none makes the counter unactionable. Env-gated:
         // CENTAUR_DEBUG_INVERSION=1 while reproducing.
+        //
+        // The CHANNEL is named because there are two and this one is not the
+        // one the corpus uses: `search/core.ts` absorbs a rung-0 inversion
+        // without ever reaching this catch, and the two are folded into the
+        // SAME counter at `drainRefusals`. An untagged line under a climbing
+        // counter reads as "the seam is covering it" when it is not.
         if (process.env.CENTAUR_DEBUG_INVERSION) {
-          process.stderr.write(`INVERSION ${(err as Error).message}\n`)
+          process.stderr.write(`INVERSION slice: ${(err as Error).message}\n`)
         }
         run.boundViolations++
         run.refusals["bounds-inversion"]++
