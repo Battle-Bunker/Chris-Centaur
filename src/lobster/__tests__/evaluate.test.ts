@@ -330,6 +330,16 @@ describe('the cliff', () => {
     // Both teams keep a spare unit far away, so no terminal clamp fires and the
     // reading is purely the cliff's magnitude.
     //
+    // "FAR AWAY" NOW MEANS FAR FROM ITS OWN TEAM-MATE TOO. The blue spare used
+    // to sit at (6,0), which its own queen's file reaches in one move — and
+    // since the queen outweighs it six to one, that meeting kills the spare.
+    // The claim layer could not see that until `CloudField.contestedClaims`
+    // (engine backlog 7), so blue read as un-wipeable and the clamp stayed
+    // quiet by accident. It is a real world, the ceiling is right to admit it,
+    // and this test is not about it: the spare moved to (0,2), which shares
+    // neither file nor rank nor diagonal with the queen and none of whose
+    // knight-moves land on one.
+    //
     // The claim is about the SPREAD, and that is the whole point of denominating
     // the cliff in material: `lo` prices a might-die unit at zero whatever it
     // weighs — that IS the cliff — so what a heavier unit at risk buys is a
@@ -341,7 +351,7 @@ describe('the cliff', () => {
         piece('R', { x: 3, y: 3 }, 'rook', weight, { teamID: 'red', health: 50 }),
         piece('spare', { x: 0, y: 6 }, 'knight', 1, { teamID: 'red', health: 50 }),
         piece('Q', { x: 5, y: 5 }, 'queen', 6, { teamID: 'blue', health: 50 }),
-        piece('q', { x: 6, y: 0 }, 'knight', 1, { teamID: 'blue', health: 50 }),
+        piece('q', { x: 0, y: 2 }, 'knight', 1, { teamID: 'blue', health: 50 }),
       ]);
     const read = (weight: number): { lo: number; hi: number } => {
       const board = withRook(weight);

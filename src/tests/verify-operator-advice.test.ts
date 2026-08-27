@@ -80,17 +80,29 @@ const board7 = (): ApiBoard =>
   );
 
 /**
- * Exhaustively computable: 11 of the rook's 13 destinations give up exactly 10
- * of material against the best unconstrained plan; two give up nothing.
- * (Ground truth is enumerated in bench/operator/truth.ts; the numbers here are
- * only used to name a pin whose cost is provably NOT zero.)
+ * Exhaustively computable: pinning the rook to most of its destinations gives
+ * up material against the best unconstrained plan; a couple give up nothing.
+ * The costs are recomputed in the test that uses them, so the board is free to
+ * move; what it must keep is a pin whose cost is provably NOT zero, and a
+ * BOUNDED ceiling to bracket it with.
+ *
+ * THE KNIGHT IS AT (5,3) AND NOT (4,3), and the reason is the ceiling. From
+ * (4,3) it reaches (2,4) in one jump, which is the pawn's own square — and a
+ * piece may hold, so the knight arriving there is a cell contest at equal tier
+ * and equal weight, which kills BOTH and wipes blue. The claim layer could not
+ * see that until `CloudField.contestedClaims` (engine backlog 7); now it can,
+ * the ceiling on the old board is correctly the WIN sentinel on every plan, and
+ * an unbounded bracket is deliberately never surfaced as advice (V1-BUG-6) —
+ * so this test would be measuring the clamp rather than the pin. One square to
+ * the right the knight's jumps miss the pawn's front entirely, blue cannot
+ * wipe itself, and the pin still costs 10 on ten of the rook's destinations.
  */
 const boardCostly = (): ApiBoard =>
   boardOf(
     [
       piece('a', { x: 2, y: 3 }, 'rook', 2, 'red'),
       piece('b', { x: 5, y: 6 }, 'knight', 1, 'red'),
-      piece('e1', { x: 4, y: 3 }, 'knight', 1, 'blue'),
+      piece('e1', { x: 5, y: 3 }, 'knight', 1, 'blue'),
       piece('e2', { x: 2, y: 4 }, 'pawn', 1, 'blue'),
     ],
     7
