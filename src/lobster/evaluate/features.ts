@@ -598,6 +598,16 @@ function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
  * worst reading gives our held units nothing and theirs everything, and the
  * best reading the reverse — loose, sound, and collapsing the moment nothing is
  * held.
+ *
+ * THE NORMALISER IS PER-KIND, and this used to be the one place it was not
+ * (O-P6). `EngineConfig.maxHealth` is the DEFAULT for kinds the board does not
+ * configure; `maxHealthPerKind` carries the ones it does, and the engine's own
+ * food phase restores a unit to `maxHealthOf(kind)` (`engine.ts:2353`). So a
+ * board with a low-maximum kind on it read that kind's full health as a
+ * FRACTION of somebody else's maximum: a 50-max unit at full health scored
+ * 0.5 where it should score 1, its whole movement budget priced as half a
+ * budget. Flat boards are unaffected — `maxHealthOf` returns the flat number
+ * for every kind when there is no table — which is why this sat here.
  */
 export const healthEconomyFeature: Feature<EvalContext> = {
   key: 'healthEconomy',
@@ -611,13 +621,13 @@ export const healthEconomyFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    const cap = Math.max(1, ctx.sub.engine.config.maxHealth);
+    const engine = ctx.sub.engine;
     const reserve = ctx.healthReserveRatio;
     let lo = 0;
     let hi = 0;
     for (const s of ctx.standing) {
       const mine = s.team === ctx.asTeam;
-      const share = budgetShare(s, cap, reserve);
+      const share = budgetShare(s, Math.max(1, engine.maxHealthOf(s.kind)), reserve);
       if (mine) {
         if (s.worstAlive && !s.held) lo += share;
         if (s.bestAlive) hi += share;
@@ -652,6 +662,12 @@ export const healthEconomyFeature: Feature<EvalContext> = {
  * than over the whole maximum, so exhaustion is priced MORE sharply than before,
  * not less. Monotone increasing in health either way, so both bound endpoints
  * keep the direction the contract declares.
+ *
+ * `cap` IS THIS UNIT'S KIND'S MAXIMUM, not the board's. The caller reads it
+ * from `engine.maxHealthOf(s.kind)` — the same function the food phase restores
+ * to — so "share of the budget" is a share of the budget this unit can actually
+ * hold. Passing a flat board-wide ceiling here is O-P6 and it under-reads every
+ * kind whose maximum is below it.
  */
 export function budgetShare(
   s: Pick<Standing, 'health' | 'kind'>,

@@ -2,8 +2,8 @@
   "package": "@cyphid/snek-engine",
   "subtree": "packages/engine/src/partial",
   "sourceRepo": "https://github.com/Cyphid-Academy/snek-centaur-platform",
-  "sourceCommit": "aec911e4a505aed316f35625d91bdc0481be271a",
-  "vendoredAt": "2026-08-27T01:11:58.271Z",
+  "sourceCommit": "c3da9cacb532c4d261124f1ec7d8cd65221333a9",
+  "vendoredAt": "2026-08-27T07:37:33.858Z",
   "hashAlgorithm": "sha256-of-source-bytes-header-stripped",
   "files": {
     "bitgrid.ts": {
@@ -27,20 +27,20 @@
       "bytes": 2604
     },
     "engine.ts": {
-      "sha256": "d0eccbe717f2159340721bf4c39df31f2cb84457e1acec7d3bd4df027d2b6572",
-      "bytes": 114641
+      "sha256": "859550a6f089c10c3ecd842dec11dfb5a96a57f061311b07b1559bb6180f7f66",
+      "bytes": 120886
     },
     "exact.ts": {
-      "sha256": "e2289e0155b3c9f3299eba95d9ad6ea21089c328b92705e43afa6843a86d2506",
-      "bytes": 30269
+      "sha256": "68e5bcb60e487b83f865453817cc0ffb65f3f8fddd16ec07a0e630b42965411d",
+      "bytes": 30837
     },
     "field.ts": {
       "sha256": "62b8d0d28929b0ea758eda68bc776da7ac903eb1b36de28ff5d435240bca98a8",
       "bytes": 24420
     },
     "grammar.ts": {
-      "sha256": "41a18502c870e70fa14cad381e4eef5ad5bf0aa9f4cea474f86cd6662908d903",
-      "bytes": 27756
+      "sha256": "fad4b0a03d92cceb3135c808b4904ee7aec3d5f56bf44d009fa787f7934c8ea7",
+      "bytes": 30164
     },
     "index.ts": {
       "sha256": "19748829447695fd2ac6b748f1a57850748283806e5233cb69260e9aab6f9e42",

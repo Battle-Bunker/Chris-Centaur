@@ -484,6 +484,163 @@ describe('a refused action really is fatal — through the real resolver', () =>
   });
 });
 
+// ------------------------------------------------- the HELD king, and the hint
+
+/**
+ * A HELD TEAMMATE KING, AND THE TWO GEOMETRIES THAT KNOW ABOUT IT.
+ *
+ * The opponent-bounds lens (bs-opponent-bounds.md, failure mode 2) names this
+ * as a hole the clustering program opens: `rayShadowCells` considers only our
+ * MODELLED kings, so once distant units are frozen-in-past a cluster's slide
+ * can cross a HELD teammate king "and the check will not fire". Two different
+ * pieces of code are in that sentence and they have opposite polarities, so
+ * this describes what each one actually does.
+ *
+ *   THE REFUSAL (`killsOwnKing`) walks `sub.roster()`, which is every live
+ *   unit whether this decision models it or not. It never had the hole. Held
+ *   and modelled are refused identically, and the first two tests pin that,
+ *   because "already closed" is a claim that decays without one.
+ *
+ *   THE HINT (`rayShadowCells` → `shadowBonus`) is the modelled-only one. It
+ *   is an ATTRACTION: `compareOrder` sorts a higher `shadowBonus` first, so
+ *   marking a cell makes our units want to stand on it.
+ *
+ * SO THE HINT IS NOT EXTENDED, AND THAT IS A DECISION RATHER THAN AN OMISSION.
+ * The lens's own rule for every opponent-derived signal is that none of them
+ * may make one of our moves MORE attractive; enemy geometry has one legitimate
+ * polarity in an ordering, and it is down. Measured on the D2 board below with
+ * the guard off, extending the mark to held kings would move the slide that
+ * crosses the king from rank #5 to rank #0 — reproducing the defect D2
+ * recorded (203/753 king deaths self-inflicted, ×3.66 cascade) on held kings
+ * this time. The asymmetry is load-bearing in the protective direction, and
+ * the third test is the tripwire that says so to whoever tries to "fix" it.
+ *
+ * What the escort geometry deserves instead is the lens's own formulation —
+ * "do not PENALISE entering the line", never "prefer entering the line" —
+ * which is a change to a calibrated ordering and therefore not CL0's.
+ */
+describe('a held teammate king', () => {
+  /**
+   * D2's geometry. An enemy rook on (0,4) aims along the rank at our king on
+   * (4,4); our queen on (8,4) slides west down that same rank, through the
+   * king, onto the rook. The cells the hint marks are the open ones strictly
+   * between the rook and the king.
+   */
+  const D2_BOARD = (): Board =>
+    boardOf(
+      [
+        piece('E', { x: 0, y: 4 }, 'rook', 3, { teamID: 'blue' }),
+        piece('K', { x: 4, y: 4 }, 'king', 1, { teamID: 'red' }),
+        piece('Q', { x: 8, y: 4 }, 'queen', 4, { teamID: 'red' }),
+      ],
+      { width: 11, height: 11 }
+    );
+
+  /** The same board asked two ways: with the king a mover, and with it a claim. */
+  const withKing = <T,>(held: boolean, fn: (sub: EngineSubstrate) => T): T => {
+    const sub = makeSubstrate({
+      board: D2_BOARD(),
+      turn: TURN,
+      asTeam: 'red',
+      ...(held ? { modeled: ['Q'] } : {}),
+    });
+    try {
+      return fn(sub);
+    } finally {
+      sub.release();
+    }
+  };
+
+  test('is refused exactly as a modelled one is — the refusal reads the roster', () => {
+    for (const held of [false, true]) {
+      const shape = withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q') as { unitId: UnitId };
+        const king = sub.unitOfWireId('K') as { unitId: UnitId; cells: ReadonlyArray<number> };
+        expect(sub.modeled().has(king.unitId)).toBe(!held);
+        const set = GUARDED().candidatesFor(sub, queen.unitId);
+        const royal = set.prunedLedger.filter((e) => e.prune === PRUNE.royalPath);
+        return {
+          refused: royal.length,
+          // Every refusal really does cross the king, and nothing that crosses
+          // it survives.
+          allCross: royal.every((e) => e.candidate.path.includes(king.cells[0] as number)),
+          survivingCrossings: set.candidates.filter((c) =>
+            c.path.includes(king.cells[0] as number)
+          ).length,
+        };
+      });
+      expect([held, shape]).toEqual([
+        held,
+        { refused: 1, allCross: true, survivingCrossings: 0 },
+      ]);
+    }
+  });
+
+  test('answers killsOwnKing the same way whether it is a mover or a claim', () => {
+    // Straight at the predicate, so the property is about the predicate rather
+    // than about whichever knob happens to consult it.
+    const verdicts = [false, true].map((held) =>
+      withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q');
+        const king = sub.unitOfWireId('K');
+        if (queen === undefined || king === undefined) throw new Error('fixture');
+        const crossing = sub
+          .actionsOf(queen.unitId)
+          .filter((c) => c.path.includes(king.cells[0] as number));
+        expect(crossing.length).toBeGreaterThan(0);
+        return crossing.map((c) => killsOwnKing(sub, queen, c));
+      })
+    );
+    expect(verdicts[0]).toEqual(verdicts[1]);
+    expect(verdicts[0]?.every((v) => v)).toBe(true);
+  });
+
+  /**
+   * THE TRIPWIRE. Read the comment on this describe block before changing it.
+   *
+   * With the guard off, so that the crossing candidate survives to be ranked:
+   * a MODELLED king's shadow marks promote it to first, and a HELD king's do
+   * not, because the mark is not made. Adding held kings to `rayShadowCells`
+   * turns the second expectation into the first — which is the defect, not the
+   * fix.
+   */
+  test('the escort hint does not mark for a held king, and that is protective', () => {
+    const rankOfCrossing = (held: boolean): { rank: number; bonus: number; of: number } =>
+      withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q');
+        const king = sub.unitOfWireId('K');
+        if (queen === undefined || king === undefined) throw new Error('fixture');
+        const seat = king.cells[0] as number;
+        const assessed = SHIPPED().assess(sub, queen.unitId);
+        const rank = assessed.findIndex((a) => a.candidate.path.includes(seat));
+        return {
+          rank,
+          bonus: assessed[rank]?.shadowBonus ?? -1,
+          of: assessed.length,
+        };
+      });
+
+    const modelled = rankOfCrossing(false);
+    const held = rankOfCrossing(true);
+
+    // The board is the same board; only the modelled set differs, so the same
+    // crossing candidate exists in both.
+    expect(modelled.of).toBe(held.of);
+    expect(modelled.rank).toBeGreaterThanOrEqual(0);
+    expect(held.rank).toBeGreaterThanOrEqual(0);
+
+    // MODELLED: the hint marks the line, the crossing candidate carries the
+    // bonus, and the bonus puts it first. This is D2, still reproducible.
+    expect(modelled.bonus).toBe(1);
+    expect(modelled.rank).toBe(0);
+
+    // HELD: no mark, no bonus, and the crossing candidate sinks. If this ever
+    // reads `1` and `0`, somebody extended the ATTRACTION to held kings.
+    expect(held.bonus).toBe(0);
+    expect(held.rank).toBeGreaterThan(0);
+  });
+});
+
 // ----------------------------------------------------------------- invariants
 
 describe('the invariants the candidate layer promises still hold', () => {
