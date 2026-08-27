@@ -118,6 +118,16 @@ describe('the ceiling a TEAM-MATE’s potion raises', () => {
     expect(f.slots[2]?.bounds.tierMax).toBe(0);
   });
 
+  test('at one turn held nothing has landed yet, so no ceiling moves', () => {
+    // The commit-time lag, read through the field. turnsHeld 1 is what the
+    // risk layer sees on every claim, and there the potion board must move no
+    // tier at all — the collector has arrived, the rebuild has not committed.
+    const f = fieldAt(1, POTION);
+    for (const s of f.slots) {
+      expect([s.slot, s.bounds.tierMin, s.bounds.tierMax]).toEqual([s.slot, 0, 0]);
+    }
+  });
+
   test('with no potion anywhere the field widens nothing', () => {
     const f = fieldAt(3, []);
     for (const s of f.slots) {

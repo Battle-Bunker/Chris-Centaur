@@ -183,10 +183,17 @@ export interface Cloud {
   /** Some continuation kills it before this turn, which makes `certain` soft. */
   readonly deathPossible: boolean;
   /**
-   * Some continuation has this unit COLLECTING an invulnerability potion by
-   * now — a potion cell inside its cumulative reach, with at least one move
-   * made (collection is destination-only, and a claim that has not moved has
-   * not arrived anywhere).
+   * Some continuation has this unit collecting an invulnerability potion at a
+   * step whose EFFECT IS IN FORCE at this turn — a potion cell inside its
+   * cumulative reach, and at least two turns held.
+   *
+   * The lag is the rule, not a margin. Collection is destination-only and the
+   * effect is applied at COMMIT, after the collision phase, so a potion taken
+   * on the move resolved at turn U first governs a contest at U+1; a claim that
+   * has made n moves has resolved turns heldAtTurn..heldAtTurn+n−1, so nothing
+   * it could have picked up can be in force before n = 2. At the risk layer's
+   * n = 1 the potion board moves NO tier on the board, this unit's or anyone
+   * else's.
    *
    * It is published rather than folded into this cloud's own `bounds` because
    * of WHOSE tier it moves. The rules give the collector the DEBUFF and every
@@ -195,7 +202,8 @@ export interface Cloud {
    * debuff / 0), so a unit's own reachable potions can only ever LOWER its own
    * tier — the raising is a fact about its TEAM-MATES, and teams meet at the
    * field, not inside a per-unit cloud. `CloudField` reads this flag across
-   * team-mates and widens the ceiling there.
+   * team-mates and widens the ceiling there; the floor it implies for the
+   * collector itself is applied here, off the same boolean.
    */
   readonly couldCollectPotion: boolean;
   /** No continuation leaves it alive (it was walled in, or ran out of health). */
@@ -562,16 +570,14 @@ export class CloudTimeline {
       // number — but the tier FLOOR is not a function of the count alone (a
       // self-debuff needs a turn to land), so it is re-derived rather than
       // carried across with the rest of the fixed point.
-      const stillReachablePotions = bbPopcount(
-        this.andCount(prev.everPossible, this.premise.potions),
-        w,
-      );
+      const stillCollecting =
+        n >= 2 && !bbIsEmpty(this.andCount(prev.everPossible, this.premise.potions), w);
       const fixed: Cloud = {
         ...prev,
         turnsHeld: n,
         certain: prev.certain,
-        bounds: this.boundsAt(n, prev.everPossible, prev.kindSet, stillReachablePotions),
-        couldCollectPotion: stillReachablePotions > 0,
+        bounds: this.boundsAt(n, prev.everPossible, prev.kindSet, stillCollecting),
+        couldCollectPotion: stillCollecting,
         kindSet: prev.kindSet,
         deathPossible:
           prev.deathPossible || r.health <= n || bbIntersects(prev.everPossible, terrain.hazard, w),
@@ -772,9 +778,11 @@ export class CloudTimeline {
     // One AND over the potion board, read twice: it prices this unit's own tier
     // FLOOR (a collector takes the debuff) and, at the field, its team-mates'
     // tier CEILING (everyone else on the team takes the buff). The scratch
-    // board `andCount` returns is reused by the food count below, so the number
-    // is taken here and the board is not held.
-    const reachablePotions = bbPopcount(this.andCount(everPossible, this.premise.potions), w);
+    // board `andCount` returns is reused by the food count below, so the answer
+    // is taken here and the board is not held. See `Cloud.couldCollectPotion`
+    // for the n >= 2, which is the commit-time lag and not a margin.
+    const couldCollectPotion =
+      n >= 2 && !bbIsEmpty(this.andCount(everPossible, this.premise.potions), w);
 
     return {
       record: r,
@@ -786,13 +794,10 @@ export class CloudTimeline {
       subStepBoundsApply: isSlider,
       everPossible,
       certain: certainlyGone ? growBoard(grid) : certain,
-      bounds: this.boundsAt(n, everPossible, kindSet, reachablePotions),
+      bounds: this.boundsAt(n, everPossible, kindSet, couldCollectPotion),
       kindSet,
       deathPossible,
-      // A collection needs an ARRIVAL, so a claim that has made no move has
-      // collected nothing; `everPossible` at n ≥ 1 is exactly "somewhere it
-      // could have arrived by now".
-      couldCollectPotion: n >= 1 && reachablePotions > 0,
+      couldCollectPotion,
       certainlyGone,
       saturated: bbSubset(standable, possible, w),
       possibleCount: bbPopcount(possible, w),
@@ -825,11 +830,14 @@ export class CloudTimeline {
    *      COMMIT, after the collision phase — so a potion taken on the move
    *      resolved at turn U first governs a contest at turn U+1. A claim that
    *      has made n moves has resolved turns heldAtTurn..heldAtTurn+n−1, so a
-   *      self-debuff can be in force at the field's turn only from n ≥ 2. At
-   *      the risk layer's n = 1 the potion board cannot move this unit's tier
-   *      at all. (The set is still read off the cumulative reach at n rather
-   *      than at n−1, which over-counts by one step in the SOUND direction:
-   *      a floor may be lower than the truth, never higher.)
+   *      potion it could have taken is in force at the field's turn only from
+   *      n ≥ 2. At the risk layer's n = 1 the potion board cannot move ANY
+   *      tier on the board — this unit's or its team-mates'. That single
+   *      boolean is `couldCollectPotion`, computed once and read at both ends
+   *      of the rule. (The set behind it is read off the cumulative reach at n
+   *      rather than at n−1, which over-counts by one step in the SOUND
+   *      direction: a floor may be lower than the truth, never higher, and a
+   *      ceiling higher, never lower.)
    *
    *   3. HOW FAR IT GOES. At most one effect per family is held at a time
    *      (replace semantics), so collecting three potions is collecting one:
@@ -850,7 +858,7 @@ export class CloudTimeline {
     n: number,
     everPossible: Board,
     kindSet: number,
-    reachablePotions: number,
+    couldCollectPotion: boolean,
   ): StrengthBounds {
     const { food } = this.premise;
     const w = this.premise.terrain.grid.words;
@@ -865,9 +873,8 @@ export class CloudTimeline {
     const expired = expiry !== null && r.heldAtTurn + n >= expiry;
     const baseCeil = expired ? 0 : Math.max(0, r.tier);
     const baseFloor = expired ? 0 : Math.min(0, r.tier);
-    const selfDebuffPossible = n >= 2 && reachablePotions > 0;
     return {
-      tierMin: selfDebuffPossible ? Math.min(baseFloor, DEBUFF_LEVEL) : baseFloor,
+      tierMin: couldCollectPotion ? Math.min(baseFloor, DEBUFF_LEVEL) : baseFloor,
       tierMax: baseCeil,
       weightMin: promoted ? 1 : r.weight,
       weightMax: r.weight + Math.min(n, reachableFood),
