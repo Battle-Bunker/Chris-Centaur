@@ -228,7 +228,18 @@ function bestOf(
   return best
 }
 
-/** Root slack: `max over rivals (R.hi − L.lo)`. NOT the leader's bound gap. */
+/**
+ * Root slack: `max over rivals (R.hi − L.lo)`. NOT the leader's bound gap.
+ *
+ * This is the resident form of a GAP INDEX. The bandit literature's UGapE
+ * index for arm `i` is `max_{j≠i} U_j − L_i` — the largest amount by which any
+ * rival's optimistic bound could still beat this arm's pessimistic one — and
+ * `rootSlack(rows, leaderIdx)` is exactly that index evaluated at the leader,
+ * with `hi`/`lo` as the confidence endpoints. Naming the correspondence here
+ * so nobody adds a second one: the quantity a selection layer would want is
+ * already computed, already on the wire, and already denominated in the same
+ * units as the bounds it is a gap between.
+ */
 export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: number): number {
   if (rows.length <= 1) return 0
   const lo = rows[leaderIdx].lo
@@ -238,6 +249,35 @@ export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: numb
     slack = Math.max(slack, rows[i].hi - lo)
   }
   return slack
+}
+
+/**
+ * THE TWO ARMS THE DEPTH RATION SPENDS ON — the resident LUCB rule, named.
+ *
+ * The horizon ration deepens exactly two branches: the LEADER, whose `lo` must
+ * survive the next ply, and the highest-`hi` un-refuted RIVAL, whose optimism
+ * must be confronted. That is the LUCB / UGapE pair — the empirical best arm
+ * and the most optimistic challenger — and it has been the shipped rule since
+ * the ration was written. This function is the rule with a name on it and a
+ * regression pin around it; it changes nothing.
+ *
+ * `rival` is `undefined` when every other candidate is refuted (or there is no
+ * other candidate) — the caller skips it, exactly as the inline form did.
+ * A refuted rival is never an arm: its ceiling has already been beaten by the
+ * leader's proved floor, so deepening it buys nothing that `better()` would
+ * read.
+ */
+export function gapArms(view: LeverView): {
+  readonly leader: CandidateView | undefined
+  readonly rival: CandidateView | undefined
+} {
+  const leader = view.candidates[view.leaderIdx]
+  let rival: CandidateView | undefined
+  for (const c of view.candidates) {
+    if (c === leader || c.refuted) continue
+    if (rival === undefined || c.hi > rival.hi) rival = c
+  }
+  return { leader, rival }
 }
 
 /**
@@ -531,7 +571,7 @@ export class VocOrchestrator {
     // the depth section's deadline veto already forces exactly the narrows the
     // new ply needs, and no others.
     const anyAdvanced = view.units.some((u) => u.rung === "advanced")
-    const leader = view.candidates[view.leaderIdx]
+    const { leader, rival } = gapArms(view)
     const previewDue = !anyAdvanced && leader !== undefined && leader.horizon < view.depthMax
     const pool = previewDue ? ests.filter((e) => e.family === "repair") : ests
 
@@ -549,9 +589,7 @@ export class VocOrchestrator {
     // must survive depth) and the un-refuted rival with the highest hi (its
     // optimism must be confronted). Never the already-refuted. Deepen is never
     // chosen by a Δslack comparison — the two currencies do not exchange.
-    const rival = view.candidates
-      .filter((c) => c !== leader && !c.refuted)
-      .sort((a, b) => b.hi - a.hi)[0]
+    // The pair is `gapArms(view)`, read once above.
     for (const target of [leader, rival]) {
       if (target === undefined || target.horizon >= view.depthMax) continue
       // The deadline law: never deepen past a FREE gated unit's meeting time —
