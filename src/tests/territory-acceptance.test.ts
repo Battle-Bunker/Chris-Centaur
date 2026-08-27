@@ -351,11 +351,84 @@ describe('the cliff inequality, over the acceptance boards', () => {
 
   test('and neither can, on ANY board, by construction rather than by sample', () => {
     // Both features are normalised, so their ranges are bounded independently of
-    // the board: reach by the open cells, room by one team's worth of trail
-    // units. Without that, room's range would grow with the roster and a weight
-    // that clears the cliff on a three-snake board would breach it on a five.
+    // the board: reach by the open cells, room by THE WHOLE BOARD's trail
+    // population. Without that, room's range would grow with the roster and a
+    // weight that clears the cliff on a three-snake board would breach it on a
+    // five.
+    //
+    // PREMISE CORRECTED (integ/round-a, fix/o-p3). This comment used to say
+    // room was normalised by "one team's worth of trail units", which is what
+    // `trailScaleOf` actually did — and it made the `× 2` below WRONG rather
+    // than conservative. Dividing by the LARGEST SINGLE TEAM bounds our own
+    // admitted trails by the divisor, but each of the other K−1 teams
+    // contributes up to a full divisor's worth of its own, so the true range
+    // was room ∈ [−(K−1), +1] and the span was K, not 2. rf-falsifier measured
+    // exactly that: 160,826 readings, observed range [−2.000, +1.000], 6.06%
+    // below −1, every one of them on a three-team board.
+    //
+    // The arithmetic below PASSED throughout, because it multiplies a weight by
+    // a hard-coded 2 and never asks the board anything — which is precisely why
+    // a false premise survived here for so long, and why the three-team case
+    // below now gates the claim against real readings instead.
     expect((TERRITORY_PROFILE.weights.reach as number) * 2).toBeLessThan(ceiling);
     expect((TERRITORY_PROFILE.weights.room as number) * 2).toBeLessThan(ceiling);
+  });
+
+  /**
+   * THE THREE-TEAM CASE, which this corpus did not have.
+   *
+   * Both acceptance fixtures (`snakes11`, `mid11`) are TWO-team boards, so the
+   * range defect could not appear in this suite however many samples were added
+   * to it — the old and new divisors agree at K = 2. That absence is the reason
+   * the by-construction claim above went unchallenged, so the fix arrives with
+   * the board shape that can falsify it.
+   *
+   * `mid11` re-teamed three ways, each team fielding trail units. Verified to
+   * FAIL against the pre-fix divisor: red and blue read −1.5000 there, against
+   * −0.7500 worst case now.
+   */
+  test('room stays inside [-1, 1] on a THREE-team board, for every seat', () => {
+    const board = JSON.parse(JSON.stringify(MID11.board)) as Board;
+    const greens = new Set(['b3', 'b5', 'r5']);
+    const blues = new Set(['b0', 'b1', 'b2', 'b4']);
+    for (const s of board.snakes ?? []) {
+      const id = s.id;
+      (s as { teamID: string }).teamID = greens.has(id)
+        ? 'green'
+        : blues.has(id)
+          ? 'blue'
+          : 'red';
+    }
+    const teams = [...new Set((board.snakes ?? []).map((s) => s.teamID as string))];
+    expect(teams).toHaveLength(3);
+
+    for (const team of teams) {
+      const ourIds = (board.snakes ?? [])
+        .filter((s) => s.teamID === team)
+        .map((s) => s.id);
+      const sub = makeSubstrate({ board, turn: MID11.turn, asTeam: team, modeled: ourIds });
+      try {
+        const asTeam = sub.teamNumber(team);
+        const units = sub.roster().filter((u) => sub.modeled().has(u.unitId));
+        for (let k = 0; k < 6; k++) {
+          const plan = new Map<UnitId, Candidate>();
+          for (const u of units) {
+            const acts = sub.actionsOf(u.unitId);
+            const a = acts[k % acts.length] as { to: number };
+            plan.set(u.unitId, {
+              unitId: u.unitId,
+              from: u.cells[0] as number,
+              to: a.to,
+              path: sub.pathFor(u.unitId, a.to) ?? [],
+            });
+          }
+          const room = defaultEvaluator.evaluatePlan(sub, plan, asTeam).parts['room']?.lo ?? 0;
+          expect([team, k, room >= -1 && room <= 1]).toEqual([team, k, true]);
+        }
+      } finally {
+        sub.release();
+      }
+    }
   });
 
   test('the two together still cannot buy a death', () => {
