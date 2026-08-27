@@ -75,15 +75,14 @@
 
 import {
   NEVER,
-  beats,
   bbPopcount,
-  bbTest,
+  cmpLex,
   profileOf,
-  scalarOf,
 } from '../../partial-engine/index';
 import type { Grid, Scalar, Terrain } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
+import { DenseRanker, Int32Column, SlabPool, Uint8Column } from '../scratch';
 import type { UnitShells } from './shells';
 import { ShellTable } from './shells';
 
@@ -161,11 +160,26 @@ export function tierAtTurn(s: TerritorySubject, turn: number): number {
 // Reusable scratch — the evaluator is inside the engine's slab discipline now
 // ---------------------------------------------------------------------------
 
+/** A `Scalar` this file OWNS and overwrites. Never published; see `strengths`. */
+interface MutableScalar {
+  tier: number;
+  weight: number;
+}
+
 /**
  * Every slab this file needs, allocated once per substrate. The fold used to
  * allocate four `Int32Array(cells)` per evaluation at roughly ten thousand
  * evaluations a second; reusing them was worth 15–27% of plan throughput on its
  * own, measured across four board/roster shapes.
+ *
+ * W2 EXTENSION — the ENTRY COLUMNS. The classification step used to build one
+ * `{s, sh, mine, scalars: []}` object per admitted unit per reading, and
+ * `fillScalars` then pushed one `Scalar` per unit PER HORIZON TURN into those
+ * arrays: on the profiled board that is ~24 entry objects, 24 arrays and ~144
+ * `Scalar`s per reading, twice per evaluation, at ten thousand evaluations a
+ * second. All of it is now flat typed-array columns indexed by entry slot, plus
+ * a reused `Scalar` pool that never escapes this module. Measured: see
+ * `scratchpad/perf-w2-report.md`.
  */
 export class TerritoryWorkspace {
   readonly grid: Grid;
@@ -188,7 +202,7 @@ export class TerritoryWorkspace {
   readonly seenByTeam: Uint32Array[] = [];
   readonly multiByTeam: Uint32Array[] = [];
   /** Per-admitted-trail-unit ownership planes, grown on demand. */
-  readonly own: Uint32Array[] = [];
+  private readonly planes: SlabPool<Uint32Array>;
   /** Decisive turn per cell. Only filled when a piece could displace. */
   readonly decisive: Int32Array;
   /**
@@ -199,6 +213,89 @@ export class TerritoryWorkspace {
   private readonly domains: { lo: Uint32Array; hi: Uint32Array };
   /** Scratch for the resolved food board — one evaluation runs at a time. */
   readonly foodOut: Uint32Array;
+
+  // --- entry columns, one slot per ADMITTED unit of the current reading ----
+  /** The subject at each entry slot. Typed at the use site; see `partitionOf`. */
+  readonly entSubject: unknown[] = [];
+  /** The shells at each entry slot. */
+  readonly entShells: (UnitShells | null)[] = [];
+  /** `earliest()` grid at each entry slot — a POINTER, never a copy. */
+  readonly entEarliest: (Int32Array | null)[] = [];
+  private readonly entMineCol = new Uint8Column(64);
+  private readonly entHeldCol = new Uint8Column(64);
+  private readonly entTeamCol = new Int32Column(64);
+  private readonly trailCol = new Int32Column(64);
+  private readonly pieceCol = new Int32Column(64);
+  private readonly teamCol = new Int32Column(16);
+  /** Contest strength RANKS, flat: `[slot * turns + (t - tMin)]`. */
+  private readonly rankCol = new Int32Column(512);
+  /** Batch indices of a slot's two distinct strengths: `[slot*2 + expired?]`. */
+  private readonly strengthIdxCol = new Int32Column(128);
+  /**
+   * A reused `Scalar` per (slot, expired?) — the ONLY objects the contest
+   * comparator ever sees, and they never leave this module.
+   */
+  private readonly strengths: MutableScalar[] = [];
+  readonly ranker = new DenseRanker<Scalar>();
+  /** `displace`'s second count. A returned pair would be an allocation on the
+   * hottest path in the system; this is the same value, one field over. */
+  displacedTheirs = 0;
+
+  get entMine(): Uint8Array {
+    return this.entMineCol.array;
+  }
+  get entHeld(): Uint8Array {
+    return this.entHeldCol.array;
+  }
+  get entTeam(): Int32Array {
+    return this.entTeamCol.array;
+  }
+  get trailSlots(): Int32Array {
+    return this.trailCol.array;
+  }
+  get pieceSlots(): Int32Array {
+    return this.pieceCol.array;
+  }
+  get teamList(): Int32Array {
+    return this.teamCol.array;
+  }
+  get ranks(): Int32Array {
+    return this.rankCol.array;
+  }
+
+  /** Grow every per-entry column to `n` slots. */
+  ensureEntries(n: number): void {
+    this.entMineCol.ensure(n);
+    this.entHeldCol.ensure(n);
+    this.entTeamCol.ensure(n);
+    this.trailCol.ensure(n);
+    this.pieceCol.ensure(n);
+    this.teamCol.ensure(n);
+    while (this.entSubject.length < n) {
+      this.entSubject.push(null);
+      this.entShells.push(null);
+      this.entEarliest.push(null);
+    }
+  }
+
+  /** Grow the flat rank column to `slots × turns`. */
+  ensureRanks(n: number): Int32Array {
+    return this.rankCol.ensure(n);
+  }
+
+  /** Grow the strength-index column to `slots × 2`. */
+  ensureStrengthIndex(n: number): Int32Array {
+    return this.strengthIdxCol.ensure(n);
+  }
+
+  /** The `i`-th pooled strength, overwritten in place. */
+  strengthAt(i: number, tier: number, weight: number): Scalar {
+    while (this.strengths.length <= i) this.strengths.push({ tier: 0, weight: 0 });
+    const s = this.strengths[i] as MutableScalar;
+    s.tier = tier;
+    s.weight = weight;
+    return s as Scalar;
+  }
 
   domainFor(reading: 'lo' | 'hi'): Uint32Array {
     return this.domains[reading];
@@ -227,11 +324,11 @@ export class TerritoryWorkspace {
     this.decisive = new Int32Array(grid.cells);
     this.domains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
     this.foodOut = new Uint32Array(w);
+    this.planes = new SlabPool<Uint32Array>(w, (n) => new Uint32Array(n));
   }
 
   planeFor(index: number): Uint32Array {
-    while (this.own.length <= index) this.own.push(new Uint32Array(this.grid.words));
-    return this.own[index] as Uint32Array;
+    return this.planes.at(index);
   }
 
   /** Grow the per-team slabs to cover `team`, then read them directly. Two
@@ -271,19 +368,41 @@ export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
 // The partition
 // ---------------------------------------------------------------------------
 
-interface Entry<S> {
-  readonly s: S;
-  readonly sh: UnitShells;
-  readonly mine: boolean;
-  /**
-   * This unit's contest strength at each absolute turn of the sweep, indexed
-   * `turn - tMin`. Built once per partition, because the alternative is
-   * constructing a `Scalar` per challenger PER CELL — 169 cells times thirteen
-   * pieces of pure garbage per reading, which measured as most of the piece
-   * plane's cost. The comparator stays the resolver's own.
-   */
-  scalars: Scalar[];
-}
+/**
+ * THE ENTRY COLUMNS, and why there is no `Entry` object any more.
+ *
+ * The classification step assigns every admitted unit an ENTRY SLOT, and every
+ * per-unit fact the two planes read lives in a flat typed-array column of the
+ * workspace at that slot: `entTeam`, `entMine`, `entHeld`, the `earliest()`
+ * POINTER, and the contest-strength ranks. `trailSlots[0..nT)` and
+ * `pieceSlots[0..nP)` are the two subsets, in subject order — the same order
+ * the two `Entry[]` arrays used to be built in, which is what keeps the
+ * per-unit ownership planes and `Partition.trails` byte-identical.
+ *
+ * What is deliberately NOT flattened: the `earliest()` grids themselves. The
+ * prototype's fastest JS arm copied all of them into one contiguous buffer and
+ * measured 1.41× — but it did the copying OUTSIDE the timed region. At ~23
+ * admitted units on a 625-cell board that copy is ~57 KB per reading, which is
+ * bigger than the whole win. The grids stay where the shell table already put
+ * them and only the small columns are flattened. (A WASM port that keeps the
+ * grids resident in linear memory ACROSS evaluations is a different trade, and
+ * is where that arm's number becomes real.)
+ *
+ * ── STRENGTH RANKS, NOT A PACKED KEY ───────────────────────────────────────
+ *
+ * `displace` compares unit strengths through the resolver's lexicographic
+ * comparator, on `Scalar` objects this file used to allocate one of per unit
+ * PER HORIZON TURN. They are now dense integer RANKS over the handful of
+ * distinct strengths on the board, so the inner loop compares two int32s.
+ *
+ * The ranks are computed BY CALLING `cmpLex` — not by bit-packing
+ * `(tier << 16) | weight`. Packing is a hair faster still, but it silently
+ * assumes both coordinates are small non-negative integers and `contest.ts`
+ * promises nothing of the sort: it is a restatement of the contest, which is
+ * the one thing that file's header forbids. Ranking is exact for ANY total
+ * preorder, so a weight that goes fractional or a tier that goes negative
+ * changes nothing here, and the comparator stays the resolver's own.
+ */
 
 /**
  * One reading's partition: plane 1 by sweep, then plane 2 where pieces exist.
@@ -303,25 +422,45 @@ export function partitionOf<S extends TerritorySubject>(
 ): Partition<S> {
   const grid = ws.grid;
   const w = grid.words;
-  const trails: Array<Entry<S>> = [];
-  const pieces: Array<Entry<S>> = [];
 
+  ws.ensureEntries(subjects.length);
+  const entSubject = ws.entSubject;
+  const entShells = ws.entShells;
+  const entEarliest = ws.entEarliest;
+  const entMine = ws.entMine;
+  const entHeld = ws.entHeld;
+  const entTeam = ws.entTeam;
+  const trailSlots = ws.trailSlots;
+  const pieceSlots = ws.pieceSlots;
+
+  let nT = 0;
+  let nP = 0;
+  let slots = 0;
   let tMin = Number.POSITIVE_INFINITY;
   let tMax = Number.NEGATIVE_INFINITY;
-  for (const s of subjects) {
+  for (let si = 0; si < subjects.length; si++) {
+    const s = subjects[si] as S;
     const sh = shells.get(s.unitId);
     if (sh === undefined) continue;
     const mine = s.team === asTeam;
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
     if (sh.heldAtTurn < tMin) tMin = sh.heldAtTurn;
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
-    (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine, scalars: [] });
+    entSubject[slots] = s;
+    entShells[slots] = sh;
+    entEarliest[slots] = null;
+    entMine[slots] = mine ? 1 : 0;
+    entHeld[slots] = s.held ? 1 : 0;
+    entTeam[slots] = s.team;
+    if (profileOf(s.kind).leavesTrail) trailSlots[nT++] = slots;
+    else pieceSlots[nP++] = slots;
+    slots++;
   }
-  if (trails.length === 0 && pieces.length === 0) {
+  if (nT === 0 && nP === 0) {
     return emptyPartition<S>(ws.open, domain, ws.notWall);
   }
 
-  const needDecisive = pieces.length > 0 && trails.length > 0;
+  const needDecisive = nP > 0 && nT > 0;
   const { ourCum, theirCum, ourStep, theirStep, oursBoard, theirsBoard } = ws;
   const { coveredPrev, coveredNow, newT, hit, others, decisive, notWall } = ws;
   const seenByTeam = ws.seenByTeam;
@@ -331,25 +470,33 @@ export function partitionOf<S extends TerritorySubject>(
   oursBoard.fill(0);
   theirsBoard.fill(0);
   coveredPrev.fill(0);
-  for (let k = 0; k < trails.length; k++) ws.planeFor(k).fill(0);
+  for (let k = 0; k < nT; k++) ws.planeFor(k).fill(0);
   if (needDecisive) decisive.fill(NEVER);
 
-  const teams: number[] = [];
-  for (let k = 0; k < trails.length; k++) {
-    const team = (trails[k] as Entry<S>).s.team;
+  const teams = ws.teamList;
+  let nTeams = 0;
+  for (let k = 0; k < nT; k++) {
+    const team = entTeam[trailSlots[k] as number] as number;
     ws.ensureTeam(team);
-    if (!teams.includes(team)) teams.push(team);
+    let known = false;
+    for (let i = 0; i < nTeams; i++) {
+      if (teams[i] === team) {
+        known = true;
+        break;
+      }
+    }
+    if (!known) teams[nTeams++] = team;
   }
 
   for (let t = tMin; t <= tMax; t++) {
     // --- team-level cover, the exact `ours ⟺ ∃t` identity -------------------
     ourStep.fill(0);
     theirStep.fill(0);
-    for (let k = 0; k < trails.length; k++) {
-      const e = trails[k] as Entry<S>;
-      const f = e.sh.frontAt(t);
+    for (let k = 0; k < nT; k++) {
+      const e = trailSlots[k] as number;
+      const f = (entShells[e] as UnitShells).frontAt(t);
       if (f === null) continue;
-      const dst = e.mine ? ourStep : theirStep;
+      const dst = entMine[e] === 1 ? ourStep : theirStep;
       for (let i = 0; i < w; i++) dst[i] |= f[i] as number;
     }
     for (let i = 0; i < w; i++) {
@@ -361,7 +508,7 @@ export function partitionOf<S extends TerritorySubject>(
       theirsBoard[i] = ((theirsBoard[i] as number) | (tc & ~oc)) >>> 0;
     }
 
-    if (trails.length === 0) continue;
+    if (nT === 0) continue;
 
     // --- cells decided at t, and who decided them --------------------------
     let anyNew = 0;
@@ -375,18 +522,18 @@ export function partitionOf<S extends TerritorySubject>(
     coveredPrev.set(coveredNow);
     if (anyNew === 0) continue;
 
-    for (let ti = 0; ti < teams.length; ti++) {
+    for (let ti = 0; ti < nTeams; ti++) {
       const team = teams[ti] as number;
       const seen = seenByTeam[team] as Uint32Array;
       const multi = multiByTeam[team] as Uint32Array;
       seen.fill(0);
       multi.fill(0);
-      for (let k = 0; k < trails.length; k++) {
-        const e = trails[k] as Entry<S>;
+      for (let k = 0; k < nT; k++) {
+        const e = trailSlots[k] as number;
         // A HELD teammate is not in this team's blocking set: its tie must not
         // take a cell off a unit it is standing in for.
-        if (e.s.held && e.s.team === team) continue;
-        const f = e.sh.frontAt(t);
+        if (entHeld[e] === 1 && entTeam[e] === team) continue;
+        const f = (entShells[e] as UnitShells).frontAt(t);
         if (f === null) continue;
         for (let i = 0; i < w; i++) {
           const h = ((f[i] as number) & (newT[i] as number)) >>> 0;
@@ -396,14 +543,14 @@ export function partitionOf<S extends TerritorySubject>(
       }
     }
 
-    for (let k = 0; k < trails.length; k++) {
-      const e = trails[k] as Entry<S>;
-      const f = e.sh.frontAt(t);
+    for (let k = 0; k < nT; k++) {
+      const e = trailSlots[k] as number;
+      const f = (entShells[e] as UnitShells).frontAt(t);
       if (f === null) continue;
-      const seen = seenByTeam[e.s.team] as Uint32Array;
-      const multi = multiByTeam[e.s.team] as Uint32Array;
+      const seen = seenByTeam[entTeam[e] as number] as Uint32Array;
+      const multi = multiByTeam[entTeam[e] as number] as Uint32Array;
       for (let i = 0; i < w; i++) hit[i] = (((f[i] as number) & (newT[i] as number)) >>> 0);
-      if (e.s.held) {
+      if (entHeld[e] === 1) {
         for (let i = 0; i < w; i++) others[i] = seen[i] as number;
       } else {
         for (let i = 0; i < w; i++) {
@@ -435,35 +582,43 @@ export function partitionOf<S extends TerritorySubject>(
   }
 
   // --- counts -------------------------------------------------------------
-  const trailRooms: Array<TrailRoom<S>> = [];
-  for (let k = 0; k < trails.length; k++) {
+  const trailRooms: Array<TrailRoom<S>> = new Array<TrailRoom<S>>(nT);
+  for (let k = 0; k < nT; k++) {
     const own = ws.planeFor(k);
     let owned = 0;
     for (let i = 0; i < w; i++) owned += popcount32(((own[i] as number) & (notWall[i] as number)) >>> 0);
-    trailRooms.push({ subject: (trails[k] as Entry<S>).s, mine: (trails[k] as Entry<S>).mine, owned });
+    const e = trailSlots[k] as number;
+    trailRooms[k] = { subject: entSubject[e] as S, mine: entMine[e] === 1, owned };
+  }
+
+  // The trail domain is `coveredPrev` after the last turn: the running OR of
+  // every admitted trail unit's arriving fronts. Masked to open ground, because
+  // a consumer counting cells is counting places a unit can stand.
+  //
+  // Written BEFORE the piece plane rather than after, because it is exactly the
+  // cell set `displace` has to walk: `decisive[c] !== NEVER` holds on the cells
+  // the sweep stamped, which is `coveredPrev`, and the wall test is the mask.
+  // Both used to be discovered by testing every one of `grid.cells` cells.
+  for (let i = 0; i < w; i++) {
+    domain[i] = (((coveredPrev[i] as number) & (notWall[i] as number)) >>> 0);
   }
 
   let ours = 0;
   let theirs = 0;
-  if (pieces.length === 0 || trails.length === 0) {
+  if (nP === 0 || nT === 0) {
     for (let i = 0; i < w; i++) {
       const mask = notWall[i] as number;
       ours += popcount32(((oursBoard[i] as number) & mask) >>> 0);
       theirs += popcount32(((theirsBoard[i] as number) & mask) >>> 0);
     }
   } else {
-    for (const e of trails) fillScalars(e, tMin, tMax);
-    for (const e of pieces) fillScalars(e, tMin, tMax);
-    const counted = displace(ws, trails, pieces, asTeam, tMin);
-    ours = counted.ours;
-    theirs = counted.theirs;
-  }
-
-  // The trail domain is `coveredPrev` after the last turn: the running OR of
-  // every admitted trail unit's arriving fronts. Masked to open ground, because
-  // a consumer counting cells is counting places a unit can stand.
-  for (let i = 0; i < w; i++) {
-    domain[i] = (((coveredPrev[i] as number) & (notWall[i] as number)) >>> 0);
+    const turns = tMax - tMin + 1;
+    fillRanks(ws, slots, turns, tMin);
+    for (let e = 0; e < slots; e++) {
+      entEarliest[e] = (entShells[e] as UnitShells).earliest();
+    }
+    ours = displace(ws, nT, nP, asTeam, tMin, turns, domain);
+    theirs = ws.displacedTheirs;
   }
 
   const open = ws.open;
@@ -478,11 +633,56 @@ export function partitionOf<S extends TerritorySubject>(
   };
 }
 
-/** One `Scalar` per absolute turn of the sweep, so the cell loop allocates none. */
-function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax: number): void {
-  const out = e.scalars;
-  out.length = 0;
-  for (let t = tMin; t <= tMax; t++) out.push(scalarOf(tierAtTurn(e.s, t), e.s.weightMax));
+/**
+ * DENSE CONTEST-STRENGTH RANKS for every (entry slot, absolute turn) of the
+ * sweep, flat at `[slot * turns + (t - tMin)]`.
+ *
+ * `tierAtTurn` takes one of two values for a unit — `tierMax` before expiry and
+ * 0 at or after it — so a unit contributes at most TWO distinct strengths
+ * however long the horizon is, and the batch handed to the ranker is at most
+ * `2 × units` entries rather than `units × turns`. The `Scalar`s it ranks come
+ * from the workspace's pool and are overwritten on the next call; none of them
+ * ever leaves this file.
+ */
+function fillRanks(ws: TerritoryWorkspace, slots: number, turns: number, tMin: number): void {
+  const ranker = ws.ranker;
+  ranker.reset();
+  const col = ws.ensureRanks(slots * turns);
+  const liveIdx = ws.ensureStrengthIndex(slots * 2);
+  const entSubject = ws.entSubject;
+
+  // Pass 1 — the distinct strengths, into the ranking batch.
+  for (let e = 0; e < slots; e++) {
+    const s = entSubject[e] as TerritorySubject;
+    const live = ranker.count;
+    ranker.add(ws.strengthAt(live, s.tierMax, s.weightMax));
+    liveIdx[e * 2] = live;
+    if (s.tierExpiresAtTurn === null || s.tierMax === 0) {
+      liveIdx[e * 2 + 1] = live;
+    } else {
+      const expired = ranker.count;
+      ranker.add(ws.strengthAt(expired, 0, s.weightMax));
+      liveIdx[e * 2 + 1] = expired;
+    }
+  }
+
+  const ranks = ranker.rank(cmpLex);
+
+  // Pass 2 — expand to (slot, turn), applying `tierAtTurn`'s own cutover.
+  for (let e = 0; e < slots; e++) {
+    const s = entSubject[e] as TerritorySubject;
+    const base = e * turns;
+    const liveRank = ranks[liveIdx[e * 2] as number] as number;
+    const expiresAt = s.tierExpiresAtTurn;
+    if (expiresAt === null || s.tierMax === 0) {
+      for (let i = 0; i < turns; i++) col[base + i] = liveRank;
+      continue;
+    }
+    const expiredRank = ranks[liveIdx[e * 2 + 1] as number] as number;
+    for (let i = 0; i < turns; i++) {
+      col[base + i] = tMin + i >= expiresAt ? expiredRank : liveRank;
+    }
+  }
 }
 
 /**
@@ -491,77 +691,98 @@ function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax
  * those wins, an equal-arrival tie is settled by the resolver's own comparator,
  * and a mutual kill leaves the trail claim alone. Skipped entirely on a
  * piece-free board, which is the shape the flag decision is measured on.
+ *
+ * Walks the TRAIL DOMAIN bitboard rather than every cell of the grid. Returns
+ * `ours` and leaves `theirs` in `ws.displacedTheirs` — a pair object here is an
+ * allocation on the hottest path in the system.
  */
-function displace<S extends TerritorySubject>(
+function displace(
   ws: TerritoryWorkspace,
-  trails: ReadonlyArray<Entry<S>>,
-  pieces: ReadonlyArray<Entry<S>>,
+  nT: number,
+  nP: number,
   asTeam: number,
-  tMin: number
-): { ours: number; theirs: number } {
-  const grid = ws.grid;
-  const cells = grid.cells;
-  const trailGrids = trails.map((e) => e.sh.earliest());
-  const pieceGrids = pieces.map((e) => e.sh.earliest());
+  tMin: number,
+  turns: number,
+  domainBoard: Uint32Array
+): number {
   const decisive = ws.decisive;
+  const ranks = ws.ranks;
+  const entEarliest = ws.entEarliest;
+  const entTeam = ws.entTeam;
+  const trailSlots = ws.trailSlots;
+  const pieceSlots = ws.pieceSlots;
+  const oursBoard = ws.oursBoard;
+  const theirsBoard = ws.theirsBoard;
+  const w = ws.grid.words;
   let ours = 0;
   let theirs = 0;
 
-  for (let c = 0; c < cells; c++) {
-    if (!bbTest(ws.notWall, c)) continue;
-    const D = decisive[c] as number;
-    // Ground no trail unit walks belongs to nobody — see the header.
-    if (D === NEVER) continue;
-    const at = D - tMin;
+  for (let word = 0; word < w; word++) {
+    let bits = domainBoard[word] as number;
+    if (bits === 0) continue;
+    const base = word << 5;
+    const oursWord = oursBoard[word] as number;
+    const theirsWord = theirsBoard[word] as number;
+    while (bits !== 0) {
+      const lowest = bits & -bits;
+      const c = base + (31 - Math.clz32(lowest));
+      bits = (bits & (bits - 1)) >>> 0;
 
-    // The claim standing on the cell: the strongest pair among a tie.
-    let claim: Scalar | null = null;
-    for (let k = 0; k < trails.length; k++) {
-      if ((trailGrids[k] as Int32Array)[c] !== D) continue;
-      const mine = (trails[k] as Entry<S>).scalars[at] as Scalar;
-      if (claim === null || beats(mine, claim)) claim = mine;
-    }
-    if (claim === null) continue;
+      // Ground no trail unit walks belongs to nobody — the domain IS the set of
+      // cells the sweep stamped, so `decisive` is live at every one of them.
+      const D = decisive[c] as number;
+      const at = D - tMin;
 
-    // Challengers: pieces that get there in time AND beat what is standing.
-    let bestArrival = NEVER;
-    let winner: Entry<S> | null = null;
-    let winnerScalar: Scalar | null = null;
-    let tied = false;
-    for (let k = 0; k < pieces.length; k++) {
-      const a = (pieceGrids[k] as Int32Array)[c] as number;
-      if (a > D) continue;
-      const e = pieces[k] as Entry<S>;
-      const mine = e.scalars[at] as Scalar;
-      if (!beats(mine, claim)) continue;
-      if (winner === null || a < bestArrival) {
-        bestArrival = a;
-        winner = e;
-        winnerScalar = mine;
-        tied = false;
-      } else if (a === bestArrival) {
-        const held = winnerScalar as Scalar;
-        if (beats(mine, held)) {
+      // The claim standing on the cell: the strongest pair among a tie.
+      let claim = -1;
+      for (let k = 0; k < nT; k++) {
+        const e = trailSlots[k] as number;
+        if ((entEarliest[e] as Int32Array)[c] !== D) continue;
+        const m = ranks[e * turns + at] as number;
+        if (m > claim) claim = m;
+      }
+      if (claim < 0) continue;
+
+      // Challengers: pieces that get there in time AND beat what is standing.
+      let bestArrival = NEVER;
+      let winner = -1;
+      let winnerRank = -1;
+      let tied = false;
+      for (let k = 0; k < nP; k++) {
+        const e = pieceSlots[k] as number;
+        const a = (entEarliest[e] as Int32Array)[c] as number;
+        if (a > D) continue;
+        const m = ranks[e * turns + at] as number;
+        if (m <= claim) continue;
+        if (winner < 0 || a < bestArrival) {
+          bestArrival = a;
           winner = e;
-          winnerScalar = mine;
+          winnerRank = m;
           tied = false;
-        } else if (!beats(held, mine)) {
-          tied = true;
+        } else if (a === bestArrival) {
+          if (m > winnerRank) {
+            winner = e;
+            winnerRank = m;
+            tied = false;
+          } else if (m === winnerRank) {
+            tied = true;
+          }
         }
       }
-    }
 
-    if (winner !== null && !tied) {
-      if (winner.s.team === asTeam) ours++;
-      else theirs++;
-      continue;
+      if (winner >= 0 && !tied) {
+        if (entTeam[winner] === asTeam) ours++;
+        else theirs++;
+        continue;
+      }
+      // A mutual kill among challengers settles nothing: a piece layer can change
+      // WHO holds ground, never vacate ground a trail unit holds.
+      if ((oursWord & lowest) !== 0) ours++;
+      else if ((theirsWord & lowest) !== 0) theirs++;
     }
-    // A mutual kill among challengers settles nothing: a piece layer can change
-    // WHO holds ground, never vacate ground a trail unit holds.
-    if (bbTest(ws.oursBoard, c)) ours++;
-    else if (bbTest(ws.theirsBoard, c)) theirs++;
   }
-  return { ours, theirs };
+  ws.displacedTheirs = theirs;
+  return ours;
 }
 
 function popcount32(x: number): number {
