@@ -471,6 +471,14 @@ export function partitionOf<S extends TerritorySubject>(
   theirsBoard.fill(0);
   coveredPrev.fill(0);
   for (let k = 0; k < nT; k++) ws.planeFor(k).fill(0);
+  // MEASURED NULL RESULT, kept because the next person will think of it too:
+  // this fill is now redundant. `displace` reads `decisive` only over the trail
+  // domain, and the domain is exactly the cells the sweep below stamps, so no
+  // read can reach a stale turn. Removing it — or replacing it with a
+  // generation stamp from `scratch.ts` — is worth 0.7% of `partitionOf` on the
+  // 23×23 board, inside the noise of two interleaved arms over nine rounds: 625
+  // word stores against a ~385-cell write set is not a trade worth making. It
+  // stays as the executable statement of the invariant `displace` relies on.
   if (needDecisive) decisive.fill(NEVER);
 
   const teams = ws.teamList;
