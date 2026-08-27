@@ -9,6 +9,29 @@ export type { SearchTuning } from "./core";
 export { basisOf, referenceActionsOf } from "./basis";
 
 export {
+  CLUSTER_ENUM_ENV,
+  clusterEnumEnabled,
+  clusterEnumFrom,
+  expandCluster,
+  mergeAll,
+  partitionOf,
+  sliderKind,
+} from "./cluster-partition";
+export type { Cluster, Expansion, Partition, PartitionRequest } from "./cluster-partition";
+
+export { DEFAULT_CLUSTER_TUNING, enumerateProposals } from "./cluster-enum";
+export type {
+  ClusterProposals,
+  ClusterStats,
+  ClusterTuning,
+  EnumRequest,
+  UnaryLookup,
+} from "./cluster-enum";
+
+export { SweepDirty } from "./sweep-dirty";
+export type { DirtyStats } from "./sweep-dirty";
+
+export {
   contestedUnits,
   dangerOrder,
   deadIn,

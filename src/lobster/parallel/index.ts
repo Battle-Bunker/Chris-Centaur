@@ -29,7 +29,7 @@ export type { WorkerSetting } from "./config"
 export { InlinePool, WorkerEvaluationPool, workerArgs } from "./pool"
 export type { EvaluationPool, PoolStats, WorkerPoolOptions } from "./pool"
 
-export { decodePlan, planBatchPartition, sweepFrontier } from "./partition"
+export { clusterPlanPartition, decodePlan, planBatchPartition, sweepFrontier } from "./partition"
 export type { Frontier, PlanChunk, WorkPartition } from "./partition"
 
 export {

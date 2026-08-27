@@ -196,6 +196,17 @@ export interface TeamDecisionOptions {
    */
   readonly edgeEv?: boolean;
   /**
+   * Whether this ENGINE runs the cluster-factored exact joint enumeration,
+   * overriding `CENTAUR_CLUSTER_ENUM`. A fourth flag, by the same standing
+   * rule: what has to be measurable is one seat against unchanged opponents.
+   *
+   * It carries three behaviours that are one idea and cannot be measured apart
+   * — the enumeration itself, the worker cut it feeds, and the sweep dirty set
+   * whose neighbourhood relation IS the partition's. See
+   * `search/cluster-partition.ts`.
+   */
+  readonly clusterEnum?: boolean;
+  /**
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
    *
@@ -597,6 +608,7 @@ export class TeamDecisionEngine {
         rungZeroRepair: safety === 'full',
         seedDeconflict: safety !== 'off',
         clusterSeed: this.options.clusterSeed,
+        clusterEnum: this.options.clusterEnum,
         ...(this.options.search ?? {}),
         // AFTER the caller's tuning, and deliberately: these two are not
         // preferences the caller expresses, they are facts about THIS
