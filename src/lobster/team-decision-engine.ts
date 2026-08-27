@@ -188,6 +188,14 @@ export interface TeamDecisionOptions {
    */
   readonly unitFatality?: boolean;
   /**
+   * Whether this ENGINE runs the rung-1/2 edge-EV ordering pass, overriding
+   * `CENTAUR_EDGE_EV`. A third flag and not a widening of either of the other
+   * two, for the reason that is now this branch's standing rule: what has to be
+   * measurable is one seat against unchanged opponents, and a feature folded
+   * into a neighbour's flag can only ever be measured as a sum.
+   */
+  readonly edgeEv?: boolean;
+  /**
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
    *
@@ -577,6 +585,7 @@ export class TeamDecisionEngine {
       ...(this.options.unitFatality === undefined
         ? {}
         : { unitFatality: this.options.unitFatality }),
+      ...(this.options.edgeEv === undefined ? {} : { edgeEv: this.options.edgeEv }),
       ...(this.options.candidates ?? {}),
     };
     const gen = new GrammarCandidateGenerator(knobs);
