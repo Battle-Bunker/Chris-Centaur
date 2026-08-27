@@ -430,7 +430,10 @@ export class BoundBank {
         best: bound.hi,
         ledger,
         assumptions: this.input.basis,
-        note: `${rung} branch ${pk}`,
+        // A thunk: this text is read only when a bound inverts, and building it
+        // interpolates the longest string in the system on every branch of
+        // every price.
+        note: () => `${rung} branch ${pk}`,
       }),
       est: bound.est,
       rung,

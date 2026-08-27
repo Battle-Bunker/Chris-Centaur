@@ -74,29 +74,108 @@ export function assumptionKey(a: Assumption): string {
  */
 export type BasisKey = string;
 
+/**
+ * ── THE CANONICAL-ARRAY REGISTER, AND WHY IT IS SOUND ──────────────────────
+ *
+ * `normalizeLedger` and `normalizeAssumptions` are idempotent by construction,
+ * and they are called on their own OUTPUT constantly: `makeScoreBounds`
+ * re-normalises the ledger `ledgerOf` just normalised, `withNarrowing` and
+ * `onBasis` re-normalise a ledger that came out of `makeScoreBounds`, and a
+ * `tighten` chain re-normalises the same basis on every rung. Measured on a
+ * one-second decision, `normalizeLedger` was 15.9% of self time on ledgers
+ * averaging 19.9 entries — most of it re-deriving an answer this module had
+ * already derived.
+ *
+ * So each function REGISTERS the array it returns, and returns an already
+ * registered array untouched. The register is a `WeakSet`, so it holds nothing
+ * alive and costs one pointer hash on the fast path.
+ *
+ * This is sound exactly because both `ReadonlyArray<LedgerEntry>` and
+ * `ReadonlyArray<Assumption>` are readonly BY CONTRACT — a bound's ledger and
+ * basis are part of its identity and `contracts.ts` types them as such. A
+ * registered array that someone mutated would serve a stale canonical form,
+ * which is why nothing outside this module may put an array into the register:
+ * `register` is private to the file and only ever sees arrays this file built
+ * or arrays a caller handed us and we then proved canonical.
+ */
+const CANONICAL = new WeakSet<object>();
+
+function register<T>(a: ReadonlyArray<T>): ReadonlyArray<T> {
+  CANONICAL.add(a as unknown as object);
+  return a;
+}
+
+/** Basis keys, per canonical assumption array. `dominates`, `compare` and
+ * `tighten` each ask for two of these per call, on arrays that are the SAME
+ * object branch after branch (the basis does not vary within a price). */
+const BASIS_KEYS = new WeakMap<object, BasisKey>();
+
 export function basisKeyOf(assumptions: ReadonlyArray<Assumption>): BasisKey {
-  return assumptions.map(assumptionKey).sort().join("|");
+  const n = assumptions.length;
+  if (n === 0) return "";
+  const hit = BASIS_KEYS.get(assumptions as unknown as object);
+  if (hit !== undefined) return hit;
+  const keys = new Array<string>(n);
+  for (let i = 0; i < n; i++) keys[i] = assumptionKey(assumptions[i] as Assumption);
+  keys.sort();
+  const key = keys.join("|");
+  BASIS_KEYS.set(assumptions as unknown as object, key);
+  return key;
 }
 
 /** Deduplicated, canonically ordered — so the basis key is stable. */
 export function normalizeAssumptions(
   assumptions: ReadonlyArray<Assumption>,
 ): ReadonlyArray<Assumption> {
+  const n = assumptions.length;
+  if (n === 0) return assumptions;
+  if (CANONICAL.has(assumptions as unknown as object)) return assumptions;
   const seen = new Map<string, Assumption>();
   for (const a of assumptions) {
     const k = assumptionKey(a);
     if (!seen.has(k)) seen.set(k, a);
   }
-  return [...seen.entries()].sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).map((e) => e[1]);
+  const keys = [...seen.keys()].sort();
+  const out = new Array<Assumption>(keys.length);
+  for (let i = 0; i < keys.length; i++) out[i] = seen.get(keys[i] as string) as Assumption;
+  return register(out);
 }
 
 export function unionAssumptions(
   ...groups: ReadonlyArray<ReadonlyArray<Assumption>>
 ): ReadonlyArray<Assumption> {
+  // The basis is identical on every branch of every price (measured: 0.89 µs a
+  // branch to re-derive it, 0.004 µs to recognise it), so the union of N copies
+  // of one canonical array is that array.
+  const only = soleGroup(groups);
+  if (only !== null) return only;
   const all: Assumption[] = [];
-  for (const g of groups) all.push(...g);
+  for (const g of groups) for (const a of g) all.push(a);
   return normalizeAssumptions(all);
 }
+
+/**
+ * The one canonical array a union is over, or null when there is real work.
+ *
+ * Empty groups contribute nothing to a union, and a union over one already
+ * canonical group is that group. Both cases are the overwhelming majority here
+ * — `justifier` picks the SAME child for both endpoints whenever one child has
+ * the tightest ledger on each, and a bound with no assumptions is the default.
+ */
+function soleGroup<T>(groups: ReadonlyArray<ReadonlyArray<T>>): ReadonlyArray<T> | null {
+  let found: ReadonlyArray<T> | null = null;
+  for (const g of groups) {
+    if (g.length === 0) continue;
+    if (found === null) found = g;
+    else if (found !== g) return null;
+  }
+  if (found === null) return EMPTY as ReadonlyArray<T>;
+  return CANONICAL.has(found as unknown as object) ? found : null;
+}
+
+/** The canonical empty array — registered, so it short-circuits everywhere.
+ * Frozen because it is now SHARED by every bound that has nothing to declare. */
+const EMPTY: ReadonlyArray<never> = register<never>(Object.freeze([]));
 
 // --------------------------------------------------------------- the ledger
 
@@ -104,30 +183,75 @@ export function ledgerKey(e: LedgerEntry): string {
   return `${e.unitId}:${e.cell}:${e.subStep}:${e.polarity}`;
 }
 
+/**
+ * Scratch for the normalisation below. Safe to share across calls because
+ * `normalizeLedger` takes no callback and calls nothing that can re-enter it —
+ * `ledgerKey` is a pure template on four primitives. Kept at module scope so
+ * the sort comparator can be a hoisted function rather than a closure
+ * allocated per call.
+ */
+let keyScratch: string[] = [];
+const orderScratch: number[] = [];
+
+/** Sort by the STRING key, ties broken by input index.
+ *
+ * The tie-break is what preserves "keep the FIRST occurrence of a duplicate
+ * key", which the `Map`-based version got from insertion order. It is written
+ * out rather than left to `Array.prototype.sort`'s stability guarantee because
+ * the dedup below is the only thing standing between a repeated entanglement
+ * and a doubled ledger, and a guarantee you have to look up is a guarantee
+ * somebody eventually gets wrong. */
+function byKeyThenIndex(a: number, b: number): number {
+  const ka = keyScratch[a] as string;
+  const kb = keyScratch[b] as string;
+  return ka < kb ? -1 : ka > kb ? 1 : a - b;
+}
+
 export function normalizeLedger(entries: ReadonlyArray<LedgerEntry>): ReadonlyArray<LedgerEntry> {
-  // Ledger normalisation is ~9% of a decision's self time (measured), and it
-  // runs on every branch of every price. A single entry is already
-  // deduplicated and already ordered, and that is the common case; above it,
-  // sorting the KEYS costs one array rather than an array of pairs plus a map.
-  // The order is unchanged — it is part of a bound's identity.
-  if (entries.length <= 1) return entries;
-  const seen = new Map<string, LedgerEntry>();
-  for (const e of entries) {
-    const k = ledgerKey(e);
-    if (!seen.has(k)) seen.set(k, e);
+  // Ledger normalisation was ~9% of a decision's self time when it was written
+  // and 15.9% after the evaluator shrank, and it runs on every branch of every
+  // price. A single entry is already deduplicated and already ordered, and an
+  // array this module already canonicalised is too — see the register above,
+  // which is where nearly all of the calls now stop. The order is unchanged:
+  // it is part of a bound's identity, and it is the STRING order (a numeric
+  // one reorders 300 of 300 sampled ledgers).
+  const n = entries.length;
+  if (n <= 1) return entries;
+  if (CANONICAL.has(entries as unknown as object)) return entries;
+
+  if (keyScratch.length < n) keyScratch = new Array<string>(n);
+  const keys = keyScratch;
+  for (let i = 0; i < n; i++) keys[i] = ledgerKey(entries[i] as LedgerEntry);
+
+  orderScratch.length = n;
+  for (let i = 0; i < n; i++) orderScratch[i] = i;
+  orderScratch.sort(byKeyThenIndex);
+
+  // One pass: the first index of each run of equal keys, in key order.
+  let distinct = 1;
+  for (let i = 1; i < n; i++) {
+    if (keys[orderScratch[i - 1] as number] !== keys[orderScratch[i] as number]) distinct++;
   }
-  if (seen.size === 1) return [...seen.values()];
-  const keys = [...seen.keys()].sort();
-  const out: LedgerEntry[] = new Array<LedgerEntry>(keys.length);
-  for (let i = 0; i < keys.length; i++) out[i] = seen.get(keys[i] as string) as LedgerEntry;
-  return out;
+  const out: LedgerEntry[] = new Array<LedgerEntry>(distinct);
+  out[0] = entries[orderScratch[0] as number] as LedgerEntry;
+  let w = 1;
+  for (let i = 1; i < n; i++) {
+    if (keys[orderScratch[i - 1] as number] === keys[orderScratch[i] as number]) continue;
+    out[w++] = entries[orderScratch[i] as number] as LedgerEntry;
+  }
+  return register(out);
 }
 
 export function unionLedgers(
   ...groups: ReadonlyArray<ReadonlyArray<LedgerEntry>>
 ): ReadonlyArray<LedgerEntry> {
+  // `justifier` picks the same child for both endpoints whenever one child has
+  // the tightest ledger on each, which is most of the time — and a union of one
+  // canonical ledger with itself, or with nothing, is that ledger.
+  const only = soleGroup(groups);
+  if (only !== null) return only;
   const all: LedgerEntry[] = [];
-  for (const g of groups) all.push(...g);
+  for (const g of groups) for (const e of g) all.push(e);
   return normalizeLedger(all);
 }
 
@@ -138,8 +262,22 @@ export interface BoundsInput {
   readonly best: number;
   readonly ledger?: ReadonlyArray<LedgerEntry>;
   readonly assumptions?: ReadonlyArray<Assumption>;
-  /** Free text for the inversion error only; never load-bearing. */
-  readonly note?: string;
+  /**
+   * Free text for the inversion error only; never load-bearing.
+   *
+   * A THUNK is accepted, and the hot callers pass one: the bank's per-branch
+   * provenance note interpolates a `planKey` — the longest string in the
+   * system — on every branch of every price, to build a string that is read
+   * only when a bound inverts, which is the bug that must never happen. The
+   * thunk is called exactly where the text is used and nowhere else.
+   */
+  readonly note?: string | (() => string);
+}
+
+/** Resolve a note only where one is actually being printed. */
+function noteText(note: string | (() => string) | undefined, fallback: string): string {
+  if (note === undefined) return fallback;
+  return typeof note === "string" ? note : note();
 }
 
 /**
@@ -151,7 +289,7 @@ export function makeScoreBounds(input: BoundsInput): ScoreBounds {
   const assumptions = normalizeAssumptions(input.assumptions ?? []);
   const { worst, best } = input;
   if (best < worst - BOUND_EPSILON) {
-    throw new BoundsInversionError(worst, best, input.note ?? "no provenance recorded");
+    throw new BoundsInversionError(worst, best, noteText(input.note, "no provenance recorded"));
   }
   // Float drift inside epsilon collapses to a point rather than inverting.
   const hi = best < worst ? worst : best;
@@ -160,7 +298,7 @@ export function makeScoreBounds(input: BoundsInput): ScoreBounds {
     throw new BoundsInversionError(
       worst,
       hi,
-      `${input.note ?? "discharge"}: empty ledger and empty assumptions must mean a point bound — ` +
+      `${noteText(input.note, "discharge")}: empty ledger and empty assumptions must mean a point bound — ` +
         "a gap with nothing to blame it on is an unrecorded narrowing",
     );
   }
