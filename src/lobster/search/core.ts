@@ -177,16 +177,30 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     throw new NoRosterError();
   };
 
-  /** A session for this basis, reused when one is already live. */
+  /**
+   * A session for this basis, reused when one is already live.
+   *
+   * TWO THINGS CROSS THE BOUNDARY, and a cached session is wrong without
+   * either of them:
+   *
+   *  - THE WITNESSES the caller has learned since. The double oracle's memory.
+   *  - THE BUDGET OF THE SLICE THAT IS RUNNING NOW. The kernel builds a fresh
+   *    `SliceBudget` per slice; the bank was built with the FIRST one and kept
+   *    it, so from slice two its `shouldStop()` was permanently true and every
+   *    price degraded to B0 — measured at 1 724 of 1 724 prices in a
+   *    one-second decision, with zero B1/B2/B3 admissions and zero witnesses
+   *    banked. See the note on `BoundBank.budget`. Handing the live handle
+   *    over here, on every path, is the whole fix: budget semantics stay the
+   *    kernel's, and the bank consults the clock it was given for THIS slice.
+   */
   const sessionFor = (ctx: SearchContext): Session => {
     const key = sessionKey(ctx);
     const hit = sessions.get(key);
     if (hit !== undefined && hit.sub === ctx.sub) {
-      // Keep the LRU order, and take whatever witnesses the caller has learned
-      // since — the double oracle's memory is the one thing that must cross
-      // every boundary.
+      // Keep the LRU order.
       sessions.delete(key);
       sessions.set(key, hit);
+      hit.bank.adoptBudget(ctx.budget);
       hit.bank.adoptWitnesses(ctx.witnesses);
       return hit;
     }

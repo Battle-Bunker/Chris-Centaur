@@ -187,6 +187,12 @@ export interface BankInput {
   readonly gen: CandidateGenerator;
   readonly evaluate: Evaluator;
   readonly asTeam: number;
+  /**
+   * The budget the bank consults AT CONSTRUCTION TIME. A bank that outlives
+   * one slice must be handed the next slice's handle through `adoptBudget` —
+   * see the field's own note. Budget SEMANTICS stay the caller's: the bank
+   * asks `shouldStop()` and never decides what a slice is worth.
+   */
   readonly budget: BudgetHandle;
   /**
    * Assumptions every member inherits: operator pins, the posture, and the
@@ -232,12 +238,46 @@ export class BoundBank {
   private readonly views = new Map<string, { sub: Substrate; release(): void }>();
   private readonly canModel: boolean;
 
+  /**
+   * THE LIVE CLOCK.
+   *
+   * This is a HANDLE THE CALLER OWNS, re-pointed per slice, and it is a field
+   * rather than `input.budget` because of a measured defect:
+   * `SearchCore.open()` built the bank with the FIRST slice's `BudgetHandle`
+   * and then cached the session across slices, so from slice two on the bank
+   * held a handle whose `shouldStop()` was permanently true. Every B1/B2/B3
+   * sweep aborted at its first check and every price silently degraded to B0 —
+   * all 1 724 prices of a one-second decision, zero rung admissions, zero
+   * witnesses, for the whole life of the session. The ladder was, in effect,
+   * off in production while reading as on.
+   *
+   * A captured clock is the bug. The bank does not own time policy — the
+   * kernel builds the slice budget and the search hands it down — so what the
+   * bank keeps is a POINTER to the current one, and `adoptBudget` is how a
+   * caller that outlives a slice keeps it honest. `SearchCore.sessionFor` does
+   * it on every path, next to `adoptWitnesses`, for the same reason: some
+   * caller state must cross every boundary.
+   */
+  private budget: BudgetHandle;
+
   constructor(private readonly input: BankInput) {
     this.cfg = { ...DEFAULT_BANK_CONFIG, ...(input.config ?? {}) };
     this.memo = memoizeSubstrate(input.sub, this.cfg.memoCapacity);
     this.referenceActions = input.referenceActions ?? new Map();
     this.referenceIds = [...this.referenceActions.keys()].sort((a, b) => a - b);
     this.canModel = isModelling(this.memo);
+    this.budget = input.budget;
+  }
+
+  /**
+   * Point the bank at the budget of the slice that is running NOW.
+   *
+   * Idempotent, and cheap enough to call unconditionally. A bank that is not
+   * re-pointed keeps whatever handle it was built with — which is correct for
+   * a bank that lives inside one slice and fatal for one that does not.
+   */
+  adoptBudget(budget: BudgetHandle): void {
+    this.budget = budget;
   }
 
   /** True when the substrate can change WHO is held — B1/B2/B3 need it. */
@@ -462,7 +502,7 @@ export class BoundBank {
           let swept = true;
           const walk = (i: number, acc: Candidate[]): void => {
             if (!swept) return;
-            if (this.input.budget.shouldStop()) {
+            if (this.budget.shouldStop()) {
               swept = false;
               return;
             }
@@ -490,7 +530,7 @@ export class BoundBank {
       // ---- B1: one enemy at a time, additive -----------------------------
       if (this.cfg.b1 && !b3Covered) {
         for (const enemy of gated.slice(0, this.cfg.enemyCap)) {
-          if (this.input.budget.shouldStop()) {
+          if (this.budget.shouldStop()) {
             finished = false;
             break;
           }
@@ -500,7 +540,7 @@ export class BoundBank {
           const leaves: Branch[] = [];
           let swept = true;
           for (const option of options) {
-            if (this.input.budget.shouldStop()) {
+            if (this.budget.shouldStop()) {
               swept = false;
               break;
             }
@@ -520,7 +560,7 @@ export class BoundBank {
       // ---- B2: the witness matrix ----------------------------------------
       if (this.cfg.b2 && this.witnessList.length > 0) {
         for (const witness of this.witnessList) {
-          if (this.input.budget.shouldStop()) {
+          if (this.budget.shouldStop()) {
             finished = false;
             break;
           }
