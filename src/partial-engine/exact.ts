@@ -180,7 +180,11 @@ export function resolveBounded(
   readonly bounds: ScoreBounds;
 } {
   const resolution = evolveJoint(engine, state, assignment);
-  const fateById = new Map(resolution.fates.map((f) => [f.unitId, f.fate]));
+  // `new Map(fates.map(f => [f.unitId, f.fate]))` reads well and builds a
+  // two-element array per unit plus the array holding them, all of it dead the
+  // moment the Map exists. This runs once per world a search prices.
+  const fateById = new Map<number, Fate>();
+  for (const f of resolution.fates) fateById.set(f.unitId, f.fate);
   const units: UnitValueBounds[] = [];
   for (const v of engine.units(resolution.state)) {
     const fate = fateById.get(v.unitId);
@@ -209,7 +213,12 @@ export function resolveBounded(
       partialLossMax: Math.max(0, slot.record.weight - slot.bounds.weightMin),
     });
   }
-  const teams = new Set(units.map((u) => u.team));
+  // Likewise: the intermediate array of team numbers exists only to be
+  // consumed by the Set. Insertion order — which is what fixes the order the
+  // per-team frames are summed in, and so the last bit of the result — is
+  // first-occurrence order in `units` either way.
+  const teams = new Set<number>();
+  for (const u of units) teams.add(u.team);
   const perTeam = new Map<number, { worst: number; best: number }>();
   for (const team of teams) {
     perTeam.set(team, scopedTeamValueBounds(units, team, subjectTeam));
