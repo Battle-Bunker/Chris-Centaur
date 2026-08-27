@@ -9,6 +9,7 @@
  */
 
 import type { Bound, EmitRecord, JointPlan, KernelInput, Pin } from "../lobster/contracts"
+import { DEFAULT_COHORT_ID } from "../lobster/evaluate/calibration"
 import {
   DEFAULT_KERNEL_OPTIONS,
   LobsterKernel,
@@ -581,6 +582,7 @@ describe("the pin-context cache (tier 3: context-exclusive)", () => {
         hi: 90,
         horizon: 1,
         vacuity: "alive",
+        cohort: DEFAULT_COHORT_ID,
         loCite: new Set([7]),
         hiCite: new Set<number>(),
         refuted: false,

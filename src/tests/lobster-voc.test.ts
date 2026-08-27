@@ -3,6 +3,7 @@
  * no exchange rate, sticky staging, and the tie-vacuity join directions.
  */
 
+import { DEFAULT_COHORT_ID } from "../lobster/evaluate/calibration"
 import { channelPolicyFor } from "../lobster/postures"
 import {
   DEFAULT_SWITCH_MARGIN,
@@ -42,6 +43,11 @@ const row = (over: Partial<StagingCandidate> & { key: string }): StagingCandidat
   hi: 0,
   horizon: 1,
   vacuity: "alive",
+  // Every row the stager compares names the objective it was proved under.
+  // These suites compare rows WITHIN one objective, which is the only kind of
+  // comparison there is — so one constant, and the type refuses to let a suite
+  // forget it.
+  cohort: DEFAULT_COHORT_ID,
   ...over,
 })
 
@@ -260,8 +266,21 @@ describe("sticky staging (F1/F2 and the dead-dethroned-by-the-living rule)", () 
 
   it("derives its rows from a scored plan, cliff included", () => {
     const p = plan([1, 4])
-    const r = stagingRowOf(score(p, -1000, 60, { ledger: [ledgerEntry(9)] }), 12, 2, CLIFF)
-    expect(r).toMatchObject({ key: planKey(p), lo: -1000, est: 12, hi: 60, horizon: 2 })
+    const r = stagingRowOf(
+      score(p, -1000, 60, { ledger: [ledgerEntry(9)] }),
+      12,
+      2,
+      DEFAULT_COHORT_ID,
+      CLIFF,
+    )
+    expect(r).toMatchObject({
+      key: planKey(p),
+      lo: -1000,
+      est: 12,
+      hi: 60,
+      horizon: 2,
+      cohort: DEFAULT_COHORT_ID,
+    })
     expect(r.vacuity).toBe("cloud-contingent-dead")
   })
 })
@@ -287,6 +306,7 @@ const view = (over: Partial<LeverView> = {}): LeverView => {
       hi: 90,
       horizon: 1,
       vacuity: "alive",
+      cohort: DEFAULT_COHORT_ID,
       loCite: new Set([2, 3]),
       hiCite: new Set<number>(),
       refuted: false,
@@ -299,6 +319,7 @@ const view = (over: Partial<LeverView> = {}): LeverView => {
       hi: 80,
       horizon: 1,
       vacuity: "alive",
+      cohort: DEFAULT_COHORT_ID,
       loCite: new Set([3]),
       hiCite: new Set([2]),
       refuted: false,

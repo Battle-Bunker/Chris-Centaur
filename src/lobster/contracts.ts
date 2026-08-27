@@ -307,7 +307,15 @@ export interface HeldUnitView {
   readonly refinable: boolean
 }
 
-/** What the sticky stager compares. One row per root candidate. */
+/** What the sticky stager compares. One row per root candidate.
+ *
+ * THE COHORT STAMP IS NOT DECORATION. Every number on this row — `lo`, `est`,
+ * `hi`, and the `vacuity` derived from them — is a statement under ONE
+ * objective, and two rows from different objectives are not two answers to one
+ * question but one answer each to two. The stamp is REQUIRED so that mixing
+ * them is a type error at the row's construction site rather than a silent
+ * `max` two layers down (A1 §1.3.2). `rows()` filters to the active cohort;
+ * this field is what it filters on. */
 export interface StagingCandidate {
   readonly key: string
   readonly lo: number
@@ -316,6 +324,8 @@ export interface StagingCandidate {
   /** Horizon this candidate's value was proved at. */
   readonly horizon: number
   readonly vacuity: VacuityCause
+  /** The evaluation cohort these numbers were proved under. */
+  readonly cohort: CohortId
 }
 
 export interface CandidateView extends StagingCandidate {
@@ -548,6 +558,22 @@ export interface KernelInput {
    * command and every held-capacity modelling narrowing. Threaded into every
    * SearchContext.assumptions this decision creates. */
   readonly assumptions?: ReadonlyArray<Assumption>
+  /**
+   * THE COHORT SEAM. Which evaluation cohort this decision opens under.
+   * Defaults to the registry's default row.
+   *
+   * It is an INPUT and not a governor because Stage 1 hard-wires one cohort:
+   * the caller names the objective once, the kernel proves everything under
+   * it, and every number the decision produces carries that name. Stage 2's
+   * admission governor sits exactly where `PostureGovernor` sits — it will
+   * choose the OPENING cohort here and drive later flips through
+   * `governCohort`, which already exists and is already tested. Nothing about
+   * the basis machinery changes when it lands.
+   *
+   * An unregistered id is refused at `decide()` rather than discovered as a
+   * bound stamped with a cohort nobody can look up.
+   */
+  readonly cohort?: CohortId
   /** Clock injection point. Defaults to a monotonic timer. Tests pass a fake
    * clock so the anytime suite is deterministic. */
   readonly now?: () => number

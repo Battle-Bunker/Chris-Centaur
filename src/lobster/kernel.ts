@@ -45,6 +45,7 @@ import type {
   Assumption,
   Bound,
   BudgetHandle,
+  CohortId,
   CrossfadeVerdict,
   EmitRecord,
   JointPlan,
@@ -59,6 +60,20 @@ import type {
   UnitId,
   Witness,
 } from "./contracts"
+// THE COHORT REGISTRY, AND NOTHING ELSE FROM THE EVALUATOR. `calibration.ts`
+// is a leaf: pure data, one type-only import of `contracts`, no engine, no
+// features, no shells. The kernel needs to know which objectives EXIST (to
+// refuse an unregistered one) and what each one's invoked key set is (to stamp
+// it on the assumption); it must never learn how one is computed, and it does
+// not — importing the barrel `./evaluate` instead would pull the whole
+// partial-engine-backed evaluator into the loop's module graph for a string.
+import {
+  COHORTS,
+  DEFAULT_COHORT_ID,
+  cohortAssumptionOf,
+  requireCohortRowIn,
+  type CohortRow,
+} from "./evaluate/calibration"
 import {
   DEFAULT_DEAD_BELOW,
   PostureGovernor,
@@ -226,10 +241,12 @@ export interface PinContextEntry {
   readonly epochBaseline: number
   incumbent: PlanScore | null
   bounds: { lo: number; hi: number } | null
-  /** The basis `bounds` was proved under — the posture that led and the epoch
-   * whose pin set it assumed. Carried so a consumer differencing this bracket
-   * against a record can prove the two share a basis (V4 B7). */
-  boundsBasis: { posture: Posture; epoch: number } | null
+  /** The basis `bounds` was proved under — the posture that led, the epoch
+   * whose pin set it assumed, and the COHORT whose objective it maximises.
+   * Carried so a consumer differencing this bracket against a record can prove
+   * the two share a basis (V4 B7). All three must match: two brackets under
+   * different objectives are not a price, they are a category error. */
+  boundsBasis: { posture: Posture; epoch: number; cohort: CohortId } | null
   /** Witnesses survive restarts and pin-context switches; they are certificates. */
   witnesses: ReadonlyArray<Witness>
   /** Refinement slices already spent here. A resume starts above zero. */
@@ -450,6 +467,17 @@ export interface KernelOptions {
   /** Stability floor for the horizon ration. */
   readonly epsilon: number
   readonly depthMax: number
+  /**
+   * THE COHORT REGISTRY THIS KERNEL WILL ANSWER FOR. Defaults to the shipped
+   * table. Held per-kernel and not read off module scope, for the same reason
+   * `stepCostMs` is held per-context: a registry a caller could add to would be
+   * every concurrent decision's registry, and Stage 2's per-game cohort policy
+   * has to be expressible without one game's configuration reaching another's.
+   *
+   * Stage 1 ships ONE row, so every production decision proves everything
+   * under one objective and the whole stage is a behavioural no-op.
+   */
+  readonly cohorts: ReadonlyArray<CohortRow>
 }
 
 export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
@@ -472,6 +500,7 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   deadBelow: DEFAULT_DEAD_BELOW,
   epsilon: 1.5,
   depthMax: 2,
+  cohorts: COHORTS,
 }
 
 // -------------------------------------------------------------------- report
@@ -519,6 +548,10 @@ export interface ConformanceSample {
 export interface BasisSnapshot {
   readonly epoch: number
   readonly posture: Posture
+  /** The evaluation cohort this basis ratcheted under — WHICH OBJECTIVE the
+   * floor below is a floor on. Two floors under different cohorts are floors
+   * on different quantities and were never comparable; the snapshot says so. */
+  readonly cohort: CohortId
   /** The channel this basis ratcheted. Cross-channel comparison never happens. */
   readonly channel: "lo" | "est"
   readonly floorLo: number
@@ -591,6 +624,12 @@ export interface KernelReport {
    * against a record proved on the same posture and epoch — a cross-basis
    * comparison is the one thing the whole bounds layer exists to forbid — so
    * the basis travels with the numbers rather than being assumed (V4 B7).
+   *
+   * `cohort` is the third leg of that basis and is carried here for the same
+   * reason. NOTE for Stage 2: `pins.ts`'s `adviseFromReport` currently tests
+   * only posture and epoch when it sets `degraded`. That is complete today —
+   * one decision has one cohort — and it will NOT be complete once a decision
+   * can flip mid-turn. The field is here first, deliberately.
    */
   readonly speculative: ReadonlyArray<{
     key: string
@@ -599,6 +638,7 @@ export interface KernelReport {
     cursor: number
     posture: Posture | null
     epoch: number | null
+    cohort: CohortId | null
   }>
   /** Every pin context this turn touched: the tier-3 store, as data. */
   readonly contexts: ReadonlyArray<{
@@ -613,6 +653,7 @@ export interface KernelReport {
     readonly incumbentHi: number | null
     readonly posture: Posture | null
     readonly epoch: number | null
+    readonly cohort: CohortId | null
     readonly witnesses: number
     readonly stepCostMs: number
   }>
@@ -635,6 +676,16 @@ interface RatchetBasis {
   readonly epoch: number
   readonly posture: Posture
   /**
+   * The OBJECTIVE this basis ratchets. Without it, a cohort change that lowers
+   * `lo` — which is expected, because a different feature set is a different
+   * quantity and not a weaker proof of the same one — reaches Gate 1 as a
+   * ratchet-floor refusal and is counted as a `boundViolation`: the kernel
+   * would be calling the search unsound for answering the question it was
+   * asked. Epoch, posture and cohort are the three things that make a floor a
+   * floor on something; all three live here.
+   */
+  readonly cohort: CohortId
+  /**
    * The channel this basis ratchets. Under FOGGED-VACUOUS every candidate's lo
    * sits on the cliff by construction, so a floor ratchet would freeze the
    * wire at whatever happened to be staged when the posture flipped — the
@@ -652,10 +703,11 @@ interface RatchetBasis {
   emits: number
 }
 
-function newBasis(epoch: number, posture: Posture): RatchetBasis {
+function newBasis(epoch: number, posture: Posture, cohort: CohortId): RatchetBasis {
   return {
     epoch,
     posture,
+    cohort,
     channel: channelPolicyFor(posture).orderBy,
     floorLo: Number.NEGATIVE_INFINITY,
     floorChannel: Number.NEGATIVE_INFINITY,
@@ -667,12 +719,22 @@ function newBasis(epoch: number, posture: Posture): RatchetBasis {
   }
 }
 
+/**
+ * One root plan and what this decision currently believes about it.
+ *
+ * `cohort` is what `bound` and `score` were proved under, and it is MUTABLE
+ * for the same reason they are: a cohort flip re-measures the row and re-stamps
+ * it, or drops it. A row whose stamp is not the active cohort is not a stale
+ * estimate of the right quantity — it is an exact statement about a different
+ * one — so `rows()` filters on it rather than ageing it out.
+ */
 interface PlanCandidate {
   readonly key: string
   readonly plan: JointPlan
   score: PlanScore | null
   bound: Bound
   horizon: number
+  cohort: CohortId
 }
 
 /** Consecutive slices that charge nothing to the clock before the loop gives
@@ -756,6 +818,13 @@ interface Run {
    * by unitId → the refused destination. See EmitRefusal "pin-unreachable". */
   refusedPins: Map<UnitId, number>
   epoch: number
+  /**
+   * THE ACTIVE COHORT — which objective this decision is currently proving
+   * things about. Mutable because `governCohort` may replace it mid-decision;
+   * constant for the whole of every Stage 1 production decision, because no
+   * production caller flips it yet.
+   */
+  cohort: CohortId
   basis: RatchetBasis
   active: PinContextEntry
   lastView: LeverView | null
@@ -855,6 +924,12 @@ export class LobsterKernel implements Kernel {
     const searchDeadline = deadline - this.opts.reserveMs
     const initialStepCostMs =
       input.initialStepCostMs ?? this.opts.initialStepCostMs ?? this.opts.sliceMs
+    // THE COHORT IS FIXED FOR THE DECISION HERE, and refused here if the
+    // registry does not know it. A bound stamped with an objective nobody can
+    // look up is indistinguishable from a sound one until someone tries to
+    // compare it, which is months later and in a refit corpus.
+    const cohort = input.cohort ?? DEFAULT_COHORT_ID
+    requireCohortRowIn(this.opts.cohorts, cohort)
     const cache = new PinContextCache(this.opts.pinCacheCapacity)
     const pins = canonicalPins(input.initialPins)
     const seeded = cache.obtain(
@@ -887,7 +962,8 @@ export class LobsterKernel implements Kernel {
       declared: [],
       refusedPins: new Map<UnitId, number>(),
       epoch: 0,
-      basis: newBasis(0, "SIGHTED"),
+      cohort,
+      basis: newBasis(0, "SIGHTED", cohort),
       active: seeded.entry,
       lastView: null,
       seq: 0,
@@ -1238,7 +1314,7 @@ export class LobsterKernel implements Kernel {
     // A NEW basis object. The old one is dropped on the floor: no map from
     // epoch to floor exists, so nothing in the new epoch can be compared with
     // anything proved in the old one.
-    run.basis = newBasis(run.epoch, run.governor.current)
+    run.basis = newBasis(run.epoch, run.governor.current, run.cohort)
     // Plans proved under the old pins are not comparable under the new ones —
     // and neither is the refinement view that ranked them.
     run.plans.clear()
@@ -1339,8 +1415,11 @@ export class LobsterKernel implements Kernel {
       asTeam: run.input.asTeam,
       pins: entry.pins.filter((p) => run.refusedPins.get(p.unitId) !== p.to),
       // The decision's standing basis (reference actions, held-capacity
-      // narrowings) plus the CURRENT posture — so every plan a context prices
-      // shares one basis, and a posture flip re-bases rather than compares.
+      // narrowings) plus the two FRAMING assumptions — the current posture and
+      // the active cohort. Both name the question rather than restricting the
+      // game, so every plan a context prices shares one basis, and a flip of
+      // either re-bases rather than compares. Same line, same idiom: an
+      // evaluator's identity never travels as a flag (anti-spaghetti rule 1).
       assumptions: [
         ...(run.input.assumptions ?? []),
         ...refused.map(
@@ -1351,6 +1430,7 @@ export class LobsterKernel implements Kernel {
           }),
         ),
         { kind: "posture", posture: run.governor.current },
+        this.cohortAssumption(run.cohort),
       ],
       incumbent: entry.incumbent,
       witnesses: entry.witnesses,
@@ -1364,7 +1444,7 @@ export class LobsterKernel implements Kernel {
     entry.bounds = { lo: score.bounds.worst, hi: score.bounds.best }
     // The basis this bracket was proved under travels with it: an advice layer
     // differencing it against a record must be able to prove the two agree.
-    entry.boundsBasis = { posture: run.governor.current, epoch: run.epoch }
+    entry.boundsBasis = { posture: run.governor.current, epoch: run.epoch, cohort: run.cohort }
     if (score.witnesses.length > 0) {
       const seen = new Set(entry.witnesses.map(witnessKey))
       const merged = entry.witnesses.slice()
@@ -1384,11 +1464,12 @@ export class LobsterKernel implements Kernel {
     const horizon = run.lastView?.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
-      run.plans.set(key, { key, plan: score.plan, score, bound, horizon })
+      run.plans.set(key, { key, plan: score.plan, score, bound, horizon, cohort: run.cohort })
     } else {
       existing.score = score
       existing.bound = bound
       existing.horizon = horizon
+      existing.cohort = run.cohort
     }
   }
 
@@ -1409,6 +1490,11 @@ export class LobsterKernel implements Kernel {
       score: null,
       bound: { lo: c.lo, est: c.est, hi: c.hi },
       horizon: c.horizon,
+      // The row the view handed us carries its own stamp; `rows()` has already
+      // refused any row whose stamp is not the active cohort, so this is the
+      // active one — taken from the row rather than from `run` so the two can
+      // never silently disagree.
+      cohort: c.cohort,
     }
     run.plans.set(c.key, cand)
     return cand
@@ -1457,6 +1543,12 @@ export class LobsterKernel implements Kernel {
     const existing = run.plans.get(key)
     if (existing !== undefined) {
       existing.bound = bound
+      // `bound` was just measured under the ACTIVE evaluator, so the row is
+      // now a statement about the active cohort whatever it was before.
+      if (existing.cohort !== run.cohort) {
+        existing.cohort = run.cohort
+        existing.score = null
+      }
       return existing
     }
     const cand: PlanCandidate = {
@@ -1467,6 +1559,7 @@ export class LobsterKernel implements Kernel {
         : null,
       bound,
       horizon: 1,
+      cohort: run.cohort,
     }
     run.plans.set(key, cand)
     return cand
@@ -1500,7 +1593,7 @@ export class LobsterKernel implements Kernel {
     run.basisHistory.push(basisSnapshot(run.basis))
     const carried = run.basis.staged
     const carriedPlan = run.basis.stagedPlan
-    run.basis = newBasis(run.epoch, flip.to)
+    run.basis = newBasis(run.epoch, flip.to, run.cohort)
     if (carried !== null && carriedPlan !== null) {
       // The SAME-EVALUATOR RULE: a tier re-measures the incumbent under its own
       // evaluator before it may be replaced. Here the "tier" is the channel the
@@ -1516,6 +1609,126 @@ export class LobsterKernel implements Kernel {
       // from its own first emission.
       run.basis.staged = carried
       run.basis.stagedPlan = carriedPlan
+    }
+  }
+
+  // --------------------------------------------------------------- cohorts
+
+  /** The stamp one cohort rides as, resolved through THIS kernel's registry. */
+  private cohortAssumption(id: CohortId): Assumption {
+    return cohortAssumptionOf(requireCohortRowIn(this.opts.cohorts, id))
+  }
+
+  /**
+   * THE COHORT FLIP. `governPosture`'s control flow with one addition and one
+   * subtraction, and the asymmetry between the two is the whole point.
+   *
+   * A POSTURE flip carries a VALID number under a new channel: the same
+   * evaluator computed it, so the incumbent's triple is still a true statement
+   * about the incumbent and re-measuring it is a courtesy the same-evaluator
+   * rule pays. A COHORT flip carries an INVALID one: a different feature set
+   * is a different quantity, so every scalar in flight is now an exact
+   * statement about a question nobody is asking. Re-measure is therefore
+   * UNCONDITIONAL here and optional there, and the rows this kernel cannot
+   * afford to re-measure are DROPPED rather than aged.
+   *
+   *   push basisSnapshot(old)
+   *   basis := newBasis(epoch, posture, newCohort)
+   *   carry staged record + stagedPlan     the wire did not change; it never
+   *                                        goes empty because of a re-basing
+   *   DO NOT carry floorLo/floorChannel    proved under another objective
+   *   re-measure the incumbent             unconditionally, before anything
+   *                                        may replace it
+   *   re-measure or DROP every other row   governPosture does NOT do this, and
+   *                                        that omission is the silent-mixing
+   *                                        hazard (A1 §1.3.2)
+   *
+   * WHAT SURVIVES, and why it is not a judgement call: everything the ENGINE
+   * produced. Witnesses are score-free enemy-reply certificates; resolutions,
+   * candidate sets, prune ledgers and `citedUnits` are engine-derived; the pin
+   * set, the epoch, `committedUnits` and the refinement cursor are facts about
+   * the operator and the board. None of them mention a weight. What dies is
+   * every `Bound`/`ScoreBounds` scalar, the ratchet floors, and the lever view
+   * that ranked plans under the old objective (§2.5's invariance inventory).
+   * That is why an escalation is cheap: the expensive half — resolving — is
+   * cohort-invariant and stays in the memo.
+   *
+   * Returns true iff the cohort actually changed.
+   */
+  private governCohort(run: Run, to: CohortId): boolean {
+    if (to === run.cohort) return false
+    requireCohortRowIn(this.opts.cohorts, to)
+    run.basisHistory.push(basisSnapshot(run.basis))
+    const carried = run.basis.staged
+    const carriedPlan = run.basis.stagedPlan
+    const from = run.cohort
+    run.cohort = to
+    run.basis = newBasis(run.epoch, run.governor.current, to)
+    // The lever view ranked candidates under the OLD objective, so its order,
+    // its slack and its leader are all statements about the wrong question.
+    // Dropped whole, exactly as an epoch change drops it.
+    run.lastView = null
+    // Every cached bracket is now a number about the old objective. The
+    // CONTEXTS keep what the engine gave them — witnesses, cursor, citations,
+    // pins — and lose what the evaluator gave them.
+    for (const key of run.cache.keys()) {
+      const e = run.cache.peek(key)
+      if (e === null) continue
+      e.incumbent = null
+      e.bounds = null
+      e.boundsBasis = null
+    }
+    this.refoldPlans(run, carriedPlan, from)
+    if (carried !== null && carriedPlan !== null) {
+      // The wire did not change, so the staged RECORD carries — but its floor
+      // does not. The new basis establishes its own from its own first
+      // emission, which is the difference between "this promise still stands"
+      // and "this promise was about something else".
+      run.basis.staged = carried
+      run.basis.stagedPlan = carriedPlan
+    }
+    return true
+  }
+
+  /**
+   * Re-measure the candidate table under the new evaluator, or drop it.
+   *
+   * The incumbent is MANDATORY: staged-set completeness is what makes the
+   * filter in `rows()` safe, and it is bought here by re-measuring the plan
+   * the wire is holding before any budget is consulted. Everything else is
+   * re-folded while the search deadline allows and dropped when it does not —
+   * a dropped row costs breadth, and a kept-but-stale one would cost
+   * soundness.
+   *
+   * `score` is cleared on every re-folded row: a `PlanScore`'s `ScoreBounds`
+   * were proved by the search under the old basis, and `rows()` prefers them
+   * to the evaluator's own triple. Keeping them would put the old objective's
+   * numbers back in front of the stager through the one door the filter does
+   * not watch.
+   */
+  private refoldPlans(run: Run, incumbentPlan: JointPlan | null, from: CohortId): void {
+    const mandatory = new Set<string>()
+    if (incumbentPlan !== null) mandatory.add(planKey(incumbentPlan))
+    if (run.wirePlan !== null) mandatory.add(planKey(run.wirePlan))
+    const stale = [...run.plans.values()].filter((c) => c.cohort === from)
+    // Mandatory rows first, so an exhausted budget can never cost the wire its
+    // own row.
+    stale.sort((a, b) => Number(mandatory.has(b.key)) - Number(mandatory.has(a.key)))
+    let refolded = 0
+    for (const cand of stale) {
+      const required = mandatory.has(cand.key)
+      // At least one row always survives a flip: with no mandatory row (a flip
+      // before the first emission) the first candidate stands in for it, so
+      // the stager is never handed an empty table by a re-basing.
+      const affordable = required || refolded === 0 || run.now() < run.searchDeadline
+      if (!affordable) {
+        run.plans.delete(cand.key)
+        continue
+      }
+      cand.bound = this.evaluateBound(run, cand.plan)
+      cand.score = null
+      cand.cohort = run.cohort
+      refolded++
     }
   }
 
@@ -1552,20 +1765,45 @@ export class LobsterKernel implements Kernel {
 
   // ---------------------------------------------------------- staging + gates
 
+  /**
+   * The rows the stager compares — FILTERED TO THE ACTIVE COHORT, from either
+   * source.
+   *
+   * This is the whole of A1 §1.3.2's silent-mixing hazard, closed. Two rows
+   * proved under different objectives are not two answers to one question:
+   * `max` over them picks the row whose objective happens to produce bigger
+   * numbers, which is arithmetic, not a decision. So the filter is not an
+   * optimisation and not a staleness policy — it is the difference between a
+   * comparison and a category error.
+   *
+   * `governCohort` has already re-measured or dropped every row in
+   * `run.plans` by the time a flip returns, and it drops `lastView` outright,
+   * so in a correct kernel this filter removes nothing. It is here as the
+   * standing invariant rather than as a cleanup: any future path that puts a
+   * foreign row in front of the stager fails closed, by dropping the row,
+   * instead of quietly winning with it.
+   */
   private rows(run: Run): StagingCandidate[] {
     const view = run.lastView
     if (view !== null && view.candidates.length > 0) {
-      return view.candidates.map((c: CandidateView) => ({
-        key: c.key,
-        lo: c.lo,
-        est: c.est,
-        hi: c.hi,
-        horizon: c.horizon,
-        vacuity: c.vacuity,
-      }))
+      const rows: StagingCandidate[] = []
+      for (const c of view.candidates as ReadonlyArray<CandidateView>) {
+        if (c.cohort !== run.cohort) continue
+        rows.push({
+          key: c.key,
+          lo: c.lo,
+          est: c.est,
+          hi: c.hi,
+          horizon: c.horizon,
+          vacuity: c.vacuity,
+          cohort: c.cohort,
+        })
+      }
+      if (rows.length > 0) return rows
     }
     const out: StagingCandidate[] = []
     for (const cand of run.plans.values()) {
+      if (cand.cohort !== run.cohort) continue
       const bounds = cand.score?.bounds
       const lo = bounds?.worst ?? cand.bound.lo
       const hi = bounds?.best ?? cand.bound.hi
@@ -1574,7 +1812,15 @@ export class LobsterKernel implements Kernel {
         : lo <= this.opts.deadBelow
           ? "material-dead"
           : "alive"
-      out.push({ key: cand.key, lo, est: cand.bound.est, hi, horizon: cand.horizon, vacuity })
+      out.push({
+        key: cand.key,
+        lo,
+        est: cand.bound.est,
+        hi,
+        horizon: cand.horizon,
+        vacuity,
+        cohort: cand.cohort,
+      })
     }
     return out
   }
@@ -1623,6 +1869,7 @@ export class LobsterKernel implements Kernel {
             hi: cand.score?.bounds.best ?? cand.bound.hi,
             horizon: cand.horizon,
             vacuity: "alive",
+            cohort: cand.cohort,
           }
     const verdict = this.crossfade(run, cand.plan)
     if (verdict === "blocked") run.crossfade.forcedUncertified++
@@ -1880,7 +2127,19 @@ export class LobsterKernel implements Kernel {
   }
 
   private assumptions(run: Run, cand: PlanCandidate): ReadonlyArray<Assumption> {
-    const out: Assumption[] = [{ kind: "posture", posture: run.governor.current }]
+    // THE SECOND POSTURE CALL SITE. `searchContext` puts the framing pair on
+    // every context the search prices under; this one puts it on the RECORD
+    // that leaves the kernel, which is what a refit corpus and an operator
+    // audit actually read. They are appended together, in the same order, in
+    // both places, so a record's basis and its search's basis are the same
+    // set — and `cand.cohort`, not `run.cohort`, because the record must name
+    // the objective this candidate's numbers were proved under. `rows()`
+    // guarantees those agree; saying so twice would be a way for them to
+    // disagree.
+    const out: Assumption[] = [
+      { kind: "posture", posture: run.governor.current },
+      this.cohortAssumption(cand.cohort),
+    ]
     for (const p of run.pins) {
       if (run.refusedPins.get(p.unitId) === p.to) {
         // The pin stands (the bot never unpins) but the plan does not honour
@@ -1957,6 +2216,7 @@ export class LobsterKernel implements Kernel {
         incumbentHi: e.incumbent === null ? null : e.incumbent.bounds.best,
         posture: e.boundsBasis?.posture ?? null,
         epoch: e.boundsBasis?.epoch ?? null,
+        cohort: e.boundsBasis?.cohort ?? null,
         witnesses: e.witnesses.length,
         stepCostMs: e.stepCostMs,
       })
@@ -1968,6 +2228,7 @@ export class LobsterKernel implements Kernel {
         cursor: e.cursor,
         posture: e.boundsBasis?.posture ?? null,
         epoch: e.boundsBasis?.epoch ?? null,
+        cohort: e.boundsBasis?.cohort ?? null,
       })
     }
     return {
@@ -2027,6 +2288,7 @@ export class LobsterKernel implements Kernel {
         cursor: e.cursor,
         posture: e.boundsBasis?.posture ?? null,
         epoch: e.boundsBasis?.epoch ?? null,
+        cohort: e.boundsBasis?.cohort ?? null,
       })
     }
     return out
@@ -2042,6 +2304,7 @@ export class LobsterKernel implements Kernel {
     hi: number
     posture: Posture | null
     epoch: number | null
+    cohort: CohortId | null
   } | null {
     const run = this.run
     if (run === null) return null
@@ -2053,7 +2316,37 @@ export class LobsterKernel implements Kernel {
       hi: e.bounds.hi,
       posture: e.boundsBasis?.posture ?? null,
       epoch: e.boundsBasis?.epoch ?? null,
+      cohort: e.boundsBasis?.cohort ?? null,
     }
+  }
+
+  /**
+   * THE COHORT SEAM — flip the live decision's objective.
+   *
+   * Stage 1 ships one registered cohort, so nothing in production calls this:
+   * the control flow behind it is built and tested now because the cost of
+   * getting a re-basing wrong is a silently mixed comparison, and that is not
+   * a thing to discover while also introducing a second objective.
+   *
+   * Stage 2's admission governor is the intended caller, from beside
+   * `governPosture` in the loop. Until then the contract is: call it at a
+   * SLICE BOUNDARY (between records, or from a core hook), never mid-price.
+   * Returns false — changing nothing — outside a live decision or when the
+   * cohort is already active; throws only for an id the registry does not
+   * know, which is a programming error and not a runtime condition.
+   *
+   * Deliberately NOT on the `Kernel` contract interface. Which module is
+   * allowed to choose an objective is Stage 2's decision to make, and putting
+   * it on the interface now would make it every consumer's.
+   */
+  flipCohort(to: CohortId): boolean {
+    if (this.run === null) return false
+    return this.governCohort(this.run, to)
+  }
+
+  /** The live decision's active cohort. Null outside a decision. */
+  activeCohort(): CohortId | null {
+    return this.run === null ? null : this.run.cohort
   }
 
   /** Test/integrator seam: the live basis, with no way to reach a previous one. */
@@ -2066,6 +2359,7 @@ function basisSnapshot(b: RatchetBasis): BasisSnapshot {
   return {
     epoch: b.epoch,
     posture: b.posture,
+    cohort: b.cohort,
     channel: b.channel,
     floorLo: b.floorLo,
     emits: b.emits,

@@ -43,6 +43,7 @@
 import type {
   Candidate,
   CandidateView,
+  CohortId,
   HeldUnitView,
   JointPlan,
   Lever,
@@ -160,11 +161,17 @@ export function bestJoin(a: NodeVerdict, b: NodeVerdict): NodeVerdict {
 /** What the stager compares — the contract's own type, re-exported. */
 export type { StagingCandidate }
 
-/** Derive a staging row from a scored plan. */
+/** Derive a staging row from a scored plan.
+ *
+ * `cohort` is required and positional rather than defaulted, because a default
+ * would be this function guessing which objective its caller's numbers came
+ * from — and a wrong guess here is a row that survives `rows()`'s filter while
+ * describing something else. */
 export function stagingRowOf(
   score: PlanScore,
   est: number,
   horizon: number,
+  cohort: CohortId,
   deadBelow: number = DEFAULT_DEAD_BELOW,
 ): StagingCandidate {
   const v = detectVacuity(score.bounds, deadBelow)
@@ -175,6 +182,7 @@ export function stagingRowOf(
     hi: score.bounds.best,
     horizon,
     vacuity: v.cause,
+    cohort,
   }
 }
 
