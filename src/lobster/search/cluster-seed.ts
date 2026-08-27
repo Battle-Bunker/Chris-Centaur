@@ -61,6 +61,7 @@ import type { Candidate, CandidateSet, CellIndex, JointPlan, UnitId } from '../c
 import { EngineSubstrate } from '../substrate';
 import type { SubstrateUnit } from '../substrate';
 import { StampedInt32 } from '../scratch';
+import { certainlySelfFatal } from '../staging-safety';
 import { candidateKey } from '../bounds';
 import { tieKey } from './order';
 import { ConflictIndex, NO_CLAIM, subStepOf, subStepsFor } from './conflict-index';
@@ -126,6 +127,47 @@ const EPS_FOLLOW = RANK_STEP * 1.2;
 const LAMBDA_STOP = RANK_STEP;
 
 /**
+ * ψ's ONE non-ordering term: a move the rules certainly kill the mover on.
+ *
+ * Priced at the mover's own weight, which is exactly what it loses — the same
+ * number a team-mate's body or a lost contest costs it, because it is the same
+ * loss. Consistency here is not decoration: the seed compares these terms
+ * against each other, and a self-inflicted death that scored differently from
+ * an ally-inflicted one would make the choice between them arbitrary.
+ *
+ * WHY THE SEED CARRIES THIS AT ALL. The candidate layer's tier CORRECTION —
+ * the thing that stops a wall step being the ordered-FIRST option — is gated
+ * on the same knob as the REFUSAL, so on a board where the refusal is off
+ * (every snake-only board, by the shipped ship condition) the ordering is off
+ * too and a certainly-fatal move can still sort first. The refusal is what
+ * measured badly on those boards; the ordering never did. This is the ordering
+ * half on its own, in graded form, where it cannot box anything in.
+ *
+ * MEASURED: without it the pair terms push units off a team-mate's body and
+ * onto their own — self-inflicted deaths rose 39 to 50 per sixty boards in the
+ * replay probe while team-mate kills fell 25 to 0. A layer that moves a death
+ * from one channel to another has done nothing.
+ */
+const SELF_FATAL = 1;
+
+/**
+ * PLAN-LOCAL FRIENDLY-FIRE AVOIDANCE, as a tie-break and nothing more.
+ *
+ * Half an ordering place: too small to change any comparison the material
+ * terms decide, big enough to settle the one they cannot. Two of our units of
+ * equal weight, one dying to its own body and one dying to a team-mate, cost
+ * the team exactly the same material — so the choice between them was being
+ * made by the salt. This makes it by policy instead.
+ *
+ * It is POLICY and it lives here rather than in a ledger, deliberately. The
+ * plan-local form of "this kills a team-mate" is a reason for `better()` to
+ * return false, never a prune: the incumbent keeps its seat, the judgement is
+ * recoverable, and the very next sweep may move the team-mate. Writing it into
+ * `prunedLedger` would convert a recoverable policy into a permanent proof.
+ */
+const EPS_FRIENDLY = RANK_STEP * 0.5;
+
+/**
  * The ordering-channel stand-in for the lattice bottom.
  *
  * DEAD is `−∞` and must never be a scalar in a BOUND. This is not a bound: it
@@ -170,6 +212,19 @@ export interface SeedFacts {
    * eaten is.
    */
   readonly tailFreedAt: (cell: CellIndex) => number;
+  /**
+   * Which of our own trail units certainly holds this cell as a LIVING BODY
+   * next turn, or `-1`.
+   *
+   * `cells[0 .. len-2]` — index 0 INCLUDED, because the cell a team-mate's
+   * head is vacating becomes its own new neck — extended to `len-1` when the
+   * tail does not vacate. The head cell of a HOLDER is the claim channel's
+   * business and not this one, but a trail unit has momentum and must step, so
+   * for the units this map covers the two never disagree.
+   */
+  readonly bodyOwnerAt: (cell: CellIndex) => number;
+  /** The body index at that cell — the cut a higher-tier mover severs at. */
+  readonly bodyIndexAt: (cell: CellIndex) => number;
 }
 
 /** A workspace a session keeps between decisions. Nothing here is per-plan. */
@@ -177,14 +232,18 @@ export class SeedWorkspace {
   readonly index = new ConflictIndex();
   /** cell → sub-step a team-mate's tail pop frees it. */
   private freed = new StampedInt32(0);
+  /** cell → the team-mate whose living body holds it, and at which index. */
+  private bodyOwner = new StampedInt32(0);
+  private bodyIndex = new StampedInt32(0);
   private freedCells = 0;
 
-  private ensure(cells: number): StampedInt32 {
-    if (this.freedCells < cells) {
-      this.freed = new StampedInt32(cells * 2);
-      this.freedCells = cells * 2;
-    }
-    return this.freed;
+  private ensure(cells: number): void {
+    if (this.freedCells >= cells) return;
+    const size = cells * 2;
+    this.freed = new StampedInt32(size);
+    this.bodyOwner = new StampedInt32(size);
+    this.bodyIndex = new StampedInt32(size);
+    this.freedCells = size;
   }
 
   /**
@@ -193,8 +252,13 @@ export class SeedWorkspace {
    */
   facts(sub: EngineSubstrate, ours: ReadonlyArray<UnitId>): SeedFacts {
     const cells = sub.grid.cells;
-    const freed = this.ensure(cells);
+    this.ensure(cells);
+    const freed = this.freed;
+    const owner = this.bodyOwner;
+    const index = this.bodyIndex;
     freed.begin();
+    owner.begin();
+    index.begin();
     const units = new Map<UnitId, SubstrateUnit>();
     for (const id of ours) {
       const unit = sub.unitOf(id);
@@ -206,10 +270,20 @@ export class SeedWorkspace {
       const tail = unit.cells[len - 1] as number;
       // A duplicated tail is a unit that ate LAST turn: the shift consumes the
       // duplicate and the cell stays occupied. Nothing is freed.
-      if (tail === (unit.cells[len - 2] as number)) continue;
+      const pops = tail !== (unit.cells[len - 2] as number);
       // A trail unit has momentum and must step, so the pop is certain and it
       // happens at the first advance.
-      freed.set(tail, 1);
+      if (pops) freed.set(tail, 1);
+      const last = pops ? len - 2 : len - 1;
+      for (let i = 0; i <= last; i++) {
+        const cell = unit.cells[i] as number;
+        // FIRST WRITER WINS, which is the deepest cut: two of our bodies
+        // cannot share a cell, so this only ever resolves a unit against its
+        // own repeated cell (a duplicated tail).
+        if (owner.has(cell)) continue;
+        owner.set(cell, id as number);
+        index.set(cell, i);
+      }
     }
     const field = sub.claimField();
     return {
@@ -224,6 +298,8 @@ export class SeedWorkspace {
       // one it forces.
       enemyClaimAt: (cell) => bbTest(field.unionPossible, cell as number),
       tailFreedAt: (cell) => freed.get(cell as number, 0),
+      bodyOwnerAt: (cell) => owner.get(cell as number, -1),
+      bodyIndexAt: (cell) => index.get(cell as number, -1),
     };
   }
 }
@@ -301,21 +377,83 @@ function contestPotential(
   stopLoss: number,
   otherDoomed: boolean,
 ): number {
-  if (sacrificeLegitimate(facts, cell, mover, other, otherDoomed)) return 0;
   const cmp = cmpLex(
     scalarOf(mover.tier, mover.weight),
     scalarOf(other.tier, other.weight),
   );
   if (cmp === 0) {
-    // Mutual annihilation. Both corpses, nothing taken, no enemy involved.
+    // MUTUAL ANNIHILATION, AND NO EXCEPTION REACHES IT.
+    //
+    // E1 and E3 both presuppose a winner: a corpse-block is one ally dying so
+    // another may hold a cell, and a three-way win is our heavier unit being
+    // the unique strict max of the pile. A tie has neither. Nobody survives,
+    // nothing is taken, and the cell is held by two of our corpses instead of
+    // one of our units.
+    //
+    // This was MEASURED, not reasoned: gating the tie on the enemy-claim bit
+    // test alongside the other branches introduced two mutual annihilations
+    // per sixty boards in the replay probe, on exactly the crowded boards
+    // where an enemy claim reaches everything. The permissive direction is the
+    // safe one for a sacrifice gate and the wrong one for a tie.
+    //
+    // E4 still applies: an ally already dead in every world cannot be saved,
+    // and contorting a healthy unit into rescuing it is the failure the clause
+    // exists to prevent.
+    if (otherDoomed) return 0;
     const bottom =
       endsOurTeam(facts, mover, other) || endsOurTeam(facts, other, mover) ? REGICIDE : 0;
     return -(mover.weight + other.weight) - bottom;
   }
-  if (cmp < 0) return -mover.weight;
+  if (sacrificeLegitimate(facts, cell, mover, other, otherDoomed)) return 0;
+  if (cmp < 0) return -mover.weight - EPS_FRIENDLY;
   // We win, and even winning costs distance: the survivor capture-stops and
   // forfeits the rest of its ray.
-  return -other.weight - LAMBDA_STOP * stopLoss;
+  return -other.weight - LAMBDA_STOP * stopLoss - EPS_FRIENDLY;
+}
+
+/**
+ * P3 — THE TEAM-MATE'S LIVING BODY, as an ORDERING term and never a refusal.
+ *
+ * A living body is adjudicated by TIER ALONE where a claim contest is
+ * adjudicated by (tier, weight): at parity the entrant dies whatever it
+ * weighs, and at strictly higher tier it SEVERS the body at the cut index and
+ * capture-stops, costing the ally `len − cut` weight with no death recorded.
+ * Both branches are negative for us.
+ *
+ * THIS IS THE GRADED FORM OF THE PRUNE THAT MEASURED BADLY. The candidate
+ * layer's `ally-body` refusal is a veto: it deletes the option, and on a dense
+ * board deleting every option is how a unit ends up sealed in with nothing but
+ * the least-bad restore. Here the same fact only DEPRIORITISES, so a unit
+ * whose alternatives are all worse still takes it, and the plan is still
+ * priced by the real evaluator. It needs no declaration for the same reason
+ * the rest of this file does not: nothing is removed from any set.
+ *
+ * Read off a stamped per-decision map rather than by scanning the roster per
+ * candidate — one load per claimed cell, which is what keeps the whole pass
+ * inside its budget.
+ */
+function bodyPotential(
+  facts: SeedFacts,
+  mover: SubstrateUnit,
+  cell: CellIndex,
+  stopLoss: number,
+  doomed: ReadonlySet<UnitId>,
+): number {
+  const owner = facts.bodyOwnerAt(cell);
+  if (owner < 0 || owner === (mover.unitId as number)) return 0;
+  const other = facts.units.get(owner as UnitId);
+  if (other === undefined) return 0;
+  // E4: an ally dead in every world leaves a pile settled on WEIGHT, not a
+  // body settled on tier, so the tier rule below is not the one that applies
+  // and a heavy enough mover may cross freely. Say nothing rather than
+  // something wrong.
+  if (doomed.has(owner as UnitId)) return 0;
+  if (mover.tier <= other.tier) return -mover.weight - EPS_FRIENDLY;
+  // A strictly higher tier severs and lives. The cut is where the body was
+  // entered; everything beyond it is removed from the ally.
+  const cut = facts.bodyIndexAt(cell);
+  const lost = Math.max(1, other.cells.length - Math.max(0, cut));
+  return -lost - LAMBDA_STOP * stopLoss - EPS_FRIENDLY;
 }
 
 /**
@@ -330,6 +468,25 @@ function contestPotential(
  *           and only for kinds that cross edges at all (a knight jumps);
  *   P4      a team-mate's tail pop frees this cell at this sub-step.
  */
+/**
+ * ψ — the singleton term: the generator's own ordering, plus what the rules
+ * say about the mover's own move.
+ *
+ * The candidate list arrives best-first from a layer that has already spent
+ * real evidence on the order, so rank IS the prior and the seed does not
+ * re-derive it. `SELF_FATAL` is the one thing rank can be wrong about, and it
+ * is wrong about it in exactly one configuration — see the constant.
+ */
+export function singletonPotential(
+  sub: EngineSubstrate,
+  mover: SubstrateUnit,
+  candidate: Candidate,
+  rank: number,
+): number {
+  const fatal = certainlySelfFatal(sub, mover, candidate) !== null;
+  return -RANK_STEP * rank - (fatal ? SELF_FATAL * mover.weight : 0);
+}
+
 export function pairPotential(
   facts: SeedFacts,
   index: ConflictIndex,
@@ -351,12 +508,23 @@ export function pairPotential(
   const jumps = !profileOf(mover.kind).traversesEdges;
   let total = 0;
   let prev = candidate.from as number;
+  let bodyHit = false;
   for (let i = 0; i < path.length; i++) {
     const cell = path[i] as CellIndex;
     const s = subStepOf(i);
     if (s >= index.subSteps) break;
     total += sameCellTerm(facts, index, mover, cell, s, path.length - 1 - i, doomed);
     if (!jumps) total += edgeTerm(facts, index, mover, prev as CellIndex, cell, s, doomed);
+    if (!bodyHit) {
+      // THE FIRST body cell on the ray is the whole story: the mover dies
+      // there or severs there, and either way it goes no further. Charging
+      // every later cell too would price a journey the rules do not allow.
+      const body = bodyPotential(facts, mover, cell, path.length - 1 - i, doomed);
+      if (body !== 0) {
+        total += body;
+        bodyHit = true;
+      }
+    }
     prev = cell as number;
   }
   // The landing rests here for every later sub-step, and a rester is a
@@ -434,7 +602,17 @@ function nextSwap(index: ConflictIndex, claim: number, to: CellIndex, self: Unit
 export interface SeedRequest {
   readonly sub: EngineSubstrate;
   readonly workspace: SeedWorkspace;
-  /** Our commandable units, in the order the seed should place them. */
+  /**
+   * EVERY unit this decision commands, pinned ones included.
+   *
+   * The facts are read over this and not over `order`: a pinned team-mate is
+   * not swept, but it is still a unit whose claim can kill one of ours and
+   * whose tail pop can free a cell. Reading the facts over the placement order
+   * alone made a pinned unit invisible to every potential — the one case where
+   * an operator's own constraint is what the seed most needs to see.
+   */
+  readonly roster: ReadonlyArray<UnitId>;
+  /** The units the greedy pass places, in the order it places them. */
   readonly order: ReadonlyArray<UnitId>;
   readonly sets: ReadonlyMap<UnitId, CandidateSet>;
   /** Units whose choice is fixed before the greedy pass runs (pins, refs). */
@@ -461,8 +639,8 @@ export interface SeedRequest {
  * already carries; this adds no second seed.
  */
 export function greedySeed(req: SeedRequest): JointPlan {
-  const { sub, workspace, order, sets, fixed, doomed, cap, salt } = req;
-  const facts = workspace.facts(sub, order);
+  const { sub, workspace, roster, order, sets, fixed, doomed, cap, salt } = req;
+  const facts = workspace.facts(sub, roster);
   const index = workspace.index;
 
   // The sub-step bound is the longest path the seed could stage, taken over
@@ -510,7 +688,9 @@ export function greedySeed(req: SeedRequest): JointPlan {
     const limit = Math.min(cap, set.candidates.length);
     for (let i = 0; i < limit; i++) {
       const candidate = set.candidates[i] as Candidate;
-      const value = -RANK_STEP * i + pairPotential(facts, index, mover, candidate, doomed);
+      const value =
+        singletonPotential(sub, mover, candidate, i) +
+        pairPotential(facts, index, mover, candidate, doomed);
       if (value > bestScore) {
         pick = candidate;
         bestScore = value;

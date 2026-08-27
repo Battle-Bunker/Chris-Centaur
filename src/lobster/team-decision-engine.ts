@@ -171,6 +171,21 @@ export interface TeamDecisionOptions {
    */
   readonly stagingSafety?: StagingSafety;
   /**
+   * Whether this ENGINE seeds with the index-driven greedy pairwise pass,
+   * overriding `CENTAUR_CLUSTER_SEED` for this instance only. Same reason as
+   * the line above, and the same shape: what has to be measurable is one seat
+   * against unchanged opponents.
+   *
+   * Left unset the environment decides, and the environment's default is OFF.
+   */
+  readonly clusterSeed?: boolean;
+  /**
+   * Whether this ENGINE runs the rung-0 fatality classifier, overriding
+   * `CENTAUR_UNIT_FATALITY`. Separate from `clusterSeed` on purpose: two
+   * features behind one flag is a paired experiment that measures their sum.
+   */
+  readonly unitFatality?: boolean;
+  /**
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
    *
@@ -547,6 +562,9 @@ export class TeamDecisionEngine {
     // stagingSafety option inert.
     const knobs: CandidateKnobs = {
       ...knobsForSafety(safety),
+      ...(this.options.unitFatality === undefined
+        ? {}
+        : { unitFatality: this.options.unitFatality }),
       ...(this.options.candidates ?? {}),
     };
     const gen = new GrammarCandidateGenerator(knobs);
@@ -557,6 +575,7 @@ export class TeamDecisionEngine {
       buildCore({
         rungZeroRepair: safety === 'full',
         seedDeconflict: safety !== 'off',
+        clusterSeed: this.options.clusterSeed,
         ...(this.options.search ?? {}),
         // AFTER the caller's tuning, and deliberately: these two are not
         // preferences the caller expresses, they are facts about THIS

@@ -69,6 +69,8 @@ import {
   type WorkPartition,
 } from "../parallel";
 import type { CandidateKnobs } from "../candidates";
+import { EngineSubstrate } from "../substrate";
+import { SeedWorkspace, clusterSeedEnabled, greedySeed } from "./cluster-seed";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -114,6 +116,16 @@ export interface SearchTuning {
    * `CENTAUR_STAGING_SAFETY`; named by a caller it is that caller's answer.
    */
   readonly seedDeconflict: boolean | undefined;
+  /**
+   * THE INDEX-DRIVEN GREEDY PAIRWISE SEED, in place of the reserve-a-cell
+   * de-confliction pass. Undefined follows `CENTAUR_CLUSTER_SEED`; named by a
+   * caller it is that caller's answer, so one seat can carry it while the seat
+   * across the board does not — a process-wide flag moves every seat at once
+   * and a paired experiment on it measures nothing.
+   *
+   * DEFAULT OFF pending its empirical gate. See `./cluster-seed.ts`.
+   */
+  readonly clusterSeed: boolean | undefined;
   /**
    * WORKER PARALLELISM, or `null` for the single-threaded path.
    *
@@ -181,6 +193,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   rungZeroRepairVictims: 4,
   rungZeroRepair: undefined,
   seedDeconflict: undefined,
+  clusterSeed: undefined,
   parallel: null,
 };
 
@@ -220,6 +233,13 @@ interface Session {
    * a session outlives every parcel it fires.
    */
   readonly parallel: { readonly sessionId: number; seq: number } | null;
+  /**
+   * The cluster seed's reusable buffers: the conflict index and the freed-tail
+   * map, both generation-stamped, so a rebuild per sweep step is an integer
+   * increment rather than a clear. Null when the seed is off — an unused
+   * workspace is an allocation nobody asked for.
+   */
+  readonly seedWorkspace: SeedWorkspace | null;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -367,8 +387,18 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       pins,
       references,
       parallel: openParallelSession(ctx, ours, sets),
+      // Allocated only for a session that will use it, and then kept for the
+      // session's whole life: the buffers are what make a rebuild O(1).
+      seedWorkspace: clusterSeeding() ? new SeedWorkspace() : null,
     };
   };
+
+  /**
+   * Is the cluster seed on for THIS core? Resolved once per call rather than
+   * cached, so a test that flips the environment between decisions sees the
+   * flip — and never consulted at all when the caller named its own answer.
+   */
+  const clusterSeeding = (): boolean => cfg.clusterSeed ?? clusterSeedEnabled();
 
   // -------------------------------------------------------------- parallel
   //
@@ -528,6 +558,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * free unit picks, so an operator's cell is never the one taken away.
    */
   const seedPlan = (s: Session, from: JointPlan | null): JointPlan => {
+    const clustered = clusterSeed(s, from);
+    if (clustered !== null) return clustered;
     const plan = new Map<UnitId, Candidate>();
     // `auto` is board-conditional and this core may have been built without a
     // board, so an unresolved level resolves OFF here. `TeamDecisionEngine`
@@ -585,6 +617,62 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) plan.set(unitId, candidate);
     return plan;
+  };
+
+  /**
+   * THE CLUSTER SEED, or `null` for the shipped path.
+   *
+   * The same three things go in as the de-confliction seed's: pins first, then
+   * whatever of the incumbent still stands, then the declared reference
+   * actions. What changes is how the REMAINING units choose — an argmax over
+   * the generator's own ordering plus the pair potentials, instead of the
+   * first option that touches no reserved cell.
+   *
+   * On a later slice the incumbent has already fixed every free unit, so the
+   * greedy pass has nothing to place and the two paths agree by construction.
+   * The seed is load-bearing at rung 0, which is where it runs from a null
+   * incumbent, and that is the case this branch exists for.
+   *
+   * Returns `null` — never throws, never silently degrades — when the seed
+   * cannot run: the flag is off, or the substrate is not the engine's, which
+   * happens in the bounds harness and under the memo proxies. The shipped seed
+   * is then exactly what it was.
+   */
+  const clusterSeed = (s: Session, from: JointPlan | null): JointPlan | null => {
+    const workspace = s.seedWorkspace;
+    if (workspace === null || !(s.sub instanceof EngineSubstrate)) return null;
+    const fixed = new Map<UnitId, Candidate>();
+    for (const [unitId, candidate] of s.pins) fixed.set(unitId, candidate);
+    for (const unitId of s.ours) {
+      if (fixed.has(unitId)) continue;
+      const existing = from?.get(unitId);
+      const set = s.sets.get(unitId);
+      if (existing === undefined || set === undefined) continue;
+      if (isStillOffered(set, existing)) fixed.set(unitId, existing);
+    }
+    // E4's input, straight off the classifier: a unit that dies in every world
+    // is one no potential may contort a healthy unit into rescuing. Absent
+    // when the fatality knob is off, and then the clause is simply inert.
+    const doomed = new Set<UnitId>();
+    for (const [unitId, set] of s.sets) if (set.marks?.sealed === true) doomed.add(unitId);
+    const plan = greedySeed({
+      sub: s.sub,
+      workspace,
+      roster: s.ours,
+      // Danger order, with the pinned units out of it — they are constraints,
+      // and they are already in `fixed` with their cells claimed before any
+      // free unit picks.
+      order: dangerOrder(s.ours, null, s.pinned),
+      sets: s.sets,
+      fixed,
+      doomed,
+      cap: cfg.candidateCap,
+      salt: cfg.seed,
+    });
+    const out = new Map<UnitId, Candidate>(plan);
+    // The declared reference actions ride every plan (see Session.references).
+    for (const [unitId, candidate] of s.references) out.set(unitId, candidate);
+    return out;
   };
 
   const isStillOffered = (set: CandidateSet, candidate: Candidate): boolean => {

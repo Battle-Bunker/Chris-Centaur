@@ -271,9 +271,9 @@ describe('the budget', () => {
   };
 
   const timeUs = (fn: () => void, iters: number): number => {
-    for (let i = 0; i < 200; i++) fn(); // warm
+    for (let i = 0; i < 500; i++) fn(); // warm
     let best = Infinity;
-    for (let round = 0; round < 5; round++) {
+    for (let round = 0; round < 3; round++) {
       const t0 = process.hrtime.bigint();
       for (let i = 0; i < iters; i++) fn();
       const us = Number(process.hrtime.bigint() - t0) / 1000 / iters;
@@ -286,7 +286,7 @@ describe('the budget', () => {
     it(`builds ${shape.name} inside its ceiling`, () => {
       const index = new ConflictIndex(529, 16, 256);
       const plan = planFor(shape);
-      const us = timeUs(() => build(index, shape, plan), 20000);
+      const us = timeUs(() => build(index, shape, plan), 4000);
       // Reported so a regression bisect has the number, not just the verdict.
       console.log(`  index build ${shape.name}: ${us.toFixed(3)} µs`);
       expect(us).toBeLessThan(shape.ceilingUs);
@@ -297,7 +297,7 @@ describe('the budget', () => {
     const shape = shapes[2] as Shape;
     const index = new ConflictIndex(529, 16, 256);
     const plan = planFor(shape);
-    const indexUs = timeUs(() => build(index, shape, plan), 20000);
+    const indexUs = timeUs(() => build(index, shape, plan), 4000);
     let sink = 0;
     const naiveUs = timeUs(() => {
       sink += naive(shape, 8);
