@@ -547,6 +547,55 @@ export interface SearchCore {
    * after this it is back to the substrate's own baseline.
    */
   release?(): void
+  /**
+   * Optional: what the cluster layer did on the live sessions, for measurement.
+   *
+   * TELEMETRY AND NOTHING ELSE. Nothing in the decision path reads it, it
+   * carries no bound and no plan, and it is absent unless
+   * `CENTAUR_CLUSTER_ENUM` (or a caller's own answer) turned the layer on.
+   * A layer whose cost and coverage cannot be read off is a layer nobody can
+   * promote, and every stage of this program has had to pay that bill later.
+   */
+  clusterReport?(): ClusterReport | null
+}
+
+/** The cluster layer's per-decision accounting. See `SearchCore.clusterReport`. */
+export interface ClusterReport {
+  /** Components of the non-slider interaction graph, after any merge. */
+  readonly clusters: number
+  /** Our live sliders — shared variables, one joint per branch. */
+  readonly sliders: number
+  /** Largest non-slider component on this board. */
+  readonly maxComponent: number
+  /** Joint-space size actually enumerated. */
+  readonly jointsEnumerated: number
+  /** Joint-space size before the FORCED/fatal domain shrink. */
+  readonly jointsBeforeShrink: number
+  /** Clusters that fell to rung 2 (threshold) and rung 5 (ICM). */
+  readonly rungThreshold: number
+  readonly rungIcm: number
+  /** Did the terminal guard refuse independent composition? */
+  readonly merged: boolean
+  /** Composed joints produced, and how many the coordinator priced. */
+  readonly proposals: number
+  readonly proposalsPriced: number
+  /**
+   * Proposals the one-move filter declined to pay for: a plan within
+   * `minHamming` of the incumbent is a plan the sweep is about to try anyway.
+   */
+  readonly proposalsNear: number
+  /** Proposals the surrogate gate declined: they did not beat the incumbent. */
+  readonly proposalsFlat: number
+  /**
+   * Composed joints whose Ṽ did not beat the ICM fixpoint's — exact inference
+   * finding nothing coordinate ascent on the same surrogate would not.
+   */
+  readonly noExactGain: number
+  /** Wall time the enumeration itself cost, in ms. */
+  readonly enumMs: number
+  /** Unit-sweeps the dirty set skipped, and the ones it let through. */
+  readonly sweepsSkipped: number
+  readonly sweepsRun: number
 }
 
 export interface SearchContext {

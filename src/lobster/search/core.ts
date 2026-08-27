@@ -33,6 +33,7 @@
 import type {
   Candidate,
   CandidateSet,
+  ClusterReport,
   JointPlan,
   PlanScore,
   SearchContext,
@@ -62,6 +63,7 @@ import { basisOf, referenceActionsOf } from "./basis";
 import { resolveStagingSafety, stagingSafety } from "../staging-safety";
 import {
   catalogueDigest,
+  clusterPlanPartition,
   planBatchPartition,
   type EvaluationPool,
   type EvaluatorSpec,
@@ -71,6 +73,14 @@ import {
 import type { CandidateKnobs } from "../candidates";
 import { EngineSubstrate } from "../substrate";
 import { SeedWorkspace, clusterSeedEnabled, greedySeed } from "./cluster-seed";
+import { clusterEnumEnabled, partitionOf, type Partition } from "./cluster-partition";
+import {
+  DEFAULT_CLUSTER_TUNING,
+  enumerateProposals,
+  type ClusterStats,
+  type ClusterTuning,
+} from "./cluster-enum";
+import { SweepDirty, type DirtyStats } from "./sweep-dirty";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -126,6 +136,55 @@ export interface SearchTuning {
    * DEFAULT OFF pending its empirical gate. See `./cluster-seed.ts`.
    */
   readonly clusterSeed: boolean | undefined;
+  /**
+   * CLUSTER-FACTORED EXACT ENUMERATION — the owner's core intervention.
+   *
+   * The board is partitioned into components of the non-slider interaction
+   * graph, every live slider of ours joins every component by fiat, each
+   * component's joint move is enumerated EXACTLY on a µs-cost surrogate
+   * conditional on the slider assignment, and the composed k-best joints are
+   * offered to this search as PROPOSALS — priced through the unconditional bank
+   * and accepted only by `better()`, exactly like every other trial.
+   *
+   * Two further behaviours ride the same flag, because neither is separately
+   * measurable and both are the same idea:
+   *
+   *  · the WORKER CUT becomes the proposal tail rather than the sweep frontier
+   *    (`parallel/partition.ts`'s `clusterPlanPartition`);
+   *  · the SWEEP DIRTY SET skips re-pricing a unit whose interaction
+   *    neighbourhood has not moved (`./sweep-dirty.ts`).
+   *
+   * Undefined follows `CENTAUR_CLUSTER_ENUM`; named by a caller it is that
+   * caller's answer, so one seat can carry it while the seat across the board
+   * does not. DEFAULT OFF: nothing is partitioned, nothing is enumerated, and
+   * the search is byte-for-byte the one that shipped.
+   */
+  readonly clusterEnum: boolean | undefined;
+  /** Budgets for the enumeration. Only read when `clusterEnum` resolves on. */
+  readonly clusterTuning: Partial<ClusterTuning>;
+  /**
+   * Composed joints offered per sweep round.
+   *
+   * ONE, and the one is measured. The enumeration's MAP is its claim and it
+   * competes before any sweep; its alternates are diversity, and draining the
+   * whole list up front spends a starved decision generating instead of
+   * searching. On the scattered family — where 82.7% of components are
+   * singletons and there is little joint to find — draining cost a mean 0.769
+   * of final floor at the production budget.
+   */
+  readonly clusterOffersPerRound: number;
+  /**
+   * Composed joints the coordinator prices per SLICE, or 0 for no cap.
+   *
+   * A cap exists so a TAIL SURVIVES INTO THE NEXT SLICE. A parcel fired at the
+   * end of slice N lands at the start of slice N+1 (a slice is synchronous
+   * JavaScript; no message is delivered inside one), so a proposal the
+   * coordinator has already walked past is a proposal no worker can ever be
+   * useful about. With the list drained in slice 1 the pool imports entries the
+   * coordinator will never ask for again, which is `entriesUsed = 0` by
+   * construction rather than by contention.
+   */
+  readonly clusterOffersPerSlice: number;
   /**
    * WORKER PARALLELISM, or `null` for the single-threaded path.
    *
@@ -194,6 +253,10 @@ export const DEFAULT_TUNING: SearchTuning = {
   rungZeroRepair: undefined,
   seedDeconflict: undefined,
   clusterSeed: undefined,
+  clusterEnum: undefined,
+  clusterTuning: {},
+  clusterOffersPerRound: 1,
+  clusterOffersPerSlice: 2,
   parallel: null,
 };
 
@@ -240,6 +303,35 @@ interface Session {
    * workspace is an allocation nobody asked for.
    */
   readonly seedWorkspace: SeedWorkspace | null;
+  /**
+   * CL3's cluster state, or null when the flag is off.
+   *
+   * The proposals are a per-SESSION quantity, not a per-slice one: the
+   * surrogate reads only per-decision static facts (strengths, bodies, tails,
+   * terrain), so the same partition and the same k-best joints come out on
+   * every slice. Enumerating once and walking a cursor through the list is what
+   * turns "offer the same eight plans every slice" into "price eight plans,
+   * once, in whatever order the budget allows".
+   */
+  cluster: {
+    readonly partition: Partition;
+    readonly proposals: ReadonlyArray<JointPlan>;
+    /** Ṽ of an arbitrary plan — the offer gate's own currency. */
+    readonly score: ((plan: JointPlan) => number) | null;
+    readonly stats: ClusterStats;
+    readonly dirty: SweepDirty;
+    readonly tuning: ClusterTuning;
+    /** How far down `proposals` the coordinator has walked. */
+    cursor: number;
+    /** Proposals the one-move filter declined to pay for. Telemetry. */
+    skippedNear: number;
+    /** Proposals the surrogate gate declined to pay for. Telemetry. */
+    skippedFlat: number;
+    /** Proposals priced in the slice now running. See `clusterOffersPerSlice`. */
+    offeredThisSlice: number;
+    /** Wall time the enumeration itself cost, in ms. Telemetry. */
+    readonly enumMs: number;
+  } | null;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -377,7 +469,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const match = matchPin(sets.get(pin.unitId) as CandidateSet, pin.to);
       if (match !== null) pins.set(pin.unitId, match);
     }
-    return {
+    const session: Session = {
       sub: ctx.sub,
       bank,
       ours,
@@ -390,6 +482,62 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // Allocated only for a session that will use it, and then kept for the
       // session's whole life: the buffers are what make a rebuild O(1).
       seedWorkspace: clusterSeeding() ? new SeedWorkspace() : null,
+      cluster: null,
+    };
+    session.cluster = openCluster(ctx, session, pins);
+    return session;
+  };
+
+  /**
+   * THE PARTITION, THE ENUMERATION, AND THE DIRTY SET — once per session.
+   *
+   * Returns null, never throws and never silently degrades, when the layer
+   * cannot run: the flag is off, or the substrate is not the engine's (which is
+   * what happens in the bounds harness and under the memo proxies), or the
+   * roster has nothing to vary. The search is then exactly what it was.
+   */
+  const openCluster = (
+    ctx: SearchContext,
+    s: Session,
+    pins: ReadonlyMap<UnitId, Candidate>,
+  ): Session["cluster"] => {
+    if (!clusterEnumerating() || !(s.sub instanceof EngineSubstrate)) return null;
+    if (s.ours.length === 0) return null;
+    const started = Date.now();
+    // Pins and reference actions are CONSTRAINTS, not variables: they ride
+    // every proposal at their declared move and are never enumerated over.
+    const fixedIds = new Set<UnitId>([...pins.keys(), ...s.references.keys()]);
+    const partition = partitionOf({ sub: s.sub, roster: s.ours, fixed: fixedIds });
+    const fixed = new Map<UnitId, Candidate>();
+    for (const [unitId, candidate] of pins) fixed.set(unitId, candidate);
+    for (const [unitId, candidate] of s.references) fixed.set(unitId, candidate);
+    // E4's input, straight off the classifier, exactly as the seed reads it.
+    const doomed = new Set<UnitId>();
+    for (const [unitId, set] of s.sets) if (set.marks?.sealed === true) doomed.add(unitId);
+    const tuning: ClusterTuning = { ...DEFAULT_CLUSTER_TUNING, ...cfg.clusterTuning };
+    const { plans, stats, score } = enumerateProposals({
+      sub: s.sub,
+      partition,
+      roster: s.ours,
+      sets: s.sets,
+      fixed,
+      doomed,
+      asTeam: ctx.asTeam,
+      tuning,
+      salt: cfg.seed,
+    });
+    return {
+      partition,
+      proposals: plans,
+      score,
+      stats,
+      dirty: new SweepDirty(partition, s.ours.filter((id) => !s.pinned.has(id))),
+      tuning,
+      cursor: 0,
+      skippedNear: 0,
+      skippedFlat: 0,
+      offeredThisSlice: 0,
+      enumMs: Date.now() - started,
     };
   };
 
@@ -399,6 +547,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * flip — and never consulted at all when the caller named its own answer.
    */
   const clusterSeeding = (): boolean => cfg.clusterSeed ?? clusterSeedEnabled();
+
+  /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
+  const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
 
   // -------------------------------------------------------------- parallel
   //
@@ -491,9 +642,22 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       pinned: s.pinned,
       incumbent,
       candidateCap: cfg.candidateCap,
+      // THE TAIL THE COORDINATOR HAS NOT REACHED. Proposals already priced are
+      // dropped here and not in the partition, because the cursor is session
+      // state and a partition is a pure function of a frontier.
+      ...(s.cluster === null ? {} : { proposals: s.cluster.proposals.slice(s.cluster.cursor) }),
     };
+    const shipped = planBatchPartition(par.headroom, par.maxPlansPerParcel);
     const partition =
-      par.partition ?? planBatchPartition(par.headroom, par.maxPlansPerParcel);
+      par.partition ??
+      (s.cluster === null
+        ? shipped
+        : clusterPlanPartition(
+            par.headroom,
+            par.maxPlansPerParcel,
+            shipped,
+            s.cluster.tuning.minHamming,
+          ));
     const budgetMs = Math.min(
       par.parcelBudgetMs,
       Math.max(1, sliceMs) * Math.max(1, par.parcelSlices),
@@ -713,18 +877,121 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
     let best = start;
+    const dirty = s.cluster?.dirty ?? null;
     for (const unitId of dangerOrder(s.ours, best.worstResolution, s.pinned)) {
       if (budget.shouldStop()) break;
+      // THE DIRTY-SET SKIP. A unit whose whole alternative list was priced and
+      // refused, against a neighbourhood that has not moved since and a witness
+      // set that has not grown, has no answer left to give. See
+      // `./sweep-dirty.ts` for what makes the two invalidations sufficient.
+      if (dirty !== null && !dirty.isDirty(unitId, best.plan)) {
+        dirty.countSkipped();
+        continue;
+      }
       const set = s.sets.get(unitId) as CandidateSet;
       const current = best.plan.get(unitId) as Candidate;
+      let complete = true;
       for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
-        if (budget.shouldStop()) break;
+        if (budget.shouldStop()) {
+          complete = false;
+          break;
+        }
         if (candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = s.bank.price(withMove(best.plan, candidate));
         if (better(trial, best)) best = trial;
       }
+      if (dirty !== null) {
+        dirty.countSwept();
+        // ONLY a loop that ran to completion is marked. A truncated pass did
+        // not price the unit's alternatives, and recording an answer nobody
+        // computed is how a cache becomes a bug.
+        if (complete) dirty.markClean(unitId, best.plan);
+      }
     }
     return best;
+  };
+
+  /**
+   * OFFER THE COMPOSED CLUSTER JOINTS — priced, adjudicated, and nothing else.
+   *
+   * Every proposal goes through `s.bank.price()` and is accepted only by
+   * `better()` on the proved floor. That is the soundness lens's law and it is
+   * the whole reason a surrogate this cheap is allowed to exist: cluster
+   * results are PROPOSALS, staging is always adjudicated by the unconditional
+   * price, and nothing is removed from any set.
+   *
+   * The cursor advances across slices. The proposals are a per-session
+   * quantity, so a slice that prices three of eight leaves five for the next
+   * slice — and the five it leaves are exactly what went down to the workers,
+   * which is what makes a worker's answer something the coordinator will
+   * actually read.
+   *
+   * ── THE ONE-MOVE FILTER, AND WHY IT IS NOT AN OPTIMISATION ────────────────
+   *
+   * A proposal within ONE unit of the incumbent is a plan the sweep is about to
+   * try anyway, at the same price, in the same slice. Offering it back is
+   * offering the coordinator work it has already scheduled — and paying for it
+   * FIRST, out of the same budget the sweep needs. Measured: without this
+   * filter, scattered boards (where 82.7% of components are singletons, so the
+   * composed joint IS the per-unit argmax) spent their whole 32-question budget
+   * on 77 proposals and finished a mean 0.769 BELOW the arm without them. The
+   * filter is W1's own condition for a speculation to be worth anything,
+   * applied to the coordinator's own budget: *"whatever a cluster partition
+   * speculates on has to be work the coordinator has not already done."*
+   *
+   * The threshold is `minHamming`, the same knob and the same meaning as the
+   * per-cluster diversity floor.
+   */
+  const offerClusterJoints = (
+    s: Session,
+    budget: SearchContext["budget"],
+    start: BankResult,
+    limit: number,
+  ): BankResult => {
+    const cluster = s.cluster;
+    if (cluster === null || limit <= 0) return start;
+    const perSlice = cfg.clusterOffersPerSlice;
+    if (perSlice > 0 && cluster.offeredThisSlice >= perSlice) return start;
+    const floor = Math.max(1, cluster.tuning.minHamming);
+    let best = start;
+    let paid = 0;
+    while (cluster.cursor < cluster.proposals.length && paid < limit) {
+      if (perSlice > 0 && cluster.offeredThisSlice >= perSlice) break;
+      if (budget.shouldStop()) break;
+      const plan = cluster.proposals[cluster.cursor++] as JointPlan;
+      if (planDistance(plan, best.plan, floor) < floor) {
+        cluster.skippedNear++;
+        continue;
+      }
+      // THE SURROGATE GATE. A proposal that does not beat the plan the search
+      // is holding, on the µs surrogate, has no claim worth an 18 ms price.
+      // Computed against the CURRENT incumbent, so a proposal refused this
+      // round is not refused for ever — the sweep moves the incumbent and the
+      // comparison is made again.
+      if (cluster.tuning.requireSurrogateGain && cluster.score !== null) {
+        if (!(cluster.score(plan) > cluster.score(best.plan))) {
+          cluster.skippedFlat++;
+          continue;
+        }
+      }
+      paid++;
+      cluster.offeredThisSlice++;
+      const trial = s.bank.price(plan);
+      if (better(trial, best)) best = trial;
+    }
+    return best;
+  };
+
+  /** How many units two plans disagree on, stopping once `enough` is reached. */
+  const planDistance = (a: JointPlan, b: JointPlan, enough: number): number => {
+    let n = 0;
+    for (const [unitId, candidate] of a) {
+      const other = b.get(unitId);
+      if (other === candidate) continue;
+      if (other !== undefined && other.to === candidate.to && samePath(other, candidate)) continue;
+      if (++n >= enough) return n;
+    }
+    return n;
   };
 
   /**
@@ -827,10 +1094,26 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // search that shipped, and it should cost exactly what it cost.
       const sliceMs = cfg.parallel === null ? 0 : ctx.budget.remainingMs();
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      // A witness admitted since the last slice makes a fresh B2 branch of
+      // every plan priced after it, so every clean mark is stale. Once per
+      // call, before anything is skipped.
+      s.cluster?.dirty.noteWitnesses(ctx.witnesses.length);
+      // THE CLUSTER JOINTS GO FIRST, and before any sweep. They are the plans
+      // this stage exists to produce; a sweep that ran first would spend the
+      // slice on one-move neighbours of a seed the enumeration is trying to
+      // replace, and on a starved turn there would be nothing left.
+      if (s.cluster !== null) s.cluster.offeredThisSlice = 0;
+      best = offerClusterJoints(s, ctx.budget, best, cfg.clusterOffersPerRound);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
         best = sweep(s, ctx.budget, best);
+        // The ALTERNATES, one per round and against a swept incumbent. The MAP
+        // above is the enumeration's claim; positions 2..k are its diversity,
+        // and diversity is worth paying for only once the cheap moves are made
+        // — otherwise a generator spends a starved decision generating. See
+        // `offerClusterJoints` for the measurement that set this shape.
+        best = offerClusterJoints(s, ctx.budget, best, cfg.clusterOffersPerRound);
         best = pairRepair(s, ctx.budget, best);
         if (best === before) {
           // Converged unit-wise. Polish first — it is cheap and it is the
@@ -1078,5 +1361,60 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return out;
   };
 
-  return { improve, conform, drainRefusals, release };
+  /**
+   * The cluster accounting, summed over live sessions. Null when the layer
+   * never ran, which is the shipped default and is how a reader tells "off"
+   * from "on and found nothing".
+   */
+  const clusterReport = (): ClusterReport | null => {
+    let seen = false;
+    let out: DirtyStats & Omit<ClusterReport, "sweepsSkipped" | "sweepsRun"> = {
+      clusters: 0,
+      sliders: 0,
+      maxComponent: 0,
+      jointsEnumerated: 0,
+      jointsBeforeShrink: 0,
+      rungThreshold: 0,
+      rungIcm: 0,
+      merged: false,
+      proposals: 0,
+      proposalsPriced: 0,
+      proposalsNear: 0,
+      proposalsFlat: 0,
+      noExactGain: 0,
+      enumMs: 0,
+      skipped: 0,
+      swept: 0,
+    };
+    for (const session of sessions.values()) {
+      const cluster = session.cluster;
+      if (cluster === null) continue;
+      seen = true;
+      const dirty = cluster.dirty.stats;
+      out = {
+        clusters: Math.max(out.clusters, cluster.stats.clusters),
+        sliders: Math.max(out.sliders, cluster.stats.sliders),
+        maxComponent: Math.max(out.maxComponent, cluster.stats.maxComponent),
+        jointsEnumerated: out.jointsEnumerated + cluster.stats.jointsEnumerated,
+        jointsBeforeShrink: out.jointsBeforeShrink + cluster.stats.jointsBeforeShrink,
+        rungThreshold: out.rungThreshold + cluster.stats.rungThreshold,
+        rungIcm: out.rungIcm + cluster.stats.rungIcm,
+        merged: out.merged || cluster.stats.merged,
+        proposals: out.proposals + cluster.stats.proposals,
+        proposalsPriced:
+          out.proposalsPriced + (cluster.cursor - cluster.skippedNear - cluster.skippedFlat),
+        proposalsNear: out.proposalsNear + cluster.skippedNear,
+        proposalsFlat: out.proposalsFlat + cluster.skippedFlat,
+        noExactGain: out.noExactGain + cluster.stats.noExactGain,
+        enumMs: out.enumMs + cluster.enumMs,
+        skipped: out.skipped + dirty.skipped,
+        swept: out.swept + dirty.swept,
+      };
+    }
+    if (!seen) return null;
+    const { skipped, swept, ...rest } = out;
+    return { ...rest, sweepsSkipped: skipped, sweepsRun: swept };
+  };
+
+  return { improve, conform, drainRefusals, release, clusterReport };
 }

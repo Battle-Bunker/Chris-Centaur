@@ -50,7 +50,7 @@
  * be delivered.
  */
 
-import type { Candidate, CandidateSet, UnitId } from "../contracts"
+import type { Candidate, CandidateSet, JointPlan, UnitId } from "../contracts"
 import type { BankResult } from "../bounds"
 import { dangerOrder, topCandidates } from "../search/order"
 import { encodeCandidate, UNENCODABLE } from "./protocol"
@@ -73,6 +73,23 @@ export interface Frontier {
   /** `SearchTuning.candidateCap` — how wide the real sweep goes per unit, so a
    * speculation never offers the search options the search would not try. */
   readonly candidateCap: number
+  /**
+   * CL3 — THE CLUSTER JOINTS THIS SESSION HAS ENUMERATED AND NOT YET PRICED.
+   *
+   * Composed k-best joints from the cluster partition, in the order the
+   * coordinator will offer them, with the prefix it has ALREADY priced removed.
+   * That prefix removal is the whole reason this is a list of leftovers rather
+   * than the whole set: W1 measured 3,344 speculative entries offered and ZERO
+   * new, because a pure evaluator can only predict the incumbent's one-move
+   * neighbourhood and coordinate ascent has already priced it. These plans are
+   * two-move-and-deeper by construction — the exact thing a 1-opt hill climb
+   * structurally cannot reach — and the coordinator has not got to them.
+   *
+   * Absent or empty ⇒ the shipped plan-batch cut. Nothing else in the subsystem
+   * changes: the parcel is still `plan-batch` codes, the transport is
+   * unchanged, and the fold asserts nothing about provenance.
+   */
+  readonly proposals?: ReadonlyArray<JointPlan>
 }
 
 /** One worker's share, in the coordinator's own vocabulary. */
@@ -141,6 +158,135 @@ export function planBatchPartition(headroom: number, maxPerChunk: number): WorkP
       return out
     },
   }
+}
+
+/**
+ * THE CLUSTER CUT — composed joint sub-plans, and the plan-batch cut behind it.
+ *
+ * ── WHY THIS IS THE ONE THAT CAN PAY ───────────────────────────────────────
+ *
+ * W1's own warning to this program, verbatim: *"Whatever a cluster partition
+ * speculates on has to be work the coordinator has not already done, and on
+ * this search that rules out anything derivable from the incumbent's one-move
+ * neighbourhood."* The measured consequence was 3,344 entries offered, 0 new,
+ * `entriesUsed = 0` on every row, and a monotone 1.00× → 0.59× regression with
+ * worker count. Not a transport problem — a TARGET problem.
+ *
+ * A composed cluster joint differs from the incumbent in every unit of a
+ * cluster at once. The sweep reaches it only after `maxSweeps` passes and a
+ * `jointPolish` that the census says the budget usually never reaches, and the
+ * two-move-and-deeper structure is exactly what makes it (a) worth a price and
+ * (b) not already in the memo.
+ *
+ * ── WHAT DOES *NOT* MOVE TO A WORKER ───────────────────────────────────────
+ *
+ * The ENUMERATION. It costs µs on the surrogate; §7.3's work-unit sizing rule
+ * says a dispatched unit must amortise its transport at ~100×, and transport is
+ * 0.4–4.2 ms. Shipping a µs job across a ms wire is how a pool loses to a
+ * single thread. The coordinator enumerates; the workers PRICE, which is the
+ * ~18 ms half. That division is why this is a `WorkPartition` over the existing
+ * `plan-batch` parcel rather than a second `Parcel` case.
+ *
+ * `headroom` is how many proposals the coordinator is assumed to reach itself
+ * before a worker can answer. The proposals list handed in has already had the
+ * priced prefix removed, so this is headroom on top of that.
+ */
+export function clusterPlanPartition(
+  headroom: number,
+  maxPerChunk: number,
+  fallback: WorkPartition,
+  minHamming = 2,
+): WorkPartition {
+  return {
+    name: "cluster",
+    partition(frontier: Frontier, slots: number): ReadonlyArray<PlanChunk> {
+      if (slots <= 0) return []
+      const width = frontier.roster.length
+      if (width === 0) return []
+      const proposals = frontier.proposals ?? []
+      // SEND ONLY WHAT THE COORDINATOR WOULD ASK FOR. The offer loop drops a
+      // proposal within `minHamming` of the incumbent — the sweep reaches it
+      // anyway — so dispatching one burns a worker on an entry nobody will
+      // look up. Applied here as well as there because a parcel that comes
+      // back for a plan the coordinator never prices is `entriesUsed = 0`,
+      // which is precisely the number W1 could not move.
+      const worth = proposals.filter(
+        (plan) => distance(plan, frontier.incumbent.plan, minHamming) >= minHamming,
+      )
+      const codes = encodeProposals(frontier, worth.slice(Math.max(0, headroom)))
+      if (codes.length === 0) return fallback.partition(frontier, slots)
+      const per = Math.max(1, Math.min(maxPerChunk, Math.ceil(codes.length / slots)))
+      const out: PlanChunk[] = []
+      for (let from = 0; from < codes.length && out.length < slots; from += per) {
+        const take = codes.slice(from, Math.min(codes.length, from + per))
+        const flat = new Int32Array(take.length * width)
+        for (let i = 0; i < take.length; i++) flat.set(take[i] as Int32Array, i * width)
+        out.push({ codes: flat, count: take.length })
+      }
+      // A short proposal list leaves free workers. Fill them from the sweep
+      // frontier — the shipped cut, which is worth little but is not worth
+      // nothing, and an idle worker is worth exactly nothing.
+      if (out.length < slots) {
+        for (const chunk of fallback.partition(frontier, slots - out.length)) out.push(chunk)
+      }
+      return out
+    },
+  }
+}
+
+/** How many units two plans disagree on, stopping once `enough` is reached. */
+function distance(a: JointPlan, b: JointPlan, enough: number): number {
+  let n = 0
+  for (const [unitId, candidate] of a) {
+    const other = b.get(unitId)
+    if (other === candidate) continue
+    if (
+      other !== undefined &&
+      other.to === candidate.to &&
+      other.path.length === candidate.path.length &&
+      other.path.every((cell, i) => cell === candidate.path[i])
+    ) {
+      continue
+    }
+    if (++n >= enough) return n
+  }
+  return n
+}
+
+/**
+ * Proposals as candidate-index vectors over the roster's own order.
+ *
+ * A proposal naming a candidate the worker's catalogue cannot decode is
+ * DROPPED, exactly as the sweep frontier drops one: sending a plan that is not
+ * the plan burns a worker on entries nobody can look up.
+ */
+function encodeProposals(
+  frontier: Frontier,
+  proposals: ReadonlyArray<JointPlan>,
+): ReadonlyArray<Int32Array> {
+  const { roster, sets } = frontier
+  const out: Int32Array[] = []
+  for (const plan of proposals) {
+    const codes = new Int32Array(roster.length)
+    let ok = true
+    for (let i = 0; i < roster.length; i++) {
+      const unitId = roster[i] as UnitId
+      const set = sets.get(unitId)
+      const chosen = plan.get(unitId)
+      if (set === undefined || chosen === undefined) {
+        ok = false
+        break
+      }
+      const code = encodeCandidate(set, chosen)
+      if (code === UNENCODABLE) {
+        ok = false
+        break
+      }
+      codes[i] = code
+    }
+    if (ok) out.push(codes)
+  }
+  return out
 }
 
 /**
