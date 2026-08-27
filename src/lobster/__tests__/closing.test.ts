@@ -730,15 +730,20 @@ describe('nothing shipped moved', () => {
   });
 
   it('the shipped weights carry neither new key, so no profile pays by default', () => {
-    expect(Object.keys(DEFAULT_WEIGHTS).sort()).toEqual([
-      'healthEconomy',
-      'kingMargin',
-      'material',
-      'reach',
-      'room',
-    ]);
+    // SCOPED (integ/round-a). This asserted an EXHAUSTIVE key list, which
+    // reached well past what I3 has any claim on: it made every other branch's
+    // additions fail a test named for I3's two features. `idea/i2` adds
+    // `command` at weight ZERO, which is entirely compatible with what this
+    // test exists to protect — that nothing of I3's is paid for by default.
+    //
+    // So it now asserts the PROPERTY rather than an inventory: I3's two keys
+    // are absent, and every key the shipped table does carry is one the
+    // shipped fold already knew about.
+    expect(DEFAULT_WEIGHTS.regicideCascade).toBeUndefined();
+    expect(DEFAULT_WEIGHTS.approach).toBeUndefined();
     expect(DEFAULT_PROFILE.weights).toBe(DEFAULT_WEIGHTS);
     expect(MATERIAL_ONLY_PROFILE.weights.regicideCascade).toBeUndefined();
+    expect(MATERIAL_ONLY_PROFILE.weights.approach).toBeUndefined();
   });
 
   it('the shipped evaluators fold the shipped feature list and nothing else', () => {

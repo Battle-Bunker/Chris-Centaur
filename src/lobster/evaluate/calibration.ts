@@ -66,6 +66,12 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
   healthEconomy: 0.5,
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
+  /**
+   * The piece-command term — OFF here, and off is the honest default: it is
+   * the slider repair, and it has its own profile so the two can be measured
+   * against each other. See `TERRITORY_SLIDER_PROFILE`.
+   */
+  command: 0,
 };
 
 /**
@@ -157,6 +163,56 @@ export interface CriterionProfile {
    * to `CENTAUR_ROYAL_MARGIN`, which defaults to the behaviour that shipped.
    */
   readonly royalReachers?: boolean;
+  /**
+   * The piece-command term's two multipliers, or `undefined` to leave the
+   * feature switched off (its evaluation then costs one branch). See
+   * `commandFeature` for what the two count.
+   */
+  readonly command?: CommandKnobs;
+  /**
+   * Fraction of a kind's max health below which the movement budget starts to
+   * bind, for kinds that may DECLINE to spend it (`stayLegal`). `undefined`
+   * keeps the linear reading for every kind — today's behaviour.
+   */
+  readonly healthReserveRatio?: number;
+}
+
+/** What a piece's next-turn command set is counted for, and for whom. */
+export interface CommandKnobs {
+  /** Multiplier on contested ground: cells a trail unit also reaches. */
+  readonly ground: number;
+  /** Multiplier on food cells inside the command set. */
+  readonly food: number;
+  /**
+   * Whether a ROYAL unit earns command. Off — and the honest account of why is
+   * that the ARGUMENT survived and the MEASUREMENT did not settle it.
+   *
+   * The argument: a king's only protections under these rules are
+   * unreachability, out-weighing everything that reaches it, and tier
+   * (`SPECIALIST_FACTS` king-weight-margin). A term that pays a unit for the
+   * ground it can act on pays it, in exactly those units, for giving up the
+   * first of the three — and a king's death is TERMINAL, a lattice element and
+   * not something a positional term may trade against.
+   *
+   * The measurement, and it is a negative one. `TERRITORY_SLIDER_ROYAL_PROFILE`
+   * lifts this flag; run as a third concurrent arm on `s3-mix23-base` at 150 ms
+   * over 16 seed blocks a side, it moves the king's stay share by
+   * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
+   * and placement by +0.052 [-0.104, +0.188] — i.e. the flag is close to inert
+   * and what signal there is points the other way. The king's real activation
+   * under this profile comes from `healthReserveRatio`, which applies to every
+   * stay-legal kind: its stay share falls 80.4% -> 59.3% with THIS flag already
+   * off.
+   *
+   * An earlier, louder reading (stay 90.8% -> 80.8%, deaths 17 -> 24) came from
+   * a run whose two arms were sequential on a machine carrying six other
+   * sweeps, and it did not survive a paired-concurrent rerun. It is recorded
+   * here because it is what the flag was originally set on.
+   *
+   * So: off, on the argument, with the ablation arm kept so the next person can
+   * settle it at a block count that resolves 0.05.
+   */
+  readonly royal: boolean;
 }
 
 /**
@@ -183,10 +239,85 @@ export const TERRITORY_PROFILE: CriterionProfile = {
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
 
+/**
+ * ── THE SLIDER REPAIR ──────────────────────────────────────────────────────
+ *
+ * The territory profile beats material on every board with no slider on it and
+ * loses on every board with one, at every budget from 150 ms to 1500 ms. The
+ * budget ladder ruled search starvation out; these two numbers say what is left,
+ * measured over 1 610 (position, piece) samples on the ladder's own replays,
+ * sweeping ONE piece across its own legal options with the joint context fixed:
+ *
+ *   the weighted spread of `reach` over a slider's own options   0.0000–0.0076
+ *   the weighted spread of `healthEconomy` over the same options 0.2300–0.3700
+ *
+ * Inside the material-tie class — which is exactly the class `est` orders — the
+ * median spread of `reach` is ZERO for the rook, the knight, the king and the
+ * pawn and ONE BOARD CELL for the queen, while `healthEconomy` spreads
+ * 0.030–0.045. Read directly off the partition: `ours` and `theirs` do not move
+ * by a single cell across all 71 of a queen's legal actions.
+ *
+ * The cause is structural rather than a tuning miss. Plane 2 credits a piece
+ * where `arrival_p(c) ≤ D(c)`, and a slider's arrival is ≤ 2 turns to nearly
+ * every cell FROM ANYWHERE — so the displacement set is saturated and carries
+ * no gradient in the slider's own position. `room` is plane 1 only, so it is
+ * identically zero for a piece. That leaves `healthEconomy` as the ONLY term
+ * with dynamic range over a slider's move, and it is a linear travel tax: the
+ * territory profile's est-argmax is the shortest-travel option among material
+ * ties in 73–96% of positions. The evaluator is not indifferent to slider
+ * activity. It is against it.
+ *
+ * So the repair is two changes, and neither one touches a board with no piece
+ * on it:
+ *
+ *   1. `command` — the gradient plane 2 structurally cannot carry. A piece is
+ *      worth the CONTESTED ground it can act on next turn plus the food it can
+ *      take, which is position-dependent where arrival-by-D is not.
+ *   2. `healthReserveRatio` — health is a movement budget for a kind that may
+ *      decline to spend it, and a budget's marginal value rises as it runs out.
+ *      A linear `health/max` prices the 98th health point exactly like the 2nd,
+ *      which is what turned a survival term into a travel tax. Below the
+ *      reserve the term is sharper than it was; above it, flat.
+ *
+ * Both are gated on class properties the rules already carry (`leavesTrail`,
+ * `stayLegal`), so on an all-snake board this profile is bit-identical to
+ * `TERRITORY_PROFILE` — asserted, not asserted-by-comment, in
+ * `src/tests/territory-slider.test.ts`.
+ */
+export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
+
+/**
+ * Half a kind's maximum. A piece at or above it has a movement budget that does
+ * not bind — nothing it can do this turn brings it near exhaustion — and below
+ * it the term slides to zero twice as fast as the linear reading did.
+ */
+export const HEALTH_RESERVE_RATIO = 0.5;
+
+export const TERRITORY_SLIDER_PROFILE: CriterionProfile = {
+  name: 'lobster-territory-x',
+  weights: { ...DEFAULT_WEIGHTS, command: 2 },
+  reachHorizonTurns: REACH_HORIZON_TURNS,
+  command: COMMAND_KNOBS,
+  healthReserveRatio: HEALTH_RESERVE_RATIO,
+};
+
+/**
+ * THE ABLATION ARM. Identical to the repair except that a royal unit earns
+ * command too. It exists so `CommandKnobs.royal` is a measured ruling rather
+ * than an argued one — the king is the one piece whose activity trades against
+ * a terminal, and a knob that is off on reasoning alone is a knob nobody has
+ * checked. Not a production profile.
+ */
+export const TERRITORY_SLIDER_ROYAL_PROFILE: CriterionProfile = {
+  ...TERRITORY_SLIDER_PROFILE,
+  name: 'lobster-territory-a',
+  command: { ...COMMAND_KNOBS, royal: true },
+};
+
 /** Material only — the profile a differential or a 1 ms reflex rung wants, and
  * the explicit fallback if the territory profile ever has to be backed out. */
 export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
   name: 'material-only',
-  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0 },
+  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0, command: 0 },
   reachHorizonTurns: 0,
 };

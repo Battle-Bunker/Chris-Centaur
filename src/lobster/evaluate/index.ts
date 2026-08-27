@@ -39,7 +39,12 @@ import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
 import type { Evaluation, Feature, Weights } from './bound';
-import { DEFAULT_PROFILE, MATERIAL_ONLY_PROFILE } from './calibration';
+import {
+  DEFAULT_PROFILE,
+  MATERIAL_ONLY_PROFILE,
+  TERRITORY_SLIDER_PROFILE,
+  TERRITORY_SLIDER_ROYAL_PROFILE,
+} from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
 import type { EvalContext } from './features';
@@ -49,12 +54,15 @@ export * from './calibration';
 export {
   ADMISSION,
   FEATURES,
+  budgetShare,
   buildArrivals,
+  commandFeature,
   healthEconomyFeature,
   kingMarginFeature,
   makeContext,
   materialBounds,
   materialFeature,
+  pieceScaleOf,
   reachFeature,
   roomFeature,
   standingOf,
@@ -135,7 +143,9 @@ export class BoundEvaluator implements Evaluator {
         bounds,
         asTeam,
         this.profile.reachHorizonTurns,
-        this.profile.royalReachers
+        // One bag, carrying I1's royalReachers and I2's command /
+        // healthReserveRatio. See makeContext's signature.
+        this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
       return finish(ctx, evaluation);
@@ -196,3 +206,17 @@ export const territoryEvaluator = defaultEvaluator;
 /** A material-only evaluator: the reflex rung's, the differential's, and the
  * explicit fallback profile if territory ever has to be backed out. */
 export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);
+
+/**
+ * THE SLIDER-REPAIR PROFILE — territory plus the two terms the budget ladder's
+ * replays say are missing, both gated on class properties so a board with no
+ * piece on it scores identically to `territoryEvaluator`. See
+ * `TERRITORY_SLIDER_PROFILE` for the measurement that motivates it.
+ */
+export const territorySliderEvaluator = new BoundEvaluator(TERRITORY_SLIDER_PROFILE);
+
+/** The ablation arm — the repair with the royal exclusion lifted. Measured
+ * against `territorySliderEvaluator`; never a production default. */
+export const territorySliderRoyalEvaluator = new BoundEvaluator(
+  TERRITORY_SLIDER_ROYAL_PROFILE
+);
