@@ -27,6 +27,7 @@ import {
   ALL_FEATURES,
   BoundEvaluator,
   CLIFF_MATERIAL_WEIGHT,
+  COHORTS,
   DEFAULT_WEIGHTS,
   TERRITORY_PROFILE,
   defaultEvaluator,
@@ -353,13 +354,29 @@ describe('the cliff inequality, over the acceptance boards', () => {
     }
   });
 
-  test('and neither can, on ANY board, by construction rather than by sample', () => {
-    // Both features are normalised, so their ranges are bounded independently of
-    // the board: reach by the open cells, room by one team's worth of trail
-    // units. Without that, room's range would grow with the roster and a weight
-    // that clears the cliff on a three-snake board would breach it on a five.
-    expect((TERRITORY_PROFILE.weights.reach as number) * 2).toBeLessThan(ceiling);
-    expect((TERRITORY_PROFILE.weights.room as number) * 2).toBeLessThan(ceiling);
+  test('and neither can, by construction — AT TWO TEAMS, which is the real premise', () => {
+    // THIS TEST USED TO CLAIM "on ANY board". IT WAS WRONG, AND THE CORRECTION
+    // MATTERS. `reach` really is bounded independently of the board: it is
+    // normalised by the open cells, so it lives in [-1, 1] and its span is 2
+    // whatever is playing. `room` is normalised by `trailScaleOf` — the
+    // LARGEST SINGLE TEAM's trail count — and the subtraction is ours minus
+    // EVERYONE else's. On a K-team board the worst case is therefore
+    // -(K - 1) rather than -1, so room lives in [-(K-1), 1] and its span is K.
+    // Measured on the corpus: 6.06% of readings are below -1, minimum exactly
+    // -2.000, which is the three-team case arriving exactly where the algebra
+    // says it should.
+    //
+    // The normalisation is NOT changed here. That is a behaviour change with
+    // its own measurement arm (ledger item O-P3); what belongs in a test is
+    // the truth about the range it currently has.
+    const reachSpan = 2;
+    const roomSpanAt = (teams: number) => teams;
+    expect((TERRITORY_PROFILE.weights.reach as number) * reachSpan).toBeLessThan(ceiling);
+    expect((TERRITORY_PROFILE.weights.room as number) * roomSpanAt(2)).toBeLessThan(ceiling);
+    // At three teams the same weight does NOT clear it, on room alone.
+    expect((TERRITORY_PROFILE.weights.room as number) * roomSpanAt(3)).toBeGreaterThan(
+      ceiling * 0.8
+    );
   });
 
   test('the two together still cannot buy a death', () => {
@@ -454,5 +471,279 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
     const roomGain = (TERRITORY_PROFILE.weights.room as number) * 1;
     const deathCost = CLIFF_MATERIAL_WEIGHT * 1;
     expect(roomGain).toBeLessThan(deathCost);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE CLIFF INEQUALITY, SUMMED OVER EVERY ORDERING FEATURE, PER COHORT.
+ *
+ * The block above asserts it four ways for `reach` and `room`. `healthEconomy`
+ * and `kingMargin` appear in none of them — and measured at scale they
+ * contribute 39% of the ordering budget actually in use, which means the
+ * shipped tests covered 61% of the quantity the invariant is about.
+ *
+ * The quantity that governs whether a richer objective can OVERTURN a cheaper
+ * one's verdict is the sum over EVERY ordering feature in that cohort, against
+ * the material a lightest-unit death costs. Anti-spaghetti rule 8 already
+ * words it that way; nothing checked it. It is checked here, looped over the
+ * registry, so a cohort nobody has raced yet cannot be added without the
+ * inequality being asserted for it.
+ *
+ * ── THE GROWTH HAZARD, STATED RATHER THAN ASSUMED ──────────────────────────
+ *
+ * `reach` and `room` are NORMALISED, so their ranges are bounded independently
+ * of the board and the by-construction assertion above is real. `healthEconomy`
+ * is not: it is a bare sum over units of `health / maxHealth`, ours minus
+ * theirs, and its spread therefore grows with the roster at roughly 0.4 per
+ * commandable unit. This is exactly the failure mode `roomFeature`'s own
+ * docstring warns about and `room` was fixed for — "a weight that sits safely
+ * under the cliff on a three-snake board sits over it on a five-snake one" —
+ * and `healthEconomy` never got the same treatment.
+ *
+ * So what follows is a SAMPLE at the roster sizes the acceptance boards carry,
+ * and it says so. It is not a by-construction bound and must not be read as
+ * one. The board sizes and margins are printed by
+ * `the summed budget, per cohort, with the roster size it was measured at`
+ * so a reader can see how much headroom there actually is.
+ */
+describe('the cliff inequality, summed per cohort, over the acceptance boards', () => {
+  const LIGHTEST_UNIT_WEIGHT = 1;
+  const ceiling = CLIFF_MATERIAL_WEIGHT * LIGHTEST_UNIT_WEIGHT;
+
+  const boards: Array<{ label: string; sample: Sample; staleness: number }> = [
+    ...SNAKES11.map((s) => ({ label: `swap${s.swap} t${s.turn}`, sample: s, staleness: 0 })),
+    { label: 'mid11', sample: MID11, staleness: 0 },
+    ...[2, 6, 10, 14].map((turn) => ({
+      label: `stale t${turn}`,
+      sample: boardAt(0, turn),
+      staleness: 2,
+    })),
+  ];
+
+  /**
+   * One cohort's summed ordering budget on one board, plus the roster size it
+   * was measured at — because for an unnormalised feature the second number is
+   * what makes the first one mean anything.
+   */
+  function orderingBudget(
+    row: { id: string; profile: typeof TERRITORY_PROFILE },
+    sample: Sample,
+    staleness: number
+  ): { sum: number; perFeature: Record<string, number>; ourUnits: number } {
+    const { board, turn, team } = sample;
+    const ourIds = (board.snakes ?? [])
+      .filter((s) => (s.teamID ?? s.id) === team && s.health > 0 && s.body.length > 0)
+      .map((s) => s.id);
+    const observedTurns =
+      staleness > 0
+        ? new Map(
+            (board.snakes ?? [])
+              .filter((s) => !ourIds.includes(s.id))
+              .map((s) => [s.id, turn - staleness] as [string, number])
+          )
+        : undefined;
+    const sub = makeSubstrate({ board, turn, asTeam: team, modeled: ourIds, observedTurns });
+    try {
+      const asTeam = sub.teamNumber(team);
+      const evaluator = new BoundEvaluator(row.profile);
+      const plans = ourPlans(sub, asTeam, 64);
+      const byFeature = new Map<string, number[]>();
+      for (const plan of plans) {
+        const ev = evaluator.evaluatePlan(sub, plan, asTeam);
+        for (const [key, part] of Object.entries(ev.parts)) {
+          // `material` is the DENOMINATION, not an ordering term: the cliff
+          // lives inside it and it is what the inequality is measured against.
+          if (key === 'material') continue;
+          const xs = byFeature.get(key) ?? [];
+          xs.push(part.lo);
+          byFeature.set(key, xs);
+        }
+      }
+      const perFeature: Record<string, number> = {};
+      let sum = 0;
+      for (const [key, xs] of byFeature) {
+        const w = row.profile.weights[key] ?? 0;
+        const cost = w * span(xs);
+        perFeature[key] = cost;
+        sum += cost;
+      }
+      return { sum, perFeature, ourUnits: ourIds.length };
+    } finally {
+      sub.release();
+    }
+  }
+
+  test('EVERY registered cohort is measured, not just the shipped default', () => {
+    // The loop is the point: adding a row to the registry adds it here.
+    expect(COHORTS.length).toBeGreaterThan(1);
+    for (const row of COHORTS) expect(row.profile.invoked.size).toBeGreaterThan(0);
+  });
+
+  for (const row of COHORTS) {
+    test(`${row.id}: the WHOLE ordering channel cannot buy a lightest-unit death`, () => {
+      for (const b of boards) {
+        const { sum, perFeature } = orderingBudget(row, b.sample, b.staleness);
+        expect([row.id, b.label, sum < ceiling]).toEqual([row.id, b.label, true]);
+        // Non-vacuity: a cohort whose ordering channel measured zero
+        // everywhere would pass this without the inequality meaning anything.
+        expect([row.id, b.label, Object.keys(perFeature).length > 0]).toEqual([
+          row.id,
+          b.label,
+          true,
+        ]);
+      }
+    });
+
+    test(`${row.id}: healthEconomy and kingMargin are in the sum, not silently omitted`, () => {
+      // The gap E3 found, closed. Both are invoked by both shipped cohorts, so
+      // both must appear in the decomposition on a real board.
+      const { perFeature } = orderingBudget(row, MID11, 0);
+      for (const key of row.profile.invoked) {
+        if (key === 'material') continue;
+        expect([row.id, key, key in perFeature]).toEqual([row.id, key, true]);
+      }
+    });
+  }
+
+  test('the summed budget, per cohort, with the roster size it was measured at', () => {
+    // THE SAMPLE, PRINTED. `healthEconomy` is unnormalised — its spread grows
+    // ~0.4 per commandable unit — so a margin measured at these roster sizes is
+    // a fact about these roster sizes and nothing more. The numbers are emitted
+    // rather than merely asserted so that the headroom is legible to whoever
+    // next changes a weight, adds a cohort, or plays a bigger roster.
+    const lines: string[] = [];
+    let worst = { label: '', cohort: '', sum: 0, units: 0 };
+    for (const row of COHORTS) {
+      for (const b of boards) {
+        const { sum, perFeature, ourUnits } = orderingBudget(row, b.sample, b.staleness);
+        if (sum > worst.sum) worst = { label: b.label, cohort: row.id, sum, units: ourUnits };
+        lines.push(
+          `${row.id.padEnd(10)} ${b.label.padEnd(14)} units=${ourUnits} ` +
+            `sum=${sum.toFixed(3)} ` +
+            Object.entries(perFeature)
+              .sort(([a], [c]) => a.localeCompare(c))
+              .map(([k, v]) => `${k}=${v.toFixed(3)}`)
+              .join(' ')
+        );
+      }
+    }
+    console.log(
+      `\nsummed ordering budget vs cliff ceiling ${ceiling}\n${lines.join('\n')}\n` +
+        `worst: ${worst.cohort} on ${worst.label} at ${worst.units} own units = ` +
+        `${worst.sum.toFixed(3)} (${((worst.sum / ceiling) * 100).toFixed(1)}% of ceiling)\n`
+    );
+    expect(worst.sum).toBeLessThan(ceiling);
+    // A LOUD guard rather than a silent pass. If the worst measured margin ever
+    // gets within a quarter of the ceiling, the sample is no longer comfortable
+    // and the unnormalised feature is the thing to look at first: the honest
+    // responses are to normalise `healthEconomy` (a calibration change with its
+    // own gate) or to state in the table that escalation is overturn-capable on
+    // large rosters. Neither is a thing to discover from a red test in a hurry.
+    expect(worst.sum).toBeLessThan(ceiling * 0.75);
+  });
+
+  // -- the CERTIFIED half: what the ranges are by construction, not by sample --
+
+  /**
+   * A feature's by-construction span, or null when nothing certifies one.
+   *
+   * `teams` is K, the number of teams on the board, because one of these
+   * certificates depends on it and the dependence is the finding.
+   */
+  const certifiedSpan = (key: string, teams: number): number | null => {
+    switch (key) {
+      // Normalised by the open cells; ours minus theirs lands in [-1, 1]
+      // whatever is playing. Genuinely board-independent.
+      case 'reach':
+        return 2;
+      // Normalised by `trailScaleOf` — the LARGEST SINGLE TEAM's trail count —
+      // while the subtraction is ours minus EVERY other team's. So the floor
+      // is -(K-1), not -1, and the span is K. Measured: 6.06% of corpus
+      // readings below -1, minimum exactly -2.000.
+      case 'room':
+        return teams;
+      // NO CERTIFICATE EXISTS. A bare sum over units of health/maxHealth, ours
+      // minus theirs, with no roster normalisation: the spread grows with the
+      // unit count at roughly 0.4 per commandable unit. This is the failure
+      // mode `roomFeature`'s own docstring warns about, and `healthEconomy`
+      // never got the same treatment.
+      case 'healthEconomy':
+        return null;
+      // Also uncertified: king weight minus the heaviest same-tier reacher is
+      // denominated in weights, and nothing bounds it a priori.
+      case 'kingMargin':
+        return null;
+      default:
+        return null;
+    }
+  };
+
+  test('THE CERTIFIED SUM CLEARS THE CLIFF AT TWO TEAMS AND NOT AT THREE', () => {
+    // The realized numbers above are a sample. THIS is the by-construction
+    // statement, and it is the one an escalation semantics would have to rest
+    // on — a guarantee that holds on the boards we happened to measure is not
+    // a guarantee.
+    //
+    // Only `reach` and `room` are certifiable today, so this is a LOWER BOUND
+    // on the true certified sum: `healthEconomy` and `kingMargin` are in the
+    // ordering channel, contribute measurably (39% of the realized budget at
+    // scale), and have no a-priori bound at all.
+    const certifiable = (teams: number) =>
+      ['reach', 'room'].reduce(
+        (sum, key) =>
+          sum + (TERRITORY_PROFILE.weights[key] as number) * (certifiedSpan(key, teams) as number),
+        0
+      );
+
+    // Two teams: 1x2 + 3x2 = 8, inside a ceiling of 10 — with 2.0 of headroom
+    // for the two features that carry no certificate. E3 measured
+    // healthEconomy's own realized contribution as high as 2.56 on a
+    // seven-unit roster, so even the TWO-team certificate is not comfortable
+    // once the uncertified terms are honestly added.
+    expect(certifiable(2)).toBe(8);
+    expect(certifiable(2)).toBeLessThan(ceiling);
+
+    // Three teams: 1x2 + 3x3 = 11. Over the ceiling on reach and room ALONE,
+    // before either uncertified feature is counted. The certified guarantee
+    // does not hold at three teams and this test records that rather than
+    // hiding it: the empirical guarantee still does (realized spans max 5.09
+    // here, 5.75 at scale), which is why nothing is broken today and why the
+    // fix is a measured change and not a hotfix.
+    //
+    // THE FIX IS NOT MADE HERE. Normalising `healthEconomy`, or dividing room
+    // by the whole opposing field rather than the largest single team, are
+    // behaviour changes with their own measurement arms (ledger item O-P3).
+    // When one lands, this test goes red and is the place to re-derive from.
+    expect(certifiable(3)).toBe(11);
+    expect(certifiable(3)).toBeGreaterThan(ceiling);
+  });
+
+  test('the acceptance corpus is TWO-team, so its realized margin is the 2-team story', () => {
+    // Stated because the two paragraphs above only mean something together
+    // with this one: the boards these numbers were measured on do not contain
+    // the case the certificate fails at.
+    for (const b of boards) {
+      const teams = new Set(
+        (b.sample.board.snakes ?? [])
+          .filter((snake) => snake.health > 0 && snake.body.length > 0)
+          .map((snake) => snake.teamID ?? snake.id)
+      );
+      expect([b.label, teams.size]).toEqual([b.label, 2]);
+    }
+  });
+
+  test('the acceptance boards are SMALL, and the bound is a sample because of it', () => {
+    // The measurement's own scope, asserted so nobody quotes the margin above
+    // as a property of the evaluator. If this test starts failing because the
+    // corpus grew, that is the signal to re-derive the healthEconomy bound
+    // rather than to raise the number here.
+    for (const b of boards) {
+      const ourUnits = (b.sample.board.snakes ?? []).filter(
+        (s) => (s.teamID ?? s.id) === b.sample.team && s.health > 0 && s.body.length > 0
+      ).length;
+      expect([b.label, ourUnits <= 8]).toEqual([b.label, true]);
+    }
   });
 });

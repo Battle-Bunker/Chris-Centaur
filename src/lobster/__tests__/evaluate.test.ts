@@ -22,6 +22,7 @@ import {
   ALL_FEATURE_KEYS,
   BoundEvaluator,
   CLIFF_MATERIAL_WEIGHT,
+  COHORTS,
   DEAD,
   DEFAULT_PROFILE,
   DEFAULT_WEIGHTS,
@@ -282,6 +283,96 @@ describe('the admission laws, over the real world set', () => {
       expect([c.name, checkCollapse(materialEvaluator, c).violations]).toEqual([c.name, []]);
       expect([c.name, checkMonotone(materialEvaluator, c).violations]).toEqual([c.name, []]);
     }
+  });
+});
+
+/**
+ * THE PER-COHORT LAW HARNESS — the recurring tax, paid.
+ *
+ * Every cohort independently owes R1/R2/R3. A cohort is a different objective,
+ * not a different opinion about the same one, so "the laws hold" is a claim
+ * that has to be re-established for each registry row rather than inherited
+ * from the default. This loop is what makes adding a row cost the table and
+ * the tests and nothing else: a new row is picked up here without an edit.
+ *
+ * It is a LOOP over `COHORTS` and not a list of hand-named profiles on
+ * purpose. A hand-named list passes forever while silently ceasing to cover
+ * the thing that ships.
+ */
+describe('every registered cohort independently owes the admission laws', () => {
+  test('the registry has more than one row, so this loop is not one test wearing a hat', () => {
+    expect(COHORTS.length).toBeGreaterThan(1);
+  });
+
+  for (const row of COHORTS) {
+    const evaluator = new BoundEvaluator(row.profile);
+
+    test(`${row.id}: R1 soundness — every world lies inside the interval`, () => {
+      let worlds = 0;
+      for (const c of LAW_CASES) {
+        const result = checkSoundness(evaluator, c);
+        expect([row.id, c.name, result.violations]).toEqual([row.id, c.name, []]);
+        expect(result.checked).toBeGreaterThan(0);
+        worlds += result.checked;
+      }
+      expect(worlds).toBeGreaterThan(40);
+    });
+
+    test(`${row.id}: R2 refinement-monotonicity — narrowing only shrinks`, () => {
+      let refinements = 0;
+      for (const c of LAW_CASES) {
+        const result = checkMonotone(evaluator, c);
+        expect([row.id, c.name, result.violations]).toEqual([row.id, c.name, []]);
+        refinements += result.checked;
+      }
+      expect(refinements).toBeGreaterThan(4);
+    });
+
+    test(`${row.id}: R3 collapse — nothing held is a point, and says it is exact`, () => {
+      for (const c of LAW_CASES) {
+        expect([row.id, c.name, checkCollapse(evaluator, c).violations]).toEqual([
+          row.id,
+          c.name,
+          [],
+        ]);
+      }
+    });
+
+    test(`${row.id}: material is invoked at the cliff weight — the veto is cohort-invariant`, () => {
+      // Anti-spaghetti rule 6. A certain material death is inadmissible in
+      // every posture and every cohort, and that is only true if every cohort
+      // actually computes material at the weight the cliff is denominated in.
+      expect([row.id, row.profile.invoked.has('material')]).toEqual([row.id, true]);
+      expect([row.id, row.profile.weights.material]).toEqual([row.id, CLIFF_MATERIAL_WEIGHT]);
+    });
+  }
+
+  test('THE ADMISSIBLE SET agrees across cohorts, by VALUE and not by cause bit', () => {
+    // The cohort-invariance the ladder actually depends on is invariance of
+    // WHO IS DEAD, and that is a statement about `worst`, not about the cause
+    // tag. The cause bit distinguishes material-dead from cloud-contingent-dead
+    // using the bracket and the if_present ledger, both of which come from
+    // whichever adversary branches the double oracle explored — which depends
+    // on the evaluator. Measured at scale, two profiles agreed on 272,482 of
+    // 272,485 plans and disagreed on the CAUSE of three that were dead under
+    // both. A test written on the cause bit flakes; one written on the value
+    // does not, and the value is what the design rests on.
+    const evaluators = COHORTS.map((row) => new BoundEvaluator(row.profile));
+    let compared = 0;
+    for (const c of LAW_CASES) {
+      const sub = makeSubstrate({ board: c.board, turn: c.turn, asTeam: c.asTeam });
+      try {
+        const asTeam = sub.teamNumber(c.asTeam);
+        const plan = defaultPlan(sub);
+        const verdicts = evaluators.map((e) => e.evaluatePlan(sub, plan, asTeam).bound.lo <= DEAD);
+        expect([c.name, new Set(verdicts).size]).toEqual([c.name, 1]);
+        compared++;
+      } finally {
+        sub.release();
+        clearGeometryCache();
+      }
+    }
+    expect(compared).toBe(LAW_CASES.length);
   });
 });
 
