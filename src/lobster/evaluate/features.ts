@@ -47,6 +47,7 @@
 
 import { Fate, profileOf } from '../../partial-engine/index';
 import type {
+  Board,
   FieldSlot,
   Resolution,
   ScoreBounds,
@@ -56,6 +57,7 @@ import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { type Bound, type Feature, bound, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
+import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
 import { partitionOf, workspaceFor } from './territory';
@@ -126,11 +128,26 @@ export interface EvalContext {
    */
   readonly roomScale: number;
   /**
+   * The same board constant for PIECES: the largest number of non-trail units
+   * any team started the turn with, floored at 1. `commandFeature` divides by
+   * it for exactly the reason `room` divides by `roomScale` — a bare sum of
+   * per-unit terms has a range that grows with the roster, so a weight safe on
+   * a one-piece board is not safe on a four-piece one.
+   */
+  readonly pieceScale: number;
+  /**
    * Absolute-turn arrival grids. Stamped from the same shells, so this is the
    * same array `CloudTimeline.arrival().earliest` returns — pinned cell for
    * cell by the drift differential — at none of its cost.
    */
   arrivals(): ReadonlyMap<UnitId, Int32Array>;
+  /** The command term's multipliers, or null when the feature is switched off. */
+  readonly command: CommandKnobs | null;
+  /** The health-budget reserve fraction, or null for the linear reading. */
+  readonly healthReserveRatio: number | null;
+  /** The food board of the RESOLVED position — post food phase, so a meal this
+   * turn is gone from it for every reader. Built once, on demand. */
+  food(): Board;
 }
 
 /**
@@ -243,14 +260,19 @@ export function makeContext(
   resolution: Resolution,
   engineMaterial: ScoreBounds,
   asTeam: number,
-  horizonTurns: number = REACH_HORIZON_TURNS
+  horizonTurns: number = REACH_HORIZON_TURNS,
+  /** The profile's optional knobs. Absent means every optional term is off, so
+   * an existing caller keeps exactly the reading it had. */
+  profile?: Pick<CriterionProfile, 'command' | 'healthReserveRatio'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
   const ws = workspaceFor(sub);
   const roomScale = trailScaleOf(sub);
+  const pieceScale = pieceScaleOf(sub);
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
+  let foodCache: Board | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
     lo: null,
     hi: null,
@@ -264,6 +286,9 @@ export function makeContext(
     horizonTurns,
     teams,
     roomScale,
+    pieceScale,
+    command: profile?.command ?? null,
+    healthReserveRatio: profile?.healthReserveRatio ?? null,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -273,7 +298,14 @@ export function makeContext(
     partition(reading) {
       const hit = parts[reading];
       if (hit !== null) return hit;
-      const made = partitionOf(ws, standing, ctx.shells(), asTeam, ADMISSION[reading]);
+      const made = partitionOf(
+        ws,
+        standing,
+        ctx.shells(),
+        asTeam,
+        ADMISSION[reading],
+        ws.domainFor(reading)
+      );
       parts[reading] = made;
       return made;
     },
@@ -284,6 +316,14 @@ export function makeContext(
         arrivalsCache = out;
       }
       return arrivalsCache;
+    },
+    food() {
+      if (foodCache === null) {
+        const board = ws.foodOut;
+        sub.engine.foodBoard(resolution.state, board);
+        foodCache = board;
+      }
+      return foodCache;
     },
   };
   return ctx;
@@ -314,6 +354,19 @@ export function trailScaleOf(sub: EngineSubstrate): number {
   const byTeam = new Map<number, number>();
   for (const u of sub.roster()) {
     if (!profileOf(u.kind).leavesTrail) continue;
+    byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
+  }
+  return Math.max(1, ...byTeam.values());
+}
+
+/** The same constant for the OTHER plane: the largest piece count any team
+ * started the turn with. Read off the roster for the same reason — see
+ * `trailScaleOf` — and floored at 1 so a piece-free board divides by one and
+ * a sum of nothing stays zero rather than becoming a division by zero. */
+export function pieceScaleOf(sub: EngineSubstrate): number {
+  const byTeam = new Map<number, number>();
+  for (const u of sub.roster()) {
+    if (profileOf(u.kind).leavesTrail) continue;
     byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
   }
   return Math.max(1, ...byTeam.values());
@@ -518,11 +571,12 @@ export const healthEconomyFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     const cap = Math.max(1, ctx.sub.engine.config.maxHealth);
+    const reserve = ctx.healthReserveRatio;
     let lo = 0;
     let hi = 0;
     for (const s of ctx.standing) {
       const mine = s.team === ctx.asTeam;
-      const share = s.health / cap;
+      const share = budgetShare(s, cap, reserve);
       if (mine) {
         if (s.worstAlive && !s.held) lo += share;
         if (s.bestAlive) hi += share;
@@ -536,6 +590,158 @@ export const healthEconomyFeature: Feature<EvalContext> = {
     return bound(a, (a + b) / 2, b);
   },
 };
+
+/**
+ * A UNIT'S SHARE OF THE MOVEMENT BUDGET.
+ *
+ * `health / max` is the reading for a kind that has no choice: a trail unit
+ * must step every turn, so its health really is a clock and every point of it
+ * is worth the same. A kind that may DECLINE to spend — `stayLegal`, which is a
+ * rule and not a taxonomy — is in a different situation, and the linear reading
+ * misprices it badly: it charges the 98th health point exactly as much as the
+ * 2nd, which turns a survival term into a per-cell travel tax. Measured on the
+ * budget ladder's own replays, that tax was the ONLY term with dynamic range
+ * over a slider's own options — 0.23–0.37 weighted against `reach`'s
+ * 0.0000–0.0076 — and it is why the territory profile's argmax is the
+ * shortest-travel option among material ties in 73–96% of positions.
+ *
+ * With a reserve set, a stay-legal unit above it reads a flat 1: nothing it can
+ * do in one turn brings the budget near binding, so the term says nothing about
+ * where it should go. Below it the term slides to zero over the reserve rather
+ * than over the whole maximum, so exhaustion is priced MORE sharply than before,
+ * not less. Monotone increasing in health either way, so both bound endpoints
+ * keep the direction the contract declares.
+ */
+export function budgetShare(
+  s: Pick<Standing, 'health' | 'kind'>,
+  cap: number,
+  reserveRatio: number | null
+): number {
+  if (reserveRatio === null || !profileOf(s.kind).stayLegal) return s.health / cap;
+  const reserve = Math.max(1, reserveRatio * cap);
+  return Math.min(1, s.health / reserve);
+}
+
+// ---------------------------------------------------------------------------
+// F6 — piece command (the gradient the displacement plane cannot carry)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT A PIECE IS WORTH WHERE IT STANDS.
+ *
+ * The two-plane rule is right that a piece does not DIVIDE the board — but the
+ * consequence, measured, is that a piece's own move changes the partition by
+ * nothing at all. Plane 2 credits a piece at `c` when `arrival_p(c) ≤ D(c)`, and
+ * a slider's arrival is at most two turns to nearly every cell FROM ANY SQUARE,
+ * so the displacement set is saturated: across all 71 legal actions of a queen
+ * on a real board, `ours` and `theirs` do not move by a single cell. `room` is
+ * plane 1 only, so it is identically zero for a piece. The territory objective
+ * therefore has NO opinion about where a piece goes, and the profile's only
+ * surviving preference is the travel tax above.
+ *
+ * This is the missing gradient, and it is the same doctrine read one turn
+ * earlier. Plane 2 asks where a piece could eventually be; this asks what it
+ * can act on NEXT TURN, which is the part of a slider's position that its
+ * arrival grid throws away:
+ *
+ *     command(u) = ( |F_u ∩ domain| · ground  +  |F_u ∩ food| · food ) / open
+ *     term       = ( Σ ours min(1, command)  −  Σ theirs min(1, command) )
+ *                  / pieceScale
+ *
+ * where `F_u` is the unit's own arriving front at turn + 1 — a board the shells
+ * already hold — and `domain` is the trail domain of the SAME reading's
+ * partition: the ground plane 1 is actually contesting. Counting only contested
+ * ground is what stops this being a chess mobility prior on a game that does not
+ * reward mobility: a rook's front is 44 cells from every square on an empty
+ * board and carries no information at all, and it is the intersection with the
+ * trail domain and with food that discriminates.
+ *
+ * SOUNDNESS. It reads exactly the inputs `reach` reads, through the same
+ * ADMISSION, and in the same direction. A held enemy's front is its cloud's
+ * head-possible set, which is a SUPERSET of the truth, so `theirs` is over-
+ * counted in `lo` and narrowing it can only raise our floor (R2 up in
+ * held-arrival). Our own held units are dropped from `lo` and theirs from `hi`,
+ * so with nothing held the two readings are the same set at the same fronts and
+ * the feature collapses to a point (R3).
+ *
+ * NOT FOR A ROYAL UNIT. `knobs.royal` is off, and it is off for a reason the
+ * rules supply rather than a tuning one — see `CommandKnobs.royal`.
+ *
+ * OFF BY DEFAULT, and off costs one branch. A board with no piece on it scores
+ * exactly zero here whatever the knobs say, which is what makes this profile
+ * bit-identical to the plain territory one on an all-snake board.
+ */
+export const commandFeature: Feature<EvalContext> = {
+  key: 'command',
+  defaultWeight: 0,
+  contract: {
+    reads: [
+      { input: 'held-arrival', monotone: 'up' },
+      { input: 'contingent-survival', monotone: 'down' },
+    ],
+    cliff: false,
+    dischargeable: true,
+  },
+  evaluate(ctx) {
+    const knobs = ctx.command;
+    if (knobs === null || ctx.horizonTurns <= 0) return point(0);
+    const lo = commandSum(ctx, 'lo', knobs);
+    const hi = commandSum(ctx, 'hi', knobs);
+    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+  },
+};
+
+function commandSum(
+  ctx: EvalContext,
+  reading: 'lo' | 'hi',
+  knobs: CommandKnobs
+): number {
+  const partition = ctx.partition(reading);
+  const open = partition.open;
+  if (open === 0) return 0;
+  const admit = ADMISSION[reading];
+  const words = ctx.sub.grid.words;
+  // Contested ground, or the whole open board when plane 1 is contesting
+  // nothing. A team whose last trail unit died has an EMPTY trail domain, and a
+  // term that read only the domain would go blind on exactly the position where
+  // the pieces are the entire game — the late mixed board this repair is for.
+  let domain = partition.domain;
+  let any = 0;
+  for (let i = 0; i < words; i++) any |= domain[i] as number;
+  if (any === 0) domain = partition.openBoard;
+  const food = ctx.food();
+  const nextTurn = ctx.resolution.state.turn + 1;
+  let total = 0;
+  for (const s of ctx.standing) {
+    if (profileOf(s.kind).leavesTrail) continue;
+    // A royal unit is not paid for activity: see CommandKnobs.royal.
+    if (s.isKing && !knobs.royal) continue;
+    const mine = s.team === ctx.asTeam;
+    if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
+    const sh = ctx.shells().get(s.unitId);
+    if (sh === undefined) continue;
+    const front = sh.frontAt(nextTurn);
+    if (front === null) continue;
+    let ground = 0;
+    let meals = 0;
+    for (let i = 0; i < words; i++) {
+      const f = front[i] as number;
+      if (f === 0) continue;
+      ground += popcount32((f & (domain[i] as number)) >>> 0);
+      meals += popcount32((f & (food[i] as number)) >>> 0);
+    }
+    const c = Math.min(1, (ground * knobs.ground + meals * knobs.food) / open);
+    total += mine ? c : -c;
+  }
+  return total / ctx.pieceScale;
+}
+
+function popcount32(x: number): number {
+  let v = x - ((x >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
+}
 
 // ---------------------------------------------------------------------------
 // F5 — the king weight margin (specialist data row 2)
@@ -660,6 +866,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   roomFeature,
   healthEconomyFeature,
   kingMarginFeature,
+  commandFeature,
 ];
 
 /** Re-exported so a consumer can read a held unit's interval without the engine. */
