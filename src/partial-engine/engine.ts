@@ -36,7 +36,15 @@ import { CloudSource, DEFAULT_TIMELINE_CACHE, maxHealthFor } from "./cloud.js";
 import type { CloudField, SlotMask } from "./field.js";
 import { emptyField } from "./field.js";
 import type { Terrain, UnitKind } from "./grammar.js";
-import { defaultPath, pawnTargetsInto, planAction, profileOf } from "./grammar.js";
+import {
+  ACTION_ILLEGAL,
+  ACTION_ROTATE,
+  defaultPath,
+  pawnTargetsInto,
+  planAction,
+  planActionInto,
+  profileOf,
+} from "./grammar.js";
 
 // ---------------------------------------------------------------------------
 // Slab layout
@@ -578,6 +586,18 @@ export class PartialEngine {
   private readonly notedStamp: Int32Array;
   private readonly notedMask: Int32Array;
   /**
+   * (live slot -> some entanglement of this turn said an unknown could beat it),
+   * generation-stamped on the same counter. This is `Fate.Contingent`, decided
+   * where the fact is discovered rather than reconstructed afterwards.
+   *
+   * Sharing `turnGen` with `notedStamp` means sharing its wrap, and the wrap is
+   * worth stating because this column's failure mode is not the other's: a
+   * stale stamp that happens to equal the counter reports a unit CONTINGENT
+   * that is merely ALIVE. That is the widening direction — a consumer
+   * re-searches a line it did not have to — and never the other way round.
+   */
+  private readonly threatStamp: Int32Array;
+  /**
    * Slots this turn's adjudication has stopped trusting the certainty of —
    * folded into the resolution's `softFrozen`. Shrinking certainty is always
    * sound, and one word carries it.
@@ -685,6 +705,7 @@ export class PartialEngine {
     this.edgeSettled = new Int32Array(U);
     this.notedStamp = new Int32Array(B);
     this.notedMask = new Int32Array(B);
+    this.threatStamp = new Int32Array(U);
     this.touched = new Uint32Array(this.grid.words);
     this.planFootprint = new Uint32Array(this.grid.words);
   }
@@ -1158,9 +1179,17 @@ export class PartialEngine {
     for (const unitId of holds.unitIds) {
       const slot = this.slotOfUnit(state, unitId);
       if (slot < 0) throw new Error(`hold set names unit ${unitId}, absent from this state`);
-      const view = this.unitAt(state, slot);
-      if (view === null || !view.alive) throw new Error(`hold set names dead unit ${unitId}`);
-      this.unitArena[this.uBase(state.slab) + slot * U_FIELDS + U_STATUS] = Standing.Empty;
+      // The status word, not a `UnitView`. `unitAt` builds a ten-field object
+      // and copies the whole occupancy into a fresh array, and this call site
+      // read one boolean off it — `view === null || !view.alive` is `status is
+      // not Alive`, spelled out through an allocation. `applyHoldSet` runs once
+      // per sibling state, so it was one object and one array per held unit per
+      // node of the search.
+      const o = this.uBase(state.slab) + slot * U_FIELDS;
+      if (this.unitArena[o + U_STATUS] !== Standing.Alive) {
+        throw new Error(`hold set names dead unit ${unitId}`);
+      }
+      this.unitArena[o + U_STATUS] = Standing.Empty;
     }
     return {
       slab: state.slab,
@@ -1399,27 +1428,30 @@ export class PartialEngine {
       }
       const staged = orders[i] ?? NO_ORDER;
       const orient = arena[o + U_ORIENT] as number;
-      const action =
+      // The ENCODED form (`planActionInto`): the path lands straight in the
+      // scratch this loop was going to copy it into anyway, and no action
+      // object is built to be thrown away one line later.
+      const code =
         staged === NO_ORDER
-          ? null
-          : planAction(
+          ? ACTION_ILLEGAL
+          : planActionInto(
               this.terrain,
               kind,
               head,
               staged,
               orient,
               profile.oriented ? this.pawnTargets : null,
+              pathScratch,
             );
       let n = 0;
-      if (action === null) {
+      if (code === ACTION_ILLEGAL) {
         n = defaultPath(this.terrain, kind, head, orient, pathScratch);
-      } else if (action.kind === "move") {
-        n = action.path.length;
-        for (let s = 0; s < n; s++) pathScratch[s] = action.path[s] as number;
-      } else if (action.kind === "rotate") {
+      } else if (code >= 0) {
+        n = code; // a move (n cells already in pathScratch), or stay (0)
+      } else {
         // A full-turn action: no movement, no movement cost, orientation set
         // at end of turn. The side cell is signalling, never entered.
-        this.uRotate[i] = action.orientation;
+        this.uRotate[i] = ACTION_ROTATE - code;
       }
       const pb = i * this.maxPath;
       for (let s = 0; s < n; s++) this.uPath[pb + s] = pathScratch[s] as number;
@@ -1515,32 +1547,26 @@ export class PartialEngine {
    */
   private settleRecords(collisionDeaths: number): void {
     if (this.deaths.length > 0 && this.clashes.length > 0) {
-      const diedAt = new Map<number, number>();
-      for (let i = 0; i < collisionDeaths; i++) {
-        const d = this.deaths[i] as DeathRecord;
-        const prior = diedAt.get(d.unitId);
-        if (prior === undefined || d.subStep < prior) diedAt.set(d.unitId, d.subStep);
-      }
+      // A `Map<unitId, earliest subStep>` per resolution, to answer at most a
+      // handful of questions about at most `maxUnits` deaths. Both lists are
+      // bounded by the roster, so the linear scan is over tens of entries and
+      // costs no allocation at all.
       for (const clash of this.clashes) {
-        if (clash.survivorID === undefined) continue;
-        const died = diedAt.get(clash.survivorID);
-        if (died !== undefined && died <= clash.subStep) {
+        const survivor = clash.survivorID;
+        if (survivor === undefined) continue;
+        let died = -1;
+        for (let i = 0; i < collisionDeaths; i++) {
+          const d = this.deaths[i] as DeathRecord;
+          if (d.unitId !== survivor) continue;
+          if (died === -1 || d.subStep < died) died = d.subStep;
+        }
+        if (died !== -1 && died <= clash.subStep) {
           delete (clash as MutableClash).survivorID;
         }
       }
     }
-    if (this.clashes.length > 1) {
-      this.clashes.sort(
-        (a, b) =>
-          a.subStep - b.subStep ||
-          a.index - b.index ||
-          (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) ||
-          cmpIds(a.playerIDs, b.playerIDs),
-      );
-    }
-    if (this.deaths.length > 1) {
-      this.deaths.sort((a, b) => a.subStep - b.subStep || a.unitId - b.unitId);
-    }
+    if (this.clashes.length > 1) sortSmall(this.clashes, byClashOrder);
+    if (this.deaths.length > 1) sortSmall(this.deaths, byDeathOrder);
   }
 
   /** Push one typed event. IDs are sorted, exactly as the wire record wants them. */
@@ -1553,12 +1579,14 @@ export class PartialEngine {
     reason: string,
     survivorID?: number,
   ): MutableClash {
+    sortIds(playerIDs);
+    sortIds(victimIDs);
     const record: MutableClash = {
       index: cell,
       subStep,
       kind,
-      playerIDs: playerIDs.sort(ascending),
-      victimIDs: victimIDs.sort(ascending),
+      playerIDs,
+      victimIDs,
       ...(survivorID === undefined ? {} : { survivorID }),
       reason,
     };
@@ -1682,7 +1710,12 @@ export class PartialEngine {
         const pj = this.uPrevHead[j] as number;
         if (hi !== pj || hj !== pi) continue;
         const cmp = this.compare(i, j);
-        const ids = [this.idOf(base, i), this.idOf(base, j)];
+        // Each clash OWNS its player list — `clash` sorts it in place — so every
+        // record gets its own pair, written out. The pair used to be built once
+        // and then spread into each record, which is one array per exchange
+        // that exists only to be copied.
+        const idI = this.idOf(base, i);
+        const idJ = this.idOf(base, j);
         const reason =
           cmp === 0
             ? REASON.tie
@@ -1694,8 +1727,8 @@ export class PartialEngine {
           // cell gets its own record.
           this.squashAtNeck(state, j, pj);
           this.squashAtNeck(state, i, pi);
-          this.clash("edge", pi, s, [...ids], [this.idOf(base, i)], reason);
-          this.clash("edge", pj, s, [...ids], [this.idOf(base, j)], reason);
+          this.clash("edge", pi, s, [idI, idJ], [idI], reason);
+          this.clash("edge", pj, s, [idI, idJ], [idJ], reason);
           continue;
         }
         const winner = cmp > 0 ? i : j;
@@ -1706,7 +1739,15 @@ export class PartialEngine {
         // The winner completes into the loser's head cell and capture-stops. It
         // is the SURVIVOR of that cell, not a fresh arrival at it, so the pile
         // it just made there is not re-adjudicated against it this sub-step.
-        this.clash("edge", cell, s, [...ids], [this.idOf(base, loser)], reason, this.idOf(base, winner));
+        this.clash(
+          "edge",
+          cell,
+          s,
+          [idI, idJ],
+          [cmp > 0 ? idJ : idI],
+          reason,
+          cmp > 0 ? idI : idJ,
+        );
       }
     }
   }
@@ -1978,22 +2019,27 @@ export class PartialEngine {
     let bestCount = 0;
     let best = -1;
 
-    const consider = (tier: number, weight: number, who: number): void => {
-      if (tier > bestTier || (tier === bestTier && weight > bestWeight)) {
-        bestTier = tier;
-        bestWeight = weight;
-        bestCount = 1;
-        best = who;
-      } else if (tier === bestTier && weight === bestWeight) {
-        bestCount++;
-      }
-    };
+    // THE RUNNING MAXIMUM IS WRITTEN OUT AT BOTH SITES, not shared through a
+    // local closure. `consider` used to be an arrow function here, and because
+    // it ASSIGNS `bestTier`/`bestWeight`/`bestCount`/`best`, V8 has to box those
+    // four locals in a context object and allocate a closure over it on every
+    // call — on a per-contested-cell-per-sub-step path. Two copies of four
+    // lines is the price of the loop staying allocation-free.
 
     for (let p = this.occHead[cell] as number; p !== -1; p = this.occNext[p] as number) {
       if (this.uStanding[p] !== 1) continue;
       this.partStamp[p] = this.partGen;
       this.partBuf[n++] = p;
-      consider(this.uTier[p] as number, this.uWeight[p] as number, p);
+      const tier = this.uTier[p] as number;
+      const weight = this.uWeight[p] as number;
+      if (tier > bestTier || (tier === bestTier && weight > bestWeight)) {
+        bestTier = tier;
+        bestWeight = weight;
+        bestCount = 1;
+        best = p;
+      } else if (tier === bestTier && weight === bestWeight) {
+        bestCount++;
+      }
     }
     // The persistent pile: everything that has already taken part in a fatal
     // contest here, alive or dead.
@@ -2008,7 +2054,16 @@ export class PartialEngine {
           if (this.partStamp[p] === this.partGen) continue;
           this.partStamp[p] = this.partGen;
           this.partBuf[n++] = p;
-          consider(this.uTier[p] as number, this.uWeight[p] as number, p);
+          const tier = this.uTier[p] as number;
+          const weight = this.uWeight[p] as number;
+          if (tier > bestTier || (tier === bestTier && weight > bestWeight)) {
+            bestTier = tier;
+            bestWeight = weight;
+            bestCount = 1;
+            best = p;
+          } else if (tier === bestTier && weight === bestWeight) {
+            bestCount++;
+          }
         }
       }
     }
@@ -2309,6 +2364,7 @@ export class PartialEngine {
           0,
           head,
           arena[o + U_ID] as number,
+          i,
           field.everAt(head),
           Channel.Item,
           false,
@@ -2438,6 +2494,22 @@ export class PartialEngine {
     const bodyOnly = this.uBodyBeatenBy[i] as number;
     let front = 0;
     let beat = 0;
+    // THIS `for...of` IS NOT AN ALLOCATION, AND IT HAS BEEN MEASURED.
+    //
+    // A downstream profile put a quarter of the system's SURVIVING bytes on
+    // this function and named the array iterator here as the suspect, on the
+    // reasoning that V8 escape-analyses such an iterator only when it inlines
+    // the loop. Rewritten as `for (let k = 0; k < slots.length; k++)` and A/B'd
+    // over 20 000 resolutions of a 23×23 board with twelve frozen claims, the
+    // engine allocated 35 751 bytes a resolution against 35 753 — no
+    // difference at all, and none in the collection count either. Turbofan
+    // does eliminate it. The surviving bytes the profile saw here are the
+    // ENTANGLEMENT ENTRIES, which `record` allocates and which show up on this
+    // frame whenever `record` is inlined into it.
+    //
+    // Left in the iterating form it reads best in. If you are here to make the
+    // overlay cheaper, the ledger is the thing to attack, and its cost is its
+    // published shape, not its loops.
     for (const slot of field.slots) {
       const bit = 1 << slot.slot;
       if ((maybe & bit) === 0) continue;
@@ -2452,9 +2524,9 @@ export class PartialEngine {
       if ((bodyOnly & bit) !== 0 && bbTest(slot.cloud.bodyPossible, cell)) beat |= bit;
     }
     const trailOnly = maybe & ~certainBit & ~front;
-    if (front !== 0) this.record(s, cell, id, front, channel, false, (beat & front) !== 0);
+    if (front !== 0) this.record(s, cell, id, i, front, channel, false, (beat & front) !== 0);
     if (trailOnly !== 0) {
-      this.record(s, cell, id, trailOnly, Channel.BodyBlock, false, (beat & trailOnly) !== 0);
+      this.record(s, cell, id, i, trailOnly, Channel.BodyBlock, false, (beat & trailOnly) !== 0);
     }
     // Cells a frozen unit might have died on keep fighting for the rest of the
     // turn even when it is certainly no longer standing there. That is the
@@ -2462,7 +2534,16 @@ export class PartialEngine {
     // so the pile keeps the head comparator.
     const corpses = ever & ~maybe & ~certainBit;
     if (corpses !== 0) {
-      this.record(s, cell, id, corpses, Channel.Durable, false, this.couldBeat(field, corpses, i));
+      this.record(
+        s,
+        cell,
+        id,
+        i,
+        corpses,
+        Channel.Durable,
+        false,
+        this.couldBeat(field, corpses, i),
+      );
     }
     if (certainBit !== 0) {
       const slot = field.bySlot(certainSlot);
@@ -2481,12 +2562,12 @@ export class PartialEngine {
       // as present needs no entry: the timeline placed it, and nothing could
       // have moved it. Everything else is a maybe, and is recorded.
       if ((this.unconditionalClaims & certainBit) === 0) {
-        this.record(s, cell, id, certainBit, channel, true, certainBeat);
+        this.record(s, cell, id, i, certainBit, channel, true, certainBeat);
       }
       // Even a unit that is certainly here has an uncertain STRENGTH; a contest
       // its interval straddles was decided on a reading, not a fact.
       if (!decisive(slot.bounds, this.uTier[i] as number, this.uWeight[i] as number)) {
-        this.record(s, cell, id, certainBit, Channel.Strength, true, true);
+        this.record(s, cell, id, i, certainBit, Channel.Strength, true, true);
       }
     }
   }
@@ -2564,7 +2645,7 @@ export class PartialEngine {
       if (bbTest(slot.cloud.headPossible, from)) mask |= bit;
     }
     if (mask !== 0) {
-      this.record(s, to, id, mask, Channel.Edge, false, this.couldBeat(field, mask, i));
+      this.record(s, to, id, i, mask, Channel.Edge, false, this.couldBeat(field, mask, i));
     }
   }
 
@@ -2628,15 +2709,25 @@ export class PartialEngine {
 
   private currentTurn = 0;
 
+  /**
+   * `slot` is the live unit's SLOT, and it is not on the entry — it is here so
+   * that "somebody could have beaten this unit" can be marked as it is
+   * discovered, on a stamped column, instead of being re-derived by
+   * `fatesFrom` walking the whole ledger into a `Set` keyed by unit id.
+   * Slot and id are in bijection for the life of a resolution, so the two
+   * formulations name the same set.
+   */
   private record(
     subStep: number,
     cell: number,
     liveId: number,
+    slot: number,
     frozen: SlotMask,
     channel: Channel,
     assumedPresent: boolean,
     couldBeat: boolean,
   ): void {
+    if (couldBeat) this.threatStamp[slot] = this.turnGen;
     this.ledger.push({
       turn: this.currentTurn,
       subStep,
@@ -2653,18 +2744,13 @@ export class PartialEngine {
     const arena = this.unitArena;
     const U = this.config.maxUnits;
     const out: UnitFate[] = [];
-    // Empty-ledger fast path: no unknown could beat anyone, so no Set is
-    // built — the optimistic no-uncertainty resolve is the call consumers
-    // make far more often than holds, and it should pay for nothing it does
-    // not use.
-    let threatened: Set<number> | null = null;
-    if (this.ledger.length > 0) {
-      for (const e of this.ledger) {
-        if (!e.couldBeat) continue;
-        if (threatened === null) threatened = new Set<number>();
-        threatened.add(e.liveId);
-      }
-    }
+    // The threat set is accumulated by `record` on a generation-stamped column
+    // (see there). It used to be rebuilt here by walking the whole ledger into
+    // a `Set` — one pass over every entanglement of the turn, plus the Set's
+    // own table growth, on every resolution. The empty-ledger fast path it was
+    // written around is now simply the general case: nothing recorded, nothing
+    // stamped, nothing to read.
+    const gen = this.turnGen;
     for (let i = 0; i < U; i++) {
       const o = base + i * U_FIELDS;
       const standing = arena[o + U_STATUS];
@@ -2672,7 +2758,7 @@ export class PartialEngine {
       const id = arena[o + U_ID] as number;
       const fate =
         standing === Standing.Alive
-          ? threatened?.has(id) === true
+          ? this.threatStamp[i] === gen
             ? Fate.Contingent
             : Fate.Alive
           : Fate.Dead;
@@ -2702,6 +2788,71 @@ const C_SELF = 4;
 const CAUSE_NAMES = ["contest", "edge", "bodyBlock", "wall", "self"] as const;
 
 const ascending = (a: number, b: number): number => a - b;
+
+/**
+ * SORTING A HANDFUL WITHOUT `Array.prototype.sort`.
+ *
+ * V8's sort is TimSort, and TimSort allocates a work array on EVERY call
+ * whatever the length. A clash carries one or two ids, and a turn's whole clash
+ * list is usually under ten, so the library sort's fixed cost is paid thousands
+ * of times a second to order two numbers. Measured on a 23×23 piece board, the
+ * two `sort` calls inside `clash` alone were 14% of everything the resolver
+ * allocated — more than the entanglement ledger.
+ *
+ * Insertion sort is STABLE, so for any total preorder it produces exactly the
+ * order TimSort does, element for element; the swap is invisible to every
+ * caller. It is also quadratic, so past a handful the library sort is the
+ * better algorithm and its work array is amortised over real comparisons —
+ * hence the cutoff rather than a wholesale replacement.
+ */
+const SMALL_SORT_MAX = 16;
+
+/** Ascending ids, in place. Returns the same array, as `sort` does. */
+function sortIds(a: number[]): number[] {
+  const n = a.length;
+  if (n < 2) return a;
+  if (n > SMALL_SORT_MAX) return a.sort(ascending);
+  for (let i = 1; i < n; i++) {
+    const v = a[i] as number;
+    let j = i - 1;
+    while (j >= 0 && (a[j] as number) > v) {
+      a[j + 1] = a[j] as number;
+      j--;
+    }
+    a[j + 1] = v;
+  }
+  return a;
+}
+
+/** As `sortIds`, over a caller's comparator. Stable, like the sort it replaces. */
+function sortSmall<T>(a: T[], cmp: (x: T, y: T) => number): void {
+  const n = a.length;
+  if (n < 2) return;
+  if (n > SMALL_SORT_MAX) {
+    a.sort(cmp);
+    return;
+  }
+  for (let i = 1; i < n; i++) {
+    const v = a[i] as T;
+    let j = i - 1;
+    while (j >= 0 && cmp(a[j] as T, v) > 0) {
+      a[j + 1] = a[j] as T;
+      j--;
+    }
+    a[j + 1] = v;
+  }
+}
+
+// Hoisted out of `settleRecords`: a comparator written at the call site is a
+// fresh closure on every resolution, and these two are pure.
+const byClashOrder = (a: Clash, b: Clash): number =>
+  a.subStep - b.subStep ||
+  a.index - b.index ||
+  (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) ||
+  cmpIds(a.playerIDs, b.playerIDs);
+
+const byDeathOrder = (a: DeathRecord, b: DeathRecord): number =>
+  a.subStep - b.subStep || a.unitId - b.unitId;
 
 /**
  * The turn a hold's record was OBSERVED at. Defaults to now; a supplied value
