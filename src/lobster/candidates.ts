@@ -81,6 +81,8 @@ import {
   stagingSafety,
 } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
+import { CertainOccupancy, classifyUnit } from './fatality';
+import type { CandidateFatality } from './fatality';
 import type {
   Candidate,
   CandidateGenerator,
@@ -110,6 +112,7 @@ export const PRUNE = {
   certainSelfFatal: 'certain-self-fatal',
   allyBody: 'ally-body',
   royalPath: 'royal-path',
+  forcedSibling: 'forced-sibling',
 } as const;
 
 export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
@@ -152,6 +155,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.certainSelfFatal]: false,
   [PRUNE.allyBody]: false,
   [PRUNE.royalPath]: false,
+  [PRUNE.forcedSibling]: false,
 };
 
 /** What each lossy prune can cost, in the class of tactic it deletes. */
@@ -184,6 +188,8 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     "a move into a MODELLED team-mate's body, whose cells cannot vacate before we arrive — near-certain rather than certain, because a team-mate that dies this turn leaves a pile settled on weight instead of a body settled on tier. It costs a slide that would have paid off precisely because the team-mate was about to die on it",
   [PRUNE.royalPath]:
     'a move whose path crosses our own king at a strength that wins or ties the contest — certain team elimination WHILE THE KING STANDS THERE, and only while it does. It costs an escort that would have been safe because the king was leaving',
+  [PRUNE.forcedSibling]:
+    'a sibling of the ONE option the fatality classifier left standing. Set-level and monotone: it fires only when the unit is collapsed to a single survivor, so it can never empty an option set and never removes a live alternative. It costs whatever the surviving classification was wrong about — an ally-body cell whose owner was about to die on it, which is the same world the ally-body prune already pays for',
 };
 
 // ---------------------------------------------------------------------------
@@ -267,6 +273,29 @@ export interface CandidateKnobs {
   readonly pruneCertainSelfFatal?: boolean;
   /** Take a move whose path crosses our own king at a winning-or-tying strength. */
   readonly pruneRoyalPath?: boolean;
+  /**
+   * RUN THE RUNG-0 FATALITY CLASSIFIER over the surviving option set.
+   *
+   * Two effects, and they are deliberately unequal in weight:
+   *
+   * 1. DATA. Every kept candidate carries its post-move escape count and the
+   *    calibrated survival prior for it — the strongest singleton signal in
+   *    the ladder at 35 ns, and a `CandidateSet` carries the unit's FORCED /
+   *    SEALED marks with their provenance. Nothing in this file reads any of
+   *    it. It is ordered by nothing, prunes nothing, and is stored because a
+   *    later rung consumes it and cannot recompute it after the fact.
+   *
+   * 2. THE FORCED COLLAPSE. When exactly ONE option survives the classifier,
+   *    the siblings go under `forced-sibling`. That is set-level and monotone
+   *    — it cannot empty an option set and cannot remove a live alternative —
+   *    which is what makes it a strictly weaker policy than the per-candidate
+   *    refusal `pruneCertainSelfFatal` applies, and therefore shippable on
+   *    boards where that one measured badly.
+   *
+   * DEFAULT OFF. With it off the classifier does not run and every set is
+   * byte-identical to the one the shipped build produces.
+   */
+  readonly unitFatality?: boolean;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -284,6 +313,10 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   // flag asks for them, so an explicit knob in a test still wins.
   pruneCertainSelfFatal: false,
   pruneRoyalPath: false,
+  // Default OFF pending its own empirical gate, and read from its own flag —
+  // never folded into the staging-safety level, because two features behind
+  // one flag is a paired experiment that measures their sum.
+  unitFatality: false,
 };
 
 /**
@@ -306,9 +339,22 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
   return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
 }
 
-/** The knobs the process-wide flag implies, for a caller that names none. */
+export const UNIT_FATALITY_ENV = 'CENTAUR_UNIT_FATALITY';
+
+/**
+ * The fatality classifier's own flag, kept separate from the staging-safety
+ * level ON PURPOSE. Two features behind one flag is a paired experiment that
+ * measures their sum, and this one has to be promotable — or refusable — on
+ * its own evidence.
+ */
+export function unitFatalityFrom(env: NodeJS.ProcessEnv): boolean {
+  const raw = env[UNIT_FATALITY_ENV];
+  return raw === '1' || raw === 'on' || raw === 'true';
+}
+
+/** The knobs the process-wide flags imply, for a caller that names none. */
 export function flaggedKnobs(): CandidateKnobs {
-  return knobsForSafety(stagingSafety());
+  return { ...knobsForSafety(stagingSafety()), unitFatality: unitFatalityFrom(process.env) };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +406,19 @@ export interface AssessedCandidate {
    * with a capture the engine does not rule out? Ordering hint only.
    */
   readonly regicideShot: number;
+  /**
+   * Escapes from this move's landing cell once the mover has moved, or `-1`
+   * where the classifier did not run or the count has no meaning (a piece).
+   *
+   * DATA, and only data, in this stage. P(die within one turn) is monotone in
+   * it with a 7.8–10.6× spread across the range, so it is the strongest
+   * singleton signal available at any price — and it does not touch `orderKey`
+   * here, because promoting an ordering key is a measured change and this
+   * layer's job was to make the number exist.
+   */
+  readonly survivorsAfter: number;
+  /** The calibrated survival prior for `survivorsAfter`, or 1 for unknown. */
+  readonly survivalPrior: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +431,14 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
   /** Enemy last-king squares, per substrate. An ordering hint, computed once. */
   private readonly regicideCells = new WeakMap<EngineSubstrate, ReadonlyMap<CellIndex, number>>();
+  /**
+   * The certain-occupancy reading the escape count tests against. PER
+   * SUBSTRATE AND PER TEAM: a generator serves one team on one board, but the
+   * bounds layer hands the same generator proxies over sibling substrates, and
+   * a board's own team is not a property this class carries. Keyed on both so
+   * a sibling never reads the parent's answer.
+   */
+  private readonly occupancy = new WeakMap<EngineSubstrate, Map<number, CertainOccupancy>>();
 
   constructor(knobs: CandidateKnobs = {}) {
     this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
@@ -397,13 +464,26 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub));
+    return generate(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.occupancyFor(sub, unitId)
+    );
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub))
-      .kept;
+    return generateAssessed(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.occupancyFor(sub, unitId)
+    ).kept;
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -411,6 +491,27 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     if (hit !== undefined) return hit;
     const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
     this.shadows.set(sub, made);
+    return made;
+  }
+
+  /**
+   * The mover's own team's certain occupancy, built once per (substrate, team)
+   * and shared by every unit of it. `null` when the classifier is off, so the
+   * pass costs nothing it does not use.
+   */
+  private occupancyFor(sub: EngineSubstrate, unitId: UnitId): CertainOccupancy | null {
+    if (!this.knobs.unitFatality) return null;
+    const unit = sub.unitOf(unitId);
+    if (unit === undefined) return null;
+    let byTeam = this.occupancy.get(sub);
+    if (byTeam === undefined) {
+      byTeam = new Map<number, CertainOccupancy>();
+      this.occupancy.set(sub, byTeam);
+    }
+    const hit = byTeam.get(unit.team);
+    if (hit !== undefined) return hit;
+    const made = new CertainOccupancy(sub, unit.team);
+    byTeam.set(unit.team, made);
     return made;
   }
 
@@ -441,6 +542,7 @@ interface Generated {
   kept: AssessedCandidate[];
   pruned: PrunedEntry[];
   legalCount: number;
+  marks: CandidateSet['marks'];
 }
 
 function generate(
@@ -448,21 +550,27 @@ function generate(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  occupancy: CertainOccupancy | null
 ): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(
+  const { kept, pruned, legalCount, marks } = generateAssessed(
     sub,
     unitId,
     knobs,
     shadows,
-    regicideCells
+    regicideCells,
+    occupancy
   );
-  return {
+  const set: CandidateSet = {
     unitId,
     candidates: kept.map((k) => k.candidate),
     prunedLedger: pruned,
     legalCount,
   };
+  // Absent, not `undefined`-valued: a set built with the classifier off must
+  // be indistinguishable from the one the shipped build produced, and an own
+  // property holding `undefined` is not.
+  return marks === undefined ? set : { ...set, marks };
 }
 
 function generateAssessed(
@@ -470,7 +578,8 @@ function generateAssessed(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  occupancy: CertainOccupancy | null
 ): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
@@ -536,14 +645,82 @@ function generateAssessed(
   const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
   const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
 
+  // ---- rung 0: the fatality classifier ------------------------------------
+  // AFTER every other prune, deliberately. The classifier's question is "what
+  // does the set of verdicts say about the UNIT", and the set it must ask
+  // about is the one the search will actually see. Running it earlier would
+  // report a unit forced onto an option a later prune then takes away.
+  const { after: afterFatality, marks } = classifyFatality(
+    sub,
+    unit,
+    afterKing,
+    pruned,
+    knobs,
+    occupancy
+  );
+
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
   // taken by a LOSSY prune, the least-bad tier comes back — exact prunes are
   // never restored, because their representatives are still in the set.
-  const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
+  const kept = afterFatality.length > 0 ? afterFatality : restoreLeastBad(assessed, pruned);
 
   kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
-  return { kept, pruned, legalCount };
+  return { kept, pruned, legalCount, marks };
+}
+
+/**
+ * The rung-0 fatality pass: attach the survivor-count data, emit the unit's
+ * marks, and collapse the search over a unit the classifier left one option.
+ *
+ * The collapse is the only behaviour here, and it is deliberately the weakest
+ * policy the classifier could license. It fires only at `survivors === 1`, so
+ * it can never empty a set and never removes an option a unit still had a live
+ * alternative to. A per-candidate refusal on the same evidence is what
+ * `pruneCertainSelfFatal` already offers and what measured badly on dense
+ * snake boards; this is the set-level form of the same fact.
+ */
+function classifyFatality(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  knobs: Required<CandidateKnobs>,
+  occupancy: CertainOccupancy | null
+): { after: AssessedCandidate[]; marks: CandidateSet['marks'] } {
+  if (!knobs.unitFatality || occupancy === null || assessed.length === 0) {
+    return { after: [...assessed], marks: undefined };
+  }
+  const verdict = classifyUnit(
+    sub,
+    unit,
+    assessed.map((a) => a.candidate),
+    occupancy,
+    // The ally arm rides the same knob the ally-body prune does: with that one
+    // off the team-mate's body is not a refusal anywhere in this file, and a
+    // mark that counted it would be reporting a certainty the set does not
+    // reflect.
+    knobs.pruneCertainSelfFatal
+  );
+  const marks: CandidateSet['marks'] = {
+    forced: verdict.forced !== null,
+    sealed: verdict.sealed,
+    survivors: verdict.survivors,
+    provenance: verdict.provenance,
+  };
+  const withData = assessed.map((a, i) => {
+    const one = verdict.options[i] as CandidateFatality;
+    return { ...a, survivorsAfter: one.survivorsAfter, survivalPrior: one.survivalPrior };
+  });
+  if (verdict.forced === null) return { after: withData, marks };
+  const after: AssessedCandidate[] = [];
+  for (let i = 0; i < withData.length; i++) {
+    const one = verdict.options[i] as CandidateFatality;
+    const kept = withData[i] as AssessedCandidate;
+    if (one.cause === null) after.push(kept);
+    else pruned.push({ candidate: kept.candidate, prune: PRUNE.forcedSibling, exact: false });
+  }
+  return { after, marks };
 }
 
 // ---------------------------------------------------------------------------
@@ -823,6 +1000,10 @@ function assessOne(
     shadowBonus,
     foodGain,
     regicideShot,
+    // Filled in by the fatality pass when its knob is on; absent otherwise, so
+    // an assessment with the classifier off costs exactly what it cost.
+    survivorsAfter: -1,
+    survivalPrior: 1,
   };
 }
 

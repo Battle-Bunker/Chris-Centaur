@@ -616,6 +616,21 @@ export interface KernelReport {
     readonly witnesses: number
     readonly stepCostMs: number
   }>
+  /**
+   * PER-PLAN WORK, as data. One row per plan the decision ever held.
+   *
+   * `visits` is the visit count `N` — how many times a slice committed a score
+   * for that plan; `evaluations` is the kernel evaluations charged to it. This
+   * is telemetry and a later selection layer's denominator; nothing in the
+   * kernel reads it, and nothing may: a work count is not a bound, and rule 17
+   * keeps it out of every comparator.
+   */
+  readonly planWork: ReadonlyArray<{
+    readonly key: string
+    readonly visits: number
+    readonly evaluations: number
+    readonly horizon: number
+  }>
   /** The context the wire's last record came from. */
   readonly activeContextKey: string
   /** True only if the kernel never put a plan on the wire. Must never happen. */
@@ -673,6 +688,27 @@ interface PlanCandidate {
   score: PlanScore | null
   bound: Bound
   horizon: number
+  /**
+   * WORK ACCUMULATES; THE SCORE REPLACES.
+   *
+   * `score` and `bound` are the LATEST reading and are overwritten on every
+   * commit, which is correct — a later reading is proved at a later horizon
+   * and supersedes. But the two counters below are the plan's history, and
+   * overwriting them would have thrown away the only record of how much of the
+   * decision each plan actually cost.
+   *
+   * `visits` is the visit count a selection layer denominates confidence in
+   * (the `N` of every bandit index): how many times a slice committed a score
+   * for this plan. `evaluations` is the kernel evaluations charged to it —
+   * work, not visits, and the two diverge because `conform` evaluates without
+   * committing a search score.
+   *
+   * Nothing reads them yet. They are recorded now because they cannot be
+   * reconstructed later: the commit that would have added to them has already
+   * happened and left no trace.
+   */
+  visits: number
+  evaluations: number
 }
 
 /** Consecutive slices that charge nothing to the clock before the loop gives
@@ -1393,11 +1429,13 @@ export class LobsterKernel implements Kernel {
     const horizon = run.lastView?.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
-      run.plans.set(key, { key, plan: score.plan, score, bound, horizon })
+      run.plans.set(key, { key, plan: score.plan, score, bound, horizon, visits: 1, evaluations: 1 })
     } else {
       existing.score = score
       existing.bound = bound
       existing.horizon = horizon
+      existing.visits++
+      existing.evaluations++
     }
   }
 
@@ -1418,6 +1456,10 @@ export class LobsterKernel implements Kernel {
       score: null,
       bound: { lo: c.lo, est: c.est, hi: c.hi },
       horizon: c.horizon,
+      // Materialised from the view, not scored here: no visit and no
+      // evaluation has been charged to it yet.
+      visits: 0,
+      evaluations: 0,
     }
     run.plans.set(c.key, cand)
     return cand
@@ -1466,6 +1508,7 @@ export class LobsterKernel implements Kernel {
     const existing = run.plans.get(key)
     if (existing !== undefined) {
       existing.bound = bound
+      existing.evaluations++
       return existing
     }
     const cand: PlanCandidate = {
@@ -1476,6 +1519,10 @@ export class LobsterKernel implements Kernel {
         : null,
       bound,
       horizon: 1,
+      // `conform` evaluates but does not commit a search score, so this is one
+      // unit of work and no visit — the divergence the two counters exist for.
+      visits: 0,
+      evaluations: 1,
     }
     run.plans.set(key, cand)
     return cand
@@ -2008,6 +2055,12 @@ export class LobsterKernel implements Kernel {
       committedUnits: [...run.committedUnits].sort((a, b) => a - b),
       speculative,
       contexts,
+      planWork: [...run.plans.values()].map((c) => ({
+        key: c.key,
+        visits: c.visits,
+        evaluations: c.evaluations,
+        horizon: c.horizon,
+      })),
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,
       leverOrderBinding: run.refiner !== null,

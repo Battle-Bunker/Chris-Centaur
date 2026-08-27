@@ -159,6 +159,29 @@ export interface CandidateSet {
    * staged cells with the same canonical effect are one option, and the
    * engine proves that rather than this layer asserting it. */
   readonly legalCount: number
+  /**
+   * WHAT THE SET OF VERDICTS SAID ABOUT THE UNIT — the rung-0 fatality marks,
+   * absent unless the classifier ran.
+   *
+   * `forced` collapses one dimension of the joint problem EXACTLY: the unit's
+   * move is determined, so nothing above need spend a price on an alternative.
+   * `sealed` is the unit dying whatever it does — a near-perfect one-turn
+   * death oracle at zero marginal cost, and a WIDENING for everyone else,
+   * because a corpse is a durable pile settled on weight where a living body
+   * is settled on tier.
+   *
+   * `provenance` is not decoration. On the rules-only subset these are
+   * theorems about frozen facts; with the ally arm in them they are policy,
+   * and a consumer that treats a policy mark as a proof is the bug the field
+   * exists to prevent. A silent restore hides a team-level fact, which is why
+   * the mark is emitted rather than inferred from the ledger.
+   */
+  readonly marks?: {
+    readonly forced: boolean
+    readonly sealed: boolean
+    readonly survivors: number
+    readonly provenance: "rules-only" | "policy"
+  }
 }
 
 // ---------------------------------------------------------- score accounting
