@@ -734,8 +734,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // `speculate` for what happens when it is fired at the start instead.
       foldParallel(s);
       // The slice's own length, read before any of it is spent — the only
-      // honest basis for "how long may a worker spend on the NEXT one".
-      const sliceMs = ctx.budget.remainingMs();
+      // honest basis for "how long may a worker spend on the NEXT one". Not
+      // even a clock read on the single-threaded path: `parallel: null` is the
+      // search that shipped, and it should cost exactly what it cost.
+      const sliceMs = cfg.parallel === null ? 0 : ctx.budget.remainingMs();
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;

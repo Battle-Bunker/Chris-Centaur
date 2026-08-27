@@ -249,6 +249,39 @@ describe("a worker's board is this thread's board", () => {
       // pass the loop above and save nothing at all, so the number is asserted:
       // pricing the same plans must reproduce most of the same branch set.
       expect(shared / truth.size).toBeGreaterThan(0.5)
+
+      // ---- AND THE TURN ENDING MUST STOP IT MID-PARCEL -------------------
+      //
+      // On the same warm worker, because this is the behaviour that decides
+      // whether a pool costs the coordinator anything: a `drop-board` MESSAGE
+      // cannot reach a worker inside a synchronous price loop, so before the
+      // shared live-epoch table the workers spent 3.0 s of CPU across 12
+      // decisions whose combined wall time was 1.3 s. A parcel far too large
+      // to finish, cancelled the instant the board is released, has to come
+      // back almost immediately and say it was abandoned.
+      const big = new Int32Array(400 * main.roster.length)
+      for (let j = 0; j < 400; j++) big.set(codes.subarray(0, main.roster.length), j * main.roster.length)
+      expect(
+        pool.dispatch({
+          kind: "plan-batch",
+          sessionId,
+          boardEpoch: epoch,
+          seq: 1,
+          budgetMs: 600_000,
+          count: 400,
+          codes: big,
+          witnesses: [],
+        }),
+      ).toBe(true)
+      pool.releaseBoard(epoch)
+      const stopped = Date.now()
+      for (let waited = 0; waited < 60 && pool.stats.parcelsAbandoned === 0; waited++) {
+        await transientDelay(100)
+      }
+      expect(pool.stats.parcelsAbandoned).toBe(1)
+      // Not "eventually": a 400-plan parcel with a ten-minute budget would run
+      // for minutes if the epoch table were not being read between plans.
+      expect(Date.now() - stopped).toBeLessThan(6_000)
     } finally {
       await pool.shutdown()
       main.release()

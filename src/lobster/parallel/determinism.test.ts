@@ -121,7 +121,7 @@ afterAll(() => {
   BoundBank.prototype.price = realPrice
 })
 
-const BUDGET_UNITS = 700
+const BUDGET_UNITS = 400
 
 async function runArm(
   engine: TeamDecisionEngine,
@@ -184,10 +184,17 @@ function portsFor(forwarded: string[]): TeamDecisionPorts {
  * fast one. Throwaway turns until parcels come back, then stop.
  */
 async function warm(engine: TeamDecisionEngine, forwarded: string[]): Promise<boolean> {
-  for (let attempt = 0; attempt < 60; attempt++) {
-    await runArm(engine, forwarded, attempt + 1, 0)
-    if ((engine.workerStats?.entriesReturned ?? 0) > 0) return true
-    await transientDelay(250)
+  for (let round = 0; round < 6; round++) {
+    // ONE decision per round, then WAIT. A decision is what pushes the board,
+    // opens the session and dispatches; after that the workers need wall time,
+    // not more work from this thread. Spinning full decisions while they boot
+    // is main-thread CPU spent starving the rest of the suite — this file
+    // already spawns six worker threads on a four-core box.
+    await runArm(engine, forwarded, round + 1, 0)
+    for (let poll = 0; poll < 20; poll++) {
+      if ((engine.workerStats?.entriesReturned ?? 0) > 0) return true
+      await transientDelay(150)
+    }
   }
   return false
 }

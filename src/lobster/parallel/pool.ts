@@ -61,6 +61,9 @@ export interface PoolStats {
   readonly parcelsDispatched: number
   readonly parcelsReturned: number
   readonly parcelsRefused: number
+  /** Parcels a worker stopped early because its board stopped being live —
+   * the counter that says the shared epoch table is doing its job. */
+  readonly parcelsAbandoned: number
   readonly plansPriced: number
   readonly entriesReturned: number
   readonly entriesTruncated: number
@@ -141,6 +144,7 @@ const ZERO_STATS: PoolStats = {
   parcelsDispatched: 0,
   parcelsReturned: 0,
   parcelsRefused: 0,
+  parcelsAbandoned: 0,
   plansPriced: 0,
   entriesReturned: 0,
   entriesTruncated: 0,
@@ -231,6 +235,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
     dispatched: 0,
     returned: 0,
     refused: 0,
+    abandoned: 0,
     plansPriced: 0,
     entries: 0,
     truncated: 0,
@@ -404,6 +409,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
       parcelsDispatched: this.counters.dispatched,
       parcelsReturned: this.counters.returned,
       parcelsRefused: this.counters.refused,
+      parcelsAbandoned: this.counters.abandoned,
       plansPriced: this.counters.plansPriced,
       entriesReturned: this.counters.entries,
       entriesTruncated: this.counters.truncated,
@@ -506,6 +512,7 @@ export class WorkerEvaluationPool implements EvaluationPool {
         this.counters.entries += message.keyLengths.length
         this.counters.truncated += message.counters[Counter.Truncated] as number
         this.counters.busyMs += message.counters[Counter.BusyMs] as number
+        if ((message.counters[Counter.Abandoned] as number) !== 0) this.counters.abandoned++
         if (this.boards.includes(message.boardEpoch) && message.keyLengths.length > 0) {
           this.inbox.push(message)
           // A decision that ended without draining must not grow the inbox for

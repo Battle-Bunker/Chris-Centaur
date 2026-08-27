@@ -79,9 +79,14 @@ import { Counter, EPOCH_SLOTS } from "./protocol"
  * measured at 3.0 s of worker CPU across 12 decisions whose combined wall time
  * was 1.3 s, taken straight out of the coordinator's cores.
  */
-const liveEpochs = new Int32Array(boot.liveEpochs)
+const liveEpochs =
+  boot?.liveEpochs === undefined ? null : new Int32Array(boot.liveEpochs)
 
 function epochLives(epoch: number): boolean {
+  // No table (a worker booted by something other than the pool): every epoch
+  // is treated as live, which is the OLD behaviour — a parcel runs to its own
+  // deadline. Slower to abandon, never wrong.
+  if (liveEpochs === null) return true
   for (let i = 0; i < EPOCH_SLOTS; i++) {
     if (Atomics.load(liveEpochs, i) === epoch) return true
   }
