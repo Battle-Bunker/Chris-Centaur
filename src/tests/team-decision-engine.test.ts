@@ -27,7 +27,11 @@ import { EngineSubstrate, TooManyHeldError, clearGeometryCache, makeSubstrate } 
 import { GrammarCandidateGenerator } from '../lobster/candidates';
 import type { KernelReport } from '../lobster/kernel';
 import { adviseFromReport } from '../lobster/pins';
-import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
+import {
+  TeamDecisionEngine,
+  cohortPolicyFromEnv,
+  type TeamDecisionPorts,
+} from '../lobster/team-decision-engine';
 import {
   DEFAULT_MIN_WRITE_INTERVAL_MS,
   MIN_WRITE_INTERVAL_ENV,
@@ -337,8 +341,32 @@ describe('pin advice from the speculative seam', () => {
     lo: number,
     hi: number,
     cursor: number,
-    over: { posture?: 'SIGHTED' | 'FOGGED-VACUOUS'; epoch?: number } = {}
-  ) => ({ key, lo, hi, cursor, posture: over.posture ?? ('SIGHTED' as const), epoch: over.epoch ?? 0 });
+    over: {
+      posture?: 'SIGHTED' | 'FOGGED-VACUOUS';
+      epoch?: number;
+      cohort?: string | null;
+    } = {}
+  ) => ({
+    key,
+    lo,
+    hi,
+    cursor,
+    posture: over.posture ?? ('SIGHTED' as const),
+    epoch: over.epoch ?? 0,
+    ...('cohort' in over ? { cohort: over.cohort } : {}),
+  });
+
+  /** A record stamped with the cohort its numbers were proved under — what the
+   * kernel actually emits, as against the bare fixtures above. */
+  const stamped = (
+    plan: Parameters<typeof record>[0],
+    lo: number,
+    hi: number,
+    cohort: string
+  ) => ({
+    ...record(plan, lo, hi),
+    assumptions: [{ kind: 'cohort' as const, id: cohort, features: ['material'] }],
+  });
 
   test('prices a considered pin against the staged incumbent, above threshold only', () => {
     const alternative = { unitId: 4 as UnitId, from: 10, to: 11, path: [11] };
@@ -505,6 +533,219 @@ describe('pin advice from the speculative seam', () => {
     expect(advice[0]?.degraded).toBe(true);
     expect(advice[0]?.basis.staged.posture).toBe('SIGHTED');
     expect(advice[0]?.basis.speculative.posture).toBe('FOGGED-VACUOUS');
+  });
+
+  // -- the third leg of the basis (Stage 1 correction (c)) -------------------
+
+  test('THE COHORT IS THE THIRD LEG: two objectives differenced is not a price', () => {
+    // The failure this closes is silent, not loud: both numbers are perfectly
+    // sound floors — on different objective functions — so subtracting them
+    // yields a plausible-looking milliseconds-of-thought answer that means
+    // nothing. Posture and epoch matched here; only the objective moved.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { cohort: 'base' })],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.degraded).toBe(true);
+    expect(advice[0]?.basis.staged.cohort).toBe('territory');
+    expect(advice[0]?.basis.speculative.cohort).toBe('base');
+    // The price is still reported — an indication, clearly labelled — because
+    // withholding it entirely would leave the operator with nothing at all.
+    expect(advice[0]?.costLo).toBe(10);
+  });
+
+  test('the same objective on both sides is a clean price', () => {
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { cohort: 'territory' })],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.degraded).toBe(false);
+    expect(advice[0]?.basis.staged.cohort).toBe('territory');
+  });
+
+  test('one side naming an objective the other does not also degrades', () => {
+    // Not a disagreement about WHICH objective, but an inability to check.
+    // Unknown is unknown, and the honest thing an advisory surface can do is
+    // say which of its numbers broke the rule.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8)],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice[0]?.degraded).toBe(true);
+    expect(advice[0]?.basis.speculative.cohort).toBeNull();
+  });
+
+  test('the UNCONSTRAINED side carries its own objective, not the record\u2019s', () => {
+    // The base side is the active CONTEXT's incumbent whenever there is one,
+    // so its cohort is the context's, not the staged record's. If the two ever
+    // disagree, the difference is between two objectives and must say so.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { cohort: 'base' })],
+      activeContextKey: 'pin:[]',
+      contexts: [
+        {
+          speculative: false,
+          key: 'pin:[]',
+          incumbentLo: 30,
+          incumbentHi: 30,
+          posture: 'SIGHTED' as const,
+          epoch: 0,
+          cohort: 'base',
+        },
+      ],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    // Both sides are `base` now — the staged record's `territory` is not the
+    // basis of the number being differenced, and reading it would have
+    // manufactured a mismatch that is not there.
+    expect(advice[0]?.basis.staged.cohort).toBe('base');
+    expect(advice[0]?.degraded).toBe(false);
+    expect(advice[0]?.costLo).toBe(20); // 30 - 10
+  });
+});
+
+// ---------------------------------------------------- the cohort policy flag
+
+describe('the cohort policy is per ENGINE, never per process', () => {
+  const board = () =>
+    boardOf([
+      piece('a', { x: 1, y: 3 }, 'king', 1, { teamID: 'red' }),
+      piece('b', { x: 1, y: 1 }, 'rook', 2, { teamID: 'red' }),
+      piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
+      piece('N', { x: 5, y: 5 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
+
+  const decide = async (engine: TeamDecisionEngine, gameId: string) => {
+    const b = board();
+    return engine.decideTurn({
+      gameId,
+      turn: TURN,
+      board: b,
+      ourTeamId: 'red',
+      units: [
+        { snakeId: 'a', view: viewFor(b, 'a') },
+        { snakeId: 'b', view: viewFor(b, 'b') },
+      ],
+      deadlineMs: Date.now() + 300,
+    });
+  };
+
+  test('the environment supplies the DEFAULT and nothing more', () => {
+    expect(cohortPolicyFromEnv({})).toBe('off');
+    expect(cohortPolicyFromEnv({ CENTAUR_COHORT_POLICY: '' })).toBe('off');
+    expect(cohortPolicyFromEnv({ CENTAUR_COHORT_POLICY: 'on' })).toBe('on');
+    expect(cohortPolicyFromEnv({ CENTAUR_COHORT_POLICY: ' ON ' })).toBe('on');
+    expect(cohortPolicyFromEnv({ CENTAUR_COHORT_POLICY: 'off' })).toBe('off');
+  });
+
+  test('an unrecognised value is refused OUT LOUD, never read as either arm', () => {
+    // A typo that turned a treatment arm into a control arm without a word
+    // would corrupt the measurement the flag exists to enable.
+    const said: string[] = [];
+    expect(cohortPolicyFromEnv({ CENTAUR_COHORT_POLICY: 'yes' }, (m) => said.push(m))).toBe('off');
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain('CENTAUR_COHORT_POLICY');
+  });
+
+  test('TWO ENGINES IN ONE PROCESS CAN DIFFER — the whole point of the flag', async () => {
+    // A process-wide flag measures nothing: two arms of one experiment sharing
+    // a process would share their treatment. Both engines here see the SAME
+    // environment (one that says "on") and disagree anyway, because the option
+    // is what decides and the environment only supplies a default.
+    const env = { CENTAUR_COHORT_POLICY: 'on' };
+    const treatment = new TeamDecisionEngine(
+      { ...fakePorts(['a', 'b']), env },
+      { kernel: { reserveMs: 20, sliceMs: 10 }, cohortPolicy: 'on' }
+    );
+    const control = new TeamDecisionEngine(
+      { ...fakePorts(['a', 'b']), env },
+      { kernel: { reserveMs: 20, sliceMs: 10 }, cohortPolicy: 'off' }
+    );
+    expect(treatment.cohortPolicyOn()).toBe(true);
+    expect(control.cohortPolicyOn()).toBe(false);
+
+    const hot = (await decide(treatment, 'g-on')).report as KernelReport;
+    clearGeometryCache();
+    const cold = (await decide(control, 'g-off')).report as KernelReport;
+
+    expect(hot.admission).not.toBeNull();
+    expect(hot.admission?.ladder[0]).toBe('base');
+    expect(cold.admission).toBeNull();
+    // ...and an engine stating nothing follows the environment it was given.
+    const defaulted = new TeamDecisionEngine({ ...fakePorts(['a', 'b']), env }, {});
+    expect(defaulted.cohortPolicyOn()).toBe(true);
+    const bare = new TeamDecisionEngine({ ...fakePorts(['a', 'b']), env: {} }, {});
+    expect(bare.cohortPolicyOn()).toBe(false);
+  });
+
+  test('with the flag ON, a piece board runs base and the stamp says why', async () => {
+    // Four pieces, two of them sliders, zero trail units: two independent
+    // reasons the shipped tenant refuses territory here.
+    const engine = new TeamDecisionEngine(fakePorts(['a', 'b']), {
+      kernel: { reserveMs: 20, sliceMs: 10 },
+      cohortPolicy: 'on',
+    });
+    const report = (await decide(engine, 'g-stamp')).report as KernelReport;
+    expect(report.admission?.activeCohort).toBe('base');
+    expect(report.admission?.detectors.sliderPossible).toBe(true);
+    expect(report.admission?.detectors.ownTrailCount).toBe(0);
+    // The state to hand the next turn came back with it.
+    expect(report.admissionState?.ladder).toEqual(['base']);
+    // And every record on the wire carries the verdict.
+    expect(report.journal.length).toBeGreaterThan(0);
+    for (const rec of report.journal) {
+      expect(rec.admission).toEqual(report.admission);
+    }
+  });
+
+  test('the dwell survives the turn boundary within one game', async () => {
+    // Turn one measures; turn two resumes from what turn one left. Without the
+    // carry, a dwell of two could never be satisfied — one decision is one
+    // measurement — and the guard would be decorative.
+    const engine = new TeamDecisionEngine(fakePorts(['a', 'b']), {
+      kernel: { reserveMs: 20, sliceMs: 10 },
+      cohortPolicy: 'on',
+    });
+    const first = (await decide(engine, 'g-dwell')).report as KernelReport;
+    clearGeometryCache();
+    const second = (await decide(engine, 'g-dwell')).report as KernelReport;
+    expect(first.admissionState).not.toBeNull();
+    expect(second.admissionState).not.toBeNull();
+    // The board said the same thing twice, so nothing is pending and the
+    // ladder is where turn one put it.
+    expect(second.admissionState?.pending).toBeNull();
+    expect(second.admission?.ladder).toEqual(first.admission?.ladder);
   });
 });
 
