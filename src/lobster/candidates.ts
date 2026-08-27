@@ -70,6 +70,9 @@ import { profileOf, scalarOf } from '../partial-engine/index';
 import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
+import { TIER_DEFENSE } from './tier-truth';
+import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
+import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import type {
   Candidate,
   CandidateGenerator,
@@ -92,6 +95,8 @@ export const PRUNE = {
   fatalNoGain: 'fatal-no-gain',
   terrainFatal: 'terrain-fatal',
   kingUnsafe: 'king-unsafe',
+  kingTierUnsafe: 'king-tier-unsafe',
+  tierDecisive: 'tier-decisive',
   selfRegicide: 'self-regicide',
   promotionRefusal: 'promotion-refusal',
 } as const;
@@ -125,6 +130,8 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.fatalNoGain]: false,
   [PRUNE.terrainFatal]: false,
   [PRUNE.kingUnsafe]: false,
+  [PRUNE.kingTierUnsafe]: false,
+  [PRUNE.tierDecisive]: false,
   [PRUNE.selfRegicide]: false,
   [PRUNE.promotionRefusal]: false,
 };
@@ -145,6 +152,10 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     'a sacrifice to TERRAIN paid for a capture that is only possible — the mover certainly cannot afford its own move, and the kill it might make does not depend on that',
   [PRUNE.kingUnsafe]:
     'a king move that gambles — kept whenever nothing safer exists, because an empty escape set loses the team',
+  [PRUNE.kingTierUnsafe]:
+    'a king move into reach of something that outranks it on tier, or onto a potion it would debuff itself with — kept whenever no tier-clear square exists at the same certainty',
+  [PRUNE.tierDecisive]:
+    'a move into reach of a unit that beats it ON TIER ALONE — the trade where our own weight advantage is thrown away, kept whenever every option carries it',
   [PRUNE.selfRegicide]:
     'a move that ends our own team — kept only when the option set would otherwise be empty',
   [PRUNE.promotionRefusal]:
@@ -164,6 +175,19 @@ export interface CandidateKnobs {
   readonly kingHardSafety?: boolean;
   /** For a pawn one meal short of promotion, drop the promoting meal. */
   readonly refusePromotion?: boolean;
+  /**
+   * Drop moves into reach of something that beats this unit ON TIER ALONE,
+   * when an option that is not tier-decisively exposed exists. Set-level and
+   * monotone, so it can never empty the option list. Inert on a board with no
+   * live tier — which is every board with potions disabled.
+   */
+  readonly tierSafeStaging?: boolean;
+  /**
+   * Let the ordering see what ending a turn on a potion cell costs the unit
+   * that ends there (it takes the −1; its allies take the +1). Ordering only —
+   * no candidate is ever refused for it.
+   */
+  readonly selfDebuffOrdering?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
   /**
@@ -213,6 +237,8 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   pruneFatalNoGain: true,
   kingHardSafety: true,
   refusePromotion: false,
+  tierSafeStaging: TIER_DEFENSE,
+  selfDebuffOrdering: TIER_DEFENSE,
   escortShadowOrdering: true,
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
@@ -244,6 +270,14 @@ export interface AssessedCandidate {
   readonly exhaustionFatal: Trit;
   /** Terminal cells the move could come to rest on. */
   readonly landing: ReadonlyArray<CellIndex>;
+  /**
+   * How this move stands against the units that OUTRANK it on tier — clear,
+   * exposed, or exposed to something that beats it on tier alone. Always
+   * `clear` on a board with no live invulnerability effects.
+   */
+  readonly tierGrade: TierGrade;
+  /** What ending the turn on this move's landing cell would cost, tier-wise. */
+  readonly selfDebuff: SelfDebuff;
   /** How many held units' claims this move's outcome rests on. */
   readonly contingencies: number;
   /** Ordering hint only — never a bound. See SPECIALIST ordering below. */
@@ -396,14 +430,19 @@ function generateAssessed(
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
 
   // ---- assessment ---------------------------------------------------------
+  // ONE tier reading per unit per decision, not one per candidate: who
+  // outranks this unit at the arrival turn is a fact about the board and the
+  // clock, and on a potion-free board the answer is "nobody" in one loop.
+  const exposure = exposureOf(sub, unit);
   const assessed = surviving.map((candidate) =>
-    assessOne(sub, unit, candidate, shadows, knobs, regicideCells)
+    assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells)
   );
 
   // ---- lossy prunes, each behind its knob ---------------------------------
   const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
   const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
-  const afterKing = keepBestTier(unit, afterPolicy, pruned, knobs);
+  const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
+  const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
 
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
@@ -621,6 +660,7 @@ function assessOne(
   unit: SubstrateUnit,
   candidate: Candidate,
   shadows: ReadonlySet<CellIndex>,
+  exposure: TierExposure,
   knobs: Required<CandidateKnobs>,
   /** Enemy last-king squares, or null when `gainOrdering` is off — in which
    * case neither gain key is computed at all, so the shipped path pays nothing
@@ -669,6 +709,15 @@ function assessOne(
     }
   }
 
+  // The tier reading is over the WHOLE PATH — a slider is adjudicated at every
+  // cell of its ray, so a destination-only reading roughly doubles how much
+  // room a slider looks to have. The self-debuff reading is over the LANDING
+  // set instead, because collection is destination-only by rule.
+  const tierGrade = gradePath(sub, exposure, unit.cells[0] as CellIndex, candidate.path);
+  const selfDebuff = knobs.selfDebuffOrdering
+    ? selfDebuffOf(sub, unit, exposure, landing)
+    : ('none' as SelfDebuff);
+
   return {
     candidate,
     tier,
@@ -676,6 +725,8 @@ function assessOne(
     healthSpent: verdict.healthSpent,
     exhaustionFatal: verdict.exhaustionFatal,
     landing,
+    tierGrade,
+    selfDebuff,
     contingencies,
     shadowBonus,
     foodGain,
@@ -811,6 +862,44 @@ function policyPrunes(
 }
 
 /**
+ * THE TIER FILTER, applied to the SET rather than to each candidate.
+ *
+ * A contest is decided on TIER FIRST and weight second, so a unit that steps
+ * into reach of something one tier above it loses whatever it weighs. When the
+ * unit would have WON that contest on weight — the `decisive` grade — the buff
+ * did not confirm the outcome, it reversed it, and walking into it throws away
+ * a material advantage that is otherwise the whole point of having it.
+ *
+ * The filter drops exactly that class, and only when the unit has somewhere
+ * else to be. It is monotone by construction (the keeper set is non-empty
+ * before anything is dropped) and it is INERT on a board with no live tier,
+ * because `gradePath` returns `clear` for every candidate when nothing
+ * outranks the unit — which is every decision in a game with potions off.
+ *
+ * It is DECLARED LOSSY, not exact. What it can cost is a trade: accepting a
+ * tier loss to take a piece, block a line, or shield a king. The ledger names
+ * it, and the emptiness guarantee restores it if policy took everything.
+ */
+function keepTierSafe(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  knobs: Required<CandidateKnobs>
+): AssessedCandidate[] {
+  if (!knobs.tierSafeStaging) return [...assessed];
+  const kept: AssessedCandidate[] = [];
+  const dropped: AssessedCandidate[] = [];
+  for (const a of assessed) {
+    if (a.tierGrade === 'decisive') dropped.push(a);
+    else kept.push(a);
+  }
+  if (dropped.length === 0 || kept.length === 0) return [...assessed];
+  for (const a of dropped) {
+    pruned.push({ candidate: a.candidate, prune: PRUNE.tierDecisive, exact: false });
+  }
+  return kept;
+}
+
+/**
  * The king filter, applied to the SET rather than to each candidate.
  *
  * It keeps the best available tier: every `safe` option if there is one,
@@ -833,10 +922,42 @@ function keepBestTier(
       if (dropped.tier === tier) continue;
       pruned.push({ candidate: dropped.candidate, prune: PRUNE.kingUnsafe, exact: false });
     }
-    return kept;
+    return knobs.tierSafeStaging ? keepBestKingTier(kept, pruned) : kept;
   }
   return [...assessed];
 }
+
+/**
+ * The king's SECOND key, applied inside its best certainty tier: prefer the
+ * squares nothing outranks it on, and prefer not to hand itself a −1.
+ *
+ * A king carries the team. Regicide fires the same turn its last king dies, so
+ * a tier gap on a king is the one channel in the whole potion system that
+ * moves a placement by rule rather than by association. The two things it must
+ * not do are walk into reach of a higher tier and stand on a potion — the
+ * second being entirely self-inflicted and needing no enemy modelling at all.
+ *
+ * Same shape as the filter above it: keep the best available class, whatever
+ * that class is, so the set can never come back empty.
+ */
+function keepBestKingTier(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[]
+): AssessedCandidate[] {
+  let best = Number.POSITIVE_INFINITY;
+  for (const a of assessed) best = Math.min(best, kingTierRisk(a));
+  const kept = assessed.filter((a) => kingTierRisk(a) === best);
+  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
+  for (const a of assessed) {
+    if (kingTierRisk(a) === best) continue;
+    pruned.push({ candidate: a.candidate, prune: PRUNE.kingTierUnsafe, exact: false });
+  }
+  return kept;
+}
+
+/** Tier exposure and self-debuff, as one comparable number for a king. */
+const kingTierRisk = (a: AssessedCandidate): number =>
+  tierGradeRank(a.tierGrade) + (a.selfDebuff === 'none' ? 0 : 3);
 
 /**
  * The emptiness guarantee. Every lossy prune is reversible, and this is where
@@ -881,6 +1002,13 @@ function restoreLeastBad(
 function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
   if (tier !== 0) return tier;
+  // TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made
+  // by walking into something that outranks us is not a capture, it is a
+  // donation. Both terms are identically zero on a board with no live
+  // invulnerability effect, so this comparison is a no-op wherever potions are
+  // off and the order below it is byte-for-byte what it always was.
+  const risk = tierRisk(a) - tierRisk(b);
+  if (risk !== 0) return risk;
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
@@ -913,10 +1041,26 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  * generated options the anytime path reaches before its budget runs out — so a
  * doomed regicide shot still sorts behind a safe one, and whether the trade is
  * worth taking remains the evaluator's ordered terminal clamps' question.
+ *
+ * INTEGRATION NOTE (integ/round-a): `tierRisk` is carried here too, in the same
+ * slot it occupies in `orderKey` — after `tier`, ahead of every capture-class
+ * term. It is not optional. I3 wrote this comparator against a base that had no
+ * tier ordering in it, so selecting it at the sort site
+ * (`kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey)`) would otherwise
+ * discard I4's tier defense wholesale the moment `gainOrdering` is promoted —
+ * which the ledger names as the FIRST promotion to make. I4's own argument
+ * carries over verbatim and applies with more force here, not less: a capture
+ * made by walking into something that outranks us is a donation, and a REGICIDE
+ * SHOT taken that way is the most expensive donation on the board. Both terms
+ * are identically zero wherever no invulnerability effect is live, so on the
+ * food-and-king boards I3 measured this comparator is byte-for-byte the one it
+ * measured.
  */
 function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
   if (tier !== 0) return tier;
+  const risk = tierRisk(a) - tierRisk(b);
+  if (risk !== 0) return risk;
   if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
@@ -928,6 +1072,17 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
 }
+
+/**
+ * The one ordering number for everything tier.
+ *
+ * `tierGradeRank` is what the enemy's window does to us; `selfDebuffRank` is
+ * what our own pickup would do. They add rather than max because they are
+ * genuinely additive risks: stepping into a higher tier's reach AND handing
+ * ourselves a −1 on the same move is worse than either alone.
+ */
+const tierRisk = (a: AssessedCandidate): number =>
+  tierGradeRank(a.tierGrade) + selfDebuffRank(a.selfDebuff);
 
 // ---------------------------------------------------------------------------
 // The one imported specialist geometry: escort ray-shadowing

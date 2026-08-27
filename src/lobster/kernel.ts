@@ -1110,6 +1110,15 @@ export class LobsterKernel implements Kernel {
         // count the violation, and keep the decision alive on the standing
         // incumbent (B2 open item 5). Anything else still kills the decision.
         if ((err as { code?: string }).code !== "bounds_inversion") throw err
+        // The counter says HOW MANY; the message says which two members
+        // disagreed and by how much, which is the only thing that identifies
+        // the unsound one. Inversions arrive in storms — every slice of a
+        // handful of decisions — so printing them unconditionally would bury a
+        // log, and printing none makes the counter unactionable. Env-gated:
+        // CENTAUR_DEBUG_INVERSION=1 while reproducing.
+        if (process.env.CENTAUR_DEBUG_INVERSION) {
+          process.stderr.write(`INVERSION ${(err as Error).message}\n`)
+        }
         run.boundViolations++
         run.refusals["bounds-inversion"]++
       }
