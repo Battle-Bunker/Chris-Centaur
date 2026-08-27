@@ -177,13 +177,31 @@ interface Row {
   readonly domain: string;
 }
 
-function readingsFor(board: Board, mode: 'off' | 'on', cap: number): { rows: Row[]; runs: number; refused: number } {
+function readingsFor(
+  board: Board,
+  mode: 'off' | 'on',
+  cap: number,
+  /**
+   * Force the kernels to decline, as the arena being full would. The JS twins
+   * then run over slabs that are still VIEWS ONTO LINEAR MEMORY, which is the
+   * degradation path in full: it is not exercised by `mode: 'off'`, because
+   * that arm's slabs are ordinary heap arrays.
+   */
+  starve = false
+): { rows: Row[]; runs: number; refused: number } {
   const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
   pinWasmMode(sub, mode);
   const rows: Row[] = [];
   try {
     const asTeam = sub.teamNumber('red');
     const ws = workspaceFor(sub);
+    if (starve) {
+      const decline = function (this: typeof ws): boolean {
+        return false;
+      };
+      Object.defineProperty(ws, 'wasmDisplace', { value: decline, writable: true });
+      Object.defineProperty(ws, 'wasmSweepPrepare', { value: decline, writable: true });
+    }
     for (const plan of plansFor(sub, cap)) {
       sub.withResolution(plan, asTeam, ({ resolution, bounds }) => {
         const ctx = makeContext(
@@ -235,6 +253,20 @@ describe('CENTAUR_WASM on agrees with CENTAUR_WASM off, exactly', () => {
     const on = readingsFor(BOARDS[0]?.board() as Board, 'on', 24);
     expect(on.runs).toBeGreaterThan(0);
     expect(on.refused).toBe(0);
+  });
+
+  it('a kernel that declines degrades to the same answer, not to a wrong one', () => {
+    // The whole safety argument is that a refused allocation costs throughput
+    // and nothing else. That claim has three arms, not two, and this is the
+    // third: an arena that exists but cannot serve, so the JS kernels run over
+    // slabs that ARE in linear memory. If a JS loop and a wasm loop ever read
+    // that memory differently, this is where it shows.
+    for (const { board } of BOARDS) {
+      const off = readingsFor(board(), 'off', 16);
+      const starved = readingsFor(board(), 'on', 16, true);
+      expect(starved.rows).toEqual(off.rows);
+      expect(starved.runs).toBe(0);
+    }
   });
 
   it('a workspace with no arena is the JS path, and still correct', () => {
