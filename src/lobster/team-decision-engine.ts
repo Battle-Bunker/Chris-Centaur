@@ -58,7 +58,14 @@ import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator } from './candidates';
-import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import {
+  BoundEvaluator,
+  DEFAULT_COHORT_ID,
+  defaultEvaluator,
+  earliestShells,
+  standingOf,
+} from './evaluate';
+import { DEFAULT_ADMISSION_POLICY, type AdmissionState } from './admission';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import {
@@ -140,6 +147,53 @@ export interface TeamDecisionOptions {
   readonly arrivalHorizonTurns?: number;
   /** Advice threshold passed through to pins.adviseFromReport. */
   readonly adviceThreshold?: number;
+  /**
+   * THE COHORT POLICY FLAG. `'off'` (the default) or `'on'`.
+   *
+   * OFF means the admission governor does not exist for this engine: no board
+   * conditions are measured, no ladder is classified, no `AdmissionStamp`
+   * reaches the wire, and every decision opens under the shipped default
+   * objective exactly as it did before this stage. ON means the board chooses
+   * the objective, once, at each decision's entry.
+   *
+   * PER-ENGINE, NOT PER-PROCESS. It is an option on this engine instance, with
+   * `CENTAUR_COHORT_POLICY` only supplying the default when the caller states
+   * nothing. Two arms of one experiment inside a single process must be able
+   * to differ, and a flag read from the environment deep inside the loop
+   * cannot express that — an experiment whose two arms share their treatment
+   * measures nothing at all.
+   *
+   * DEFAULT OFF, and promotion is not this stage's to make: it waits on the
+   * detector-scope sweep (own-slider vs any-slider), the post-two-plane slider
+   * re-measure, and a promotion sweep with concurrent nulls on MECHANISM
+   * metrics — unforced deaths, eats split at the trail/piece boundary,
+   * plans/decision. Placement is not the promotion metric.
+   */
+  readonly cohortPolicy?: 'off' | 'on';
+}
+
+/** The environment variable that supplies `cohortPolicy`'s default. */
+export const COHORT_POLICY_ENV = 'CENTAUR_COHORT_POLICY';
+
+/**
+ * Read the flag's default from the environment. Unset, empty or unrecognised
+ * all mean OFF, and an unrecognised value says so on the log rather than being
+ * silently treated as either arm: a typo that turned a treatment arm into a
+ * control arm without a word would corrupt the very measurement the flag
+ * exists to enable.
+ */
+export function cohortPolicyFromEnv(
+  env: NodeJS.ProcessEnv,
+  log: (message: string) => void = (m) => console.warn(m)
+): 'off' | 'on' {
+  const raw = env[COHORT_POLICY_ENV];
+  if (raw === undefined || raw === '') return 'off';
+  const value = raw.trim().toLowerCase();
+  if (value === 'on' || value === 'off') return value;
+  log(
+    `[cohort-policy] Ignoring ${COHORT_POLICY_ENV}="${raw}" — expected "off" or "on"; keeping "off"`
+  );
+  return 'off';
 }
 
 export interface TeamTurnInput {
@@ -209,6 +263,17 @@ interface GameState_ {
    * decisions as often as during one, so they are attributed to the next
    * decision to finish rather than lost. */
   dropsReported: number;
+  /**
+   * The admission governor's carried state, so its dwell counts across turns
+   * (one decision is one measurement, so a dwell of two means nothing inside a
+   * turn). Undefined until a policy has run once; a VALUE and never a shared
+   * governor object, so an abandoned older decision cannot latch state into a
+   * newer one — it can only leave a stale-but-sound ladder behind.
+   */
+  admission: AdmissionState | undefined;
+  /** The turn `admission` was measured on, so a late-finishing decision does
+   * not overwrite a newer turn's state with its own. */
+  admissionTurn: number;
   /**
    * The live decision's kernel and substrate, KEYED BY TURN.
    *
@@ -357,6 +422,16 @@ export class TeamDecisionEngine {
     const buildCore = this.options.makeCore ?? makeSearchCore;
     const search = tapWitnesses(buildCore(this.options.search ?? {}), witnesses);
 
+    // THE COHORT POLICY, PER ENGINE AND PER DECISION. With the flag off this
+    // is `null` — not an "off" policy row — so the kernel's admission path
+    // does not exist for this decision and the replay is identical to the
+    // stage before this one rather than merely equivalent to it.
+    const policyOn = this.cohortPolicyOn();
+    const admission = policyOn
+      ? { ...DEFAULT_ADMISSION_POLICY, resume: game.admission }
+      : null;
+    const evaluators = policyOn ? this.cohortEvaluators(evaluate) : undefined;
+
     const kernel = new LobsterKernel({
       // The tier-2 crossfade certificate, bound to this decision's substrate.
       teammateFloor: (plan, excluding) => this.teammateFloor(sub, asTeam, plan, excluding),
@@ -364,6 +439,7 @@ export class TeamDecisionEngine {
       // interleavings the transport can actually produce.
       crossfadeGroups: (plan) => this.crossfadeGroups(sub, asTeam, plan),
       ...this.kernelOptions(),
+      ...(admission === null ? {} : { admission }),
     });
 
     // Live pin routing: wire event -> ledger -> substrate numbering -> kernel.
@@ -403,6 +479,7 @@ export class TeamDecisionEngine {
       now: this.monotonic,
       initialStepCostMs: game.stepCostMs,
       abandoned: () => game.latestTurn > input.turn,
+      ...(evaluators === undefined ? {} : { evaluators }),
     };
 
     const views = new Map(input.units.map((u) => [u.snakeId, u.view]));
@@ -441,6 +518,15 @@ export class TeamDecisionEngine {
       if (report !== null && game.stepCostTurn <= input.turn) {
         game.stepCostMs = report.finalStepCostMs;
         game.stepCostTurn = input.turn;
+      }
+      // The governor's carried state, under the same late-decision guard. One
+      // decision is one measurement, so the dwell only means anything if it
+      // survives the turn boundary — and it is carried as a VALUE, so an
+      // abandoned older decision can leave a stale ladder behind but can never
+      // corrupt a newer decision's governor.
+      if (report?.admissionState != null && game.admissionTurn <= input.turn) {
+        game.admission = report.admissionState;
+        game.admissionTurn = input.turn;
       }
       sub.release();
     }
@@ -493,6 +579,39 @@ export class TeamDecisionEngine {
     };
   }
 
+  /**
+   * Is the cohort policy on for THIS engine? The option wins; the environment
+   * only supplies the default. Resolved per call rather than cached so a test
+   * can flip an injected env between decisions.
+   */
+  cohortPolicyOn(): boolean {
+    return (this.options.cohortPolicy ?? cohortPolicyFromEnv(this.env, this.log)) === 'on';
+  }
+
+  /**
+   * ONE EVALUATOR PER REGISTERED COHORT, built per decision.
+   *
+   * `BoundEvaluator` holds only its profile and its weights as readonly fields
+   * and takes the substrate as an argument to every call, so instances share
+   * nothing and one per cohort costs nothing. The map covers the WHOLE
+   * registry rather than just the ladders the shipped table can produce: a
+   * kernel that admits a cohort this map cannot serve throws, and the failure
+   * a builder wants is "the table gained a row and the map did not", found the
+   * first time it happens, not months later in a corpus.
+   *
+   * The territory row is served by `this.options.evaluate ?? defaultEvaluator`
+   * so a caller that overrode the evaluator still gets its own — the override
+   * is about the default objective, and turning the policy on must not quietly
+   * discard it.
+   */
+  private cohortEvaluators(fallback: Evaluator): ReadonlyMap<string, Evaluator> {
+    const out = new Map<string, Evaluator>();
+    for (const row of this.kernelOptions().cohorts) {
+      out.set(row.id, row.id === DEFAULT_COHORT_ID ? fallback : new BoundEvaluator(row.profile));
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- internals
 
   private gameFor(gameId: string): GameState_ {
@@ -505,6 +624,8 @@ export class TeamDecisionEngine {
         stepCostTurn: -1,
         latestTurn: -1,
         dropsReported: 0,
+        admission: undefined,
+        admissionTurn: -1,
         live: null,
       };
       this.games.set(gameId, game);

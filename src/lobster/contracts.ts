@@ -249,6 +249,89 @@ export type VacuityCause = "alive" | "material-dead" | "cloud-contingent-dead"
  */
 export type CohortId = string
 
+/**
+ * THE ADMITTED LADDER — the objectives this turn is allowed to spend on, in
+ * ascending order of cost, cheapest (the always-admitted base) first.
+ *
+ * A ladder is never empty: the base cohort is the safety floor and is admitted
+ * on every board under every policy (anti-spaghetti rule 6). The LAST rung is
+ * the richest admitted objective, and — for as long as there is one frame per
+ * turn — it is the objective the decision is actually conducted under.
+ *
+ * What the ladder deliberately does NOT say is how the rungs interact. Whether
+ * a richer rung may only break the cheaper one's ties, or may overturn it
+ * inside a certified envelope, is a later stage's question; Stage 2 emits an
+ * ordered list and the detector facts that produced it, and nothing here bakes
+ * in an answer.
+ */
+export type CohortLadder = ReadonlyArray<CohortId>
+
+/**
+ * EVERYTHING THE ADMISSION GOVERNOR IS ALLOWED TO LOOK AT.
+ *
+ * Note what is absent: budget, deadline, elapsed time, slices spent, work
+ * counters, plan counts. Adding any of them here is the design error this type
+ * exists to prevent — it is `PostureConditions`' doctrine (`postures.ts:87`)
+ * applied one layer up, and for the same reason: a policy keyed on the clock
+ * measures the machine it runs on rather than the board it plays on, and the
+ * measured evidence is that ten times the budget and forty times the plans
+ * leave the deficit this policy addresses unmoved.
+ *
+ * It lives in `contracts.ts` rather than in `admission.ts` because it is WIRE
+ * SURFACE: `EmitRecord.admission` carries it, so a refit corpus can be read
+ * without holding the governor. `admission.ts` owns the doctrine and the
+ * measurement and re-exports the type, exactly as `postures.ts` owns vacuity
+ * and re-exports `VacuityCause`.
+ *
+ * Every field is a pure function of TURN-START board state (the substrate's
+ * roster and its claim field), which is what makes the freeze at decision entry
+ * a statement about the design rather than about the implementation: nothing a
+ * refinement, an epoch or a slice can do changes any of these four numbers.
+ */
+export interface AdmissionConditions {
+  /**
+   * Could any unit on this board be a slider right now? PESSIMISTIC under fog
+   * (owner ruling Q2): a held unit counts if ANY kind its claim's `kindSet`
+   * still admits is a slider, so a pawn held long enough that it might have
+   * promoted counts as a slider until an observation clears it.
+   */
+  readonly sliderPossible: boolean
+  /** The subject's own live trail units, off the turn-start roster. */
+  readonly ownTrailCount: number
+  /** Every other team's live trail units, off the same roster. */
+  readonly theirTrailCount: number
+  /**
+   * The pre-arm. True when some unit is one meal from promoting — for a live
+   * unit `weight + 1 ≥ pawnPromotionWeight`, and for a HELD one the
+   * pessimistic `record.weight + holdDepth + 1 ≥ pawnPromotionWeight`, since a
+   * unit we have not seen for `holdDepth` turns could have eaten every one of
+   * them. Promotion is the only way a slider ever appears on a slider-free
+   * board, and it is a plan-space event the material-denominated evaluator
+   * never sees coming — so it is armed one turn EARLY and the transition
+   * happens between turns, never inside one.
+   */
+  readonly promotionImminent: boolean
+}
+
+/**
+ * WHAT THE POLICY DECIDED, ON THE WIRE.
+ *
+ * Without this the refit corpus is uninterpretable and the centaur operator
+ * cannot audit the bot choosing its own evaluator (A3 §4.2 item 5,
+ * anti-spaghetti rule 14). It rides on every emitted record, and it is
+ * `undefined` — not a default-valued object — when no policy ran, because
+ * "the policy was off" and "the policy chose the default" are different facts
+ * and a corpus that cannot tell them apart is a corpus that cannot be refit.
+ */
+export interface AdmissionStamp {
+  /** The admitted rungs, cheapest first. Never empty. */
+  readonly ladder: CohortLadder
+  /** The rung the decision was actually conducted under: the ladder's last. */
+  readonly activeCohort: CohortId
+  /** The measured board facts the ladder was classified from. */
+  readonly detectors: AdmissionConditions
+}
+
 // ------------------------------------------------------------------ emission
 
 export type CrossfadeVerdict =
@@ -280,6 +363,13 @@ export interface EmitRecord {
    * a record the kernel emitted; optional so a hand-built record (a harness,
    * a fixture) need not assert a verdict it never computed. */
   readonly crossfade?: CrossfadeVerdict
+  /**
+   * What the admission policy decided for this decision, and on what evidence.
+   * Present exactly when a policy ran — absent when the policy is off, which
+   * is the default and is a different fact from "the policy chose the
+   * default". See `AdmissionStamp`.
+   */
+  readonly admission?: AdmissionStamp
 }
 
 // -------------------------------------------------------- refinement levers
@@ -574,6 +664,23 @@ export interface KernelInput {
    * bound stamped with a cohort nobody can look up.
    */
   readonly cohort?: CohortId
+  /**
+   * ONE EVALUATOR PER COHORT THE ADMISSION POLICY MAY CHOOSE.
+   *
+   * A cohort names an objective; an `Evaluator` is a thing that computes one.
+   * WHICH evaluator computes which cohort is a composition question — the same
+   * question `evaluate` above already answers for the single-cohort case — and
+   * it is answered here rather than inside the kernel so that the loop never
+   * learns how an objective is computed, only that objectives exist.
+   *
+   * Consulted ONLY when a policy chose the cohort. `evaluate` remains the
+   * default and is what a decision with no policy uses, unchanged. A policy
+   * that admits a cohort this map cannot serve is a configuration error and is
+   * refused at `decide()`, loudly and at the seam that could have fixed it —
+   * quietly falling back to `evaluate` would mean a decision proving numbers
+   * under one objective while stamping them with another.
+   */
+  readonly evaluators?: ReadonlyMap<CohortId, Evaluator>
   /** Clock injection point. Defaults to a monotonic timer. Tests pass a fake
    * clock so the anytime suite is deterministic. */
   readonly now?: () => number

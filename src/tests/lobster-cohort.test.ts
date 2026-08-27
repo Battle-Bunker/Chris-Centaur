@@ -541,10 +541,14 @@ describe("a flip never costs the wire its plan, and never reaches the operator",
 // ===========================================================================
 // 5. The no-op property, from inside
 
-describe("with the shipped single-row registry the cohort is a constant", () => {
-  it("the default kernel registry has one row, so no decision can flip", () => {
+describe("with the policy off the cohort is a constant", () => {
+  it("the default kernel takes the shipped registry AND no policy", () => {
+    // What makes a default-configured decision a constant-cohort decision is
+    // the second line, not the first. Stage 1 had one registered row and
+    // leaned on that; Stage 2 registers two and leans on `admission: null` —
+    // registering a row admits nothing, and nothing but the policy chooses.
     expect(DEFAULT_KERNEL_OPTIONS.cohorts).toBe(COHORTS)
-    expect(DEFAULT_KERNEL_OPTIONS.cohorts).toHaveLength(1)
+    expect(DEFAULT_KERNEL_OPTIONS.admission).toBeNull()
   })
 
   it("a production-shaped decision proves everything under one objective", async () => {

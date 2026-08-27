@@ -42,10 +42,13 @@ import {
 } from '../bounds';
 import {
   ALL_FEATURE_KEYS,
+  BASE_PROFILE,
   CLIFF_MATERIAL_WEIGHT,
   COHORTS,
   DEFAULT_COHORT_ID,
   DEFAULT_PROFILE,
+  DEFAULT_WEIGHTS,
+  TERRITORY_PROFILE,
   MATERIAL_ONLY_PROFILE,
   assertProfileCoherent,
   cohortAssumptionOf,
@@ -194,14 +197,43 @@ describe('a cohort is a FRAMING assumption', () => {
 // ---------------------------------------------------------------- the table
 
 describe('the cohort registry is a data table', () => {
-  test('Stage 1 ships exactly one row, and it is the default', () => {
-    // The no-op condition, asserted rather than assumed: with one registered
-    // objective there is nothing to flip to in production, so every decision
-    // this stage produces is proved under the same question the stage before
-    // it used.
-    expect(COHORTS).toHaveLength(1);
-    expect(COHORTS[0].id).toBe(DEFAULT_COHORT_ID);
+  test('the table is a catalogue in ascending cost, and the default is territory', () => {
+    // Stage 1 shipped ONE row and asserted that as its no-op condition. Stage 2
+    // adds `base` beside it, and the no-op condition moves with it: registering
+    // a row admits nothing, so what keeps a flag-off decision on the shipped
+    // objective is that the POLICY is off (`admission: null`), not that the
+    // table is short. Both halves are asserted — here and in
+    // `admission-noop.test.ts`.
+    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory']);
+    expect(DEFAULT_COHORT_ID).toBe('territory');
     expect(requireCohortRowIn(COHORTS, DEFAULT_COHORT_ID).profile).toBe(DEFAULT_PROFILE);
+    expect(requireCohortRowIn(COHORTS, 'base').profile).toBe(BASE_PROFILE);
+  });
+
+  test('every registered profile is coherent, and base weights ONLY what it invokes', () => {
+    // The synthesis sketch gave `base` `DEFAULT_WEIGHTS`, which throws here:
+    // reach at 1 and room at 3 are weighted keys the base cohort never
+    // computes. The row carries its own vector instead, and the three weights
+    // it does carry are DEFAULT_WEIGHTS' own numbers — base is the territory
+    // objective minus two features, not a third calibration nobody raced.
+    for (const row of COHORTS) expect(() => assertProfileCoherent(row.profile)).not.toThrow();
+    expect(Object.keys(BASE_PROFILE.weights).sort()).toEqual([
+      'healthEconomy',
+      'kingMargin',
+      'material',
+    ]);
+    for (const key of Object.keys(BASE_PROFILE.weights)) {
+      expect([key, BASE_PROFILE.weights[key]]).toEqual([key, DEFAULT_WEIGHTS[key]]);
+      expect(BASE_PROFILE.invoked.has(key)).toBe(true);
+    }
+    // NOT zeroed: kingMargin carries the same legacy `horizonTurns <= 0` guard
+    // the territory features do, so a zero here would silently delete the one
+    // specialist fact this cohort exists to keep.
+    expect(BASE_PROFILE.reachHorizonTurns).toBe(TERRITORY_PROFILE.reachHorizonTurns);
+    // And the compute gate really is narrower than territory's.
+    expect([...BASE_PROFILE.invoked].sort()).toEqual(['healthEconomy', 'kingMargin', 'material']);
+    expect(BASE_PROFILE.invoked.has('reach')).toBe(false);
+    expect(BASE_PROFILE.invoked.has('room')).toBe(false);
   });
 
   test('an unregistered id is refused, and the message names the table', () => {
@@ -220,7 +252,7 @@ describe('the cohort registry is a data table', () => {
     expect(requireCohortRowIn(own, 'material').profile).toBe(MATERIAL_ONLY_PROFILE);
     expect(cohortRowIn(own, DEFAULT_COHORT_ID)).toBeUndefined();
     // ...and holding one did not teach the shipped table a new name.
-    expect(COHORTS).toHaveLength(1);
+    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory']);
   });
 
   test('the stamp carries the INVOKED set, sorted', () => {

@@ -70,6 +70,18 @@ export interface Standing {
   readonly team: number;
   /** The rules' own kind index. Read for CLASS properties, never by name. */
   readonly kind: UnitKind;
+  /**
+   * EVERY KIND THIS UNIT MIGHT BE BY NOW, as a bitmask over `UnitKind`
+   * indices. `1 << kind` for a live unit we can see; for a HELD one it is the
+   * claim's own `Cloud.kindSet`, which forks when a pawn is held past the
+   * promotion food-count horizon and could be a queen by now.
+   *
+   * Copied, not computed: the engine already derived it inside the dilation
+   * and `kind` alone cannot express it. It exists so a class-level question
+   * about a held unit ("could that be a slider?") can be answered
+   * pessimistically off the standing rather than by re-deriving the claim.
+   */
+  readonly kindSet: number;
   readonly isKing: boolean;
   /** True for a unit carried as a CLAIM rather than as a mover. */
   readonly held: boolean;
@@ -164,6 +176,9 @@ export function standingOf(
       unitId: view.unitId,
       team: view.team,
       kind: view.kind,
+      // A unit we can see is exactly one kind. Same expression the engine uses
+      // when it seeds a claim (`cloud.ts`: `kindSet: 1 << r.kind`).
+      kindSet: 1 << view.kind,
       isKing: sub.unitOf(view.unitId)?.isKing === true,
       held: false,
       weightMin: view.weight,
@@ -200,6 +215,9 @@ export function standingOf(
       unitId: slot.record.unitId,
       team: slot.record.team,
       kind: slot.record.kind,
+      // The claim's own fork set, verbatim. `record.kind` is what it was when
+      // we last saw it; `cloud.kindSet` is what it might be now.
+      kindSet: cloud.kindSet,
       isKing: sub.unitOf(slot.record.unitId)?.isKing === true,
       held: true,
       weightMin: slot.bounds.weightMin,

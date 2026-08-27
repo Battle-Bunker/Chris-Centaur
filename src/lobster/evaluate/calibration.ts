@@ -40,7 +40,7 @@
 // this file. The cohort registry lives here because a cohort IS a calibration
 // row — the objective and the numbers that define it are one thing — and the
 // id's type lives in `contracts` because the `Assumption` union needs it.
-import type { Assumption, CohortId } from '../contracts';
+import type { AdmissionConditions, Assumption, CohortId, CohortLadder } from '../contracts';
 
 /**
  * Default feature weights. Non-negative by contract — a penalty feature returns
@@ -258,6 +258,51 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = assertProfileCoherent({
   reachHorizonTurns: 0,
 });
 
+/**
+ * THE BASE COHORT'S PROFILE — everything except the territory bundle.
+ *
+ * ── WHY IT IS NOT `DEFAULT_WEIGHTS` ────────────────────────────────────────
+ *
+ * The architecture sketch gave this row `weights: DEFAULT_WEIGHTS` with
+ * `invoked: {material, healthEconomy, kingMargin}`. That row cannot be
+ * constructed: `DEFAULT_WEIGHTS` weights `reach` at 1 and `room` at 3, and
+ * `assertProfileCoherent` THROWS on a profile that scores a key it never
+ * computes. So the row carries its own weight vector, holding exactly the
+ * three keys it invokes.
+ *
+ * ── WHY THE THREE SHARED WEIGHTS ARE THE SAME NUMBERS ──────────────────────
+ *
+ * They are `DEFAULT_WEIGHTS`' own values, unchanged, because base is not a
+ * different calibration — it is the territory objective with the two territory
+ * features removed. Re-tuning `material`, `healthEconomy` or `kingMargin` here
+ * would make base a third bot nobody has raced, would break the arithmetic
+ * that lets one ladder's rungs be talked about together at all, and would put
+ * two numbers denominated differently in front of the same stager. The one
+ * thing this row is allowed to differ in is WHICH features exist.
+ *
+ * ── WHAT IT COSTS, STATED HONESTLY ─────────────────────────────────────────
+ *
+ * This cohort SKIPS THE PARTITION, not the shells. `kingMarginFeature` reads
+ * `ctx.shells()` directly to ask what reaches the king's square, so on a board
+ * where the subject has a live king the base cohort still pays the full
+ * dilation-shell build; what it does not pay is the two-plane partition and
+ * the reach flood's per-unit sweep, which is where the territory bundle's cost
+ * actually is. On a kingless board `kingMarginFeature` returns early and the
+ * shells are never touched. Anyone quoting "base ≈ material + shells only"
+ * should quote it that way and not as "shells-free".
+ *
+ * `reachHorizonTurns` stays at the production depth and is NOT zeroed:
+ * `kingMarginFeature` carries the same legacy `horizonTurns <= 0` guard the
+ * two territory features do, so zeroing it here would silently delete the one
+ * specialist fact this cohort exists to keep.
+ */
+export const BASE_PROFILE: CriterionProfile = assertProfileCoherent({
+  name: 'lobster-base',
+  weights: { material: 10, healthEconomy: 0.5, kingMargin: 0.25 },
+  invoked: new Set(['material', 'healthEconomy', 'kingMargin']),
+  reachHorizonTurns: REACH_HORIZON_TURNS,
+});
+
 // ------------------------------------------------------------ the cohort table
 
 /**
@@ -269,26 +314,30 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = assertProfileCoherent({
  * refit corpus groups on, and what an operator reads six months later — so it
  * is stable, it is short, and it is never derived from the profile's `name`.
  *
- * ── STAGE 1 SHIPS EXACTLY ONE ROW, AND THAT IS THE POINT ───────────────────
+ * ── THE TABLE IS A CATALOGUE, NOT A POLICY ─────────────────────────────────
  *
- * The basis machinery (cohort in the ratchet, on every staging row, in every
- * emitted record, and a flip path that re-measures rather than mixes) is what
- * Stage 1 builds; a second row is what Stage 2 adds once an admission governor
- * exists to choose between them and a measurement exists to justify the
- * choice. With one row the whole stage is a behavioural no-op: every number is
- * proved under `territory`, nothing ever flips in production, and the only
- * observable difference from the stage before it is one more assumption on the
- * wire — which is the assumption that makes the rest legible.
+ * Stage 1 shipped one row because there was nothing to choose with. Stage 2
+ * adds `base` beside `territory`, and the two rows are listed in ASCENDING
+ * COST — which is also ladder order, cheapest and always-admitted first.
  *
- * The row's id is `territory` rather than a placeholder because the default
- * profile IS the territory profile: naming the shipped objective after what it
- * actually computes means Stage 2 adds `base` beside it and renames nothing,
- * and no historical corpus carries an id that was retired for being a
- * placeholder.
+ * Registering a row is not admitting it. Nothing in this system picks a cohort
+ * except the admission policy, and that policy ships OFF: with it off the
+ * decision opens under `DEFAULT_COHORT_ID` and no board can move it, exactly
+ * as before. The flag gates the POLICY and never the table, deliberately — a
+ * flag that made the table one row long would mean the shipping build never
+ * ran `base` through the per-cohort law harness, and the first thing a
+ * default-on flip would do is put an objective no gate had ever checked in
+ * front of the stager.
+ *
+ * The `territory` id is not a placeholder: the default profile IS the
+ * territory profile, so naming the shipped objective after what it actually
+ * computes meant Stage 2 could add `base` beside it and rename nothing, and no
+ * historical corpus carries an id retired for having been a placeholder.
  *
  * ADDING A ROW: add it here, give it a profile that `assertProfileCoherent`
- * accepts, and the per-cohort law harness picks it up. Nothing else in the
- * system learns a new name (anti-spaghetti rule 12).
+ * accepts, add the ladder rows that can admit it, and the per-cohort law
+ * harness and the per-cohort summed cliff assertion pick it up. Nothing else
+ * in the system learns a new name (anti-spaghetti rule 12).
  */
 export interface CohortRow {
   /** Stable, corpus-visible identity. Never re-used for a different objective. */
@@ -305,12 +354,23 @@ export function invokedFeaturesOf(p: CriterionProfile): ReadonlyArray<string> {
   return [...p.invoked].sort();
 }
 
+/** The always-admitted floor of every ladder. Adjudicates; never gated off. */
+export const BASE_COHORT_ID: CohortId = 'base';
+
+/** The territory-carrying objective — the production default. */
+export const TERRITORY_COHORT_ID: CohortId = 'territory';
+
 export const COHORTS: ReadonlyArray<CohortRow> = [
-  { id: 'territory', profile: TERRITORY_PROFILE },
+  { id: BASE_COHORT_ID, profile: BASE_PROFILE },
+  { id: TERRITORY_COHORT_ID, profile: TERRITORY_PROFILE },
 ];
 
-/** The cohort a decision opens under when its caller names none. */
-export const DEFAULT_COHORT_ID: CohortId = 'territory';
+/**
+ * The cohort a decision opens under when its caller names none AND no policy
+ * chooses one. It is `territory` and not `base` because that is what shipped:
+ * turning the policy off must leave the decision exactly where it was.
+ */
+export const DEFAULT_COHORT_ID: CohortId = TERRITORY_COHORT_ID;
 
 /**
  * THE REGISTRY LOOKUP, AND WHY IT TAKES THE REGISTRY.
@@ -362,3 +422,80 @@ export function requireCohortRowIn(rows: ReadonlyArray<CohortRow>, id: CohortId)
 export function cohortAssumptionOf(row: CohortRow): Assumption {
   return { kind: 'cohort', id: row.id, features: invokedFeaturesOf(row.profile) };
 }
+
+// --------------------------------------------------------- the predicate table
+
+/**
+ * THE ADMISSION PREDICATE, AS DATA.
+ *
+ * One row per rule, in precedence order, each carrying the measurement that
+ * paid for it. `admission.ts` walks this table and returns the first matching
+ * row's ladder; it holds no rule of its own. Re-tuning the policy is a diff to
+ * this table and to its tests (anti-spaghetti rule 12), and the corpus can be
+ * re-analysed against a table row because the row is a value with a name.
+ *
+ * The predicate takes `AdmissionConditions` — measured board facts, no clock,
+ * no budget. The type is imported TYPE-ONLY from `contracts`, so this file is
+ * still pure data with no runtime edge to anything.
+ */
+export interface LadderRow {
+  /** Short, stable, corpus-visible. Names the rule, not the outcome. */
+  readonly id: string;
+  /** Matches on measured board facts alone. Pure and total. */
+  readonly when: (c: AdmissionConditions) => boolean;
+  /** The rungs admitted when it matches, cheapest first. Never empty. */
+  readonly ladder: CohortLadder;
+  /** What paid for the row. A row without one is a guess wearing a table's clothes. */
+  readonly evidence: string;
+}
+
+/**
+ * WHERE THE TRAIL THRESHOLD COMES FROM.
+ *
+ * 37.3% of territory's own team-turns carry ZERO live trail units of its own,
+ * and in those turns the `room` feature's own-side sum is empty by
+ * construction and `reach` degenerates to the tie-dominated all-pieces reading.
+ * The composite gate `ownTrail ≥ T ∧ ¬slider` was measured over 1,070 games /
+ * 64,397 turns at three thresholds; T = 4 leaves the gate ON for 22.4% of
+ * territory's decisions and flips mid-game in ~3% of its team-games — 0.101
+ * flips per 100 team-turns, which is why no hysteresis is needed and why the
+ * dwell guard below has nothing to suppress at this tenant's settings.
+ */
+export const OWN_TRAIL_ADMISSION_THRESHOLD = 4;
+
+export const ADMISSION_LADDERS: ReadonlyArray<LadderRow> = [
+  {
+    id: 'slider-or-pre-arm',
+    // THE PRE-ARM IS THE SECOND DISJUNCT, and it is not a separate rule: A3's
+    // recommendation is to treat `promotionImminent` AS slider presence, so
+    // that the one transition that actually happens in this corpus — a pawn
+    // promoting to a queen — occurs BETWEEN turns, one turn early, and never
+    // inside one. Promotion is a plan-space event (a promoted queen multiplies
+    // the joint plan space ~13×), which is exactly why the material-
+    // denominated evaluator never sees it coming.
+    when: (c) => c.sliderPossible || c.promotionImminent,
+    ladder: [BASE_COHORT_ID],
+    evidence:
+      '940 games: the OFF arm is lobster-material, raced 707 times in slider worlds ' +
+      '(paired score -0.347) and 233 times slider-free (+0.275). Board-level slider ' +
+      'presence flipped 0 times in 767 slider-roster games; the only way one appears ' +
+      'is promotion (10 promotions / 1,070 games, all in slider-free rosters).',
+  },
+  {
+    id: 'thin-trail-roster',
+    when: (c) => c.ownTrailCount < OWN_TRAIL_ADMISSION_THRESHOLD,
+    ladder: [BASE_COHORT_ID],
+    evidence:
+      "territory's own live trail count over 63,379 team-turns: 0 -> 37.3%, 1 -> 20.8%, " +
+      '2 -> 11.0%, 3 -> 4.8%, then 4+ -> 26.1%. Below the threshold room sums over an ' +
+      'empty own side and reach degenerates to the tie-dominated all-pieces reading.',
+  },
+  {
+    id: 'default-admit-territory',
+    when: () => true,
+    ladder: [BASE_COHORT_ID, TERRITORY_COHORT_ID],
+    evidence:
+      'the shipped default: TERRITORY_PROFILE is what the 2026-08-26 flag gate measured ' +
+      '(snake-only pooled, 32 seeds, paired score +0.81 [+0.44, +1.19]).',
+  },
+];

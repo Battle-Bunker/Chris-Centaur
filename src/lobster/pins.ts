@@ -20,7 +20,9 @@
  */
 
 import type {
+  Assumption,
   CellIndex,
+  CohortId,
   JointPlan,
   Pin,
   PinAdvice,
@@ -251,11 +253,46 @@ export interface TeamPinAdvice extends PinAdvice {
    * which of its numbers broke the rule rather than pretend it did not.
    */
   readonly degraded: boolean;
-  /** The basis each side was proved under, for the UI and the report. */
+  /**
+   * The basis each side was proved under, for the UI and the report.
+   *
+   * THREE LEGS, NOT TWO. A basis is `(epoch, posture, cohort)`: the epoch says
+   * which constraint set, the posture says which channel, and the cohort says
+   * which OBJECTIVE. Differencing two brackets proved under different
+   * objectives is not a price — it is a subtraction between answers to two
+   * different questions — so the cohort has to be visible here and has to
+   * count toward `degraded`.
+   */
   readonly basis: {
-    readonly staged: { readonly posture: Posture; readonly epoch: number };
-    readonly speculative: { readonly posture: Posture | null; readonly epoch: number | null };
+    readonly staged: {
+      readonly posture: Posture;
+      readonly epoch: number;
+      readonly cohort: CohortId | null;
+    };
+    readonly speculative: {
+      readonly posture: Posture | null;
+      readonly epoch: number | null;
+      readonly cohort: CohortId | null;
+    };
   };
+}
+
+/**
+ * The objective a record's numbers were proved under, read off the record's
+ * own basis rather than off the report's global state.
+ *
+ * The cohort rides every emitted record as a framing `Assumption`, which is
+ * the ONE place it is guaranteed to be correct for THAT record: the kernel
+ * stamps the candidate's cohort and not the run's, precisely so a record can
+ * never claim an objective its numbers were not proved under. Null for a
+ * hand-built record that carries no cohort assumption, which is treated as
+ * unknown — and unknown degrades, like every other missing leg of the basis.
+ */
+export function cohortOfRecord(rec: {
+  readonly assumptions: ReadonlyArray<Assumption>;
+}): CohortId | null {
+  for (const a of rec.assumptions) if (a.kind === 'cohort') return a.id;
+  return null;
 }
 
 /** Slices of speculative search at which confidence saturates. */
@@ -280,6 +317,9 @@ export interface AdviceInput {
     readonly incumbentHi: number | null;
     readonly posture: Posture | null;
     readonly epoch: number | null;
+    /** The objective the bracket was proved under. Optional so a pre-cohort
+     * caller still compiles; absent reads as unknown, and unknown degrades. */
+    readonly cohort?: CohortId | null;
   } | null;
 }
 
@@ -341,14 +381,22 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
       (c) => !c.speculative && c.key === report.activeContextKey && c.incumbentLo !== null
     ) ??
     null;
+  const stagedCohort = cohortOfRecord(staged);
   const base =
     active === null || active.incumbentLo === null || active.incumbentHi === null
-      ? { lo: staged.lo, hi: staged.hi, posture: staged.posture, epoch: staged.epoch }
+      ? {
+          lo: staged.lo,
+          hi: staged.hi,
+          posture: staged.posture,
+          epoch: staged.epoch,
+          cohort: stagedCohort,
+        }
       : {
           lo: active.incumbentLo,
           hi: active.incumbentHi,
           posture: active.posture ?? staged.posture,
           epoch: active.epoch ?? staged.epoch,
+          cohort: active.cohort ?? stagedCohort,
         };
   const out: TeamPinAdvice[] = [];
   for (const pin of input.tentative) {
@@ -383,12 +431,37 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
     const costLo = Math.max(0, base.lo - spec.hi);
     const costHi = Math.max(0, base.hi - spec.lo);
     if (Math.max(costLo, costHi) < threshold) continue;
-    const specBasis = { posture: spec.posture ?? null, epoch: spec.epoch ?? null };
+    const specBasis = {
+      posture: spec.posture ?? null,
+      epoch: spec.epoch ?? null,
+      cohort: spec.cohort ?? null,
+    };
+    // THE THIRD LEG (Stage 1 correction (c), now due). Testing posture and
+    // epoch alone was complete while one decision had exactly one objective,
+    // and it stops being complete the moment a decision's brackets can be
+    // proved under different ones. Two brackets under different objectives
+    // differenced into a pin price with `degraded` reading false is the exact
+    // cross-basis comparison the whole bounds layer exists to forbid — and it
+    // would be a silent arithmetic error, not a visible one, because both
+    // numbers are perfectly sound about their own question.
+    //
+    // THE NULL RULE IS DELIBERATELY NOT THE POSTURE ONE. `posture` is a
+    // required field on the record and only the speculative side can be
+    // missing it, so "speculative is null" means "one side knows and the other
+    // does not". The cohort is read from an ASSUMPTION and from an optional
+    // context field, so BOTH sides can be silent — a hand-built record, a
+    // fixture, a caller's own `unconstrained` bracket. Silence on both sides
+    // carries no disagreement and is not, on its own, a reason to withdraw a
+    // price; disagreement (including one side naming an objective the other
+    // does not) is. In production the both-silent case cannot arise on a real
+    // report — the kernel stamps every record — and where the speculative side
+    // has no basis at all the posture and epoch tests above already fire.
     const degraded =
       specBasis.posture === null ||
       specBasis.epoch === null ||
       specBasis.posture !== base.posture ||
-      specBasis.epoch !== base.epoch;
+      specBasis.epoch !== base.epoch ||
+      specBasis.cohort !== base.cohort;
     const refuted = spec.hi < base.lo;
     out.push({
       pin,
@@ -400,7 +473,7 @@ export function adviseFromReport(input: AdviceInput): TeamPinAdvice[] {
       snakeId: input.snakeIdOf?.(pin.unitId) ?? null,
       degraded,
       basis: {
-        staged: { posture: base.posture, epoch: base.epoch },
+        staged: { posture: base.posture, epoch: base.epoch, cohort: base.cohort },
         speculative: specBasis,
       },
     });

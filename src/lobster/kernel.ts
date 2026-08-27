@@ -42,6 +42,7 @@
 
 import { transientDelay } from "../server/activity-controller"
 import type {
+  AdmissionStamp,
   Assumption,
   Bound,
   BudgetHandle,
@@ -49,6 +50,7 @@ import type {
   CrossfadeVerdict,
   EmitRecord,
   JointPlan,
+  Evaluator,
   Kernel,
   KernelInput,
   Pin,
@@ -74,6 +76,19 @@ import {
   requireCohortRowIn,
   type CohortRow,
 } from "./evaluate/calibration"
+// THE ADMISSION POLICY. `admission.ts` is the other governor beside
+// `postures.ts`, and like it, it is a pure classifier over measured board
+// conditions plus a dwell. It costs the loop's module graph one leaf of the
+// vendored grammar (`profileOf`, for the class-level slider and promotion
+// predicates) and nothing else — no evaluator, no features, no shells. WHICH
+// evaluator computes an admitted cohort is not the kernel's knowledge: it is
+// handed one per cohort through `KernelInput.evaluators`.
+import {
+  admissionSubstrateOf,
+  admitAtEntry,
+  type AdmissionPolicy,
+  type AdmissionState,
+} from "./admission"
 import {
   DEFAULT_DEAD_BELOW,
   PostureGovernor,
@@ -474,10 +489,28 @@ export interface KernelOptions {
    * every concurrent decision's registry, and Stage 2's per-game cohort policy
    * has to be expressible without one game's configuration reaching another's.
    *
-   * Stage 1 ships ONE row, so every production decision proves everything
-   * under one objective and the whole stage is a behavioural no-op.
+   * The table is a CATALOGUE and not a policy: registering a row admits
+   * nothing. `admission` below is what chooses.
    */
   readonly cohorts: ReadonlyArray<CohortRow>
+  /**
+   * THE ADMISSION POLICY, OR `null` FOR OFF — and `null` is the default.
+   *
+   * `null` is genuinely off, not "the policy that always answers the default":
+   * with it null the kernel measures no board conditions, classifies nothing,
+   * stamps no `AdmissionStamp` on any record, and opens under
+   * `KernelInput.cohort ?? DEFAULT_COHORT_ID` exactly as the stage before this
+   * one did. That is what makes the flag-off replay identical rather than
+   * merely equivalent, and it is why the field is nullable instead of carrying
+   * an "off" row.
+   *
+   * Threaded per-kernel — per DECISION, since a kernel is built per decision —
+   * and never read off the process environment down here. A process-wide flag
+   * measures nothing: two arms of one experiment sharing a process would share
+   * the flag, and the composition layer is the only place that knows which arm
+   * a game is in.
+   */
+  readonly admission: AdmissionPolicy | null
 }
 
 export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
@@ -501,6 +534,7 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   epsilon: 1.5,
   depthMax: 2,
   cohorts: COHORTS,
+  admission: null,
 }
 
 // -------------------------------------------------------------------- report
@@ -585,6 +619,21 @@ export interface KernelReport {
   readonly conformance: ReadonlyArray<ConformanceSample>
   readonly cache: Readonly<PinCacheStats>
   readonly postureFlips: ReadonlyArray<PostureFlip>
+  /**
+   * WHAT THE ADMISSION POLICY DECIDED, or null when none ran. One value per
+   * decision — the ladder is frozen at entry, so there is nothing to keep a
+   * history of. The detectors ride with it because a refit corpus that has the
+   * verdict without the evidence cannot revise the predicate that produced it.
+   */
+  readonly admission: AdmissionStamp | null
+  /**
+   * The governor state to hand this game's NEXT decision, so the dwell counts
+   * across turns. A VALUE, not a shared governor: two decisions for one game
+   * can overlap when a new turn abandons an old one, and a shared mutable
+   * governor would let the abandoned one's measurement land after its
+   * successor's. Null when no policy ran.
+   */
+  readonly admissionState: AdmissionState | null
   readonly basisHistory: ReadonlyArray<BasisSnapshot>
   readonly journal: ReadonlyArray<EmitRecord>
   readonly levers: ReadonlyArray<Lever>
@@ -825,6 +874,23 @@ interface Run {
    * production caller flips it yet.
    */
   cohort: CohortId
+  /**
+   * THE EVALUATOR THIS DECISION IS PROVING WITH — the one that computes
+   * `cohort`. It is `input.evaluate` unless an admission policy chose a
+   * different cohort AND `input.evaluators` names an evaluator for it, and it
+   * is resolved ONCE, at decision entry, beside the cohort itself. Two fields
+   * that must agree are set in one place so they cannot disagree.
+   */
+  readonly evaluate: Evaluator
+  /**
+   * WHAT THE POLICY DECIDED, or null when no policy ran. Frozen at decision
+   * entry: nothing in the loop writes it, which is the freeze rule expressed
+   * as an absence of code rather than as a comment.
+   */
+  readonly admission: AdmissionStamp | null
+  /** The governor state to hand the next decision on this game, so the dwell
+   * counts across turns without two decisions sharing a mutable governor. */
+  readonly admissionState: AdmissionState | null
   basis: RatchetBasis
   active: PinContextEntry
   lastView: LeverView | null
@@ -928,8 +994,26 @@ export class LobsterKernel implements Kernel {
     // registry does not know it. A bound stamped with an objective nobody can
     // look up is indistinguishable from a sound one until someone tries to
     // compare it, which is months later and in a refit corpus.
-    const cohort = input.cohort ?? DEFAULT_COHORT_ID
+    //
+    // ── ADMISSION, ONCE, HERE, AND NOWHERE ELSE ─────────────────────────────
+    //
+    // With a policy configured, the board — not the caller — names the
+    // objective, and it names it exactly once. This is the freeze: the ladder
+    // is an INPUT to the turn rather than state within it, and the way that is
+    // enforced is that no other line in this file measures admission. A
+    // catch-up cannot flip it because nothing re-measures; a slice cannot flip
+    // it because nothing re-measures; an epoch cannot flip it because nothing
+    // re-measures — and, separately, because every condition is a function of
+    // the substrate's turn-start roster and claim field, which an epoch does
+    // not touch, so a re-measurement would be provably identical anyway.
+    //
+    // A refinement-driven admission flip would put a non-monotone switch
+    // inside the refinement lattice, which is outside what the monotonicity
+    // law even speaks about. Excluded structurally, not dwell-guarded around.
+    const admitted = this.admit(input)
+    const cohort = admitted?.stamp.activeCohort ?? input.cohort ?? DEFAULT_COHORT_ID
     requireCohortRowIn(this.opts.cohorts, cohort)
+    const evaluate = this.evaluatorFor(input, cohort, admitted !== null)
     const cache = new PinContextCache(this.opts.pinCacheCapacity)
     const pins = canonicalPins(input.initialPins)
     const seeded = cache.obtain(
@@ -963,6 +1047,9 @@ export class LobsterKernel implements Kernel {
       refusedPins: new Map<UnitId, number>(),
       epoch: 0,
       cohort,
+      evaluate,
+      admission: admitted?.stamp ?? null,
+      admissionState: admitted?.state ?? null,
       basis: newBasis(0, "SIGHTED", cohort),
       active: seeded.entry,
       lastView: null,
@@ -1411,7 +1498,7 @@ export class LobsterKernel implements Kernel {
     return {
       sub: run.input.sub,
       gen: run.input.gen,
-      evaluate: run.input.evaluate,
+      evaluate: run.evaluate,
       asTeam: run.input.asTeam,
       pins: entry.pins.filter((p) => run.refusedPins.get(p.unitId) !== p.to),
       // The decision's standing basis (reference actions, held-capacity
@@ -1529,7 +1616,7 @@ export class LobsterKernel implements Kernel {
 
   private evaluateBound(run: Run, plan: JointPlan): Bound {
     run.evaluateCalls++
-    return run.input.evaluate.scorePlan(run.input.sub, plan, run.input.asTeam)
+    return run.evaluate.scorePlan(run.input.sub, plan, run.input.asTeam)
   }
 
   private conformNow(run: Run, from: JointPlan): PlanCandidate {
@@ -1617,6 +1704,69 @@ export class LobsterKernel implements Kernel {
   /** The stamp one cohort rides as, resolved through THIS kernel's registry. */
   private cohortAssumption(id: CohortId): Assumption {
     return cohortAssumptionOf(requireCohortRowIn(this.opts.cohorts, id))
+  }
+
+  // ------------------------------------------------------------- admission
+
+  /**
+   * THE ONLY ADMISSION CALL SITE IN THE KERNEL. Runs at decision entry, before
+   * rung 0, before any evaluation, and never again.
+   *
+   * Returns null when no policy is configured, which is the default and is the
+   * whole of the off state: no measurement is taken, no stamp is produced, and
+   * nothing downstream can tell that this file grew an admission path.
+   *
+   * A configured policy needs a substrate that can answer three questions (its
+   * roster, its claim field, its promotion threshold). One that cannot is a
+   * composition error and says so — being silently inert here would mean a
+   * measured A/B arm quietly running the control.
+   */
+  private admit(input: KernelInput): {
+    stamp: AdmissionStamp
+    state: AdmissionState
+  } | null {
+    const policy = this.opts.admission
+    if (policy === null) return null
+    const sub = admissionSubstrateOf(input.sub)
+    if (sub === null) {
+      throw new TypeError(
+        "the admission policy needs the engine substrate: the roster, the claim field " +
+          "and the promotion threshold are not on the Substrate interface",
+      )
+    }
+    const { stamp, state } = admitAtEntry(
+      sub,
+      input.asTeam,
+      policy,
+      this.opts.cohorts,
+      input.now?.() ?? defaultNow(),
+    )
+    return { stamp, state }
+  }
+
+  /**
+   * The evaluator that computes the decision's cohort.
+   *
+   * With no policy this is `input.evaluate`, unchanged and unconditionally —
+   * the caller named one objective and supplied the thing that computes it.
+   *
+   * With a policy, the BOARD named the objective, so the caller's single
+   * evaluator is no longer known to compute it. `input.evaluators` is where
+   * the composition layer says which evaluator serves which cohort. A policy
+   * that admits a cohort the map cannot serve is refused here rather than
+   * papered over with `input.evaluate`: falling back would mean proving
+   * numbers under one objective and stamping them with another, which is the
+   * exact silent mixing the cohort stamp exists to prevent.
+   */
+  private evaluatorFor(input: KernelInput, cohort: CohortId, governed: boolean): Evaluator {
+    if (!governed) return input.evaluate
+    const chosen = input.evaluators?.get(cohort)
+    if (chosen !== undefined) return chosen
+    throw new Error(
+      `the admission policy admitted cohort ${JSON.stringify(cohort)} but no evaluator ` +
+        "was supplied for it: pass KernelInput.evaluators covering every cohort the " +
+        "policy's ladders can name",
+    )
   }
 
   /**
@@ -2123,6 +2273,13 @@ export class LobsterKernel implements Kernel {
       assumptions: this.assumptions(run, cand),
       epoch: run.epoch,
       crossfade,
+      // THE POLICY ON THE WIRE. Present exactly when a policy ran, absent when
+      // it did not — "the policy was off" and "the policy chose the default"
+      // are different facts, and a corpus that cannot separate them cannot be
+      // refit. Spread conditionally rather than written as `?? undefined` so a
+      // flag-off record has no `admission` KEY at all and a byte comparison
+      // against the stage before this one has nothing to strip.
+      ...(run.admission === null ? {} : { admission: run.admission }),
     }
   }
 
@@ -2253,6 +2410,8 @@ export class LobsterKernel implements Kernel {
       conformance: run.conformance,
       cache: { ...run.cache.stats },
       postureFlips: run.governor.flips,
+      admission: run.admission,
+      admissionState: run.admissionState,
       basisHistory: run.basisHistory,
       journal: run.journal,
       levers: run.voc.levers,
