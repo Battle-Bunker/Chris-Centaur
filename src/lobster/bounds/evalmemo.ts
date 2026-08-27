@@ -50,6 +50,24 @@
  * cannot move `outstanding()` and cannot keep an arena slab alive; the slab
  * discipline stays entirely the resolution memo's. That is also why its
  * capacity can be generous where the resolution memo's must not be.
+ *
+ * ── WHY THIS IS ALSO THE PARALLELISM SEAM ─────────────────────────────────
+ *
+ * Because a key determines a value, an entry does not care WHICH THREAD
+ * computed it. `import()` is how an evaluation worker (`lobster/parallel`)
+ * hands one in, and every consequence of that is confined to wall time:
+ *
+ *   · a value is unchanged, so no published bound moves;
+ *   · a hit that would have been a miss recomputes nothing, and a miss that
+ *     an import turned into a hit computes the same number sooner;
+ *   · an extra entry can EVICT one this thread would have hit, and the evicted
+ *     key is then simply recomputed — to the same value.
+ *
+ * So the search's trajectory over a given amount of WORK is invariant under
+ * how many workers are running, which is what the pool-0 / pool-N gates
+ * assert. What the key cannot express is two substrates that are not the same
+ * board; `audit` recomputes every imported entry on first read and throws on a
+ * disagreement, which is the check for exactly that.
  */
 
 import { objectIdentity } from "../contracts";
@@ -60,6 +78,34 @@ export interface EvalMemoStats {
   readonly misses: number;
   readonly entries: number;
   readonly capacity: number;
+  /** Entries handed in from somewhere else — an evaluation WORKER (see
+   * `lobster/parallel`). Counted separately from `misses` because they are
+   * work this thread did not do. */
+  readonly imported: number;
+  /** Imported entries that a later `score()` actually read. The prefetch's
+   * hit rate, and the only honest measure of whether speculation is paying. */
+  readonly importHits: number;
+  /** Imported entries recomputed and CONFIRMED under audit mode. */
+  readonly audited: number;
+}
+
+/** An evaluation that disagreed with the one the main thread computes. */
+export class EvaluationDivergenceError extends Error {
+  readonly code = "evaluation_divergence" as const;
+  constructor(
+    readonly key: string,
+    readonly imported: Bound,
+    readonly local: Bound,
+  ) {
+    super(
+      `an imported evaluation disagrees with this thread's own for ${key}: ` +
+        `imported (${imported.lo}, ${imported.est}, ${imported.hi}) vs local ` +
+        `(${local.lo}, ${local.est}, ${local.hi}). The two substrates are not the ` +
+        `same board — the memo key cannot express that, so audit mode is what ` +
+        `catches it.`,
+    );
+    this.name = "EvaluationDivergenceError";
+  }
 }
 
 /**
@@ -119,8 +165,35 @@ export class EvaluationMemo {
   private readonly entries = new Map<string, Bound>();
   private hits = 0;
   private misses = 0;
+  private importedCount = 0;
+  private importHitCount = 0;
+  private auditedCount = 0;
+  /**
+   * Keys written by `import`, kept ONLY while auditing. Off the audit path this
+   * set is never populated, so the ordinary regime pays one `null` check on a
+   * hit and nothing else.
+   */
+  private importedKeys: Set<string> | null = null;
+  /**
+   * Keys this memo SERVED since `startRecording()` — hits included. Null when
+   * nobody is recording, which is every main-thread bank.
+   *
+   * Hits included, and that is the whole point. A worker's output is "the
+   * evaluations these plans need", not "the evaluations I happened not to have
+   * yet": its own memo persists across parcels, so a key it computed for an
+   * earlier parcel would otherwise be sent once — at a moment the coordinator
+   * very likely already had it — and then never again, even though a later
+   * slice will ask for it. Recording what was READ makes a parcel's answer a
+   * function of the parcel rather than of the worker's history.
+   */
+  private recorded: Set<string> | null = null;
 
-  constructor(private readonly capacity: number) {}
+  constructor(
+    private readonly capacity: number,
+    private readonly audit = false,
+  ) {
+    if (audit) this.importedKeys = new Set();
+  }
 
   get stats(): EvalMemoStats {
     return {
@@ -128,23 +201,68 @@ export class EvaluationMemo {
       misses: this.misses,
       entries: this.entries.size,
       capacity: this.capacity,
+      imported: this.importedCount,
+      importHits: this.importHitCount,
+      audited: this.auditedCount,
     };
   }
 
   /**
    * The memoised evaluation. `compute` runs exactly once per distinct key
    * while the entry lives; an evicted key simply pays again.
+   *
+   * AN IMPORTED ENTRY IS INDISTINGUISHABLE FROM A LOCAL ONE, and that is the
+   * whole determinism argument: the value is a pure function of the key, so
+   * whether this thread or a worker computed it changes wall time and nothing
+   * else. Under audit the imported value is recomputed once and compared, which
+   * is the only way to catch two substrates that are not the same board.
    */
   score(key: string, compute: () => Bound): Bound {
     if (this.capacity <= 0) return compute();
     const hit = this.entries.get(key);
     if (hit !== undefined) {
       this.hits++;
+      this.recorded?.add(key);
+      if (this.importedKeys !== null && this.importedKeys.delete(key)) {
+        this.importHitCount++;
+        const local = compute();
+        if (local.lo !== hit.lo || local.est !== hit.est || local.hi !== hit.hi) {
+          throw new EvaluationDivergenceError(key, hit, local);
+        }
+        this.auditedCount++;
+      }
       return hit;
     }
     this.misses++;
     const made = compute();
-    this.entries.set(key, made);
+    this.remember(key, made);
+    return made;
+  }
+
+  /**
+   * Take an evaluation somebody else computed for this exact key.
+   *
+   * Refuses to overwrite: an entry already here was either computed by this
+   * thread or imported earlier, and in both cases it is the same value, so a
+   * write would be pure churn. Returns whether the entry was new.
+   */
+  import(key: string, bound: Bound): boolean {
+    if (this.capacity <= 0) return false;
+    if (this.entries.has(key)) return false;
+    this.importedCount++;
+    this.importedKeys?.add(key);
+    this.remember(key, bound);
+    return true;
+  }
+
+  /** Whether an entry — local or imported — is already held. */
+  has(key: string): boolean {
+    return this.entries.has(key);
+  }
+
+  private remember(key: string, bound: Bound): void {
+    this.entries.set(key, bound);
+    this.recorded?.add(key);
     // Oldest-first, one line, no LRU bookkeeping: the access pattern here is a
     // search re-visiting recent plans, and promoting on read costs more than
     // the occasional early eviction it would save.
@@ -152,8 +270,28 @@ export class EvaluationMemo {
       const oldest = this.entries.keys().next();
       if (oldest.done) break;
       this.entries.delete(oldest.value);
+      this.importedKeys?.delete(oldest.value);
     }
-    return made;
+  }
+
+  /** Start collecting the keys this memo serves. A worker's whole output. */
+  startRecording(): void {
+    if (this.recorded === null) this.recorded = new Set();
+  }
+
+  /** The keys served since the last take, with their values. Empties the log. */
+  takeRecording(): ReadonlyArray<readonly [string, Bound]> {
+    const keys = this.recorded;
+    if (keys === null) return [];
+    this.recorded = new Set();
+    const out: Array<readonly [string, Bound]> = [];
+    for (const key of keys) {
+      const bound = this.entries.get(key);
+      // An entry evicted before it was drained is not sent: half an answer is
+      // not a cheaper answer, and the consumer would simply miss on it.
+      if (bound !== undefined) out.push([key, bound]);
+    }
+    return out;
   }
 
   /** Per-decision lifetime: the bank calls this when it closes. */
@@ -161,5 +299,10 @@ export class EvaluationMemo {
     this.entries.clear();
     this.hits = 0;
     this.misses = 0;
+    this.importedCount = 0;
+    this.importHitCount = 0;
+    this.auditedCount = 0;
+    this.importedKeys?.clear();
+    if (this.recorded !== null) this.recorded = new Set();
   }
 }

@@ -872,8 +872,21 @@ export class TacticToesFirebaseInterface {
     }
     this.watchedGames.clear();
     this.dropAllPendingGames();
+    // The lobster evaluation workers, if any were ever spawned. They are
+    // unref'd so they cannot hold the loop open, but three workers' worth of
+    // EngineSubstrate is memory held for games nobody is playing any more.
+    await this.teamEngine.shutdown();
     if (this.app) await deleteApp(this.app);
     this.app = null;
+  }
+
+  /**
+   * Idle teardown for the lobster evaluation workers — the counterpart of
+   * `DecisionWorkerPool.shutdownSharedIfRunning`. The pool respawns, warm,
+   * on the next decision after a wake.
+   */
+  async releaseEvaluationWorkers(): Promise<void> {
+    await this.teamEngine.shutdown();
   }
 
   private watchGame(sessionID: string, gameID: string): void {
