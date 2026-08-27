@@ -300,7 +300,8 @@ export function makeContext(
  * exact arrivals, so every territory feature collapses to a point.
  */
 /**
- * The largest trail-unit count any team fielded at the START of the turn.
+ * The trail-unit count the WHOLE BOARD fielded at the START of the turn —
+ * summed over teams, not the largest single team's.
  *
  * Read off the roster and NOT off who a reading admits, because that is what
  * makes it a CONSTANT: the same number in the partial reading, in every world
@@ -309,14 +310,35 @@ export function makeContext(
  * monotone in admission — our floor would read a single roomy unit as a whole
  * team's worth of room and then find the world, with two boxed teammates also
  * on the board, scoring below it.
+ *
+ * WHY THE SUM AND NOT THE MAX (O-P3). `roomFeature` divides
+ * `Σ_ours g(u) − Σ_theirs g(u)` by this number, with `g(u) ∈ [0,1]` per unit.
+ * Under the MAX, our admitted trails are at most one team's worth T = scale but
+ * the OTHER K−1 teams each contribute up to T as well, so `room ∈ [−(K−1), +1]`
+ * and its span is K, not 2. That is not a hypothetical: rf-falsifier measured
+ * room's observed range as exactly [−2.000, +1.000] over 160,826 readings, with
+ * 6.06% below −1 and every one of them on a three-team board, against
+ * `territory-acceptance.test.ts`'s assertion that `room ∈ [−1,1]` holds "on ANY
+ * board, by construction". Dividing by the whole board's trail population makes
+ * that assertion true as written for every K: the numerator's positive part is
+ * bounded by our share of the divisor and its negative part by the rest, so
+ * `room ∈ [−1, +1]` and the rules-sound span certificate drops from `w·K` to
+ * `w·2` (9.0 → 3.0 on a three-team board), which is what returns the certified
+ * core reach+room+king to 5.5 and back under the lattice step of 10.
+ *
+ * This is a BEHAVIOUR CHANGE, deliberately, and on every board shape rather
+ * than only the three-team ones: with identical per-team rosters the divisor
+ * becomes K·T, so room's realised range contracts by a factor of K and the
+ * feature carries proportionally less of the ordering everywhere. It is gated
+ * on its own measured arm, not folded into anything else.
  */
 export function trailScaleOf(sub: EngineSubstrate): number {
-  const byTeam = new Map<number, number>();
+  let total = 0;
   for (const u of sub.roster()) {
     if (!profileOf(u.kind).leavesTrail) continue;
-    byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
+    total += 1;
   }
-  return Math.max(1, ...byTeam.values());
+  return Math.max(1, total);
 }
 
 export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
