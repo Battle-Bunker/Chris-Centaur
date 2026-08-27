@@ -77,10 +77,12 @@ import type { Resolution } from "../../partial-engine/index";
 import { evaluatorResidueEntry, ledgerOf, residueOf } from "./ledger";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
+import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
 import { modelledView, isModelling } from "./substrate-ext";
 import {
   BOUND_EPSILON,
   backupMin,
+  basisKeyOf,
   makeScoreBounds,
   unionAssumptions,
   unionLedgers,
@@ -114,6 +116,12 @@ export interface BankConfig {
   readonly gateOnEntanglement: boolean;
   /** Resolutions cached per decision context. */
   readonly memoCapacity: number;
+  /**
+   * EVALUATIONS cached per decision context — a different budget from the one
+   * above and deliberately larger, because an entry here is three numbers and
+   * holds no arena slab (see evalmemo.ts). Zero turns the memo off.
+   */
+  readonly evalMemoCapacity: number;
 }
 
 export const DEFAULT_BANK_CONFIG: BankConfig = {
@@ -125,6 +133,7 @@ export const DEFAULT_BANK_CONFIG: BankConfig = {
   declareTruncatedFloor: false,
   gateOnEntanglement: true,
   memoCapacity: 4096,
+  evalMemoCapacity: 8192,
 };
 
 /** B0 alone: the cheap end of the ladder, one resolution per plan. */
@@ -187,6 +196,12 @@ export interface BankInput {
   readonly gen: CandidateGenerator;
   readonly evaluate: Evaluator;
   readonly asTeam: number;
+  /**
+   * The budget the bank consults AT CONSTRUCTION TIME. A bank that outlives
+   * one slice must be handed the next slice's handle through `adoptBudget` —
+   * see the field's own note. Budget SEMANTICS stay the caller's: the bank
+   * asks `shouldStop()` and never decides what a slice is worth.
+   */
   readonly budget: BudgetHandle;
   /**
    * Assumptions every member inherits: operator pins, the posture, and the
@@ -215,6 +230,17 @@ interface Branch {
   readonly resolution: Resolution;
 }
 
+/**
+ * One hold configuration, and the NAME of it. The name is part of an
+ * evaluation's cache key: the same plan under two different modelled sets
+ * resolves into two different worlds and scores differently, so a view that
+ * cannot be named cannot be cached against.
+ */
+interface View {
+  readonly sub: Substrate;
+  readonly key: string;
+}
+
 const isFinite_ = (n: number): boolean => Number.isFinite(n);
 
 export class BoundBank {
@@ -231,6 +257,32 @@ export class BoundBank {
   private readonly narrowingList: Assumption[] = [];
   private readonly views = new Map<string, { sub: Substrate; release(): void }>();
   private readonly canModel: boolean;
+  /** Evaluations cached for this decision context — see evalmemo.ts. */
+  private readonly evalMemo: EvaluationMemo;
+  /** The canonical key of this bank's basis; half of the eval memo namespace. */
+  private readonly basisKey: string;
+
+  /**
+   * THE LIVE CLOCK.
+   *
+   * This is a HANDLE THE CALLER OWNS, re-pointed per slice, and it is a field
+   * rather than `input.budget` because of a measured defect:
+   * `SearchCore.open()` built the bank with the FIRST slice's `BudgetHandle`
+   * and then cached the session across slices, so from slice two on the bank
+   * held a handle whose `shouldStop()` was permanently true. Every B1/B2/B3
+   * sweep aborted at its first check and every price silently degraded to B0 —
+   * all 1 724 prices of a one-second decision, zero rung admissions, zero
+   * witnesses, for the whole life of the session. The ladder was, in effect,
+   * off in production while reading as on.
+   *
+   * A captured clock is the bug. The bank does not own time policy — the
+   * kernel builds the slice budget and the search hands it down — so what the
+   * bank keeps is a POINTER to the current one, and `adoptBudget` is how a
+   * caller that outlives a slice keeps it honest. `SearchCore.sessionFor` does
+   * it on every path, next to `adoptWitnesses`, for the same reason: some
+   * caller state must cross every boundary.
+   */
+  private budget: BudgetHandle;
 
   constructor(private readonly input: BankInput) {
     this.cfg = { ...DEFAULT_BANK_CONFIG, ...(input.config ?? {}) };
@@ -238,6 +290,25 @@ export class BoundBank {
     this.referenceActions = input.referenceActions ?? new Map();
     this.referenceIds = [...this.referenceActions.keys()].sort((a, b) => a - b);
     this.canModel = isModelling(this.memo);
+    this.evalMemo = new EvaluationMemo(this.cfg.evalMemoCapacity);
+    this.basisKey = basisKeyOf(input.basis);
+    this.budget = input.budget;
+  }
+
+  /**
+   * Point the bank at the budget of the slice that is running NOW.
+   *
+   * Idempotent, and cheap enough to call unconditionally. A bank that is not
+   * re-pointed keeps whatever handle it was built with — which is correct for
+   * a bank that lives inside one slice and fatal for one that does not.
+   */
+  adoptBudget(budget: BudgetHandle): void {
+    this.budget = budget;
+  }
+
+  /** Evaluation-memo counters, for the soak and the regression tests. */
+  get evalMemoStats(): EvalMemoStats {
+    return this.evalMemo.stats;
   }
 
   /** True when the substrate can change WHO is held — B1/B2/B3 need it. */
@@ -276,6 +347,10 @@ export class BoundBank {
     for (const v of this.views.values()) v.release();
     this.views.clear();
     this.memo.release();
+    // Per-decision lifetime, exactly like the resolution memo's. The eval memo
+    // holds no slabs, so this moves no arena counter — it is here so a cache
+    // on a per-decision quantity cannot outlive the decision.
+    this.evalMemo.clear();
   }
 
   /**
@@ -293,14 +368,14 @@ export class BoundBank {
 
   // ------------------------------------------------------------------ views
 
-  private viewFor(modelled: ReadonlyArray<UnitId>): Substrate {
+  private viewFor(modelled: ReadonlyArray<UnitId>): View {
     const ids = [...new Set([...this.referenceIds, ...modelled])].sort((a, b) => a - b);
     const key = ids.join(",");
     const hit = this.views.get(key);
-    if (hit) return hit.sub;
+    if (hit) return { sub: hit.sub, key };
     const view = modelledView(this.memo, ids);
     this.views.set(key, view);
-    return view.sub;
+    return { sub: view.sub, key };
   }
 
   /** The plan every branch starts from: ours, plus the declared reference actions. */
@@ -314,16 +389,29 @@ export class BoundBank {
   /**
    * Price ONE branch: one resolution, one evaluation, one contract-shaped
    * ledger. The memo makes the evaluator's internal resolve a cache hit on the
-   * entry this call filled, so a branch costs one engine resolution.
+   * entry this call filled, so a branch costs one engine resolution — and the
+   * eval memo makes a REPEATED branch cost neither (see evalmemo.ts).
+   *
+   * `evalNs` is the namespace `price` computed for this call: evaluator
+   * identity, basis, frame. It is a parameter rather than a field so there is
+   * no captured-identity twin of the captured-clock defect above.
+   *
+   * `planKey` is computed ONCE here and used twice — as the memo key and as
+   * the bound's provenance note. It used to be computed twice per branch, at
+   * 1.19 µs each on an eight-unit roster, on the hottest path in the system.
    */
   private priceBranch(
-    view: Substrate,
+    view: View,
     plan: JointPlan,
     rung: Rung,
     replies: ReadonlyMap<UnitId, Candidate> | null,
+    evalNs: string,
   ): Branch {
-    const { resolution } = view.resolveBoundedFor(plan, this.input.asTeam);
-    const bound: Bound = this.input.evaluate.scorePlan(view, plan, this.input.asTeam);
+    const pk = planKey(plan);
+    const { resolution } = view.sub.resolveBoundedFor(plan, this.input.asTeam);
+    const bound: Bound = this.evalMemo.score(`${evalNs}|${view.key}|${pk}`, () =>
+      this.input.evaluate.scorePlan(view.sub, plan, this.input.asTeam),
+    );
     let ledger: ReadonlyArray<LedgerEntry> = ledgerOf(resolution);
     if (ledger.length === 0 && bound.hi - bound.lo > BOUND_EPSILON) {
       // The engine proved nothing held could have changed this outcome, and
@@ -342,7 +430,7 @@ export class BoundBank {
         best: bound.hi,
         ledger,
         assumptions: this.input.basis,
-        note: `${rung} branch ${planKey(plan)}`,
+        note: `${rung} branch ${pk}`,
       }),
       est: bound.est,
       rung,
@@ -352,7 +440,7 @@ export class BoundBank {
   }
 
   private optionsFor(
-    view: Substrate,
+    view: View,
     unitId: UnitId,
   ): { options: ReadonlyArray<Candidate>; complete: boolean } {
     const hit = this.optionCache.get(unitId);
@@ -360,7 +448,7 @@ export class BoundBank {
     // ADVERSARY purpose: the complete legal option list, by contract. The
     // generator's own-side prunes — exact ones included — would read as
     // incompleteness here, and an enemy's pruning rationale is ours, not its.
-    const set = this.input.gen.candidatesFor(view, unitId, "adversary");
+    const set = this.input.gen.candidatesFor(view.sub, unitId, "adversary");
 
     // COMPLETENESS IS CHECKED, NOT ACCEPTED (V4 S2).
     //
@@ -381,7 +469,7 @@ export class BoundBank {
     // of "I could not check" is the one that cannot publish a wrong floor.
     let enumerated: number | null = null;
     try {
-      enumerated = view.actionsOf(unitId).length;
+      enumerated = view.sub.actionsOf(unitId).length;
     } catch {
       enumerated = null;
     }
@@ -420,6 +508,12 @@ export class BoundBank {
   price(plan: JointPlan): BankResult {
     const before = this.memo.stats.resolutions;
     const base = this.withReferences(plan);
+    // THE EVALUATION MEMO'S NAMESPACE, rebuilt every call. Everything that
+    // makes two evaluations of the same world different answers rather than
+    // the same one: which evaluator (and therefore which criterion profile,
+    // weights and reach horizon), which BASIS, and which frame the value is
+    // denominated in. Recomputed rather than captured — see evalmemo.ts.
+    const evalNs = evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam);
     const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: Resolution }> = [];
     const ceilingBranches: Branch[] = [];
     const members: MemberReport[] = [];
@@ -427,7 +521,7 @@ export class BoundBank {
 
     // ---- B0 -------------------------------------------------------------
     const b0View = this.viewFor([]);
-    const b0 = this.priceBranch(b0View, base, "B0", null);
+    const b0 = this.priceBranch(b0View, base, "B0", null, evalNs);
     const b0Report: MemberReport = {
       rung: "B0",
       unitId: null,
@@ -462,14 +556,14 @@ export class BoundBank {
           let swept = true;
           const walk = (i: number, acc: Candidate[]): void => {
             if (!swept) return;
-            if (this.input.budget.shouldStop()) {
+            if (this.budget.shouldStop()) {
               swept = false;
               return;
             }
             const list = lists[i];
             if (list === undefined) {
               const replies = new Map(acc.map((c) => [c.unitId, c]));
-              leaves.push(this.priceBranch(view, withMoves(base, acc), "B3", replies));
+              leaves.push(this.priceBranch(view, withMoves(base, acc), "B3", replies, evalNs));
               return;
             }
             for (const option of list.options) {
@@ -490,7 +584,7 @@ export class BoundBank {
       // ---- B1: one enemy at a time, additive -----------------------------
       if (this.cfg.b1 && !b3Covered) {
         for (const enemy of gated.slice(0, this.cfg.enemyCap)) {
-          if (this.input.budget.shouldStop()) {
+          if (this.budget.shouldStop()) {
             finished = false;
             break;
           }
@@ -500,12 +594,12 @@ export class BoundBank {
           const leaves: Branch[] = [];
           let swept = true;
           for (const option of options) {
-            if (this.input.budget.shouldStop()) {
+            if (this.budget.shouldStop()) {
               swept = false;
               break;
             }
             const replies = new Map([[enemy, option]]);
-            leaves.push(this.priceBranch(view, withMove(base, option), "B1", replies));
+            leaves.push(this.priceBranch(view, withMove(base, option), "B1", replies, evalNs));
           }
           for (const leaf of leaves) ceilingBranches.push(leaf);
           if (leaves.length === 0) continue;
@@ -520,7 +614,7 @@ export class BoundBank {
       // ---- B2: the witness matrix ----------------------------------------
       if (this.cfg.b2 && this.witnessList.length > 0) {
         for (const witness of this.witnessList) {
-          if (this.input.budget.shouldStop()) {
+          if (this.budget.shouldStop()) {
             finished = false;
             break;
           }
@@ -532,6 +626,7 @@ export class BoundBank {
             withMoves(base, [...witness.replies.values()]),
             "B2",
             witness.replies,
+            evalNs,
           );
           ceilingBranches.push(branch);
           members.push({

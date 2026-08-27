@@ -28,6 +28,7 @@
  * enforces it with.
  */
 
+import { structuralIdentity } from '../contracts';
 import type {
   Bound,
   Evaluator,
@@ -81,6 +82,27 @@ export class BoundEvaluator implements Evaluator {
   constructor(profile: CriterionProfile = DEFAULT_PROFILE) {
     this.profile = profile;
     this.weights = profile.weights;
+  }
+
+  /**
+   * WHAT THIS EVALUATOR IS, for anything that caches an evaluation.
+   *
+   * An evaluation is NOT evaluator-independent the way a resolution is: two
+   * profiles score the same resolved world differently, and so does one
+   * profile at a different reach horizon. So the bound bank's evaluation memo
+   * keys on this string, and this string is derived STRUCTURALLY from the
+   * whole profile — every field, including any a cohort or selection
+   * mechanism adds later, and including a field this file has never heard of.
+   * Nothing is enumerated by name here, deliberately: the failure mode of
+   * forgetting to add one to a hand-written key is a wrong number, not a slow
+   * one.
+   *
+   * A getter rather than a stored string, because a profile object may be
+   * swapped or amended between decisions and a captured identity would then
+   * be serving the previous profile's numbers.
+   */
+  get evaluationIdentity(): string {
+    return `BoundEvaluator(${structuralIdentity(this.profile)})`;
   }
 
   scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {

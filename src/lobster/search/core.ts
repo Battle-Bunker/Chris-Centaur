@@ -154,9 +154,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * total ceiling is unchanged.
    */
   const sessions = new Map<string, Session>();
-  const memoShare = Math.max(
-    64,
-    Math.floor((cfg.bank.memoCapacity ?? DEFAULT_BANK_CONFIG.memoCapacity) / Math.max(1, cfg.sessionCacheSize)),
+  const share = (total: number, floor: number): number =>
+    Math.max(floor, Math.floor(total / Math.max(1, cfg.sessionCacheSize)));
+  const memoShare = share(cfg.bank.memoCapacity ?? DEFAULT_BANK_CONFIG.memoCapacity, 64);
+  // The EVALUATION memo gets its own share of its own budget, for the same
+  // reason and by the same arithmetic: a live session per basis must not
+  // multiply the decision's ceiling. Its entries hold no slabs, so its total
+  // is set independently of the resolution memo's (see bounds/evalmemo.ts).
+  const evalMemoShare = share(
+    cfg.bank.evalMemoCapacity ?? DEFAULT_BANK_CONFIG.evalMemoCapacity,
+    0,
   );
 
   const sessionKey = (ctx: SearchContext): string =>
@@ -177,16 +184,30 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     throw new NoRosterError();
   };
 
-  /** A session for this basis, reused when one is already live. */
+  /**
+   * A session for this basis, reused when one is already live.
+   *
+   * TWO THINGS CROSS THE BOUNDARY, and a cached session is wrong without
+   * either of them:
+   *
+   *  - THE WITNESSES the caller has learned since. The double oracle's memory.
+   *  - THE BUDGET OF THE SLICE THAT IS RUNNING NOW. The kernel builds a fresh
+   *    `SliceBudget` per slice; the bank was built with the FIRST one and kept
+   *    it, so from slice two its `shouldStop()` was permanently true and every
+   *    price degraded to B0 — measured at 1 724 of 1 724 prices in a
+   *    one-second decision, with zero B1/B2/B3 admissions and zero witnesses
+   *    banked. See the note on `BoundBank.budget`. Handing the live handle
+   *    over here, on every path, is the whole fix: budget semantics stay the
+   *    kernel's, and the bank consults the clock it was given for THIS slice.
+   */
   const sessionFor = (ctx: SearchContext): Session => {
     const key = sessionKey(ctx);
     const hit = sessions.get(key);
     if (hit !== undefined && hit.sub === ctx.sub) {
-      // Keep the LRU order, and take whatever witnesses the caller has learned
-      // since — the double oracle's memory is the one thing that must cross
-      // every boundary.
+      // Keep the LRU order.
       sessions.delete(key);
       sessions.set(key, hit);
+      hit.bank.adoptBudget(ctx.budget);
       hit.bank.adoptWitnesses(ctx.witnesses);
       return hit;
     }
@@ -226,7 +247,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       budget: ctx.budget,
       basis: basisOf(ctx),
       referenceActions: references,
-      config: { ...cfg.bank, memoCapacity: memoShare },
+      config: { ...cfg.bank, memoCapacity: memoShare, evalMemoCapacity: evalMemoShare },
     });
     bank.adoptWitnesses(ctx.witnesses);
     // A pin is a constraint on a unit we command; a pin naming a unit we do
