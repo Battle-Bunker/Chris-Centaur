@@ -59,7 +59,7 @@ import {
   topCandidates,
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
-import { stagingSafety } from "../staging-safety";
+import { resolveStagingSafety, stagingSafety } from "../staging-safety";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -328,7 +328,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const seedPlan = (s: Session, from: JointPlan | null): JointPlan => {
     const plan = new Map<UnitId, Candidate>();
-    const deconflict = cfg.seedDeconflict ?? stagingSafety() !== "off";
+    // `auto` is board-conditional and this core may have been built without a
+    // board, so an unresolved level resolves OFF here. `TeamDecisionEngine`
+    // resolves the level against the board and passes `cfg.seedDeconflict`
+    // explicitly, so the shipped path does not reach this fallback.
+    const deconflict =
+      cfg.seedDeconflict ?? resolveStagingSafety(stagingSafety(), false) !== "off";
     const taken = new Set<number>();
     const claim = (c: Candidate): void => {
       taken.add(c.to);
@@ -610,7 +615,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           if ((err as { code?: string }).code !== "bounds_inversion") throw err;
           absorbedInversions++;
         }
-        const repairing = cfg.rungZeroRepair ?? stagingSafety() === "full";
+        const repairing =
+          cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
         if (scored === null || !repairing) return seed;
         return repairSelfHarm(s, ctx, scored).plan;
       }

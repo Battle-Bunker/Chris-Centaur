@@ -59,7 +59,7 @@ import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrat
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
-import { stagingSafety } from './staging-safety';
+import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
@@ -373,7 +373,16 @@ export class TeamDecisionEngine {
       assumptions.push({ kind: 'reference-action', unitId: unit.unitId, to: NO_ORDER_MOVE });
     }
 
-    const safety = this.options.stagingSafety ?? stagingSafety();
+    // THE SHIP CONDITION, applied here because here is where the board is
+    // known. `auto` — the default — is `full` on a piece-bearing board and
+    // `off` on a snake-only one, which is the ledger's I1 verdict exactly:
+    // ship the guard for PIECE boards, do not ship it unconditionally. Every
+    // consumer below reads the RESOLVED level, so the candidate knobs and the
+    // search tuning cannot disagree about which board this is.
+    const safety = resolveStagingSafety(
+      this.options.stagingSafety ?? stagingSafety(),
+      boardBearsPiece(sub)
+    );
     // INTEGRATION NOTE (integ/round-a): the staging-safety level supplies the
     // BASE knobs and the caller's explicit `candidates` override them. Both
     // seams' own docstrings ask for exactly this precedence — I1's says the

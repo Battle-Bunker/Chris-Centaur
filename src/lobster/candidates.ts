@@ -77,6 +77,7 @@ import {
   allyBodyCollision,
   certainlySelfFatal,
   killsOwnKing,
+  resolveStagingSafety,
   stagingSafety,
 } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
@@ -290,7 +291,12 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
   // `flaggedKnobs()`, which reads the environment — so a caller that asked for
   // 'off' would get whatever the process-wide flag said, and the one thing a
   // per-engine override exists to guarantee is that it does not.
-  const on = level !== 'off';
+  //
+  // `auto` is board-conditional and this function has no board, so it resolves
+  // OFF here — see `resolveStagingSafety`. A caller that HAS a board resolves
+  // the level first and passes the answer; `TeamDecisionEngine` does exactly
+  // that, so the shipped path never reaches this fallback with 'auto'.
+  const on = resolveStagingSafety(level, false) !== 'off';
   return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
 }
 

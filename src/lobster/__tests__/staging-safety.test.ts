@@ -32,8 +32,10 @@ import {
 } from '../candidates';
 import {
   allyBodyCollision,
+  boardBearsPiece,
   certainlySelfFatal,
   killsOwnKing,
+  resolveStagingSafety,
   royalMarginFrom,
   stagingSafetyFrom,
 } from '../staging-safety';
@@ -168,16 +170,97 @@ describe('the flag', () => {
     expect(knobsForSafety('full')).toEqual({ pruneCertainSelfFatal: true, pruneRoyalPath: true });
   });
 
-  test('parses its three values and keeps the shipped default on anything else', () => {
-    expect(stagingSafetyFrom({})).toBe('off');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: '' })).toBe('off');
+  test('parses its four values and keeps the shipped default on anything else', () => {
+    // INTEGRATION NOTE (integ/round-a): the default was 'off' on the branch and
+    // is 'auto' here — the ledger's ship condition (piece boards only) wired as
+    // the default policy. See the `auto` block below.
+    expect(stagingSafetyFrom({})).toBe('auto');
+    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: '' })).toBe('auto');
+    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'off' })).toBe('off');
+    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'auto' })).toBe('auto');
     expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'guard' })).toBe('guard');
     expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'full' })).toBe('full');
     const said: string[] = [];
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'yes please' }, (m) => said.push(m))).toBe('off');
+    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'yes please' }, (m) => said.push(m))).toBe(
+      'auto'
+    );
     expect(said).toHaveLength(1);
     expect(royalMarginFrom({})).toBe(false);
     expect(royalMarginFrom({ CENTAUR_ROYAL_MARGIN: '1' })).toBe(true);
+  });
+});
+
+/**
+ * `auto` — the ship condition as the default policy.
+ *
+ * The ledger ships this layer for PIECE boards and explicitly not for
+ * snake-only ones, where its own no-regression gate failed
+ * (r01-snakes6 −0.500 [−0.708, −0.333] against a null of −0.083). A blunt
+ * on/off flag cannot carry that, so `auto` resolves per board.
+ */
+describe('the auto policy is the ship condition', () => {
+  const snakeOnly = boardOf([
+    makeSnake('r1', [
+      { x: 2, y: 2 },
+      { x: 2, y: 3 },
+      { x: 2, y: 4 },
+    ], { teamID: 'red' }),
+    makeSnake('b1', [
+      { x: 6, y: 6 },
+      { x: 6, y: 7 },
+      { x: 6, y: 8 },
+    ], { teamID: 'blue' }),
+  ]);
+  const withPiece = boardOf([
+    makeSnake('r1', [
+      { x: 2, y: 2 },
+      { x: 2, y: 3 },
+      { x: 2, y: 4 },
+    ], { teamID: 'red' }),
+    piece('bq', { x: 6, y: 6 }, 'queen', 3, { teamID: 'blue' }),
+  ]);
+
+  const bears = (board: Board): boolean => {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    try {
+      return boardBearsPiece(sub);
+    } finally {
+      sub.release();
+    }
+  };
+
+  test('reads piece presence off the roster, both polarities', () => {
+    expect(bears(snakeOnly)).toBe(false);
+    expect(bears(withPiece)).toBe(true);
+  });
+
+  test('auto is FULL where the guard was measured to help', () => {
+    expect(resolveStagingSafety('auto', true)).toBe('full');
+  });
+
+  test('auto is OFF on the snake-only board whose gate the guard failed', () => {
+    expect(resolveStagingSafety('auto', false)).toBe('off');
+  });
+
+  test('every other level is unconditional — an arm can still ask for either', () => {
+    for (const hasPiece of [true, false]) {
+      expect(resolveStagingSafety('off', hasPiece)).toBe('off');
+      expect(resolveStagingSafety('guard', hasPiece)).toBe('guard');
+      expect(resolveStagingSafety('full', hasPiece)).toBe('full');
+    }
+  });
+
+  test('a caller with no board resolves auto OFF — the shipped behaviour', () => {
+    // knobsForSafety has no board, so it must not turn the guard on for 'auto'.
+    // Anything else would apply the guard to snake-only boards by default.
+    expect(knobsForSafety('auto')).toEqual({
+      pruneCertainSelfFatal: false,
+      pruneRoyalPath: false,
+    });
+    expect(knobsForSafety('full')).toEqual({
+      pruneCertainSelfFatal: true,
+      pruneRoyalPath: true,
+    });
   });
 });
 

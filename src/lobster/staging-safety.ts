@@ -94,14 +94,49 @@ import type { Candidate, CellIndex } from './contracts';
  *          assessed `doomed` (so they sort last) and taken by a declared prune
  *          (so they leave the option set whenever anything else is offered).
  *   full   `guard`, plus the rung-0 self-harm repair in `SearchCore.conform`.
+ *   auto   `full` on a board that bears a PIECE, `off` on a snake-only board.
+ *          The default, and the ship condition — see below.
+ *
+ * ── WHY `auto` EXISTS, AND WHY IT IS THE DEFAULT (integ/round-a) ───────────
+ *
+ * The ledger's Stage 2.5 verdict on I1 does not ship this layer flat:
+ *
+ *   "SHIP the guard for PIECE boards as a rule-certainty defect fix; DO NOT
+ *    SHIP UNCONDITIONALLY — the snake-only no-regression gate FAILS."
+ *
+ * Those are two different boards, not two different confidence levels. On
+ * piece cells (n=48) the guard is worth place +0.146 [+0.031, +0.250] and
+ * material +3.000, against its own null; on `r01-snakes6` it is
+ * −0.500 [−0.708, −0.333] against a null of −0.083. The mechanism of the
+ * failure is understood and is specific to that board: every snake staging
+ * `up` is PARALLEL MOTION, which was accidentally collision-free, and a
+ * per-unit refusal breaks that coherence without replacing it — a team-level
+ * capability the layer does not have. The guard is not "less good" on
+ * snake-only boards; it is harmful there, for a reason that does not apply
+ * where a piece is on the board.
+ *
+ * The flag as I1 built it is a blunt three-state and cannot express that: it
+ * is the same answer on every board. `auto` is the ship condition made into
+ * the DEFAULT POLICY, so the shipped build carries the verdict rather than
+ * relying on an operator to know it. `guard` and `full` remain available as
+ * UNCONDITIONAL levels, which is what a measurement arm needs — an arm that
+ * wants the snake-only cell must be able to ask for it.
+ *
+ * `full`, not `guard`, is what `auto` resolves to, because `full` is what was
+ * measured: I1's `mine` arm is "guard + rung-0 repair + royal margin".
+ * (CENTAUR_ROYAL_MARGIN is a separate flag and its default is NOT changed
+ * here — D2 shipped as a defect fix, not a placement claim.)
  */
-export type StagingSafety = 'off' | 'guard' | 'full';
+export type StagingSafety = 'off' | 'auto' | 'guard' | 'full';
+
+/** What a level resolves to once the board is known. `auto` is the only one
+ * that is not already an answer. */
+export type ResolvedStagingSafety = 'off' | 'guard' | 'full';
 
 export const STAGING_SAFETY_ENV = 'CENTAUR_STAGING_SAFETY';
 
-/** Absent, empty or unrecognised resolves here. Additive behind a flag: the
- * default is the behaviour that shipped. */
-export const STAGING_SAFETY_DEFAULT: StagingSafety = 'off';
+/** Absent, empty or unrecognised resolves here — the ship condition. */
+export const STAGING_SAFETY_DEFAULT: StagingSafety = 'auto';
 
 export function stagingSafetyFrom(
   env: NodeJS.ProcessEnv,
@@ -109,10 +144,10 @@ export function stagingSafetyFrom(
 ): StagingSafety {
   const raw = env[STAGING_SAFETY_ENV];
   if (raw === undefined || raw === '') return STAGING_SAFETY_DEFAULT;
-  if (raw === 'off' || raw === 'guard' || raw === 'full') return raw;
+  if (raw === 'off' || raw === 'auto' || raw === 'guard' || raw === 'full') return raw;
   log(
-    `[staging-safety] Ignoring ${STAGING_SAFETY_ENV}="${raw}" — expected "off", "guard" or ` +
-      `"full"; keeping ${STAGING_SAFETY_DEFAULT}`
+    `[staging-safety] Ignoring ${STAGING_SAFETY_ENV}="${raw}" — expected "off", "auto", ` +
+      `"guard" or "full"; keeping ${STAGING_SAFETY_DEFAULT}`
   );
   return STAGING_SAFETY_DEFAULT;
 }
@@ -121,6 +156,38 @@ export function stagingSafetyFrom(
  * it once at process start. Read once per decision, never in a hot loop. */
 export function stagingSafety(): StagingSafety {
   return stagingSafetyFrom(process.env);
+}
+
+/**
+ * Does this board bear a PIECE — a unit that leaves no trail?
+ *
+ * The whole roster, not just ours: the snake-only cell the guard regresses is
+ * one where NOTHING on the board is a piece, which is what makes the parallel
+ * motion it breaks coherent in the first place.
+ *
+ * One pass over the roster, once per decision, next to the other per-decision
+ * board facts. `leavesTrail` is the engine's own profile bit, so this asks the
+ * rules rather than inspecting wire types.
+ */
+export function boardBearsPiece(sub: EngineSubstrate): boolean {
+  return sub.roster().some((unit) => !profileOf(unit.kind).leavesTrail);
+}
+
+/**
+ * Turn a level into an answer, given the one board fact `auto` depends on.
+ *
+ * Callers that have no board — a generator or a search core built outside a
+ * team decision — must pass `false`, which resolves `auto` to `off`. That is
+ * the deliberately conservative direction: `off` is the behaviour that shipped,
+ * and a guard that must not touch snake-only boards may not be switched on by
+ * a caller that cannot tell whether this is one.
+ */
+export function resolveStagingSafety(
+  level: StagingSafety,
+  hasPiece: boolean
+): ResolvedStagingSafety {
+  if (level !== 'auto') return level;
+  return hasPiece ? 'full' : 'off';
 }
 
 /**
