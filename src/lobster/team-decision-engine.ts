@@ -207,6 +207,35 @@ export interface TeamDecisionOptions {
    */
   readonly clusterEnum?: boolean;
   /**
+   * Whether this ENGINE picks its branches by SEEDED WEIGHTED LOTTERY rather
+   * than by a deterministic prefix of the priors, overriding
+   * `CENTAUR_SAMPLED_CAP`. A fifth flag, by the same standing rule: what has to
+   * be measurable is one seat against unchanged opponents.
+   *
+   * This is the owner's ruling R-A. Off, the search takes the top-`candidateCap`
+   * options of every unit in danger order, every turn, for ever — a fixed
+   * exploration set that an adversary who knows the heuristics can craft
+   * positions into. On, the same NUMBER of options is tried and WHICH ones is a
+   * Gumbel-top-k draw over the same priors, cooling as the turn's clock runs
+   * down (owner Q1's default). See `lobster/selection/`.
+   */
+  readonly sampledCap?: boolean;
+  /**
+   * THE PRIVATE PER-MATCH SEED, and the one operational step this ruling owes.
+   *
+   * The lottery's stream is `f(matchSeed, board, decision index)`. With
+   * `matchSeed` left unset it is zero, the stream is a pure function of the
+   * board, and the lottery is REPLAYABLE but not UNPREDICTABLE — every gate and
+   * every probe in this tree runs that way on purpose, because a probe whose
+   * arms cannot be re-run has measured nothing. A deployment that wants the
+   * anti-exploitability half of the ruling supplies a per-match number here
+   * that the opponent cannot see; `EmitRecord.selection` then records which
+   * seed a decision ran on, operator-side, so the match still replays.
+   *
+   * Read only when `sampledCap` resolves on.
+   */
+  readonly matchSeed?: number;
+  /**
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
    *
@@ -609,6 +638,10 @@ export class TeamDecisionEngine {
         seedDeconflict: safety !== 'off',
         clusterSeed: this.options.clusterSeed,
         clusterEnum: this.options.clusterEnum,
+        sampledCap: this.options.sampledCap,
+        ...(this.options.matchSeed === undefined
+          ? {}
+          : { samplingTuning: { matchSeed: this.options.matchSeed } }),
         ...(this.options.search ?? {}),
         // AFTER the caller's tuning, and deliberately: these two are not
         // preferences the caller expresses, they are facts about THIS

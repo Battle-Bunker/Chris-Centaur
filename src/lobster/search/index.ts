@@ -28,6 +28,28 @@ export type {
   UnaryLookup,
 } from "./cluster-enum";
 
+export {
+  ABLATED_SAMPLING,
+  ALL_CHANNELS,
+  DEFAULT_SAMPLING,
+  DEFAULT_WIDEN,
+  SAMPLED_CAP_ENV,
+  SelectionSampler,
+  clipCeilings,
+  decisionSeed,
+  sampledCapEnabled,
+  sampledCapFrom,
+  temperatureAt,
+  widenInert,
+  widenTo,
+} from "../selection";
+export type {
+  SamplingTuning,
+  SelectionReport,
+  WeightRegime,
+  WidenSchedule,
+} from "../selection";
+
 export { SweepDirty } from "./sweep-dirty";
 export type { DirtyStats } from "./sweep-dirty";
 

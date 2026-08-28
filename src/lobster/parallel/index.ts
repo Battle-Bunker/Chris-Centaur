@@ -30,7 +30,7 @@ export { InlinePool, WorkerEvaluationPool, workerArgs } from "./pool"
 export type { EvaluationPool, PoolStats, WorkerPoolOptions } from "./pool"
 
 export { clusterPlanPartition, decodePlan, planBatchPartition, sweepFrontier } from "./partition"
-export type { Frontier, PlanChunk, WorkPartition } from "./partition"
+export type { Frontier, PlanChunk, SampledOrder, WorkPartition } from "./partition"
 
 export {
   catalogueDigest,

@@ -138,6 +138,10 @@ class SliceBudget implements BudgetHandle {
     private readonly clock: () => number,
     private readonly start: number,
     private readonly end: number,
+    /** The DECISION's stop time, which is `end` only on the last slice. Carried
+     * so `decisionFraction` can answer a turn-scale question from a slice-scale
+     * handle; see `BudgetHandle.decisionFraction`. */
+    private readonly decisionEnd: number = end,
   ) {}
   now(): number {
     return this.clock()
@@ -150,6 +154,15 @@ class SliceBudget implements BudgetHandle {
   }
   shouldStop(): boolean {
     return this.clock() >= this.end
+  }
+  /** Share of the whole decision still unspent, in [0, 1]. A decision with no
+   * span at all (a deadline already reached) reads 0 — cold, which is the right
+   * answer for a turn that is over. */
+  decisionFraction(): number {
+    const span = this.decisionEnd - this.start
+    if (!(span > 0)) return 0
+    const left = (this.decisionEnd - this.clock()) / span
+    return left > 1 ? 1 : left > 0 ? left : 0
   }
 }
 
@@ -1118,7 +1131,7 @@ export class LobsterKernel implements Kernel {
       const cap = Math.max(run.budgetMs * this.opts.maxSliceFraction, this.opts.sliceMs)
       const sliceLength = Math.min(Math.max(this.opts.sliceMs, measured), cap)
       const sliceEnd = Math.min(run.searchDeadline, run.now() + sliceLength)
-      const budget = new SliceBudget(run.now, run.t0, sliceEnd)
+      const budget = new SliceBudget(run.now, run.t0, sliceEnd, run.searchDeadline)
       const ctx = this.searchContext(run, entry, budget)
       const s0 = run.now()
       let score: PlanScore | null = null
@@ -1920,8 +1933,15 @@ export class LobsterKernel implements Kernel {
   ): EmitRecord {
     const lo = row.lo
     const hi = Math.max(row.hi, row.lo)
+    // CL4's audit field, and only when there is one. `?? null` rather than a
+    // bare call because `selectionReport` is optional on `SearchCore` and a
+    // core that never sampled returns null — the spread then adds no key at
+    // all, so a flag-off record is structurally what it always was and the
+    // standing replay baselines do not have to be regenerated.
+    const selection = run.input.search.selectionReport?.() ?? null
     return {
       plan: cand.plan,
+      ...(selection === null ? {} : { selection }),
       // THE RECORD CARRIES THE est THE GATE USED (V4 R6). `gate` ratchets on
       // `row.est` — which comes from the lever view whenever the core exposes
       // one, and from the kernel's own evaluation otherwise — so writing

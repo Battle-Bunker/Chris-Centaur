@@ -90,6 +90,34 @@ export interface Frontier {
    * unchanged, and the fold asserts nothing about provenance.
    */
   readonly proposals?: ReadonlyArray<JointPlan>
+  /**
+   * CL4 — THE SAMPLED SEQUENCE THE NEXT SLICE WILL ACTUALLY SWEEP.
+   *
+   * Absent (the default, and the whole of the flag-off path) the frontier is
+   * re-derived here from `dangerOrder` + `topCandidates`, exactly as the sweep
+   * would walk it. Present, it IS what the sweep will walk: the coordinator's
+   * seeded sampler produced it before this parcel was cut, and the next slice
+   * will reproduce it from the same seed and the same draw index.
+   *
+   * That is contract rule 20's clause about workers, met structurally: *"the
+   * dispatch sequence is decided on the coordinator before any worker runs and
+   * is a pure function of (seed, board, epoch, slice) — never of worker
+   * timing."* A speculation cut from a DIFFERENT order than the sweep will use
+   * is not a speculation, it is a second search — and W1 already measured what
+   * that is worth (3,344 entries offered, 0 read).
+   */
+  readonly order?: SampledOrder
+}
+
+/**
+ * The sampled sweep sequence, as the partition is allowed to see it: a unit
+ * order and, per unit, the options that unit will actually be tried on. Both
+ * are already capped by the coordinator, so a partition never widens what the
+ * search would try.
+ */
+export interface SampledOrder {
+  readonly units: ReadonlyArray<UnitId>
+  candidatesFor(unitId: UnitId): ReadonlyArray<Candidate>
 }
 
 /** One worker's share, in the coordinator's own vocabulary. */
@@ -311,13 +339,15 @@ export function sweepFrontier(frontier: Frontier): ReadonlyArray<Int32Array> {
   for (let i = 0; i < width; i++) if (base[i] === UNENCODABLE) return []
 
   const out: Int32Array[] = []
-  for (const unitId of dangerOrder(roster, incumbent.worstResolution, pinned)) {
+  const order = frontier.order
+  for (const unitId of order?.units ?? dangerOrder(roster, incumbent.worstResolution, pinned)) {
     const slot = roster.indexOf(unitId)
     if (slot < 0) continue
     const set = sets.get(unitId)
     if (set === undefined) continue
     const current = base[slot] as number
-    for (const candidate of topCandidates(set.candidates, candidateCap)) {
+    for (const candidate of order?.candidatesFor(unitId) ??
+      topCandidates(set.candidates, candidateCap)) {
       const code = encodeCandidate(set, candidate)
       if (code === UNENCODABLE || code === current) continue
       const plan = Int32Array.from(base)
