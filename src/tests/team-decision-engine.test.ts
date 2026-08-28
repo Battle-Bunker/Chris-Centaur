@@ -562,6 +562,47 @@ describe('pin advice from the speculative seam', () => {
     expect(advice[0]?.costLo).toBe(10);
   });
 
+  test('...and the REPAIR is a third objective, not a variant of territory', () => {
+    // arch/s3's registry row, through the advisory surface. `territory-slider`
+    // computes `command` and territory does not, so a floor proved under one is
+    // not a floor on the other's question — the id is the whole test, and it is
+    // the reason a cohort id is a corpus identity rather than a profile name.
+    // Nothing in `pins.ts` learned a third name to make this pass; the basis
+    // compares ids, which is what makes adding a cohort a registry row.
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory-slider')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { cohort: 'territory' })],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.degraded).toBe(true);
+    expect(advice[0]?.basis.staged.cohort).toBe('territory-slider');
+    expect(advice[0]?.basis.speculative.cohort).toBe('territory');
+  });
+
+  test('...and the repair agreeing with ITSELF is a clean price', () => {
+    const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
+    const report = {
+      journal: [stamped(plan, 20, 20, 'territory-slider')],
+      speculative: [spec('spec:[4@77?]', 5, 10, 8, { cohort: 'territory-slider' })],
+    } as unknown as KernelReport;
+    const advice = adviseFromReport({
+      report,
+      tentative: [{ unitId: 4, to: 77, tentative: true }],
+      witnesses: [],
+      threshold: 0,
+    });
+    expect(advice).toHaveLength(1);
+    expect(advice[0]?.degraded).toBe(false);
+    expect(advice[0]?.basis.staged.cohort).toBe('territory-slider');
+  });
+
   test('the same objective on both sides is a clean price', () => {
     const plan = new Map([[4 as UnitId, { unitId: 4 as UnitId, from: 10, to: 11, path: [11] }]]);
     const report = {
