@@ -221,7 +221,7 @@ export class Scout {
           skew: 0,
           assumptions: [],
           state: 'live',
-          stepCostMs: 0,
+          stepCost: 0,
         });
       }
     }
@@ -238,7 +238,7 @@ export class Scout {
       if (verdict.park) this.ledger.park(next, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');
     }
 
-    this.harvest(req);
+    this.harvest();
     this.releaseRoots();
     this.partitions.clear();
   }
@@ -284,9 +284,12 @@ export class Scout {
   }
 
   /** One ply on one thread. The door, the enumeration, the max-min, the
-   *  countdown, the accumulator, the expansion price. */
+   *  countdown, the accumulator, the expansion price.
+   *
+   *  NO CLOCK IS READ. The ply's cost is the number of resolutions it priced,
+   *  which is `refinementCost`'s currency and `la-inside` §4's, and which makes
+   *  the park decision a pure function of the board rather than of the box. */
   private deepen(entry: ThreadEntry, req: ScoutRequest): void {
-    const started = Date.now();
     const parent = this.roots.get(entry.key);
     const from = parent === undefined ? req.sub : parent.sub;
     // The plan this ply continues from. At ply 1 it is the seed over the whole
@@ -347,23 +350,27 @@ export class Scout {
       Math.max(discrimination.floorSpread, discrimination.estSpread, 0) + (discrimination.argmaxMoved ? 1 : 0)
     );
 
-    const ms = Date.now() - started;
+    // One resolution for the ply's own root, plus every world `scoreOptions`
+    // priced. Resolution-equivalents, exactly as `refinementCost` denominates
+    // a catch-up, so the scheduler can compare a deepen against an expansion
+    // in one currency.
+    const cost = 1 + scored.priced;
     const ply: ThreadPly = {
       ply: depthOf(entry) + 1,
       move: plan,
       advisory: scored.best,
       contact,
       discrimination,
-      ms,
+      cost,
     };
     entry.plies.push(ply);
     entry.skew = Math.max(entry.skew, ply.ply);
-    entry.stepCostMs = ms;
+    entry.stepCost = cost;
     for (const a of cont.assumptions) entry.assumptions.push(a);
     for (const id of cont.carriedContingent) entry.carriedContingent.add(id);
     this.values.set(entry.key, scored.best.lo);
     this.ledger.counters.deepened++;
-    this.purse.spend(ms);
+    this.purse.spend(cost);
 
     // ---- expansion, priced before it is paid (§7.2) -----------------------
     const partition = this.partitions.get(entry.key) ?? req.partition;
@@ -439,6 +446,8 @@ export class Scout {
   ): {
     readonly best: { readonly lo: number; readonly est: number; readonly hi: number };
     readonly perOption: ReadonlyArray<{ readonly key: string; readonly lo: number; readonly hi: number }>;
+    /** Worlds actually resolved — the ply's cost, in resolution-equivalents. */
+    readonly priced: number;
   } {
     const ours: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
     const theirs: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
@@ -452,12 +461,13 @@ export class Scout {
       else theirs.push({ id, options: trimmed });
     }
     if (ours.length === 0) {
-      return { best: { lo: 0, est: 0, hi: 0 }, perOption: [] };
+      return { best: { lo: 0, est: 0, hi: 0 }, perOption: [], priced: 0 };
     }
 
     const ourJoints = enumerateJoints(ours, 6);
     const theirJoints = theirs.length === 0 ? [new Map<UnitId, Candidate>()] : enumerateJoints(theirs, 4);
     const perOption: Array<{ key: string; lo: number; hi: number }> = [];
+    let priced = 0;
     let bestLo = -Infinity;
     let bestHi = -Infinity;
     for (const a of ourJoints) {
@@ -473,6 +483,7 @@ export class Scout {
         } catch {
           continue;
         }
+        priced++;
         worst = Math.min(worst, scored.bounds.worst);
         worstHi = Math.min(worstHi, scored.bounds.best);
         cont.sub.releaseResolution(scored.resolution);
@@ -484,10 +495,11 @@ export class Scout {
         bestHi = worstHi;
       }
     }
-    if (perOption.length === 0) return { best: { lo: 0, est: 0, hi: 0 }, perOption: [] };
+    if (perOption.length === 0) return { best: { lo: 0, est: 0, hi: 0 }, perOption: [], priced };
     return {
       best: { lo: bestLo, est: (bestLo + bestHi) / 2, hi: bestHi },
       perOption: perOption.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0)),
+      priced,
     };
   }
 
@@ -541,7 +553,7 @@ export class Scout {
    * EXACTLY ONE unit's candidate give a first difference, and a first
    * difference is attributable. Nothing else emits advice.
    */
-  private harvest(req: ScoutRequest): void {
+  private harvest(): void {
     if (this.mode !== 'advise') return;
     const byCluster = new Map<number, ThreadEntry[]>();
     for (const t of this.ledger.all()) {

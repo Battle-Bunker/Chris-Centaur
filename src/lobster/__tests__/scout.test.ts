@@ -25,7 +25,10 @@ import { join } from 'node:path';
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../substrate';
 import { GrammarCandidateGenerator } from '../candidates';
-import { partitionOf } from '../search';
+import { DEFAULT_CLUSTER_TUNING, enumerateProposals, makeSearchCore, partitionOf } from '../search';
+import { defaultEvaluator } from '../evaluate';
+import { LobsterKernel } from '../kernel';
+import { unboundedBudget } from '../bounds/testkit';
 import {
   DEFAULT_SCOUT_TUNING,
   FLAT,
@@ -34,6 +37,8 @@ import {
   ThreadLedger,
   barrierDepth,
   buildContactMatrix,
+  clampToLat,
+  depthOf,
   cleanPrefixOf,
   contactOf,
   continueFrom,
@@ -454,7 +459,7 @@ describe('threads', () => {
         rootPlan: new Map(),
         rootTurn: TURN,
         epochBaseline: 1,
-        postureBaseline: 'neutral' as never,
+        postureBaseline: 'SIGHTED',
         plies: [],
         citedUnits: new Set(cited),
         accumulation: new Map(),
@@ -462,7 +467,7 @@ describe('threads', () => {
         skew: 0,
         assumptions: [],
         state: 'live',
-        stepCostMs: 1,
+        stepCost: 1,
       });
     };
     mk('a', [7 as UnitId]);
@@ -473,7 +478,7 @@ describe('threads', () => {
     expect(ledger.size).toBe(1);
     // A posture flip is cross-BASIS, not cross-board: re-fold, never discard.
     mk('c', [11 as UnitId]);
-    const refolded = ledger.onPostureFlip('aggressive' as never);
+    const refolded = ledger.onPostureFlip('FOGGED-DISCRIMINATING');
     expect(refolded).toBeGreaterThan(0);
     expect(ledger.size).toBe(2);
     // An epoch change is the blunt one, exactly as `run.plans.clear()` is.
@@ -491,7 +496,7 @@ describe('threads', () => {
         rootPlan: new Map(),
         rootTurn: TURN,
         epochBaseline: 1,
-        postureBaseline: 'neutral' as never,
+        postureBaseline: 'SIGHTED',
         plies: [],
         citedUnits: new Set(),
         accumulation: new Map(),
@@ -499,7 +504,7 @@ describe('threads', () => {
         skew: 0,
         assumptions: [],
         state,
-        stepCostMs: 1,
+        stepCost: 1,
       });
     mk('live-1', 'live');
     mk('parked', 'parked-flat');
@@ -543,14 +548,14 @@ describe('the scheduler', () => {
       rootPlan: new Map(),
       rootTurn: TURN,
       epochBaseline: 1,
-      postureBaseline: 'neutral' as never,
+      postureBaseline: 'SIGHTED',
       plies: Array.from({ length: depth }, (_, i) => ({
         ply: i + 1,
         move: new Map(),
         advisory: { lo: 0, est: 0, hi: 0 },
         contact: { contactIn: 9, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
         discrimination: FLAT,
-        ms: 1,
+        cost: 1,
       })),
       citedUnits: new Set(),
       accumulation: new Map(),
@@ -558,7 +563,7 @@ describe('the scheduler', () => {
       skew: 0,
       assumptions: [],
       state: 'live',
-      stepCostMs: 1,
+      stepCost: 1,
       lastUsed: 0,
     });
     const deep = mk('deep', 0, 3, 1);
@@ -585,7 +590,7 @@ describe('the scheduler', () => {
       advisory: { lo: 0, est: 0, hi: 0 },
       contact: { contactIn, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
       discrimination: { ...FLAT, floorSpread: spread, argmaxMoved: moved },
-      ms: 1,
+      cost: 1,
     });
     const mk = (plies: ReturnType<typeof ply>[]): ThreadEntry => ({
       key: 'k',
@@ -594,7 +599,7 @@ describe('the scheduler', () => {
       rootPlan: new Map(),
       rootTurn: TURN,
       epochBaseline: 1,
-      postureBaseline: 'neutral' as never,
+      postureBaseline: 'SIGHTED',
       plies,
       citedUnits: new Set(),
       accumulation: new Map(),
@@ -602,7 +607,7 @@ describe('the scheduler', () => {
       skew: 0,
       assumptions: [],
       state: 'live',
-      stepCostMs: 1,
+      stepCost: 1,
       lastUsed: 0,
     });
     // depthMax raised out of the way: the point of this test is the flatline,
@@ -634,7 +639,7 @@ describe('the scheduler', () => {
       rootPlan: new Map(),
       rootTurn: TURN,
       epochBaseline: 1,
-      postureBaseline: 'neutral' as never,
+      postureBaseline: 'SIGHTED',
       plies: [
         {
           ply: 1,
@@ -642,7 +647,7 @@ describe('the scheduler', () => {
           advisory: { lo: 0, est: 0, hi: 0 },
           contact: { contactIn: 0, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
           discrimination: { ...FLAT, floorSpread: spread },
-          ms: 1,
+          cost: 1,
         },
       ],
       citedUnits: new Set(),
@@ -651,7 +656,7 @@ describe('the scheduler', () => {
       skew,
       assumptions: [],
       state: 'parked-flat',
-      stepCostMs: 1,
+      stepCost: 1,
       lastUsed: 0,
     });
     // The priority falls because the CLOUDS ARE WIDER, which is a fact about
@@ -659,4 +664,644 @@ describe('the scheduler', () => {
     expect(resumePriority(mk(0, 8))).toBeGreaterThan(resumePriority(mk(3, 8)));
     expect(resumePriority(mk(3, 8))).toBeGreaterThan(0);
   });
+});
+
+// ---------------------------------------------------------------------------
+// THE CHANNELS — the firewall, structurally
+// ---------------------------------------------------------------------------
+
+const SCOUT_DIR = join(__dirname, '..', 'search', 'scout');
+const SCOUT_FILES = ['door.ts', 'threads.ts', 'schedule.ts', 'scout.ts', 'index.ts'];
+
+function scoutSource(): ReadonlyArray<{ name: string; text: string }> {
+  return SCOUT_FILES.map((name) => ({
+    name,
+    text: readFileSync(join(SCOUT_DIR, name), 'utf8'),
+  }));
+}
+
+/** Comments state the law; only CODE can break it. */
+function code(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+}
+
+describe('the channels', () => {
+  test('nothing under bounds/ imports the scout — L8, with no path to violate', () => {
+    // The firewall's first half. A layer that cannot be reached from the
+    // bounds layer cannot move a bound, whatever anybody later believes about
+    // what it is for.
+    const dir = join(__dirname, '..', 'bounds');
+    for (const file of [
+      'bank.ts',
+      'plan.ts',
+      'score.ts',
+      'ledger.ts',
+      'memo.ts',
+      'evalmemo.ts',
+      'witness.ts',
+      'substrate-ext.ts',
+      'index.ts',
+    ]) {
+      const text = readFileSync(join(dir, file), 'utf8');
+      expect(text).not.toMatch(/from\s+['"][^'"]*scout/);
+    }
+  });
+
+  test('the scout never constructs, meets or publishes a bound — L2', () => {
+    // The firewall's second half, and the reason `ThreadPly.advisory` is a
+    // plain `{lo, est, hi}` rather than a `ScoreBounds`: a channel that cannot
+    // be confused at the type level cannot be confused at the call site.
+    for (const { name, text } of scoutSource()) {
+      const src = code(text);
+      expect(`${name}: ${src}`).not.toMatch(/makeScoreBounds|\btighten\b|BoundBank|\.publish\(/);
+      // No bound-shaped VALUE is ever built here. `resolveBoundedFull` returns
+      // one and the scout reads two numbers off it; what it must never do is
+      // construct or forward the object.
+      expect(`${name}: ${src}`).not.toMatch(/:\s*ScoreBounds\b/);
+    }
+  });
+
+  test('the scout never reads arrival() — the 94% Dijkstra it exists to avoid', () => {
+    for (const { name, text } of scoutSource()) {
+      const src = code(text);
+      expect(`${name}: ${src}`).not.toMatch(/\.arrival\(|teamArrivalInto/);
+    }
+  });
+
+  test('every scout finding is a NEGATIVE ordering term, clamped to one lat', () => {
+    // The polarity rule: `Surrogate.unary` ADDS φ_u and higher is better, so a
+    // discovered next-ply danger is negative. And the clamp is the cross-ply
+    // form of the EV-cliff law — a time-skewed material fact may inform an
+    // ordering and may not outbid a ply-1 one.
+    expect(clampToLat(3)).toBe(3);
+    expect(clampToLat(-3)).toBe(3);
+    expect(clampToLat(1e9)).toBe(10);
+  });
+
+  test('a first difference is the only attributable pair', () => {
+    const c = (unitId: number, to: number): Candidate =>
+      ({ unitId, from: 0, to, path: [] }) as unknown as Candidate;
+    const a: JointPlan = new Map([
+      [1 as UnitId, c(1, 10)],
+      [2 as UnitId, c(2, 20)],
+    ]);
+    const oneApart: JointPlan = new Map([
+      [1 as UnitId, c(1, 11)],
+      [2 as UnitId, c(2, 20)],
+    ]);
+    const twoApart: JointPlan = new Map([
+      [1 as UnitId, c(1, 11)],
+      [2 as UnitId, c(2, 21)],
+    ]);
+    expect(soleDifference(a, oneApart)?.unitId).toBe(1);
+    expect(soleDifference(a, twoApart)).toBeNull();
+    expect(soleDifference(a, a)).toBeNull();
+    expect(soleDifference(a, new Map([[1 as UnitId, c(1, 10)]]))).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE FAILURE CATALOGUE — la-outside §7, the entries the door can commit
+// ---------------------------------------------------------------------------
+
+describe('the failure catalogue', () => {
+  test('F-1 — clouds only ever WIDEN across the skew boundary', () => {
+    // Cloud under-dilation is the design's primary rot path, and its first
+    // source is an off-by-one on the post-advance convention: a unit last seen
+    // three turns ago, stamped "held now", would claim a one-turn cloud for a
+    // four-turn-old observation.
+    //
+    // The door cannot commit it, because it carries a held record BYTE-
+    // IDENTICAL — same occupancy, same `heldAtTurn` — and lets the root's own
+    // turn do the dilation. No offset arithmetic anywhere, which is L7.
+    //
+    // The property only BINDS on a genuinely carried claim. A unit that was
+    // live at ply 1 and survived is re-seeded at staleness 0, and it should be:
+    // we MODELLED its move, so its position at the new root is a fact of the
+    // simulation and its cloud starts fresh from a fresh observation. So the
+    // fixture makes one unit two turns stale, and the assertion sorts the two
+    // populations rather than averaging over them.
+    const board = snakesBoard(41);
+    const staleId = (board.snakes[board.snakes.length - 1] as Snake).id;
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      observedTurns: new Map([[staleId, TURN - 2]]),
+    });
+    const asTeam = sub.teamNumber('red');
+    const gen = new GrammarCandidateGenerator({});
+    const roster = sub.commandable(asTeam);
+    const plan = new Map<UnitId, Candidate>();
+    for (const id of roster) {
+      const c = gen.candidatesFor(sub, id).candidates[0];
+      if (c !== undefined) plan.set(id, c);
+    }
+    const out = sub.resolveBoundedFor(plan, asTeam);
+    const cluster = new Set<UnitId>();
+    for (const view of sub.engine.units(out.resolution.state)) {
+      if (roster.includes(view.unitId)) cluster.add(view.unitId);
+    }
+    const cont = continueFrom({ from: sub, resolution: out.resolution, cluster, ply: 1 });
+    if (!cont.ok) throw new Error(`refused: ${cont.reason}`);
+
+    const stale = sub.unitOfWireId(staleId)?.unitId as UnitId;
+    expect(sub.unitOf(stale)?.staleness).toBe(2);
+    // THE CARRIED CLAIM. Its observation turn is unchanged and its staleness
+    // has grown by exactly the ply — one line of arithmetic, no decay factor.
+    const carried = cont.sub.unitOf(stale);
+    expect(carried?.staleness).toBe(3);
+    const was = sub.claimField().slotOf(stale);
+    const now = cont.sub.claimField().slotOf(stale);
+    expect(was).toBeDefined();
+    expect(now).toBeDefined();
+    expect((now as { record: { heldAtTurn: number } }).record.heldAtTurn).toBe(
+      (was as { record: { heldAtTurn: number } }).record.heldAtTurn
+    );
+    // CONTAINMENT, cell by cell: nothing the shallow cloud allowed is
+    // forbidden by the deep one. This is M2, at one skew step.
+    let grew = false;
+    for (let w = 0; w < sub.grid.words; w++) {
+      const shallow = (was as { cloud: { possible: ArrayLike<number> } }).cloud.possible[w] as number;
+      const deep = (now as { cloud: { possible: ArrayLike<number> } }).cloud.possible[w] as number;
+      expect(shallow & ~deep).toBe(0);
+      if ((deep & ~shallow) !== 0) grew = true;
+    }
+    // And it is a real dilation, not a copy: one more step of a live grammar
+    // reaches somewhere new.
+    expect(grew).toBe(true);
+
+    cont.release();
+    sub.releaseResolution(out.resolution);
+    sub.release();
+  });
+
+  test('F-2(c) — the cloud premise is NEVER narrowed by simulated consumption', () => {
+    // THE TRAP, and it is the one an optimiser reaches for first. The cluster
+    // eats a pellet; the held cloud's premise still shows it present, so the
+    // cloud over-estimates its own refuel and over-reaches. That is the SAFE
+    // direction. Removing the eaten pellet to "tighten" the cloud is a direct
+    // under-dilation bug.
+    //
+    // The door cannot commit it, because it reuses the parent's engine and the
+    // premise lives on the engine. That is asserted by IDENTITY, which is
+    // stronger than by value: there is no second premise to get wrong.
+    const board = snakesBoard(43);
+    const b = bench({ ...board, food: [{ x: 5, y: 5 }, { x: 4, y: 6 }] });
+    const plan = firstPlan(b);
+    const out = b.sub.resolveBoundedFor(plan, b.asTeam);
+    const cluster = survivors(b, out.resolution);
+    const cont = continueFrom({ from: b.sub, resolution: out.resolution, cluster, ply: 1 });
+    if (!cont.ok) throw new Error(`refused: ${cont.reason}`);
+    expect(cont.sub.engine).toBe(b.sub.engine);
+    // And the door must never build its own geometry from the post-meal board.
+    const src = readFileSync(join(SCOUT_DIR, 'door.ts'), 'utf8');
+    expect(code(src)).not.toMatch(/makeSubstrate|geometryFor/);
+    cont.release();
+    b.sub.releaseResolution(out.resolution);
+    b.close();
+  });
+
+  test('F-2(a) — the thread never spawns food', () => {
+    // `CloudPremise.food` is an upper bound BECAUSE spawning is gated off while
+    // anything is frozen. A sim that spawned would break the premise and the
+    // cloud's refuel set would stop being a superset. Asserted as a
+    // precondition rather than left to accident: the door reads the food board
+    // off the resolved slab and adds nothing.
+    const src = code(readFileSync(join(SCOUT_DIR, 'door.ts'), 'utf8'));
+    expect(src).toMatch(/foodBoard\(state, board\)/);
+    expect(src).not.toMatch(/spawn/i);
+  });
+
+  test('F-3 — candidate sets are re-enumerated per depth, never cached across it', () => {
+    // A promoting pawn's grammar changes, so a depth-0 candidate set read at
+    // depth 2 keeps a pawn a pawn. The scout calls the engine's own enumerator
+    // at each root — `candidates.ts`'s founding doctrine — and the way it
+    // cannot cache across depth is that each root is a DIFFERENT substrate.
+    const src = code(readFileSync(join(SCOUT_DIR, 'scout.ts'), 'utf8'));
+    // Every enumeration is against a substrate the caller names; there is no
+    // module-level candidate cache to leak across plies.
+    expect(src).toMatch(/candidatesFor\(cont\.sub, id\)/);
+    expect(src).toMatch(/candidatesFor\(parent\.sub, id\)/);
+  });
+
+  test('F-4 — tier is read at the ARRIVAL turn, and the potion premise gates depth', () => {
+    // (b) is the unsound half: our own lapsing tier priced as permanent puts a
+    // floor above the truth, and in a d-deep sim the damage is d times larger.
+    expect(tierAtRoot(1, 41, 40)).toBe(0);
+    // (c) is the cross-cutting one: an empty potion board UNDER-states the
+    // enemy's tier ceiling at depth, which over-states our contest wins. Depth
+    // converts a strength-hold into a soundness-hold, so a board with potions
+    // and a potion-free premise gets no thread at all.
+    const b = bench(snakesBoard(47));
+    const withPotions = {
+      ...b.sub.marshalled,
+      potions: [1, 2, 3],
+    } as unknown as EngineSubstrate['marshalled'];
+    const faked = Object.create(b.sub) as EngineSubstrate;
+    Object.defineProperty(faked, 'marshalled', { value: withPotions });
+    expect(tierPremiseAdmits(faked, 'expiry')).toBe(false);
+    expect(tierPremiseAdmits(faked, 'full')).toBe(true);
+    b.close();
+  });
+
+  test('F-5 — the sim reports the SECURITY value, never the clairvoyant one', () => {
+    // The quantifier order is the whole ballgame. The inner loop mins over
+    // enemy profiles INTO A SCALAR and only then does the outer loop max, so no
+    // choice is ever indexed by a profile. Structural: the `worst` accumulator
+    // is a number, and a `max_a` that could see `b` would need it to be a map.
+    const src = code(readFileSync(join(SCOUT_DIR, 'scout.ts'), 'utf8'));
+    const body = src.slice(src.indexOf('for (const a of ourJoints)'));
+    const inner = body.slice(0, body.indexOf('perOption.push'));
+    expect(inner).toMatch(/for \(const b of theirJoints\)/);
+    expect(inner).toMatch(/worst = Math\.min/);
+    // And the arithmetic itself, on a constructed pair where clairvoyance
+    // strictly wins: option A scores 9 against one reply and 0 against the
+    // other; option B scores 4 against both. Clairvoyant picks A and claims 9;
+    // security picks B and claims 4.
+    const payoff: Record<string, number[]> = { A: [9, 0], B: [4, 4] };
+    const security = Math.max(...Object.values(payoff).map((row) => Math.min(...row)));
+    const clairvoyant = Math.max(...Object.values(payoff).map((row) => Math.max(...row)));
+    expect(security).toBe(4);
+    expect(clairvoyant).toBe(9);
+    expect(security).toBeLessThan(clairvoyant);
+  });
+
+  test('F-6 — cross-depth comparison is refused, not meeted', () => {
+    // Two horizons are two questions and a meet of them bounds neither. The
+    // ordering sink therefore skips any pair at unequal depth.
+    const src = code(readFileSync(join(SCOUT_DIR, 'scout.ts'), 'utf8'));
+    expect(src).toMatch(/if \(depthOf\(a\) !== depthOf\(b\)\) continue;/);
+  });
+
+  test('F-9 — our own out-of-cluster units are held clouds with NO privilege', () => {
+    // The corpus already recorded this class: 22 deaths reappearing as
+    // `bodyBlock` on a team-mate's body. At sim depth j our own unmodelled
+    // units are exactly as unknown as an enemy observed at T.
+    const b = bench(snakesBoard(53));
+    const plan = firstPlan(b);
+    const out = b.sub.resolveBoundedFor(plan, b.asTeam);
+    const alive = survivors(b, out.resolution);
+    // A cluster of exactly ONE of ours leaves the rest of our team outside it.
+    const one = new Set<UnitId>([[...alive].sort((x, y) => x - y)[0] as UnitId]);
+    const cont = continueFrom({ from: b.sub, resolution: out.resolution, cluster: one, ply: 1 });
+    if (!cont.ok) throw new Error(`refused: ${cont.reason}`);
+    let ownHeld = 0;
+    for (const unitId of cont.held) {
+      if (cont.sub.unitOf(unitId)?.team === b.asTeam) ownHeld++;
+    }
+    expect(ownHeld).toBeGreaterThan(0);
+    // And they are in the CLAIM field, not standing as facts.
+    for (const unitId of cont.held) {
+      if (cont.sub.unitOf(unitId)?.team !== b.asTeam) continue;
+      expect(cont.sub.claimField().slotOf(unitId)).toBeDefined();
+    }
+    cont.release();
+    b.sub.releaseResolution(out.resolution);
+    b.close();
+  });
+
+  test('F-10 — a held set past MAX_FROZEN is a refusal, never a truncation', () => {
+    // The ruling is "never truncate". Overflow must convert into more
+    // conditioning assumptions or into a refusal — never into fewer modelled
+    // units, which would be a silent elision.
+    const src = code(readFileSync(join(SCOUT_DIR, 'door.ts'), 'utf8'));
+    expect(src).toMatch(/held-overflow/);
+    expect(src).toMatch(/if \(held\.size > MAX_HELD\)/);
+  });
+
+  test('F-12 — the king’s cluster gets a priority floor, not an exemption', () => {
+    // Regicide is globally terminal, so the king's cluster gates rather than
+    // adds. Under §7.1 that is a priority FLOOR — never starved — and not a
+    // mandate that exempts it from the barrier.
+    const src = code(readFileSync(join(SCOUT_DIR, 'schedule.ts'), 'utf8'));
+    expect(src).toMatch(/isKing/);
+    // It wins a TIE at equal depth; it does not jump the barrier.
+    const mk = (key: string, clusterId: number, depth: number, unit: number): ThreadEntry => ({
+      key,
+      clusterId,
+      cluster: new Set<UnitId>([unit as UnitId]),
+      rootPlan: new Map(),
+      rootTurn: TURN,
+      epochBaseline: 1,
+      postureBaseline: 'SIGHTED',
+      plies: Array.from({ length: depth }, (_, i) => ({
+        ply: i + 1,
+        move: new Map(),
+        advisory: { lo: 0, est: 0, hi: 0 },
+        contact: { contactIn: 9, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
+        discrimination: FLAT,
+        cost: 1,
+      })),
+      citedUnits: new Set(),
+      accumulation: new Map(),
+      carriedContingent: new Set(),
+      skew: 0,
+      assumptions: [],
+      state: 'live',
+      stepCost: 1,
+      lastUsed: 0,
+    });
+    const king = mk('king', 9, 2, 3);
+    const commoner = mk('commoner', 0, 1, 4);
+    const isKing = (t: ThreadEntry): boolean => t.key === 'king';
+    // The SHALLOWER one still wins: the barrier is not negotiable.
+    expect(deepenNext([king, commoner], isKing, 5)?.key).toBe('commoner');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE GATES — flag-off byte-identity, flag-on determinism
+// ---------------------------------------------------------------------------
+
+/** Monotonic, deterministic, never wall clock: each read costs one tick. The
+ *  replay probe's own clock, so the two gates measure the same thing. */
+class StepClock {
+  private t = 1000;
+  constructor(private readonly tick = 0.02) {}
+  readonly now = (): number => {
+    const v = this.t;
+    this.t += this.tick;
+    return v;
+  };
+  readonly peek = (): number => this.t;
+}
+
+async function decideWith(
+  board: Board,
+  options: Parameters<typeof makeSearchCore>[0]
+): Promise<ReadonlyArray<string>> {
+  const clock = new StepClock();
+  const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+  const kernel = new LobsterKernel({
+    sliceMs: 2,
+    reserveMs: 1,
+    minWriteIntervalMs: 0,
+    yieldIntervalMs: 0,
+  });
+  const out: string[] = [];
+  try {
+    for await (const rec of kernel.decide({
+      sub,
+      gen: new GrammarCandidateGenerator(),
+      evaluate: defaultEvaluator,
+      search: makeSearchCore(options),
+      asTeam: sub.teamNumber('red'),
+      deadlineMs: clock.peek() + 40,
+      initialPins: [],
+      now: clock.now,
+    })) {
+      out.push(
+        JSON.stringify({
+          plan: [...rec.plan.entries()]
+            .map(([u, c]) => `${u}>${c.to}`)
+            .sort()
+            .join(','),
+          lo: String(rec.lo),
+          est: String(rec.est),
+          hi: String(rec.hi),
+          horizon: rec.horizon,
+          posture: rec.posture,
+          epoch: rec.epoch,
+        })
+      );
+    }
+  } finally {
+    sub.release();
+  }
+  return out;
+}
+
+describe('the gates', () => {
+  test('OBSERVE stages exactly what flag-off stages — the firewall, measured', () => {
+    // THE CLAIM THIS STAGE OWES. Under Door A the scout is advisory, so the one
+    // thing that must be true is that it cannot perturb staging. In `observe`
+    // every thread runs, every counter is written, and no ordering channel is
+    // touched — so the emissions must be equal, plan for plan and bound for
+    // bound, to the run without it.
+    //
+    // What DOES move, and what the replay corpus shows moving, is
+    // clock-derived: `stepCostMs` and `postureFlips[].at`. The scout spends
+    // budget. Spending budget is a value trade and never a soundness one, and
+    // an assertion that pretended otherwise would be asserting something false.
+    return Promise.all(
+      [3, 11, 23].map(async (seed) => {
+        const board = snakesBoard(seed);
+        const off = await decideWith(board, { clusterEnum: true });
+        clearGeometryCache();
+        const on = await decideWith(board, { clusterEnum: true, scout: 'observe' });
+        clearGeometryCache();
+        expect(on).toEqual(off);
+        expect(off.length).toBeGreaterThan(0);
+      })
+    );
+  }, 120000);
+
+  test('ADVISE is deterministic: same board, same findings, same plans', () => {
+    // The advise arm's gate is NOT identity — a channel that never changed an
+    // order would not be a channel. It is REPRODUCIBILITY: the thread set, the
+    // findings and the staged plans are a pure function of the board and the
+    // partition, with no clock and no iteration order anywhere in the path.
+    return Promise.all(
+      [3, 11, 23].map(async (seed) => {
+        const board = snakesBoard(seed);
+        const first = await decideWith(board, { clusterEnum: true, scout: 'advise' });
+        clearGeometryCache();
+        const second = await decideWith(board, { clusterEnum: true, scout: 'advise' });
+        clearGeometryCache();
+        expect(second).toEqual(first);
+      })
+    );
+  }, 120000);
+
+  test('the scout report reaches telemetry and nothing else', () => {
+    const b = bench(snakesBoard(59));
+    const core = makeSearchCore({ clusterEnum: true, scout: 'observe' });
+    core.improve({
+      sub: b.sub,
+      gen: new GrammarCandidateGenerator({}),
+      evaluate: defaultEvaluator,
+      asTeam: b.asTeam,
+      pins: [],
+      assumptions: [],
+      incumbent: null,
+      witnesses: [],
+      budget: unboundedBudget(),
+    });
+    const report = core.scoutReport?.();
+    expect(report).not.toBeNull();
+    expect(report?.mode).toBe('observe');
+    expect(report?.threads).toBeGreaterThan(0);
+    // OBSERVE produces no advice, by construction. That is the whole
+    // difference between the two positions of the flag.
+    expect(report?.findings).toBe(0);
+    // And with the flag off there is no report at all — which is how a reader
+    // tells "off" from "on and found nothing".
+    const dark = makeSearchCore({ clusterEnum: true, scout: 'off' });
+    dark.improve({
+      sub: b.sub,
+      gen: new GrammarCandidateGenerator({}),
+      evaluate: defaultEvaluator,
+      asTeam: b.asTeam,
+      pins: [],
+      assumptions: [],
+      incumbent: null,
+      witnesses: [],
+      budget: unboundedBudget(),
+    });
+    expect(dark.scoutReport?.()).toBeNull();
+    core.release?.();
+    dark.release?.();
+    b.close();
+  }, 60000);
+
+  test('the scout returns every slab it borrows, decision after decision', () => {
+    // The slab contract applies to a thread exactly as to a decision: a leak
+    // does not look like a leak, it looks like the engine getting slower.
+    //
+    // The assertion is a SUBTRACTION and not an absolute, because the bank's
+    // resolution memo deliberately retains slabs for the session's life — so
+    // `outstanding()` after an `improve` is a property of the search, not of
+    // the scout. What the scout owes is that it adds NOTHING to that number.
+    const run = (scout: 'off' | 'advise'): number => {
+      const b = bench(snakesBoard(61));
+      const core = makeSearchCore({ clusterEnum: true, scout });
+      const ctx = {
+        sub: b.sub,
+        gen: new GrammarCandidateGenerator({}),
+        evaluate: defaultEvaluator,
+        asTeam: b.asTeam,
+        pins: [],
+        assumptions: [],
+        incumbent: null,
+        witnesses: [],
+        budget: unboundedBudget(),
+      };
+      core.improve(ctx);
+      core.improve(ctx);
+      const outstanding = b.sub.outstanding();
+      core.release?.();
+      b.close();
+      clearGeometryCache();
+      return outstanding;
+    };
+    expect(run('advise')).toBe(run('off'));
+  }, 60000);
+});
+
+// ---------------------------------------------------------------------------
+// THE RUNNER, END TO END
+// ---------------------------------------------------------------------------
+
+describe('the runner', () => {
+  test('threads run, contact, continue past it, park, and report', () => {
+    // The whole layer on one board, and the one assertion that matters most:
+    // post-contact plies EXIST. Under the superseded design a thread died at
+    // contact; under §7.1 continuation is a primary mode, and on the confronted
+    // family — where everything is in contact almost immediately — nearly all
+    // the depth is post-contact. A run that reported zero here would mean the
+    // ruling had not landed.
+    const b = bench(snakesBoard(67));
+    const gen = new GrammarCandidateGenerator({});
+    const partition = partitionOf({ sub: b.sub, roster: b.roster, fixed: new Set<UnitId>() });
+    const { plans } = enumerateProposals({
+      sub: b.sub,
+      partition,
+      roster: b.roster,
+      sets: b.sets,
+      fixed: new Map(),
+      doomed: new Set(),
+      asTeam: b.asTeam,
+      tuning: DEFAULT_CLUSTER_TUNING,
+      salt: 1,
+    });
+    const scout = new Scout('advise');
+    scout.run({
+      sub: b.sub,
+      asTeam: b.asTeam,
+      gen,
+      partition,
+      sets: b.sets,
+      seeds: plans,
+      epoch: 0,
+      posture: 'SIGHTED',
+      decisionMs: 0,
+    });
+    const report = scout.report();
+    expect(report.threads).toBeGreaterThan(0);
+    expect(report.maxDepth).toBeGreaterThan(0);
+    expect(report.postContactPlies).toBeGreaterThan(0);
+    expect(report.parked).toBeGreaterThan(0);
+    // The barrier is where the team would compare, and it is never above the
+    // deepest thread.
+    expect(report.barrier).toBeGreaterThan(0);
+    expect(report.barrier).toBeLessThanOrEqual(report.maxDepth);
+    // The clean prefix is the §7.1 measurement — plies that ran BEFORE contact
+    // — and it is a different number from depth, on purpose.
+    const prefixes = scout.cleanPrefixes();
+    expect(prefixes.length).toBe(report.threads);
+    for (const [i, t] of scout.ledger.all().entries()) {
+      expect(cleanPrefixOf(t)).toBe(prefixes[i]);
+      expect(cleanPrefixOf(t)).toBeLessThanOrEqual(depthOf(t));
+    }
+    // No clock was read, so the same run twice is the same run.
+    scout.release();
+    b.close();
+  }, 60000);
+
+  test('every finding is negative, and points at a candidate the anchor could take', () => {
+    // The polarity rule, on real advice rather than on the clamp alone.
+    const b = bench(snakesBoard(71));
+    const gen = new GrammarCandidateGenerator({});
+    const partition = partitionOf({ sub: b.sub, roster: b.roster, fixed: new Set<UnitId>() });
+    const { plans } = enumerateProposals({
+      sub: b.sub,
+      partition,
+      roster: b.roster,
+      sets: b.sets,
+      fixed: new Map(),
+      doomed: new Set(),
+      asTeam: b.asTeam,
+      tuning: DEFAULT_CLUSTER_TUNING,
+      salt: 1,
+    });
+    const scout = new Scout('advise');
+    scout.run({
+      sub: b.sub,
+      asTeam: b.asTeam,
+      gen,
+      partition,
+      sets: b.sets,
+      seeds: plans,
+      epoch: 0,
+      posture: 'SIGHTED',
+      decisionMs: 0,
+    });
+    const advice = scout.advice();
+    for (const finding of advice) {
+      // NEGATIVE, always. `Surrogate.unary` adds φ_u and higher is better, so a
+      // next-ply danger demotes. A positive term would be a time-skewed number
+      // PROMOTING a candidate, and promotion is the direction where being
+      // wrong costs a staging.
+      expect(finding.delta).toBeLessThan(0);
+      expect(Math.abs(finding.delta)).toBeLessThanOrEqual(10);
+      // And it names a real option of a real unit.
+      const set = b.sets.get(finding.unitId);
+      expect(set).toBeDefined();
+      expect(set?.candidates.some((c) => c.to === finding.to)).toBe(true);
+    }
+    // The lookup is the seam CL3 built, and it is zero everywhere it has
+    // nothing to say — never undefined, never NaN.
+    const unary = scout.unaryAdvice();
+    if (advice.length > 0 && unary !== undefined) {
+      expect(unary(advice[0]!.unitId, { unitId: advice[0]!.unitId, from: 0, to: advice[0]!.to, path: [] } as unknown as Candidate)).toBe(advice[0]!.delta);
+      expect(unary(9999 as UnitId, { unitId: 9999, from: 0, to: 0, path: [] } as unknown as Candidate)).toBe(0);
+    }
+    scout.release();
+    b.close();
+  }, 60000);
 });

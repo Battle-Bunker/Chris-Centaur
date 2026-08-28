@@ -155,10 +155,30 @@ export interface ScoutTuning {
    * turns the sink from a channel that exists into a channel that fires.
    */
   readonly perturbationsPerCluster: number;
-  /** A counting budget for the deterministic probes: plies per decision when
-   *  the handle models no clock. Keeps every probe a property of the search
-   *  rather than of the box. */
+  /** Hard ceiling on plies per decision, whatever the clock says. */
   readonly plyCap: number;
+  /**
+   * WHAT ONE RESOLUTION-EQUIVALENT COSTS, IN MILLISECONDS — the only bridge
+   * between the decision's wall-clock budget and the scout's own accounting,
+   * and the only place a millisecond appears in this layer.
+   *
+   * The scout NEVER READS A CLOCK. It spends in RESOLUTION-EQUIVALENTS, which
+   * is `la-inside` §4's own currency and `refinementCost`'s (*"denominated in
+   * resolution-equivalents across every lever, so value-per-cost ratios are
+   * comparable between lever types"*). Reading `Date.now()` per ply would make
+   * the park decision — and therefore the thread set, the findings and the
+   * candidate order — a function of how loaded the box was, which is a
+   * non-reproducible search and fails its own determinism gate. It would also
+   * break the repo's one-clock rule, which says every consumer times itself
+   * against the injected `BudgetHandle` and never against `performance.now()`.
+   *
+   * So the tithe is converted ONCE, at the decision boundary, from the budget
+   * the caller already read. The constant is a conservative estimate to be
+   * re-fit (CL6a measured ~0.11 ms per priced resolution on an 11×11 six-unit
+   * board); over-estimating it spends less than the tithe, which is the safe
+   * direction for a layer whose whole promise is that it stays inside one.
+   */
+  readonly msPerResolution: number;
 }
 
 export const DEFAULT_SCOUT_TUNING: ScoutTuning = {
@@ -173,6 +193,7 @@ export const DEFAULT_SCOUT_TUNING: ScoutTuning = {
   expandThreshold: 1,
   perturbationsPerCluster: 3,
   plyCap: 24,
+  msPerResolution: 0.15,
 };
 
 /** The tithe the scout may actually spend. The reserve is a CEILING on it. */
@@ -185,59 +206,68 @@ export function effectiveTithe(t: ScoutTuning): number {
 // ---------------------------------------------------------------------------
 
 /**
- * The scout's own purse, in two currencies, with a counting fallback.
+ * The scout's own purse — in RESOLUTION-EQUIVALENTS, in two currencies, with a
+ * hard ply ceiling.
  *
- * `decisionFraction()` is optional on `BudgetHandle` by design — a harness
- * budget does not model a turn — so the purse carries a PLY CAP as well as a
- * millisecond cap and spends whichever binds first. On the deterministic
- * probes only the ply cap ever binds, which is what makes those numbers a
- * property of the search rather than of the machine that ran it.
+ * No clock is read here or anywhere below it. The decision's millisecond
+ * budget is converted to a resolution allowance ONCE, by the caller's single
+ * read, through `msPerResolution`; everything after that is counting. That is
+ * what makes the thread set, the findings and the candidate order a pure
+ * function of the board — the property the determinism gate asserts and the
+ * property a wall-clock read would silently destroy.
+ *
+ * `decisionMs` of 0 means the handle models no decision-level clock (every
+ * harness budget in this program), and then only the ply cap binds.
  */
 export class ScoutPurse {
-  private spentMs = 0;
+  private spentUnits = 0;
   private spentPlies = 0;
-  private spentSoundMs = 0;
-  readonly msCap: number;
+  private spentSoundUnits = 0;
+  /** Resolution-equivalents the tithe buys, or `Infinity` with no clock. */
+  readonly unitCap: number;
   readonly plyCap: number;
+  /** The tithe in ms, for telemetry only — never read by a decision. */
+  readonly msCap: number;
 
   constructor(decisionMs: number, readonly tuning: ScoutTuning) {
     this.msCap = decisionMs > 0 ? decisionMs * effectiveTithe(tuning) : 0;
+    this.unitCap =
+      this.msCap > 0 ? Math.max(1, Math.floor(this.msCap / Math.max(1e-6, tuning.msPerResolution))) : Infinity;
     this.plyCap = tuning.plyCap;
   }
 
-  get advisoryCapMs(): number {
-    return this.msCap * (1 - this.tuning.soundShare);
+  get advisoryCap(): number {
+    return this.unitCap === Infinity ? Infinity : this.unitCap * (1 - this.tuning.soundShare);
   }
 
-  get soundCapMs(): number {
-    return this.msCap * this.tuning.soundShare;
+  get soundCap(): number {
+    return this.unitCap === Infinity ? Infinity : this.unitCap * this.tuning.soundShare;
   }
 
-  /** Is there room for one more ply? Both currencies must be checked, and they
-   *  are checked separately: a purse that summed them would let a witness hunt
-   *  eat the advisory half, which is the two-currency violation. */
+  /** Room for one more ply? The two currencies are checked SEPARATELY: a purse
+   *  that summed them would let a witness hunt eat the advisory half, which is
+   *  the two-currency violation rule 23 forbids. */
   canSpend(): boolean {
     if (this.spentPlies >= this.plyCap) return false;
-    if (this.msCap > 0 && this.spentMs >= this.advisoryCapMs) return false;
-    return true;
+    return this.spentUnits < this.advisoryCap;
   }
 
   canSpendSound(): boolean {
-    if (this.msCap <= 0) return this.spentPlies < this.plyCap;
-    return this.spentSoundMs < this.soundCapMs;
+    return this.spentSoundUnits < this.soundCap;
   }
 
-  spend(ms: number, plies = 1): void {
-    this.spentMs += Math.max(0, ms);
+  /** `units` is resolutions priced; `plies` is plies taken. */
+  spend(units: number, plies = 1): void {
+    this.spentUnits += Math.max(0, units);
     this.spentPlies += plies;
   }
 
-  spendSound(ms: number): void {
-    this.spentSoundMs += Math.max(0, ms);
+  spendSound(units: number): void {
+    this.spentSoundUnits += Math.max(0, units);
   }
 
-  get ms(): number {
-    return this.spentMs;
+  get units(): number {
+    return this.spentUnits;
   }
 
   get plies(): number {
@@ -309,7 +339,8 @@ export function deepenNext(
 export interface ParkVerdict {
   readonly park: boolean;
   readonly reason: 'flat' | 'depth' | 'budget' | 'live';
-  /** `ρ_thread`, advisory half. Telemetry and the resume priority. */
+  /** `ρ_thread`, advisory half, per resolution-equivalent. Telemetry and the
+   *  resume priority. */
   readonly rate: number;
 }
 
@@ -332,7 +363,7 @@ export function shouldPark(
   purse: ScoutPurse
 ): ParkVerdict {
   const d = lastDiscrimination(entry);
-  const rate = advisoryRate(d, Math.max(entry.stepCostMs, 1e-6));
+  const rate = advisoryRate(d, Math.max(entry.stepCost, 1));
   if (depthOf(entry) >= tuning.depthMax) return { park: true, reason: 'depth', rate };
   if (!purse.canSpend()) return { park: true, reason: 'budget', rate };
   let flat = 0;
@@ -363,7 +394,7 @@ export function shouldPark(
  */
 export function resumePriority(entry: ThreadEntry): number {
   const d = lastDiscrimination(entry);
-  const rate = advisoryRate(d, Math.max(entry.stepCostMs, 1e-6));
+  const rate = advisoryRate(d, Math.max(entry.stepCost, 1));
   return rate / (1 + Math.max(0, entry.skew));
 }
 
@@ -480,7 +511,10 @@ export interface ScoutReport {
   readonly findings: number;
   /** Door refusals by reason, so a silent no-op is legible. */
   readonly refusals: Readonly<Record<string, number>>;
-  readonly msSpent: number;
+  /** The tithe the caller's budget bought, in ms. Telemetry. */
+  readonly msCap: number;
+  /** Resolution-equivalents actually spent. The scout's real currency. */
+  readonly units: number;
   readonly plies: number;
 }
 
@@ -503,7 +537,8 @@ export function emptyReport(mode: ScoutMode): ScoutReport {
     contacted: 0,
     findings: 0,
     refusals: {},
-    msSpent: 0,
+    msCap: 0,
+    units: 0,
     plies: 0,
   };
 }
@@ -549,7 +584,8 @@ export function reportOf(
     contacted,
     findings,
     refusals,
-    msSpent: purse.ms,
+    msCap: purse.msCap,
+    units: purse.units,
     plies: purse.plies,
   };
 }

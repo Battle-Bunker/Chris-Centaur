@@ -92,3 +92,40 @@ export type {
   UnaryInput,
   UnaryParts,
 } from "./edge-ev";
+
+// CL6 — DOOR A. The scout's whole surface. Its import law lives in
+// `./scout/index.ts` and is asserted by `__tests__/scout.test.ts`.
+export {
+  DEFAULT_SCOUT_TUNING,
+  SCOUT_ENV,
+  Scout,
+  ScoutPurse,
+  ThreadLedger,
+  barrierDepth,
+  buildContactMatrix,
+  clampToLat,
+  cleanPrefixOf,
+  contactOf,
+  continueFrom,
+  deepenNext,
+  effectiveTithe,
+  priceExpansion,
+  resumePriority,
+  scoutMode,
+  scoutModeFrom,
+  shouldPark,
+  soleDifference,
+  tierAtRoot,
+  tierPremiseAdmits,
+} from "./scout";
+export type {
+  ContactVerdict,
+  Continuation,
+  Discrimination,
+  ScoutFinding,
+  ScoutMode,
+  ScoutReport,
+  ScoutRequest,
+  ScoutTuning,
+  ThreadEntry,
+} from "./scout";

@@ -180,6 +180,63 @@ module.exports = [
     },
   },
 
+  // ── CL6 Door A: the scout has no clock, and no route to a bound ──────────
+  // The scout spends in RESOLUTION-EQUIVALENTS, converted once from the
+  // decision budget the caller already read. A clock read per ply would make
+  // the park decision — and therefore the thread set, the findings and the
+  // candidate order — a function of how loaded the box was, which is a search
+  // whose result cannot be reproduced and therefore cannot be attributed to a
+  // code change. Same discipline as `selection/**`, same reason.
+  //
+  // The bound ban is the firewall (la-outside L2/L8) in its lint form: under a
+  // V-one frame, depth may move est, candidate order and scheduler priors, and
+  // nothing else. There is no third route, so there is no import.
+  {
+    files: ['src/lobster/search/scout/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message:
+            'Date.now is banned in src/lobster/search/scout/**: the scout spends in ' +
+            'resolution-equivalents, converted once from the decision budget. A clock read ' +
+            'here makes the thread set a function of the box and fails the determinism gate.',
+        },
+        {
+          selector: "MemberExpression[object.name='performance'][property.name='now']",
+          message: 'performance.now is banned in src/lobster/search/scout/**: see the Date.now message.',
+        },
+        {
+          selector: "MemberExpression[object.name='process'][property.name='hrtime']",
+          message: 'process.hrtime is banned in src/lobster/search/scout/**: see the Date.now message.',
+        },
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message:
+            'Math.random is banned in src/lobster/search/scout/**: a thread set that is not a ' +
+            'pure function of the board cannot be replayed, and an unreplayable finding cannot ' +
+            'be attributed.',
+        },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/bounds', '**/bounds/*'],
+              message:
+                'The scout may not import the bounds layer. Depth is provenance, never ' +
+                'denomination (la-outside L1): a thread finding reaches a decision only as an ' +
+                'ordering term through CL3\'s UnaryLookup seam, which feeds a surrogate and ' +
+                'never a bound. There is no second route, so there is no import.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── Keepalive ownership: restricted imports (base — applies everywhere) ───
   {
     files: ['src/**/*.ts'],

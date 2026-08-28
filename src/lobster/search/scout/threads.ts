@@ -310,14 +310,14 @@ export const FLAT: Discrimination = {
  * function that added them would be exactly the two-currency violation rule 23
  * forbids, and it would be invisible the moment either currency was zero.
  */
-export function advisoryRate(d: Discrimination, ms: number): number {
-  if (ms <= 0) return 0;
+export function advisoryRate(d: Discrimination, units: number): number {
+  if (units <= 0) return 0;
   const spread = Math.max(d.floorSpread, d.estSpread);
-  return (spread * (d.argmaxMoved ? 2 : 1)) / ms;
+  return (spread * (d.argmaxMoved ? 2 : 1)) / units;
 }
 
-export function soundYield(d: Discrimination, ms: number): number {
-  return ms <= 0 ? 0 : d.witnesses / ms;
+export function soundYield(d: Discrimination, units: number): number {
+  return units <= 0 ? 0 : d.witnesses / units;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,8 +346,10 @@ export interface ThreadPly {
   readonly advisory: { readonly lo: number; readonly est: number; readonly hi: number };
   readonly contact: ContactVerdict;
   readonly discrimination: Discrimination;
-  /** Wall time this ply cost, for the scheduler's rate. */
-  readonly ms: number;
+  /** What this ply cost, in RESOLUTION-EQUIVALENTS — never milliseconds. The
+   *  scout reads no clock, so its rate is a count and its decisions are a pure
+   *  function of the board. See `ScoutPurse`. */
+  readonly cost: number;
 }
 
 export interface ThreadEntry {
@@ -380,8 +382,9 @@ export interface ThreadEntry {
   readonly assumptions: Assumption[];
   state: ThreadState;
   /** Per-thread, as at `kernel.ts:243`, and PER-THREAD is the load-bearing
-   *  word: threads on different clusters cost wildly different amounts. */
-  stepCostMs: number;
+   *  word: threads on different clusters cost wildly different amounts.
+   *  In resolution-equivalents. */
+  stepCost: number;
   lastUsed: number;
 }
 
