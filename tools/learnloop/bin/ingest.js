@@ -47,6 +47,7 @@ const path = require('path');
 const L = require('../lib/ledger');
 const E = require('../lib/extract');
 const D = require('../lib/drift');
+const P = require('../lib/polarity');
 const { blockCI, mean, round } = require('../lib/stats');
 
 function arg(name, dflt) {
@@ -229,6 +230,16 @@ for (const p of args('pair')) {
   if (f === null) fail(`--flag ${flagName} is not in the ledger`);
 
   const engaged = engagementFor(treat, engagementArg);
+
+  // WHICH CELLS ARE CONTROLS? A control cell is one the DESIGN requires to
+  // read zero: a provably-inert path included to prove the instrument reports
+  // zero when zero is the truth. Declared on the flag as `controlCells`, or on
+  // the command line as `--control <cell>` (repeatable). Its rows are filed as
+  // `kind: 'control'`, which strengthens the instrument and never touches the
+  // effect channel — the `CONTROL-CELLS-DEMOTE` fix; see lib/ledger.js.
+  const controls = new Set([...args('control'), ...(f.controlCells ?? [])]);
+  const controlCell = (k) => [...controls].some((c) => k === c || k.endsWith(`::${c}`));
+
   for (const [cellKey, row] of Object.entries(cells)) {
     for (const [metric, r] of Object.entries(row)) {
       if (r.retired) continue;
@@ -243,20 +254,23 @@ for (const p of args('pair')) {
       // finding. Recorded with nullVerified false, which the ledger treats as
       // "moves nothing".
       const readable = nullOk && r.nullHalfWidth !== null;
+      // POLARITY, NOT SIGN. A delta outside the floor is scored by the
+      // metric's own good direction — `score` up, `deathsExhaustion` down —
+      // and a metric whose direction is not a verdict is recorded unscored
+      // rather than guessed at. See lib/polarity.js for why this is the most
+      // expensive one-line bug this loop has had.
+      const polarity = P.polarityOf(metric, gate);
       const verdict = !readable
         ? 'unreadable'
-        : r.outsideNull === true
-          ? r.mean < 0 && (family === 'placement' || family === 'mechanism')
-            ? 'failed'
-            : 'supports-promotion'
-          : 'null';
+        : P.scoreVerdict({ mean: r.mean, outsideNull: r.outsideNull, metric, gate });
       const m = {
         batch: batchId,
-        kind,
+        kind: controlCell(cellKey) ? 'control' : kind,
         cell: cellKey,
         metric,
         family,
-        verdict,
+        verdict: controlCell(cellKey) ? (r.outsideNull === true ? 'control-violated' : 'inert') : verdict,
+        polarity,
         value: `${r.mean} [${r.lo}, ${r.hi}] over ${r.n} blocks; null half-width ${r.nullHalfWidth}`,
         nullVerified: readable,
         nullBandHalfWidth: r.nullHalfWidth,

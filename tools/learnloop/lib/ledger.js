@@ -88,6 +88,41 @@ const STATUSES = [
 const LIVE_ONLY = new Set(['live-null', 'live-failed', 'supported', 'promoted']);
 
 /**
+ * THE FOUR KINDS OF MEASUREMENT.
+ *
+ *   probe       a deterministic gate. Raises `dark` -> `probe-passed`, nothing more.
+ *   live        a paired sweep with a concurrent null. The only kind that may
+ *               write a live status.
+ *   historical  an older sweep with no bundle stamp. Informs; never promotes.
+ *   control     A CELL THAT IS NULL BY DESIGN — see below.
+ *
+ * ── WHY `control` IS A KIND AND NOT A VERDICT (`CONTROL-CELLS-DEMOTE`) ─────
+ *
+ * A control cell is a provably-inert path run precisely to prove the
+ * instrument reports zero when zero is the truth. Before this kind existed,
+ * `applyMeasurement` could not tell such a cell apart from a treatment cell
+ * that failed to show an effect: both took the `live-null` branch, and a
+ * control that came back perfect demoted the flag it was vouching for.
+ *
+ * This is not hypothetical. TERRITORY_SLIDER_PROFILE's `null-snake6` control
+ * sat at EXACTLY 0 against a measured +/-0.0324 floor — the strongest single
+ * row in the ledger, because a measurement that does not manufacture effects
+ * on an inert path is the precondition for believing any effect it does
+ * report — and filing it as `placement` demoted the flag `supported` ->
+ * `live-null`. THE BETTER THE CONTROL, THE HARDER IT DEMOTED. A rule that
+ * punishes the practice it exists to encourage.
+ *
+ * So a control row enters a different channel entirely. It never scores an
+ * effect and never moves a status in either direction; it accumulates on
+ * `f.controlEvidence`, where it is what it actually is — evidence about the
+ * INSTRUMENT rather than a claim about the treatment. And it is not merely
+ * inert: a control that MOVES is a loud instrument failure, recorded under
+ * `controlEvidence.violated`, because a path the design requires to read zero
+ * reading nonzero makes every treatment row measured beside it provisional.
+ */
+const MEASUREMENT_KINDS = ['probe', 'live', 'historical', 'control'];
+
+/**
  * THE METRIC FAMILIES THAT MAY MOVE A STATUS.
  *
  *   placement  who won. The thing the flag is ultimately for.
@@ -156,7 +191,7 @@ function validate(ledger) {
     }
     for (const m of f.measurements ?? []) {
       if (!m.batch) errs.push(`${f.flag}: a measurement has no batch id`);
-      if (!['probe', 'live', 'historical'].includes(m.kind)) {
+      if (!MEASUREMENT_KINDS.includes(m.kind)) {
         errs.push(`${f.flag}/${m.batch}: bad measurement kind ${m.kind}`);
       }
     }
@@ -212,7 +247,7 @@ function applyMeasurement(ledger, flagName, m) {
   const notes = [];
 
   if (!m.batch) throw new Error(`${flagName}: a measurement must name its batch`);
-  if (!['probe', 'live', 'historical'].includes(m.kind)) {
+  if (!MEASUREMENT_KINDS.includes(m.kind)) {
     throw new Error(`${flagName}: unknown measurement kind ${m.kind}`);
   }
   if (f.measurements.some((x) => x.batch === m.batch && x.cell === m.cell && x.metric === m.metric)) {
@@ -226,6 +261,28 @@ function applyMeasurement(ledger, flagName, m) {
     notes.push(
       `${flagName}: frozen — measurement recorded, status untouched. A frozen cell is ` +
         're-opened by a mechanism claim, never by a p-value (A3 §4.2 item 3).'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  if (m.kind === 'control') {
+    // A CONTROL ENTERS NO EFFECT CHANNEL. It cannot promote and it cannot
+    // demote; it strengthens or impeaches the INSTRUMENT. `inert` is the row
+    // doing its job — the design required zero and zero is what came back.
+    const inert = m.verdict !== 'control-violated';
+    if (!f.controlEvidence) f.controlEvidence = { inert: [], violated: [] };
+    const where = `${m.batch}/${m.cell}/${m.metric}`;
+    (inert ? f.controlEvidence.inert : f.controlEvidence.violated).push(where);
+    notes.push(
+      inert
+        ? `${flagName}: CONTROL PASSED at ${where} — the cell the design requires to read zero ` +
+          'read zero. Recorded as instrument evidence; status untouched, in either direction. ' +
+          'A control that comes back perfect is the strongest row a batch can carry and it must ' +
+          'not be able to demote the flag it vouches for (CONTROL-CELLS-DEMOTE).'
+        : `${flagName}: ** CONTROL VIOLATED ** at ${where} (${m.value ?? m.verdict}). A path the ` +
+          'design requires to read ZERO did not. This is an INSTRUMENT FAILURE, not a treatment ' +
+          'effect: every treatment row measured beside it is provisional until the control is ' +
+          'explained. Status untouched — a broken instrument does not get to write a verdict.'
     );
     return { changed: false, before, after: f.status, notes };
   }
@@ -264,14 +321,32 @@ function applyMeasurement(ledger, flagName, m) {
     );
     return { changed: false, before, after: f.status, notes };
   }
-  if (m.armEngagementVerified === false) {
+  // ENGAGEMENT IS A TRI-STATE AND THE RULE IS "SHOWN", NOT "NOT DISPROVED".
+  //
+  //   true   a counter was read and was nonzero. The arm demonstrably ran.
+  //   false  a counter was read and was ZERO. The arm demonstrably did not.
+  //   null   CANNOT SAY — an old bundle with no mechanism report at all.
+  //
+  // This used to refuse only on `=== false`, so `null` sailed through and could
+  // write a live status — and `null` is not the edge case, it is every batch
+  // that predates the CL7 mechanism report. The seeded ledger papered over the
+  // gap by marking CENTAUR_WASM's rows `false`, a value the vocabulary reserves
+  // for a counter that was READ: the datum was bent to fit the code. Refusing
+  // on anything that is not `true` un-bends it (`ENGAGEMENT-TRISTATE`).
+  if (m.armEngagementVerified !== true) {
+    const zero = m.armEngagementVerified === false;
     notes.push(
       `${flagName}: live measurement recorded, status untouched — THE TREATMENT ARM'S ` +
-        'ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different ' +
-        'finding from a null from an arm that ran and did not help, and only the mechanism ' +
-        'rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per ' +
-        'partition, silently, whenever an input is not resident. Re-run with the ' +
-        "engagement counters on the record (CL7's mechanism report)."
+        'ENGAGEMENT WAS NOT SHOWN' +
+        (zero
+          ? ' (a counter was read and was ZERO: the arm did not run).'
+          : ' (no engagement counter was read at all — `null` is CANNOT SAY, and cannot say ' +
+            'is not the same as said yes). Re-run against a bundle carrying the mechanism ' +
+            'report, or name the counter with --engagement.') +
+        ' A null from an arm that never ran is a different finding from a null from an arm ' +
+        'that ran and did not help, and only the mechanism rows tell them apart. This is the ' +
+        'P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is ' +
+        'not resident.'
     );
     return { changed: false, before, after: f.status, notes };
   }
@@ -287,6 +362,22 @@ function applyMeasurement(ledger, flagName, m) {
       `${flagName}: placement verdict from an underpowered cell (${m.power.blocksHad} blocks, ` +
         `${m.power.blocksNeeded} needed for MDE ${m.power.mdeTarget}) — recorded, status ` +
         'untouched. The loop does not learn placement from cells that cannot teach it.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  // A REAL EFFECT WHOSE DIRECTION IS NOT A VERDICT. The delta cleared the
+  // batch's own floor, so it is not null and must not be recorded as one — but
+  // the metric has no good direction (`turns`, `wasmRuns`, an audit stamp), so
+  // there is nothing to score. Recorded loudly, moves nothing. See
+  // lib/polarity.js: the loop would rather say it cannot score a row than
+  // score it backwards.
+  if (m.verdict === 'outside-null-unscored') {
+    notes.push(
+      `${flagName}: ${m.cell}/${m.metric} moved OUTSIDE the null floor (${m.value}) on a metric ` +
+        'with no good direction — recorded, status untouched. This is a real effect and a ' +
+        'finding to investigate; it is not a win and it is not a loss. Declare a polarity on ' +
+        'the gate if this metric does have one.'
     );
     return { changed: false, before, after: f.status, notes };
   }
@@ -333,9 +424,41 @@ function reopen(ledger, flagName, claim) {
   return f;
 }
 
-/** Flags whose next experiment the batch generator must schedule. */
+/**
+ * IS THIS FLAG'S `live-null` A DECISION, OR JUST A CELL THAT COULD NOT SEE?
+ *
+ * The ledger's own definition of `live-null` is *"found no effect IT COULD
+ * RESOLVE"*, and it says in the same breath: NOT "no effect" — read the power
+ * row. A null from a cell the ledger itself stamped `underpowered` has settled
+ * precisely nothing, and treating it as settled is how CENTAUR_UNIT_FATALITY's
+ * P7F came to be written out in full and then silently never scheduled: its
+ * null is 16 blocks against the 58 its own dispersion demands.
+ *
+ * So a `live-null` flag is UNRESOLVED — and therefore schedulable — unless its
+ * most recent live placement row was adequately powered. A flag whose null
+ * really did come from a cell that could have seen the effect is settled, and
+ * drops out of the batch on the evidence rather than on the status name.
+ */
+function nullIsUnresolved(f) {
+  const placement = (f.measurements ?? []).filter((m) => m.kind === 'live' && m.family === 'placement');
+  if (placement.length === 0) return true;
+  const last = placement[placement.length - 1];
+  return !(last.power && last.power.underpowered === false);
+}
+
+/**
+ * Flags whose next experiment the batch generator must schedule.
+ *
+ * `live-null` is here, not because a null is a failure, but because a null is
+ * not automatically an answer — see `nullIsUnresolved` (`LIVE-NULL-IS-TERMINAL`).
+ * A flag with nothing left to run names no `nextExperiment` and is skipped.
+ */
 function undecided(ledger) {
-  return ledger.flags.filter((f) => ['dark', 'probe-passed', 'live-failed'].includes(f.status));
+  return ledger.flags.filter((f) => {
+    if (['dark', 'probe-passed', 'live-failed'].includes(f.status)) return true;
+    if (f.status === 'live-null') return Boolean(f.nextExperiment) && nullIsUnresolved(f);
+    return false;
+  });
 }
 
 /** Flags that owe an exploration slice (the ratchet guard). */
@@ -347,7 +470,9 @@ module.exports = {
   SCHEMA_VERSION,
   STATUSES,
   LIVE_ONLY,
+  MEASUREMENT_KINDS,
   STATUS_MOVING_FAMILIES,
+  nullIsUnresolved,
   EXPLORATION_SLICE,
   LEDGER_PATH,
   load,

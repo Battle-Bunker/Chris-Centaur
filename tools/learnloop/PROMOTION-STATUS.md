@@ -64,15 +64,15 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   > Final floors WORSE on 14/26 by 0.008-0.228 on floors of scale 20-100 (mean -0.05). CL1 section 6.3 named this as the open number and shipped the flag OFF because of it.
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `win` → **failed**  
   snake6 win rate 1.00 -> 0.15 (delta -0.854, excludes zero)  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > The effect is an order of magnitude outside the cell's own null band, so power is not the question here.
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `deathsExhaustion` → **failed**  
   snake exhaustion deaths x1.9 (39 -> 75 over 48 games)  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > THE MECHANISM. The pairwise seed appears to disrupt snake parallel-motion and food economics — travel economy, not staging safety. The deterministic gate measures positions; this is the shape of a whole game.
 - **20260827-overnight** · p7-cl1-gates (cl-both arm) · `win` → **failed**  
   seed+fatality together: same collapse as seed alone  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > So the cost is the seed's, not the pair's. UNIT_FATALITY alone carried no placement cost.
 
 **Verdict.** DO NOT PROMOTE AS-IS. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure.
@@ -106,7 +106,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   <sub>probe · no null</sub>
 - **20260827-overnight** · p7-cl1-gates · `score` → **null**  
   no placement cost from UNIT_FATALITY alone  
-  <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > 16 blocks against the pooled stratum's 58 for MDE 0.25. 'No placement cost' means 'no cost this cell could resolve'. That is the honest reading and it is enough to keep the flag alive; it is not enough to promote it.
 
 **Verdict.** Alive, unpromoted. It costs nothing measurable and has not yet been shown to buy anything on its own.
@@ -309,11 +309,11 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 
 - **20260827-overnight** · p5-wasm-arena · `score` → **null**  
   placement NULL  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  <sub>live · null verified · **ENGAGEMENT SHOWN ZERO**</sub>
   > STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.
 - **20260827-overnight** · p5-wasm-arena · `capRate` → **anomaly**  
   cap rate DOUBLES under wasm-on: 0.458 vs 0.229  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  <sub>live · null verified · **ENGAGEMENT SHOWN ZERO**</sub>
   > A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.
 
 **Verdict.** The one measured anomaly on the branch, and it was unreadable. CL7 makes it readable.
@@ -350,7 +350,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   > The cap of three follows this measurement, not an expectation.
 - **20260827-overnight** · p1-substrate-headline · `score` → **null**  
   the perf substrate is SPEED, NOT STRENGTH, at 2000 ms  
-  <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > P1 raced whole BUILDS, not this flag: `integrated` vs `perf-substrate` at their shipped defaults. It bounds the substrate's strength effect and does not isolate the pool. Recorded against this flag because it is the closest live evidence that exists, and labelled so nobody mistakes it for an isolated arm.
 
 **Verdict.** Throughput is measured and real; strength is bounded and null. The pool has never been raced as an isolated arm.
@@ -384,7 +384,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   > Production reads ONLY n=1 (TeamTurnInput.observedTurns has no production producer), so keeping `expiry` today is a PROVABLE NO-OP live. But `expiry` is UNSOUND at n>=2: 4,622/6,383 pot-sparse slot readings lack a rules-allowed ceiling, an under-approximation.
 - **20260827-overnight** · p4-tiertruth-potions · `score` → **null**  
   NULL on potion cells; the default stays expiry  
-  <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > Consistent with the n=1 no-op finding: at ply 1 there is nothing for `full` to change.
 
 **Verdict.** A null at ply 1, exactly as predicted, AND A HARD PREREQUISITE OF PLY 2. This flag will be promoted for a soundness reason and not a placement one — the ledger records that so a future reader does not go looking for the placement win that will never arrive.
@@ -415,7 +415,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 
 - **20260827-overnight** · p6-admission · `score` → **null**  
   NULL everywhere — the governor's first measurement  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED** · underpowered (16/58 blocks)</sub>
+  <sub>live · null verified · **ENGAGEMENT SHOWN ZERO** · underpowered (16/58 blocks)</sub>
   > Engagement unverified for the same structural reason as P5: the governor publishes no counter the harness can read. A null from a governor that never admitted anything is not a null about the governor.
 
 **Verdict.** First measurement, null, engagement unverified, and its telemetry is on a branch CL7 does not reach.
@@ -446,11 +446,11 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 
 - **i2-control-cells** · no-slider neutrality, fixed build · `score` → **null**  
   +0.021 [-0.062, +0.125] vs null; snake wins preserved to the digit  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > The provably-inert cell behaving inertly. This is the control, and it passed.
 - **20260827-overnight** · p3-slider-2000 · `score` → **supports-promotion**  
   budget gradient: 150 ms ~0 / 1000 ms +0.31 / 2000 ms +0.115 (excludes zero, narrowly clears the floor); snake6 exactly 0, inert  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > Three points on a gradient, an inert cell that stayed inert, and a control run that confirmed the neutrality claim. This is the most complete evidence chain in the ledger.
 
 **Verdict.** SUPPORTED, AND THE FLIP IS OWED. The dark-shipped repair's evidence chain is complete and the wire-up via the own-team detector is fully supported. What has not happened is the wiring itself: there is no env flag and no config field, so 'promotion' here means a code change, not a default flip.
@@ -481,7 +481,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 
 - **i1-sweeps** · i1 guard vs base, piece and snake-only rosters · `score` → **supports-promotion**  
   the guard HELPS on piece boards and REGRESSES on snake-only ones — which is the ship condition, not a wash  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
   > The sign flip by roster is why the promoted default is `auto` and not `full`. A treatment measured on one roster has been measured on one roster.
 
 **Verdict.** Promoted as a BOARD-CONDITIONAL default. Owes an exploration slice.
@@ -511,7 +511,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 
 - **integ-round-a** · integration round (a) · `score` → **supports-promotion**  
   promoted at integ/round-a; 9 commits, gates green  
-  <sub>live · null verified</sub>
+  <sub>live · null verified · engagement shown</sub>
 
 **Verdict.** Promoted. Owes an exploration slice, and has not had one.
 
