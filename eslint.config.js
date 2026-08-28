@@ -135,6 +135,51 @@ module.exports = [
     },
   },
 
+  // ── CL4 contract rule 20: the selection layer has no clock and no RNG ─────
+  // "Every stochastic choice draws from the path-addressed PRNG keyed on the
+  // logged private per-match seed; per-arm draw counters; no Math.random,
+  // Date.now, performance.now in selection/**; the clock reaches selection only
+  // through BudgetHandle." A Math.random here would make a decision
+  // unreplayable, and an unreplayable decision cannot be attributed to a code
+  // change — which is this whole program's measurement discipline. A clock read
+  // here would put wall time inside a draw and break the two-budget prefix
+  // property. Both are structural, so both are lint errors rather than review
+  // notes.
+  {
+    files: ['src/lobster/selection/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message:
+            'Math.random is banned in src/lobster/selection/**: every draw must be a pure ' +
+            'function of (decision seed, node, arm, draw index) — see selection/rng.ts. ' +
+            'A non-replayable decision cannot be attributed to a code change.',
+        },
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message:
+            'Date.now is banned in src/lobster/selection/**: the clock reaches selection only ' +
+            'as a remaining-budget FRACTION the search computed from BudgetHandle, and it ' +
+            'reaches exactly one quantity (the temperature). See contract rule 20.',
+        },
+        {
+          selector:
+            "MemberExpression[object.name='performance'][property.name='now']",
+          message:
+            'performance.now is banned in src/lobster/selection/**: see the Date.now message. ' +
+            'The one clock is BudgetHandle, and the selection layer never holds it.',
+        },
+        {
+          selector: "MemberExpression[object.name='process'][property.name='hrtime']",
+          message:
+            'process.hrtime is banned in src/lobster/selection/**: see the Date.now message.',
+        },
+      ],
+    },
+  },
+
   // ── Keepalive ownership: restricted imports (base — applies everywhere) ───
   {
     files: ['src/**/*.ts'],
