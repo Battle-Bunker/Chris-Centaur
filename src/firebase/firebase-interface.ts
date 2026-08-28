@@ -406,6 +406,15 @@ export class TacticToesFirebaseInterface {
    * setBotRecommendation (precedence + consent gate untouched),
    * enableTeamStaging, the typed pin-event stream, and the per-game unit-id
    * registry's reverse lookup.
+   *
+   * NO `matchSeed` IS NAMED HERE, AND THAT IS THE POINT. Pinning one at this
+   * site would give every match this process plays the same lottery stream,
+   * which is the predictability the owner's ruling exists to remove. Left
+   * unset, the engine mints one private crypto-random word PER GAME the first
+   * time a decision actually resolves the lottery on, logs it operator-side,
+   * and stamps it onto every `EmitRecord.selection` — so a live match is still
+   * replayed exactly, by handing the recorded seed back as
+   * `TeamDecisionOptions.matchSeed`. See `lobster/match-seed.ts`.
    */
   private readonly teamEngine = new TeamDecisionEngine({
     setBotRecommendation: (gameId, snakeId, move, turnData) =>

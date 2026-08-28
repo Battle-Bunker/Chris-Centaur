@@ -66,6 +66,8 @@ import type { StagingSafety } from './staging-safety';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
+import { mintMatchSeed } from './match-seed';
+import { sampledCapFrom } from './selection';
 import {
   DEFAULT_KERNEL_OPTIONS,
   LobsterKernel,
@@ -221,20 +223,34 @@ export interface TeamDecisionOptions {
    */
   readonly sampledCap?: boolean;
   /**
-   * THE PRIVATE PER-MATCH SEED, and the one operational step this ruling owes.
+   * THE PRIVATE PER-MATCH SEED — PINNED, when a caller names one.
    *
-   * The lottery's stream is `f(matchSeed, board, decision index)`. With
-   * `matchSeed` left unset it is zero, the stream is a pure function of the
-   * board, and the lottery is REPLAYABLE but not UNPREDICTABLE — every gate and
-   * every probe in this tree runs that way on purpose, because a probe whose
-   * arms cannot be re-run has measured nothing. A deployment that wants the
-   * anti-exploitability half of the ruling supplies a per-match number here
-   * that the opponent cannot see; `EmitRecord.selection` then records which
-   * seed a decision ran on, operator-side, so the match still replays.
+   * The lottery's stream is `f(matchSeed, board, decision index)`. Naming a
+   * number here pins it for every game this engine ever takes, which is what a
+   * probe, a replay and a determinism gate all need: hand back the seed an
+   * `EmitRecord.selection` recorded and the match reproduces byte for byte.
    *
-   * Read only when `sampledCap` resolves on.
+   * LEAVING IT UNSET NO LONGER MEANS ZERO. It used to, and that was the defect
+   * CL4's own report flagged: with zero the stream is a pure function of the
+   * board, so the lottery was replayable but DERIVABLE by an opponent holding
+   * this source — which is precisely the half of the owner's ruling the
+   * sampling was built to buy. Unset now means the engine MINTS one private,
+   * crypto-random word PER GAME (`match-seed.ts`), logs it, and stamps it onto
+   * every decision's selection report. See `matchSeedFor`.
+   *
+   * Read only when `sampledCap` resolves on: with the lottery off, no sampler
+   * is constructed and no seed is ever consulted, so none is minted either.
    */
   readonly matchSeed?: number;
+  /**
+   * WHERE A MINTED SEED COMES FROM. Test seam only — production leaves it
+   * unset and gets `node:crypto`. It exists so a test can assert the MINTING
+   * POLICY (one seed per game, stable within a game, never zero) without
+   * asserting anything about the CSPRNG, and so a fixture run can be made
+   * deterministic without pinning `matchSeed`, which would test a different
+   * code path from the one production takes.
+   */
+  readonly mintMatchSeed?: () => number;
   /**
    * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
    * instance only.
@@ -383,6 +399,18 @@ interface GameState_ {
    * decisions as often as during one, so they are attributed to the next
    * decision to finish rather than lost. */
   dropsReported: number;
+  /**
+   * THE PRIVATE MATCH SEED THIS GAME'S LOTTERY RUNS ON, or null when it has
+   * not been needed yet.
+   *
+   * PER GAME and not per engine: one engine serves every game this process
+   * watches, and a seed shared across matches lets an opponent who has seen one
+   * match's stream predict the next. Minted lazily on the first decision that
+   * actually resolves the lottery on — an engine that never takes a sampled
+   * decision never draws — and never re-minted, so every decision of one match
+   * shares one stream and the recorded seed replays the whole match.
+   */
+  matchSeed: number | null;
   /**
    * The live decision's kernel and substrate, KEYED BY TURN.
    *
@@ -630,6 +658,7 @@ export class TeamDecisionEngine {
     };
     const gen = new GrammarCandidateGenerator(knobs);
     const evaluate = this.options.evaluate ?? defaultEvaluator;
+    const matchSeed = this.matchSeedFor(input.gameId);
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
     const search = tapWitnesses(
@@ -639,9 +668,10 @@ export class TeamDecisionEngine {
         clusterSeed: this.options.clusterSeed,
         clusterEnum: this.options.clusterEnum,
         sampledCap: this.options.sampledCap,
-        ...(this.options.matchSeed === undefined
-          ? {}
-          : { samplingTuning: { matchSeed: this.options.matchSeed } }),
+        // THE PRIVATE HALF OF THE LOTTERY. Zero when the lottery is off (and
+        // then nothing reads it); the caller's number when one is pinned; a
+        // per-game crypto-random word otherwise. See `matchSeedFor`.
+        ...(matchSeed === 0 ? {} : { samplingTuning: { matchSeed } }),
         ...(this.options.search ?? {}),
         // AFTER the caller's tuning, and deliberately: these two are not
         // preferences the caller expresses, they are facts about THIS
@@ -848,6 +878,47 @@ export class TeamDecisionEngine {
     };
   }
 
+  /**
+   * THE SEED THIS GAME'S LOTTERY RUNS ON — pinned, minted, or absent.
+   *
+   * Three answers, in this order, and the order is the whole policy:
+   *
+   *  1. **The lottery is off for this engine ⇒ 0, and nothing is minted.** The
+   *     seed is read by exactly one thing (`openSampler`), which is not built
+   *     when `sampledCap` resolves off. Minting anyway would put an
+   *     unpredictable number into a `SamplingTuning` nothing reads, which is
+   *     how a flag-off path stops being byte-identical for no reason at all.
+   *  2. **A caller named one ⇒ that one, for every game.** This is the replay
+   *     and probe path: a pinned seed is what makes two arms comparable and a
+   *     recorded match re-runnable, and it must never be silently overridden by
+   *     a mint.
+   *  3. **Otherwise ⇒ one crypto-random word, minted once, per GAME.** The
+   *     production path. It is logged at the moment of minting — that log line
+   *     plus `EmitRecord.selection.matchSeed` is the whole replay manifest —
+   *     and cached on the game record, so every decision of one match shares
+   *     one stream.
+   *
+   * Visible to tests for the same reason `kernelOptions()` is: the policy is
+   * the thing worth asserting, and asserting it through a live decision would
+   * be asserting the CSPRNG instead.
+   */
+  matchSeedFor(gameId: string): number {
+    if (!(this.options.sampledCap ?? sampledCapFrom(this.env))) return 0;
+    if (this.options.matchSeed !== undefined) return this.options.matchSeed;
+    const game = this.gameFor(gameId);
+    if (game.matchSeed === null) {
+      game.matchSeed = mintMatchSeed(this.options.mintMatchSeed);
+      // OPERATOR-SIDE, and the only place this number is ever written down by
+      // this process other than the selection report. It is not on the wire:
+      // `forwardPlan` sends a move and a board view, and nothing else.
+      this.log(
+        `[team-engine] ${gameId}: private match seed 0x${game.matchSeed.toString(16)} ` +
+          `— replay this match by passing it back as TeamDecisionOptions.matchSeed`
+      );
+    }
+    return game.matchSeed;
+  }
+
   private gameFor(gameId: string): GameState_ {
     let game = this.games.get(gameId);
     if (!game) {
@@ -858,6 +929,7 @@ export class TeamDecisionEngine {
         stepCostTurn: -1,
         latestTurn: -1,
         dropsReported: 0,
+        matchSeed: null,
         live: null,
       };
       this.games.set(gameId, game);
