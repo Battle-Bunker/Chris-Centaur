@@ -112,6 +112,87 @@ import type {
 } from './contracts';
 
 /**
+ * ── THE SECOND CONSTRUCTOR: `ContinuationInit` (CL6 / Door A) ───────────────
+ *
+ * Rule 1 above has a SUBJECT and a SCOPE, and both are narrower than the
+ * slogan. Its subject is `ApiBoard → UnitSpec`: the wire encodes a piece's
+ * WEIGHT as that many copies of its cell, and a spec hand-rolled from wire data
+ * is exactly where that gets dropped. Its scope is the wire boundary.
+ *
+ * A CONTINUATION never touches wire data. Its domain is `Resolution →
+ * substrate`: every field it reads is already engine-side and already decoded
+ * (`UnitView.cells`/`.weight` come off `U_LEN`/`U_WEIGHT` separately —
+ * `engine.ts::unitAt`), so the encoding hazard rule 1 exists to prevent cannot
+ * occur. The vendored engine already contains this second constructor —
+ * `exact.ts::projectExact` builds `UnitSpec[]` off `engine.units(state)` and
+ * `state.field.slots` and calls `engine.create` — and the door is the same
+ * pattern one layer up.
+ *
+ * THE POLICY LIVES IN `search/scout/door.ts`, NOT HERE. This branch is the
+ * mechanical half: reuse the geometry, create the state, keep the slab
+ * accounting honest. Which units are enumerable, how a tier is re-collapsed at
+ * the new root, and which invariants ride the basis are the door's business,
+ * and they are documented there.
+ *
+ * THE GEOMETRY IS REUSED, AND THAT IS A SOUNDNESS DECISION AS WELL AS A COST
+ * ONE. `geometryFor`'s cache key includes `config.food.join(',')`, so a
+ * resolution that ate would otherwise allocate a whole new `PartialEngine` and
+ * a fresh slab arena per distinct post-turn food board. It would also REBUILD
+ * THE CLOUD PREMISE around the smaller food set — and `la-outside` F-2(c) says
+ * in as many words that narrowing the premise's food board by simulated
+ * consumption is a direct under-dilation bug: the held cloud's refuel set must
+ * stay a SUPERSET. Reusing the parent's engine keeps the premise at the ply-1
+ * board, which is the conservative direction and the only legal one.
+ */
+export interface ContinuationInit {
+  readonly kind: 'continuation';
+  /** The ply-(n) substrate this continues. Supplies geometry, team numbering,
+   *  and board identity. NEVER re-derived. */
+  readonly from: EngineSubstrate;
+  /** The new root turn — `resolution.state.turn`. */
+  readonly turn: number;
+  /** Every unit that exists at the new root, LIVE in the created state.
+   *  Out-of-cluster units become claims through `modeled`, exactly as they do
+   *  on the ply-1 path: `heldIdsOutside` holds whatever the plan does not name,
+   *  and `fieldHolding` stamps each record at ITS observation turn (rule 4). */
+  readonly units: ReadonlyArray<SubstrateUnit>;
+  /** Live food at the new root, off the RESOLVED slab (invariant I4). */
+  readonly food: ReadonlyArray<CellIndex>;
+  /** Live potions at the new root, off the resolved slab. */
+  readonly potions: ReadonlyArray<CellIndex>;
+  /** Units enumerable at the new root. Everything else is a shell-2 claim with
+   *  no privilege — our own out-of-cluster units included (la-outside F-9). */
+  readonly cluster: ReadonlySet<UnitId>;
+  /** Carried narrowings, by unit id (already engine-side, so no wire lookup). */
+  readonly narrowings?: ReadonlyMap<UnitId, ReadonlyArray<number>>;
+  /** How many plies deep this root sits. 0 is a wire-built substrate. */
+  readonly ply: number;
+}
+
+function isContinuation(o: SubstrateOptions | ContinuationInit): o is ContinuationInit {
+  return (o as ContinuationInit).kind === 'continuation';
+}
+
+/**
+ * A `UnitSpec` off engine-side data. Not a rule-1 violation — see
+ * `ContinuationInit`. Every field is copied, none is derived: `weight` is
+ * already the decoded stack height and `cells` is already the occupancy.
+ */
+function specOfSubstrateUnit(u: SubstrateUnit): UnitSpec {
+  return {
+    unitId: u.unitId,
+    kind: u.kind,
+    team: u.team,
+    cells: u.cells,
+    health: u.health,
+    tier: u.tier,
+    tierExpiresAtTurn: u.tierExpiresAtTurn,
+    weight: u.weight,
+    orientation: u.orientation,
+  };
+}
+
+/**
  * The explicit "no order" destination — the contract's own sentinel, pinned by
  * test to the engine's NO_ORDER. Naming a unit with this asks for the KIND's
  * own default action (a trail unit continues straight, a piece holds).
@@ -435,6 +516,19 @@ function evictGeometries(): void {
   }
 }
 
+/**
+ * Take a SECOND reference on an engine a live substrate already holds — the
+ * continuation door's only interaction with the cache. Symmetric with
+ * `releaseGeometry`, which every `release()` calls exactly once, so a thread
+ * that forgets to release keeps its parent's engine alive (arena pressure)
+ * rather than orphaning it (use-after-free).
+ */
+function retainGeometry(geometry: Geometry): Geometry {
+  geometry.refs++;
+  geometry.lastUsed = ++geometryTick;
+  return geometry;
+}
+
 function releaseGeometry(geometry: Geometry): void {
   geometry.refs = Math.max(0, geometry.refs - 1);
   if (geometry.refs === 0 && geometry.retire) GEOMETRIES.delete(geometry.key);
@@ -477,6 +571,24 @@ const CLAIM_QUESTIONS: ReadonlySet<string> = new Set([
  * NARROWER than its parent's, where the parent's shared claim view would
  * under-report entanglement — the unsound direction.
  */
+/**
+ * A continuation whose roster no longer fits the parent's arena — a trail that
+ * grew past `maxTrail`, which is `max(observed) + 2` and therefore two plies of
+ * eating. Thrown rather than truncated: a truncated trail is a shorter body,
+ * which is a WEAKER unit, which is a floor above the truth on our side and a
+ * missed body-block on theirs. The scout catches it and declines the ply.
+ */
+export class ContinuationArityError extends Error {
+  readonly code = 'continuation_arity' as const;
+  constructor(
+    readonly unitId: UnitId,
+    readonly cells: number
+  ) {
+    super(`continuation: unit ${unitId} occupies ${cells} cells, past the parent arena's maxTrail`);
+    this.name = 'ContinuationArityError';
+  }
+}
+
 export class SharedClaimViewError extends Error {
   readonly code = 'shared_claim_view' as const;
   constructor(
@@ -548,9 +660,71 @@ export class EngineSubstrate implements Substrate {
   private resolveCount = 0;
   private released = false;
   private readonly geometry: Geometry;
+  /**
+   * How many plies past the wire this root sits. 0 for every substrate built
+   * from an `ApiBoard`; ≥1 only inside a scout thread. Read by nothing that
+   * adjudicates — it exists so a consumer can REFUSE (the bank's basis rules,
+   * the evaluator's premise checks) rather than silently price a time-skewed
+   * world as if it were this turn's. Depth is provenance, never denomination
+   * (la-outside L1).
+   */
+  readonly ply: number;
 
-  constructor(options: SubstrateOptions) {
+  constructor(options: SubstrateOptions | ContinuationInit) {
+    if (isContinuation(options)) {
+      // ---- THE SECOND CONSTRUCTOR. See `ContinuationInit`. ----
+      const geometry = retainGeometry(options.from.geometry);
+      this.geometry = geometry;
+      this.grid = geometry.grid;
+      this.terrain = geometry.terrain;
+      this.engine = geometry.engine;
+      this.turn = options.turn;
+      this.ply = options.ply;
+      // Board identity, not board state: coordinates, walls, hazards and the
+      // team labels are the parent's and cannot have changed. `config.food` on
+      // it is the PLY-1 board, which is exactly the premise the reused engine
+      // holds — see F-2(c) in the `ContinuationInit` header.
+      this.marshalled = options.from.marshalled;
+      for (const [label, n] of options.from.teamNumberEntries()) {
+        this.teamNumbers.set(label, n);
+        this.teamLabels.set(n, label);
+      }
+
+      const specs: UnitSpec[] = [];
+      const units: SubstrateUnit[] = [];
+      for (const unit of options.units) {
+        // A trail that outgrew the arena is a refusal, not a truncation: the
+        // parent's `maxTrail` carries +2 of headroom, which is two plies of
+        // growth, and past that `engine.create` would throw mid-decision.
+        if (unit.cells.length > this.engine.config.maxTrail) {
+          throw new ContinuationArityError(unit.unitId, unit.cells.length);
+        }
+        specs.push(specOfSubstrateUnit(unit));
+        units.push(unit);
+        this.byUnitId.set(unit.unitId, unit);
+        this.byWireId.set(unit.wireId, unit);
+        if (unit.isKing) this.regicideTeams.add(unit.team);
+      }
+      this.specs = specs;
+      this.units = units;
+      this.narrowings = options.narrowings ?? new Map();
+      this.modeledIds = new Set(options.cluster);
+
+      // NO OVERLAP GUARD, and its absence is a decision. The ply-1 guard exists
+      // because two wire units sharing a cell is impossible and the symptom is
+      // a dropped weight stack. Here a HELD unit's record occupancy legitimately
+      // overlaps a modelled unit's new position: the record is where the claim
+      // was last SEEN, and the mover walking through it is precisely the
+      // `mayHaveDied` case. Overlap is transient — `applyHoldSet` lifts every
+      // claim off the live board before anything reads occupancy — and the
+      // cluster's own members cannot overlap, because the resolution that
+      // produced them adjudicated the collision.
+      this.state = this.engine.create(specs, options.food, options.potions, options.turn);
+      this.borrowed.add(this.state.slab);
+      return;
+    }
     const { board, turn } = options;
+    this.ply = 0;
     this.turn = turn;
     const marshalled = marshalBoard(board, turn);
     this.marshalled = marshalled;
@@ -706,6 +880,11 @@ export class EngineSubstrate implements Substrate {
     const n = this.teamNumbers.get(teamId);
     if (n === undefined) throw new Error(`substrate: unknown team ${JSON.stringify(teamId)}`);
     return n;
+  }
+
+  /** Team numbering, for the continuation door — board identity, not state. */
+  teamNumberEntries(): ReadonlyArray<readonly [string, number]> {
+    return [...this.teamNumbers.entries()];
   }
 
   teamLabel(team: number): string | undefined {

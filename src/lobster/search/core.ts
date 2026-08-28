@@ -36,6 +36,7 @@ import type {
   CandidateSet,
   ClusterReport,
   JointPlan,
+  Posture,
   PlanScore,
   SearchContext,
   SearchCore,
@@ -84,6 +85,8 @@ import {
   type ClusterTuning,
 } from "./cluster-enum";
 import { SweepDirty, type DirtyStats } from "./sweep-dirty";
+import { Scout, scoutMode } from "./scout";
+import type { ScoutMode, ScoutReport, ScoutTuning } from "./scout";
 import {
   DEFAULT_SAMPLING,
   NODE_PAIR_REPAIR,
@@ -230,6 +233,34 @@ export interface SearchTuning {
    * `sampledCap` resolves on. See `lobster/selection/sample.ts`. */
   readonly samplingTuning: Partial<SamplingTuning>;
   /**
+   * DOOR A — THE SCOUT (CL6), advisory depth, per engine.
+   *
+   * Cluster threads simulate one to three plies past this turn over the door
+   * (`search/scout/door.ts`) and report what they find. The findings steer
+   * everything it is LEGAL to steer and nothing else: candidate ordering
+   * through CL3's own `UnaryLookup` seam, and telemetry. No route reaches
+   * `lo`, `hi` or staging, and `search/scout/index.ts` states the import law
+   * that makes that structural rather than habitual.
+   *
+   * THREE POSITIONS, and the middle one is what makes the gate mean anything:
+   *   · `off`      — shipped default. No thread, no door, no clock read, and
+   *                  the search is byte-for-byte the one that shipped.
+   *   · `observe`  — every thread runs and every counter is emitted, and NO
+   *                  ordering channel is touched. Its staged plan equals
+   *                  flag-off's on the replay corpus, and the test that says so
+   *                  is an assertion about the whole layer.
+   *   · `advise`   — the ordering sink is live. The enumeration runs twice: once
+   *                  to give the threads their seeds, once with the findings
+   *                  supplied as φ_u. Determinism is asserted separately.
+   *
+   * Undefined follows `CENTAUR_SCOUT`; named by a caller it is that caller's
+   * answer, so one seat can carry the scout while the seat across the board
+   * does not.
+   */
+  readonly scout: ScoutMode | undefined;
+  /** Tithe, depth ceiling, park hysteresis. Only read when `scout` is on. */
+  readonly scoutTuning: Partial<ScoutTuning>;
+  /**
    * Composed joints offered per sweep round.
    *
    * ONE, and the one is measured. The enumeration's MAP is its claim and it
@@ -325,6 +356,8 @@ export const DEFAULT_TUNING: SearchTuning = {
   territoryRefine: undefined,
   sampledCap: undefined,
   samplingTuning: {},
+  scout: undefined,
+  scoutTuning: {},
   clusterOffersPerRound: 1,
   clusterOffersPerSlice: 2,
   parallel: null,
@@ -423,6 +456,21 @@ interface Session {
     /** Wall time the enumeration itself cost, in ms. Telemetry. */
     readonly enumMs: number;
   } | null;
+  /**
+   * CL6's scout, or null when the flag is off.
+   *
+   * PER SESSION, like the sampler and for the same reason: the thread ledger's
+   * per-thread ply counters are what make a bigger budget's thread set an
+   * EXTENSION of a smaller one's, and a scout rebuilt every slice would
+   * restart every one of them.
+   *
+   * It runs ONCE, at session open, alongside the enumeration whose proposals
+   * are its seeds. It is not re-run per slice: a thread's whole economy rests
+   * on its ply-1 plan being FIXED for the thread's life (the premise key, and
+   * therefore the timeline cache, is keyed on the non-cluster assignment), and
+   * a per-slice re-seed would rebuild every timeline it was trying to share.
+   */
+  readonly scout: Scout | null;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -598,6 +646,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       sampler: openSampler(ctx, ours, sets),
       ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
       cluster: null,
+      scout: scouting() === "off" ? null : new Scout(scouting(), cfg.scoutTuning),
     };
     session.cluster = openCluster(ctx, session, pins);
     return session;
@@ -698,7 +747,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     const doomed = new Set<UnitId>();
     for (const [unitId, set] of s.sets) if (set.marks?.sealed === true) doomed.add(unitId);
     const tuning: ClusterTuning = { ...DEFAULT_CLUSTER_TUNING, ...cfg.clusterTuning };
-    const { plans, stats, score } = enumerateProposals({
+    const request = {
       sub: s.sub,
       partition,
       roster: s.ours,
@@ -708,7 +757,63 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       asTeam: ctx.asTeam,
       tuning,
       salt: cfg.seed,
-    });
+    };
+    let { plans, stats, score } = enumerateProposals(request);
+
+    // ---- CL6, DOOR A: the scout, and its ONE ordering channel ------------
+    //
+    // The threads' seeds are the enumeration's own proposals, so the scout
+    // cannot run before the enumeration. Its advice, though, is consumed AT
+    // enumeration time — `Surrogate.unary` is the seam CL3 built for exactly
+    // this and left unsupplied. So in `advise` the enumeration runs twice:
+    // once to hand the threads their roots, once with φ_u supplied.
+    //
+    // That second pass is the whole cost of the ordering sink, it is paid only
+    // when the threads actually found something, and it is the honest way to
+    // spend a finding: re-deriving the k-best list under the new potential is
+    // what "ordering advice" MEANS. Re-ranking the existing list instead would
+    // be re-scoring a set that was already truncated under the old potential,
+    // which is advice arriving after the decision it was for.
+    //
+    // In `observe` none of this happens: the scout runs, the report is
+    // written, and `plans` is the object the flag-off path produced. That is
+    // what makes the byte-identity claim structural.
+    if (s.scout !== null) {
+      // ONE CLOCK READ, and it is the only one this layer takes.
+      //
+      // It matters more than it looks. The replay gate drives a `StepClock`
+      // whose every read costs a tick, so a second read would be a second
+      // perturbation of the very quantity the gate measures. What moves under
+      // `observe` is then exactly the clock-derived report fields
+      // (`stepCostMs`, `postureFlips[].at`) and nothing an emission carries —
+      // which is the honest shape of the claim: the scout spends budget, and
+      // spending budget is a value trade, not a soundness one.
+      const decisionMs = ctx.budget.remainingMs();
+      s.scout.beginDecision(decisionMs);
+      s.scout.run({
+        sub: s.sub,
+        asTeam: ctx.asTeam,
+        gen: ctx.gen,
+        partition,
+        sets: s.sets,
+        seeds: plans,
+        // THE SESSION IS ALREADY KEYED BY BASIS (`sessionKey` is
+        // `JSON.stringify(basisOf(ctx))`), so an epoch change or a posture flip
+        // gives a NEW session and therefore a new scout: at this tranche the
+        // ledger's epoch invalidation is free and structural. `ThreadLedger`
+        // carries the explicit `onEpochChange`/`onPostureFlip` methods anyway,
+        // because CL6b moves the ledger to kernel ownership where it outlives
+        // the session and the invalidation has to be called by hand.
+        epoch: 0,
+        posture: postureOf(ctx),
+        decisionMs,
+        kingUnits: kingUnitsOf(s),
+      });
+      const unary = s.scout.unaryAdvice();
+      if (unary !== undefined) {
+        ({ plans, stats, score } = enumerateProposals({ ...request, unary }));
+      }
+    }
     // DOOR C'S SCOPE — the units this decision has already paid an exact joint
     // solve for, and the only ones the territory refiner may spend on.
     //
@@ -736,6 +841,23 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       offeredThisSlice: 0,
       enumMs: Date.now() - started,
     };
+  };
+
+  /** The posture off the context's own basis. A floor proved under one
+   *  posture's channel weighting is not the same statement as one proved under
+   *  another's, so a thread records which it ran under. */
+  const postureOf = (ctx: SearchContext): Posture => {
+    for (const a of ctx.assumptions) if (a.kind === "posture") return a.posture;
+    return "SIGHTED";
+  };
+
+  /** Ours that are kings — the scout's priority floor (F-12). A cluster that
+   *  contains one is never STARVED; it is not exempt from the barrier. */
+  const kingUnitsOf = (s: Session): ReadonlySet<UnitId> => {
+    const out = new Set<UnitId>();
+    if (!(s.sub instanceof EngineSubstrate)) return out;
+    for (const unitId of s.ours) if (s.sub.unitOf(unitId)?.isKing === true) out.add(unitId);
+    return out;
   };
 
   /**
@@ -794,6 +916,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   /** Is the seeded lottery on for THIS core? Same discipline, same reason. */
   const sampling = (): boolean => cfg.sampledCap ?? sampledCapEnabled();
+
+  /** Which position the scout is in for THIS core. Same discipline again. */
+  const scouting = (): ScoutMode => cfg.scout ?? scoutMode();
 
   // -------------------------------------------------------------- parallel
   //
@@ -1902,6 +2027,25 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Which slot of `better()` decided, over this core's whole life. */
   const adjudicationReport = (): AdjudicationReport => ({ ...adjudication });
 
+  /**
+   * CL6's thread accounting, over the live sessions. Null when the layer never
+   * ran, which is the shipped default and is how a reader tells "off" from "on
+   * and found nothing" — the same convention `clusterReport` uses.
+   *
+   * Reported for the LAST session opened, because that is the one the emission
+   * being stamped came from. It is TELEMETRY: nothing here reaches the wire
+   * (`forwardPlan` sends a `CentaurMove` and nothing else), and nothing here
+   * is read by any comparison.
+   */
+  const scoutReport = (): ScoutReport | null => {
+    let last: ScoutReport | null = null;
+    for (const session of sessions.values()) {
+      if (session.scout === null) continue;
+      last = session.scout.report();
+    }
+    return last;
+  };
+
   return {
     improve,
     conform,
@@ -1910,5 +2054,6 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     clusterReport,
     selectionReport,
     adjudicationReport,
+    scoutReport,
   };
 }

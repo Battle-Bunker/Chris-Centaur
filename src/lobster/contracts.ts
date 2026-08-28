@@ -350,6 +350,22 @@ export interface EmitRecord {
    * the one that shipped.
    */
   readonly selection?: import("./selection").SelectionReport
+  /**
+   * CL6 — DOOR A'S THREAD ACCOUNTING. Absent unless the scout ran.
+   *
+   * OPERATOR-SIDE, NEVER ON THE WIRE, and the argument is `selection`'s
+   * verbatim: the emission path out of this record is
+   * `TeamDecisionEngine.forwardPlan`, which reads `rec.plan`, turns each
+   * candidate into a `CentaurMove`, and forwards nothing else. So an opponent
+   * sees the MOVE and never the depth.
+   *
+   * It is also the only place a depth number is allowed to appear on this
+   * record. `lo`, `est` and `hi` are ROOT quantities under a `V¹` frame
+   * (la-outside L1: depth is provenance, never denomination), and `horizon`
+   * is the one-ply search's own. A thread's per-ply values live inside the
+   * scout and reach this record only as COUNTS.
+   */
+  readonly scout?: import("./search/scout").ScoutReport
 }
 
 // -------------------------------------------------------- refinement levers
@@ -599,6 +615,16 @@ export interface SearchCore {
    * touches ordering owes a before/after on it.
    */
   adjudicationReport?(): AdjudicationReport
+  /**
+   * Optional: CL6's thread accounting for the last session opened, or null
+   * when the scout never ran.
+   *
+   * Threads run, depths reached, contacts, parks, expansions, findings and the
+   * door's refusals by reason — so a scout that silently refused every board
+   * (a potion premise it may not run under, a cluster extinct at the new root)
+   * is legible as a refusal rather than as a zero.
+   */
+  scoutReport?(): import("./search/scout").ScoutReport | null
 }
 
 /** Which slot of `better()` decided. See `SearchCore.adjudicationReport`. */

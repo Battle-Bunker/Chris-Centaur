@@ -1939,9 +1939,13 @@ export class LobsterKernel implements Kernel {
     // all, so a flag-off record is structurally what it always was and the
     // standing replay baselines do not have to be regenerated.
     const selection = run.input.search.selectionReport?.() ?? null
+    // CL6's, on the same terms and for the same reason: absent when the scout
+    // never ran, so a flag-off record is structurally the one that shipped.
+    const scout = run.input.search.scoutReport?.() ?? null
     return {
       plan: cand.plan,
       ...(selection === null ? {} : { selection }),
+      ...(scout === null ? {} : { scout }),
       // THE RECORD CARRIES THE est THE GATE USED (V4 R6). `gate` ratchets on
       // `row.est` — which comes from the lever view whenever the core exposes
       // one, and from the kernel's own evaluation otherwise — so writing

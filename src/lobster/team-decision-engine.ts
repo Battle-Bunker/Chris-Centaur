@@ -223,6 +223,23 @@ export interface TeamDecisionOptions {
    */
   readonly sampledCap?: boolean;
   /**
+   * Whether this ENGINE runs DOOR A — the scout (CL6) — overriding
+   * `CENTAUR_SCOUT`. A seventh flag, by the same standing rule: what has to be
+   * measurable is one seat against unchanged opponents.
+   *
+   * `'off'` ships. `'observe'` runs every thread and touches no ordering
+   * channel, so its staged plan is the flag-off one and its whole product is
+   * telemetry. `'advise'` lets a thread's findings into candidate ordering
+   * through CL3's `UnaryLookup` seam — the only route out of the layer, and it
+   * feeds a surrogate rather than a bound.
+   *
+   * What it does NOT buy is sound multi-turn floors: that needs a
+   * non-interference discharge, which M4 measured at 13.7% of decisions at
+   * depth 2 and 4.3% at the shipped roster of six. Door B is not built. See
+   * `search/scout/`.
+   */
+  readonly scout?: 'off' | 'observe' | 'advise';
+  /**
    * Whether this ENGINE runs Door C's contested reach/room refiner (CL5),
    * overriding `CENTAUR_TERRITORY_REFINE`. A sixth flag, by the same standing
    * rule: what has to be measurable is one seat against unchanged opponents.
@@ -679,6 +696,7 @@ export class TeamDecisionEngine {
         clusterEnum: this.options.clusterEnum,
         territoryRefine: this.options.territoryRefine,
         sampledCap: this.options.sampledCap,
+        scout: this.options.scout,
         // THE PRIVATE HALF OF THE LOTTERY. Zero when the lottery is off (and
         // then nothing reads it); the caller's number when one is pinned; a
         // per-game crypto-random word otherwise. See `matchSeedFor`.
