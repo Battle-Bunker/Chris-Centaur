@@ -26,7 +26,29 @@ import { Board, Coord, Snake } from '../../types/battlesnake';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../substrate';
 import { GrammarCandidateGenerator } from '../candidates';
 import { partitionOf } from '../search';
-import { continueFrom, tierAtRoot, tierPremiseAdmits } from '../search/scout/door';
+import {
+  DEFAULT_SCOUT_TUNING,
+  FLAT,
+  Scout,
+  ScoutPurse,
+  ThreadLedger,
+  barrierDepth,
+  buildContactMatrix,
+  cleanPrefixOf,
+  contactOf,
+  continueFrom,
+  deepenNext,
+  effectiveTithe,
+  resumePriority,
+  scoutModeFrom,
+  shouldPark,
+  soleDifference,
+  tierAtRoot,
+  tierPremiseAdmits,
+} from '../search/scout';
+import type { ThreadEntry } from '../search/scout';
+import { ShellTable } from '../evaluate';
+import { SubtreeCertificate } from '../../partial-engine/index';
 import type { Resolution } from '../../partial-engine/index';
 import type { Candidate, CandidateSet, JointPlan, UnitId } from '../contracts';
 
@@ -355,5 +377,286 @@ describe('the door', () => {
     expect(cont.reason).toBe('cluster-extinct');
     b.sub.releaseResolution(out.resolution);
     b.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THREADS
+// ---------------------------------------------------------------------------
+
+describe('threads', () => {
+  test('the countdown is min-decomposable, and adding a member can only lower it', () => {
+    const b = bench(snakesBoard(31));
+    const plan = firstPlan(b);
+    const out = b.sub.resolveBoundedFor(plan, b.asTeam);
+    const alive = [...survivors(b, out.resolution)];
+    const claims = b.sub
+      .unitIds()
+      .filter((id) => !alive.includes(id) && b.sub.unitOf(id) !== undefined);
+    const table = new ShellTable(b.sub.grid);
+    const matrix = buildContactMatrix({
+      sub: b.sub,
+      resolution: out.resolution,
+      members: alive,
+      claims,
+      horizonPlies: 3,
+      table,
+    });
+    // `contact(C, u) = min over members` — the property that lets ONE matrix
+    // answer every cluster policy, and that makes an expansion a min over one
+    // more column rather than a rebuild.
+    for (const claim of matrix.claims()) {
+      const whole = matrix.touchOf(claim, alive);
+      let byParts = Infinity;
+      for (const m of alive) byParts = Math.min(byParts, matrix.touchOf(claim, [m]));
+      expect(whole).toBe(byParts);
+      // Monotone under growth: a bigger cluster is contacted no later.
+      const half = alive.slice(0, Math.max(1, alive.length - 1));
+      expect(matrix.touchOf(claim, half)).toBeGreaterThanOrEqual(whole);
+    }
+    b.sub.releaseResolution(out.resolution);
+    b.close();
+  });
+
+  test('the countdown carries its horizon, so an isolation is never read blind', () => {
+    // F-1's silent-NEVER: reading `Infinity` as "cannot arrive" when the scan
+    // stopped short is an under-approximation, which is the one direction this
+    // design may never err in. The verdict therefore says how far it looked.
+    const b = bench(snakesBoard(37));
+    const plan = firstPlan(b);
+    const out = b.sub.resolveBoundedFor(plan, b.asTeam);
+    const alive = [...survivors(b, out.resolution)];
+    const claims = b.sub.unitIds().filter((id) => !alive.includes(id));
+    const table = new ShellTable(b.sub.grid);
+    const shallow = buildContactMatrix({
+      sub: b.sub,
+      resolution: out.resolution,
+      members: alive,
+      claims,
+      horizonPlies: 1,
+      table,
+    });
+    const cert = new SubtreeCertificate();
+    cert.addResolution(out.resolution.ledger, out.resolution.state.field);
+    const v = contactOf(shallow, alive, cert);
+    expect(v.horizon).toBe(out.resolution.state.turn + 1);
+    b.sub.releaseResolution(out.resolution);
+    b.close();
+  });
+
+  test('the ledger invalidates on epoch, on catch-up, and re-folds on posture', () => {
+    const ledger = new ThreadLedger(8);
+    const mk = (key: string, cited: UnitId[]): void => {
+      ledger.open({
+        key,
+        clusterId: 0,
+        cluster: new Set<UnitId>([1 as UnitId]),
+        rootPlan: new Map(),
+        rootTurn: TURN,
+        epochBaseline: 1,
+        postureBaseline: 'neutral' as never,
+        plies: [],
+        citedUnits: new Set(cited),
+        accumulation: new Map(),
+        carriedContingent: new Set(),
+        skew: 0,
+        assumptions: [],
+        state: 'live',
+        stepCostMs: 1,
+      });
+    };
+    mk('a', [7 as UnitId]);
+    mk('b', [9 as UnitId]);
+    // A catch-up REPLACES a premise rather than refining it, so every thread
+    // that cited the unit is now an answer about a board that never existed.
+    expect(ledger.invalidateCitingUnit(7 as UnitId)).toBe(1);
+    expect(ledger.size).toBe(1);
+    // A posture flip is cross-BASIS, not cross-board: re-fold, never discard.
+    mk('c', [11 as UnitId]);
+    const refolded = ledger.onPostureFlip('aggressive' as never);
+    expect(refolded).toBeGreaterThan(0);
+    expect(ledger.size).toBe(2);
+    // An epoch change is the blunt one, exactly as `run.plans.clear()` is.
+    expect(ledger.onEpochChange()).toBe(2);
+    expect(ledger.size).toBe(0);
+  });
+
+  test('the ledger never evicts a live thread ahead of a parked one', () => {
+    const ledger = new ThreadLedger(2);
+    const mk = (key: string, state: 'live' | 'parked-flat'): ThreadEntry =>
+      ledger.open({
+        key,
+        clusterId: 0,
+        cluster: new Set<UnitId>([1 as UnitId]),
+        rootPlan: new Map(),
+        rootTurn: TURN,
+        epochBaseline: 1,
+        postureBaseline: 'neutral' as never,
+        plies: [],
+        citedUnits: new Set(),
+        accumulation: new Map(),
+        carriedContingent: new Set(),
+        skew: 0,
+        assumptions: [],
+        state,
+        stepCostMs: 1,
+      });
+    mk('live-1', 'live');
+    mk('parked', 'parked-flat');
+    mk('live-2', 'live');
+    expect(ledger.get('parked')).toBeUndefined();
+    expect(ledger.get('live-1')).toBeDefined();
+    expect(ledger.get('live-2')).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE SCHEDULER
+// ---------------------------------------------------------------------------
+
+describe('the scheduler', () => {
+  test('the flag ships off and reads three positions', () => {
+    expect(scoutModeFrom({})).toBe('off');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: 'off' })).toBe('off');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: '0' })).toBe('off');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: '1' })).toBe('observe');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: 'observe' })).toBe('observe');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: 'advise' })).toBe('advise');
+    expect(scoutModeFrom({ CENTAUR_SCOUT: 'nonsense' })).toBe('off');
+  });
+
+  test("the reserve is the tithe's CEILING, not a competitor", () => {
+    // The owner's Q3 answer is "at least half for this turn's move". A
+    // configuration asking for 70% gets 50%, silently in the right direction.
+    expect(effectiveTithe({ ...DEFAULT_SCOUT_TUNING, tithe: 0.2, reserve: 0.5 })).toBeCloseTo(0.2);
+    expect(effectiveTithe({ ...DEFAULT_SCOUT_TUNING, tithe: 0.7, reserve: 0.5 })).toBeCloseTo(0.5);
+    expect(effectiveTithe({ ...DEFAULT_SCOUT_TUNING, tithe: 0.9, reserve: 0.9 })).toBeCloseTo(0.1);
+    const purse = new ScoutPurse(1000, { ...DEFAULT_SCOUT_TUNING, tithe: 0.7, reserve: 0.5 });
+    expect(purse.msCap).toBeCloseTo(500);
+  });
+
+  test('the depth rule deepens the shallowest live cluster, king first on a tie', () => {
+    const mk = (key: string, clusterId: number, depth: number, unit: number): ThreadEntry => ({
+      key,
+      clusterId,
+      cluster: new Set<UnitId>([unit as UnitId]),
+      rootPlan: new Map(),
+      rootTurn: TURN,
+      epochBaseline: 1,
+      postureBaseline: 'neutral' as never,
+      plies: Array.from({ length: depth }, (_, i) => ({
+        ply: i + 1,
+        move: new Map(),
+        advisory: { lo: 0, est: 0, hi: 0 },
+        contact: { contactIn: 9, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
+        discrimination: FLAT,
+        ms: 1,
+      })),
+      citedUnits: new Set(),
+      accumulation: new Map(),
+      carriedContingent: new Set(),
+      skew: 0,
+      assumptions: [],
+      state: 'live',
+      stepCostMs: 1,
+      lastUsed: 0,
+    });
+    const deep = mk('deep', 0, 3, 1);
+    const shallow = mk('shallow', 1, 1, 2);
+    const kingSame = mk('king', 2, 1, 3);
+    const kings = new Set<UnitId>([3 as UnitId]);
+    const isKing = (t: ThreadEntry): boolean => [...t.cluster].some((id) => kings.has(id));
+    // The barrier IS where the team decides, so the marginal ply is worth most
+    // there — the rule falls out rather than being imposed.
+    expect(barrierDepth([deep, shallow, kingSame])).toBe(1);
+    expect(deepenNext([deep, shallow, kingSame], isKing, 5)?.key).toBe('king');
+    expect(deepenNext([deep, shallow], isKing, 5)?.key).toBe('shallow');
+    // depthMax is a hard stop, and an exhausted set is null rather than a
+    // thread that gets deepened past its ceiling.
+    expect(deepenNext([deep], isKing, 3)).toBeNull();
+  });
+
+  test('parking is a flatline test with hysteresis, NOT a contact mandate', () => {
+    // Synthesis §7.1 supersedes "CONTACT -> park immediately" outright: a
+    // thread in contact whose options still spread keeps running.
+    const ply = (spread: number, contactIn: number, moved = false) => ({
+      ply: 1,
+      move: new Map(),
+      advisory: { lo: 0, est: 0, hi: 0 },
+      contact: { contactIn, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
+      discrimination: { ...FLAT, floorSpread: spread, argmaxMoved: moved },
+      ms: 1,
+    });
+    const mk = (plies: ReturnType<typeof ply>[]): ThreadEntry => ({
+      key: 'k',
+      clusterId: 0,
+      cluster: new Set<UnitId>([1 as UnitId]),
+      rootPlan: new Map(),
+      rootTurn: TURN,
+      epochBaseline: 1,
+      postureBaseline: 'neutral' as never,
+      plies,
+      citedUnits: new Set(),
+      accumulation: new Map(),
+      carriedContingent: new Set(),
+      skew: 0,
+      assumptions: [],
+      state: 'live',
+      stepCostMs: 1,
+      lastUsed: 0,
+    });
+    // depthMax raised out of the way: the point of this test is the flatline,
+    // and a depth stop would answer it for the wrong reason.
+    const tuning = { ...DEFAULT_SCOUT_TUNING, depthMax: 9 };
+    const purse = new ScoutPurse(0, tuning);
+    // IN CONTACT and still discriminating: keeps running. This is the whole
+    // ruling, in one assertion.
+    expect(shouldPark(mk([ply(4, 0, true)]), tuning, purse).park).toBe(false);
+    // One flat ply is not enough — hysteresis, so a corridor does not park a
+    // thread about to reach an intersection.
+    expect(shouldPark(mk([ply(4, 5), ply(0, 5)]), tuning, purse).park).toBe(false);
+    // Two consecutive flat plies is the flatline.
+    const parked = shouldPark(mk([ply(4, 5), ply(0, 5), ply(0, 5)]), tuning, purse);
+    expect(parked.park).toBe(true);
+    expect(parked.reason).toBe('flat');
+    // And a thread at the ceiling parks for DEPTH, which is a different
+    // reason and must not be reported as a flatline.
+    expect(shouldPark(mk([ply(4, 0, true)]), { ...tuning, depthMax: 1 }, purse).reason).toBe(
+      'depth'
+    );
+  });
+
+  test('a parked thread decays by SKEW, and never by a confidence factor', () => {
+    const mk = (skew: number, spread: number): ThreadEntry => ({
+      key: 'k',
+      clusterId: 0,
+      cluster: new Set<UnitId>([1 as UnitId]),
+      rootPlan: new Map(),
+      rootTurn: TURN,
+      epochBaseline: 1,
+      postureBaseline: 'neutral' as never,
+      plies: [
+        {
+          ply: 1,
+          move: new Map(),
+          advisory: { lo: 0, est: 0, hi: 0 },
+          contact: { contactIn: 0, arrivals: [], saturated: [], entangledAlready: [], horizon: 9 },
+          discrimination: { ...FLAT, floorSpread: spread },
+          ms: 1,
+        },
+      ],
+      citedUnits: new Set(),
+      accumulation: new Map(),
+      carriedContingent: new Set(),
+      skew,
+      assumptions: [],
+      state: 'parked-flat',
+      stepCostMs: 1,
+      lastUsed: 0,
+    });
+    // The priority falls because the CLOUDS ARE WIDER, which is a fact about
+    // the world, not a haircut on a score. L4 is preserved by arithmetic.
+    expect(resumePriority(mk(0, 8))).toBeGreaterThan(resumePriority(mk(3, 8)));
+    expect(resumePriority(mk(3, 8))).toBeGreaterThan(0);
   });
 });
