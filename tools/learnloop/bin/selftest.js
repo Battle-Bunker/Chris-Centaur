@@ -310,8 +310,10 @@ const clone = () => JSON.parse(JSON.stringify(ledger));
   const f = L.flagOf(asControl, 'TERRITORY_SLIDER_PROFILE');
   ok(f.status === 'supported', "the slider's exactly-0 control no longer demotes the flag it vouches for");
   ok(!r.changed && r.before === 'supported', 'a control enters no effect channel, in either direction');
+  const had = L.flagOf(before, 'TERRITORY_SLIDER_PROFILE').controlEvidence;
   ok(
-    f.controlEvidence.inert.length === 1 && f.controlEvidence.violated.length === 0,
+    f.controlEvidence.inert.length === (had ? had.inert.length : 0) + 1 &&
+      f.controlEvidence.violated.length === (had ? had.violated.length : 0),
     'and is recorded as instrument evidence instead'
   );
 

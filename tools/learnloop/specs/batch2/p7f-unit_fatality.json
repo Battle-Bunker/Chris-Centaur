@@ -1,15 +1,11 @@
 {
  "_comment": [
-  "P5R — CENTAUR_WASM (W3), status probe-passed.",
+  "P7F — CENTAUR_UNIT_FATALITY (CL1), status live-null.",
   "",
-  "QUESTION: With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?",
+  "QUESTION: Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?",
   "",
-  "ARMS: off  |  wasm-on",
-  "READS OUT: wasmRuns, wasmRefused, capRate, turns, decisions, decisive, worstWallMs, score",
-  "",
-  "GATE: REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.",
-  "",
-  "REQUIRES: A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists.",
+  "ARMS: off  |  fatality-on",
+  "READS OUT: deathsSelf, deathsTeammate, unstagedRate, score",
   "",
   "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
   "warning on anything else. Set the OFF arm by OMITTING the variable, and",
@@ -20,29 +16,29 @@
   "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
   "re-run make-promotion-batch.js."
  ],
- "sweepId": "p5r-wasm",
+ "sweepId": "p7f-unit_fatality",
  "bots": [
   "lobster-territory",
   "lobster-material",
   "reflex"
  ],
  "seeds": [
-  46001,
-  46002,
-  46003,
-  46004,
-  46005,
-  46006,
-  46007,
-  46008,
-  46009,
-  46010,
-  46011,
-  46012,
-  46013,
-  46014,
-  46015,
-  46016
+  11101,
+  11102,
+  11103,
+  11104,
+  11105,
+  11106,
+  11107,
+  11108,
+  11109,
+  11110,
+  11111,
+  11112,
+  11113,
+  11114,
+  11115,
+  11116
  ],
  "rotateSeats": true,
  "cells": [
@@ -79,9 +75,9 @@
    }
   },
   {
-   "cell": "hazard-mix-king",
+   "cell": "snake5-knight",
    "config": {
-    "name": "hazard-mix-king",
+    "name": "snake5-knight",
     "size": 25,
     "teams": [
      "red",
@@ -89,10 +85,10 @@
      "green"
     ],
     "roster": [
-     "king",
-     "queen",
-     "rook",
      "knight",
+     "snake",
+     "snake",
+     "snake",
      "snake",
      "snake"
     ],
@@ -103,8 +99,7 @@
      "spawnRate": 0.5
     },
     "hazards": {
-     "layout": "cross",
-     "damageRatio": 0.15
+     "layout": "none"
     },
     "potions": {
      "enabled": false
