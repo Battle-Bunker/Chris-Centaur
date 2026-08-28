@@ -649,7 +649,7 @@ export class BoundBank {
     let est = b0.est;
 
     if (this.canModel) {
-      const gated = this.gate(plan, b0.bounds.ledger);
+      const gated = this.gate(plan, b0.bounds.ledger, b0.resolution);
 
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;
@@ -893,8 +893,54 @@ export class BoundBank {
    * the B0 ledger already blames it. Capping this list needs no declaration:
    * a unit left out simply stays held at a sound bound.
    */
-  private gate(plan: JointPlan, ledger: ReadonlyArray<LedgerEntry>): ReadonlyArray<UnitId> {
+  private gate(
+    plan: JointPlan,
+    ledger: ReadonlyArray<LedgerEntry>,
+    resolution: Resolution,
+  ): ReadonlyArray<UnitId> {
     const held = new Set(this.uncontrolled());
+    // A STALE CLAIM CANNOT BE MODELLED WITH ONE MOVE (O-P7).
+    //
+    // Unfreezing a held unit puts it back at its RECORD occupancy and gives it
+    // exactly ONE action. Its claim, meanwhile, covers `turnsHeld` moves from
+    // that same record — `turnsHeld = fieldTurn − heldAtTurn`, so a unit last
+    // seen `k` turns ago is dilated `k + 1` times. The two agree at k = 0 and
+    // NOWHERE ELSE, and for a trail unit they are not even nested: a snake
+    // steps every turn, so `headPossible` is parity-exact and the one-move
+    // head set and the two-move head set are DISJOINT, while the body slides
+    // one segment further along per turn.
+    //
+    // Measured, on `base-s3103-r1` turn 37, green, staleness 1 — the board the
+    // ledger's O-P7 entry is written from. Enemy unit 2 is a snake recorded at
+    // [61, 62, 87, 86]; our rook is staged onto cell 87.
+    //
+    //   the claim at turnsHeld 2:  cell 87  head=1  body=0   (it has moved on)
+    //   one modelled move:         cell 87  body   — `bodyBlock@87/s1[2+5->5]`
+    //
+    // So the B1 group priced a world the claim excludes, its ceiling of 30 came
+    // in under a floor of 50 that the claim's own world set supports, and
+    // `makeScoreBounds` threw 238 times on that one decision. Neither bound was
+    // wrong about ITS game; the two games were different.
+    //
+    // Modelling a k-turn-old unit properly means enumerating k + 1 move
+    // SEQUENCES, which is a cluster-lookahead question, not a bank one. Until
+    // something enumerates them, a stale unit stays held in every branch: it
+    // still contributes through B0's claim, and no rung publishes a bound over
+    // a world set that is not the claim's.
+    //
+    // AT PRODUCTION STALENESS THIS IS A NO-OP. Every claim a live decision
+    // holds is `turnsHeld === 1`, so nothing is filtered and the gate returns
+    // what it always returned.
+    // The reading is taken off the B0 RESOLUTION's field, which is the
+    // advanced one (`advanceTo(turn + 1)`) and therefore the one whose
+    // `turnsHeld` carries the documented convention: a unit observed on the
+    // turn now being resolved reads 1, and 1 is the only value a single
+    // modelled move reproduces. The base substrate's own field is not that
+    // field — it sits a turn earlier, and reading it here silently disables
+    // the whole rule.
+    for (const slot of resolution.state.field.slots) {
+      if (slot.cloud.turnsHeld > 1) held.delete(slot.record.unitId);
+    }
     if (held.size === 0) return [];
     let pool: UnitId[];
     if (this.cfg.gateOnEntanglement) {

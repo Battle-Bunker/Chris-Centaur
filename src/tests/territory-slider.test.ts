@@ -329,9 +329,26 @@ describe('the repair supplies the gradient the partition cannot', () => {
     });
 
   test('room is EXACTLY flat across a slider\'s own options — it reads plane 1', () => {
+    // ACROSS THE OPTIONS THAT COST NOTHING. `room` is a plane-1 term and takes
+    // one value over a slider's whole legal set — that flatness is the hole
+    // `command` exists to fill. It is flat over the options where our MATERIAL
+    // is intact; on the two that get the queen killed it reads lower, because
+    // `roomSum` walks the surviving trails and the worst reading no longer has
+    // that unit in it. That is the material term speaking through room's
+    // partition, not a gradient room supplies, so the options that lose a unit
+    // are excluded here rather than counted as separation.
+    //
+    // (Those two used to be `survives` as well: O-P7's threat channels — a
+    // claim arriving on a live unit's BODY, and the cumulative pile's
+    // population at a cell two of our own units touch — make a second unit
+    // contingent on exactly those options, so the worst reading now loses two
+    // rather than one. Sound, and strictly a floor falling.)
     const o = options(defaultEvaluator);
     expect(o.length).toBeGreaterThan(8);
-    expect(new Set(o.map((x) => x.room)).size).toBe(1);
+    const intact = o.filter((x) => x.survives);
+    expect(intact.length).toBeGreaterThan(8);
+    expect(o.length - intact.length).toBeGreaterThan(0);
+    expect(new Set(intact.map((x) => x.room)).size).toBe(1);
   });
 
   test('command separates options the partition scores identically', () => {
