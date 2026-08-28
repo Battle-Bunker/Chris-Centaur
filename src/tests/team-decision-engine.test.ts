@@ -709,23 +709,38 @@ describe('the cohort policy is per ENGINE, never per process', () => {
     expect(bare.cohortPolicyOn()).toBe(false);
   });
 
-  test('with the flag ON, a piece board runs base and the stamp says why', async () => {
-    // Four pieces, two of them sliders, zero trail units: two independent
-    // reasons the shipped tenant refuses territory here.
+  test('with the flag ON, an OWN-slider piece board runs the REPAIR, end to end', async () => {
+    // Four pieces, two of them sliders, zero trail units — and the sliders are
+    // OURS. This is the arch/s3 wiring through the production engine rather
+    // than through a hand-built kernel: the ladder classifies, the engine's
+    // `cohortEvaluators()` serves the row from the registry, and the stamp on
+    // the wire names the profile the numbers were proved under.
+    //
+    // arch/s2 asserted `base` here, for "two independent reasons the shipped
+    // tenant refuses territory": a slider, and no trail units. Both readings
+    // change. The slider is our own, so the FIRST row now admits the repair;
+    // and the thin-trail row, which would still demote, sits below it — on
+    // purpose, because a piece board with no trails left is precisely the
+    // position `commandFeature` exists for.
     const engine = new TeamDecisionEngine(fakePorts(['a', 'b']), {
       kernel: { reserveMs: 20, sliceMs: 10 },
       cohortPolicy: 'on',
     });
     const report = (await decide(engine, 'g-stamp')).report as KernelReport;
-    expect(report.admission?.activeCohort).toBe('base');
+    expect(report.admission?.activeCohort).toBe('territory-slider');
     expect(report.admission?.detectors.sliderPossible).toBe(true);
+    expect(report.admission?.detectors.ownSliderPossible).toBe(true);
     expect(report.admission?.detectors.ownTrailCount).toBe(0);
     // The state to hand the next turn came back with it.
-    expect(report.admissionState?.ladder).toEqual(['base']);
-    // And every record on the wire carries the verdict.
+    expect(report.admissionState?.ladder).toEqual(['base', 'territory-slider']);
+    // And every record on the wire carries the verdict, including the invoked
+    // set that distinguishes the repair from the shipped objective.
     expect(report.journal.length).toBeGreaterThan(0);
     for (const rec of report.journal) {
       expect(rec.admission).toEqual(report.admission);
+      const cohort = rec.assumptions.find((a) => a.kind === 'cohort');
+      expect(cohort?.kind === 'cohort' && cohort.id).toBe('territory-slider');
+      expect(cohort?.kind === 'cohort' && cohort.features).toContain('command');
     }
   });
 

@@ -204,7 +204,13 @@ describe('the cohort registry is a data table', () => {
     // objective is that the POLICY is off (`admission: null`), not that the
     // table is short. Both halves are asserted — here and in
     // `admission-noop.test.ts`.
-    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory']);
+    //
+    // arch/s3 adds a THIRD row, `territory-slider` (the i2 repair the ledger
+    // raced as `lobster-slider`). Same rule, third time: registering it admits
+    // nothing, `DEFAULT_COHORT_ID` is untouched, and only the admission policy
+    // — which ships off — can select it. Ascending cost: base skips the
+    // partition, territory pays for it, the repair pays for it plus `command`.
+    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory', 'territory-slider']);
     expect(DEFAULT_COHORT_ID).toBe('territory');
     expect(requireCohortRowIn(COHORTS, DEFAULT_COHORT_ID).profile).toBe(DEFAULT_PROFILE);
     expect(requireCohortRowIn(COHORTS, 'base').profile).toBe(BASE_PROFILE);
@@ -252,7 +258,7 @@ describe('the cohort registry is a data table', () => {
     expect(requireCohortRowIn(own, 'material').profile).toBe(MATERIAL_ONLY_PROFILE);
     expect(cohortRowIn(own, DEFAULT_COHORT_ID)).toBeUndefined();
     // ...and holding one did not teach the shipped table a new name.
-    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory']);
+    expect(COHORTS.map((c) => c.id)).toEqual(['base', 'territory', 'territory-slider']);
   });
 
   test('the stamp carries the INVOKED set, sorted', () => {
