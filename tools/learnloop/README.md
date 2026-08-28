@@ -109,13 +109,16 @@ without the operator having to know this directory exists.
 |---|---|
 | A probe may raise `dark → probe-passed` and no further. | CENTAUR_CLUSTER_SEED. |
 | A live measurement with no verified concurrent null moves nothing. | An A/A pairing on a provably inert path produced d P(first) +0.167 [0.056, 0.306] — a "significant" difference between a build and itself. |
-| A live measurement on an arm whose engagement is not shown moves nothing. | P5: `CENTAUR_WASM` is refused per partition, silently, whenever an input is not resident. Its null could equally have meant the arm never ran. |
+| A live measurement on an arm whose engagement is not shown moves nothing — and the tri-state means `null` (*cannot say*) is refused exactly like `false`. | P5: `CENTAUR_WASM` is refused per partition, silently, whenever an input is not resident. Its null could equally have meant the arm never ran. Refusing only on `false` made *cannot say* mean *said yes*, and every pre-CL7 batch says *cannot say*. |
+| A delta outside the floor is scored by the metric's OWN GOOD DIRECTION, never by its sign; a metric with no good direction is recorded `outside-null-unscored` and moves nothing. | CENTAUR_CLUSTER_SEED failed live through exhaustion deaths **+36** on a `family: mechanism` gate. Scored by sign, the founding failure of this whole ledger reads `supports-promotion`. Polarity lives in `lib/polarity.js` as data, and the selftest proves the table is total. |
+| A CONTROL cell — one the design requires to read zero — enters no effect channel and cannot move a status in either direction. | `TERRITORY_SLIDER_PROFILE`'s inert control at *exactly* 0 against a measured ±0.0324 floor, filed as placement, demoted the flag `supported → live-null`. The better the control, the harder it demoted: a rule that punished the practice it exists to encourage. |
+| A `live-null` from a cell the ledger itself stamped `underpowered` is not a decision, and its next experiment stays schedulable. | `CENTAUR_UNIT_FATALITY`'s P7F was written out in full and then silently never ran — its null is 16 blocks against the 58 its own dispersion demands. |
 | A placement verdict from a cell with fewer blocks than its dispersion demands moves nothing. | 80% power at MDE 0.25 needs ~58 blocks pooled; MDE 0.10 needs 362–1,447. Mechanism metrics move at n≈8. |
 | A metric with no floor in the A/A cell is `unreadable`, not `null`. | An absent instrument is not a finding. |
 | A null row does not rehabilitate a `live-failed` flag. | A flag that lost a cell is rehabilitated by a root cause and a repaired arm, not by other cells declining to reproduce the loss. |
 | `engagement`, `audit`, `cost` and `shape` rows never move a status. | Running is not helping; a cost is one side of a trade. |
 | A frozen cell is re-opened by a mechanism claim, never by a p-value. | A3 §4.2 item 3: re-fitting cells that conditioned to null is fitting noise with extra steps. |
-| The A/A null is mandatory and sized like the treatment. | A null at 4 blocks beside a treatment at 16 understates the floor — the direction that makes a treatment look significant when it is not. |
+| The A/A null is mandatory, sized like the treatment, and its cells are DERIVED from the union of what the batch runs. | A null at 4 blocks beside a treatment at 16 understates the floor — the direction that makes a treatment look significant when it is not. And a hard-coded cell pair floored 2 of batch 1's 8 cells, leaving the other 6 unreadable by the ledger's own rule, including the slider's only win cell. |
 | The exploration slice is never dropped for space. | Today's policy selects tomorrow's corpus. A promoted flag with no opposite-branch slice can never be revised back. |
 
 ## What this loop cannot do yet

@@ -7,16 +7,19 @@
     "mirror": "sim/worker-kit (verbatim copy; see tools/learnloop/README.md)",
     "mirroredFrom": {
       "branch": "claude/cluster-lookahead",
-      "commit": "630848b3ef1d6d97c9992b733f7dcb57583f8f31",
+      "commit": "be8fa312cdf359c5820166c3ed3b958181225c5c",
       "rule": "THIS IS A VERBATIM COPY. Edit the ledger on claude/cluster-lookahead and re-copy the whole tools/learnloop/ directory here; never the other way round. A divergence is resolved by re-copying, not by merging — one of the two is the record and the other is a convenience.",
-      "divergence": {
-        "state": "DIVERGED — DATA ONLY, BACKPORT OWED",
-        "appliedHere": "the 20260827-overnight fold (batch 1), applied on sim/worker-kit first",
-        "why": "The local sim session fetches sim/worker-kit and only sim/worker-kit, and the updated ledger IS its next set of instructions. Waiting for a home-branch edit to be mirrored forward would have left the consumer reading a ledger that predates the batch it just ran.",
-        "scope": "promotion-ledger.json and PROMOTION-STATUS.md ONLY. Nothing under lib/ or bin/ was touched, so the two copies remain byte-identical as CODE and the executable behaviour of the two branches has not forked.",
-        "backportOwed": "copy tools/learnloop/promotion-ledger.json and tools/learnloop/PROMOTION-STATUS.md from sim/worker-kit onto claude/cluster-lookahead, then restore the normal direction (home edits, kit mirrors). Until that copy is made, claude/cluster-lookahead holds the STALE ledger and this branch holds the record — the reverse of the standing rule."
+      "state": "CURRENT — no divergence. The batch-1 data fold that ran here first has been backported to claude/cluster-lookahead byte-identically, and this copy is taken from that merge, which also carries the fixes for the five machinery defects batch 1 exposed. lib/ and bin/ are byte-identical between the two branches; they never forked, which is the line that let the defects be filed here rather than fixed here."
+    },
+    "backportHistory": [
+      {
+        "what": "the 20260827-overnight fold (batch 1): promotion-ledger.json, PROMOTION-STATUS.md and specs/batch2/.",
+        "appliedFirstOn": "sim/worker-kit @ f887f4b, out of the normal direction.",
+        "why": "The local sim session fetches sim/worker-kit and only sim/worker-kit, and the updated ledger IS its next set of instructions. Waiting for a home-branch edit to be mirrored forward would have handed the consumer a ledger older than the batch it had just run.",
+        "scope": "DATA ONLY. Nothing under lib/ or bin/ was touched on the kit branch, so the two copies never forked as CODE and the executable behaviour of the two branches never diverged. That line — data may diverge and be stamped, code may not — is why the five machinery defects batch 1 exposed were filed on the kit branch rather than fixed there.",
+        "resolved": "BACKPORTED onto claude/cluster-lookahead by cl/llfix, byte-identical, in the same change that fixed the five defects here at home. The standing direction is restored: edit here, copy the whole directory to sim/worker-kit, update mirroredFrom."
       }
-    }
+    ]
   },
   "seededAt": "2026-08-28",
   "seededBy": "CL7",
@@ -69,17 +72,7 @@
       "refused per partition, silently, whenever an input is not resident in linear memory.",
       "CL7's mechanism report (TeamTurnResult.mechanism) is what makes the answer readable."
     ],
-    "flagOrderIsPriority": [
-      "THE FLAG ORDER IN THIS ARRAY IS THE BATCH ORDER. make-promotion-batch.js emits one experiment",
-      "per undecided flag in array order, and the batch is designed to be cut from the bottom when the",
-      "night is short. So reordering this array is how a priority is expressed, and it is the only",
-      "way the generator can hear one.",
-      "",
-      "BATCH-1 CHANGE: CENTAUR_WASM was moved from eighth to first among the undecided flags, ahead of",
-      "CENTAUR_EDGE_EV. P5R is the only scheduled experiment in batch 2 that CLOSES a standing anomaly",
-      "rather than opening a new question, the instrumentation that makes it readable landed in CL7,",
-      "and it carries a gate that makes a broken arm impossible to misreport as a null."
-    ]
+    "flagOrderIsPriority": "THE FLAG ORDER IN THIS ARRAY IS THE BATCH ORDER. make-promotion-batch.js emits one experiment,per undecided flag in array order, and the batch is designed to be cut from the bottom when the,night is short. So reordering this array is how a priority is expressed, and it is the only,way the generator can hear one.,,BATCH-1 CHANGE: CENTAUR_WASM was moved from eighth to first among the undecided flags, ahead of,CENTAUR_EDGE_EV. P5R is the only scheduled experiment in batch 2 that CLOSES a standing anomaly,rather than opening a new question, the instrumentation that makes it readable landed in CL7,,and it carries a gate that makes a broken arm impossible to misreport as a null. — REVISED after LIVE-NULL-IS-TERMINAL closed: making live-null flags schedulable put CENTAUR_UNIT_FATALITY (P7F) ahead of CENTAUR_WASM (P5R) purely because of where it already sat in the array, which nobody decided. P5R stays FIRST — it is the only scheduled experiment that CLOSES a standing anomaly rather than opening a question, its instrumentation landed in CL7, and the COORDINATION note already told the local session it runs first. CENTAUR_UNIT_FATALITY is moved to just below CENTAUR_WASM so P7F is second: newly unblocked, and worth running, but not ahead of the experiment the batch was reprioritised around."
   },
   "batches": [
     {
@@ -167,6 +160,14 @@
         "answer": "NO. Checked value by value against each flag's own `parses` field in this ledger. CENTAUR_COHORT_POLICY parses `1|on|true`, so \"on\" is in its set. CENTAUR_WASM parses `on|off`, so \"on\" is its ONLY on-value. CENTAUR_TIER_TRUTH parses `off|expiry|full`, so \"full\" is correct. The `1|on|true` warning applies to the five search-side CL flags, all of which were set to \"1\". Sixteen arms audited, zero mistyped.",
         "arms": "cl-seed{CLUSTER_SEED:1} cl-fatality{UNIT_FATALITY:1} cl-both{both:1} legacy{ENGINE:legacy} cohort-on{COHORT_POLICY:on} tier-full{TIER_TRUTH:full} wasm-on{WASM:on}; cl-off/cohort-off/tier-expiry/wasm-off/integrated/perf-substrate/slider/nullA/nullB all {}.",
         "residualRisk": "This is an audit of the ENVIRONMENT, not of what resolved inside the engine. The resolved flag stamp that would close it (MechanismReport.flags) postdates these bundles. See ENV-SEAM."
+      },
+      "readjudication": {
+        "when": "2026-08-28",
+        "by": "cl/llfix, after the five machinery defects were closed",
+        "what": "Every batch-1 row was re-scored from its own numbers through the fixed polarity table, and every row was replayed through the fixed applyMeasurement starting from each flag`s PRE-batch-1 status as recorded on claude/cluster-lookahead @ 87f570b.",
+        "verdictAgreement": "20 of 20 polarity-sensitive rows: the machine now computes what the fold assigned by hand. The three rows METRIC-POLARITY named as scored backwards — CENTAUR_CLUSTER_SEED`s +36 exhaustion deaths, CENTAUR_UNIT_FATALITY`s deaths falling 39 -> 33, and the slider`s `place` improving by -0.229 — all now score in the direction the human recorded.",
+        "statusOutcome": "ZERO flags changed status. All seven flags batch 1 touched land where the fold recorded them: CLUSTER_SEED live-failed, UNIT_FATALITY live-null, WASM probe-passed, WORKERS probe-passed, TIER_TRUTH live-null, COHORT_POLICY live-null, SLIDER supported. The human catches were compensated correctly; what changes is that the machine record now agrees with the human record with no manual override left in place.",
+        "whatItCost": "Two hand-workarounds are retired rather than preserved: CENTAUR_WASM`s engagement value is the honest `null` instead of a `false` bent to force a refusal, and the slider`s inert control is filed as the placement control it is instead of as an `audit` row chosen to dodge a demotion. Both refusals stand on their own rules now."
       }
     }
   ],
@@ -387,6 +388,155 @@
       }
     },
     {
+      "flag": "CENTAUR_WASM",
+      "stage": "W3",
+      "perEngineOption": "TeamDecisionOptions.wasm",
+      "shipsDefault": "off",
+      "parses": "on | off only — anything else warns and falls back to off",
+      "whatItDoes": "Runs the territory evaluator's hot kernels in WebAssembly; refused per partition, silently, when an input is not resident in linear memory.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "wasmRuns",
+          "family": "engagement",
+          "source": "MechanismReport.wasm.runs",
+          "emitted": true,
+          "since": "CL7",
+          "note": "THE GAP THAT VOIDED P5. Existed on the territory workspace since W3 and was unreachable outside evaluate/territory.ts."
+        },
+        {
+          "name": "wasmRefused",
+          "family": "engagement",
+          "source": "MechanismReport.wasm.refused",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "worstWallMs",
+          "family": "cost",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "capRate",
+          "family": "shape",
+          "source": "manifest row terminal",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p5-wasm-arena",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "placement NULL",
+          "nullVerified": true,
+          "armEngagementVerified": null,
+          "note": "STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.",
+          "caveat": "ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.",
+          "rootCauseKnown": {
+            "diagnosis": "kit commit 38e15e7: the wasm arm \"is refused per partition, silently, and its counters never left the module they lived in\". CL7`s telemetry closure fixed both halves — tapWitnesses was dropping the accessors, and release() was erasing the session-derived reports before any external consumer could read them — and manifest rows now carry wasmRuns / wasmRefused.",
+            "doesNotUpgradeThisRow": "THE FIX IS PRE-HOC FOR THE PROGRAM AND POST-HOC FOR THIS BATCH. Batch 1`s bundles were built from 8059b86, which predates the counters. A diagnosis that arrived after the games were played does not make the games readable. P5 stays engagement-unverified FOR THIS BATCH, and the presence of the fix is a reason to re-run, not a reason to re-score."
+          }
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p5-wasm-arena",
+          "metric": "capRate",
+          "family": "shape",
+          "verdict": "anomaly",
+          "value": "cap-terminal rate DOUBLES under wasm-on on headline-mix-king: 0.229 -> 0.458 (x2.0); and goes 0.917 -> 1.000 on null-snake6, where it saturates",
+          "nullVerified": true,
+          "armEngagementVerified": null,
+          "note": "A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.",
+          "caveat": "ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "family": "shape",
+          "verdict": "anomaly",
+          "nullVerified": true,
+          "armEngagementVerified": null,
+          "cell": "p5-wasm-arena::headline-mix-king",
+          "metric": "turns",
+          "value": "+21.44 [+0.47, +42.41] over 16 blocks, against a measured A/A floor of +/-18.09",
+          "note": "Anomaly corroborant 1. Clears the cell's own measured floor, but not by much — this is the weakest of the four rows on its own and the most convincing in company.",
+          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report).",
+          "caveat": "ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "family": "shape",
+          "verdict": "anomaly",
+          "nullVerified": true,
+          "armEngagementVerified": null,
+          "cell": "p5-wasm-arena::headline-mix-king",
+          "metric": "decisions",
+          "value": "+21.75 [+0.94, +42.56] over 16 blocks",
+          "note": "Anomaly corroborant 2. Tracks the turn count almost exactly, as it must if the games are simply longer.",
+          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report).",
+          "caveat": "ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "family": "shape",
+          "verdict": "anomaly",
+          "nullVerified": true,
+          "armEngagementVerified": null,
+          "cell": "p5-wasm-arena::headline-mix-king",
+          "metric": "decisive",
+          "value": "-0.2292 [-0.4511, -0.0072] over 16 blocks (decisive rate 0.7708 -> 0.5417)",
+          "note": "Anomaly corroborant 3, and the one that makes the cluster a finding rather than a slowdown. Longer games that end at the cap instead of at a result is a different GAME SHAPE, not a different amount of compute.",
+          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report).",
+          "caveat": "ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true."
+        }
+      ],
+      "verdict": "THE ONE MEASURED ANOMALY ON THE BRANCH, AND IT IS STILL UNREADABLE. Placement is null on all three cells and that null is worth nothing: the arm cannot be shown to have run. Meanwhile four shape rows on the same cell say the games changed — twice the cap rate, ~21 more turns, ~22 more decisions, a quarter less decisive — and shape rows never move a status by rule, which is correct and is also exactly why this flag cannot be resolved from batch 1 at all. The root cause is already named upstream (refused per partition, silently; counters trapped in the module) and CL7 closed the telemetry, so the decisive experiment is now cheap and unambiguous. P5R IS THAT EXPERIMENT and it is the highest-value run in batch 2: it is the only scheduled experiment that resolves a standing anomaly rather than opening a new question, and its gate makes it impossible to mis-report — wasmRuns 0 on the treatment arm is a BROKEN ARM and must be reported as a refusal, not as a null.",
+      "nextExperiment": {
+        "id": "P5R",
+        "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?",
+        "arms": [
+          "off",
+          "wasm-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "hazard-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "wasmRuns",
+          "wasmRefused",
+          "capRate",
+          "turns",
+          "decisions",
+          "decisive",
+          "worstWallMs",
+          "score"
+        ],
+        "gate": "REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.",
+        "requires": "A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists.",
+        "priority": "HIGHEST of the probe-passed flags, and raised by batch 1. CENTAUR_WASM has been moved ahead of the never-raced flags in this ledger's flag order, which is the order the batch generator emits and therefore the order the batch is cut from the bottom in. Reason: every other scheduled experiment opens a question, and this one closes the batch's only measured anomaly with instrumentation that now exists. If the night is short, P5R survives the cut.",
+        "decisiveBecause": "The four-row shape cluster has exactly three candidate explanations and one run separates them. wasmRuns == 0 on the treatment arm: the arm never engaged, the cap-rate cluster is something else entirely, and the P5 null was never about wasm. wasmRuns > 0 with wasmRefused high: the per-partition refusal is real and the arm is paying a check it never cashes. wasmRuns > 0 with wasmRefused low and the cluster still present: the arm genuinely runs and genuinely changes how games terminate, which is a finding worth the whole batch.",
+        "addedReadsOut": "the batch-1 anomaly cluster must be read out in full, not just capRate: turns, decisions and decisive, or the rerun cannot confirm or clear the thing it exists to resolve."
+      },
+      "engagementVocabularyNote": "All batch-1 rows read `null` (cannot say), which is what they always meant. The status is unmoved either way; P5R exists to replace cannot-say with a counter."
+    },
+    {
       "flag": "CENTAUR_UNIT_FATALITY",
       "stage": "CL1",
       "perEngineOption": "TeamDecisionOptions.unitFatality",
@@ -492,151 +642,6 @@
           "unstagedRate",
           "score"
         ]
-      }
-    },
-    {
-      "flag": "CENTAUR_WASM",
-      "stage": "W3",
-      "perEngineOption": "TeamDecisionOptions.wasm",
-      "shipsDefault": "off",
-      "parses": "on | off only — anything else warns and falls back to off",
-      "whatItDoes": "Runs the territory evaluator's hot kernels in WebAssembly; refused per partition, silently, when an input is not resident in linear memory.",
-      "status": "probe-passed",
-      "promotionMetrics": [
-        {
-          "name": "wasmRuns",
-          "family": "engagement",
-          "source": "MechanismReport.wasm.runs",
-          "emitted": true,
-          "since": "CL7",
-          "note": "THE GAP THAT VOIDED P5. Existed on the territory workspace since W3 and was unreachable outside evaluate/territory.ts."
-        },
-        {
-          "name": "wasmRefused",
-          "family": "engagement",
-          "source": "MechanismReport.wasm.refused",
-          "emitted": true,
-          "since": "CL7"
-        },
-        {
-          "name": "worstWallMs",
-          "family": "cost",
-          "source": "manifest health row",
-          "emitted": true
-        },
-        {
-          "name": "capRate",
-          "family": "shape",
-          "source": "manifest row terminal",
-          "emitted": true
-        },
-        {
-          "name": "score",
-          "family": "placement",
-          "source": "manifest row",
-          "emitted": true
-        }
-      ],
-      "measurements": [
-        {
-          "batch": "20260827-overnight",
-          "kind": "live",
-          "cell": "p5-wasm-arena",
-          "metric": "score",
-          "family": "placement",
-          "verdict": "null",
-          "value": "placement NULL",
-          "nullVerified": true,
-          "armEngagementVerified": false,
-          "note": "STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.",
-          "caveat": "ENGAGEMENT VOCABULARY. `armEngagementVerified: false` is carried on this row because false is the only value the current applyMeasurement refuses on. The honest value is `null` — CANNOT SAY. wasmRuns was never read and returned zero here; it did not exist in these bundles at all. The ledger's stated tri-state (null = cannot say, false = read and was zero) and its enforcement disagree, and this row is where the disagreement is being papered over. Left as false deliberately: correcting it to null on this branch would UNBLOCK a status write that must stay blocked, and the one-line fix belongs on the home branch. See ENGAGEMENT-TRISTATE.",
-          "rootCauseKnown": {
-            "diagnosis": "kit commit 38e15e7: the wasm arm \"is refused per partition, silently, and its counters never left the module they lived in\". CL7`s telemetry closure fixed both halves — tapWitnesses was dropping the accessors, and release() was erasing the session-derived reports before any external consumer could read them — and manifest rows now carry wasmRuns / wasmRefused.",
-            "doesNotUpgradeThisRow": "THE FIX IS PRE-HOC FOR THE PROGRAM AND POST-HOC FOR THIS BATCH. Batch 1`s bundles were built from 8059b86, which predates the counters. A diagnosis that arrived after the games were played does not make the games readable. P5 stays engagement-unverified FOR THIS BATCH, and the presence of the fix is a reason to re-run, not a reason to re-score."
-          }
-        },
-        {
-          "batch": "20260827-overnight",
-          "kind": "live",
-          "cell": "p5-wasm-arena",
-          "metric": "capRate",
-          "family": "shape",
-          "verdict": "anomaly",
-          "value": "cap-terminal rate DOUBLES under wasm-on on headline-mix-king: 0.229 -> 0.458 (x2.0); and goes 0.917 -> 1.000 on null-snake6, where it saturates",
-          "nullVerified": true,
-          "armEngagementVerified": false,
-          "note": "A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.",
-          "caveat": "THE ANOMALY IS A CLUSTER OF FOUR ROWS, NOT ONE RATE. Bridge summaries carry only the doubled cap rate. On the same cell, wasm-on games also run ~21 turns LONGER (+21.44 ✱), take ~22 more decisions (+21.75 ✱) and end LESS decisively (-0.2292 ✱ — decisive 0.771 -> 0.542), and on null-snake6 the cap rate saturates at 1.000. Four independent rows pointing the same way with placement dead flat: something changes materially about how games TERMINATE while leaving the ranking untouched. Score the anomaly on the cluster; a single rate is dismissable and the cluster is not."
-        },
-        {
-          "batch": "20260827-overnight",
-          "kind": "live",
-          "family": "shape",
-          "verdict": "anomaly",
-          "nullVerified": true,
-          "armEngagementVerified": false,
-          "cell": "p5-wasm-arena::headline-mix-king",
-          "metric": "turns",
-          "value": "+21.44 [+0.47, +42.41] over 16 blocks, against a measured A/A floor of +/-18.09",
-          "note": "Anomaly corroborant 1. Clears the cell's own measured floor, but not by much — this is the weakest of the four rows on its own and the most convincing in company.",
-          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report)."
-        },
-        {
-          "batch": "20260827-overnight",
-          "kind": "live",
-          "family": "shape",
-          "verdict": "anomaly",
-          "nullVerified": true,
-          "armEngagementVerified": false,
-          "cell": "p5-wasm-arena::headline-mix-king",
-          "metric": "decisions",
-          "value": "+21.75 [+0.94, +42.56] over 16 blocks",
-          "note": "Anomaly corroborant 2. Tracks the turn count almost exactly, as it must if the games are simply longer.",
-          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report)."
-        },
-        {
-          "batch": "20260827-overnight",
-          "kind": "live",
-          "family": "shape",
-          "verdict": "anomaly",
-          "nullVerified": true,
-          "armEngagementVerified": false,
-          "cell": "p5-wasm-arena::headline-mix-king",
-          "metric": "decisive",
-          "value": "-0.2292 [-0.4511, -0.0072] over 16 blocks (decisive rate 0.7708 -> 0.5417)",
-          "note": "Anomaly corroborant 3, and the one that makes the cluster a finding rather than a slowdown. Longer games that end at the cap instead of at a result is a different GAME SHAPE, not a different amount of compute.",
-          "ruleRefusal": "CENTAUR_WASM: live measurement recorded, status untouched — THE TREATMENT ARM'S ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different finding from a null from an arm that ran and did not help, and only the mechanism rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per partition, silently, whenever an input is not resident. Re-run with the engagement counters on the record (CL7's mechanism report)."
-        }
-      ],
-      "verdict": "THE ONE MEASURED ANOMALY ON THE BRANCH, AND IT IS STILL UNREADABLE. Placement is null on all three cells and that null is worth nothing: the arm cannot be shown to have run. Meanwhile four shape rows on the same cell say the games changed — twice the cap rate, ~21 more turns, ~22 more decisions, a quarter less decisive — and shape rows never move a status by rule, which is correct and is also exactly why this flag cannot be resolved from batch 1 at all. The root cause is already named upstream (refused per partition, silently; counters trapped in the module) and CL7 closed the telemetry, so the decisive experiment is now cheap and unambiguous. P5R IS THAT EXPERIMENT and it is the highest-value run in batch 2: it is the only scheduled experiment that resolves a standing anomaly rather than opening a new question, and its gate makes it impossible to mis-report — wasmRuns 0 on the treatment arm is a BROKEN ARM and must be reported as a refusal, not as a null.",
-      "nextExperiment": {
-        "id": "P5R",
-        "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?",
-        "arms": [
-          "off",
-          "wasm-on"
-        ],
-        "cells": [
-          "headline-mix-king",
-          "hazard-mix-king",
-          "null-snake6"
-        ],
-        "blocks": 16,
-        "readsOut": [
-          "wasmRuns",
-          "wasmRefused",
-          "capRate",
-          "turns",
-          "decisions",
-          "decisive",
-          "worstWallMs",
-          "score"
-        ],
-        "gate": "REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.",
-        "requires": "A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists.",
-        "priority": "HIGHEST of the probe-passed flags, and raised by batch 1. CENTAUR_WASM has been moved ahead of the never-raced flags in this ledger's flag order, which is the order the batch generator emits and therefore the order the batch is cut from the bottom in. Reason: every other scheduled experiment opens a question, and this one closes the batch's only measured anomaly with instrumentation that now exists. If the night is short, P5R survives the cut.",
-        "decisiveBecause": "The four-row shape cluster has exactly three candidate explanations and one run separates them. wasmRuns == 0 on the treatment arm: the arm never engaged, the cap-rate cluster is something else entirely, and the P5 null was never about wasm. wasmRuns > 0 with wasmRefused high: the per-partition refusal is real and the arm is paying a check it never cashes. wasmRuns > 0 with wasmRefused low and the cluster still present: the arm genuinely runs and genuinely changes how games terminate, which is a finding worth the whole batch.",
-        "addedReadsOut": "the batch-1 anomaly cluster must be read out in full, not just capRate: turns, decisions and decisive, or the rerun cannot confirm or clear the thing it exists to resolve."
       }
     },
     {
@@ -1483,16 +1488,15 @@
         },
         {
           "batch": "20260827-overnight",
-          "kind": "live",
+          "kind": "control",
           "nullVerified": true,
           "armEngagementVerified": true,
           "cell": "p3-slider-2000::null-snake6 (INERT CONTROL)",
           "metric": "score",
-          "family": "audit",
-          "verdict": "control-passed",
+          "family": "placement",
+          "verdict": "inert",
           "value": "EXACTLY 0, against a measured floor of +/-0.0324",
-          "note": "THE INERT CONTROL, AND IT PASSED PERFECTLY. The profile is bit-identical to the baseline on a snake-only board, so its delta there must be exactly zero — not small, zero. It is. This is the cell that makes the queen-cell win credible despite having no floor of its own: the instrument demonstrably reports zero when zero is the truth. FAMILY IS `audit`, ADVISEDLY. Filed first as `placement`/`null`, it demoted this flag supported -> live-null: applyMeasurement has no concept of a control cell, so a cell that is null BY DESIGN reads to it as a treatment that failed to show an effect. An inert control is evidence about the INSTRUMENT and not a placement claim about the treatment, so `audit` is both the honest family and the one the rules handle correctly. See open item CONTROL-CELLS-DEMOTE.",
-          "ruleRefusal": "TERRITORY_SLIDER_PROFILE: audit row recorded (p3-slider-2000::null-snake6 (INERT CONTROL)/score = EXACTLY 0, against a measured floor of +/-0.0324); a audit metric does not move a status."
+          "note": "THE STRONGEST SINGLE ROW IN THE LEDGER, and it now enters the channel it belongs in. A provably-inert path read EXACTLY 0 against a measured +/-0.0324 floor: the measurement is not manufacturing effects, which is the precondition for believing the +0.115 it does report on snake5-queen. Filed as family `audit` during the batch-1 fold because filing it as what it literally is — a placement cell that showed nothing — demoted the flag it vouches for, `supported -> live-null`. CONTROL-CELLS-DEMOTE is now closed: `control` is a measurement KIND that strengthens the instrument and enters no effect channel, so the row can be filed honestly as placement and still move nothing."
         }
       ],
       "verdict": "SUPPORTED, AND THE FLIP IS OWED. The evidence chain is the most complete in this ledger and it is also smaller than the seeded row claimed: one confirmed-direction, modest effect on ONE cell (+0.115 [+0.014, +0.216] on snake5-queen), two corroborating rows on that cell (place -0.229 ✱, finalMaterial +4.02 ✱), a provably-inert control sitting at EXACTLY 0 against a measured +/-0.032 floor, and a separate control run confirming the neutrality claim. The two weaknesses are recorded rather than smoothed: the winning cell has no A/A floor of its own and clears the borrowed one narrowly, and two of the three gradient points quoted for it were measured elsewhere. Neither weakens the FLIP, which is what is owed: the wiring is a code change, not a default flip, because the profile has no env flag and no config field.",
@@ -1514,6 +1518,16 @@
           "finalMaterial"
         ],
         "kind": "exploration-slice"
+      },
+      "controlCells": [
+        "null-snake6"
+      ],
+      "controlCellsNote": "Declared so bin/ingest.js files this cell as `kind: control` automatically, rather than depending on a human noticing. `--control <cell>` does the same from the command line.",
+      "controlEvidence": {
+        "inert": [
+          "20260827-overnight/p3-slider-2000::null-snake6 (INERT CONTROL)/score"
+        ],
+        "violated": []
       }
     },
     {
@@ -1683,35 +1697,40 @@
       "what": "bin/ingest.js decides a verdict by SIGN ALONE: a mechanism or placement delta outside the null band scores `failed` if its mean is negative and `supports-promotion` if positive. It has no notion of which metrics are better when they go DOWN. So deathsExhaustion, deathsSelf, fatalStagings, teammateKills, place, boundsInversions, overrunRate and every other cost-shaped counter are scored exactly backwards.",
       "impact": "SEVERE, AND THE EXHIBIT IS THIS LEDGER`S FOUNDING FINDING. CENTAUR_CLUSTER_SEED's failure is an exhaustion-death INCREASE of +36 per 48 games on a metric declared family:mechanism. Run through the ingest, that positive delta scores `supports-promotion`. It is caught here only because the flag is ALREADY live-failed and \"a supporting cell does not overturn a live failure\" refuses it — i.e. the ledger is saved by a different rule, and would not have been had the flag still been probe-passed when the row arrived. Two further rows in the batch-1 fold trip it in the other direction: UNIT_FATALITY's exhaustion deaths FALLING 39 -> 33 would score `failed`, and TERRITORY_SLIDER_PROFILE's place improving by -0.229 would score `failed`. All three are recorded by hand with the correct verdict and a polarity note.",
       "workaround": "The fold declares `lowerIsBetter: true` on the affected promotionMetrics entries of CENTAUR_CLUSTER_SEED and CENTAUR_UNIT_FATALITY. Nothing reads the field yet. It exists so the fix is a lookup rather than a re-derivation.",
-      "closedBy": "A one-line change on claude/cluster-lookahead, in bin/ingest.js's verdict expression: consult the gate's `lowerIsBetter` and flip the sign test. Plus the polarity declarations on the remaining gate metrics, and a selftest assertion that a falling death count does not read as a failure. NOT applied here: this branch is the mirror and its code must not fork from home."
+      "closedBy": "A one-line change on claude/cluster-lookahead, in bin/ingest.js's verdict expression: consult the gate's `lowerIsBetter` and flip the sign test. Plus the polarity declarations on the remaining gate metrics, and a selftest assertion that a falling death count does not read as a failure. NOT applied here: this branch is the mirror and its code must not fork from home.",
+      "closedIn": "CLOSED. lib/polarity.js is the table (higher-is-better / lower-is-better / contextual), consulted at scoring in bin/ingest.js, with a gate`s own `lowerIsBetter` or `polarity` winning over it. A metric outside the floor with no good direction is filed `outside-null-unscored` and moves nothing rather than being guessed at. The selftest asserts the seed`s founding failure (+36 exhaustion deaths) scores AGAINST promotion and moves a probe-passed flag to live-failed, and that the table is total over both the extractor`s metrics and every gate any flag names. Batch 1 re-adjudicated: 0 rows changed verdict, 0 flags changed status — the machine record now agrees with the hand record without an override. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4."
     },
     {
       "id": "ENGAGEMENT-TRISTATE",
       "what": "The ledger documents `armEngagementVerified` as a tri-state — true = shown engaged, false = a counter was READ and was zero, null = CANNOT SAY (an old bundle) — and README.md states the rule as \"a live measurement on an arm whose engagement is not SHOWN moves nothing\". applyMeasurement refuses only on `=== false`. `null` sails through and may write a live status.",
       "impact": "Every batch predating the CL7 mechanism report has null engagement on every row, which is the common case and not the edge case. The seeded ledger hides the gap by marking CENTAUR_WASM's batch-1 rows `false` — a value the vocabulary reserves for a counter that was read — because false is the only value that actually refuses. The datum was bent to fit the code. The fold leaves it bent ON PURPOSE and says so on the row, because correcting it to the honest `null` on this branch would unblock a status write that must stay blocked.",
       "workaround": "CENTAUR_WASM's rows keep `false` with a caveat naming this item. CENTAUR_TIER_TRUTH's row, which is NOT load-bearing for a refusal, is corrected to the honest `null` and carries an engagementEvidence block.",
-      "closedBy": "On claude/cluster-lookahead: change `if (m.armEngagementVerified === false)` to refuse on anything that is not `true`, add the selftest assertion for the null case, then correct CENTAUR_WASM's two batch-1 rows to `null` in the same commit. All three selftest engagement cases pass explicit booleans, so the tightening is assertion-safe."
+      "closedBy": "On claude/cluster-lookahead: change `if (m.armEngagementVerified === false)` to refuse on anything that is not `true`, add the selftest assertion for the null case, then correct CENTAUR_WASM's two batch-1 rows to `null` in the same commit. All three selftest engagement cases pass explicit booleans, so the tightening is assertion-safe.",
+      "closedIn": "CLOSED. applyMeasurement refuses on anything that is not `true`, and the refusal note says which of the three values it refused on. CENTAUR_WASM`s batch-1 rows are corrected from the bent `false` back to the honest `null` in the same change; the refusal is unchanged. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4."
     },
     {
       "id": "AA-FLOOR-COVERAGE",
       "what": "bin/make-promotion-batch.js hard-codes the A/A null's cells as headline-mix-king and null-snake6, regardless of which cells the batch's treatments actually run on. Batch 1 therefore measured a floor for two of its eight cells, and batch 2 as generated repeats the pattern: P5R runs hazard-mix-king, P3`s support cells are snake5-queen and snake5-knight, and none of them will get a floor.",
       "impact": "By the ledger's own rule, a metric with no floor in the A/A cell is UNREADABLE and not null, so an uncovered cell cannot produce a verdict at all — it produces a row that must be recorded and refused. Batch 1 spent six of eight cells this way. It also lands on the ledger's single best result: TERRITORY_SLIDER_PROFILE's only win is on snake5-queen and clears a BORROWED mix-king floor by 0.018.",
       "workaround": "Uncovered cells are recorded with nullVerified: false and verdict `unreadable`, which is what the rules already demand. Add the missing cells to the N0 spec by hand before running batch 2.",
-      "closedBy": "On claude/cluster-lookahead: derive the A/A null's cells from the union of the scheduled specs` cells instead of the hard-coded pair, so the floor is measured wherever a treatment is read. It costs box time and it is the cheapest box time in the batch — an unfloored treatment cell is games spent on a row nobody may read."
+      "closedBy": "On claude/cluster-lookahead: derive the A/A null's cells from the union of the scheduled specs` cells instead of the hard-coded pair, so the floor is measured wherever a treatment is read. It costs box time and it is the cheapest box time in the batch — an unfloored treatment cell is games spent on a row nobody may read.",
+      "closedIn": "CLOSED. bin/make-promotion-batch.js derives N0`s cells from the union of what the batch schedules, and a generator check fails the batch if any treated cell is unfloored. Batch 2 goes from 2 floored cells to 5 — hazard-mix-king, snake5-queen and snake5-knight join — at 144 -> 240 games/arm. This retires the manual instruction in the batch-2 README and the COORDINATION note to add those cells to n0-aa-null.json by hand. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4."
     },
     {
       "id": "CONTROL-CELLS-DEMOTE",
       "what": "applyMeasurement has no concept of a CONTROL cell. A cell that is null BY DESIGN — a provably-inert path included precisely to prove the instrument reports zero when zero is the truth — is indistinguishable to the rules from a treatment cell that failed to show an effect, and it takes the same `live-null` branch.",
       "impact": "Demonstrated live during the batch-1 fold. TERRITORY_SLIDER_PROFILE's null-snake6 control sat at EXACTLY 0 against a measured +/-0.0324 floor — the strongest single row in the ledger, because it shows the measurement is not manufacturing effects — and filing it as family `placement` demoted the flag `supported` -> `live-null`. The better the control, the harder it demotes. This is a rule that punishes the practice it exists to encourage.",
       "workaround": "The row is filed as family `audit`, which never moves a status and is arguably its true family anyway: an inert control is evidence about the INSTRUMENT, not a placement claim about the treatment. Recorded on the row itself so the choice is not mistaken for a dodge.",
-      "closedBy": "On claude/cluster-lookahead: an explicit `control: true` on a measurement, refused from moving a status and rendered as a distinct badge; plus a selftest asserting that a passing control does not demote a supported flag. Until then `audit` is the correct filing and the note carries the reasoning."
+      "closedBy": "On claude/cluster-lookahead: an explicit `control: true` on a measurement, refused from moving a status and rendered as a distinct badge; plus a selftest asserting that a passing control does not demote a supported flag. Until then `audit` is the correct filing and the note carries the reasoning.",
+      "closedIn": "CLOSED. `control` is a fourth measurement kind. It enters no effect channel in either direction and accumulates on the flag`s `controlEvidence`; a control that MOVES is recorded under `violated` as an instrument failure, because a path required to read zero reading nonzero makes every treatment row beside it provisional. The slider`s row is re-filed as placement/control and no longer demotes; the selftest keeps the defect reachable by asserting that the SAME row filed as a placement null still demotes, so the fix is the kind and not a loosening of the null rule. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4."
     },
     {
       "id": "LIVE-NULL-IS-TERMINAL",
       "what": "L.undecided() returns dark, probe-passed and live-failed. A `live-null` flag is treated as settled, so make-promotion-batch.js never schedules its nextExperiment — even when the ledger has written one out in full and even when the null came from a cell the ledger itself marked underpowered.",
       "impact": "Three flags are affected and their named experiments are unreachable from the generator: CENTAUR_UNIT_FATALITY (P7F — \"is the classifier promotable independently of the flag that failed?\"), CENTAUR_TIER_TRUTH (P4R, separately blocked on P11) and CENTAUR_COHORT_POLICY (P6R, separately deferred on counters). UNIT_FATALITY is the sharp case: its null is explicitly \"no cost this cell could resolve\" at 16 blocks against 58 needed, which is not a decision, and P7F silently never runs.",
       "workaround": "None applied. P7F is named here so it is visible to a reader of the status page even though the generator will not emit it.",
-      "closedBy": "On claude/cluster-lookahead, one of: include live-null flags whose last placement row is `underpowered` in undecided(); or add an explicit `scheduleAnyway` field to nextExperiment. The first is principled and the second is honest about being a manual override."
+      "closedBy": "On claude/cluster-lookahead, one of: include live-null flags whose last placement row is `underpowered` in undecided(); or add an explicit `scheduleAnyway` field to nextExperiment. The first is principled and the second is honest about being a manual override.",
+      "closedIn": "CLOSED, by the first of the two options named here — the principled one. L.undecided() includes a live-null flag while its most recent live placement row is not adequately powered, so the decision is made on the evidence rather than on the status name. CENTAUR_UNIT_FATALITY`s P7F is scheduled in batch 2; CENTAUR_TIER_TRUTH`s P4R and CENTAUR_COHORT_POLICY`s P6R now surface as NOT SCHEDULED with their blockers named, which is visible where silence was. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4."
     }
   ],
   "standingExperiments": [

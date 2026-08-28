@@ -244,3 +244,32 @@ these two files back onto `claude/cluster-lookahead`, **this branch holds the
 record and the engine branch is stale** — the reverse of the standing rule. It
 is stamped in the ledger at `home.mirroredFrom.divergence`. Nothing for you to
 do; flagged so it does not surprise you.
+
+---
+
+## Addendum, 2026-08-28 — tooling fixed, ledger re-adjudicated, no verdict changes
+
+**Done, nothing owed by you.** The five machinery defects batch 1 exposed are
+fixed on `claude/cluster-lookahead` and mirrored here (`be8fa31`); the batch-1
+data fold is backported byte-identically and **the divergence above is closed** —
+the standing direction is restored, `lib/` and `bin/` remain byte-identical
+between the branches and never forked. Batch 1 was then **re-adjudicated under
+the fixed rules: 20 of 20 polarity-sensitive rows now score the way they were
+recorded by hand, and NO flag changed status.** Every verdict in this note
+stands exactly as written.
+
+**Three things change what you run, all of them in your favour:**
+
+1. **Do NOT hand-edit `n0-aa-null.json` — the instruction above is withdrawn.**
+   The generator now derives the A/A null's cells from the union of what the
+   batch schedules, so N0 already floors all five: `headline-mix-king`,
+   `hazard-mix-king`, `null-snake6`, `snake5-queen`, `snake5-knight`. Editing
+   the spec by hand would be discarded the next time it is generated.
+2. **P7F is added** (`CENTAUR_UNIT_FATALITY`, 16 blocks, 144 games/arm). Its
+   flag is `live-null`, which the generator used to treat as settled; the null
+   is 16 blocks against the 58 its own dispersion needs, so it decided nothing.
+3. **The batch is now 13 specs / 3,048 games**, up from 12 / 2,472 — N0 from 96
+   to 240 games/arm, plus P7F's 288. Still cut from the bottom.
+
+**P5R still runs FIRST**, and P7F is second. Re-fetch `specs/batch2/` before you
+start; the README there carries the full delta.

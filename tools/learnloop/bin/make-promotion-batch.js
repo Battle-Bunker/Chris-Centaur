@@ -287,11 +287,44 @@ if (sliceCells.length > 0) {
 }
 
 // ------------------------------------------------------------ the A/A null
+//
+// ITS CELLS ARE THE UNION OF WHAT THE BATCH ACTUALLY RUNS (`AA-FLOOR-COVERAGE`).
+//
+// This used to be the hard-coded pair headline-mix-king + null-snake6,
+// regardless of where the treatments ran. Batch 1 therefore floored two of its
+// eight cells, and by the ledger's own rule — a metric with no floor in the A/A
+// cell is UNREADABLE, not null — the other six produced rows nobody was allowed
+// to read. Games spent on unreadable rows. It landed hardest on the ledger's
+// single best result: TERRITORY_SLIDER_PROFILE's only win is on snake5-queen
+// and had to be compared against a BORROWED mix-king floor, which it clears by
+// 0.018.
+//
+// So the floor is now measured wherever a treatment is read. It costs box time
+// and it is the cheapest box time in the batch.
+
+const nullCellNames = [];
+for (const s of specs) {
+  for (const c of s.cells) {
+    // Standing-experiment cells are emitted as `<cell>@<budget>`; the floor is
+    // a property of the BOARD, so the rung suffix is stripped for coverage.
+    const base = String(c.cell).split('@')[0];
+    if (CELL_SHAPES[base] !== undefined && !nullCellNames.includes(base)) nullCellNames.push(base);
+  }
+}
+for (const n of ['headline-mix-king', 'null-snake6']) {
+  if (!nullCellNames.includes(n)) nullCellNames.push(n);
+}
 
 const nullSpec = C.spec(
   'n0-aa-null',
   [
     'THE A/A NULL — one per batch, MANDATORY, and sized like the treatment cells.',
+    '',
+    'CELLS ARE DERIVED, NOT CHOSEN: every board any scheduled spec in this batch',
+    'runs on appears here, because a treatment metric with no floor in the A/A',
+    'cell is UNREADABLE rather than null, and an unfloored treatment cell is box',
+    'time spent on a row nobody may read. This batch floors:',
+    `    ${nullCellNames.join(', ')}`,
     '',
     'Run with two arms that are the SAME bundle and the SAME env under two names:',
     '    --arm nullA=<bundle> --arm nullB=<bundle>',
@@ -310,7 +343,7 @@ const nullSpec = C.spec(
     'Then check it:',
     '    node tools/simworker/bin/verify-null.js --batch <dir> --null nullA,nullB',
   ],
-  cellsFor(['headline-mix-king', 'null-snake6'], 'n0'),
+  cellsFor(nullCellNames, 'n0'),
   C.FIELD,
   BLOCKS
 );
@@ -342,6 +375,27 @@ for (const s of specs) {
 if (!specs.some((s) => s.sweepId === 'n0-aa-null')) {
   problems.push('no A/A null in the batch — that is not a batch, it is a set of unreadable numbers');
 }
+// THE FLOOR MUST COVER THE BATCH. The derivation above makes this true by
+// construction; the check is here so that a future edit that reintroduces a
+// hand-picked null list fails the gate instead of quietly shipping unreadable
+// cells again.
+{
+  const floored = new Set(nullSpec.cells.map((c) => String(c.cell).split('@')[0]));
+  const uncovered = [
+    ...new Set(
+      specs
+        .filter((s) => s.sweepId !== 'n0-aa-null')
+        .flatMap((s) => s.cells.map((c) => String(c.cell).split('@')[0]))
+    ),
+  ].filter((n) => !floored.has(n));
+  if (uncovered.length > 0) {
+    problems.push(
+      `the A/A null does not floor ${uncovered.join(', ')} — a treatment metric with no floor ` +
+        'in the A/A cell is UNREADABLE, not null, so those are games spent on rows nobody may read'
+    );
+  }
+}
+
 const nullBlocks = nullSpec.seeds.length;
 const maxTreat = Math.max(...specs.filter((s) => s.sweepId !== 'n0-aa-null').map((s) => s.seeds.length));
 if (nullBlocks < maxTreat) {

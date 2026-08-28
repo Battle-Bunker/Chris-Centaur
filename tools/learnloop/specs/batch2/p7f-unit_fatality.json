@@ -1,0 +1,142 @@
+{
+ "_comment": [
+  "P7F — CENTAUR_UNIT_FATALITY (CL1), status live-null.",
+  "",
+  "QUESTION: Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?",
+  "",
+  "ARMS: off  |  fatality-on",
+  "READS OUT: deathsSelf, deathsTeammate, unstagedRate, score",
+  "",
+  "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
+  "warning on anything else. Set the OFF arm by OMITTING the variable, and",
+  "check the manifest envAtRun block afterwards. Since the CL7 telemetry",
+  "closure the per-game rows also carry the RESOLVED flag stamp, which is",
+  "the value that actually ran — read that, not the environment.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p7f-unit_fatality",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  11101,
+  11102,
+  11103,
+  11104,
+  11105,
+  11106,
+  11107,
+  11108,
+  11109,
+  11110,
+  11111,
+  11112,
+  11113,
+  11114,
+  11115,
+  11116
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-knight",
+   "config": {
+    "name": "snake5-knight",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "knight",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

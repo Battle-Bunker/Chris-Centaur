@@ -236,6 +236,238 @@ const clone = () => JSON.parse(JSON.stringify(ledger));
   ok(!r.changed, 'an ENGAGEMENT row moves nothing — running is not helping');
 }
 
+// -------------------------------------------------- ENGAGEMENT-TRISTATE
+//
+// The rule is "engagement not SHOWN moves nothing", and the vocabulary has
+// three values, not two. `null` is CANNOT SAY — the common case for every
+// bundle predating the CL7 mechanism report — and it used to sail through.
+
+{
+  const engagement = (v) => {
+    const l = clone();
+    const m = {
+      batch: `test-eng-${String(v)}`,
+      kind: 'live',
+      cell: 'headline',
+      metric: 'score',
+      family: 'placement',
+      verdict: 'supports-promotion',
+      nullVerified: true,
+    };
+    if (v !== undefined) m.armEngagementVerified = v;
+    return L.applyMeasurement(l, 'CENTAUR_SCOUT', m);
+  };
+  ok(!engagement(null).changed, 'engagement `null` (CANNOT SAY) moves nothing — the tri-state rule');
+  ok(!engagement(undefined).changed, 'and an absent engagement field moves nothing either');
+  ok(!engagement(false).changed, 'a counter read as ZERO still moves nothing');
+  ok(engagement(true).changed, 'only engagement SHOWN lets a row through');
+  ok(
+    engagement(null).notes.join(' ').includes('cannot say is not the same as said yes'),
+    'and the refusal says which of the three values it refused on'
+  );
+}
+
+// ------------------------------------------------ CONTROL-CELLS-DEMOTE
+//
+// TERRITORY_SLIDER_PROFILE's inert control sat at EXACTLY 0 against a measured
+// +/-0.0324 floor — the strongest row in the ledger — and demoted the flag it
+// was vouching for. The better the control, the harder it demoted.
+
+{
+  const sliderControl = (over) => ({
+    batch: 'test-control',
+    cell: 'p3-slider-2000::null-snake6 (INERT CONTROL)',
+    metric: 'score',
+    value: 'exactly 0 against a measured +/-0.0324 floor',
+    nullVerified: true,
+    armEngagementVerified: true,
+    ...over,
+  });
+
+  const before = clone();
+  ok(L.flagOf(before, 'TERRITORY_SLIDER_PROFILE').status === 'supported', 'the slider starts supported');
+
+  // The defect, kept as an assertion: filed as what it literally is — a
+  // placement cell that showed nothing — a perfect control still demotes. The
+  // fix is the KIND, not a loosening of the null rule.
+  const asPlacement = clone();
+  L.applyMeasurement(
+    asPlacement,
+    'TERRITORY_SLIDER_PROFILE',
+    sliderControl({ kind: 'live', family: 'placement', verdict: 'null' })
+  );
+  ok(
+    L.flagOf(asPlacement, 'TERRITORY_SLIDER_PROFILE').status === 'live-null',
+    'filed as a placement null, a perfect control DOES demote — the defect, still reachable'
+  );
+
+  const asControl = clone();
+  const r = L.applyMeasurement(
+    asControl,
+    'TERRITORY_SLIDER_PROFILE',
+    sliderControl({ kind: 'control', family: 'placement', verdict: 'inert' })
+  );
+  const f = L.flagOf(asControl, 'TERRITORY_SLIDER_PROFILE');
+  ok(f.status === 'supported', "the slider's exactly-0 control no longer demotes the flag it vouches for");
+  ok(!r.changed && r.before === 'supported', 'a control enters no effect channel, in either direction');
+  const had = L.flagOf(before, 'TERRITORY_SLIDER_PROFILE').controlEvidence;
+  ok(
+    f.controlEvidence.inert.length === (had ? had.inert.length : 0) + 1 &&
+      f.controlEvidence.violated.length === (had ? had.violated.length : 0),
+    'and is recorded as instrument evidence instead'
+  );
+
+  // A control that MOVES is an instrument failure, and must not read as a win.
+  const violated = clone();
+  const rv = L.applyMeasurement(
+    violated,
+    'TERRITORY_SLIDER_PROFILE',
+    sliderControl({ kind: 'control', family: 'placement', verdict: 'control-violated' })
+  );
+  ok(
+    !rv.changed && L.flagOf(violated, 'TERRITORY_SLIDER_PROFILE').controlEvidence.violated.length === 1,
+    'a control that MOVED is recorded as an instrument failure and still writes no verdict'
+  );
+  ok(
+    rv.notes.join(' ').includes('CONTROL VIOLATED'),
+    'and it says so loudly — every treatment row beside it is provisional'
+  );
+  throws(
+    () => L.applyMeasurement(clone(), 'CENTAUR_SCOUT', { batch: 'b', kind: 'nonsense', cell: 'c', metric: 'score' }),
+    'an unknown measurement kind is still refused'
+  );
+}
+
+// ----------------------------------------------------- METRIC-POLARITY
+//
+// The ingest used to score by SIGN ALONE. The exhibit is this program's
+// founding finding: CENTAUR_CLUSTER_SEED failed live through an exhaustion-death
+// INCREASE of +36 per 48 games, on a metric declared `family: mechanism`.
+
+section('1b. METRIC POLARITY');
+
+const P = require('../lib/polarity');
+
+{
+  const seedGate = { name: 'deathsExhaustion', family: 'mechanism', lowerIsBetter: true };
+  const founding = { mean: 36, outsideNull: true, metric: 'deathsExhaustion', gate: seedGate };
+
+  ok(P.polarityOf('deathsExhaustion') === P.LOWER, 'deathsExhaustion is declared lower-is-better');
+  ok(
+    P.scoreVerdict(founding) === 'failed',
+    "the seed's founding failure (+36 exhaustion deaths) scores AGAINST promotion"
+  );
+  // The bug, stated as the thing that is no longer true.
+  ok(
+    P.scoreVerdict({ ...founding, gate: null }) === 'failed',
+    'and scores against it from the shared table alone, with no gate declaration'
+  );
+  ok(
+    P.scoreVerdict({ mean: -6, outsideNull: true, metric: 'deathsExhaustion' }) === 'supports-promotion',
+    'while deaths FALLING 39 -> 33 no longer reads as a failure (CENTAUR_UNIT_FATALITY)'
+  );
+  ok(
+    P.scoreVerdict({ mean: -0.229, outsideNull: true, metric: 'place' }) === 'supports-promotion',
+    'and `place` improving by -0.229 reads as a win, because place 1 is first (the slider)'
+  );
+  ok(P.scoreVerdict({ mean: 0.115, outsideNull: true, metric: 'score' }) === 'supports-promotion', 'score up is a win');
+  ok(P.scoreVerdict({ mean: -0.594, outsideNull: true, metric: 'win' }) === 'failed', 'win rate down is a failure');
+  ok(
+    P.scoreVerdict({ mean: 5.125, outsideNull: true, metric: 'worstWallMs' }) === 'failed',
+    'and +5.125 ms of worst-case wall time is a cost, not a win (CENTAUR_COHORT_POLICY)'
+  );
+  ok(
+    P.scoreVerdict({ mean: 36, outsideNull: false, metric: 'deathsExhaustion' }) === 'null',
+    'inside the floor, nothing is scored at all — polarity never overrides the null band'
+  );
+  ok(
+    P.scoreVerdict({ mean: 21.44, outsideNull: true, metric: 'turns' }) === 'outside-null-unscored',
+    'a CONTEXTUAL metric outside the floor is recorded unscored, never guessed (P5 `turns`)'
+  );
+  ok(
+    P.polarityOf('score', { name: 'score', lowerIsBetter: true }) === P.LOWER &&
+      P.polarityOf('deathsExhaustion', { name: 'deathsExhaustion', polarity: P.HIGHER }) === P.HIGHER,
+    "a gate's own declaration wins over the shared table"
+  );
+}
+
+{
+  // The table must be TOTAL over the corpus, or the defect reopens quietly on
+  // the next counter somebody adds.
+  const Ex = require('../lib/extract');
+  ok(P.missingFrom(Ex.METRIC_KEYS).length === 0, 'every metric the extractor emits has a declared polarity');
+  const gates = ledger.flags.flatMap((f) => (f.promotionMetrics ?? []).map((g) => g.name));
+  const gaps = P.missingFrom(gates);
+  ok(gaps.length === 0, `every gate metric any flag names has one too${gaps.length ? ` (missing: ${gaps.join(', ')})` : ''}`);
+}
+
+{
+  // THE COUNTERFACTUAL THE LEDGER WAS BUILT TO PREVENT. Had the exhaustion row
+  // arrived while CENTAUR_CLUSTER_SEED was still probe-passed, sign-alone
+  // scoring would have written `supported`. It must write live-failed.
+  const l = clone();
+  const f = L.flagOf(l, 'CENTAUR_CLUSTER_SEED');
+  f.status = 'probe-passed';
+  const gate = (f.promotionMetrics ?? []).find((g) => g.name === 'deathsExhaustion');
+  const r = L.applyMeasurement(l, 'CENTAUR_CLUSTER_SEED', {
+    batch: 'test-polarity',
+    kind: 'live',
+    cell: 'p7-cl1-gates::null-snake6',
+    metric: 'deathsExhaustion',
+    family: 'mechanism',
+    verdict: P.scoreVerdict({ mean: 36, outsideNull: true, metric: 'deathsExhaustion', gate }),
+    nullVerified: true,
+    armEngagementVerified: true,
+  });
+  ok(
+    r.after === 'live-failed',
+    'END TO END: the founding failure moves a probe-passed flag to live-failed, not to supported'
+  );
+}
+
+{
+  // An unscorable row is not a null row, and must not be laundered into one.
+  const l = clone();
+  const r = L.applyMeasurement(l, 'CENTAUR_SCOUT', {
+    batch: 'test-unscored',
+    kind: 'live',
+    cell: 'headline',
+    metric: 'scoutPlies',
+    family: 'mechanism',
+    value: '+21.44 [+0.47, +42.41]',
+    verdict: 'outside-null-unscored',
+    nullVerified: true,
+    armEngagementVerified: true,
+  });
+  ok(
+    !r.changed && L.flagOf(l, 'CENTAUR_SCOUT').status === 'probe-passed',
+    'an outside-the-floor row with no good direction moves nothing and is not filed as a null'
+  );
+}
+
+// ------------------------------------------------- LIVE-NULL-IS-TERMINAL
+
+{
+  const l = clone();
+  const names = L.undecided(l).map((f) => f.flag);
+  ok(
+    names.includes('CENTAUR_UNIT_FATALITY'),
+    'a live-null flag whose placement row is UNDERPOWERED is undecided — P7F can be scheduled'
+  );
+  const settled = clone();
+  for (const m of L.flagOf(settled, 'CENTAUR_UNIT_FATALITY').measurements) {
+    if (m.family === 'placement' && m.power) m.power.underpowered = false;
+  }
+  ok(
+    !L.undecided(settled).map((f) => f.flag).includes('CENTAUR_UNIT_FATALITY'),
+    'and one whose null came from a cell that COULD have seen the effect is settled'
+  );
+  ok(
+    !L.undecided(l).map((f) => f.flag).includes('CENTAUR_STAGING_SAFETY'),
+    'a promoted flag is still not undecided'
+  );
+}
+
 // ---------------------------------------------------- 2. the synthetic batch
 
 section('2. THE SYNTHETIC MINI-BATCH');
@@ -366,6 +598,43 @@ section('4. THE BATCH GENERATOR');
   ok(out.includes('N0'), 'the mandatory A/A null is scheduled');
   ok(out.includes('exploration-slice'), 'the exploration slice is scheduled');
   ok(out.includes('NOT SCHEDULED'), 'a blocked experiment is named and not run');
+  ok(
+    out.includes('P7F'),
+    'the live-null flag\'s named experiment is scheduled — a null is not automatically an answer'
+  );
+}
+
+// ------------------------------------------------------ AA-FLOOR-COVERAGE
+//
+// The A/A null used to be hard-coded to headline-mix-king + null-snake6 whatever
+// the treatments ran on, so batch 1 floored two of eight cells and the other six
+// produced rows that were, by the ledger's own rule, UNREADABLE.
+
+{
+  const outDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'learnloop-batch-'));
+  execFileSync(process.execPath, [path.join(ROOT, 'bin', 'make-promotion-batch.js'), '--out', outDir], {
+    stdio: 'pipe',
+  });
+  const specOf = (id) => JSON.parse(fs.readFileSync(path.join(outDir, `${id}.json`), 'utf8'));
+  const base = (c) => String(c.cell).split('@')[0];
+  const floored = new Set(specOf('n0-aa-null').cells.map(base));
+  const treated = new Set(
+    fs
+      .readdirSync(outDir)
+      .filter((n) => n.endsWith('.json') && n !== 'n0-aa-null.json' && n !== 'P-LIST.json')
+      .flatMap((n) => JSON.parse(fs.readFileSync(path.join(outDir, n), 'utf8')).cells.map(base))
+  );
+  const uncovered = [...treated].filter((c) => !floored.has(c));
+  ok(uncovered.length === 0, `the A/A null floors every cell the batch treats${uncovered.length ? ` (missing ${uncovered.join(', ')})` : ''}`);
+  ok(
+    floored.has('snake5-queen') && floored.has('hazard-mix-king'),
+    "including the two batch-1 missed: the slider's only win cell and P5R's hazard board"
+  );
+  ok(
+    specOf('n0-aa-null').seeds.length === specOf('p5r-wasm').seeds.length,
+    'and it is still sized like the treatment cells'
+  );
+  fs.rmSync(outDir, { recursive: true, force: true });
 }
 {
   const C = require('../lib/cells');

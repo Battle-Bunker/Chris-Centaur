@@ -36,6 +36,7 @@ things moved:
 | id | flag | blocks | games/arm | why now |
 |---|---|---|---|---|
 | **P5R** | `CENTAUR_WASM` | 16 | 144 | **Run first.** See the table row below; promoted to the head of the cut order by batch 1. |
+| **P7F** | `CENTAUR_UNIT_FATALITY` | 16 | 144 | **Newly reachable.** The flag is `live-null` and a `live-null` used to be treated as settled, so this experiment was written out in full and silently never scheduled (`LIVE-NULL-IS-TERMINAL`, now closed). Its null is 16 blocks against the 58 its own dispersion demands — not a decision. Batch 1 also sharpened the question: on the cell the seed destroyed, the classifier's exhaustion deaths *fall* 39 → 33 (×0.85), and the `cl-both` row bounds that at inside a 48-game count's noise. So it is safe alone and it is **not** a repair for the seed. Asks whether it is promotable independently of the flag that failed. |
 | **P12** | `CENTAUR_EDGE_EV` | 16 | 144 | Never raced. The probe found staged meals up (5→8) and meals *eaten* down (84→81) on piece boards — a tension only a live arm can adjudicate. |
 | **P8/P9-joint** | `CENTAUR_CLUSTER_ENUM` | 16 | 144 | The strongest deterministic case on the branch (fatal stagings fall at every point of the q-curve, mean Δfloor +1.03 at the census's own regime) and never raced. Includes the graded-seed joint arm as a **diagnostic** on the seed's failure, not as a promotion candidate. |
 | **P9** | `CENTAUR_SAMPLED_CAP` | 16 | 144 | Far-priced options 0→22 at q=32 with zero fatal stagings. Raced **jointly with enum**: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. |
@@ -45,29 +46,53 @@ things moved:
 | **P13** | `CENTAUR_WORKERS` | 16 | 96 | Low priority, and lower after batch 1. P1 bounds the whole substrate's strength effect at null — but its *wall-clock* rows ran the wrong way for the substrate (worstWallMs +4.02 ✱ on `snake5-queen`, +1.92 ✱ on `null-snake6`), so if this is run, read `worstWallMs` as a primary output rather than a footnote. First to cut. |
 | **P16 @ 500 / 1000 / 2000** | budget ladder | 8 each | 48 each | The owner's pre-approved follow-up, and its condition is **met**: budget-probe v2 confirmed a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 ± 7.0 against an A/A floor of 1.7 ± 3.2). One trail-instrumented cell — the 35% revision wave was measured pre-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved. |
 | **X9** | the exploration slice | 4 | 36 | `TERRITORY_SLIDER_PROFILE`, `CENTAUR_STAGING_SAFETY` and `gainOrdering` each run their **opposite** branch. The ratchet guard: today's policy selects tomorrow's corpus. Mechanism-first; do not read placement off these cells. |
-| **N0** | the A/A null | 16 | 96 | Mandatory, and sized like the treatment cells. Batch 20260827 measured ±0.097 (mix-king) and ±0.032 (snake6) with 0 illegal and 0 errors. A wider band this time is an **instrument event**, not a nuisance. **Add cells by hand before running — see below.** |
+| **N0** | the A/A null | 16 | 240 | Mandatory, sized like the treatment cells, and its cells are now **derived** from the union of what this batch runs — five of them, not two. Batch 20260827 measured ±0.097 (mix-king) and ±0.032 (snake6) with 0 illegal and 0 errors. A wider band this time is an **instrument event**, not a nuisance. |
 
-### N0 needs cells the generator will not give it
+### N0 now floors every cell the batch treats
 
-`make-promotion-batch.js` hard-codes the A/A null's cells as `headline-mix-king`
-and `null-snake6`, whatever the treatments actually run on. Batch 1 measured a
-floor for **two of its eight cells**, and by the ledger's own rule a metric with
-no floor in the A/A cell is `unreadable`, not `null` — so the other six produced
-rows that had to be recorded and refused. It cost the ledger its single best
-result: `TERRITORY_SLIDER_PROFILE`'s only win is on `snake5-queen` (+0.115
-[+0.014, +0.216]) and clears a *borrowed* mix-king floor by 0.018.
+*Superseded. `AA-FLOOR-COVERAGE` is CLOSED and there is nothing to do by hand.*
 
-Batch 2 repeats the pattern unless someone intervenes: **P5R runs
-`hazard-mix-king`, P7R (if the miner calls for it) runs `snake5-knight`, and the
-slider's win cell is `snake5-queen` — none of them will get a floor.** Before
-running, add `snake5-queen` and `hazard-mix-king` to `n0-aa-null.json` by hand.
-It is the cheapest box time in the batch: an unfloored treatment cell is games
-spent on a row nobody is allowed to read. Tracked as `AA-FLOOR-COVERAGE` in the
-ledger's open instrument items, with the generator fix that closes it properly.
+`make-promotion-batch.js` used to hard-code the A/A null's cells as
+`headline-mix-king` and `null-snake6`, whatever the treatments actually ran on.
+Batch 1 measured a floor for **two of its eight cells**, and by the ledger's own
+rule a metric with no floor in the A/A cell is `unreadable`, not `null` — so the
+other six produced rows that had to be recorded and refused. It cost the ledger
+its single best result: `TERRITORY_SLIDER_PROFILE`'s only win is on
+`snake5-queen` (+0.115 [+0.014, +0.216]) and clears a *borrowed* mix-king floor
+by 0.018.
 
-**12 specs, 2,472 games across both arms of every pair.** Batch 1 was 1,824
-games in one overnight on the 24-core box, so this is roughly 1.35 nights at the
+The generator now derives N0's cells from the union of the scheduled specs, and
+fails the batch if any treated cell is unfloored. This batch floors five:
+
+```
+headline-mix-king, hazard-mix-king, null-snake6, snake5-queen, snake5-knight
+```
+
+`hazard-mix-king` is P5R's board, `snake5-queen` is the slider's win cell and
+P12's piece cell, `snake5-knight` is P8/P9-joint's and P7F's. N0 goes from 96 to
+**240 games/arm** and it is the cheapest box time in the batch: an unfloored
+treatment cell is games spent on a row nobody is allowed to read.
+
+**The earlier instruction to add `snake5-queen` and `hazard-mix-king` to
+`n0-aa-null.json` by hand is withdrawn — do not hand-edit the spec.** It is
+generated, and re-running the generator would silently discard the edit.
+
+**13 specs, 3,048 games across both arms of every pair.** Batch 1 was 1,824
+games in one overnight on the 24-core box, so this is roughly 1.7 nights at the
 same throughput. It is ordered to be cut from the bottom.
+
+Two changes against the 12-spec / 2,472-game version this file first described,
+both of them machinery fixes landing rather than experiments being added:
+
+- **N0 grew from 96 to 240 games/arm** by flooring five cells instead of two
+  (`AA-FLOOR-COVERAGE`, above).
+- **P7F is scheduled**, +288 games. `CENTAUR_UNIT_FATALITY` is `live-null`, and a
+  `live-null` flag used to be treated as settled, so its named experiment was
+  unreachable from the generator — even though its null is 16 blocks against the
+  58 its own dispersion demands, which decides nothing. `LIVE-NULL-IS-TERMINAL`
+  is closed and P7F runs. It sits **second**, behind P5R: newly unblocked and
+  worth running, but not ahead of the experiment this batch was reprioritised
+  around.
 
 **What to cut, revised by batch 1.** P13 first — P1 bounds the substrate's
 strength at null and its wall-clock rows now argue against the pool as well.

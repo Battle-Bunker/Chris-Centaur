@@ -31,6 +31,25 @@
       "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
     },
     {
+      "id": "P7F",
+      "flag": "CENTAUR_UNIT_FATALITY",
+      "status": "live-null",
+      "scheduled": true,
+      "sweepId": "p7f-unit_fatality",
+      "arms": [
+        "off",
+        "fatality-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "snake5-knight",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?"
+    },
+    {
       "id": "P12",
       "flag": "CENTAUR_EDGE_EV",
       "status": "probe-passed",
@@ -147,6 +166,22 @@
       "question": "At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?"
     },
     {
+      "id": "P4R",
+      "flag": "CENTAUR_TIER_TRUTH",
+      "status": "live-null",
+      "scheduled": false,
+      "reason": "P11 — there is no point measuring the ply-2 prerequisite before the ply-2 consumer has been raced.",
+      "question": "None at ply 1. The decisive experiment is the ply-2 arm: with the scout on and n>=2 readings live, `expiry` becomes an under-approximation and `full` is the only sound setting."
+    },
+    {
+      "id": "P6R",
+      "flag": "CENTAUR_COHORT_POLICY",
+      "status": "live-null",
+      "scheduled": false,
+      "reason": "arch/s2 needs its own admission counters folded into the CL7 mechanism report before a rerun is worth the box time. Its target boards are the CROWDED ones — more claimants than budget is where a governor can act at all, and headline/hazard mix-king may simply not be crowded enough for admission to bind. NOTE the batch-1 revision: a rerun is no longer needed to establish engagement, only to interpret it, which makes the counters the whole of the block.",
+      "question": "Not \"did the governor act\" any more — batch 1 answered that: it acted and it cost about 5 ms of worst-case wall time and ~14k plans per game. The question is now WHAT it admitted, and whether the cost buys anything on boards where a governor can act at all."
+    },
+    {
       "id": "P16@500",
       "flag": "The budget ladder",
       "status": "standing",
@@ -205,7 +240,7 @@
       "scheduled": true,
       "sweepId": "n0-aa-null",
       "blocks": 16,
-      "gamesPerArm": 96,
+      "gamesPerArm": 240,
       "question": "What is the noise floor on this box, at this load, at this block count?"
     }
   ]
