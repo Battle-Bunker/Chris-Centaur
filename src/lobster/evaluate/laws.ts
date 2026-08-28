@@ -42,6 +42,22 @@ export interface LawCase {
   readonly orders: ReadonlyMap<string, number>;
   /** wire id → the turn it was last observed. Absent means "this turn". */
   readonly observedTurns?: ReadonlyMap<string, number>;
+  /**
+   * PER-DECISION STATE THE PRODUCTION CALLER WOULD HAVE REGISTERED.
+   *
+   * The harness builds its own substrates — one free, one per narrowing, one
+   * with everything staged — and anything the search normally attaches to a
+   * decision's substrate is therefore absent from all of them. Door C's
+   * refinement scope (`evaluate/refine.ts`, registered by
+   * `search/core.ts:openCluster`) is the first such thing, and a law harness
+   * that could not run WITH it would be checking a different evaluator from the
+   * one that ships.
+   *
+   * Called on every substrate the harness makes, immediately after it is made.
+   * Absent on every case that does not need it, which is all of the ones that
+   * predate this hook.
+   */
+  prepare?(sub: EngineSubstrate): void;
 }
 
 export interface LawResult {
@@ -65,7 +81,7 @@ function gap(a: number, b: number): number {
 }
 
 function substrateFor(c: LawCase, narrowings?: ReadonlyMap<string, ReadonlyArray<number>>) {
-  return makeSubstrate({
+  const sub = makeSubstrate({
     board: c.board,
     turn: c.turn,
     asTeam: c.asTeam,
@@ -73,6 +89,12 @@ function substrateFor(c: LawCase, narrowings?: ReadonlyMap<string, ReadonlyArray
     observedTurns: c.observedTurns,
     narrowings,
   });
+  // The hook runs on EVERY substrate the harness builds, including the narrowed
+  // ones R2 compares and the fully-staged one R3 collapses: a per-decision
+  // registration that was present on one and absent on another would make the
+  // law compare two different evaluators and call the difference a violation.
+  c.prepare?.(sub);
+  return sub;
 }
 
 function planFor(sub: EngineSubstrate, c: LawCase): JointPlan {

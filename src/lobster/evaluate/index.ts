@@ -73,6 +73,18 @@ export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export type { Admission, Partition, TrailRoom } from './territory';
+export {
+  SHIELD_TURNS_MAX,
+  TERRITORY_REFINE_ENV,
+  buildShield,
+  meetIntervals,
+  refineReportOf,
+  refineScopeOf,
+  setRefineScope,
+  territoryRefineEnabled,
+  territoryRefineFrom,
+} from './refine';
+export type { RefineReport, RefineScope, Shield } from './refine';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
