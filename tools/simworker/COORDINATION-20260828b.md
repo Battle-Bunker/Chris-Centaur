@@ -273,3 +273,120 @@ stands exactly as written.
 
 **P5R still runs FIRST**, and P7F is second. Re-fetch `specs/batch2/` before you
 start; the README there carries the full delta.
+
+---
+
+## Addendum, 2026-08-28 — `arch/s2` moved: the cohort governor is a different treatment now
+
+**Nothing owed by you today, and DO NOT REGENERATE BATCH 2.** Batch 2 is
+committed and stands exactly as it is; batch 3 is the ledger's next turn and
+this note is the arm proposal for it.
+
+### What changed on the bot side
+
+`origin/arch/s2` is now **`962884a`** (was `724d83f`). Two things landed
+together, and the second is the reason the first had to:
+
+1. **The admission predicate is re-keyed on OWN-TEAM slider possibility**, and
+   an own-slider board now runs the **slider repair profile**
+   (`TERRITORY_SLIDER_PROFILE`, the i2 repair you raced as `lobster-slider` in
+   P3) instead of being demoted to a material-ish objective.
+
+   | board | arch/s2 `724d83f`, flag on | arch/s2 `962884a`, flag on |
+   |---|---|---|
+   | no slider anywhere | territory | territory |
+   | **ENEMY owns a slider** | **base** | **territory** |
+   | **WE own a slider** | **base** | **territory-slider** |
+
+   Why: E1 raced asymmetric rosters (which no cell in your vocabulary can
+   currently express — see below) and found territory's advantage over material
+   is **+0.58** with no slider anywhere, **+0.57 [+0.23, +0.88]** when only the
+   ENEMY owns one, and **−0.03 / −0.05** when we own one. The own bit separates
+   the two regimes; the any bit separates nothing. A contact-forced replication
+   reproduces it at 150 ms and widens it at 1000 ms. E2 then ablated the bundle
+   and found the slider deficit is `reach` ceasing to discriminate (+0.514
+   no-slider vs +0.000 on the slider cell) rather than `room` doing damage — so
+   the right response to an own slider is the repair, not a demotion.
+
+   **The raw ownership split says the OPPOSITE of all this and must not be
+   quoted.** A queen is 4 material and a pawn is 1, so a raw split mostly
+   measures the roster: on the contact cell it reads +0.68 for owning the queen
+   and −0.10 for owning no slider, i.e. as if territory NEEDED a slider. Only
+   the roster-matched, null-corrected contrast is quotable. The unforced-death
+   tables are inconclusive at every cell and support neither scope.
+
+2. **`arch/s2` now also carries the whole integrated evaluator**
+   (`claude/mid-turn-collision-logic-mkxurg` @ `66904d2`) — gainOrdering
+   promoted into the shipped generator, the bound bank's evaluation memo,
+   staging safety behind its flag, the tier window, **fix/o-p3's room
+   renormalisation**, idea/i2's slider repair, and engine/fix5's re-vendored
+   partial engine. It had to: `TERRITORY_SLIDER_PROFILE` did not exist on
+   arch/s2's lineage at all, because arch/s2 branched from `5bffe81`, before
+   integ/round-a landed i2.
+
+   **So a batch-3 arm on `arch/s2` is no longer a one-flag contrast against
+   batch 1's arch/s2 bundle.** Any cross-batch comparison of
+   `CENTAUR_COHORT_POLICY` against batch 1's row is confounded by the merge.
+   Score batch 3's cohort rows against **batch 3's own OFF arm**, built from
+   the same tip, and treat batch 1's P6 row as belonging to a different bot.
+
+Still **default OFF**. Promotion is a code change, not a default flip, and it
+rides your batch — the deterministic probes on this branch raise it to
+`probe-passed` and no further, per the P7 rule.
+
+### Batch-3 candidate arm
+
+**`CENTAUR_COHORT_POLICY=on` vs the variable omitted**, bot bundle built from
+`arch/s2` @ `962884a`, seated as the `lobster-territory` seat with the standard
+reference field. Five cells, in two groups.
+
+**Group A — the P3 cells, which your vocabulary already has.** These test
+whether the governor reproduces, by itself, the win you measured by racing the
+profile directly.
+
+| spec shape | cell | roster | why |
+|---|---|---|---|
+| `p17-cohort-own-slider` | `snake5-queen` | `snake5-queen` | **The falsifiable prediction.** Every team holds a queen, so every seat's own-slider bit is TRUE and the governor selects the repair on every turn. If the amendment works, this arm should reproduce P3's `lobster-slider` result on this cell — **+0.115 [+0.014, +0.216]** at 2000 ms — because it is running the same profile by a different route. A materially smaller effect means the governor is not selecting what we think it is; a materially larger one means something else moved. |
+| | `snake5-pawn` | `snake5-pawn` | A piece board with NO slider on it. The own bit is false for every seat, so the governor must select plain territory and this cell must read **null**. P3 measured `lobster-slider` here at +0.0104 [−0.0720, +0.0929], so a non-null here is a governor defect and not a profile effect. |
+| | `null-snake6` | `snake6` | The objective-choice null. With no piece on the board the governor selects territory, which is what an OFF arm runs, so the only difference is the governor's own measurement and stamp. It is **not** a bit-identity null the way it was for P3 — expect the measurement floor plus the governor's overhead, and read `worstWallMs` for the overhead rather than folding it into `score`. |
+
+**Group B — the E1 asymmetric cells, and they need a generator change first.**
+These are the half of the amendment that Group A structurally cannot test: a
+symmetric roster makes "I own a slider" and "a slider exists" the same bit, so
+no cell in the current vocabulary can distinguish the old predicate from the new
+one. This is the same reason the 945-game corpus could not answer E1.
+
+| spec shape | cell | rosters | why |
+|---|---|---|---|
+| `p18-cohort-asym-scope` | `e1-asym-qp` | red `queen`+5 snakes, blue `pawn`+5 snakes, green 6 snakes | **The scope test.** Seat rotation walks the territory seat through owner / non-owner / non-owner, so one cell yields both classes with board-level slider presence held constant. The `own=F` rotations are the ones the old predicate demoted and the new one does not. |
+| | `e1c-asym-qp` | the same rosters at **size 15** | E1's contact-forced replication. Half its games end by elimination against one in eight on the 23-board, so it is the cell that would break the verdict if anything does. |
+
+**What the generator needs** (small, and the harness already supports it): the
+harness's `MatchConfig.roster` accepts **either** one shared roster **or**
+`Record<teamId, roster>` (`harness/lib/config.ts`, `rosterFor`), but
+`tools/learnloop/lib/cells.js`'s `ROSTERS` table only offers the shared form.
+Adding a per-team entry there — and NOT re-cutting any existing cell name, so
+the ledger's cell-keyed history keeps meaning what it says — is all that is
+missing. E1 ran these rosters through `scratchpad/p2h` on `perf/p0`, so the
+shapes are known-good; only the spec vocabulary is short.
+
+**Budget.** E1's numbers are at 150 ms and its addendum's second wave at
+1000 ms; your batches run at 2000 ms and P3's win is a 2000 ms measurement. Run
+group B at **your 2000 ms convention** so it lays against group A and against
+the ledger, and read the E1 numbers as directional at a different budget rather
+than as a target. The one budget-gradient fact on record points the right way:
+the `own=F` row grew from +0.53 at 150 ms to +0.75 at 1000 ms.
+
+**Flag-value trap, specific to this flag.** `CENTAUR_COHORT_POLICY` does **not**
+parse the `1|on|true` set the other CL flags use — it accepts exactly `on` or
+`off` (case-insensitive, trimmed) and **logs a warning and keeps `off`** for
+anything else. `"on"` is what batch 1 used and it is right. Set the OFF arm by
+**omitting** the variable, and check `envAtRun` afterwards as usual.
+
+**One warning that is now sharper, not weaker.** Do not read any cohort-policy
+result on the bot repo's own acceptance corpus (`snakes11` / `mid11`). Twelve of
+its thirteen boards demote on the thin-roster rule and the thirteenth owns a
+slider, so an ON arm measured there contains **no cell in which the shipped
+territory objective runs at all**. That corpus is a replay gate, not a sweep
+corpus. Your cells are unaffected; this is stated so nobody substitutes one for
+the other.
