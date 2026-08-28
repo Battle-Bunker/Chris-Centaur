@@ -60,6 +60,9 @@ export { candidateKey, cellsOf, footprintOf, planKey, sameCandidate, unitsOf, wi
 export { memoizeSubstrate } from "./memo";
 export type { MemoStats, MemoizedSubstrate } from "./memo";
 
+export { EvaluationMemo, evalNamespace, evaluatorIdentity } from "./evalmemo";
+export type { EvalMemoStats } from "./evalmemo";
+
 export { hasRoster, isModelling, modelledView } from "./substrate-ext";
 export type { ModelledView, ModellingSubstrate, RosterSubstrate } from "./substrate-ext";
 

@@ -67,9 +67,20 @@
  */
 
 import { profileOf, scalarOf } from '../partial-engine/index';
-import type { EncounterVerdict, RiskAssessor, TraversalVerdict } from '../partial-engine/index';
+import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
+import { TIER_DEFENSE } from './tier-truth';
+import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
+import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
+import {
+  allyBodyCollision,
+  certainlySelfFatal,
+  killsOwnKing,
+  resolveStagingSafety,
+  stagingSafety,
+} from './staging-safety';
+import type { StagingSafety } from './staging-safety';
 import type {
   Candidate,
   CandidateGenerator,
@@ -90,9 +101,15 @@ export const PRUNE = {
   certainEdgeHorizon: 'certain-edge-horizon',
   quietThinning: 'quiet-thinning',
   fatalNoGain: 'fatal-no-gain',
+  terrainFatal: 'terrain-fatal',
   kingUnsafe: 'king-unsafe',
+  kingTierUnsafe: 'king-tier-unsafe',
+  tierDecisive: 'tier-decisive',
   selfRegicide: 'self-regicide',
   promotionRefusal: 'promotion-refusal',
+  certainSelfFatal: 'certain-self-fatal',
+  allyBody: 'ally-body',
+  royalPath: 'royal-path',
 } as const;
 
 export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
@@ -122,9 +139,19 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.certainEdgeHorizon]: true,
   [PRUNE.quietThinning]: false,
   [PRUNE.fatalNoGain]: false,
+  [PRUNE.terrainFatal]: false,
   [PRUNE.kingUnsafe]: false,
+  [PRUNE.kingTierUnsafe]: false,
+  [PRUNE.tierDecisive]: false,
   [PRUNE.selfRegicide]: false,
   [PRUNE.promotionRefusal]: false,
+  // NOT exact, and the distinction matters. The pruned action really is fatal
+  // by rule, so no candidate that stayed resolves identically to it — the
+  // action is DELETED, not represented. That is a policy, and a policy is
+  // lossy however certain its premise.
+  [PRUNE.certainSelfFatal]: false,
+  [PRUNE.allyBody]: false,
+  [PRUNE.royalPath]: false,
 };
 
 /** What each lossy prune can cost, in the class of tactic it deletes. */
@@ -139,12 +166,24 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     'a purely positional intermediate stop — blocking a line, parking out of a ring, or approaching a maybe without contesting it',
   [PRUNE.fatalNoGain]:
     'a deliberate sacrifice whose CORPSE blocks a cell for the rest of this turn (a durable collision object)',
+  [PRUNE.terrainFatal]:
+    'a sacrifice to TERRAIN paid for a capture that is only possible — the mover certainly cannot afford its own move, and the kill it might make does not depend on that',
   [PRUNE.kingUnsafe]:
     'a king move that gambles — kept whenever nothing safer exists, because an empty escape set loses the team',
+  [PRUNE.kingTierUnsafe]:
+    'a king move into reach of something that outranks it on tier, or onto a potion it would debuff itself with — kept whenever no tier-clear square exists at the same certainty',
+  [PRUNE.tierDecisive]:
+    'a move into reach of a unit that beats it ON TIER ALONE — the trade where our own weight advantage is thrown away, kept whenever every option carries it',
   [PRUNE.selfRegicide]:
     'a move that ends our own team — kept only when the option set would otherwise be empty',
   [PRUNE.promotionRefusal]:
     'the promotion itself — a weight-1 queen is fragile, but promoting is the only way a pawn ever gains range',
+  [PRUNE.certainSelfFatal]:
+    'a move that is fatal to its own mover BY RULE with no other unit involved — a step into the perimeter, or into a body cell of the mover that cannot vacate. It costs the sacrifice whose CORPSE is worth more than the unit, which these rules do not otherwise reward: nothing is captured by walking into a wall',
+  [PRUNE.allyBody]:
+    "a move into a MODELLED team-mate's body, whose cells cannot vacate before we arrive — near-certain rather than certain, because a team-mate that dies this turn leaves a pile settled on weight instead of a body settled on tier. It costs a slide that would have paid off precisely because the team-mate was about to die on it",
+  [PRUNE.royalPath]:
+    'a move whose path crosses our own king at a strength that wins or ties the contest — certain team elimination WHILE THE KING STANDS THERE, and only while it does. It costs an escort that would have been safe because the king was leaving',
 };
 
 // ---------------------------------------------------------------------------
@@ -160,8 +199,74 @@ export interface CandidateKnobs {
   readonly kingHardSafety?: boolean;
   /** For a pawn one meal short of promotion, drop the promoting meal. */
   readonly refusePromotion?: boolean;
+  /**
+   * Drop moves into reach of something that beats this unit ON TIER ALONE,
+   * when an option that is not tier-decisively exposed exists. Set-level and
+   * monotone, so it can never empty the option list. Inert on a board with no
+   * live tier — which is every board with potions disabled.
+   */
+  readonly tierSafeStaging?: boolean;
+  /**
+   * Let the ordering see what ending a turn on a potion cell costs the unit
+   * that ends there (it takes the −1; its allies take the +1). Ordering only —
+   * no candidate is ever refused for it.
+   */
+  readonly selfDebuffOrdering?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
+  /**
+   * Charge the STATIONARY terrain dose against a hold. See `restVerdict`.
+   * Off restores the pre-fix reading, where holding a square was free
+   * everywhere — including on a hazard, where the rules charge a full dose.
+   */
+  readonly chargeStandingTerrain?: boolean;
+  /**
+   * Drop a move the mover certainly cannot AFFORD unless the kill it makes is
+   * certain too. See the `terrain-fatal` prune in `policyPrunes`.
+   */
+  readonly refuseTerrainFatal?: boolean;
+  /**
+   * ORDER BY WHAT THE MOVE TAKES, before ordering by what it costs.
+   *
+   * Two measured mis-orderings, both of them in `orderKey` and neither of them
+   * a bound:
+   *
+   * 1. A MEAL IS FREE AND IS CHARGED FULL PRICE. `resolveTurn` sets an eater's
+   *    health to its kind's max, so a nine-cell queen slide onto food costs
+   *    nothing in health. The order sorts on `healthSpent.hi` ascending and
+   *    knows nothing about the refund, so a `stay` — zero health, always legal,
+   *    always generated — outranks every eat a slider has. With `candidateCap`
+   *    at 8 on a queen with two dozen distinct actions, the eat is not merely
+   *    ranked below `stay`: it is often not handed to the search at all. The
+   *    corpus reads that back as pieces staging `stay` on 51–64% of decisions
+   *    and queens converting 11–15% of the cheap, legal, unblocked eats they
+   *    have on 26% of their turns, against 85% for a trail unit on the same
+   *    boards under the same evaluator.
+   *
+   * 2. EVERY CAPTURE RANKS THE SAME. Stepping onto the square of a team's last
+   *    king ends that team outright under `applyRegicide`; stepping onto a pawn
+   *    takes a pawn. `capture` cannot tell them apart, so the one move on the
+   *    board that can win the game sorts among the rest on health and cell
+   *    index.
+   *
+   * Ordering "carries no soundness weight whatsoever" — this changes which
+   * moves the anytime path reaches first and nothing else.
+   *
+   * DEFAULT ON as of integ/round-a (it was off on I3's branch). The ledger's
+   * I3 verdict is "promote gainOrdering FIRST — reproduces the WHOLE effect
+   * alone", and its mechanism evidence sits 5–25x outside the null band in
+   * every arm, cell and budget. The placement CI was the only part not
+   * claimable, and mechanism metrics are the promotion currency (A3 section
+   * 4.2). Set it false to get the pre-promotion order back.
+   */
+  readonly gainOrdering?: boolean;
+  /**
+   * Assess a rules-certainly-self-fatal move as `doomed` and take it with a
+   * declared prune. See `./staging-safety.ts` for why the risk layer cannot.
+   */
+  readonly pruneCertainSelfFatal?: boolean;
+  /** Take a move whose path crosses our own king at a winning-or-tying strength. */
+  readonly pruneRoyalPath?: boolean;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -169,8 +274,42 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   pruneFatalNoGain: true,
   kingHardSafety: true,
   refusePromotion: false,
+  tierSafeStaging: TIER_DEFENSE,
+  selfDebuffOrdering: TIER_DEFENSE,
   escortShadowOrdering: true,
+  chargeStandingTerrain: true,
+  refuseTerrainFatal: true,
+  gainOrdering: true,
+  // Both default OFF; `flaggedKnobs()` turns them on when the staging-safety
+  // flag asks for them, so an explicit knob in a test still wins.
+  pruneCertainSelfFatal: false,
+  pruneRoyalPath: false,
 };
+
+/**
+ * The knobs the CENTAUR_STAGING_SAFETY flag implies. Read once per generator —
+ * that is once per team decision — and overridden by anything the caller passes
+ * explicitly, so a test can exercise either polarity without touching the
+ * environment.
+ */
+export function knobsForSafety(level: StagingSafety): CandidateKnobs {
+  // Both polarities NAMED, never omitted. An omitted knob falls through to
+  // `flaggedKnobs()`, which reads the environment — so a caller that asked for
+  // 'off' would get whatever the process-wide flag said, and the one thing a
+  // per-engine override exists to guarantee is that it does not.
+  //
+  // `auto` is board-conditional and this function has no board, so it resolves
+  // OFF here — see `resolveStagingSafety`. A caller that HAS a board resolves
+  // the level first and passes the answer; `TeamDecisionEngine` does exactly
+  // that, so the shipped path never reaches this fallback with 'auto'.
+  const on = resolveStagingSafety(level, false) !== 'off';
+  return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
+}
+
+/** The knobs the process-wide flag implies, for a caller that names none. */
+export function flaggedKnobs(): CandidateKnobs {
+  return knobsForSafety(stagingSafety());
+}
 
 // ---------------------------------------------------------------------------
 // What the risk layer says about one action
@@ -187,12 +326,40 @@ export interface AssessedCandidate {
   readonly capture: 'yes' | 'maybe' | 'no';
   /** Health the move spends, at its interval endpoints. */
   readonly healthSpent: { readonly lo: number; readonly hi: number };
+  /**
+   * Does the mover run out of health paying for this move? Read straight off
+   * the risk fold (`TraversalVerdict.exhaustionFatal`), and for a HOLD off the
+   * stationary terrain charge. Kept beside the tier because the two ways to be
+   * `doomed` are not the same fact: a contest loss is something an enemy does,
+   * exhaustion is something the mover does to itself.
+   */
+  readonly exhaustionFatal: Trit;
   /** Terminal cells the move could come to rest on. */
   readonly landing: ReadonlyArray<CellIndex>;
+  /**
+   * How this move stands against the units that OUTRANK it on tier — clear,
+   * exposed, or exposed to something that beats it on tier alone. Always
+   * `clear` on a board with no live invulnerability effects.
+   */
+  readonly tierGrade: TierGrade;
+  /** What ending the turn on this move's landing cell would cost, tier-wise. */
+  readonly selfDebuff: SelfDebuff;
   /** How many held units' claims this move's outcome rests on. */
   readonly contingencies: number;
   /** Ordering hint only — never a bound. See SPECIALIST ordering below. */
   readonly shadowBonus: number;
+  /**
+   * Could this move come to rest on food? Ordering hint only. `landing` is the
+   * set of cells the move could END on, so this is "a world exists in which the
+   * mover eats", which is the right question for an ordering key: the search
+   * decides whether that world is worth anything.
+   */
+  readonly foodGain: number;
+  /**
+   * Could this move come to rest on the square of an enemy team's LAST king,
+   * with a capture the engine does not rule out? Ordering hint only.
+   */
+  readonly regicideShot: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,9 +370,11 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly knobs: Required<CandidateKnobs>;
   /** Ray-shadow cells, per substrate. An ordering hint, computed once. */
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
+  /** Enemy last-king squares, per substrate. An ordering hint, computed once. */
+  private readonly regicideCells = new WeakMap<EngineSubstrate, ReadonlyMap<CellIndex, number>>();
 
   constructor(knobs: CandidateKnobs = {}) {
-    this.knobs = { ...DEFAULT_KNOBS, ...knobs };
+    this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
   }
 
   candidatesFor(sub: Substrate, unitId: UnitId, purpose: 'ours' | 'adversary' = 'ours'): CandidateSet {
@@ -228,12 +397,13 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(sub, unitId, this.knobs, this.shadowsFor(sub));
+    return generate(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub));
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub)).kept;
+    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub))
+      .kept;
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -241,6 +411,15 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     if (hit !== undefined) return hit;
     const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
     this.shadows.set(sub, made);
+    return made;
+  }
+
+  private regicideFor(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> | null {
+    if (!this.knobs.gainOrdering) return null;
+    const hit = this.regicideCells.get(sub);
+    if (hit !== undefined) return hit;
+    const made = enemyRegicideCells(sub);
+    this.regicideCells.set(sub, made);
     return made;
   }
 }
@@ -268,9 +447,16 @@ function generate(
   sub: EngineSubstrate,
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(sub, unitId, knobs, shadows);
+  const { kept, pruned, legalCount } = generateAssessed(
+    sub,
+    unitId,
+    knobs,
+    shadows,
+    regicideCells
+  );
   return {
     unitId,
     candidates: kept.map((k) => k.candidate),
@@ -283,7 +469,8 @@ function generateAssessed(
   sub: EngineSubstrate,
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
@@ -309,12 +496,45 @@ function generateAssessed(
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
 
   // ---- assessment ---------------------------------------------------------
-  const assessed = surviving.map((candidate) => assessOne(sub, unit, candidate, shadows));
+  // ONE tier reading per unit per decision, not one per candidate: who
+  // outranks this unit at the arrival turn is a fact about the board and the
+  // clock, and on a potion-free board the answer is "nobody" in one loop.
+  const exposure = exposureOf(sub, unit);
+  // The risk layer answers for the CLAIM FIELD; the mover's own body and the
+  // perimeter are not in it (see ./staging-safety.ts). Correcting the tier here
+  // rather than in the prune is deliberate: `doomed` is what a certainly-fatal
+  // move IS, so the danger ORDER is right even with the prune knob off, and a
+  // sweep's candidate cap stops being spent on moves that cannot survive.
+  //
+  // INTEGRATION NOTE (integ/round-a): I1's tier CORRECTION wraps I4's and I6's
+  // assessment rather than replacing it. The order is load-bearing in one
+  // direction only — the correction can lower a tier to `doomed`/`atRisk` but
+  // never raise one, so a move I6's terrain dose already made `doomed` keeps
+  // that reading (the early return), and I4's tier grade is computed inside
+  // `assessOne` on the untouched verdict and is not disturbed by a later
+  // SafetyTier correction. The two layers answer different questions: I4's
+  // `tierGrade` is invulnerability rank, this is survival.
+  const certainFatal = knobs.pruneCertainSelfFatal;
+  const assessed = surviving.map((candidate) => {
+    const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells);
+    if (!certainFatal || one.tier === 'doomed') return one;
+    if (certainlySelfFatal(sub, unit, candidate) !== null) {
+      return { ...one, tier: 'doomed' as SafetyTier };
+    }
+    // A team-mate's body is NOT certain (see allyBodyCollision), so it earns
+    // `atRisk` and not `doomed`: the tier says what is known, and what is known
+    // here is that the mover might not survive, not that it cannot.
+    if (one.tier === 'safe' && allyBodyCollision(sub, unit, candidate)) {
+      return { ...one, tier: 'atRisk' as SafetyTier };
+    }
+    return one;
+  });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
   const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
   const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
-  const afterKing = keepBestTier(unit, afterPolicy, pruned, knobs);
+  const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
+  const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
 
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
@@ -322,7 +542,7 @@ function generateAssessed(
   // never restored, because their representatives are still in the set.
   const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
 
-  kept.sort(orderKey);
+  kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
   return { kept, pruned, legalCount };
 }
 
@@ -460,26 +680,89 @@ function assessPathOf(
   });
 }
 
-const EMPTY_VERDICT = {
-  perCell: [] as ReadonlyArray<EncounterVerdict>,
-  survival: 'yes' as const,
-  landing: { certain: null, cells: [] as ReadonlyArray<number> },
+/** The part of a `TraversalVerdict` a resting unit has an answer for. */
+interface RestVerdict {
+  readonly perCell: ReadonlyArray<EncounterVerdict>;
+  readonly survival: Trit;
+  readonly landing: { readonly certain: number | null; readonly cells: ReadonlyArray<number> };
+  readonly healthSpent: { readonly lo: number; readonly hi: number };
+  readonly exhaustionFatal: Trit;
+}
+
+const EMPTY_VERDICT: RestVerdict = {
+  perCell: [],
+  survival: 'yes',
+  landing: { certain: null, cells: [] },
   healthSpent: { lo: 0, hi: 0 },
-  exhaustionFatal: 'no' as const,
+  exhaustionFatal: 'no',
 };
+
+/**
+ * WHAT A HOLD COSTS. A stay or a rotation enters no cell, and for everything
+ * another unit might do that is the end of it: whatever contests the square
+ * contests it either way, so the risk of STANDING is the evaluator's business
+ * and not this layer's.
+ *
+ * TERRAIN IS NOT LIKE THAT, AND IT IS THE ONE ASYMMETRY THE RULES CONTAIN.
+ * `PartialEngine.healthPhase` charges a unit that staged no path a full
+ * stationary hazard dose at sub-step 1 — the vendored resolver's
+ * `turnEngine.ts` does the same — while stepping onto ordinary ground costs
+ * the kind's `costPerCell`, which is one. So on a hazard, holding is strictly
+ * dominated by any safe step, by the whole dose minus one; and when the dose
+ * is at least the health the mover has LEFT, holding is not a cost at all but
+ * a death, indistinguishable from walking into the same cell.
+ *
+ * Reading a hold as free made both of those invisible at once. It priced the
+ * dominated move at zero, which put the hold FIRST in `orderKey` (least health
+ * spent) and therefore made it rung 0's seed for every unit standing on a
+ * hazard; and it tiered a certainly-fatal hold `safe`, where no policy prune
+ * can reach it. Neither is a judgement call — the charge is in the resolver.
+ *
+ * Only terrain is priced here, and only the mover's own square. The interval
+ * is a point (`lo === hi`) because the charge depends on nothing anyone else
+ * chooses. Off a hazard the answer is byte-for-byte the old `EMPTY_VERDICT`,
+ * so a board without hazards cannot tell the difference.
+ */
+function restVerdict(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  charge: boolean
+): RestVerdict {
+  const at = unit.cells[0] as CellIndex;
+  if (!charge || !sub.hazardAt(at)) return EMPTY_VERDICT;
+  const dose = sub.engine.config.hazardDamage;
+  if (dose <= 0) return EMPTY_VERDICT;
+  // The food phase runs after the health phase and restores in full, so a unit
+  // standing on food that the dose would exhaust may yet recover — the same
+  // rescue `RiskAssessor.assessPath` grades for a mover. We cannot know here
+  // whether a frozen claim eats it first, so the rescue only ever softens the
+  // verdict to `maybe`; it never proves survival.
+  const fatal: Trit = unit.health - dose > 0 ? 'no' : sub.foodAt(at) ? 'maybe' : 'yes';
+  return {
+    perCell: EMPTY_VERDICT.perCell,
+    survival: 'yes',
+    landing: { certain: at, cells: [at] },
+    healthSpent: { lo: dose, hi: dose },
+    exhaustionFatal: fatal,
+  };
+}
 
 function assessOne(
   sub: EngineSubstrate,
   unit: SubstrateUnit,
   candidate: Candidate,
-  shadows: ReadonlySet<CellIndex>
+  shadows: ReadonlySet<CellIndex>,
+  exposure: TierExposure,
+  knobs: Required<CandidateKnobs>,
+  /** Enemy last-king squares, or null when `gainOrdering` is off — in which
+   * case neither gain key is computed at all, so the shipped path pays nothing
+   * for a key it does not read. */
+  regicideCells: ReadonlyMap<CellIndex, number> | null
 ): AssessedCandidate {
-  // A stay or a rotation enters no cell, so there is no traversal to assess:
-  // the unit stands where it already stands, and whatever contests that square
-  // contests it either way. The risk of STANDING is the evaluator's business,
-  // not the candidate layer's.
   const verdict =
-    candidate.path.length === 0 ? EMPTY_VERDICT : assessPathOf(sub, unit, candidate.path);
+    candidate.path.length === 0
+      ? restVerdict(sub, unit, knobs.chargeStandingTerrain)
+      : assessPathOf(sub, unit, candidate.path);
 
   const tier: SafetyTier =
     verdict.survival === 'no' || verdict.exhaustionFatal === 'yes'
@@ -504,14 +787,42 @@ function assessOne(
   let shadowBonus = 0;
   for (const cell of landing) if (shadows.has(cell)) shadowBonus = 1;
 
+  let foodGain = 0;
+  let regicideShot = 0;
+  if (regicideCells !== null) {
+    for (const cell of landing) {
+      if (sub.foodAt(cell)) foodGain = 1;
+      // A capture the engine rules OUT is not a shot; `maybe` is, because the
+      // king only has to still be there. The map carries the king's TEAM, so
+      // our own king's square can never be read as a target — the one way an
+      // offensive ordering hint could turn into the self-regicide class.
+      const owner = regicideCells.get(cell);
+      if (capture !== 'no' && owner !== undefined && owner !== unit.team) regicideShot = 1;
+    }
+  }
+
+  // The tier reading is over the WHOLE PATH — a slider is adjudicated at every
+  // cell of its ray, so a destination-only reading roughly doubles how much
+  // room a slider looks to have. The self-debuff reading is over the LANDING
+  // set instead, because collection is destination-only by rule.
+  const tierGrade = gradePath(sub, exposure, unit.cells[0] as CellIndex, candidate.path);
+  const selfDebuff = knobs.selfDebuffOrdering
+    ? selfDebuffOf(sub, unit, exposure, landing)
+    : ('none' as SelfDebuff);
+
   return {
     candidate,
     tier,
     capture,
     healthSpent: verdict.healthSpent,
+    exhaustionFatal: verdict.exhaustionFatal,
     landing,
+    tierGrade,
+    selfDebuff,
     contingencies,
     shadowBonus,
+    foodGain,
+    regicideShot,
   };
 }
 
@@ -594,8 +905,11 @@ function policyPrunes(
   const out: AssessedCandidate[] = [];
   for (const a of assessed) {
     // Standing still is the baseline every prune is judged against, and it is
-    // never pruned: it costs no health and cannot walk into anything.
-    if (a.candidate.path.length === 0) {
+    // never pruned WHERE IT IS FREE — which off a hazard is everywhere. On one
+    // it is not free (see `restVerdict`), and a hold the stationary dose kills
+    // is exactly as doomed as walking into the same cell, so it is judged on
+    // the same evidence as every other option rather than waved through.
+    if (a.candidate.path.length === 0 && a.tier !== 'doomed') {
       out.push(a);
       continue;
     }
@@ -603,8 +917,48 @@ function policyPrunes(
       pruned.push({ candidate: a.candidate, prune: PRUNE.selfRegicide, exact: false });
       continue;
     }
+    // Before `fatal-no-gain`, and separately from it, because the two have
+    // different premises: this one needs no assessment at all, it needs the
+    // rules. It also does not exempt a capture — nothing is captured by walking
+    // into a wall or into your own neck, so the exemption has no instances, and
+    // stating that is cheaper than relying on it.
+    if (knobs.pruneCertainSelfFatal && certainlySelfFatal(sub, unit, a.candidate) !== null) {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.certainSelfFatal, exact: false });
+      continue;
+    }
+    if (knobs.pruneCertainSelfFatal && allyBodyCollision(sub, unit, a.candidate)) {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.allyBody, exact: false });
+      continue;
+    }
+    if (knobs.pruneRoyalPath && killsOwnKing(sub, unit, a.candidate)) {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.royalPath, exact: false });
+      continue;
+    }
     if (knobs.pruneFatalNoGain && a.tier === 'doomed' && a.capture === 'no') {
       pruned.push({ candidate: a.candidate, prune: PRUNE.fatalNoGain, exact: false });
+      continue;
+    }
+    // THE SACRIFICE THAT PAYS FOR NOTHING CERTAIN.
+    //
+    // `fatal-no-gain` above asks for `capture === 'no'`, and on lethal terrain
+    // that condition is met for free: nothing survives standing on a cell whose
+    // dose exceeds every kind's maximum, so no enemy is ever there to take and
+    // the prune fires every time. Drop the dose below the kind's maximum and
+    // enemies cross those cells like any other — the same square now offers a
+    // POSSIBLE capture, `capture` reads `maybe`, and the prune stops firing for
+    // a mover whose own health the dose already exceeds. That is the whole of
+    // the asymmetry the corpus measured as "the lethality line is drawn against
+    // the kind's maximum, not against the health this unit has left": no code
+    // ever compared against a maximum, but the CONDITION that hides the
+    // comparison is satisfied exactly in the maximum-exceeding regime.
+    //
+    // So exhaustion gets its own refusal. Running out of health is unilateral —
+    // the mover cannot afford its own path, whatever anyone else does — while
+    // the capture it is buying is only possible. A CERTAIN kill still buys the
+    // trade, and the emptiness guarantee still owns the case where refusing
+    // leaves nothing.
+    if (knobs.refuseTerrainFatal && a.exhaustionFatal === 'yes' && a.capture !== 'yes') {
+      pruned.push({ candidate: a.candidate, prune: PRUNE.terrainFatal, exact: false });
       continue;
     }
     if (knobs.refusePromotion && promotes(sub, unit, a)) {
@@ -614,6 +968,44 @@ function policyPrunes(
     out.push(a);
   }
   return out;
+}
+
+/**
+ * THE TIER FILTER, applied to the SET rather than to each candidate.
+ *
+ * A contest is decided on TIER FIRST and weight second, so a unit that steps
+ * into reach of something one tier above it loses whatever it weighs. When the
+ * unit would have WON that contest on weight — the `decisive` grade — the buff
+ * did not confirm the outcome, it reversed it, and walking into it throws away
+ * a material advantage that is otherwise the whole point of having it.
+ *
+ * The filter drops exactly that class, and only when the unit has somewhere
+ * else to be. It is monotone by construction (the keeper set is non-empty
+ * before anything is dropped) and it is INERT on a board with no live tier,
+ * because `gradePath` returns `clear` for every candidate when nothing
+ * outranks the unit — which is every decision in a game with potions off.
+ *
+ * It is DECLARED LOSSY, not exact. What it can cost is a trade: accepting a
+ * tier loss to take a piece, block a line, or shield a king. The ledger names
+ * it, and the emptiness guarantee restores it if policy took everything.
+ */
+function keepTierSafe(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  knobs: Required<CandidateKnobs>
+): AssessedCandidate[] {
+  if (!knobs.tierSafeStaging) return [...assessed];
+  const kept: AssessedCandidate[] = [];
+  const dropped: AssessedCandidate[] = [];
+  for (const a of assessed) {
+    if (a.tierGrade === 'decisive') dropped.push(a);
+    else kept.push(a);
+  }
+  if (dropped.length === 0 || kept.length === 0) return [...assessed];
+  for (const a of dropped) {
+    pruned.push({ candidate: a.candidate, prune: PRUNE.tierDecisive, exact: false });
+  }
+  return kept;
 }
 
 /**
@@ -639,10 +1031,42 @@ function keepBestTier(
       if (dropped.tier === tier) continue;
       pruned.push({ candidate: dropped.candidate, prune: PRUNE.kingUnsafe, exact: false });
     }
-    return kept;
+    return knobs.tierSafeStaging ? keepBestKingTier(kept, pruned) : kept;
   }
   return [...assessed];
 }
+
+/**
+ * The king's SECOND key, applied inside its best certainty tier: prefer the
+ * squares nothing outranks it on, and prefer not to hand itself a −1.
+ *
+ * A king carries the team. Regicide fires the same turn its last king dies, so
+ * a tier gap on a king is the one channel in the whole potion system that
+ * moves a placement by rule rather than by association. The two things it must
+ * not do are walk into reach of a higher tier and stand on a potion — the
+ * second being entirely self-inflicted and needing no enemy modelling at all.
+ *
+ * Same shape as the filter above it: keep the best available class, whatever
+ * that class is, so the set can never come back empty.
+ */
+function keepBestKingTier(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[]
+): AssessedCandidate[] {
+  let best = Number.POSITIVE_INFINITY;
+  for (const a of assessed) best = Math.min(best, kingTierRisk(a));
+  const kept = assessed.filter((a) => kingTierRisk(a) === best);
+  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
+  for (const a of assessed) {
+    if (kingTierRisk(a) === best) continue;
+    pruned.push({ candidate: a.candidate, prune: PRUNE.kingTierUnsafe, exact: false });
+  }
+  return kept;
+}
+
+/** Tier exposure and self-debuff, as one comparable number for a king. */
+const kingTierRisk = (a: AssessedCandidate): number =>
+  tierGradeRank(a.tierGrade) + (a.selfDebuff === 'none' ? 0 : 3);
 
 /**
  * The emptiness guarantee. Every lossy prune is reversible, and this is where
@@ -687,6 +1111,13 @@ function restoreLeastBad(
 function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
   if (tier !== 0) return tier;
+  // TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made
+  // by walking into something that outranks us is not a capture, it is a
+  // donation. Both terms are identically zero on a board with no live
+  // invulnerability effect, so this comparison is a no-op wherever potions are
+  // off and the order below it is byte-for-byte what it always was.
+  const risk = tierRisk(a) - tierRisk(b);
+  if (risk !== 0) return risk;
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
@@ -697,6 +1128,70 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
 
 const captureRank = (c: AssessedCandidate['capture']): number =>
   c === 'yes' ? 2 : c === 'maybe' ? 1 : 0;
+
+/**
+ * THE GAIN ORDER — `orderKey` with what a move TAKES sorted before what it
+ * COSTS. Behind `gainOrdering`; see the knob for the two measured
+ * mis-orderings it exists to correct.
+ *
+ * Two deliberate placements:
+ *
+ * · `regicideShot` above `capture`, because ending a team is not a capture that
+ *   happens to be worth more — under `applyRegicide` it removes every unit that
+ *   team has left, and there is exactly one square on the board where that is
+ *   true per enemy team.
+ * · `foodGain` above `healthSpent`, and health charged at ZERO when the move
+ *   could eat. That is not a fudge: `resolveTurn` sets an eater's health to its
+ *   kind's max, so the health a slider spends reaching food is refunded on
+ *   arrival, and charging it is simply wrong about the rules. Everything else
+ *   is charged exactly as before.
+ *
+ * `tier` stays first. Ordering never licenses a move — it decides which of the
+ * generated options the anytime path reaches before its budget runs out — so a
+ * doomed regicide shot still sorts behind a safe one, and whether the trade is
+ * worth taking remains the evaluator's ordered terminal clamps' question.
+ *
+ * INTEGRATION NOTE (integ/round-a): `tierRisk` is carried here too, in the same
+ * slot it occupies in `orderKey` — after `tier`, ahead of every capture-class
+ * term. It is not optional. I3 wrote this comparator against a base that had no
+ * tier ordering in it, so selecting it at the sort site
+ * (`kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey)`) would otherwise
+ * discard I4's tier defense wholesale the moment `gainOrdering` is promoted —
+ * which the ledger names as the FIRST promotion to make. I4's own argument
+ * carries over verbatim and applies with more force here, not less: a capture
+ * made by walking into something that outranks us is a donation, and a REGICIDE
+ * SHOT taken that way is the most expensive donation on the board. Both terms
+ * are identically zero wherever no invulnerability effect is live, so on the
+ * food-and-king boards I3 measured this comparator is byte-for-byte the one it
+ * measured.
+ */
+function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
+  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
+  if (tier !== 0) return tier;
+  const risk = tierRisk(a) - tierRisk(b);
+  if (risk !== 0) return risk;
+  if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
+  const capture = captureRank(b.capture) - captureRank(a.capture);
+  if (capture !== 0) return capture;
+  if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
+  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
+  const ha = a.foodGain === 1 ? 0 : a.healthSpent.hi;
+  const hb = b.foodGain === 1 ? 0 : b.healthSpent.hi;
+  if (ha !== hb) return ha - hb;
+  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
+  return a.candidate.to - b.candidate.to;
+}
+
+/**
+ * The one ordering number for everything tier.
+ *
+ * `tierGradeRank` is what the enemy's window does to us; `selfDebuffRank` is
+ * what our own pickup would do. They add rather than max because they are
+ * genuinely additive risks: stepping into a higher tier's reach AND handing
+ * ourselves a −1 on the same move is worse than either alone.
+ */
+const tierRisk = (a: AssessedCandidate): number =>
+  tierGradeRank(a.tierGrade) + selfDebuffRank(a.selfDebuff);
 
 // ---------------------------------------------------------------------------
 // The one imported specialist geometry: escort ray-shadowing
@@ -739,6 +1234,41 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
         out.add(from + (uy * i) * width + ux * i);
       }
     }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// The offensive mirror of the escort geometry: where regicide lives
+// ---------------------------------------------------------------------------
+
+/**
+ * The squares on which an enemy team's LAST king is standing.
+ *
+ * Not "every enemy king": the rule that makes this square special is
+ * `applyRegicide`, which fires when a team's last king dies, so a team fielding
+ * two of them offers no such square at all. The test is the same one
+ * `isLastKingOfItsTeam` runs for our own side, read the other way round — and
+ * "enemy" is every team that is not the one whose kings we are counting, so
+ * this is correct in a three-team game without knowing which seat is ours.
+ *
+ * Computed once per substrate. It is an ORDERING hint and never a bound: the
+ * king may not be there next turn, which is precisely why the corpus's attempt
+ * rate converts at only one in five.
+ */
+function enemyRegicideCells(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> {
+  const out = new Map<CellIndex, number>();
+  const regicide = sub.regicideTeamNumbers();
+  const kingsByTeam = new Map<number, SubstrateUnit[]>();
+  for (const u of sub.roster()) {
+    if (!u.isKing || !regicide.has(u.team)) continue;
+    const group = kingsByTeam.get(u.team);
+    if (group === undefined) kingsByTeam.set(u.team, [u]);
+    else group.push(u);
+  }
+  for (const [team, group] of kingsByTeam) {
+    if (group.length !== 1) continue;
+    out.set((group[0] as SubstrateUnit).cells[0] as CellIndex, team);
   }
   return out;
 }

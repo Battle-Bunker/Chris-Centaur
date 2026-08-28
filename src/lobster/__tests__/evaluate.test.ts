@@ -39,6 +39,7 @@ import {
   materialBounds,
   materialEvaluator,
   scale,
+  territorySliderEvaluator,
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
 
@@ -284,6 +285,27 @@ describe('the admission laws, over the real world set', () => {
       expect([c.name, checkMonotone(materialEvaluator, c).violations]).toEqual([c.name, []]);
     }
   });
+
+  test('and for the slider-repair profile, on this same world set', () => {
+    // These cases carry pieces on both sides and a held enemy of each kind, so
+    // they exercise the command term's admission asymmetry against the same
+    // brute-force enumeration the shipped profile is held to. The repair's own
+    // fixtures live in src/tests/territory-slider.test.ts.
+    for (const c of LAW_CASES) {
+      expect([c.name, checkSoundness(territorySliderEvaluator, c).violations]).toEqual([
+        c.name,
+        [],
+      ]);
+      expect([c.name, checkCollapse(territorySliderEvaluator, c).violations]).toEqual([
+        c.name,
+        [],
+      ]);
+      expect([c.name, checkMonotone(territorySliderEvaluator, c).violations]).toEqual([
+        c.name,
+        [],
+      ]);
+    }
+  });
 });
 
 /**
@@ -423,6 +445,16 @@ describe('the cliff', () => {
     // Both teams keep a spare unit far away, so no terminal clamp fires and the
     // reading is purely the cliff's magnitude.
     //
+    // "FAR AWAY" NOW MEANS FAR FROM ITS OWN TEAM-MATE TOO. The blue spare used
+    // to sit at (6,0), which its own queen's file reaches in one move — and
+    // since the queen outweighs it six to one, that meeting kills the spare.
+    // The claim layer could not see that until `CloudField.contestedClaims`
+    // (engine backlog 7), so blue read as un-wipeable and the clamp stayed
+    // quiet by accident. It is a real world, the ceiling is right to admit it,
+    // and this test is not about it: the spare moved to (0,2), which shares
+    // neither file nor rank nor diagonal with the queen and none of whose
+    // knight-moves land on one.
+    //
     // The claim is about the SPREAD, and that is the whole point of denominating
     // the cliff in material: `lo` prices a might-die unit at zero whatever it
     // weighs — that IS the cliff — so what a heavier unit at risk buys is a
@@ -434,7 +466,7 @@ describe('the cliff', () => {
         piece('R', { x: 3, y: 3 }, 'rook', weight, { teamID: 'red', health: 50 }),
         piece('spare', { x: 0, y: 6 }, 'knight', 1, { teamID: 'red', health: 50 }),
         piece('Q', { x: 5, y: 5 }, 'queen', 6, { teamID: 'blue', health: 50 }),
-        piece('q', { x: 6, y: 0 }, 'knight', 1, { teamID: 'blue', health: 50 }),
+        piece('q', { x: 0, y: 2 }, 'knight', 1, { teamID: 'blue', health: 50 }),
       ]);
     const read = (weight: number): { lo: number; hi: number } => {
       const board = withRook(weight);
@@ -784,12 +816,17 @@ describe('calibration is data', () => {
     // No food weight on territory, and no horizon discount: both measured
     // worthless at the sound floor, and both are absent rather than zeroed.
     expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual([
+      // `command` is present at weight ZERO: the slider repair is a profile of
+      // its own (TERRITORY_SLIDER_PROFILE), and this one names it off rather
+      // than leaving a reader to wonder whether it was forgotten.
+      'command',
       'healthEconomy',
       'kingMargin',
       'material',
       'reach',
       'room',
     ]);
+    expect(TERRITORY_PROFILE.weights.command).toBe(0);
     // The fallback profile is a real, reachable profile — not a comment.
     expect(materialEvaluator.profile.weights.reach).toBe(0);
     expect(materialEvaluator.profile.weights.room).toBe(0);

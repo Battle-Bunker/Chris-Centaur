@@ -392,7 +392,13 @@ describe('the flag', () => {
       // Absence from `parts` is the honest report that a number was never
       // computed, which a zero would misstate.
       expect(Object.keys(base.parts).sort()).toEqual(['healthEconomy', 'kingMargin', 'material']);
+      // `command` joins the list on arch/s3: the slider repair's gradient is a
+      // registered feature and `TERRITORY_PROFILE` invokes ALL of them. It is
+      // COMPUTED and folded here at weight zero — the profile that pays for it
+      // is `TERRITORY_SLIDER_PROFILE` — and it is `base`'s continued ABSENCE of
+      // it, three keys against six, that this test is actually about.
       expect(Object.keys(terr.parts).sort()).toEqual([
+        'command',
         'healthEconomy',
         'kingMargin',
         'material',
@@ -430,9 +436,24 @@ describe('the flag', () => {
 
 describe('the ladder is frozen for the turn', () => {
   test('every record in one decision carries the SAME stamp, object for object', async () => {
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', {
+    // THE CORPUS MOVED ON arch/s3, AND THE REASON IS WORTH RECORDING. This test
+    // used to drive `SLIDER_BOARD` at 200 ms and assert `records.length > 1` as
+    // its non-vacuity guard — "the same stamp on every record" says nothing
+    // about a decision that emits once. After the integrated-evaluator merge
+    // (gainOrdering promoted into the shipped generator, plus the bound bank's
+    // evaluation memo) the three hand-built boards in this file stage their
+    // argmax on the first pass and never revise it: measured at 200, 400, 800
+    // and 1500 ms, every one of them emits exactly ONCE. That is the ordering
+    // change working, not the freeze failing.
+    //
+    // So the guard moves to a board that still revises. `mid11` — the
+    // acceptance fixture's mixed-slider board, the same one the flag-off gate
+    // replays — emits 2 records at 40 ms and 3 at 120/200/400 ms on this tree.
+    const mid = fixture.mid11 as unknown as { board: Board; turn: number; team: string };
+    const { records, kernel } = await run(mid.board, mid.team, {
       policyOn: true,
       budgetMs: 200,
+      turn: mid.turn,
     });
     expect(records.length).toBeGreaterThan(1);
     const stamp = kernel.lastReport?.admission;

@@ -11,10 +11,31 @@
  * most likely to go wrong here (the registry gaining a row and something
  * quietly selecting it).
  *
- * HOW IT WORKS. `fixtures/admission-noop-baseline.json` was produced by running
- * the replay below on `arch/s1` — the branch immediately before this one, with
- * a one-row registry and no admission governor anywhere in it. This test
- * re-runs the identical replay on the current tree and asserts deep equality.
+ * HOW IT WORKS. This test re-runs a fixed replay against
+ * `fixtures/admission-noop-baseline.json` and asserts deep equality with
+ * nothing stripped.
+ *
+ * ── RE-BASED ON arch/s3, AND WHAT THE GATE NOW MEANS ───────────────────────
+ *
+ * The baseline was originally taken on `arch/s1`. arch/s3 merges the
+ * integrated evaluator work (`66904d2`), which changes what a decision decides
+ * for reasons that have nothing to do with admission, so an arch/s1 baseline
+ * would only ever measure the merge.
+ *
+ * REGENERATED ON THE MERGE COMMIT ITSELF — arch/s2's governor sitting on the
+ * integrated evaluator, flag off, before the arch/s3 detector amendment and
+ * the slider-profile wiring existed. So this gate's claim is now precisely:
+ * **the own-team detector amendment and the slider rung change NOTHING with
+ * `CENTAUR_COHORT_POLICY` off.** That is the arch/s3 acceptance criterion, and
+ * it is the criterion this test was extended to carry.
+ *
+ * IT DOES NOT, ON ITS OWN, GATE THE MERGE — deliberately, because a baseline
+ * taken on the merge cannot see a regression the merge introduced. Its sibling
+ * `cohort-noop.test.ts` covers exactly that half: its baseline is the merge's
+ * OTHER parent (`66904d2`, no cohort and no governor at all), so between them
+ * the two gates assert that the whole stack from S0a to arch/s3 is a
+ * behavioural no-op against the shipped tree, modulo the cohort stamp. Neither
+ * gate is circular; each is the other's missing side.
  *
  * WHAT IT DRIVES. The same corpus and the same real trio Stage 1's gate used:
  * `EngineSubstrate` + `GrammarCandidateGenerator` + `defaultEvaluator` +
@@ -182,7 +203,7 @@ const SAMPLES: Sample[] = [
   fixture.mid11 as unknown as Sample,
 ];
 
-describe('Stage 2 is a behavioural no-op with the cohort policy off', () => {
+describe('the governor and its arch/s3 amendment are no-ops with the policy off', () => {
   let current: Array<Record<string, unknown>> = [];
 
   beforeAll(async () => {
@@ -208,7 +229,7 @@ describe('Stage 2 is a behavioural no-op with the cohort policy off', () => {
     expect(current.length).toBe(26);
   });
 
-  test('IS IDENTICAL to arch/s1 — nothing stripped, the cohort id included', () => {
+  test('IS IDENTICAL to the pre-amendment merge — nothing stripped, cohort id included', () => {
     // The hard acceptance criterion, and deliberately stricter than the stage
     // before it: no strip function, no modulo, no named exception.
     expect(current).toEqual(baseline);

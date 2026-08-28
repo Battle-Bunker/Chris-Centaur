@@ -30,6 +30,7 @@ import {
   COHORTS,
   DEFAULT_WEIGHTS,
   TERRITORY_PROFILE,
+  TERRITORY_SLIDER_PROFILE,
   defaultEvaluator,
   makeContext,
   materialEvaluator,
@@ -354,29 +355,96 @@ describe('the cliff inequality, over the acceptance boards', () => {
     }
   });
 
-  test('and neither can, by construction — AT TWO TEAMS, which is the real premise', () => {
-    // THIS TEST USED TO CLAIM "on ANY board". IT WAS WRONG, AND THE CORRECTION
-    // MATTERS. `reach` really is bounded independently of the board: it is
-    // normalised by the open cells, so it lives in [-1, 1] and its span is 2
-    // whatever is playing. `room` is normalised by `trailScaleOf` — the
-    // LARGEST SINGLE TEAM's trail count — and the subtraction is ours minus
-    // EVERYONE else's. On a K-team board the worst case is therefore
-    // -(K - 1) rather than -1, so room lives in [-(K-1), 1] and its span is K.
-    // Measured on the corpus: 6.06% of readings are below -1, minimum exactly
-    // -2.000, which is the three-team case arriving exactly where the algebra
-    // says it should.
+  test('and neither can, on ANY board, by construction rather than by sample', () => {
+    // Both features are normalised, so their ranges are bounded independently of
+    // the board: reach by the open cells, room by THE WHOLE BOARD's trail
+    // population. Without that, room's range would grow with the roster and a
+    // weight that clears the cliff on a three-snake board would breach it on a
+    // five.
     //
-    // The normalisation is NOT changed here. That is a behaviour change with
-    // its own measurement arm (ledger item O-P3); what belongs in a test is
-    // the truth about the range it currently has.
-    const reachSpan = 2;
-    const roomSpanAt = (teams: number) => teams;
-    expect((TERRITORY_PROFILE.weights.reach as number) * reachSpan).toBeLessThan(ceiling);
-    expect((TERRITORY_PROFILE.weights.room as number) * roomSpanAt(2)).toBeLessThan(ceiling);
-    // At three teams the same weight does NOT clear it, on room alone.
-    expect((TERRITORY_PROFILE.weights.room as number) * roomSpanAt(3)).toBeGreaterThan(
-      ceiling * 0.8
-    );
+    // PREMISE CORRECTED, TWICE, AND THE SECOND CORRECTION IS THE FIX.
+    //
+    // (1) integ/round-a's rf-falsifier found the claim false as written: room
+    //     was normalised by `trailScaleOf` = the LARGEST SINGLE TEAM's trail
+    //     count, while the subtraction is ours minus EVERY other team's. Our
+    //     own admitted trails are bounded by the divisor, but each of the other
+    //     K−1 teams contributes up to a full divisor's worth, so the true range
+    //     was room ∈ [−(K−1), +1] and the span was K, not 2. Measured: 160,826
+    //     readings, observed range [−2.000, +1.000], 6.06% below −1, every one
+    //     of them on a three-team board. arch/s2 recorded that as a red-in-
+    //     waiting ("AT TWO TEAMS, which is the real premise") and deliberately
+    //     did NOT renormalise, because that was ledger item O-P3 with its own
+    //     measurement arm.
+    //
+    // (2) fix/o-p3 LANDED (merged here on arch/s3): `trailScaleOf` now sums the
+    //     whole board's trail population instead of taking the per-team max, so
+    //     the numerator's positive part is bounded by our share of the divisor
+    //     and its negative part by the rest. room ∈ [−1, +1] for every K, the
+    //     span is 2 board-independently, and the sentence in this test's title
+    //     is true as written for the first time.
+    //
+    // So the `× 2` below is now a certificate rather than a hard-coded guess,
+    // and the three-team test underneath it is what keeps it honest against
+    // real readings.
+    expect((TERRITORY_PROFILE.weights.reach as number) * 2).toBeLessThan(ceiling);
+    expect((TERRITORY_PROFILE.weights.room as number) * 2).toBeLessThan(ceiling);
+  });
+
+  /**
+   * THE THREE-TEAM CASE, which this corpus did not have.
+   *
+   * Both acceptance fixtures (`snakes11`, `mid11`) are TWO-team boards, so the
+   * range defect could not appear in this suite however many samples were added
+   * to it — the old and new divisors agree at K = 2. That absence is the reason
+   * the by-construction claim above went unchallenged, so the fix arrives with
+   * the board shape that can falsify it.
+   *
+   * `mid11` re-teamed three ways, each team fielding trail units. Verified to
+   * FAIL against the pre-fix divisor: red and blue read −1.5000 there, against
+   * −0.7500 worst case now.
+   */
+  test('room stays inside [-1, 1] on a THREE-team board, for every seat', () => {
+    const board = JSON.parse(JSON.stringify(MID11.board)) as Board;
+    const greens = new Set(['b3', 'b5', 'r5']);
+    const blues = new Set(['b0', 'b1', 'b2', 'b4']);
+    for (const s of board.snakes ?? []) {
+      const id = s.id;
+      (s as { teamID: string }).teamID = greens.has(id)
+        ? 'green'
+        : blues.has(id)
+          ? 'blue'
+          : 'red';
+    }
+    const teams = [...new Set((board.snakes ?? []).map((s) => s.teamID as string))];
+    expect(teams).toHaveLength(3);
+
+    for (const team of teams) {
+      const ourIds = (board.snakes ?? [])
+        .filter((s) => s.teamID === team)
+        .map((s) => s.id);
+      const sub = makeSubstrate({ board, turn: MID11.turn, asTeam: team, modeled: ourIds });
+      try {
+        const asTeam = sub.teamNumber(team);
+        const units = sub.roster().filter((u) => sub.modeled().has(u.unitId));
+        for (let k = 0; k < 6; k++) {
+          const plan = new Map<UnitId, Candidate>();
+          for (const u of units) {
+            const acts = sub.actionsOf(u.unitId);
+            const a = acts[k % acts.length] as { to: number };
+            plan.set(u.unitId, {
+              unitId: u.unitId,
+              from: u.cells[0] as number,
+              to: a.to,
+              path: sub.pathFor(u.unitId, a.to) ?? [],
+            });
+          }
+          const room = defaultEvaluator.evaluatePlan(sub, plan, asTeam).parts['room']?.lo ?? 0;
+          expect([team, k, room >= -1 && room <= 1]).toEqual([team, k, true]);
+        }
+      } finally {
+        sub.release();
+      }
+    }
   });
 
   test('the two together still cannot buy a death', () => {
@@ -658,11 +726,29 @@ describe('the cliff inequality, summed per cohort, over the acceptance boards', 
       // whatever is playing. Genuinely board-independent.
       case 'reach':
         return 2;
-      // Normalised by `trailScaleOf` — the LARGEST SINGLE TEAM's trail count —
-      // while the subtraction is ours minus EVERY other team's. So the floor
-      // is -(K-1), not -1, and the span is K. Measured: 6.06% of corpus
-      // readings below -1, minimum exactly -2.000.
+      // RE-DERIVED ON arch/s3, WHICH IS WHAT THIS ENTRY ASKED FOR. It used to
+      // return `teams`: room was normalised by `trailScaleOf` = the LARGEST
+      // SINGLE TEAM's trail count while the subtraction is ours minus EVERY
+      // other team's, so the floor was -(K-1) and the span was K (measured:
+      // 6.06% of corpus readings below -1, minimum exactly -2.000). fix/o-p3
+      // landed in this branch's merge and `trailScaleOf` now sums the WHOLE
+      // board's trail population, so our share bounds the positive part and
+      // the rest bounds the negative one: room ∈ [-1, +1] at every K and the
+      // span is 2, board-independently. The `teams` parameter stays in this
+      // function's signature because `command` below still needs it.
       case 'room':
+        return 2;
+      // The slider repair's gradient (idea/i2, merged here). Each unit's term
+      // is clipped into [0, 1] and the sum is divided by ONE team's worth of
+      // pieces (`pieceScaleOf` is a per-team max, not a board sum), so `ours`
+      // contributes at most 1 and `theirs` at most K-1: command ∈ [-(K-1), +1]
+      // and the span is K. This is the shape room USED to have, and it is
+      // certified rather than renormalised because at w=2 it clears the
+      // ceiling on its own at every K the rules field can produce
+      // (`territory-slider.test.ts` checks it at four teams, one more than the
+      // field). Only `TERRITORY_SLIDER_PROFILE` weights it; on every other
+      // registered profile the weight is 0 and this span multiplies to nothing.
+      case 'command':
         return teams;
       // NO CERTIFICATE EXISTS. A bare sum over units of health/maxHealth, ours
       // minus theirs, with no roster normalisation: the spread grows with the
@@ -680,44 +766,73 @@ describe('the cliff inequality, summed per cohort, over the acceptance boards', 
     }
   };
 
-  test('THE CERTIFIED SUM CLEARS THE CLIFF AT TWO TEAMS AND NOT AT THREE', () => {
+  test('THE CERTIFIED SUM NOW CLEARS THE CLIFF AT THREE TEAMS TOO — O-P3 LANDED', () => {
     // The realized numbers above are a sample. THIS is the by-construction
     // statement, and it is the one an escalation semantics would have to rest
     // on — a guarantee that holds on the boards we happened to measure is not
     // a guarantee.
     //
-    // Only `reach` and `room` are certifiable today, so this is a LOWER BOUND
-    // on the true certified sum: `healthEconomy` and `kingMargin` are in the
-    // ordering channel, contribute measurably (39% of the realized budget at
-    // scale), and have no a-priori bound at all.
-    const certifiable = (teams: number) =>
-      ['reach', 'room'].reduce(
+    // Still a LOWER BOUND on the true certified sum: `healthEconomy` and
+    // `kingMargin` are in the ordering channel, contribute measurably (39% of
+    // the realized budget at scale), and have no a-priori bound at all.
+    const certifiable = (profile: typeof TERRITORY_PROFILE, teams: number) =>
+      ['reach', 'room', 'command'].reduce(
         (sum, key) =>
-          sum + (TERRITORY_PROFILE.weights[key] as number) * (certifiedSpan(key, teams) as number),
+          sum + ((profile.weights[key] as number) ?? 0) * (certifiedSpan(key, teams) as number),
         0
       );
 
-    // Two teams: 1x2 + 3x2 = 8, inside a ceiling of 10 — with 2.0 of headroom
-    // for the two features that carry no certificate. E3 measured
-    // healthEconomy's own realized contribution as high as 2.56 on a
-    // seven-unit roster, so even the TWO-team certificate is not comfortable
-    // once the uncertified terms are honestly added.
-    expect(certifiable(2)).toBe(8);
-    expect(certifiable(2)).toBeLessThan(ceiling);
-
-    // Three teams: 1x2 + 3x3 = 11. Over the ceiling on reach and room ALONE,
-    // before either uncertified feature is counted. The certified guarantee
-    // does not hold at three teams and this test records that rather than
-    // hiding it: the empirical guarantee still does (realized spans max 5.09
-    // here, 5.75 at scale), which is why nothing is broken today and why the
-    // fix is a measured change and not a hotfix.
+    // WHAT arch/s2 ASSERTED HERE, AND WHY IT CHANGED. That stage recorded
+    // `certifiable(2) === 8` and `certifiable(3) === 11 > 10` — room's span was
+    // K, so reach + room breached the ceiling at three teams before either
+    // uncertified feature was counted — and said in as many words: "when O-P3
+    // lands, this test goes red and is the place to re-derive from." O-P3 is in
+    // this branch's merge. Room's certified span is now 2 at every K, so:
     //
-    // THE FIX IS NOT MADE HERE. Normalising `healthEconomy`, or dividing room
-    // by the whole opposing field rather than the largest single team, are
-    // behaviour changes with their own measurement arms (ledger item O-P3).
-    // When one lands, this test goes red and is the place to re-derive from.
-    expect(certifiable(3)).toBe(11);
-    expect(certifiable(3)).toBeGreaterThan(ceiling);
+    //   territory:  1x2 + 3x2 + 0xK = 8, at K = 2 AND at K = 3.
+    //
+    // The two-team number is UNCHANGED (the old and new divisors agree at
+    // K = 2, which is why the acceptance corpus could never see the defect),
+    // and the three-team number falls 11 -> 8. The certified guarantee holds at
+    // three teams for the first time, with 2.0 of headroom for the two
+    // uncertified terms rather than -1.0. That is the whole point of the
+    // renormalisation and it is asserted, not narrated.
+    expect(certifiable(TERRITORY_PROFILE, 2)).toBe(8);
+    expect(certifiable(TERRITORY_PROFILE, 3)).toBe(8);
+    expect(certifiable(TERRITORY_PROFILE, 3)).toBeLessThan(ceiling);
+
+    // THE SLIDER PROFILE PAYS FOR ITS OWN GRADIENT, and it is the one registered
+    // row whose certificate is still K-dependent: `command` is normalised by
+    // ONE team's worth of pieces, which is the shape room USED to have.
+    // 1x2 + 3x2 + 2xK = 8 + 2K.
+    //
+    //   K = 2: 12 — over the ceiling of 10, on the certified core alone.
+    //   K = 3: 14 — further over.
+    //
+    // RECORDED RATHER THAN PAPERED OVER, and it is exactly the state territory
+    // itself was in at three teams before O-P3 landed: the CERTIFIED sum
+    // breaches while the EMPIRICAL one does not. What carries this row today is
+    // the realized measurement — the summed-budget test above walks every
+    // registered cohort, this one included, and fails loudly at 75% of the
+    // ceiling — plus the fact that `command` is identically zero on a board
+    // with no piece on it, so the breach can only be approached on exactly the
+    // boards the detector admits this profile for.
+    //
+    // Two consequences worth writing down here rather than in a report:
+    //   * nothing on this branch lets a richer rung overturn a cheaper one's
+    //     verdict, and this arithmetic is the reason that stays true — an
+    //     escalation semantics would have to normalise `command` by the whole
+    //     board's piece population the way `room` now is, FIRST;
+    //   * `territory-slider.test.ts` asserts the same certificate from the
+    //     other side (`w x teams < ceiling` at four teams) using the SLIDER
+    //     profile's weight alone, without reach and room in the sum. Both are
+    //     true; this one is the sum, and the sum is what the cliff is about.
+    // The renormalisation is NOT made here: it is a behaviour change with its
+    // own measurement arm.
+    expect(certifiable(TERRITORY_SLIDER_PROFILE, 2)).toBe(12);
+    expect(certifiable(TERRITORY_SLIDER_PROFILE, 2)).toBeGreaterThan(ceiling);
+    expect(certifiable(TERRITORY_SLIDER_PROFILE, 3)).toBe(14);
+    expect(certifiable(TERRITORY_SLIDER_PROFILE, 3)).toBeGreaterThan(ceiling);
   });
 
   test('the acceptance corpus is TWO-team, so its realized margin is the 2-team story', () => {
