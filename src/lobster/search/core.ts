@@ -31,6 +31,7 @@
  */
 
 import type {
+  AdjudicationReport,
   Candidate,
   CandidateSet,
   ClusterReport,
@@ -68,6 +69,7 @@ import {
   type EvaluationPool,
   type EvaluatorSpec,
   type Frontier,
+  type SampledOrder,
   type WorkPartition,
 } from "../parallel";
 import type { CandidateKnobs } from "../candidates";
@@ -81,6 +83,25 @@ import {
   type ClusterTuning,
 } from "./cluster-enum";
 import { SweepDirty, type DirtyStats } from "./sweep-dirty";
+import {
+  DEFAULT_SAMPLING,
+  NODE_PAIR_REPAIR,
+  NODE_POLISH,
+  NODE_PROPOSALS,
+  NODE_SWEEP_CANDIDATES,
+  NODE_SWEEP_UNITS,
+  SelectionSampler,
+  candidateWeights,
+  decisionSeed,
+  mix,
+  proposalWeights,
+  sampledCapEnabled,
+  unitCeiling,
+  unitWeights,
+  widenTo,
+  type SamplingTuning,
+  type SelectionReport,
+} from "../selection";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -162,6 +183,34 @@ export interface SearchTuning {
   readonly clusterEnum: boolean | undefined;
   /** Budgets for the enumeration. Only read when `clusterEnum` resolves on. */
   readonly clusterTuning: Partial<ClusterTuning>;
+  /**
+   * THE SEEDED WEIGHTED LOTTERY — the owner's ruling R-A, made mechanical.
+   *
+   * Verbatim: *"I don't intuitively trust a strategy of deterministically
+   * exploring ordered by cheaply computed priors because this will tend to
+   * produce biases in the behaviour considered under resource scarcity that
+   * could be exploited by adversaries at the least... stick to weighted random
+   * selection in branch exploration decisions, weighted by the integrated prior
+   * scores of cheaper heuristics."*
+   *
+   * With it ON, four deterministic prefixes become seeded Gumbel-top-k draws
+   * over the same lists: the sweep's per-unit candidate cap, the pair repair's,
+   * the polish's, and the order units are swept in — plus CL3's composed joint
+   * offers. Nothing is removed from any set (contract rule 18: a probability
+   * returns a PERMUTATION; the cap then takes a prefix exactly as it always
+   * did), no bound moves, and `better()` still adjudicates on the proved floor
+   * alone (contract rule 17).
+   *
+   * Undefined follows `CENTAUR_SAMPLED_CAP`; named by a caller it is that
+   * caller's answer, so one seat can carry the lottery while the seat across
+   * the board does not. DEFAULT OFF: no sampler is constructed, no draw is
+   * taken, no clock is read, and the search is byte-for-byte the one that
+   * shipped.
+   */
+  readonly sampledCap: boolean | undefined;
+  /** Temperature schedule, weights and the private match seed. Only read when
+   * `sampledCap` resolves on. See `lobster/selection/sample.ts`. */
+  readonly samplingTuning: Partial<SamplingTuning>;
   /**
    * Composed joints offered per sweep round.
    *
@@ -255,6 +304,8 @@ export const DEFAULT_TUNING: SearchTuning = {
   clusterSeed: undefined,
   clusterEnum: undefined,
   clusterTuning: {},
+  sampledCap: undefined,
+  samplingTuning: {},
   clusterOffersPerRound: 1,
   clusterOffersPerSlice: 2,
   parallel: null,
@@ -304,6 +355,27 @@ interface Session {
    */
   readonly seedWorkspace: SeedWorkspace | null;
   /**
+   * CL4's lottery, or null when the flag is off.
+   *
+   * PER SESSION and never per call: the draw ledger's per-node visit counters
+   * are what make a bigger budget's decision sequence an EXTENSION of a smaller
+   * one's (the two-budget prefix probe), and a sampler rebuilt every slice
+   * would restart every counter and destroy exactly that property. It shares
+   * the session's lifetime with the bank and the candidate sets, which is the
+   * same lifetime the seed is derived over.
+   */
+  readonly sampler: SelectionSampler | null;
+  /**
+   * Each unit's MATERIAL CEILING for the lottery's level term, frozen for the
+   * session — the unit's own material weight, or `−∞` where CL1's rung-0
+   * classifier `sealed` it (a unit that dies in every world it was offered has
+   * no world in which its material survives). Built once because both inputs
+   * are per-decision facts; `null` when the sampler is off, and then the map is
+   * never allocated. `prior.ts::clipCeilings` is what turns the `−∞` into a
+   * finite last-place weight rather than an exclusion (contract rules 18, 26).
+   */
+  readonly ceilings: ReadonlyMap<UnitId, number> | null;
+  /**
    * CL3's cluster state, or null when the flag is off.
    *
    * The proposals are a per-SESSION quantity, not a per-slice one: the
@@ -339,6 +411,28 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
+  /**
+   * WHICH SLOT OF `better()` DECIDED — the O-P1 instrument (law L17).
+   *
+   * Telemetry, never behaviour: five counters and one increment per comparison,
+   * on a path that already ran a bounds comparison and is about to run an 18 ms
+   * price. It exists because "optimism never promotes" is a claim about how
+   * often the CEILING slot fires, and until Stage 3a's tier ladder lands that
+   * claim is unmeasured on this branch. Present flag-on and flag-off, so the
+   * lottery's effect on it is a subtraction rather than an assertion.
+   */
+  const adjudication = {
+    floorDecided: 0,
+    estDecided: 0,
+    ceilingDecided: 0,
+    tieKeyDecided: 0,
+    vetoed: 0,
+    refused: 0,
+  };
+  /** Sessions opened over this core's life — the lottery's decision index, so
+   * the committed and the speculative context of one turn, and two successive
+   * turns, never replay each other's draws. Monotone; never reset. */
+  let decisions = 0;
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -482,10 +576,75 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // Allocated only for a session that will use it, and then kept for the
       // session's whole life: the buffers are what make a rebuild O(1).
       seedWorkspace: clusterSeeding() ? new SeedWorkspace() : null,
+      sampler: openSampler(ctx, ours, sets),
+      ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
       cluster: null,
     };
     session.cluster = openCluster(ctx, session, pins);
     return session;
+  };
+
+  /**
+   * THE SAMPLER, AND THE SEED IT RUNS ON.
+   *
+   * The decision seed mixes three things and one of them is private:
+   *
+   *   · `matchSeed` — the operator's, never on the wire, and the only input an
+   *     adversary cannot compute. Zero by default (see `selection/rng.ts`);
+   *   · the BOARD FINGERPRINT — a hash over the roster's frozen facts, so two
+   *     different positions never share a stream. Built from quantities that
+   *     are already computed and already in hand: the roster order, each unit's
+   *     origin cell, and how many legal actions the engine counted for it. It
+   *     costs one pass over the roster, no substrate query, and it changes
+   *     every turn because `from` does;
+   *   · the DECISION INDEX — this core's session counter, so the two contexts
+   *     the kernel alternates over (committed and speculative) and successive
+   *     turns on one core do not replay each other's draws.
+   *
+   * Null when the flag is off, and then nothing below it is ever constructed.
+   */
+  const openSampler = (
+    ctx: SearchContext,
+    ours: ReadonlyArray<UnitId>,
+    sets: ReadonlyMap<UnitId, CandidateSet>,
+  ): SelectionSampler | null => {
+    if (!sampling()) return null;
+    const tuning: SamplingTuning = { ...DEFAULT_SAMPLING, ...cfg.samplingTuning };
+    let fingerprint = mix(0x10b57e12, ctx.asTeam | 0);
+    for (const unitId of ours) {
+      const set = sets.get(unitId);
+      fingerprint = mix(fingerprint, unitId | 0);
+      fingerprint = mix(fingerprint, set?.candidates[0]?.from ?? -1);
+      fingerprint = mix(fingerprint, set?.legalCount ?? 0);
+    }
+    return new SelectionSampler(
+      decisionSeed(tuning.matchSeed, fingerprint, decisions++),
+      tuning,
+    );
+  };
+
+  /**
+   * The level term of the unit lottery, frozen once per session.
+   *
+   * A substrate that cannot name a unit's material weight — the bounds harness,
+   * the memo proxies — yields a ZERO for every unit rather than a guess, which
+   * makes the material half a constant and leaves the danger ranks deciding.
+   * That is the same degradation `clusterSeed` takes on the same substrates,
+   * and it degrades an ORDERING, which is the only thing here there is to
+   * degrade.
+   */
+  const unitCeilings = (
+    ctx: SearchContext,
+    ours: ReadonlyArray<UnitId>,
+    sets: ReadonlyMap<UnitId, CandidateSet>,
+  ): ReadonlyMap<UnitId, number> => {
+    const out = new Map<UnitId, number>();
+    const engine = ctx.sub instanceof EngineSubstrate ? ctx.sub : null;
+    for (const unitId of ours) {
+      const weight = engine?.unitOf(unitId)?.weight ?? 0;
+      out.set(unitId, unitCeiling(weight, sets.get(unitId)?.marks?.sealed === true));
+    }
+    return out;
   };
 
   /**
@@ -528,7 +687,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     });
     return {
       partition,
-      proposals: plans,
+      proposals: offerOrder(s, plans, score),
       score,
       stats,
       dirty: new SweepDirty(partition, s.ours.filter((id) => !s.pinned.has(id))),
@@ -542,6 +701,47 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   /**
+   * WHICH COMPOSED JOINTS GET PRICED, WHEN MORE EXIST THAN BUDGET.
+   *
+   * Permuted ONCE, at enumeration time, and never again — which is what makes
+   * §3.0 note 3 true by construction rather than by discipline: *"the dispatch
+   * sequence is decided by the seeded sampler on the coordinator BEFORE any
+   * worker runs, and is a pure function of (seed, board, epoch, slice), never
+   * of worker timing."* The cursor still walks the list monotonically, the tail
+   * still survives into the next slice, and `speculate` still ships
+   * `proposals.slice(cursor)` — so the workers price the plans the coordinator
+   * sampled, in the order it sampled them, and nothing about the fold changes.
+   *
+   * The weights are CL3's k-best rank plus the SURROGATE LEVEL — `Ṽ(p) − Ṽ` of
+   * the enumeration's own MAP. Rank and level agree on the ORDER (the k-best
+   * list is sorted by Ṽ), so the level's whole contribution is the thing rank
+   * throws away: the SIZE of the gaps. Five near-tied joints get spread across;
+   * a MAP that dominates by a lattice step stays first with ~98% probability at
+   * the opening temperature. That is R-B1's finding applied where it is true —
+   * *the frame apparatus supplies level, not order* — rather than assumed away.
+   */
+  const offerOrder = (
+    s: Session,
+    plans: ReadonlyArray<JointPlan>,
+    score: ((plan: JointPlan) => number) | null,
+  ): ReadonlyArray<JointPlan> => {
+    const sampler = s.sampler;
+    if (sampler === null || !sampler.tuning.channels.proposals || plans.length <= 1) return plans;
+    const map = plans[0] as JointPlan;
+    const base = score === null ? null : score(map);
+    const gains = plans.map((p) =>
+      score === null || base === null ? null : score(p) - base,
+    );
+    const { weights, regime } = proposalWeights(
+      gains,
+      sampler.tuning.lambdaRank,
+      sampler.tuning.wSurrogate,
+    );
+    sampler.noteRegime(regime);
+    return sampler.permute(plans, NODE_PROPOSALS, weights);
+  };
+
+  /**
    * Is the cluster seed on for THIS core? Resolved once per call rather than
    * cached, so a test that flips the environment between decisions sees the
    * flip — and never consulted at all when the caller named its own answer.
@@ -550,6 +750,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
   const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
+
+  /** Is the seeded lottery on for THIS core? Same discipline, same reason. */
+  const sampling = (): boolean => cfg.sampledCap ?? sampledCapEnabled();
 
   // -------------------------------------------------------------- parallel
   //
@@ -642,6 +845,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       pinned: s.pinned,
       incumbent,
       candidateCap: cfg.candidateCap,
+      // THE DISPATCH SEQUENCE IS THE SAMPLED SEQUENCE (contract rule 20, §3.0
+      // note 3). Peeked, not drawn: the next slice's sweep will take the real
+      // draw at the same node and the same index and get the identical
+      // permutation, so what the workers price is exactly what the coordinator
+      // is about to ask for. Absent when the lottery is off, and then the
+      // partition re-derives the frontier as it always did.
+      ...(s.sampler === null ? {} : { order: nextSweepOrder(s, incumbent) }),
       // THE TAIL THE COORDINATOR HAS NOT REACHED. Proposals already priced are
       // dropped here and not in the partition, because the cursor is session
       // state and a partition is a pure function of a frontier.
@@ -864,13 +1074,172 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
     // PROVED floor cannot be an improvement, however good its own floor looks.
-    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return false;
+    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) {
+      adjudication.vetoed++;
+      return false;
+    }
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
-    if (!cmp.comparable) return false;
-    if (cmp.order !== 0) return cmp.order > 0;
-    if (trial.est !== incumbent.est) return trial.est > incumbent.est;
-    if (trial.bounds.best !== incumbent.bounds.best) return trial.bounds.best > incumbent.bounds.best;
+    if (!cmp.comparable) {
+      adjudication.refused++;
+      return false;
+    }
+    if (cmp.order !== 0) {
+      adjudication.floorDecided++;
+      return cmp.order > 0;
+    }
+    if (trial.est !== incumbent.est) {
+      adjudication.estDecided++;
+      return trial.est > incumbent.est;
+    }
+    if (trial.bounds.best !== incumbent.bounds.best) {
+      // THE O-P1 SLOT. The one place in this comparator where an unproved
+      // CEILING decides — the "optimism under ignorance" the round-fusion
+      // programme's Stage 3a replaces with the T0/T1/T2 tier ladder (hi may
+      // eliminate and schedule at any tier and promote only at T2, on the
+      // record). That ladder is NOT on this branch and CL4 does not build it:
+      // one comparator, one implementation, and whichever programme lands it
+      // owns the code. What CL4 owes is that the LOTTERY did not make this slot
+      // busier — a sampler that fed the comparator more ceiling-decided ties
+      // would be quietly widening exactly the hole O-P1 is about to close. The
+      // counter is the instrument (L17's "hi read count"), and the probe
+      // compares it flag-off against flag-on.
+      adjudication.ceilingDecided++;
+      return trial.bounds.best > incumbent.bounds.best;
+    }
+    adjudication.tieKeyDecided++;
     return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed);
+  };
+
+  // -------------------------------------------------------------- selection
+  //
+  // Two functions, and with the flag off each returns exactly what the shipped
+  // search returned: `dangerOrder(...)` and `topCandidates(set, cap)`. That is
+  // the whole of the CL4 seam in the search — everything else it does is inside
+  // `lobster/selection/**`.
+
+  /**
+   * THE ORDER UNITS ARE SWEPT IN — the exploration-order half of the ruling.
+   *
+   * `dangerOrder` is still what ranks them (dead in the floor-justifying world
+   * first, then anything the resolver named, then unit id); the lottery
+   * RE-ORDERS that ranking, weighted by it plus the material level, and returns
+   * a permutation of the same list. No unit is added, dropped or skipped —
+   * which is the difference between choosing where to spend attention and
+   * choosing what to stage.
+   */
+  const sweepOrder = (
+    s: Session,
+    resolution: BankResult["worstResolution"] | null,
+  ): ReadonlyArray<UnitId> => {
+    const ranked = dangerOrder(s.ours, resolution, s.pinned);
+    const sampler = s.sampler;
+    if (sampler === null || !sampler.tuning.channels.units || ranked.length <= 1) return ranked;
+    const ceilings = s.ceilings;
+    const { weights, regime } = unitWeights(
+      ranked.map((id) => ceilings?.get(id) ?? 0),
+      sampler.tuning.lambdaRank,
+      sampler.tuning.wMaterial,
+    );
+    sampler.noteRegime(regime);
+    return sampler.permute(ranked, NODE_SWEEP_UNITS, weights);
+  };
+
+  /**
+   * THE CAP, AS A SAMPLE — CL2's finding made mechanical.
+   *
+   * CL2 §7.1: *"i2's own diagnosis names the real instrument: 'the search only
+   * ever walks the eight shortest moves per sweep', and the fix that does not
+   * raise the cap is 'make the 8 a SAMPLE from softmax(EV/τ) rather than a
+   * prefix'. That is CL4, not CL2."* This is that line.
+   *
+   * With the flag off it is `topCandidates(set.candidates, cap)`, unchanged and
+   * uncalled-into. With it on, the whole option list is permuted by
+   * Gumbel-top-k over the rank prior and the SAME prefix is taken — so the
+   * search prices the same NUMBER of options and a different SET of them. An
+   * option at rank 12 of a slider's 30 can now enter a top-8 draw, which is the
+   * only door through which i2's far options were ever going to arrive.
+   *
+   * The width may narrow under the progressive-widening schedule and may never
+   * exceed the caller's cap (`widen.ts` says why).
+   */
+  const optionsOf = (
+    s: Session,
+    unitId: UnitId,
+    candidates: ReadonlyArray<Candidate>,
+    channel: number,
+    cap: number,
+  ): ReadonlyArray<Candidate> => {
+    const sampler = s.sampler;
+    if (sampler === null || !sampler.tuning.channels.candidates) {
+      return topCandidates(candidates, cap);
+    }
+    const node = mix(channel, unitId | 0);
+    const width = widenTo(sampler.tuning.widen, sampler.visitsOf(node), cap);
+    // EXACT WHERE COMPLETE, SAMPLED WHERE TRUNCATED — §1b.4's own law, and the
+    // probe is what made it load-bearing rather than decorative.
+    //
+    // When the cap does not bind, the search will try EVERY option this unit
+    // has, so there is no membership question and no blind spot: the set the
+    // lottery would choose and the set the prefix chooses are the same set. All
+    // a draw can do there is reorder a list that gets exhausted anyway — free
+    // when the budget arrives, and a straight loss when it does not, because a
+    // clock-truncated sweep then tries a worse option first. Measured on the
+    // trail-unit families, where no unit has more than four options and the cap
+    // is eight: sampling every unit's order cost 17→22 fatal stagings at q=8
+    // and bought exactly zero far options, because there were none to buy.
+    //
+    // So the draw happens where truncation happens, and nowhere else.
+    if (candidates.length <= width) return topCandidates(candidates, width);
+    const permuted = sampler.permute(
+      candidates,
+      node,
+      candidateWeights(candidates.length, sampler.tuning.lambdaRank),
+    );
+    sampler.noteAdmitted(width);
+    return topCandidates(permuted, width);
+  };
+
+  /**
+   * WHAT THE NEXT SLICE WILL SWEEP, computed at the end of this one.
+   *
+   * Every draw here is a PEEK — the node's current visit counter is the index
+   * the next slice's real draw will use, so this reproduces that permutation
+   * without consuming it. Nothing about the search's own sequence changes; the
+   * only consumer is the worker cut.
+   */
+  const nextSweepOrder = (s: Session, incumbent: BankResult): SampledOrder => {
+    const sampler = s.sampler as SelectionSampler;
+    const ranked = dangerOrder(s.ours, incumbent.worstResolution, s.pinned);
+    const ceilings = s.ceilings;
+    const { weights } = unitWeights(
+      ranked.map((id) => ceilings?.get(id) ?? 0),
+      sampler.tuning.lambdaRank,
+      sampler.tuning.wMaterial,
+    );
+    const units = sampler.tuning.channels.units
+      ? sampler.peek(ranked, NODE_SWEEP_UNITS, weights)
+      : ranked;
+    return {
+      units,
+      candidatesFor: (unitId: UnitId): ReadonlyArray<Candidate> => {
+        const set = s.sets.get(unitId);
+        if (set === undefined) return [];
+        const node = mix(NODE_SWEEP_CANDIDATES, unitId | 0);
+        const width = widenTo(sampler.tuning.widen, sampler.visitsOf(node), cfg.candidateCap);
+        // The same two gates the sweep itself applies, or the workers would
+        // price a different set from the one the coordinator is about to ask
+        // for — which is `entriesUsed = 0` by construction.
+        if (!sampler.tuning.channels.candidates || set.candidates.length <= width) {
+          return topCandidates(set.candidates, width);
+        }
+        const permuted = sampler.peek(
+          set.candidates,
+          node,
+          candidateWeights(set.candidates.length, sampler.tuning.lambdaRank),
+        );
+        return topCandidates(permuted, width);
+      },
+    };
   };
 
   // ------------------------------------------------------------------ moves
@@ -878,7 +1247,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
     let best = start;
     const dirty = s.cluster?.dirty ?? null;
-    for (const unitId of dangerOrder(s.ours, best.worstResolution, s.pinned)) {
+    for (const unitId of sweepOrder(s, best.worstResolution)) {
       if (budget.shouldStop()) break;
       // THE DIRTY-SET SKIP. A unit whose whole alternative list was priced and
       // refused, against a neighbourhood that has not moved since and a witness
@@ -891,7 +1260,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const set = s.sets.get(unitId) as CandidateSet;
       const current = best.plan.get(unitId) as Candidate;
       let complete = true;
-      for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
+      for (const candidate of optionsOf(
+        s,
+        unitId,
+        set.candidates,
+        NODE_SWEEP_CANDIDATES,
+        cfg.candidateCap,
+      )) {
         if (budget.shouldStop()) {
           complete = false;
           break;
@@ -905,7 +1280,18 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         // ONLY a loop that ran to completion is marked. A truncated pass did
         // not price the unit's alternatives, and recording an answer nobody
         // computed is how a cache becomes a bug.
-        if (complete) dirty.markClean(unitId, best.plan);
+        //
+        // CL4: AND ONLY WHEN THE LOTTERY IS OFF. The dirty set's claim is *"a
+        // unit whose WHOLE alternative list was priced and refused, against a
+        // neighbourhood that has not moved, has no answer left to give"* — and
+        // with the sampler on, a completed pass priced a SAMPLED SUBSET of that
+        // list, so the next round would draw a different subset and the claim
+        // is simply false. Never marking is the conservative direction (the
+        // unit is swept again, which costs prices and cannot cost soundness);
+        // the alternative — marking on a subset — is a cache that answers a
+        // question nobody asked, which is the bug class this comment's first
+        // paragraph already exists to prevent.
+        if (complete && s.sampler === null) dirty.markClean(unitId, best.plan);
       }
     }
     return best;
@@ -1013,10 +1399,22 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (s.pinned.has(a) && s.pinned.has(b)) continue;
       const optionsA = s.pinned.has(a)
         ? [best.plan.get(a) as Candidate]
-        : topCandidates((s.sets.get(a) as CandidateSet).candidates, cfg.pairRepairPerUnit);
+        : optionsOf(
+            s,
+            a,
+            (s.sets.get(a) as CandidateSet).candidates,
+            NODE_PAIR_REPAIR,
+            cfg.pairRepairPerUnit,
+          );
       const optionsB = s.pinned.has(b)
         ? [best.plan.get(b) as Candidate]
-        : topCandidates((s.sets.get(b) as CandidateSet).candidates, cfg.pairRepairPerUnit);
+        : optionsOf(
+            s,
+            b,
+            (s.sets.get(b) as CandidateSet).candidates,
+            NODE_PAIR_REPAIR,
+            cfg.pairRepairPerUnit,
+          );
       for (const ca of optionsA) {
         if (budget.shouldStop()) break;
         for (const cb of optionsB) {
@@ -1044,7 +1442,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     const units = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
     if (units.length === 0) return best;
     const lists = units.map((id) =>
-      topCandidates((s.sets.get(id) as CandidateSet).candidates, cfg.polishPerUnit),
+      optionsOf(s, id, (s.sets.get(id) as CandidateSet).candidates, NODE_POLISH, cfg.polishPerUnit),
     );
     const walk = (i: number, acc: Candidate[]): void => {
       if (budget.shouldStop()) return;
@@ -1093,6 +1491,18 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // even a clock read on the single-threaded path: `parallel: null` is the
       // search that shipped, and it should cost exactly what it cost.
       const sliceMs = cfg.parallel === null ? 0 : ctx.budget.remainingMs();
+      // THE ROUND'S TEMPERATURE, read once, here, and nowhere else.
+      //
+      // Owner Q1's default — "always on, but cooling sharply as the clock runs
+      // down" — needs a TURN-scale clock, and `remainingMs()` is the SLICE's
+      // and resets every slice. `decisionFraction()` is the turn-scale one and
+      // is optional: a harness budget does not model a turn, and then the
+      // schedule holds its opening temperature, which is what keeps every
+      // deterministic probe in this stage a property of the search rather than
+      // of the box. One read per slice, so the step-clock replay stays a
+      // function of the slice count and not of how much sampling happened
+      // inside a slice (arch-s1 correction 7, in its selection-layer form).
+      s.sampler?.beginRound(ctx.budget.decisionFraction?.() ?? 1);
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
       // A witness admitted since the last slice makes a fresh B2 branch of
       // every plan priced after it, so every clean mark is stale. Once per
@@ -1416,5 +1826,48 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return { ...rest, sweepsSkipped: skipped, sweepsRun: swept };
   };
 
-  return { improve, conform, drainRefusals, release, clusterReport };
+  /**
+   * The lottery's ledger, over the live sessions. Null when it never ran —
+   * which is the shipped default, and is how a reader tells "off" from "on and
+   * drew nothing".
+   *
+   * The SEED is the field that matters: with it and the same board, the harness
+   * reproduces the decision bit-for-bit. It is an operator-side number and
+   * never reaches the wire (see `SearchCore.selectionReport` in contracts.ts).
+   * Reported for the LAST session opened, because that is the one the emission
+   * being stamped came from; the counters are summed over all of them.
+   */
+  const selectionReport = (): SelectionReport | null => {
+    let last: SelectionReport | null = null;
+    let permutations = 0;
+    let arms = 0;
+    let draws = 0;
+    let admitted = 0;
+    let farAdmitted = 0;
+    for (const session of sessions.values()) {
+      if (session.sampler === null) continue;
+      const r = session.sampler.report();
+      last = r;
+      permutations += r.permutations;
+      arms += r.arms;
+      draws += r.draws;
+      admitted += r.admitted;
+      farAdmitted += r.farAdmitted;
+    }
+    if (last === null) return null;
+    return { ...last, permutations, arms, draws, admitted, farAdmitted };
+  };
+
+  /** Which slot of `better()` decided, over this core's whole life. */
+  const adjudicationReport = (): AdjudicationReport => ({ ...adjudication });
+
+  return {
+    improve,
+    conform,
+    drainRefusals,
+    release,
+    clusterReport,
+    selectionReport,
+    adjudicationReport,
+  };
 }

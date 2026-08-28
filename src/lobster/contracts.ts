@@ -333,6 +333,23 @@ export interface EmitRecord {
    * a record the kernel emitted; optional so a hand-built record (a harness,
    * a fixture) need not assert a verdict it never computed. */
   readonly crossfade?: CrossfadeVerdict
+  /**
+   * CL4 — THE SEEDED LOTTERY'S AUDIT FIELD. Absent unless the sampler ran.
+   *
+   * OPERATOR-SIDE, NEVER ON THE WIRE. The emission path out of this record is
+   * `TeamDecisionEngine.forwardPlan`, which reads `rec.plan`, turns each
+   * candidate into a `CentaurMove` and calls `setBotRecommendation(gameId,
+   * snakeId, move, turnData)`. Nothing else on the record is forwarded, and the
+   * only other consumer — `publishAdvice` → `adviseFromReport` — reads
+   * `lo/hi/est/posture/epoch` for the operator's own pin advice. So an opponent
+   * sees the MOVE and never the seed, which is the whole shape the ruling
+   * asks for: unpredictable to an adversary, replayable by the harness.
+   *
+   * Optional so a hand-built record (a harness, a fixture) need not carry a
+   * seed it never drew, and so a flag-off record is structurally identical to
+   * the one that shipped.
+   */
+  readonly selection?: import("./selection").SelectionReport
 }
 
 // -------------------------------------------------------- refinement levers
@@ -557,6 +574,47 @@ export interface SearchCore {
    * promote, and every stage of this program has had to pay that bill later.
    */
   clusterReport?(): ClusterReport | null
+  /**
+   * Optional: the seeded lottery's own ledger, for replay and for measurement.
+   *
+   * Null unless `CENTAUR_SAMPLED_CAP` (or a caller's own answer) turned the
+   * sampler on. It carries the DECISION SEED, which is what makes the owner's
+   * ruling auditable: a run is replayed bit-for-bit by handing the same
+   * `matchSeed` back to the engine on the same board. The kernel stamps it onto
+   * `EmitRecord.selection`, which is an OPERATOR-SIDE field —
+   * `TeamDecisionEngine.forwardPlan` sends a `CentaurMove` and a `GameState`
+   * view to the wire and nothing else, so no part of this ever reaches an
+   * opponent. See `lobster/selection/rng.ts` on why that matters.
+   */
+  selectionReport?(): import("./selection").SelectionReport | null
+  /**
+   * Optional: which slot of the acceptance comparator decided, over this core's
+   * life. Telemetry, never behaviour, and present whatever the flags say.
+   *
+   * The instrument for law L17, "optimism never promotes". The comparator's
+   * third slot is an unproved CEILING breaking a floor-and-est tie — the O-P1
+   * hole that round-fusion Stage 3a's T0/T1/T2 tier ladder closes, and which is
+   * NOT closed on this branch. A change that made that slot busier would be
+   * quietly widening the hole, so the number is published and every stage that
+   * touches ordering owes a before/after on it.
+   */
+  adjudicationReport?(): AdjudicationReport
+}
+
+/** Which slot of `better()` decided. See `SearchCore.adjudicationReport`. */
+export interface AdjudicationReport {
+  /** The PROVED FLOOR decided. The only slot that is a proof. */
+  readonly floorDecided: number
+  /** `est` broke a floor tie. Ordering, never adjudication. */
+  readonly estDecided: number
+  /** The CEILING broke a floor-and-est tie — L17's "hi read count". */
+  readonly ceilingDecided: number
+  /** The salted plan key broke an exact three-way tie. */
+  readonly tieKeyDecided: number
+  /** A banked reply refuted the trial below the incumbent's proved floor. */
+  readonly vetoed: number
+  /** A basis mismatch: two plans that are not answers to the same question. */
+  readonly refused: number
 }
 
 /** The cluster layer's per-decision accounting. See `SearchCore.clusterReport`. */
@@ -625,6 +683,25 @@ export interface BudgetHandle {
    * whole system from a fake clock and no suite is wall-clock flaky. Values
    * are on the same scale as `KernelInput.deadlineMs`. */
   now(): number
+  /**
+   * CL4 — the share of the DECISION's budget still unspent, in [0, 1], or
+   * `undefined` when this handle does not model a decision-level clock.
+   *
+   * `remainingMs()` is the SLICE's remainder and is the wrong quantity for a
+   * schedule that is supposed to cool as the TURN runs down: it resets every
+   * slice. This is the turn-scale one, and it exists for exactly one consumer —
+   * the selection temperature (`lobster/selection/sample.ts`), which is
+   * SCHEDULER state and never board-belief state. Nothing that reaches a
+   * `Bound`, a `ScoreBounds` or `better()` may read it; contract rule 17's grep
+   * is what keeps that true.
+   *
+   * OPTIONAL ON PURPOSE. A harness budget (the deterministic `countingBudget`
+   * every probe in this program runs on) does not model a turn, and a probe
+   * whose temperature cooled with a wall clock would be a probe whose numbers
+   * are a property of the box. Absent, the schedule holds its opening
+   * temperature for every round: the lottery is on and does not cool.
+   */
+  decisionFraction?(): number
 }
 
 /** B3 owns: the kernel loop. Ratchet is PER (epoch, posture) basis: an emitted

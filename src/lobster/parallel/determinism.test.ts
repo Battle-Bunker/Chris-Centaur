@@ -286,4 +286,71 @@ describe("worker parallelism is invisible to the answer", () => {
       clearGeometryCache()
     }
   })
+
+  /**
+   * CL4 — THE WORKER-JITTER CHAOS ARM, on the seeded lottery.
+   *
+   * Contract rule 20's clause about workers: *"the dispatch sequence is decided
+   * on the coordinator BEFORE any worker runs and is a pure function of (seed,
+   * board, epoch, slice) — never of worker timing; every priced bound is
+   * completion-order-independent; results fold at slice barriers in canonical
+   * arm-key order, never arrival order; worker jitter may change only which
+   * results make a deadline, never any bound's value nor the ordering among
+   * arrived results."*
+   *
+   * The chaos is REAL rather than simulated: three worker threads racing the
+   * main thread on a four-core box, landing parcels at slice boundaries nobody
+   * controls, while the coordinator's own branch choices come out of a seeded
+   * lottery. If the sampler had drawn anything from arrival order — a per-call
+   * counter instead of a per-node one, a temperature read inside a fold, a
+   * frontier re-derived rather than peeked — this is where it would show, and
+   * it would show as a different staged plan rather than as a warning.
+   *
+   * The clock is still the work counter (see the file header), so all four arms
+   * do exactly the same amount of search and the only thing varying is when the
+   * answers arrive.
+   */
+  it("the seeded lottery survives real worker jitter: pools 0-3 stage one plan", async () => {
+    const OPTIONS = {
+      sampledCap: true,
+      matchSeed: 0x51_4c_54,
+      kernel: { sliceMs: 20, reserveMs: 0, minWriteIntervalMs: 0 },
+    } as const
+    const forwarded0: string[] = []
+    const base = new TeamDecisionEngine(portsFor(forwarded0), { ...OPTIONS, workers: 0 })
+    let zero: Arm
+    try {
+      zero = await runArm(base, forwarded0, 40, 0)
+    } finally {
+      await base.shutdown()
+    }
+    clearGeometryCache()
+    // NOT VACUOUS: the lottery has to have actually drawn something, or this
+    // gate is the pool gate again under a different name.
+    expect(zero.forwarded.length).toBeGreaterThan(0)
+
+    for (const size of [1, 2, 3]) {
+      const forwarded: string[] = []
+      const engine = new TeamDecisionEngine(portsFor(forwarded), {
+        ...OPTIONS,
+        workers: size,
+        search: { bank: { auditImports: true } },
+      })
+      try {
+        expect(await warm(engine, forwarded)).toBe(true)
+        clearGeometryCache()
+        const arm = await runArm(engine, forwarded, 40, 0)
+        expect(engine.workerStats?.parcelsReturned ?? 0).toBeGreaterThan(0)
+        expect(engine.workerStats?.entriesReturned ?? 0).toBeGreaterThan(0)
+        expect(arm.forwarded).toEqual(zero.forwarded)
+        expect(arm.journal).toEqual(zero.journal)
+        expect(arm.finalPlan).toBe(zero.finalPlan)
+        expect(arm.prices).toBe(zero.prices)
+        expect(arm.slices).toBe(zero.slices)
+      } finally {
+        await engine.shutdown()
+      }
+      clearGeometryCache()
+    }
+  })
 })
