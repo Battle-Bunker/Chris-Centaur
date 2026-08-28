@@ -100,9 +100,20 @@ for (const f of ledger.flags) {
   w();
   for (const m of f.measurements ?? []) {
     const tags = [
-      m.kind,
+      m.kind === 'control' ? '**CONTROL CELL**' : m.kind,
       m.nullVerified ? 'null verified' : 'no null',
-      m.armEngagementVerified === false ? '**ENGAGEMENT UNVERIFIED**' : null,
+      // The tri-state, rendered as three things. `false` is a counter that was
+      // read and was zero; `null` is cannot say; absent is a row that never
+      // addressed it. All three refuse, and a reader should be able to see
+      // which one they are looking at.
+      m.kind !== 'live'
+        ? null
+        : m.armEngagementVerified === false
+          ? '**ENGAGEMENT SHOWN ZERO**'
+          : m.armEngagementVerified === true
+            ? 'engagement shown'
+            : '**ENGAGEMENT NOT SHOWN** (cannot say)',
+      m.polarity && m.polarity !== 'higher-is-better' ? m.polarity : null,
       m.power && m.power.underpowered ? `underpowered (${m.power.blocksHad}/${m.power.blocksNeeded} blocks)` : null,
     ].filter(Boolean);
     w(`- **${m.batch}** · ${m.cell} · \`${m.metric}\` → **${m.verdict}**  `);
@@ -112,6 +123,15 @@ for (const f of ledger.flags) {
     if (m.note) w(`  > ${m.note}`);
   }
   w();
+  if (f.controlEvidence) {
+    const ce = f.controlEvidence;
+    w('**Control cells** — cells the design requires to read zero. They vouch for the');
+    w('instrument and move no status in either direction.');
+    w();
+    for (const c of ce.inert ?? []) w(`- PASSED (inert as designed): \`${c}\``);
+    for (const c of ce.violated ?? []) w(`- **VIOLATED — instrument failure:** \`${c}\``);
+    w();
+  }
   if (f.verdict) {
     w(`**Verdict.** ${f.verdict}`);
     w();
@@ -158,13 +178,14 @@ w('several are deliberately *not* CL7 items because closing them would change');
 w('the decision path.');
 w();
 for (const i of ledger.openInstrumentItems ?? []) {
-  w(`### ${i.id}`);
+  w(`### ${i.id}${i.closedIn ? ' — **CLOSED**' : ''}`);
   w();
   w(i.what);
   w();
   if (i.impact) w(`*Impact:* ${i.impact}`);
   if (i.workaround) w(`*Workaround:* ${i.workaround}`);
   w(`*Closed by:* ${i.closedBy}`);
+  if (i.closedIn) w(`*Closed in:* ${i.closedIn}`);
   w();
 }
 
