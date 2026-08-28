@@ -1,0 +1,145 @@
+{
+ "_comment": [
+  "P11 — CENTAUR_SCOUT (CL6a), status probe-passed.",
+  "",
+  "QUESTION: At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?",
+  "",
+  "ARMS: off  |  scout-observe  |  scout-advise",
+  "READS OUT: scoutThreads, scoutPlies, postContactPlies, scoutRefusals, worstWallMs, decisions, score",
+  "",
+  "DESIGN NOTE: observe AND advise as separate arms: observe measures the cost with no behaviour change at all, so observe-vs-off isolates the tithe and advise-vs-observe isolates the advice. One arm carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is.",
+  "",
+  "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
+  "warning on anything else. Set the OFF arm by OMITTING the variable, and",
+  "check the manifest envAtRun block afterwards. Since the CL7 telemetry",
+  "closure the per-game rows also carry the RESOLVED flag stamp, which is",
+  "the value that actually ran — read that, not the environment.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p11-scout",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  43301,
+  43302,
+  43303,
+  43304,
+  43305,
+  43306,
+  43307,
+  43308,
+  43309,
+  43310,
+  43311,
+  43312,
+  43313,
+  43314,
+  43315,
+  43316
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

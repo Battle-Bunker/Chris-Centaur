@@ -502,6 +502,20 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
   }
 
+  /**
+   * THE KNOBS THIS GENERATOR RESOLVED — telemetry, and an ARM AUDIT.
+   *
+   * Every CL flag parses only `1|on|true` and warns on nothing, so a mistyped
+   * value produces an A/A null wearing a treatment's name (the trap the sim
+   * kit's P7 comment names). The environment capture in a batch manifest says
+   * what was SET; this says what the generator actually resolved, which is the
+   * quantity a promotion verdict depends on. A copy, so no caller can reach
+   * the live object: nothing outside this class may write a knob mid-decision.
+   */
+  resolvedKnobs(): Required<CandidateKnobs> {
+    return { ...this.knobs };
+  }
+
   candidatesFor(sub: Substrate, unitId: UnitId, purpose: 'ours' | 'adversary' = 'ours'): CandidateSet {
     if (!(sub instanceof EngineSubstrate)) {
       // This implementation is engine-specific: the risk layer behind the

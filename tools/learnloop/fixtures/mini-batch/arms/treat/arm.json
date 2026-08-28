@@ -1,0 +1,10 @@
+{
+ "arm": "treat",
+ "bundleStamp": {
+  "sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+  "ref": "fixture"
+ },
+ "envOverrides": {
+  "CENTAUR_WASM": "on"
+ }
+}

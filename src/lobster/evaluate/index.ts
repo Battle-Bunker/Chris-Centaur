@@ -71,8 +71,8 @@ export {
 } from './features';
 export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
-export { partitionOf, tierAtTurn, workspaceFor } from './territory';
-export type { Admission, Partition, TrailRoom } from './territory';
+export { partitionOf, tierAtTurn, wasmEngagementOf, workspaceFor } from './territory';
+export type { Admission, Partition, TrailRoom, WasmEngagement } from './territory';
 export {
   SHIELD_TURNS_MAX,
   TERRITORY_REFINE_ENV,

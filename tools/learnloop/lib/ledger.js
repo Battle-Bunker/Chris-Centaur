@@ -1,0 +1,362 @@
+'use strict';
+/*
+ * THE PROMOTION LEDGER — schema, invariants, and the rules by which a
+ * measurement is allowed to move a flag's status.
+ *
+ * ── ONE ARTIFACT, TWO CONSUMERS ────────────────────────────────────────────
+ *
+ * arch-synthesis Stage 5: *"the A/B harness output IS the production predicate
+ * table — one artifact, two consumers."* This file is that artifact's schema.
+ * The cloud coordinator reads it to decide what has been settled; the local sim
+ * session reads it to know what to run next; `bin/make-promotion-batch.js`
+ * turns it into the next batch's specs, so "what should the PC run next?" is a
+ * command rather than a judgement call.
+ *
+ * ── THE SEVEN STATUSES, AND THE LADDER BETWEEN THEM ────────────────────────
+ *
+ *   dark          the flag exists, ships off, and has no measurement at all.
+ *   probe-passed  a DETERMINISTIC probe (replay, fixture, counting budget)
+ *                 cleared its gate. NECESSARY, NEVER SUFFICIENT — see below.
+ *   live-null     a live paired sweep with a valid concurrent null found no
+ *                 effect it could resolve. NOT "no effect": read the power row.
+ *   live-failed   a live paired sweep found a cost outside its own null band.
+ *   supported     a live paired sweep supports the default flip and the flip
+ *                 has NOT been made. The distinction from `promoted` is the
+ *                 ledger's action list: a supported flag is work owed.
+ *   promoted      supported, and the default was actually flipped, with the
+ *                 commit that did it named.
+ *   frozen        conditioned to null and CLOSED. Re-opened only by a MECHANISM
+ *                 CLAIM — a statement about how the thing works that predicts a
+ *                 different answer — never by a p-value. (A3 §4.2 item 3.)
+ *
+ * ── WHY A DETERMINISTIC PROBE CAN NEVER PROMOTE ────────────────────────────
+ *
+ * This is not a methodological preference; it is a finding, and it is the most
+ * expensive one this program has bought. CENTAUR_CLUSTER_SEED passed CL1's
+ * deterministic ship gate outright — fatal stagings 41 -> 0, teammate kills
+ * 25 -> 4 — and then FAILED live: snake6 win rate 1.00 -> 0.15, exhaustion
+ * deaths x1.9. The collapse arrived through travel economy, a channel the probe
+ * does not measure and could not have measured, because the probe scores
+ * positions and the failure is about the shape of a whole game.
+ *
+ * So the ladder is one-directional and the gate is hard:
+ *
+ *   a deterministic probe may raise `dark` -> `probe-passed` AND NOTHING MORE;
+ *   only a LIVE PAIRED SWEEP with a concurrent, verified null may write
+ *   `live-null`, `live-failed`, `supported` or `promoted`.
+ *
+ * `applyMeasurement` enforces it. A probe measurement that arrives claiming a
+ * live status is rejected, not downgraded quietly.
+ *
+ * ── THE POWER ROW IS PART OF EVERY VERDICT ─────────────────────────────────
+ *
+ * A3 §4.1: block dispersion of the placement metric puts 80% power at MDE 0.25
+ * around 58 blocks on the pooled stratum and 8 on the tightest, while MDE 0.10
+ * needs 362 — 1,000+ games per cell per arm. Mechanism metrics move at n≈8.
+ * Every measurement therefore carries `blocksHad` and `blocksNeeded`, and a
+ * PLACEMENT verdict from a cell with `blocksHad < blocksNeeded` is recorded as
+ * `underpowered: true` and may not move the status. The loop refuses to learn
+ * from cells that cannot teach it.
+ *
+ * ── THE EXPLORATION SLICE ──────────────────────────────────────────────────
+ *
+ * A3 §4.2 item 6: the policy decides which games get played with which
+ * features, so tomorrow's corpus is selected by today's policy. A PROMOTED flag
+ * therefore keeps a ~10% slice running its opposite branch, forever, or the
+ * cell that turned it on will never generate the data by which it could be
+ * turned back off. `explorationSlice` is that share, and the batch generator
+ * emits the cells for it.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { blocksForPower, mdeAtBlocks, round } = require('./stats');
+
+const SCHEMA_VERSION = 1;
+
+const STATUSES = [
+  'dark',
+  'probe-passed',
+  'live-null',
+  'live-failed',
+  'supported',
+  'promoted',
+  'frozen',
+];
+
+/** Statuses only a live paired sweep with a verified null may write. */
+const LIVE_ONLY = new Set(['live-null', 'live-failed', 'supported', 'promoted']);
+
+/**
+ * THE METRIC FAMILIES THAT MAY MOVE A STATUS.
+ *
+ *   placement  who won. The thing the flag is ultimately for.
+ *   mechanism  what the engine did. Moves at n~8 and is what the loop refits on.
+ *   soundness  a law the layer owes. A nonzero here is a failure at any n.
+ *
+ * Everything else is recorded and reads into the narrative without moving
+ * anything:
+ *
+ *   engagement DID THE ARM RUN. It is not evidence that the treatment helped —
+ *              it is the precondition for reading any other row at all, and it
+ *              is consumed through `armEngagementVerified`, not as a verdict.
+ *              `wasmRuns: 0 -> 812` says the arm engaged; it says nothing
+ *              whatever about whether engaging was a good idea.
+ *   audit      which arm actually ran (the resolved flag stamp).
+ *   cost       microseconds and wall time. A cost is one side of a trade and
+ *              never a verdict on its own; the ledger's `nextExperiment` rows
+ *              are where a cost is weighed against what it bought.
+ *   shape      cap rate, turn counts. Real, and a drift signal, but a shape
+ *              change with null placement is a finding to investigate rather
+ *              than a promotion or a failure.
+ */
+const STATUS_MOVING_FAMILIES = new Set(['placement', 'mechanism', 'soundness']);
+
+/** The share of a promoted flag's cells that keep running the opposite branch. */
+const EXPLORATION_SLICE = 0.1;
+
+const LEDGER_PATH = path.join(__dirname, '..', 'promotion-ledger.json');
+
+function load(file = LEDGER_PATH) {
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  validate(raw);
+  return raw;
+}
+
+function save(ledger, file = LEDGER_PATH) {
+  validate(ledger);
+  fs.writeFileSync(file, JSON.stringify(ledger, null, 2) + '\n');
+}
+
+function validate(ledger) {
+  const errs = [];
+  if (ledger.schemaVersion !== SCHEMA_VERSION) {
+    errs.push(`schemaVersion ${ledger.schemaVersion} != ${SCHEMA_VERSION}`);
+  }
+  if (!Array.isArray(ledger.flags)) errs.push('flags is not an array');
+  for (const f of ledger.flags ?? []) {
+    if (!f.flag) errs.push('a flag row has no `flag`');
+    if (!STATUSES.includes(f.status)) errs.push(`${f.flag}: bad status ${f.status}`);
+    if (!Array.isArray(f.measurements)) errs.push(`${f.flag}: measurements is not an array`);
+    if (!f.promotionMetrics || !Array.isArray(f.promotionMetrics)) {
+      errs.push(`${f.flag}: no promotionMetrics — a gate nobody named is a gate nobody can run`);
+    }
+    if (f.status === 'frozen' && !f.reopenOn) {
+      errs.push(`${f.flag}: frozen with no reopenOn — a frozen cell must name the mechanism claim that reopens it`);
+    }
+    if (f.status === 'promoted' && !f.promotedBy) {
+      errs.push(
+        `${f.flag}: status promoted with no promotedBy — a promotion whose commit nobody named ` +
+          'is a claim, not a change'
+      );
+    }
+    if (LIVE_ONLY.has(f.status)) {
+      const live = (f.measurements ?? []).some((m) => m.kind === 'live' && m.nullVerified);
+      if (!live) errs.push(`${f.flag}: status ${f.status} with no live measurement carrying a verified null`);
+    }
+    for (const m of f.measurements ?? []) {
+      if (!m.batch) errs.push(`${f.flag}: a measurement has no batch id`);
+      if (!['probe', 'live', 'historical'].includes(m.kind)) {
+        errs.push(`${f.flag}/${m.batch}: bad measurement kind ${m.kind}`);
+      }
+    }
+  }
+  if (errs.length > 0) {
+    const e = new Error(`promotion ledger is invalid:\n  - ${errs.join('\n  - ')}`);
+    e.errors = errs;
+    throw e;
+  }
+  return true;
+}
+
+function flagOf(ledger, name) {
+  return ledger.flags.find((f) => f.flag === name) ?? null;
+}
+
+/**
+ * The power row for one measurement: what the cell HAD, what a placement claim
+ * at the given MDE NEEDS, and what the blocks it had can actually resolve.
+ */
+function powerRow({ blocksHad, blockSd, mde = 0.25 }) {
+  return {
+    blocksHad: blocksHad ?? null,
+    blockSd: blockSd === undefined || blockSd === null ? null : round(blockSd),
+    mdeTarget: mde,
+    blocksNeeded: blockSd ? blocksForPower(blockSd, mde) : null,
+    mdeResolvable: blockSd ? mdeAtBlocks(blockSd, blocksHad) : null,
+    underpowered:
+      blockSd && blocksHad ? blocksHad < blocksForPower(blockSd, mde) : null,
+  };
+}
+
+/**
+ * APPLY ONE MEASUREMENT TO ONE FLAG, and return what changed and why.
+ *
+ * The rules, all of them refusals:
+ *
+ *  1. A `probe` measurement may raise `dark` -> `probe-passed` and may write no
+ *     other status. (The CENTAUR_CLUSTER_SEED lesson, in code.)
+ *  2. A `live` measurement without `nullVerified` may not move the status at
+ *     all: a treatment delta with no concurrent null is unreadable, whatever
+ *     its size. Historical baselines do not substitute — A3 §4.2 item 2.
+ *  3. A placement verdict from an underpowered cell is recorded and may not
+ *     move the status. Mechanism verdicts still may: they resolve at n≈8.
+ *  4. A `frozen` flag is not moved by any measurement. It is re-opened by
+ *     `reopen(flag, claim)` and by nothing else.
+ *  5. Every measurement is APPENDED. The ledger is a record, not a current
+ *     value; a status without the measurements that produced it is an opinion.
+ */
+function applyMeasurement(ledger, flagName, m) {
+  const f = flagOf(ledger, flagName);
+  if (f === null) throw new Error(`no such flag in the ledger: ${flagName}`);
+  const notes = [];
+
+  if (!m.batch) throw new Error(`${flagName}: a measurement must name its batch`);
+  if (!['probe', 'live', 'historical'].includes(m.kind)) {
+    throw new Error(`${flagName}: unknown measurement kind ${m.kind}`);
+  }
+  if (f.measurements.some((x) => x.batch === m.batch && x.cell === m.cell && x.metric === m.metric)) {
+    return { changed: false, notes: [`${flagName}: ${m.batch}/${m.cell}/${m.metric} already recorded`] };
+  }
+
+  f.measurements.push(m);
+  const before = f.status;
+
+  if (f.status === 'frozen') {
+    notes.push(
+      `${flagName}: frozen — measurement recorded, status untouched. A frozen cell is ` +
+        're-opened by a mechanism claim, never by a p-value (A3 §4.2 item 3).'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  if (m.kind === 'probe') {
+    if (m.verdict === 'passed' && f.status === 'dark') {
+      f.status = 'probe-passed';
+      notes.push(
+        `${flagName}: dark -> probe-passed. A deterministic probe is NECESSARY AND NEVER ` +
+          'SUFFICIENT: CENTAUR_CLUSTER_SEED passed exactly this gate and then lost snake6 ' +
+          '1.00 -> 0.15 live.'
+      );
+      return { changed: true, before, after: f.status, notes };
+    }
+    notes.push(`${flagName}: probe recorded; a probe may not write a live status.`);
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  if (m.kind === 'historical') {
+    notes.push(
+      `${flagName}: historical measurement recorded. Historical rows inform the next ` +
+        'experiment and never move a status — they carry no bundle stamp and no concurrent null.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  // kind === 'live'
+  if (!m.nullVerified) {
+    notes.push(
+      m.verdict === 'unreadable'
+        ? `${flagName}: ${m.cell}/${m.metric} is UNREADABLE — the A/A cell carried no floor for ` +
+          'this metric, so its delta has nothing to be read against. Recorded; status untouched. ' +
+          'An absent instrument is not a null result.'
+        : `${flagName}: live measurement recorded WITHOUT a verified null — status untouched. ` +
+          'A treatment delta read against no null is unreadable at any size.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+  if (m.armEngagementVerified === false) {
+    notes.push(
+      `${flagName}: live measurement recorded, status untouched — THE TREATMENT ARM'S ` +
+        'ENGAGEMENT WAS NOT VERIFIED. A null from an arm that never ran is a different ' +
+        'finding from a null from an arm that ran and did not help, and only the mechanism ' +
+        'rows tell them apart. This is the P5 wasm cell verbatim: `on` is refused per ' +
+        'partition, silently, whenever an input is not resident. Re-run with the ' +
+        "engagement counters on the record (CL7's mechanism report)."
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+  if (m.family && !STATUS_MOVING_FAMILIES.has(m.family)) {
+    notes.push(
+      `${flagName}: ${m.family} row recorded (${m.cell}/${m.metric} = ${m.value}); a ` +
+        `${m.family} metric does not move a status.`
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+  if (m.family === 'placement' && m.power && m.power.underpowered) {
+    notes.push(
+      `${flagName}: placement verdict from an underpowered cell (${m.power.blocksHad} blocks, ` +
+        `${m.power.blocksNeeded} needed for MDE ${m.power.mdeTarget}) — recorded, status ` +
+        'untouched. The loop does not learn placement from cells that cannot teach it.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+
+  const next =
+    m.verdict === 'failed'
+      ? 'live-failed'
+      : m.verdict === 'supports-promotion'
+        ? 'supported'
+        : 'live-null';
+  if (next === 'live-null' && f.status === 'live-failed') {
+    notes.push(
+      `${flagName}: a null row does not undo a demonstrated cost. Status stays live-failed. ` +
+        'A flag that lost a cell is not rehabilitated by other cells declining to reproduce ' +
+        'the loss — it is rehabilitated by a root cause and a repaired arm.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+  if (next === 'supported' && f.status === 'live-failed') {
+    notes.push(
+      `${flagName}: a supporting cell does not overturn a live FAILURE on its own. Status stays ` +
+        'live-failed; the failure needs a root cause and a repaired arm, not a second opinion.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
+  f.status = next;
+  notes.push(`${flagName}: ${before} -> ${next} on ${m.batch}/${m.cell} (${m.metric}).`);
+  return { changed: true, before, after: f.status, notes };
+}
+
+/** Re-open a frozen cell. Requires a MECHANISM CLAIM, in words. */
+function reopen(ledger, flagName, claim) {
+  const f = flagOf(ledger, flagName);
+  if (f === null) throw new Error(`no such flag: ${flagName}`);
+  if (f.status !== 'frozen') throw new Error(`${flagName} is not frozen`);
+  if (!claim || claim.trim().length < 20) {
+    throw new Error(
+      `${flagName}: re-opening a frozen cell needs a MECHANISM CLAIM — a statement about how ` +
+        'the thing works that predicts a different answer. A p-value is not one.'
+    );
+  }
+  f.status = 'dark';
+  f.reopenedBy = claim;
+  return f;
+}
+
+/** Flags whose next experiment the batch generator must schedule. */
+function undecided(ledger) {
+  return ledger.flags.filter((f) => ['dark', 'probe-passed', 'live-failed'].includes(f.status));
+}
+
+/** Flags that owe an exploration slice (the ratchet guard). */
+function needsExploration(ledger) {
+  return ledger.flags.filter((f) => f.status === 'promoted' || f.status === 'supported');
+}
+
+module.exports = {
+  SCHEMA_VERSION,
+  STATUSES,
+  LIVE_ONLY,
+  STATUS_MOVING_FAMILIES,
+  EXPLORATION_SLICE,
+  LEDGER_PATH,
+  load,
+  save,
+  validate,
+  flagOf,
+  powerRow,
+  applyMeasurement,
+  reopen,
+  undecided,
+  needsExploration,
+};
