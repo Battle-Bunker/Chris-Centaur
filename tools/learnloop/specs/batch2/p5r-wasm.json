@@ -5,7 +5,7 @@
   "QUESTION: With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?",
   "",
   "ARMS: off  |  wasm-on",
-  "READS OUT: wasmRuns, wasmRefused, capRate, worstWallMs, decisions, turns, score",
+  "READS OUT: wasmRuns, wasmRefused, capRate, turns, decisions, decisive, worstWallMs, score",
   "",
   "GATE: REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.",
   "",

@@ -7,35 +7,113 @@ reads out, and the design note that says why the arms are shaped that way.
 
 `P-LIST.json` is the machine-readable form of the table below.
 
+## What batch 1 changed here
+
+Regenerated **2026-08-28** after the `20260827-overnight` fold. The batch is the
+same size — 12 specs, 2,472 games, the same cells and the same seed sequences,
+so nothing here is a *different* experiment from the proposal CL7 built. Three
+things moved:
+
+1. **P5R is now first, not seventh.** The list is ordered to be cut from the
+   bottom, so the order *is* the priority, and batch 1 earned `CENTAUR_WASM` the
+   top slot: it is the only scheduled experiment that **closes** a standing
+   anomaly rather than opening a new question. Batch 1 left that anomaly as four
+   ✱ rows on one cell — cap rate 0.229→0.458, turns +21.44, decisions +21.75,
+   decisive −0.229 — with placement dead flat and **no way to tell whether the
+   arm ran at all**. CL7 shipped the counters that settle it. If the night is
+   short, P5R survives the cut.
+2. **P5R reads out the whole anomaly cluster**, not just `capRate`: `turns`,
+   `decisions` and `decisive` are now on its list, because a rerun that only
+   re-measures the cap rate cannot confirm or clear the thing it exists to
+   resolve.
+3. **P7R's blocker has a name and a critical path.** It was "the miner may
+   answer it without new games". It is now "the miner *cannot start* until the
+   replay archive is uploaded" — the single upload that unblocks the only
+   not-scheduled item in this batch.
+
 ## The list
 
 | id | flag | blocks | games/arm | why now |
 |---|---|---|---|---|
+| **P5R** | `CENTAUR_WASM` | 16 | 144 | **Run first.** See the table row below; promoted to the head of the cut order by batch 1. |
 | **P12** | `CENTAUR_EDGE_EV` | 16 | 144 | Never raced. The probe found staged meals up (5→8) and meals *eaten* down (84→81) on piece boards — a tension only a live arm can adjudicate. |
 | **P8/P9-joint** | `CENTAUR_CLUSTER_ENUM` | 16 | 144 | The strongest deterministic case on the branch (fatal stagings fall at every point of the q-curve, mean Δfloor +1.03 at the census's own regime) and never raced. Includes the graded-seed joint arm as a **diagnostic** on the seed's failure, not as a promotion candidate. |
 | **P9** | `CENTAUR_SAMPLED_CAP` | 16 | 144 | Far-priced options 0→22 at q=32 with zero fatal stagings. Raced **jointly with enum**: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. |
 | **P10** | `CENTAUR_TERRITORY_REFINE` | 16 | 144 | Sound by brute force, zero argmax flips offline, +22 µs/**evaluation**. The question is purely economic and purely live. Base arm is `enum-on`, not `off` — the refiner requires the enumeration. |
 | **P11** | `CENTAUR_SCOUT` | 16 | 144 | The scout exists and costs 16.8 ms/decision. `observe` and `advise` are **separate arms**: observe−off isolates the tithe, advise−observe isolates the advice. One arm carrying both would report their sum. |
-| **P5R** | `CENTAUR_WASM` | 16 | 144 | The rerun with engagement on the record. **Gated: refuse the cell if `wasmRuns` is 0 on the treatment arm** — that is a broken arm, not a null, and reporting it as a null is the error this rerun exists to correct. Requires a bundle built at or after the CL7 telemetry closure. |
-| **P13** | `CENTAUR_WORKERS` | 16 | 96 | Low priority. P1 already bounds the whole substrate's strength effect at null; this only sharpens attribution to the pool. |
+| **P5R** *(first)* | `CENTAUR_WASM` | 16 | 144 | The rerun with engagement on the record, and the batch's highest-value run. **Gated: refuse the cell if `wasmRuns` is 0 on the treatment arm** — that is a broken arm, not a null, and reporting it as a null is the error this rerun exists to correct. Requires a bundle built at or after the CL7 telemetry closure. One run separates the three candidate readings of batch 1's four-row shape cluster: `wasmRuns == 0` (the arm never engaged and P5 was never about wasm), `wasmRuns > 0` with `wasmRefused` high (the silent per-partition refusal is real), or engaged and refusing little with the cluster still present (the arm genuinely changes how games terminate). |
+| **P13** | `CENTAUR_WORKERS` | 16 | 96 | Low priority, and lower after batch 1. P1 bounds the whole substrate's strength effect at null — but its *wall-clock* rows ran the wrong way for the substrate (worstWallMs +4.02 ✱ on `snake5-queen`, +1.92 ✱ on `null-snake6`), so if this is run, read `worstWallMs` as a primary output rather than a footnote. First to cut. |
 | **P16 @ 500 / 1000 / 2000** | budget ladder | 8 each | 48 each | The owner's pre-approved follow-up, and its condition is **met**: budget-probe v2 confirmed a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 ± 7.0 against an A/A floor of 1.7 ± 3.2). One trail-instrumented cell — the 35% revision wave was measured pre-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved. |
 | **X9** | the exploration slice | 4 | 36 | `TERRITORY_SLIDER_PROFILE`, `CENTAUR_STAGING_SAFETY` and `gainOrdering` each run their **opposite** branch. The ratchet guard: today's policy selects tomorrow's corpus. Mechanism-first; do not read placement off these cells. |
-| **N0** | the A/A null | 16 | 96 | Mandatory, and sized like the treatment cells. Batch 20260827 measured ±0.097 (mix-king) and ±0.032 (snake6) with 0 illegal and 0 errors. A wider band this time is an **instrument event**, not a nuisance. |
+| **N0** | the A/A null | 16 | 96 | Mandatory, and sized like the treatment cells. Batch 20260827 measured ±0.097 (mix-king) and ±0.032 (snake6) with 0 illegal and 0 errors. A wider band this time is an **instrument event**, not a nuisance. **Add cells by hand before running — see below.** |
+
+### N0 needs cells the generator will not give it
+
+`make-promotion-batch.js` hard-codes the A/A null's cells as `headline-mix-king`
+and `null-snake6`, whatever the treatments actually run on. Batch 1 measured a
+floor for **two of its eight cells**, and by the ledger's own rule a metric with
+no floor in the A/A cell is `unreadable`, not `null` — so the other six produced
+rows that had to be recorded and refused. It cost the ledger its single best
+result: `TERRITORY_SLIDER_PROFILE`'s only win is on `snake5-queen` (+0.115
+[+0.014, +0.216]) and clears a *borrowed* mix-king floor by 0.018.
+
+Batch 2 repeats the pattern unless someone intervenes: **P5R runs
+`hazard-mix-king`, P7R (if the miner calls for it) runs `snake5-knight`, and the
+slider's win cell is `snake5-queen` — none of them will get a floor.** Before
+running, add `snake5-queen` and `hazard-mix-king` to `n0-aa-null.json` by hand.
+It is the cheapest box time in the batch: an unfloored treatment cell is games
+spent on a row nobody is allowed to read. Tracked as `AA-FLOOR-COVERAGE` in the
+ledger's open instrument items, with the generator fix that closes it properly.
 
 **12 specs, 2,472 games across both arms of every pair.** Batch 1 was 1,824
 games in one overnight on the 24-core box, so this is roughly 1.35 nights at the
-same throughput. It is ordered to be cut from the bottom: dropping P13 and the
-budget ladder's 500 ms rung saves 288 games and loses the least.
+same throughput. It is ordered to be cut from the bottom.
+
+**What to cut, revised by batch 1.** P13 first — P1 bounds the substrate's
+strength at null and its wall-clock rows now argue against the pool as well.
+Then the budget ladder's **2000 ms** rung, *not* the 500 ms one, which is the
+reverse of the obvious call and is what batch 1's emission trails imply: the
+engine stages an incumbent in under 250 ms in 99.9% of decisions and then
+revises in a single wave landing at **1000–1500 ms**, with the 250–1000 ms
+window empty (8 decisions out of 102,646). It is deadline-aware — under a 1 s
+budget it *reschedules* the deep pass rather than losing it — which is why a
+true 1000 ms run still reproduces the 2000 ms decision 91.7% of the time.
+2000 ms is the rung we already have a whole batch of; **500 ms is the only rung
+that might actually amputate the second pass**, so it is where the ladder's
+information is. Never cut X9, and never cut N0.
 
 ## Not scheduled, and why
 
 **P7R — `CENTAUR_CLUSTER_SEED`'s root cause.** The flag is `live-failed` and the
-next step is the **root-cause miner on the already-delivered 20260827 replays**,
-not new games. Two named falsifiers exist and neither needs a live arm: raise
-`restarts`, and turn `rungZeroRepair` on. If the shortfall is basin choice it
-should vanish under either. Schedule live support cells only if the miner comes
-back needing them — and the ledger's `nextExperiment` for P7R is already written
-so that scheduling it is one edit, not a new design.
+next step is the **root-cause miner on the 20260827 replays**, not new games.
+Two named falsifiers exist and neither needs a live arm: raise `restarts`, and
+turn `rungZeroRepair` on. If the shortfall is basin choice it should vanish
+under either.
+
+**But the replays have not arrived, so the miner cannot start, so P7R is
+blocked on an upload and nothing else.** That makes the archive this batch's
+only true dependency.
+
+Batch 1 also changed P7R's *shape*, so scheduling it is still one edit but it is
+now a better experiment. It was a two-cell falsifier hunt; it is now a
+three-cell **density ladder**, because the batch showed the seed's effect has a
+sign that depends on the board:
+
+| cell | role | what batch 1 measured |
+|---|---|---|
+| `null-snake6` | the failing cell | win 1.00→0.15, exhaustion ×1.92 |
+| `snake5-knight` | **the discriminator** *(new)* | exhaustion ×2.09 — the *largest* ratio in the batch — with placement **null** |
+| `headline-mix-king` | **the support cell** *(new role)* | placement flat, and `finalMaterial` +5.10 ✱ and `survived` +0.146 ✱ **favour the seed** |
+
+`snake5-knight` is what makes it a ladder: it separates "exhaustion inflation"
+from "placement collapse", which the two-cell design could not. A root cause
+that predicts a placement loss there is wrong. And a root cause that cannot
+explain why the *same* mechanism helps on a full piece roster and ruins a
+snake-only board is not a root cause. The live reading is no longer "the seed is
+a dead idea" but "the seed is admissible on some boards and ruinous on others,
+and nothing currently decides which board it is on" — which points at a
+**conditional-admission** future, the same shape `CENTAUR_STAGING_SAFETY`
+already ships as `auto`.
 
 **P4R — `CENTAUR_TIER_TRUTH=full` at ply 2.** Blocked on P11. There is no point
 measuring the ply-2 prerequisite before the ply-2 consumer has been raced. This
@@ -43,11 +121,39 @@ flag will be promoted for a *soundness* reason and not a placement one; the
 ledger says so, so a future reader does not go looking for a placement win that
 will never arrive.
 
-**P6R — `CENTAUR_COHORT_POLICY`.** Deferred. The `arch/s2` governor publishes no
-counter the mechanism report can fold, so its null is engagement-unverified by
-construction and a rerun would produce another unreadable row. Its target boards
-are the crowded ones — more claimants than budget is where a governor can act at
-all — and that cell is worth running the day the counters exist.
+Batch-1 refinement: P4 produced **no ✱ row anywhere** — not on placement, not on
+mechanism, not on cost, on any of its three potion cells. That is consistent
+with the n=1 no-op prediction and equally consistent with the arm not having
+engaged, and the batch cannot tell them apart. The flag is now filed
+`nullKind: engagement-unshown`, expressly to keep it distinct from
+`CENTAUR_COHORT_POLICY`, which carries the same `live-null` status and the
+opposite epistemic state. Two flags, one status word — read `nullKind` before
+averaging them.
+
+**P6R — `CENTAUR_COHORT_POLICY`.** Still deferred, but for a **different and
+smaller reason than CL7 recorded**, and the correction is worth reading before
+anyone reruns it.
+
+CL7 filed P6's null as engagement-unverified "for the same structural reason as
+P5". The batch-1 fold overturned that. P5 has no evidence of any kind that its
+arm ran. P6 has **four ✱ harness-side rows on two independent cells** —
+`worstWallMs` +5.13 [+3.41, +7.22] on `hazard-mix-king` and +5.13 [+3.31, +6.94]
+on `headline-mix-king`, with `plansEvaluated` +14.3k on both — and a governor
+that never admitted anything cannot cost five milliseconds of worst-case wall
+time and fourteen thousand extra plans, twice, reproducibly. **Engagement is
+shown.** (Using the retired `plansEvaluated` this way is inside its retirement:
+it is retired as a *verdict* metric and explicitly kept as a broken-arm
+diagnostic, and "did the arm run" is the diagnostic question.)
+
+So P6 is the ledger's only **engaged-and-did-not-help** row: a measured cost
+with no measured benefit, which is a real finding about the governor rather than
+an absence of one. What is still missing is `admissionRate` itself — the
+governor publishes no counter, so the cost is attributed to it *running* and not
+to any particular admission decision. A rerun is therefore no longer needed to
+establish engagement, only to interpret it, which makes the counters the whole
+of the block. Its target boards remain the crowded ones: more claimants than
+budget is where a governor can act at all, and mix-king may simply not be
+crowded enough for admission to bind.
 
 ## Running it
 
@@ -60,3 +166,33 @@ Since the CL7 telemetry closure the per-game rows also carry the **resolved flag
 stamp** — what the engine actually ran on, as opposed to what the environment
 was set to. Read that. It is the only thing that distinguishes a treatment arm
 from an arm that thought it was one.
+
+Batch 1 was audited for exactly this and came back clean: sixteen arms, zero
+mistyped values. `"on"` is correct for `CENTAUR_WASM` (which parses `on|off`)
+and for `CENTAUR_COHORT_POLICY` (`1|on|true`), and `"full"` is correct for
+`CENTAUR_TIER_TRUTH` (`off|expiry|full`); the `1|on|true` warning applies to the
+five search-side CL flags, all of which were set to `"1"`. That is an audit of
+the *environment*, though, not of what resolved inside the engine — the stamp
+that would close it postdates those bundles. Batch 2 is the first batch where
+the stamp exists, so this is the first batch where the audit can be real.
+
+## Ship the replays
+
+One upload does more for the program than any spec in this list. The 77 MB
+archive (2,592 replays) unblocks, in order of value:
+
+1. **P7R's root-cause miner** — the only not-scheduled experiment here, and the
+   thing standing between the program and `CENTAUR_CLUSTER_SEED`'s root cause.
+2. **`bin/ingest.js` against batch 1 at all.** It has never run on this batch:
+   the delivery ships analysis markdown and a slimmed `manifest-core.json` with
+   no per-game rows, so the tool refused with `no arms found` and every batch-1
+   row in the ledger was transcribed by hand. Nothing has independently
+   recomputed a CI, a pairing check, or a hygiene row from the games themselves,
+   and the automatic instrument-event detectors never ran — including
+   `cap-rate-asymmetry`, which is precisely the shape of the P5 anomaly a human
+   had to spot instead.
+3. **`EDGE-EV-EATS`** — `CENTAUR_EDGE_EV`'s primary gate metric is in the
+   replays and nowhere else, and P12 is scheduled in this batch.
+
+The full deferred list is on the ledger's batch record at
+`batches[0].ingest.deferredRows`.

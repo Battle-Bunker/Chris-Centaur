@@ -8,8 +8,27 @@
       "flag": "CENTAUR_CLUSTER_SEED",
       "status": "live-failed",
       "scheduled": false,
-      "reason": "the root-cause miner on the delivered 20260827 replays, which may answer it without new games. Schedule the live arms only if the miner needs them.",
-      "question": "Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on."
+      "reason": "the root-cause miner on the delivered 20260827 replays, which may answer it without new games — AND the miner cannot start until the replay archive is uploaded. That upload is now this experiment's critical path: it is the only not-scheduled item in batch 2 and the only thing standing between the program and the seed's root cause.",
+      "question": "Two questions now, and the second is new. (1) Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on. (2) Is the seed CONDITIONALLY admissible — does the piece-density gradient hold up, and can the same own-board predicate that gates CENTAUR_STAGING_SAFETY's `auto` mode gate this one?"
+    },
+    {
+      "id": "P5R",
+      "flag": "CENTAUR_WASM",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p5r-wasm",
+      "arms": [
+        "off",
+        "wasm-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "hazard-mix-king",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
     },
     {
       "id": "P12",
@@ -108,25 +127,6 @@
       "blocks": 16,
       "gamesPerArm": 144,
       "question": "At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?"
-    },
-    {
-      "id": "P5R",
-      "flag": "CENTAUR_WASM",
-      "status": "probe-passed",
-      "scheduled": true,
-      "sweepId": "p5r-wasm",
-      "arms": [
-        "off",
-        "wasm-on"
-      ],
-      "cells": [
-        "headline-mix-king",
-        "hazard-mix-king",
-        "null-snake6"
-      ],
-      "blocks": 16,
-      "gamesPerArm": 144,
-      "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
     },
     {
       "id": "P13",
