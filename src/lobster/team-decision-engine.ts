@@ -223,6 +223,16 @@ export interface TeamDecisionOptions {
    */
   readonly sampledCap?: boolean;
   /**
+   * Whether this ENGINE runs Door C's contested reach/room refiner (CL5),
+   * overriding `CENTAUR_TERRITORY_REFINE`. A sixth flag, by the same standing
+   * rule: what has to be measurable is one seat against unchanged opponents.
+   *
+   * It needs `clusterEnum` on — the refiner spends only on units the exact
+   * joint enumeration has already paid for — and with it off the evaluator is
+   * byte-for-byte the one that shipped. See `evaluate/refine.ts`.
+   */
+  readonly territoryRefine?: boolean;
+  /**
    * THE PRIVATE PER-MATCH SEED — PINNED, when a caller names one.
    *
    * The lottery's stream is `f(matchSeed, board, decision index)`. Naming a
@@ -667,6 +677,7 @@ export class TeamDecisionEngine {
         seedDeconflict: safety !== 'off',
         clusterSeed: this.options.clusterSeed,
         clusterEnum: this.options.clusterEnum,
+        territoryRefine: this.options.territoryRefine,
         sampledCap: this.options.sampledCap,
         // THE PRIVATE HALF OF THE LOTTERY. Zero when the lottery is off (and
         // then nothing reads it); the caller's number when one is pinned; a

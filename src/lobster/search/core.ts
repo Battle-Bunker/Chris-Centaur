@@ -76,6 +76,7 @@ import type { CandidateKnobs } from "../candidates";
 import { EngineSubstrate } from "../substrate";
 import { SeedWorkspace, clusterSeedEnabled, greedySeed } from "./cluster-seed";
 import { clusterEnumEnabled, partitionOf, type Partition } from "./cluster-partition";
+import { setRefineScope, territoryRefineEnabled } from "../evaluate/refine";
 import {
   DEFAULT_CLUSTER_TUNING,
   enumerateProposals,
@@ -183,6 +184,23 @@ export interface SearchTuning {
   readonly clusterEnum: boolean | undefined;
   /** Budgets for the enumeration. Only read when `clusterEnum` resolves on. */
   readonly clusterTuning: Partial<ClusterTuning>;
+  /**
+   * DOOR C — THE CONTESTED REACH/ROOM REFINER (CL5), per engine.
+   *
+   * With it on, the evaluator gets a SECOND sound reading of the territory
+   * partition in which a HELD unit's arrival flood is stopped at our own
+   * enumerated units' living bodies, and publishes the MEET of the two: the
+   * floor can only rise and the ceiling can only fall. Zero new semantics — it
+   * is a better computation of a term the one-ply frame already contains.
+   *
+   * It runs only over units this decision's cluster enumeration already paid
+   * for, so `clusterEnum` must also resolve on; a caller that asks for the
+   * refiner without the enumeration gets no scope and no refinement, and the
+   * cluster report says so. Undefined follows `CENTAUR_TERRITORY_REFINE`.
+   * DEFAULT OFF, and off it registers no scope, so `makeContext` reads `null`
+   * and the evaluator is byte-for-byte the one that shipped.
+   */
+  readonly territoryRefine: boolean | undefined;
   /**
    * THE SEEDED WEIGHTED LOTTERY — the owner's ruling R-A, made mechanical.
    *
@@ -304,6 +322,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   clusterSeed: undefined,
   clusterEnum: undefined,
   clusterTuning: {},
+  territoryRefine: undefined,
   sampledCap: undefined,
   samplingTuning: {},
   clusterOffersPerRound: 1,
@@ -660,6 +679,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     s: Session,
     pins: ReadonlyMap<UnitId, Candidate>,
   ): Session["cluster"] => {
+    // Door C's scope is REBUILT, never inherited: a session that no longer
+    // enumerates must not leave the previous one's members standing on the
+    // substrate, or the evaluator would keep refining against a partition
+    // nothing recomputed.
+    if (s.sub instanceof EngineSubstrate) setRefineScope(s.sub, null);
     if (!clusterEnumerating() || !(s.sub instanceof EngineSubstrate)) return null;
     if (s.ours.length === 0) return null;
     const started = Date.now();
@@ -685,6 +709,20 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       tuning,
       salt: cfg.seed,
     });
+    // DOOR C'S SCOPE — the units this decision has already paid an exact joint
+    // solve for, and the only ones the territory refiner may spend on.
+    //
+    // Registered only when EVERY cluster stayed in the exact regime. A decision
+    // that fell to the fallback ladder has conceded the exact claim, and the
+    // budget rule this stage was given is "run only where the enumeration
+    // already paid" — a thresholded or ICM'd cluster did not pay that price, so
+    // it buys the refiner nothing to spend. Members, not `variables`: a slider
+    // is an outer coordinate shared by every cluster, not a solved component.
+    if (territoryRefining() && stats.rungThreshold === 0 && stats.rungIcm === 0) {
+      const members = new Set<UnitId>();
+      for (const cluster of partition.clusters) for (const id of cluster.members) members.add(id);
+      setRefineScope(s.sub, { members });
+    }
     return {
       partition,
       proposals: offerOrder(s, plans, score),
@@ -750,6 +788,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
   const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
+
+  /** Is Door C's territory refiner on for THIS core? Same discipline again. */
+  const territoryRefining = (): boolean => cfg.territoryRefine ?? territoryRefineEnabled();
 
   /** Is the seeded lottery on for THIS core? Same discipline, same reason. */
   const sampling = (): boolean => cfg.sampledCap ?? sampledCapEnabled();
