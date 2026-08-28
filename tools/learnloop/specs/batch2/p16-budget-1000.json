@@ -1,0 +1,103 @@
+{
+ "_comment": [
+  "P16 — The budget ladder, rung 1000 ms.",
+  "",
+  "APPROVED BY: owner — pre-approved, conditional on budget-probe v2 confirming",
+  "TRIGGER: CONFIRMED. budget-probe v2: a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 +/- 7.0 against an A/A floor of 1.7 +/- 3.2). The engine is deadline-aware; the second second changes about 7% of decisions net. The condition on the pre-approval is met.",
+  "",
+  "QUESTION: Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line.",
+  "ARMS: integrated  |  perf-substrate",
+  "READS OUT: decisions, worstWallMs, overrunRate, turns, capRate, score",
+  "",
+  "DESIGN NOTE: ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable.",
+  "",
+  "CAVEAT: changed != improved. The 35.0% figure counts decisions whose staged move-set CHANGED after the 1000 ms mark; nothing in it says the later set is better. Probe v1 was RETRACTED (a shared engine carried per-game ledger state); v2 is the valid one.",
+  "",
+  "MECHANISM-FIRST at this block count. Placement here is descriptive.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json."
+ ],
+ "sweepId": "p16-budget-1000",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  32701,
+  32702,
+  32703,
+  32704,
+  32705,
+  32706,
+  32707,
+  32708
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king@1000",
+   "config": {
+    "name": "headline-mix-king@1000",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 1000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6@1000",
+   "config": {
+    "name": "null-snake6@1000",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 1000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

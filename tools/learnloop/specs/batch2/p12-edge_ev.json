@@ -1,0 +1,144 @@
+{
+ "_comment": [
+  "P12 — CENTAUR_EDGE_EV (CL2), status probe-passed.",
+  "",
+  "QUESTION: On piece-bearing boards, does the EV's staged-eat gain survive into eaten meals and placement, or is the 84 -> 81 shortfall real?",
+  "",
+  "ARMS: off  |  edgeev-on",
+  "READS OUT: mealsEaten, finalMaterial, score",
+  "",
+  "SCOPE: PIECE BOARDS ONLY for the claim; null-snake6 rides along as the provably-inert cell (CL2 section 7.5).",
+  "",
+  "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
+  "warning on anything else. Set the OFF arm by OMITTING the variable, and",
+  "check the manifest envAtRun block afterwards. Since the CL7 telemetry",
+  "closure the per-game rows also carry the RESOLVED flag stamp, which is",
+  "the value that actually ran — read that, not the environment.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p12-edge_ev",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  16701,
+  16702,
+  16703,
+  16704,
+  16705,
+  16706,
+  16707,
+  16708,
+  16709,
+  16710,
+  16711,
+  16712,
+  16713,
+  16714,
+  16715,
+  16716
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

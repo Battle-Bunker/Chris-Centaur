@@ -1,0 +1,113 @@
+{
+ "_comment": [
+  "THE A/A NULL — one per batch, MANDATORY, and sized like the treatment cells.",
+  "",
+  "Run with two arms that are the SAME bundle and the SAME env under two names:",
+  "    --arm nullA=<bundle> --arm nullB=<bundle>",
+  "Its paired delta measures run-to-run variance and nothing else. That number",
+  "is the yardstick every treatment delta in this batch is read against.",
+  "",
+  "SIZED AT 16 BLOCKS to match the treatment cells. A null at 4 blocks",
+  "beside a treatment at 16 understates the floor, because the floor narrows",
+  "with block count — the direction that makes a treatment look significant",
+  "when it is not.",
+  "",
+  "Batch 20260827 measured this floor at +/-0.097 (mix-king) and +/-0.032",
+  "(snake6) with 0 illegal and 0 errors. Those are the numbers to beat, and a",
+  "wider band this time is an INSTRUMENT EVENT, not a nuisance.",
+  "",
+  "Then check it:",
+  "    node tools/simworker/bin/verify-null.js --batch <dir> --null nullA,nullB"
+ ],
+ "sweepId": "n0-aa-null",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  54501,
+  54502,
+  54503,
+  54504,
+  54505,
+  54506,
+  54507,
+  54508,
+  54509,
+  54510,
+  54511,
+  54512,
+  54513,
+  54514,
+  54515,
+  54516
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

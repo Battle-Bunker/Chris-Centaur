@@ -1,0 +1,110 @@
+{
+ "_comment": [
+  "P13 — CENTAUR_WORKERS (W1), status probe-passed.",
+  "",
+  "QUESTION: At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?",
+  "",
+  "ARMS: workers-off  |  workers-auto",
+  "READS OUT: workers, decisions, worstWallMs, score",
+  "",
+  "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
+  "warning on anything else. Set the OFF arm by OMITTING the variable, and",
+  "check the manifest envAtRun block afterwards. Since the CL7 telemetry",
+  "closure the per-game rows also carry the RESOLVED flag stamp, which is",
+  "the value that actually ran — read that, not the environment.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p13-workers",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  8201,
+  8202,
+  8203,
+  8204,
+  8205,
+  8206,
+  8207,
+  8208,
+  8209,
+  8210,
+  8211,
+  8212,
+  8213,
+  8214,
+  8215,
+  8216
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

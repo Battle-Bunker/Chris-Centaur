@@ -1,0 +1,1343 @@
+{
+  "schemaVersion": 1,
+  "title": "LOBSTER promotion ledger",
+  "home": {
+    "branch": "claude/cluster-lookahead",
+    "path": "tools/learnloop/promotion-ledger.json",
+    "mirror": "sim/worker-kit (verbatim copy; see tools/learnloop/README.md)"
+  },
+  "seededAt": "2026-08-28",
+  "seededBy": "CL7",
+  "readMe": [
+    "ONE ARTIFACT, TWO CONSUMERS. The cloud coordinator reads this to know what has",
+    "been settled; the local sim session reads it to know what to run next.",
+    "`bin/make-promotion-batch.js` turns it into the next batch's spec files, so",
+    "'what should the PC run next?' is a command and not a judgement call.",
+    "",
+    "THE ONE RULE THIS LEDGER EXISTS TO ENFORCE: a deterministic probe is NECESSARY",
+    "AND NEVER SUFFICIENT. CENTAUR_CLUSTER_SEED passed its deterministic ship gate",
+    "outright (fatal stagings 41 -> 0) and then lost snake6 1.00 -> 0.15 live, through",
+    "exhaustion — a travel-economy channel the probe does not measure. Only a live",
+    "paired sweep, with a concurrent verified null and a VERIFIED ENGAGED treatment",
+    "arm, may write a live status."
+  ],
+  "conventions": {
+    "statusLadder": [
+      "dark -> probe-passed  : a deterministic probe cleared its gate. Goes no further.",
+      "probe-passed -> live-* : only a live paired sweep with a verified concurrent null.",
+      "supported -> promoted  : the default flip was actually made; `promotedBy` names the commit.",
+      "frozen                 : re-opened by a MECHANISM CLAIM only, never by a p-value."
+    ],
+    "explorationSlice": 0.1,
+    "explorationSliceRule": [
+      "A promoted or supported flag keeps ~10% of its cells running the OPPOSITE branch,",
+      "forever. Today's policy selects tomorrow's corpus, so a cell that turned a flag on",
+      "will otherwise never generate the data by which it could be turned back off.",
+      "(A3 memo section 4.2 item 6; arch-synthesis Stage 5.)"
+    ],
+    "powerArithmetic": [
+      "A block is one seed through every cyclic seat rotation (3 games on a 3-team board).",
+      "Placement: 80% power at MDE 0.25 needs ~58 blocks on the pooled stratum, 8 on the",
+      "tightest (mix23 alone); MDE 0.10 needs 362-1,447. That is 360-1,000+ games per cell",
+      "PER ARM. Mechanism metrics move at n~8 blocks and are 5-25x outside the null band.",
+      "So: refit on mechanism, describe placement, and refuse a placement verdict from a",
+      "cell whose blocksHad < blocksNeeded. (A3 memo section 4.1.)"
+    ],
+    "retiredCounters": [
+      "plansEvaluated and boundsInversions are RETIRED as verdict-bearing metrics on any",
+      "live arm: at any budget they are dominated by how much CPU the process got. They",
+      "carry a verdict ONLY under a fixed-tick StepClock A/A, where the arms consume",
+      "identical work by construction. They are still reported, because they diagnose a",
+      "broken arm."
+    ],
+    "armEngagementRule": [
+      "A live measurement must carry armEngagementVerified. `false` records the row and",
+      "moves nothing: a null from an arm that never ran is a different finding from a null",
+      "from an arm that ran and did not help. P5 is the standing exhibit — CENTAUR_WASM is",
+      "refused per partition, silently, whenever an input is not resident in linear memory.",
+      "CL7's mechanism report (TeamTurnResult.mechanism) is what makes the answer readable."
+    ]
+  },
+  "batches": [
+    {
+      "id": "20260827-overnight",
+      "host": "owner WSL2 Ubuntu, 24 cores, --workers 10",
+      "games": 1824,
+      "priorities": "P0-P7 + n0 A/A null",
+      "provenance": {
+        "integrated": "66904d2",
+        "perf-substrate": "8059b86 (pre-CL2/CL3/CL4 — the CL flags on this branch were NOT in these bundles beyond CL1)",
+        "arch-s2": "724d83f"
+      },
+      "nullVerified": true,
+      "nullBand": {
+        "headline-mix-king": {
+          "score": 0.097
+        },
+        "null-snake6": {
+          "score": 0.032
+        }
+      },
+      "integrity": {
+        "illegal": 0,
+        "errors": 0
+      },
+      "resultsBranch": "sim-results/local-20260827",
+      "notes": [
+        "The interim analysis.md was POISONED (a global --subject-map silently dropped",
+        "P1/P2); the recut per-priority files are authoritative and findings.md section 5",
+        "documents it. Every row below is from findings.md section 2."
+      ]
+    }
+  ],
+  "flags": [
+    {
+      "flag": "CENTAUR_CLUSTER_SEED",
+      "stage": "CL1",
+      "perEngineOption": "TeamDecisionOptions.clusterSeed",
+      "shipsDefault": "off",
+      "parses": "1|on|true only — anything else is off, with no warning",
+      "whatItDoes": "Index-driven pairwise de-confliction seed at rung 0 (search/cluster-seed.ts).",
+      "status": "live-failed",
+      "promotionMetrics": [
+        {
+          "name": "fatalStagings",
+          "family": "mechanism",
+          "source": "replay events / deaths by cause",
+          "emitted": true
+        },
+        {
+          "name": "teammateKills",
+          "family": "mechanism",
+          "source": "replay events / deaths by cause",
+          "emitted": true
+        },
+        {
+          "name": "deathsExhaustion",
+          "family": "mechanism",
+          "source": "replay events.exhaustions",
+          "emitted": true,
+          "note": "THE CHANNEL THAT FAILED IT. Not in the deterministic probe at all."
+        },
+        {
+          "name": "rungZeroFloor",
+          "family": "mechanism",
+          "source": "EmitRecord.lo of the first emission",
+          "emitted": true
+        },
+        {
+          "name": "finalFloor",
+          "family": "mechanism",
+          "source": "EmitRecord.lo of the last emission",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row results[].score",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl1-probe",
+          "kind": "probe",
+          "cell": "cluster-seed.test.ts seedRun (26 replay positions, 40 confronted boards)",
+          "metric": "fatalStagings / teammateKills",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "fatal stagings 41 -> 0; teammate kills 25 -> 4; rung-0 floor better on 18/26, mean +43.07; two -Infinity emissions rescued; emissions 57 -> 32",
+          "nullVerified": false,
+          "caveat": "Final floors WORSE on 14/26 by 0.008-0.228 on floors of scale 20-100 (mean -0.05). CL1 section 6.3 named this as the open number and shipped the flag OFF because of it."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p7-cl1-gates::null-snake6",
+          "metric": "win",
+          "family": "placement",
+          "verdict": "failed",
+          "value": "snake6 win rate 1.00 -> 0.15 (delta -0.854, excludes zero)",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.032,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": false
+          },
+          "note": "The effect is an order of magnitude outside the cell's own null band, so power is not the question here."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p7-cl1-gates::null-snake6",
+          "metric": "deathsExhaustion",
+          "family": "mechanism",
+          "verdict": "failed",
+          "value": "snake exhaustion deaths x1.9 (39 -> 75 over 48 games)",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "note": "THE MECHANISM. The pairwise seed appears to disrupt snake parallel-motion and food economics — travel economy, not staging safety. The deterministic gate measures positions; this is the shape of a whole game."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p7-cl1-gates (cl-both arm)",
+          "metric": "win",
+          "family": "placement",
+          "verdict": "failed",
+          "value": "seed+fatality together: same collapse as seed alone",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "note": "So the cost is the seed's, not the pair's. UNIT_FATALITY alone carried no placement cost."
+        }
+      ],
+      "verdict": "DO NOT PROMOTE AS-IS. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure.",
+      "nextExperiment": {
+        "id": "P7R",
+        "question": "Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on.",
+        "arms": [
+          "off",
+          "seed-on",
+          "seed-on+restarts-raised",
+          "seed-on+rungZeroRepair"
+        ],
+        "cells": [
+          "null-snake6",
+          "headline-mix-king"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "deathsExhaustion",
+          "deathsSelf",
+          "finalFloor",
+          "turns",
+          "score"
+        ],
+        "blockedOn": "the root-cause miner on the delivered 20260827 replays, which may answer it without new games. Schedule the live arms only if the miner needs them."
+      }
+    },
+    {
+      "flag": "CENTAUR_UNIT_FATALITY",
+      "stage": "CL1",
+      "perEngineOption": "TeamDecisionOptions.unitFatality",
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "whatItDoes": "Rung-0 per-unit fatality classifier (candidates.ts), with the forced-sibling collapse.",
+      "status": "live-null",
+      "promotionMetrics": [
+        {
+          "name": "fatalStagings",
+          "family": "mechanism",
+          "source": "replay events",
+          "emitted": true
+        },
+        {
+          "name": "deathsSelf",
+          "family": "mechanism",
+          "source": "replay events",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl1-probe",
+          "kind": "probe",
+          "cell": "cluster-seed.test.ts seedRun",
+          "metric": "fatalStagings",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "measured jointly with the seed; the classifier is the weaker, set-level policy of the two",
+          "nullVerified": false
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p7-cl1-gates",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "no placement cost from UNIT_FATALITY alone",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 58,
+            "mdeResolvable": null,
+            "underpowered": true
+          },
+          "note": "16 blocks against the pooled stratum's 58 for MDE 0.25. 'No placement cost' means 'no cost this cell could resolve'. That is the honest reading and it is enough to keep the flag alive; it is not enough to promote it."
+        }
+      ],
+      "verdict": "Alive, unpromoted. It costs nothing measurable and has not yet been shown to buy anything on its own.",
+      "nextExperiment": {
+        "id": "P7F",
+        "question": "Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?",
+        "arms": [
+          "off",
+          "fatality-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "snake5-knight",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "deathsSelf",
+          "deathsTeammate",
+          "unstagedRate",
+          "score"
+        ]
+      }
+    },
+    {
+      "flag": "CENTAUR_EDGE_EV",
+      "stage": "CL2",
+      "perEngineOption": "TeamDecisionOptions.edgeEv",
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "whatItDoes": "Rung-1/2 edge-EV ordering pass; one composed EV in one slot, below every material-class key and above healthSpent.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "uncontestedMealsStaged",
+          "family": "mechanism",
+          "source": "replay: staged eats",
+          "emitted": false,
+          "gap": "The harness counts deaths and health, not staged eats by contest class. Mining the replay's per-turn food events supplies it; recorded as a ledger gap."
+        },
+        {
+          "name": "mealsEaten",
+          "family": "mechanism",
+          "source": "replay: weight increases",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl2-probe",
+          "kind": "probe",
+          "cell": "acceptance fixture (41 unit-decisions)",
+          "metric": "candidateOrder",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "PROVEN no-op: 41/41 decisions carried a nonzero composed EV and 0 had their order moved — there were 0 units with 2+ eats to choose between. Byte-identical replay with the flag OFF and with it ON.",
+          "nullVerified": false,
+          "note": "This is a scoping fact, not a null: the fixture has no board on which the mechanism can act."
+        },
+        {
+          "batch": "cl2-probe",
+          "kind": "probe",
+          "cell": "60 generated piece boards, rung 0, resolver-verified",
+          "metric": "uncontestedMealsStaged",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "plans differ 8/60; uncontested meals staged 5 -> 8; contested 0 -> 0; meals EATEN 84 -> 81; fatal stagings 19 -> 19",
+          "nullVerified": false,
+          "caveat": "Meals staged rose and meals eaten FELL. That is the tension a live arm has to adjudicate, and it is why the flag ships off."
+        }
+      ],
+      "verdict": "Mechanism exists and is confined to piece boards. Never raced live.",
+      "nextExperiment": {
+        "id": "P12",
+        "question": "On piece-bearing boards, does the EV's staged-eat gain survive into eaten meals and placement, or is the 84 -> 81 shortfall real?",
+        "arms": [
+          "off",
+          "edgeev-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "snake5-queen",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "mealsEaten",
+          "finalMaterial",
+          "score"
+        ],
+        "scopeNote": "PIECE BOARDS ONLY for the claim; null-snake6 rides along as the provably-inert cell (CL2 section 7.5)."
+      }
+    },
+    {
+      "flag": "CENTAUR_CLUSTER_ENUM",
+      "stage": "CL3",
+      "perEngineOption": "TeamDecisionOptions.clusterEnum",
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "whatItDoes": "Cluster partition of the residual interaction graph plus exact small-cluster enumeration; proposals the price adjudicates.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "fatalStagings",
+          "family": "mechanism",
+          "source": "replay events",
+          "emitted": true
+        },
+        {
+          "name": "clusterJoints",
+          "family": "mechanism",
+          "source": "MechanismReport.cluster.jointsEnumerated",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "clusterEnumMs",
+          "family": "mechanism",
+          "source": "MechanismReport.cluster.enumMs",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "proposalsPriced",
+          "family": "mechanism",
+          "source": "MechanismReport.cluster",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl3-probe",
+          "kind": "probe",
+          "cell": "40 confronted boards, counting-budget curve q=2..400",
+          "metric": "fatalStagings",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "blunt seed: 45->5 / 17->1 / 4->0 / 1->0 fatal at q=2/8/32/120. graded seed: 5->0 / 2->0 / 1->0 / 0->0. Fatal stagings fall at every point of the curve and never rise.",
+          "nullVerified": false
+        },
+        {
+          "batch": "cl3-probe",
+          "kind": "probe",
+          "cell": "40 confronted boards, graded-seed arm",
+          "metric": "provedFloor",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "confronted mean dFloor +3.346 / +1.790 / +1.027 / +0.002 / 0.000 at q=2/8/32/120/400 — the gain is real at the census's own regime (q=32) and vanishes at large q",
+          "nullVerified": false,
+          "note": "Byte-identical replay against a21db07 with the flag off, 26/26 positions."
+        }
+      ],
+      "verdict": "The strongest deterministic case on the branch. Never raced live.",
+      "nextExperiment": {
+        "id": "P8/P9-joint",
+        "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts?",
+        "arms": [
+          "off",
+          "enum-on",
+          "enum-on+seed-graded"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "snake5-knight",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "clusterJoints",
+          "clusterEnumMs",
+          "deathsSelf",
+          "deathsTeammate",
+          "worstWallMs",
+          "score"
+        ],
+        "designNote": "RACE THE JOINT ARM, not only singles: graded+enum is the only arm at zero fatal stagings everywhere in the deterministic probes, and CL1xCL3 interact in a way neither solo arm can see. But CENTAUR_CLUSTER_SEED is now live-failed, so the joint arm is a DIAGNOSTIC on the seed's failure and not a promotion candidate."
+      }
+    },
+    {
+      "flag": "CENTAUR_SAMPLED_CAP",
+      "stage": "CL4",
+      "perEngineOption": "TeamDecisionOptions.sampledCap",
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "whatItDoes": "Seeded weighted candidate sampling where a cap binds: the cap becomes a sample, Gumbel-top-k returns a permutation.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "selectionFar",
+          "family": "mechanism",
+          "source": "MechanismReport.selection.farAdmitted",
+          "emitted": true,
+          "since": "CL7",
+          "note": "CL4's headline: options no deterministic prefix of the same width can reach."
+        },
+        {
+          "name": "selectionDraws",
+          "family": "mechanism",
+          "source": "MechanismReport.selection.draws",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "matchSeed",
+          "family": "audit",
+          "source": "EmitRecord.selection.matchSeed",
+          "emitted": true,
+          "since": "CL7",
+          "note": "Was UNREACHABLE in production before CL7 — tapWitnesses dropped selectionReport, so no live record ever carried the seed a replay needs."
+        },
+        {
+          "name": "ceilingDecided",
+          "family": "mechanism",
+          "source": "MechanismReport.adjudication.ceilingDecided",
+          "emitted": true,
+          "since": "CL7",
+          "note": "L17, optimism-never-promotes. CL4 owes a before/after on it."
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl4-probe",
+          "kind": "probe",
+          "cell": "40 piece boards, deterministic budget q=8/32/120",
+          "metric": "farAdmitted",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "FAR options priced 0->7 / 0->22 / 1->72; fatal stagings 0->0 and teammate deaths 0->0 at every q; plans differ 1/40, 9/40, 11/40",
+          "nullVerified": false,
+          "note": "Byte-identical replay against a21db07 with the flag off, 26/26. Two probe-forced design changes landed: draws only where a cap binds, and the unit-order channel ships OFF."
+        }
+      ],
+      "verdict": "The door i2's falsifier needs, open at zero cost in fatal stagings. Never raced live.",
+      "nextExperiment": {
+        "id": "P9",
+        "question": "Do far-priced options pay on piece boards at 2000 ms, and does the same-seed replay stay byte-identical across the batch?",
+        "arms": [
+          "off",
+          "sampledcap-on",
+          "sampledcap-on+enum-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "snake5-queen",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "selectionFar",
+          "selectionDraws",
+          "ceilingDecided",
+          "score",
+          "finalMaterial"
+        ],
+        "designNote": "RACE JOINTLY WITH clusterEnum: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. The harness can assert the determinism gate directly — same matchSeed and same board must replay bit-identically."
+      }
+    },
+    {
+      "flag": "CENTAUR_TERRITORY_REFINE",
+      "stage": "CL5",
+      "perEngineOption": "TeamDecisionOptions.territoryRefine",
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "requires": "CENTAUR_CLUSTER_ENUM on",
+      "whatItDoes": "Door C: re-sweeps the two-plane partition with held units' floods stopped at cells our enumerated units certainly occupy; publishes the MEET at the same basis.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "refineMovedLo",
+          "family": "mechanism",
+          "source": "MechanismReport.refine.movedLo",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "refineInverted",
+          "family": "soundness",
+          "source": "MechanismReport.refine.inverted",
+          "emitted": true,
+          "since": "CL7",
+          "note": "MUST BE ZERO. Two sound bounds on one quantity cannot be disjoint."
+        },
+        {
+          "name": "worstWallMs",
+          "family": "cost",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl5-probe",
+          "kind": "probe",
+          "cell": "production-shape evaluations",
+          "metric": "floorLift",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "floor rose on 14/57 emissions (24.6%) by 1-2 cells of 121 (+0.008..+0.017); zero falls; zero ceiling movement; zero argmax flips at 40 ms or 120 ms; cost +22 microseconds per EVALUATION (x1.32 territory time)",
+          "nullVerified": false,
+          "caveat": "The brief's '<20us/decision' was MIS-DENOMINATED — the cost is per-eval and cannot be hoisted. Zero argmax flips means the deterministic probe cannot answer whether it pays."
+        }
+      ],
+      "verdict": "Sound by brute force; the question is entirely economic and entirely live.",
+      "nextExperiment": {
+        "id": "P10",
+        "question": "Does a floor that is 1-2 cells tighter on a quarter of emissions pay for a third more territory time, at equal wall clock?",
+        "arms": [
+          "enum-on",
+          "enum-on+refine-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "hazard-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "refineMovedLo",
+          "refineInverted",
+          "worstWallMs",
+          "decisions",
+          "score"
+        ],
+        "designNote": "The BASE arm must be enum-on, not off: the refiner requires the enumeration, so an off-vs-refine pair measures their sum. A cell that never exercises a held teammate will never move the `hi` channel — build the arm knowing that."
+      }
+    },
+    {
+      "flag": "CENTAUR_SCOUT",
+      "stage": "CL6a",
+      "perEngineOption": "TeamDecisionOptions.scout",
+      "shipsDefault": "off",
+      "parses": "off | observe | advise",
+      "whatItDoes": "Door A: a real EngineSubstrate at ply n+1 built from a ply-n Resolution; thread ledger, parking, advisory ordering only.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "scoutThreads",
+          "family": "mechanism",
+          "source": "MechanismReport.scout.threads",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "scoutPlies",
+          "family": "mechanism",
+          "source": "MechanismReport.scout.plies",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "scoutRefusals",
+          "family": "mechanism",
+          "source": "MechanismReport.scout.refusals",
+          "emitted": true,
+          "since": "CL7",
+          "note": "A door that refused every board must read as a refusal, not as a zero — CL6a's own correction."
+        },
+        {
+          "name": "postContactPlies",
+          "family": "mechanism",
+          "source": "MechanismReport.scout.postContactPlies",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "worstWallMs",
+          "family": "cost",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "cl6a-probe",
+          "kind": "probe",
+          "cell": "advisory-mode probe",
+          "metric": "threadDepth",
+          "family": "mechanism",
+          "verdict": "passed",
+          "value": "6.75 threads / 19.2 plies / 16.8 ms per decision; 79.7% of ALL thread depth is post-contact (613/769 plies); flag-off moved ZERO emissions and +0.00% work counters",
+          "nullVerified": false,
+          "note": "The owner's section 7.1 ruling (post-contact continuation is a primary mode) is empirically vindicated: without degraded continuation the scout delivers a fifth of its depth."
+        }
+      ],
+      "verdict": "The scout exists and is advisory. Its cost is real (16.8 ms/decision) and its value has never been raced.",
+      "prerequisites": [
+        "CENTAUR_TIER_TRUTH=full — measured no-op at ply 1, UNSOUND to omit at ply 2 (I4 re-measure). MET as a floor prerequisite; the flag itself is still default expiry.",
+        "O-P7 blocking-kill threat stamp — LANDED (9b96ca5)."
+      ],
+      "nextExperiment": {
+        "id": "P11",
+        "question": "At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?",
+        "arms": [
+          "off",
+          "scout-observe",
+          "scout-advise"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "hazard-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "scoutThreads",
+          "scoutPlies",
+          "postContactPlies",
+          "scoutRefusals",
+          "worstWallMs",
+          "decisions",
+          "score"
+        ],
+        "designNote": "observe AND advise as separate arms: observe measures the cost with no behaviour change at all, so observe-vs-off isolates the tithe and advise-vs-observe isolates the advice. One arm carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is."
+      }
+    },
+    {
+      "flag": "CENTAUR_WASM",
+      "stage": "W3",
+      "perEngineOption": "TeamDecisionOptions.wasm",
+      "shipsDefault": "off",
+      "parses": "on | off only — anything else warns and falls back to off",
+      "whatItDoes": "Runs the territory evaluator's hot kernels in WebAssembly; refused per partition, silently, when an input is not resident in linear memory.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "wasmRuns",
+          "family": "engagement",
+          "source": "MechanismReport.wasm.runs",
+          "emitted": true,
+          "since": "CL7",
+          "note": "THE GAP THAT VOIDED P5. Existed on the territory workspace since W3 and was unreachable outside evaluate/territory.ts."
+        },
+        {
+          "name": "wasmRefused",
+          "family": "engagement",
+          "source": "MechanismReport.wasm.refused",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "worstWallMs",
+          "family": "cost",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "capRate",
+          "family": "shape",
+          "source": "manifest row terminal",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p5-wasm-arena",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "placement NULL",
+          "nullVerified": true,
+          "armEngagementVerified": false,
+          "note": "STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p5-wasm-arena",
+          "metric": "capRate",
+          "family": "shape",
+          "verdict": "anomaly",
+          "value": "cap rate DOUBLES under wasm-on: 0.458 vs 0.229",
+          "nullVerified": true,
+          "armEngagementVerified": false,
+          "note": "A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run."
+        }
+      ],
+      "verdict": "The one measured anomaly on the branch, and it was unreadable. CL7 makes it readable.",
+      "nextExperiment": {
+        "id": "P5R",
+        "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?",
+        "arms": [
+          "off",
+          "wasm-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "hazard-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "wasmRuns",
+          "wasmRefused",
+          "capRate",
+          "worstWallMs",
+          "decisions",
+          "turns",
+          "score"
+        ],
+        "gate": "REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.",
+        "requires": "A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists."
+      }
+    },
+    {
+      "flag": "CENTAUR_WORKERS",
+      "stage": "W1",
+      "perEngineOption": "TeamDecisionOptions.workers",
+      "shipsDefault": "off",
+      "parses": "off | auto | 0..8 (junk warns and resolves off)",
+      "whatItDoes": "Evaluation worker pool, one worker per spare core capped at three.",
+      "status": "probe-passed",
+      "promotionMetrics": [
+        {
+          "name": "workers",
+          "family": "audit",
+          "source": "MechanismReport.flags.workers",
+          "emitted": true,
+          "since": "CL7",
+          "note": "The RESOLVED count, not the setting. `auto` on a 24-core box and `auto` on a 4-core box are different arms."
+        },
+        {
+          "name": "decisions",
+          "family": "mechanism",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "worstWallMs",
+          "family": "cost",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "w1-bench",
+          "kind": "probe",
+          "cell": "prototype throughput bench, 4-core box",
+          "metric": "throughput",
+          "family": "cost",
+          "verdict": "passed",
+          "value": "1.45-1.72x at two workers; 1.42-1.43x at three; 0.95-1.50x at four with transport cost jumping 0.4 ms -> 2.4-4.2 ms as the coordinator loses its own core",
+          "nullVerified": false,
+          "note": "The cap of three follows this measurement, not an expectation."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p1-substrate-headline",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "the perf substrate is SPEED, NOT STRENGTH, at 2000 ms",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 58,
+            "mdeResolvable": null,
+            "underpowered": true
+          },
+          "note": "P1 raced whole BUILDS, not this flag: `integrated` vs `perf-substrate` at their shipped defaults. It bounds the substrate's strength effect and does not isolate the pool. Recorded against this flag because it is the closest live evidence that exists, and labelled so nobody mistakes it for an isolated arm."
+        }
+      ],
+      "verdict": "Throughput is measured and real; strength is bounded and null. The pool has never been raced as an isolated arm.",
+      "nextExperiment": {
+        "id": "P13",
+        "question": "At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?",
+        "arms": [
+          "workers-off",
+          "workers-auto"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "workers",
+          "decisions",
+          "worstWallMs",
+          "score"
+        ],
+        "priority": "LOW. P1 already bounds the whole substrate's strength effect at null; this only sharpens attribution. Schedule it after the flags that have never been raced at all."
+      }
+    },
+    {
+      "flag": "CENTAUR_TIER_TRUTH",
+      "stage": "Stage 2.5",
+      "perEngineOption": null,
+      "shipsDefault": "expiry",
+      "parses": "off | expiry | full",
+      "whatItDoes": "Whether the search is told the real tier expiry turn (`expiry`) and the real potion board (`full`), or the old permanent-tier lie (`off`).",
+      "status": "live-null",
+      "promotionKind": "soundness-prerequisite",
+      "promotionMetrics": [
+        {
+          "name": "tierTruth",
+          "family": "audit",
+          "source": "MechanismReport.flags.tierTruth",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "boundsInversions",
+          "family": "soundness",
+          "source": "manifest health row",
+          "emitted": true,
+          "note": "RETIRED as a verdict on a live arm — budget-noise dominated. Read it only as a broken-arm diagnostic, or under a fixed-tick StepClock A/A."
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "i4-remeasure",
+          "kind": "probe",
+          "cell": "1,624 paired decisions on the current branch",
+          "metric": "inversionStorm",
+          "family": "soundness",
+          "verdict": "passed",
+          "value": "storm ELIMINATED: the positive control reproduced 1,262 refusals on pre-fix5 arithmetic; the current branch reports 0. Field mechanism 3,484/6,657 n=1 firings -> 0/25,666.",
+          "nullVerified": false,
+          "note": "Production reads ONLY n=1 (TeamTurnInput.observedTurns has no production producer), so keeping `expiry` today is a PROVABLE NO-OP live. But `expiry` is UNSOUND at n>=2: 4,622/6,383 pot-sparse slot readings lack a rules-allowed ceiling, an under-approximation."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p4-tiertruth-potions",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "NULL on potion cells; the default stays expiry",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 58,
+            "mdeResolvable": null,
+            "underpowered": true
+          },
+          "note": "Consistent with the n=1 no-op finding: at ply 1 there is nothing for `full` to change."
+        }
+      ],
+      "verdict": "A null at ply 1, exactly as predicted, AND A HARD PREREQUISITE OF PLY 2. This flag will be promoted for a soundness reason and not a placement one — the ledger records that so a future reader does not go looking for the placement win that will never arrive.",
+      "nextExperiment": {
+        "id": "P4R",
+        "question": "None at ply 1. The decisive experiment is the ply-2 arm: with the scout on and n>=2 readings live, `expiry` becomes an under-approximation and `full` is the only sound setting.",
+        "arms": [
+          "expiry+scout-advise",
+          "full+scout-advise"
+        ],
+        "cells": [
+          "potion-mix-king",
+          "headline-mix-king"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "tierTruth",
+          "scoutRefusals",
+          "boundsInversions",
+          "score"
+        ],
+        "blockedOn": "P11 — there is no point measuring the ply-2 prerequisite before the ply-2 consumer has been raced."
+      }
+    },
+    {
+      "flag": "CENTAUR_COHORT_POLICY",
+      "stage": "arch/s2",
+      "perEngineOption": null,
+      "shipsDefault": "off",
+      "parses": "1|on|true only",
+      "branch": "arch/s2 @ 724d83f — NOT on claude/cluster-lookahead",
+      "whatItDoes": "The flag-gated cohort governor: which units are admitted to a joint decision.",
+      "status": "live-null",
+      "promotionMetrics": [
+        {
+          "name": "admissionRate",
+          "family": "mechanism",
+          "source": "arch/s2 governor counters",
+          "emitted": false,
+          "gap": "The governor lives on a branch CL7 did not touch, so its counters are not in the mechanism report. Closing this needs the arch/s2 merge, not a CL7 change."
+        },
+        {
+          "name": "assumptionRate",
+          "family": "mechanism",
+          "source": "manifest health row",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p6-admission",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "NULL everywhere — the governor's first measurement",
+          "nullVerified": true,
+          "armEngagementVerified": false,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 58,
+            "mdeResolvable": null,
+            "underpowered": true
+          },
+          "note": "Engagement unverified for the same structural reason as P5: the governor publishes no counter the harness can read. A null from a governor that never admitted anything is not a null about the governor."
+        }
+      ],
+      "verdict": "First measurement, null, engagement unverified, and its telemetry is on a branch CL7 does not reach.",
+      "nextExperiment": {
+        "id": "P6R",
+        "question": "Did the governor act at all? Answer that before re-measuring placement.",
+        "arms": [
+          "off",
+          "cohort-on"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "hazard-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 16,
+        "readsOut": [
+          "assumptionRate",
+          "decisions",
+          "score"
+        ],
+        "blockedOn": "arch/s2 needs its own mechanism counters folded into the CL7 report before a rerun is worth the box time. Its target boards are the CROWDED ones — more claimants than budget is where a governor can act at all.",
+        "priority": "DEFERRED until the counters exist."
+      }
+    },
+    {
+      "flag": "TERRITORY_SLIDER_PROFILE",
+      "stage": "I2",
+      "perEngineOption": "TeamDecisionOptions.evaluate (no env flag, no config field)",
+      "shipsDefault": "off (dark-shipped repair)",
+      "parses": null,
+      "whatItDoes": "The slider evaluator profile: command and movement-budget terms, gated on piece class. Bit-identical to the baseline on a snake-only board.",
+      "status": "supported",
+      "promotionMetrics": [
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        },
+        {
+          "name": "finalMaterial",
+          "family": "mechanism",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "i2-control-cells",
+          "kind": "live",
+          "cell": "no-slider neutrality, fixed build",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "value": "+0.021 [-0.062, +0.125] vs null; snake wins preserved to the digit",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "note": "The provably-inert cell behaving inertly. This is the control, and it passed."
+        },
+        {
+          "batch": "20260827-overnight",
+          "kind": "live",
+          "cell": "p3-slider-2000",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "supports-promotion",
+          "value": "budget gradient: 150 ms ~0 / 1000 ms +0.31 / 2000 ms +0.115 (excludes zero, narrowly clears the floor); snake6 exactly 0, inert",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": null,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 58,
+            "mdeResolvable": null,
+            "underpowered": false
+          },
+          "note": "Three points on a gradient, an inert cell that stayed inert, and a control run that confirmed the neutrality claim. This is the most complete evidence chain in the ledger."
+        }
+      ],
+      "verdict": "SUPPORTED, AND THE FLIP IS OWED. The dark-shipped repair's evidence chain is complete and the wire-up via the own-team detector is fully supported. What has not happened is the wiring itself: there is no env flag and no config field, so 'promotion' here means a code change, not a default flip.",
+      "actionOwed": "Wire the profile behind the own-team slider detector as the shipped default, and record the commit as promotedBy.",
+      "nextExperiment": {
+        "id": "P3-slice",
+        "question": "The 10% exploration slice, once the wiring lands: keep a tenth of piece-board cells running the BASELINE profile so the cell that turned it on can still be turned back off.",
+        "arms": [
+          "slider-profile",
+          "baseline-profile"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "snake5-queen"
+        ],
+        "blocks": 4,
+        "readsOut": [
+          "score",
+          "finalMaterial"
+        ],
+        "kind": "exploration-slice"
+      }
+    },
+    {
+      "flag": "CENTAUR_STAGING_SAFETY",
+      "stage": "I1",
+      "perEngineOption": "TeamDecisionOptions.stagingSafety",
+      "shipsDefault": "auto",
+      "parses": "off | auto | guard | full",
+      "whatItDoes": "The staging-safety guard knobs (pruneCertainSelfFatal, pruneRoyalPath). `auto` resolves to full on a piece-bearing board and off on a snake-only one.",
+      "status": "promoted",
+      "promotedBy": "990bea8 — Wire I1's ship condition as the flag's default policy: CENTAUR_STAGING_SAFETY=auto",
+      "promotionMetrics": [
+        {
+          "name": "stagingSafety",
+          "family": "audit",
+          "source": "MechanismReport.flags.stagingSafety",
+          "emitted": true,
+          "since": "CL7",
+          "note": "The RESOLVED level. `auto` is board-conditional, so the raw setting is not the arm."
+        },
+        {
+          "name": "deathsSelf",
+          "family": "mechanism",
+          "source": "replay events",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "i1-sweeps",
+          "kind": "live",
+          "cell": "i1 guard vs base, piece and snake-only rosters",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "supports-promotion",
+          "value": "the guard HELPS on piece boards and REGRESSES on snake-only ones — which is the ship condition, not a wash",
+          "nullVerified": true,
+          "armEngagementVerified": true,
+          "note": "The sign flip by roster is why the promoted default is `auto` and not `full`. A treatment measured on one roster has been measured on one roster."
+        }
+      ],
+      "verdict": "Promoted as a BOARD-CONDITIONAL default. Owes an exploration slice.",
+      "nextExperiment": {
+        "id": "P14-slice",
+        "question": "The ratchet guard: keep ~10% of piece-board cells on `off` and ~10% of snake-only cells on `full`, so both halves of the conditional stay falsifiable.",
+        "arms": [
+          "auto",
+          "off"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 4,
+        "readsOut": [
+          "stagingSafety",
+          "deathsSelf",
+          "score"
+        ],
+        "kind": "exploration-slice"
+      }
+    },
+    {
+      "flag": "gainOrdering",
+      "stage": "integ/round-a",
+      "perEngineOption": "CandidateKnobs.gainOrdering (no env flag)",
+      "shipsDefault": "on",
+      "parses": null,
+      "whatItDoes": "The shipped candidate generator orders by what a move TAKES.",
+      "status": "promoted",
+      "promotedBy": "dd329bf — Promote gainOrdering: the shipped generator now orders by what a move TAKES",
+      "promotionMetrics": [
+        {
+          "name": "gainOrdering",
+          "family": "audit",
+          "source": "MechanismReport.flags.gainOrdering",
+          "emitted": true,
+          "since": "CL7"
+        },
+        {
+          "name": "mealsEaten",
+          "family": "mechanism",
+          "source": "replay: weight increases",
+          "emitted": true
+        },
+        {
+          "name": "score",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true
+        }
+      ],
+      "measurements": [
+        {
+          "batch": "integ-round-a",
+          "kind": "live",
+          "cell": "integration round (a)",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "supports-promotion",
+          "value": "promoted at integ/round-a; 9 commits, gates green",
+          "nullVerified": true,
+          "armEngagementVerified": true
+        }
+      ],
+      "verdict": "Promoted. Owes an exploration slice, and has not had one.",
+      "nextExperiment": {
+        "id": "P15-slice",
+        "question": "The ratchet guard for a promoted default nobody has re-tested since the promotion.",
+        "arms": [
+          "gainordering-on",
+          "gainordering-off"
+        ],
+        "cells": [
+          "headline-mix-king",
+          "null-snake6"
+        ],
+        "blocks": 4,
+        "readsOut": [
+          "mealsEaten",
+          "finalMaterial",
+          "score"
+        ],
+        "kind": "exploration-slice"
+      }
+    }
+  ],
+  "openInstrumentItems": [
+    {
+      "id": "DETECTOR-FLIP",
+      "what": "A3 section 4.2 item 5 asks every emission to carry {policy, detectors:{sliderPresent, ownTrail, promotionImminent}, profile}. No production producer emits it, so the DETECTOR flip rate — the quantity A3's hysteresis signal is actually about — cannot be computed from a committed batch.",
+      "workaround": "bin/ingest.js emits a PAIRED OUTCOME flip rate and labels it as a proxy.",
+      "closedBy": "not CL7. It needs a detector-state field on the emission path, which is a decision-path change and outside a telemetry-only stage."
+    },
+    {
+      "id": "EDGE-EV-EATS",
+      "what": "CENTAUR_EDGE_EV's primary mechanism metric is uncontested-meals-staged by contest class. The harness records deaths and health, not staged eats split that way.",
+      "workaround": "mine the replay's per-turn food events; the data is in the committed replays.",
+      "closedBy": "a miner in tools/learnloop, or a harness counter. Neither is a decision-path change."
+    },
+    {
+      "id": "COHORT-COUNTERS",
+      "what": "The arch/s2 cohort governor publishes no counter the mechanism report can fold, so P6's null is engagement-unverified by construction.",
+      "closedBy": "arch/s2 adding its own report and CL7's mechanismReportOf folding it, after that branch merges."
+    },
+    {
+      "id": "ENV-SEAM",
+      "what": "ports.env reaches the wire policy, the worker count and the WASM default. It does NOT reach the five search-side flags or the two candidate knobs, which read process.env directly. An env-injecting caller therefore runs a different arm from the one it thinks it set.",
+      "impact": "None on the sim harness, which sets process-level environment per bundle. It is a trap for any in-process paired arm.",
+      "closedBy": "threading ports.env into flaggedKnobs() and the five *Enabled() helpers — which changes which arm an env-injecting caller runs, so it is a behaviour change and not a CL7 item."
+    }
+  ],
+  "standingExperiments": [
+    {
+      "id": "P16",
+      "title": "The budget ladder",
+      "kind": "standing",
+      "approvedBy": "owner — pre-approved, conditional on budget-probe v2 confirming",
+      "trigger": "CONFIRMED. budget-probe v2: a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 +/- 7.0 against an A/A floor of 1.7 +/- 3.2). The engine is deadline-aware; the second second changes about 7% of decisions net. The condition on the pre-approval is met.",
+      "question": "Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line.",
+      "arms": [
+        "integrated",
+        "perf-substrate"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "null-snake6"
+      ],
+      "budgets": [
+        500,
+        1000,
+        2000
+      ],
+      "blocks": 8,
+      "readsOut": [
+        "decisions",
+        "worstWallMs",
+        "overrunRate",
+        "turns",
+        "capRate",
+        "score"
+      ],
+      "designNote": "ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable.",
+      "caveat": "changed != improved. The 35.0% figure counts decisions whose staged move-set CHANGED after the 1000 ms mark; nothing in it says the later set is better. Probe v1 was RETRACTED (a shared engine carried per-game ledger state); v2 is the valid one."
+    }
+  ]
+}

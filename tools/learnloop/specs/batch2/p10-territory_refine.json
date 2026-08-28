@@ -1,0 +1,145 @@
+{
+ "_comment": [
+  "P10 — CENTAUR_TERRITORY_REFINE (CL5), status probe-passed.",
+  "",
+  "QUESTION: Does a floor that is 1-2 cells tighter on a quarter of emissions pay for a third more territory time, at equal wall clock?",
+  "",
+  "ARMS: enum-on  |  enum-on+refine-on",
+  "READS OUT: refineMovedLo, refineInverted, worstWallMs, decisions, score",
+  "",
+  "DESIGN NOTE: The BASE arm must be enum-on, not off: the refiner requires the enumeration, so an off-vs-refine pair measures their sum. A cell that never exercises a held teammate will never move the `hi` channel — build the arm knowing that.",
+  "",
+  "FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no",
+  "warning on anything else. Set the OFF arm by OMITTING the variable, and",
+  "check the manifest envAtRun block afterwards. Since the CL7 telemetry",
+  "closure the per-game rows also carry the RESOLVED flag stamp, which is",
+  "the value that actually ran — read that, not the environment.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p10-territory_refine",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  50401,
+  50402,
+  50403,
+  50404,
+  50405,
+  50406,
+  50407,
+  50408,
+  50409,
+  50410,
+  50411,
+  50412,
+  50413,
+  50414,
+  50415,
+  50416
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}
