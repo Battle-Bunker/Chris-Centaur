@@ -34,9 +34,24 @@
  *      become a slider counts as one until an observation clears it. The
  *      direction of error is therefore always "we were too cautious for one
  *      more turn", never "we ran the wrong objective on a board with a hidden
- *      queen on it". `promotionImminent` pre-arms the same gate one turn early
- *      so the single transition this corpus actually contains — a pawn
+ *      queen on it". `ownPromotionImminent` pre-arms the same gate one turn
+ *      early so the single transition this corpus actually contains — a pawn
  *      promoting — happens BETWEEN turns and never inside one.
+ *
+ *      THE PESSIMISM IS OVER KIND, NOT OVER TEAM (arch/s3). Fog widens which
+ *      KIND a held slot might hold; it never widens which team it belongs to,
+ *      because a unit does not change team and the team is on the frozen
+ *      record. So scoping the detector to our own units subtracts nothing from
+ *      the bias this rule installs.
+ *
+ *   4. THE SLIDER DETECTOR IS OWN-TEAM (E1, arch/s3). arch/s2 keyed the
+ *      predicate on board-level presence and documented the choice as pending
+ *      E1. E1 ran, on the asymmetric rosters the corpus could not produce, and
+ *      the any-team bit separates nothing: territory beats material by +0.58
+ *      with no slider anywhere and by +0.57 with an ENEMY slider on the board,
+ *      and by −0.03/−0.05 when it owns one. See `ADMISSION_LADDERS`' first row
+ *      for the full numbers, the contact-forced replication, and the caveat
+ *      that only the MATCHED contrast may be quoted.
  *
  * WHAT THIS MODULE DOES NOT DECIDE. It emits an ORDERED LADDER and the
  * detector facts behind it. How the rungs interact — whether a richer rung may
@@ -142,14 +157,25 @@ export function promotionImminentFor(
  * MEASURE THE BOARD. Once per decision, before any evaluation, off turn-start
  * state only.
  *
- * Scope is BOARD-LEVEL (every team's units, not just the subject's). The value
- * evidence cannot separate own-slider from any-slider, and the compute
- * evidence says an enemy slider costs nearly as much as an own one (median
- * plans 6 vs 6 at 150 ms; material 32.5 vs 33.0) through enemy branching and
- * the claim field. A policy keyed on `any` is safe-by-value and conservative;
- * one keyed on `own` is what the mechanism predicts and is unvalidated. E1 (the
- * asymmetric-roster detector-scope sweep) decides it; until then this is the
- * conservative reading and the sweep is the thing that may narrow it.
+ * ── SCOPE: OWN-TEAM, AND BOARD-LEVEL BESIDE IT (E1) ────────────────────────
+ *
+ * arch/s2 measured board-level presence ONLY, and said so: "the value evidence
+ * cannot separate own-slider from any-slider ... E1 decides it; until then this
+ * is the conservative reading". E1 ran, and it decided AGAINST the any-team
+ * reading — including against calling it conservative. Both bits are measured
+ * now: `ownSliderPossible` is what `ADMISSION_LADDERS` keys on, `sliderPossible`
+ * is retained as an emitted fact because the compute census and M4 are stated
+ * in board-level terms and a corpus that dropped it could not be read against
+ * either, nor re-derive what the arch/s2 predicate would have said.
+ *
+ * The own-team test is EXACT on the team and pessimistic on the kind. A live
+ * unit carries its team on the roster; a held one carries it on the frozen
+ * claim record, and a unit never changes team, so fog widens the set of KINDS
+ * a slot might be and never the set of teams it might belong to. That is what
+ * makes the own-team form a strictly cheaper measurement than the any-team one
+ * (the same single pass with one extra integer compare) rather than a
+ * more-expensive one, and it is why the fog bias stays exactly where owner
+ * ruling Q2 put it.
  *
  * Trail counts read the ROSTER rather than a resolution's survivors, exactly as
  * `trailScaleOf` does: a count read off who a reading admits is not a board
@@ -185,19 +211,30 @@ export function admissionSubstrateOf(sub: unknown): AdmissionSubstrate | null {
 export function measureAdmission(sub: AdmissionSubstrate, asTeam: number): AdmissionConditions {
   const promotionWeight = sub.engine.config.pawnPromotionWeight;
   let sliderPossible = false;
+  let ownSliderPossible = false;
   let promotionImminent = false;
+  let ownPromotionImminent = false;
   let ownTrailCount = 0;
   let theirTrailCount = 0;
 
   for (const u of sub.roster()) {
     const profile = profileOf(u.kind);
+    const mine = u.team === asTeam;
     if (profile.leavesTrail) {
-      if (u.team === asTeam) ownTrailCount++;
+      if (mine) ownTrailCount++;
       else theirTrailCount++;
     }
-    if (!sliderPossible && isSliderKind(u.kind)) sliderPossible = true;
-    if (!promotionImminent && promotionImminentFor(u.kind, u.weight, 0, promotionWeight)) {
-      promotionImminent = true;
+    if (!sliderPossible || (mine && !ownSliderPossible)) {
+      if (isSliderKind(u.kind)) {
+        sliderPossible = true;
+        if (mine) ownSliderPossible = true;
+      }
+    }
+    if (!promotionImminent || (mine && !ownPromotionImminent)) {
+      if (promotionImminentFor(u.kind, u.weight, 0, promotionWeight)) {
+        promotionImminent = true;
+        if (mine) ownPromotionImminent = true;
+      }
     }
   }
 
@@ -205,11 +242,23 @@ export function measureAdmission(sub: AdmissionSubstrate, asTeam: number): Admis
   // it might have become, and reading only what we can see is the detector's
   // documented failure mode #2: on a live centaur board with holds it makes the
   // gate flicker on fog, which a full-visibility sweep can never observe.
+  //
+  // `slot.record.team` is the FROZEN team, and it is exact rather than
+  // pessimistic: fog widens which KIND a slot might hold, never which team it
+  // belongs to. So a held own pawn that might have promoted arms the own-team
+  // gate, and a held ENEMY pawn does not — which is the whole content of E1
+  // applied to the half of the board nobody can see.
   const field = sub.claimField();
   for (const slot of field.slots) {
     if (slot.cloud.certainlyGone) continue;
-    if (!sliderPossible && sliderPossibleIn(slot.cloud.kindSet)) sliderPossible = true;
-    if (!promotionImminent) {
+    const mine = slot.record.team === asTeam;
+    if (!sliderPossible || (mine && !ownSliderPossible)) {
+      if (sliderPossibleIn(slot.cloud.kindSet)) {
+        sliderPossible = true;
+        if (mine) ownSliderPossible = true;
+      }
+    }
+    if (!promotionImminent || (mine && !ownPromotionImminent)) {
       const holdDepth = Math.max(0, field.turn - slot.record.heldAtTurn);
       const promotes = promotionImminentFor(
         slot.record.kind,
@@ -217,11 +266,21 @@ export function measureAdmission(sub: AdmissionSubstrate, asTeam: number): Admis
         holdDepth,
         promotionWeight
       );
-      if (promotes) promotionImminent = true;
+      if (promotes) {
+        promotionImminent = true;
+        if (mine) ownPromotionImminent = true;
+      }
     }
   }
 
-  return { sliderPossible, ownTrailCount, theirTrailCount, promotionImminent };
+  return {
+    ownSliderPossible,
+    sliderPossible,
+    ownTrailCount,
+    theirTrailCount,
+    ownPromotionImminent,
+    promotionImminent,
+  };
 }
 
 /**
@@ -231,9 +290,15 @@ export function measureAdmission(sub: AdmissionSubstrate, asTeam: number): Admis
  * form here and `measureAdmission` is the authority; this exists so the slider
  * half can be asserted directly against the `kindSet` field it reads.
  */
-export function sliderPossibleAmong(standing: ReadonlyArray<Standing>): boolean {
+export function sliderPossibleAmong(
+  standing: ReadonlyArray<Standing>,
+  /** Restrict to one team — the OWN-TEAM form the predicate is keyed on.
+   * Omit for the board-level form the census and M4 are stated in. */
+  asTeam?: number
+): boolean {
   for (const s of standing) {
     if (!s.worstAlive && !s.bestAlive) continue;
+    if (asTeam !== undefined && s.team !== asTeam) continue;
     if (sliderPossibleIn(s.kindSet)) return true;
   }
   return false;

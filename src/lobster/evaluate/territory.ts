@@ -118,17 +118,38 @@ export interface Partition<S> {
   readonly theirs: number;
   readonly open: number;
   readonly trails: ReadonlyArray<TrailRoom<S>>;
+  /**
+   * THE TRAIL DOMAIN, as a board: every cell some admitted trail unit reaches
+   * inside the horizon — plane 2's whole arena, since a cell outside it is
+   * counted for nobody. It falls out of the sweep (it is `coveredPrev` at the
+   * last turn), and `commandFeature` reads it to ask what CONTESTED ground a
+   * piece can act on. Empty when nothing that leaves a trail is admitted.
+   *
+   * Owned by the caller's slab, not the workspace's: the two readings are
+   * cached side by side on one context, so a shared scratch board would have
+   * the second reading silently overwrite the first's.
+   */
+  readonly domain: Uint32Array;
+  /**
+   * Every non-wall cell — the substrate's own slab, read-only. A consumer that
+   * restricts itself to `domain` needs this the moment `domain` is EMPTY: a
+   * team whose last trail unit died contests no ground on plane 1, and a term
+   * that reads only plane-1 ground would go silently blind exactly there. On a
+   * piece-only position the pieces are the whole contest.
+   */
+  readonly openBoard: Uint32Array;
 }
 
 /** Nobody admitted: no ground is claimed either way, and `open` is still the
  * board's, so a consumer dividing by it does not meet a zero. */
-const emptyPartition = <S>(open: number): Partition<S> => ({
-  balance: 0,
-  ours: 0,
-  theirs: 0,
-  open,
-  trails: [],
-});
+const emptyPartition = <S>(
+  open: number,
+  domain: Uint32Array,
+  openBoard: Uint32Array
+): Partition<S> => {
+  domain.fill(0);
+  return { balance: 0, ours: 0, theirs: 0, open, trails: [], domain, openBoard };
+};
 
 /** The invulnerability tier a unit still carries at an absolute turn. */
 export function tierAtTurn(s: TerritorySubject, turn: number): number {
@@ -170,6 +191,18 @@ export class TerritoryWorkspace {
   readonly own: Uint32Array[] = [];
   /** Decisive turn per cell. Only filled when a piece could displace. */
   readonly decisive: Int32Array;
+  /**
+   * One trail-domain board PER READING. Two boards rather than one because a
+   * context caches both partitions and hands both out; a single scratch board
+   * would let the second reading rewrite the first's answer.
+   */
+  private readonly domains: { lo: Uint32Array; hi: Uint32Array };
+  /** Scratch for the resolved food board — one evaluation runs at a time. */
+  readonly foodOut: Uint32Array;
+
+  domainFor(reading: 'lo' | 'hi'): Uint32Array {
+    return this.domains[reading];
+  }
 
   constructor(grid: Grid, terrain: Terrain, capacity: number) {
     this.grid = grid;
@@ -192,6 +225,8 @@ export class TerritoryWorkspace {
     this.hit = new Uint32Array(w);
     this.others = new Uint32Array(w);
     this.decisive = new Int32Array(grid.cells);
+    this.domains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
+    this.foodOut = new Uint32Array(w);
   }
 
   planeFor(index: number): Uint32Array {
@@ -261,7 +296,10 @@ export function partitionOf<S extends TerritorySubject>(
   subjects: ReadonlyArray<S>,
   shells: ReadonlyMap<UnitId, UnitShells>,
   asTeam: number,
-  admit: Admission<S>
+  admit: Admission<S>,
+  /** Where this reading's trail domain is written. One per reading — see
+   * `Partition.domain`. Defaults to a fresh board for callers that ignore it. */
+  domain: Uint32Array = new Uint32Array(ws.grid.words)
 ): Partition<S> {
   const grid = ws.grid;
   const w = grid.words;
@@ -279,7 +317,9 @@ export function partitionOf<S extends TerritorySubject>(
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
     (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine, scalars: [] });
   }
-  if (trails.length === 0 && pieces.length === 0) return emptyPartition<S>(ws.open);
+  if (trails.length === 0 && pieces.length === 0) {
+    return emptyPartition<S>(ws.open, domain, ws.notWall);
+  }
 
   const needDecisive = pieces.length > 0 && trails.length > 0;
   const { ourCum, theirCum, ourStep, theirStep, oursBoard, theirsBoard } = ws;
@@ -419,6 +459,13 @@ export function partitionOf<S extends TerritorySubject>(
     theirs = counted.theirs;
   }
 
+  // The trail domain is `coveredPrev` after the last turn: the running OR of
+  // every admitted trail unit's arriving fronts. Masked to open ground, because
+  // a consumer counting cells is counting places a unit can stand.
+  for (let i = 0; i < w; i++) {
+    domain[i] = (((coveredPrev[i] as number) & (notWall[i] as number)) >>> 0);
+  }
+
   const open = ws.open;
   return {
     balance: open === 0 ? 0 : (ours - theirs) / open,
@@ -426,6 +473,8 @@ export function partitionOf<S extends TerritorySubject>(
     theirs,
     open,
     trails: trailRooms,
+    domain,
+    openBoard: notWall,
   };
 }
 

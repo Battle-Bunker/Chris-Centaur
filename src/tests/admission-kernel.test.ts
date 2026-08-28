@@ -23,8 +23,10 @@ import {
   BASE_PROFILE,
   BoundEvaluator,
   COHORTS,
+  SLIDER_COHORT_ID,
   TERRITORY_COHORT_ID,
   TERRITORY_PROFILE,
+  TERRITORY_SLIDER_PROFILE,
   defaultEvaluator,
 } from '../lobster/evaluate';
 import {
@@ -92,8 +94,16 @@ const ROOMY_SNAKE_BOARD = boardOf([
   trail('b4', { x: 10, y: 8 }, 'blue'),
 ]);
 
-/** The same roster with one enemy rook added — a slider board. */
-const SLIDER_BOARD = boardOf([
+/**
+ * The same roster with one ENEMY rook added.
+ *
+ * arch/s2 called this "a slider board" and refused territory on it. On arch/s3
+ * it is the `any=T, own=F` class — the one E1 measures at +0.57 [+0.23, +0.88]
+ * for territory over material, indistinguishable from the +0.58 it gets with no
+ * slider anywhere — so it runs the shipped objective. The name changed with the
+ * verdict, because "SLIDER_BOARD" is no longer the fact that matters about it.
+ */
+const ENEMY_SLIDER_BOARD = boardOf([
   trail('a1', { x: 4, y: 1 }, 'red'),
   trail('a2', { x: 4, y: 3 }, 'red'),
   trail('a3', { x: 4, y: 5 }, 'red'),
@@ -102,6 +112,22 @@ const SLIDER_BOARD = boardOf([
   trail('b2', { x: 10, y: 4 }, 'blue'),
   trail('b3', { x: 10, y: 6 }, 'blue'),
   piece('rook', { x: 9, y: 9 }, 'rook', 2, { teamID: 'blue' }),
+]);
+
+/** The same roster with the rook on OUR side: the `own=T` class, and the one
+ * board in this file that admits the repair. */
+const OWN_SLIDER_BOARD = boardOf([
+  trail('a1', { x: 4, y: 1 }, 'red'),
+  trail('a2', { x: 4, y: 3 }, 'red'),
+  trail('a3', { x: 4, y: 5 }, 'red'),
+  trail('a4', { x: 4, y: 7 }, 'red'),
+  piece('rook', { x: 2, y: 9 }, 'rook', 2, { teamID: 'red' }),
+  trail('b1', { x: 10, y: 2 }, 'blue'),
+  trail('b2', { x: 10, y: 4 }, 'blue'),
+  trail('b3', { x: 10, y: 6 }, 'blue'),
+  // Four a side, so the blue seat clears the trail threshold and the only
+  // thing separating the two seats on this board is who owns the rook.
+  trail('b4', { x: 10, y: 8 }, 'blue'),
 ]);
 
 /** The same roster with an own pawn one meal from promoting. */
@@ -137,6 +163,10 @@ class StepClock {
 const EVALUATORS: ReadonlyMap<string, BoundEvaluator> = new Map([
   [BASE_COHORT_ID, new BoundEvaluator(BASE_PROFILE)],
   [TERRITORY_COHORT_ID, defaultEvaluator as BoundEvaluator],
+  // The arch/s3 rung. One per REGISTERED cohort, not one per ladder the
+  // shipped table can produce — a kernel that admits a cohort this map cannot
+  // serve throws, and that is the failure a builder wants.
+  [SLIDER_COHORT_ID, new BoundEvaluator(TERRITORY_SLIDER_PROFILE)],
 ]);
 
 interface RunResult {
@@ -200,9 +230,11 @@ describe('the detectors read the board the engine built', () => {
     try {
       const c = measureAdmission(sub, sub.teamNumber('red'));
       expect(c).toEqual({
+        ownSliderPossible: false,
         sliderPossible: false,
         ownTrailCount: 4,
         theirTrailCount: 4,
+        ownPromotionImminent: false,
         promotionImminent: false,
       });
       expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
@@ -211,13 +243,52 @@ describe('the detectors read the board the engine built', () => {
     }
   });
 
-  test('one enemy rook is enough — the scope is board-level, pending E1', () => {
-    const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 30, asTeam: 'red' });
+  test('ONE ENEMY ROOK IS NOT ENOUGH — E1 re-keyed the scope to own-team', () => {
+    // arch/s2's assertion here was `[base]`, with the comment "the scope is
+    // board-level, pending E1". E1 ran. On this exact class — the board carries
+    // a slider and we do not own it — territory beats material by
+    // +0.57 [+0.23, +0.88] with rosters held fixed, which is the same +0.58 it
+    // gets on a board with no slider at all. So the shipped objective runs and
+    // the board-level bit is emitted as evidence rather than acted on.
+    const sub = makeSubstrate({ board: ENEMY_SLIDER_BOARD, turn: 30, asTeam: 'red' });
     try {
       const c = measureAdmission(sub, sub.teamNumber('red'));
       expect(c.sliderPossible).toBe(true);
+      expect(c.ownSliderPossible).toBe(false);
       expect(c.ownTrailCount).toBe(4);
-      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID]);
+      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('...and the SAME rook on OUR side admits the repair', () => {
+    // The other half, on a board that differs from the one above in exactly one
+    // field: the rook's `teamID`. Nothing else about the position changes, so
+    // this pair is the detector's scope isolated as cleanly as a test can
+    // isolate it.
+    const sub = makeSubstrate({ board: OWN_SLIDER_BOARD, turn: 30, asTeam: 'red' });
+    try {
+      const c = measureAdmission(sub, sub.teamNumber('red'));
+      expect(c.sliderPossible).toBe(true);
+      expect(c.ownSliderPossible).toBe(true);
+      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID, SLIDER_COHORT_ID]);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('the ENEMY seat on the own-slider board sees it the other way round', () => {
+    // Same board, decided for blue. Blue owns no slider, so blue keeps
+    // territory — which is the asymmetry E1's whole design rests on and the
+    // thing the 945-game corpus could not produce, every roster in it being
+    // team-symmetric.
+    const sub = makeSubstrate({ board: OWN_SLIDER_BOARD, turn: 30, asTeam: 'blue' });
+    try {
+      const c = measureAdmission(sub, sub.teamNumber('blue'));
+      expect(c.sliderPossible).toBe(true);
+      expect(c.ownSliderPossible).toBe(false);
+      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
     } finally {
       sub.release();
     }
@@ -228,32 +299,49 @@ describe('the detectors read the board the engine built', () => {
     try {
       const c = measureAdmission(sub, sub.teamNumber('red'));
       expect(c.sliderPossible).toBe(false);
+      expect(c.ownSliderPossible).toBe(false);
       expect(c.promotionImminent).toBe(true);
+      expect(c.ownPromotionImminent).toBe(true);
       // Promotion is a plan-space event, not a material one, which is exactly
       // why the material-denominated evaluator never sees it coming — so the
-      // gate closes a turn EARLY and the transition never happens inside a turn.
-      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID]);
+      // gate arms a turn EARLY and the transition never happens inside a turn.
+      // The rung is the repair, because that is what an own slider admits.
+      expect(classifyAdmission(c)).toEqual([BASE_COHORT_ID, SLIDER_COHORT_ID]);
     } finally {
       sub.release();
     }
   });
 
-  test('THE CONSERVATIVE FOG BIAS: a held pawn past the horizon reads as a slider', () => {
-    // Owner ruling Q2, end to end. The same board, twice: once with the enemy
-    // pawn observed THIS turn, once with it last observed twenty turns ago. In
-    // the second reading the claim's kindSet has forked to include a queen, and
-    // a queen is a slider — so territory is refused on a board where nothing
-    // visible changed at all.
-    const board = boardOf([
-      trail('a1', { x: 4, y: 1 }, 'red'),
-      trail('a2', { x: 4, y: 3 }, 'red'),
-      trail('a3', { x: 4, y: 5 }, 'red'),
-      trail('a4', { x: 4, y: 7 }, 'red'),
-      piece('theirPawn', { x: 9, y: 9 }, 'pawn', 1, { teamID: 'blue' }),
-      trail('b1', { x: 10, y: 2 }, 'blue'),
-    ], { food: Array.from({ length: 20 }, (_, i) => ({ x: i % 11, y: 9 })) });
+  /** The fog corpus: one pawn, four own trails, food enough for a promotion. */
+  const foggedPawnBoard = (pawnTeam: 'red' | 'blue'): Board =>
+    boardOf(
+      [
+        trail('a1', { x: 4, y: 1 }, 'red'),
+        trail('a2', { x: 4, y: 3 }, 'red'),
+        trail('a3', { x: 4, y: 5 }, 'red'),
+        trail('a4', { x: 4, y: 7 }, 'red'),
+        piece('thePawn', { x: 9, y: 9 }, 'pawn', 1, { teamID: pawnTeam }),
+        trail('b1', { x: 10, y: 2 }, 'blue'),
+      ],
+      { food: Array.from({ length: 20 }, (_, i) => ({ x: i % 11, y: 9 })) }
+    );
 
-    const fresh = makeSubstrate({ board, turn: 40, asTeam: 'red' });
+  /**
+   * Two readings of one board: the pawn observed THIS turn, and the pawn last
+   * observed thirty-five turns ago.
+   *
+   * `modeled` names the four trail units and NOT the pawn, so the pawn is
+   * carried as a CLAIM in both readings and the only thing that differs is how
+   * old the claim is. That matters more on arch/s3 than it did on arch/s2: the
+   * substrate holds everything OUTSIDE the modeled set, and the default modeled
+   * set is our whole team — so with the default, an own unit is never held and
+   * the own-team fog bias would have nothing to bite on. The centaur case where
+   * it does bite is exactly this one: the operator drives some of our units and
+   * the rest are claims like anybody else's.
+   */
+  const sightedAndFogged = (board: Board) => {
+    const modeled = ['a1', 'a2', 'a3', 'a4'];
+    const fresh = makeSubstrate({ board, turn: 40, asTeam: 'red', modeled });
     let sighted;
     try {
       sighted = measureAdmission(fresh, fresh.teamNumber('red'));
@@ -261,25 +349,55 @@ describe('the detectors read the board the engine built', () => {
       fresh.release();
       clearGeometryCache();
     }
-
     const stale = makeSubstrate({
       board,
       turn: 40,
       asTeam: 'red',
-      observedTurns: new Map([['theirPawn', 5]]),
+      modeled,
+      observedTurns: new Map([['thePawn', 5]]),
     });
     let fogged;
     try {
       fogged = measureAdmission(stale, stale.teamNumber('red'));
     } finally {
       stale.release();
+      clearGeometryCache();
     }
+    return { sighted, fogged };
+  };
+
+  test('THE CONSERVATIVE FOG BIAS: a held OWN pawn past the horizon reads as a slider', () => {
+    // Owner ruling Q2, end to end. The same board, twice: once with our own
+    // pawn observed THIS turn, once with it last observed thirty-five turns
+    // ago. In the second reading the claim's kindSet has forked to include a
+    // queen, and a queen is a slider — so the repair rung is admitted on a
+    // board where nothing visible changed at all.
+    const { sighted, fogged } = sightedAndFogged(foggedPawnBoard('red'));
 
     // The direction of error is one-way: fog can only ever ADD caution.
-    expect(sighted.sliderPossible || sighted.promotionImminent).toBe(false);
-    expect(fogged.sliderPossible || fogged.promotionImminent).toBe(true);
+    expect(sighted.ownSliderPossible || sighted.ownPromotionImminent).toBe(false);
+    expect(fogged.ownSliderPossible || fogged.ownPromotionImminent).toBe(true);
     expect(classifyAdmission(sighted)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
-    expect(classifyAdmission(fogged)).toEqual([BASE_COHORT_ID]);
+    expect(classifyAdmission(fogged)).toEqual([BASE_COHORT_ID, SLIDER_COHORT_ID]);
+  });
+
+  test('...and the bias is OWN-TEAM: the same fog on an ENEMY pawn moves nothing', () => {
+    // The complement, and the one place where arch/s3's scope amendment and
+    // arch/s2's fog ruling could have been mistaken for each other. The
+    // pessimism is over KIND, not over TEAM: fog widens what a held slot might
+    // BE, never whose it is, because the team is on the frozen claim record and
+    // a unit does not change team. So an enemy pawn that might have promoted
+    // moves the BOARD-LEVEL bit and leaves the classification exactly where it
+    // was — which is E1's verdict applied to the half of the board nobody can
+    // see, and it is the case arch/s2's version of this test was actually
+    // driving.
+    const { sighted, fogged } = sightedAndFogged(foggedPawnBoard('blue'));
+
+    expect(sighted.sliderPossible || sighted.promotionImminent).toBe(false);
+    expect(fogged.sliderPossible || fogged.promotionImminent).toBe(true); // board-level moves
+    expect(fogged.ownSliderPossible || fogged.ownPromotionImminent).toBe(false); // own does not
+    expect(classifyAdmission(sighted)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
+    expect(classifyAdmission(fogged)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
   });
 
   test('the acceptance corpus classifies, and says why', () => {
@@ -294,22 +412,42 @@ describe('the detectors read the board the engine built', () => {
       const sub = makeSubstrate({ board: s.board, turn: s.turn, asTeam: s.team });
       try {
         const c = measureAdmission(sub, sub.teamNumber(s.team));
-        seen.add(JSON.stringify(classifyAdmission(c)));
-        // Every acceptance board is either slider-bearing (mid11) or carries
-        // fewer than four own trail units (snakes11 runs three a side), so the
-        // shipped tenant refuses territory on all of them. Worth knowing
-        // before anyone reads a promotion sweep on this corpus.
-        expect([s.turn, s.team, classifyAdmission(c)]).toEqual([
+        const ladder = classifyAdmission(c);
+        seen.add(JSON.stringify(ladder));
+        // THE COROLLARY arch/s2 §6(b) OWED, RESTATED FOR arch/s3. Every
+        // snakes11 board runs three trail units a side, below the threshold of
+        // four, so it demotes to `base` on the ROSTER row and not on anything
+        // to do with sliders. mid11 carries a slider and OWNS it, so on this
+        // branch it takes the repair rung rather than being demoted.
+        //
+        // The standing warning survives the amendment and is if anything
+        // sharper: THE PROMOTION SWEEP MUST NOT BE RUN ON THE ACCEPTANCE
+        // CORPUS. Twelve of its thirteen boards gate on thin rosters and the
+        // thirteenth gates on own-slider, so an ON arm measured here contains
+        // no cell in which the shipped territory objective runs at all.
+        expect([s.turn, s.team, ladder]).toEqual([
           s.turn,
           s.team,
-          [BASE_COHORT_ID],
+          c.ownSliderPossible ? [BASE_COHORT_ID, SLIDER_COHORT_ID] : [BASE_COHORT_ID],
+        ]);
+        expect([s.turn, s.team, c.ownTrailCount < 4 || c.ownSliderPossible]).toEqual([
+          s.turn,
+          s.team,
+          true,
         ]);
       } finally {
         sub.release();
         clearGeometryCache();
       }
     }
-    expect(seen.size).toBe(1);
+    // Two distinct verdicts on this corpus now, where arch/s2 measured one:
+    // the thin-roster demotion and the own-slider repair.
+    expect(seen).toEqual(
+      new Set([
+        JSON.stringify([BASE_COHORT_ID]),
+        JSON.stringify([BASE_COHORT_ID, SLIDER_COHORT_ID]),
+      ])
+    );
   });
 
   test('a substrate that cannot answer is refused, not silently tolerated', () => {
@@ -330,7 +468,7 @@ describe('the detectors read the board the engine built', () => {
 
 describe('the flag', () => {
   test('OFF: no stamp anywhere, and the shipped objective throughout', async () => {
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', { policyOn: false });
+    const { records, kernel } = await run(ENEMY_SLIDER_BOARD, 'red', { policyOn: false });
     expect(records.length).toBeGreaterThan(0);
     expect(kernel.lastReport?.admission).toBeNull();
     expect(kernel.lastReport?.admissionState).toBeNull();
@@ -343,20 +481,53 @@ describe('the flag', () => {
     }
   });
 
-  test('ON: the board picks base on a slider roster, and every record says so', async () => {
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', { policyOn: true });
+  test('ON: an ENEMY slider keeps territory, and every record says so', async () => {
+    const { records, kernel } = await run(ENEMY_SLIDER_BOARD, 'red', { policyOn: true });
     const stamp = kernel.lastReport?.admission;
     expect(stamp).not.toBeNull();
-    expect(stamp?.ladder).toEqual([BASE_COHORT_ID]);
-    expect(stamp?.activeCohort).toBe(BASE_COHORT_ID);
+    expect(stamp?.ladder).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
+    expect(stamp?.activeCohort).toBe(TERRITORY_COHORT_ID);
+    // Both facts on the wire: the board carries a slider, we do not own it.
+    // A refit corpus needs the second to read the verdict and the FIRST to be
+    // able to re-derive what the arch/s2 predicate would have said instead.
     expect(stamp?.detectors.sliderPossible).toBe(true);
+    expect(stamp?.detectors.ownSliderPossible).toBe(false);
     expect(records.length).toBeGreaterThan(0);
     for (const rec of records) {
       expect(rec.admission).toEqual(stamp);
       // The record's own basis agrees with the policy's verdict: the numbers
       // were proved under the objective the stamp names.
-      expect(cohortsOn(rec)).toEqual([BASE_COHORT_ID]);
+      expect(cohortsOn(rec)).toEqual([TERRITORY_COHORT_ID]);
     }
+  });
+
+  test('ON: an OWN slider runs the REPAIR, and the stamp names the profile', async () => {
+    // Item 2 of the arch/s3 brief, end to end through the kernel: the ladder
+    // selects `territory-slider`, the kernel builds the decision on THAT
+    // evaluator, and every emitted record's own basis says which objective its
+    // numbers were proved under.
+    const { records, kernel } = await run(OWN_SLIDER_BOARD, 'red', { policyOn: true });
+    const stamp = kernel.lastReport?.admission;
+    expect(stamp?.ladder).toEqual([BASE_COHORT_ID, SLIDER_COHORT_ID]);
+    expect(stamp?.activeCohort).toBe(SLIDER_COHORT_ID);
+    expect(stamp?.detectors.ownSliderPossible).toBe(true);
+    expect(records.length).toBeGreaterThan(0);
+    for (const rec of records) {
+      expect(cohortsOn(rec)).toEqual([SLIDER_COHORT_ID]);
+      // The stamp is a profile IDENTITY and not just a label: the assumption
+      // carries the invoked set, and `command` in it is the difference between
+      // the repair and the shipped objective.
+      const cohort = rec.assumptions.find((a) => a.kind === 'cohort');
+      expect(cohort?.kind === 'cohort' && cohort.features).toContain('command');
+    }
+  });
+
+  test('ON: the SAME board decided for the other seat runs territory', async () => {
+    // The asymmetry, through the kernel. One board, two seats, two objectives —
+    // which is the thing a team-symmetric corpus can never exhibit and the
+    // reason E1 had to build asymmetric rosters to answer the scope question.
+    const { kernel } = await run(OWN_SLIDER_BOARD, 'blue', { policyOn: true });
+    expect(kernel.lastReport?.admission?.activeCohort).toBe(TERRITORY_COHORT_ID);
   });
 
   test('ON: the board keeps territory on a roomy slider-free roster', async () => {
@@ -371,7 +542,7 @@ describe('the flag', () => {
     // Not just what is STAMPED. The base cohort's compute gate excludes reach
     // and room, so the two runs differ in the evaluator they drove — asserted
     // by counting what each profile's fold actually invoked on the same board.
-    const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 30, asTeam: 'red' });
+    const sub = makeSubstrate({ board: ENEMY_SLIDER_BOARD, turn: 30, asTeam: 'red' });
     try {
       const asTeam = sub.teamNumber('red');
       const plan = new Map<UnitId, Candidate>();
@@ -392,7 +563,13 @@ describe('the flag', () => {
       // Absence from `parts` is the honest report that a number was never
       // computed, which a zero would misstate.
       expect(Object.keys(base.parts).sort()).toEqual(['healthEconomy', 'kingMargin', 'material']);
+      // `command` joins the list on arch/s3: the slider repair's gradient is a
+      // registered feature and `TERRITORY_PROFILE` invokes ALL of them. It is
+      // COMPUTED and folded here at weight zero — the profile that pays for it
+      // is `TERRITORY_SLIDER_PROFILE` — and it is `base`'s continued ABSENCE of
+      // it, three keys against six, that this test is actually about.
       expect(Object.keys(terr.parts).sort()).toEqual([
+        'command',
         'healthEconomy',
         'kingMargin',
         'material',
@@ -408,8 +585,11 @@ describe('the flag', () => {
     // Falling back to `input.evaluate` would mean proving numbers under one
     // objective and stamping them with another — the exact silent mixing the
     // cohort stamp exists to prevent.
+    // On arch/s3 the board that exercises this is the OWN-slider one: the
+    // enemy-slider board now admits `territory`, which this map DOES serve, so
+    // driving it here would assert nothing.
     await expect(
-      run(SLIDER_BOARD, 'red', {
+      run(OWN_SLIDER_BOARD, 'red', {
         policyOn: true,
         evaluators: new Map([[TERRITORY_COHORT_ID, defaultEvaluator as BoundEvaluator]]),
       })
@@ -421,7 +601,11 @@ describe('the flag', () => {
     expect(kernel).toBeInstanceOf(LobsterKernel);
     // The registry is a catalogue and carries both rows; the POLICY is what
     // ships off, and it is what makes a default decision a constant-cohort one.
-    expect(COHORTS.map((c) => c.id)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
+    expect(COHORTS.map((c) => c.id)).toEqual([
+      BASE_COHORT_ID,
+      TERRITORY_COHORT_ID,
+      SLIDER_COHORT_ID,
+    ]);
   });
 });
 
@@ -430,9 +614,24 @@ describe('the flag', () => {
 
 describe('the ladder is frozen for the turn', () => {
   test('every record in one decision carries the SAME stamp, object for object', async () => {
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', {
+    // THE CORPUS MOVED ON arch/s3, AND THE REASON IS WORTH RECORDING. This test
+    // used to drive `ENEMY_SLIDER_BOARD` at 200 ms and assert `records.length > 1` as
+    // its non-vacuity guard — "the same stamp on every record" says nothing
+    // about a decision that emits once. After the integrated-evaluator merge
+    // (gainOrdering promoted into the shipped generator, plus the bound bank's
+    // evaluation memo) the three hand-built boards in this file stage their
+    // argmax on the first pass and never revise it: measured at 200, 400, 800
+    // and 1500 ms, every one of them emits exactly ONCE. That is the ordering
+    // change working, not the freeze failing.
+    //
+    // So the guard moves to a board that still revises. `mid11` — the
+    // acceptance fixture's mixed-slider board, the same one the flag-off gate
+    // replays — emits 2 records at 40 ms and 3 at 120/200/400 ms on this tree.
+    const mid = fixture.mid11 as unknown as { board: Board; turn: number; team: string };
+    const { records, kernel } = await run(mid.board, mid.team, {
       policyOn: true,
       budgetMs: 200,
+      turn: mid.turn,
     });
     expect(records.length).toBeGreaterThan(1);
     const stamp = kernel.lastReport?.admission;
@@ -447,7 +646,7 @@ describe('the ladder is frozen for the turn', () => {
     // function of the substrate's turn-start roster and claim field, which a
     // pin does not touch. Both would have to fail for the ladder to move.
     let pinned = false;
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', {
+    const { records, kernel } = await run(OWN_SLIDER_BOARD, 'red', {
       policyOn: true,
       budgetMs: 200,
       each: (_rec, k) => {
@@ -461,10 +660,10 @@ describe('the ladder is frozen for the turn', () => {
     expect(report?.epochs).toBeGreaterThan(1); // the epoch really happened
     const stamps = new Set(records.map((r) => JSON.stringify(r.admission)));
     expect(stamps.size).toBe(1);
-    expect(report?.admission?.activeCohort).toBe(BASE_COHORT_ID);
+    expect(report?.admission?.activeCohort).toBe(SLIDER_COHORT_ID);
     // And the objective never changed under it either.
     const ids = new Set(records.flatMap((r) => cohortsOn(r)));
-    expect([...ids]).toEqual([BASE_COHORT_ID]);
+    expect([...ids]).toEqual([SLIDER_COHORT_ID]);
   });
 
   test('a decision that refines under fog never re-classifies', async () => {
@@ -472,19 +671,19 @@ describe('the ladder is frozen for the turn', () => {
     // to refine, so the search spends the turn consuming observations. The
     // conditions the ladder was classified from are turn-start facts, so no
     // amount of refinement can restate them within the turn.
-    const { records, kernel } = await run(SLIDER_BOARD, 'red', {
+    const { records, kernel } = await run(OWN_SLIDER_BOARD, 'red', {
       policyOn: true,
       budgetMs: 200,
       observedTurns: new Map([
         ['b1', 26],
         ['b2', 25],
-        ['rook', 24],
+        ['b3', 24],
       ]),
     });
     const report = kernel.lastReport;
     expect(report?.slices).toBeGreaterThan(1);
     expect(new Set(records.map((r) => r.admission?.activeCohort)).size).toBe(1);
-    expect(report?.admission?.activeCohort).toBe(BASE_COHORT_ID);
+    expect(report?.admission?.activeCohort).toBe(SLIDER_COHORT_ID);
   });
 
   test('THE PREDICATE IS CONSULTED ONCE PER DECISION — counted, not argued', () => {
@@ -505,7 +704,7 @@ describe('the ladder is frozen for the turn', () => {
     }));
     return (async () => {
       const clock = new StepClock();
-      const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 30, asTeam: 'red' });
+      const sub = makeSubstrate({ board: ENEMY_SLIDER_BOARD, turn: 30, asTeam: 'red' });
       const kernel = new LobsterKernel({
         sliceMs: 2,
         reserveMs: 1,
@@ -560,7 +759,7 @@ describe('the ladder is frozen for the turn', () => {
     // what a decision holds constant. Anyone who later adds a second call site
     // is adding a call that provably cannot change anything — which is the
     // reason not to add it.
-    const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 30, asTeam: 'red' });
+    const sub = makeSubstrate({ board: ENEMY_SLIDER_BOARD, turn: 30, asTeam: 'red' });
     try {
       const asTeam = sub.teamNumber('red');
       const first = measureAdmission(sub, asTeam);
@@ -575,24 +774,36 @@ describe('the ladder is frozen for the turn', () => {
     // in either direction. Inside a turn the ladder is a constant; across
     // turns it is a fresh pure function of the new board.
     //
-    // Turn N: the enemy pawn is stale past the promotion horizon, its kindSet
-    // has forked, and territory is refused. Turn N+1: the same board with the
-    // pawn observed, and territory returns. Nothing in between could have
-    // moved it, which is the whole content of the freeze.
+    // Turn N: OUR own held pawn is stale past the promotion horizon, its
+    // kindSet has forked, and the repair rung is admitted. Turn N+1: the same
+    // board with the pawn observed, and territory returns. Nothing in between
+    // could have moved it, which is the whole content of the freeze.
+    //
+    // The pawn is OURS on arch/s3 and was the enemy's on arch/s2, because after
+    // E1 an enemy pawn's fog moves the board-level bit and not the keyed one —
+    // the complement is asserted directly in the fog-bias pair above.
     const board = boardOf(
       [
         trail('a1', { x: 4, y: 1 }, 'red'),
         trail('a2', { x: 4, y: 3 }, 'red'),
         trail('a3', { x: 4, y: 5 }, 'red'),
         trail('a4', { x: 4, y: 7 }, 'red'),
-        piece('theirPawn', { x: 9, y: 9 }, 'pawn', 1, { teamID: 'blue' }),
+        piece('ourPawn', { x: 9, y: 9 }, 'pawn', 1, { teamID: 'red' }),
         trail('b1', { x: 10, y: 2 }, 'blue'),
       ],
       { food: Array.from({ length: 20 }, (_, i) => ({ x: i % 11, y: 9 })) }
     );
 
+    // `modeled` excludes the pawn, so it is a CLAIM in both readings and the
+    // only thing that differs between them is the age of that claim.
     const measure = (observedTurns?: ReadonlyMap<string, number>) => {
-      const sub = makeSubstrate({ board, turn: 40, asTeam: 'red', observedTurns });
+      const sub = makeSubstrate({
+        board,
+        turn: 40,
+        asTeam: 'red',
+        modeled: ['a1', 'a2', 'a3', 'a4'],
+        observedTurns,
+      });
       try {
         return measureAdmission(sub, sub.teamNumber('red'));
       } finally {
@@ -601,18 +812,19 @@ describe('the ladder is frozen for the turn', () => {
       }
     };
 
-    const stale = measure(new Map([['theirPawn', 5]]));
+    const SLIDER_LADDER = [BASE_COHORT_ID, SLIDER_COHORT_ID];
+    const stale = measure(new Map([['ourPawn', 5]]));
     // ONE decision's worth of the fogged reading — constant, however many
     // times anything inside the turn asks.
     for (let i = 0; i < 4; i++) {
-      expect(classifyAdmission(measure(new Map([['theirPawn', 5]])))).toEqual([BASE_COHORT_ID]);
+      expect(classifyAdmission(measure(new Map([['ourPawn', 5]])))).toEqual(SLIDER_LADDER);
     }
-    expect(classifyAdmission(stale)).toEqual([BASE_COHORT_ID]);
+    expect(classifyAdmission(stale)).toEqual(SLIDER_LADDER);
 
     // The NEXT decision, on a board where the observation landed.
     const cleared = measure();
-    expect(cleared.sliderPossible).toBe(false);
-    expect(cleared.promotionImminent).toBe(false);
+    expect(cleared.ownSliderPossible).toBe(false);
+    expect(cleared.ownPromotionImminent).toBe(false);
     expect(classifyAdmission(cleared)).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
   });
 });
@@ -636,10 +848,12 @@ describe('the dwell counts across turns', () => {
     expect(carried).not.toBeNull();
     clearGeometryCache();
 
-    // Turn two: a rook appears. ONE dissenting measurement, so the ladder
-    // holds — replacing a basis is not a log-tidiness question.
+    // Turn two: a rook appears ON OUR SIDE. ONE dissenting measurement, so the
+    // ladder holds — replacing a basis is not a log-tidiness question. It has
+    // to be an OWN rook on arch/s3: an enemy one no longer dissents at all,
+    // which is itself the amendment showing up in the dwell.
     const clock = new StepClock();
-    const sub = makeSubstrate({ board: SLIDER_BOARD, turn: 31, asTeam: 'red' });
+    const sub = makeSubstrate({ board: OWN_SLIDER_BOARD, turn: 31, asTeam: 'red' });
     const kernel = new LobsterKernel({
       sliceMs: 2,
       reserveMs: 1,
@@ -666,7 +880,7 @@ describe('the dwell counts across turns', () => {
     }
     const second = kernel.lastReport;
     expect(second?.admission?.ladder).toEqual([BASE_COHORT_ID, TERRITORY_COHORT_ID]);
-    expect(second?.admissionState?.pending).toEqual([BASE_COHORT_ID]);
+    expect(second?.admissionState?.pending).toEqual([BASE_COHORT_ID, SLIDER_COHORT_ID]);
     expect(second?.admissionState?.held).toBe(1);
   });
 });

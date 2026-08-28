@@ -26,30 +26,44 @@ import {
   BASE_COHORT_ID,
   COHORTS,
   OWN_TRAIL_ADMISSION_THRESHOLD,
+  SLIDER_COHORT_ID,
   TERRITORY_COHORT_ID,
 } from '../evaluate/calibration';
 import { assumptionClassOf } from '../bounds';
 import { UnitKind, kindProfiles, profileOf } from '../../partial-engine/grammar';
 
 const conditions = (over: Partial<AdmissionConditions> = {}): AdmissionConditions => ({
+  ownSliderPossible: false,
   sliderPossible: false,
   ownTrailCount: 8,
   theirTrailCount: 8,
+  ownPromotionImminent: false,
   promotionImminent: false,
   ...over,
 });
 
 const BASE_ONLY = [BASE_COHORT_ID];
 const BOTH = [BASE_COHORT_ID, TERRITORY_COHORT_ID];
+/** The rung an own-slider board is conducted under on arch/s3: the repair. */
+const SLIDER = [BASE_COHORT_ID, SLIDER_COHORT_ID];
 
 // ---------------------------------------------------------------------------
 
 describe('the governor is condition-keyed and never budget-keyed', () => {
-  test('admits exactly four measured conditions, none of them a clock', () => {
+  test('admits exactly six measured conditions, none of them a clock', () => {
     // Structural, and the mirror of the posture governor's own guard: the ONLY
     // way a millisecond could reach the classifier is through this type.
     // Adding a budget field here is the design error the test exists to catch.
+    //
+    // SIX ON arch/s3, not four: E1 re-keyed the predicate on the OWN-TEAM
+    // slider bit, and the board-level bit is kept beside it because the compute
+    // census and M4 are stated in board-level terms and a corpus that dropped
+    // it could not be read against either — nor re-derive what the arch/s2
+    // predicate would have decided on the same board. Both pre-arms follow the
+    // same rule for the same reason.
     expect(Object.keys(conditions()).sort()).toEqual([
+      'ownPromotionImminent',
+      'ownSliderPossible',
       'ownTrailCount',
       'promotionImminent',
       'sliderPossible',
@@ -82,11 +96,17 @@ describe('the governor is condition-keyed and never budget-keyed', () => {
   });
 
   test('classifies identically for every condition combination whatever the stamp', () => {
-    for (let mask = 0; mask < 8; mask++) {
+    for (let mask = 0; mask < 16; mask++) {
       for (const trail of [0, 3, 4, 9]) {
         const c = conditions({
-          sliderPossible: (mask & 1) !== 0,
-          promotionImminent: (mask & 2) !== 0,
+          // The own bits are the keyed ones and the board-level bits are
+          // implied by them (own => any), so the sweep walks the own bits and
+          // keeps the any bits consistent rather than enumerating impossible
+          // states like "we own a slider but the board has none".
+          ownSliderPossible: (mask & 1) !== 0,
+          sliderPossible: (mask & 1) !== 0 || (mask & 8) !== 0,
+          ownPromotionImminent: (mask & 2) !== 0,
+          promotionImminent: (mask & 2) !== 0 || (mask & 8) !== 0,
           theirTrailCount: (mask & 4) !== 0 ? 0 : 7,
           ownTrailCount: trail,
         });
@@ -105,12 +125,14 @@ describe('the governor is condition-keyed and never budget-keyed', () => {
 
 describe('classifyAdmission is pure and total', () => {
   test('every ladder it can return is non-empty and starts at the base cohort', () => {
-    for (let mask = 0; mask < 8; mask++) {
+    for (let mask = 0; mask < 16; mask++) {
       for (const trail of [0, 1, 3, 4, 5, 12]) {
         const ladder = classifyAdmission(
           conditions({
-            sliderPossible: (mask & 1) !== 0,
-            promotionImminent: (mask & 2) !== 0,
+            ownSliderPossible: (mask & 1) !== 0,
+            sliderPossible: (mask & 1) !== 0 || (mask & 8) !== 0,
+            ownPromotionImminent: (mask & 2) !== 0,
+            promotionImminent: (mask & 2) !== 0 || (mask & 8) !== 0,
             theirTrailCount: (mask & 4) !== 0 ? 0 : 7,
             ownTrailCount: trail,
           })
@@ -144,20 +166,58 @@ describe('classifyAdmission is pure and total', () => {
 });
 
 describe('the first tenant, as the table states it', () => {
-  test('a slider board gets base alone, whatever the roster looks like', () => {
-    expect(classifyAdmission(conditions({ sliderPossible: true }))).toEqual(BASE_ONLY);
-    expect(
-      classifyAdmission(conditions({ sliderPossible: true, ownTrailCount: 99 }))
-    ).toEqual(BASE_ONLY);
+  test('an OWN-slider board gets the repair rung, whatever the roster looks like', () => {
+    // arch/s2 answered `[base]` here. E2 says that throws away a +0.514 feature
+    // to avoid a +0.000 one; the rung is the repair.
+    const own = { ownSliderPossible: true, sliderPossible: true };
+    expect(classifyAdmission(conditions(own))).toEqual(SLIDER);
+    expect(classifyAdmission(conditions({ ...own, ownTrailCount: 99 }))).toEqual(SLIDER);
+    // And below the trail threshold too: the slider row outranks the thin-trail
+    // row deliberately, because a thin-trail piece board is the board the
+    // repair was built for.
+    expect(classifyAdmission(conditions({ ...own, ownTrailCount: 0 }))).toEqual(SLIDER);
   });
 
-  test('the pre-arm gates exactly as slider presence does', () => {
-    // A3's recommendation, and the reason the transition happens BETWEEN turns:
-    // promotionImminent IS sliderPresent for the gate's purposes.
-    expect(classifyAdmission(conditions({ promotionImminent: true }))).toEqual(BASE_ONLY);
+  test('AN ENEMY-ONLY SLIDER DOES NOT GATE — this is the whole of E1', () => {
+    // THE AMENDMENT, AS ONE ASSERTION. The board carries a slider
+    // (`sliderPossible`) and we do not own it (`ownSliderPossible` false).
+    // arch/s2's board-level key demoted here; E1 measures this exact class at
+    // +0.57 [+0.23, +0.88] for territory over material — indistinguishable from
+    // the +0.58 it gets with no slider on the board at all — and the
+    // contact-forced replication puts it at +0.53 (150 ms) and +0.75 (1000 ms).
+    // So the shipped objective runs.
     expect(
-      classifyAdmission(conditions({ promotionImminent: true, sliderPossible: false }))
-    ).toEqual(classifyAdmission(conditions({ sliderPossible: true })));
+      classifyAdmission(conditions({ sliderPossible: true, ownSliderPossible: false }))
+    ).toEqual(BOTH);
+    // Identical to the no-slider board, which is the shape of E1's finding:
+    // the `any` bit separates nothing.
+    expect(
+      classifyAdmission(conditions({ sliderPossible: true, ownSliderPossible: false }))
+    ).toEqual(classifyAdmission(conditions()));
+    // ...and the enemy pre-arm is scoped the same way, or the two halves of one
+    // rule would be keyed on different boards.
+    expect(
+      classifyAdmission(conditions({ promotionImminent: true, ownPromotionImminent: false }))
+    ).toEqual(BOTH);
+  });
+
+  test('the pre-arm gates exactly as own-slider presence does', () => {
+    // A3's recommendation, and the reason the transition happens BETWEEN turns:
+    // an imminent OWN promotion IS own-slider presence for the gate's purposes.
+    expect(
+      classifyAdmission(conditions({ ownPromotionImminent: true, promotionImminent: true }))
+    ).toEqual(SLIDER);
+    expect(
+      classifyAdmission(
+        conditions({
+          ownPromotionImminent: true,
+          promotionImminent: true,
+          ownSliderPossible: false,
+        })
+      )
+    ).toEqual(
+      classifyAdmission(conditions({ ownSliderPossible: true, sliderPossible: true }))
+    );
   });
 
   test('the trail threshold bites at exactly four', () => {
@@ -291,20 +351,20 @@ describe('the promotion pre-arm', () => {
 describe('the dwell', () => {
   test('a single dissenting measurement does not move the ladder', () => {
     const g = new AdmissionGovernor(BOTH, DEFAULT_ADMISSION_DWELL);
-    expect(g.observe(conditions({ sliderPossible: true }), 0)).toBeNull();
+    expect(g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 0)).toBeNull();
     expect(g.current).toEqual(BOTH);
     expect(g.pendingHeld).toBe(1);
   });
 
   test('two consecutive agreeing measurements do', () => {
     const g = new AdmissionGovernor(BOTH, DEFAULT_ADMISSION_DWELL);
-    g.observe(conditions({ sliderPossible: true }), 0);
-    const flip = g.observe(conditions({ sliderPossible: true }), 1);
+    g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 0);
+    const flip = g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 1);
     expect(flip).not.toBeNull();
     expect(flip?.from).toEqual(BOTH);
-    expect(flip?.to).toEqual(BASE_ONLY);
-    expect(g.current).toEqual(BASE_ONLY);
-    expect(g.activeCohort).toBe(BASE_COHORT_ID);
+    expect(flip?.to).toEqual(SLIDER);
+    expect(g.current).toEqual(SLIDER);
+    expect(g.activeCohort).toBe(SLIDER_COHORT_ID);
     expect(g.flips).toHaveLength(1);
   });
 
@@ -317,7 +377,7 @@ describe('the dwell', () => {
     // a synthetic alternation rather than on a corpus.
     const g = new AdmissionGovernor(BOTH, DEFAULT_ADMISSION_DWELL);
     for (let i = 0; i < 40; i++) {
-      g.observe(conditions({ sliderPossible: i % 2 === 0 }), i);
+      g.observe(conditions({ ownSliderPossible: i % 2 === 0, sliderPossible: i % 2 === 0 }), i);
     }
     expect(g.current).toEqual(BOTH);
     expect(g.flips).toHaveLength(0);
@@ -325,13 +385,14 @@ describe('the dwell', () => {
 
   test('an agreeing measurement clears whatever was pending', () => {
     const g = new AdmissionGovernor(BOTH, 3);
-    g.observe(conditions({ sliderPossible: true }), 0);
-    g.observe(conditions({ sliderPossible: true }), 1);
+    g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 0);
+    g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 1);
     expect(g.pendingHeld).toBe(2);
     g.observe(conditions(), 2); // the board agrees with where we are
     expect(g.pendingHeld).toBe(0);
-    g.observe(conditions({ sliderPossible: true }), 3);
+    g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 3);
     expect(g.current).toEqual(BOTH); // the count restarted, so no flip yet
+    expect(g.current).not.toEqual(SLIDER);
   });
 
   test('a DIFFERENT dissent restarts the count rather than inheriting it', () => {
@@ -349,21 +410,25 @@ describe('the dwell', () => {
 
   test('dwell 1 restores flip-on-first-sight, for a harness that wants it', () => {
     const g = new AdmissionGovernor(BOTH, 1);
-    expect(g.observe(conditions({ sliderPossible: true }), 0)).not.toBeNull();
-    expect(g.current).toEqual(BASE_ONLY);
+    expect(
+      g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 0)
+    ).not.toBeNull();
+    expect(g.current).toEqual(SLIDER);
   });
 
   test('the state carries across decisions, and it is a VALUE', () => {
     const first = new AdmissionGovernor(BOTH, DEFAULT_ADMISSION_DWELL);
-    first.observe(conditions({ sliderPossible: true }), 0);
+    first.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 0);
     const carried = first.state;
     expect(carried.held).toBe(1);
     // The next decision resumes from it and flips on ITS first measurement —
     // which is the whole point of counting the dwell in measurements across
     // turns, since one decision is one measurement.
     const second = AdmissionGovernor.resume(carried, DEFAULT_ADMISSION_DWELL);
-    expect(second.observe(conditions({ sliderPossible: true }), 1)).not.toBeNull();
-    expect(second.current).toEqual(BASE_ONLY);
+    expect(
+      second.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 1)
+    ).not.toBeNull();
+    expect(second.current).toEqual(SLIDER);
     // ...and the first governor did not move when the second one did.
     expect(first.current).toEqual(BOTH);
   });
@@ -372,8 +437,10 @@ describe('the dwell', () => {
     // With nothing before it there is no chatter to suppress, and starting
     // from a fixed guess would run the first turn of every game under an
     // objective the board never asked for.
-    const g = AdmissionGovernor.opening(conditions({ sliderPossible: true }));
-    expect(g.current).toEqual(BASE_ONLY);
+    const g = AdmissionGovernor.opening(
+      conditions({ ownSliderPossible: true, sliderPossible: true })
+    );
+    expect(g.current).toEqual(SLIDER);
     expect(g.flips).toHaveLength(0);
   });
 });
@@ -381,12 +448,24 @@ describe('the dwell', () => {
 describe('a flip rides as a framing assumption', () => {
   test('it is the cohort assumption of the rung now in force', () => {
     const g = new AdmissionGovernor(BOTH, 1);
-    const flip = g.observe(conditions({ sliderPossible: true }), 7);
-    expect(flip?.assumption).toEqual(admissionAssumption(BASE_ONLY));
+    const flip = g.observe(conditions({ ownSliderPossible: true, sliderPossible: true }), 7);
+    expect(flip?.assumption).toEqual(admissionAssumption(SLIDER));
     expect(flip?.assumption.kind).toBe('cohort');
     if (flip?.assumption.kind !== 'cohort') throw new Error('unreachable');
-    expect(flip.assumption.id).toBe(BASE_COHORT_ID);
-    expect(flip.assumption.features).toEqual(['healthEconomy', 'kingMargin', 'material']);
+    // THE STAMP NAMES THE PROFILE THAT WAS ACTUALLY RUN, which is the whole
+    // point of item 3 of the arch/s3 brief: the repair is a different objective
+    // and its assumption says so, by id AND by invoked feature set. `command`
+    // in this list is what tells a corpus reader six months later that this
+    // number was proved under the repair and not under the shipped profile.
+    expect(flip.assumption.id).toBe(SLIDER_COHORT_ID);
+    expect(flip.assumption.features).toEqual([
+      'command',
+      'healthEconomy',
+      'kingMargin',
+      'material',
+      'reach',
+      'room',
+    ]);
   });
 
   test('FRAMING, not conditioning: a policy running never defeats discharge', () => {
@@ -395,11 +474,12 @@ describe('a flip rides as a framing assumption', () => {
     // had been switched on.
     expect(assumptionClassOf(admissionAssumption(BOTH))).toBe('framing');
     expect(assumptionClassOf(admissionAssumption(BASE_ONLY))).toBe('framing');
+    expect(assumptionClassOf(admissionAssumption(SLIDER))).toBe('framing');
   });
 
   test('the flip records the conditions that produced it', () => {
     const g = new AdmissionGovernor(BOTH, 1);
-    const c = conditions({ sliderPossible: true, ownTrailCount: 6 });
+    const c = conditions({ ownSliderPossible: true, sliderPossible: true, ownTrailCount: 6 });
     const flip = g.observe(c, 3);
     expect(flip?.conditions).toEqual(c);
     // The stamp is a label and nothing reads it back.

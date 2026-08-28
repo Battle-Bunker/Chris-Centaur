@@ -57,7 +57,10 @@ import type {
 import { NO_ORDER_MOVE } from './contracts';
 import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { GrammarCandidateGenerator } from './candidates';
+import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
+import type { CandidateKnobs } from './candidates';
+import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
+import type { StagingSafety } from './staging-safety';
 import {
   BoundEvaluator,
   DEFAULT_COHORT_ID,
@@ -136,6 +139,15 @@ export interface TeamDecisionOptions {
    * caller that wants the 1 ms reflex reading asks for it by name.
    */
   readonly evaluate?: Evaluator;
+  /**
+   * Candidate-layer knobs. Defaults are `DEFAULT_KNOBS`, which is what every
+   * shipped profile runs; a caller overrides one to run a controlled arm
+   * against it, which is the only reason the seam exists — production takes
+   * the defaults. The layer's prunes are declared and its orderings are not
+   * bounds, so this is a legitimate per-profile seam and not a back door into
+   * adjudication.
+   */
+  readonly candidates?: CandidateKnobs;
   readonly search?: Partial<SearchTuning>;
   /** How the decision's SearchCore is assembled from the tuning. Defaults to
    * the production `makeSearchCore`. The one composition seam the engine
@@ -147,6 +159,16 @@ export interface TeamDecisionOptions {
   readonly arrivalHorizonTurns?: number;
   /** Advice threshold passed through to pins.adviseFromReport. */
   readonly adviceThreshold?: number;
+  /**
+   * How much of the staging-safety layer this ENGINE runs, overriding
+   * `CENTAUR_STAGING_SAFETY` for this instance only.
+   *
+   * Per-engine and not per-process because the thing it must be possible to
+   * measure is one SEAT against unchanged opponents: a process-wide flag moves
+   * every lobster seat on the board at once, and a paired experiment on it
+   * measures nothing.
+   */
+  readonly stagingSafety?: StagingSafety;
   /**
    * THE COHORT POLICY FLAG. `'off'` (the default) or `'on'`.
    *
@@ -416,11 +438,40 @@ export class TeamDecisionEngine {
       assumptions.push({ kind: 'reference-action', unitId: unit.unitId, to: NO_ORDER_MOVE });
     }
 
-    const gen = new GrammarCandidateGenerator();
+    // THE SHIP CONDITION, applied here because here is where the board is
+    // known. `auto` — the default — is `full` on a piece-bearing board and
+    // `off` on a snake-only one, which is the ledger's I1 verdict exactly:
+    // ship the guard for PIECE boards, do not ship it unconditionally. Every
+    // consumer below reads the RESOLVED level, so the candidate knobs and the
+    // search tuning cannot disagree about which board this is.
+    const safety = resolveStagingSafety(
+      this.options.stagingSafety ?? stagingSafety(),
+      boardBearsPiece(sub)
+    );
+    // INTEGRATION NOTE (integ/round-a): the staging-safety level supplies the
+    // BASE knobs and the caller's explicit `candidates` override them. Both
+    // seams' own docstrings ask for exactly this precedence — I1's says the
+    // flag's knobs are "overridden by anything the caller passes explicitly",
+    // and I3/I6's says an arm overrides one knob to run a controlled arm. Taking
+    // either side alone would have broken the other: `knobsForSafety(safety)`
+    // by itself silently drops every per-arm knob (gainOrdering, the terrain
+    // pair, the tier knobs), and `this.options.candidates` by itself makes the
+    // stagingSafety option inert.
+    const gen = new GrammarCandidateGenerator({
+      ...knobsForSafety(safety),
+      ...(this.options.candidates ?? {}),
+    });
     const evaluate = this.options.evaluate ?? defaultEvaluator;
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
-    const search = tapWitnesses(buildCore(this.options.search ?? {}), witnesses);
+    const search = tapWitnesses(
+      buildCore({
+        rungZeroRepair: safety === 'full',
+        seedDeconflict: safety !== 'off',
+        ...(this.options.search ?? {}),
+      }),
+      witnesses
+    );
 
     // THE COHORT POLICY, PER ENGINE AND PER DECISION. With the flag off this
     // is `null` — not an "off" policy row — so the kernel's admission path

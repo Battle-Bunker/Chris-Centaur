@@ -42,6 +42,73 @@ import type {
 
 export type Trit = "yes" | "maybe" | "no"
 
+// ------------------------------------------------------------------ identity
+
+/**
+ * A stable identity token for an arbitrary object, interned per process.
+ *
+ * Lives here because it is the seam's own machinery: the evaluate module needs
+ * it to say what a criterion profile IS, and the bounds module needs it to say
+ * what an evaluator is, and neither is allowed to import the other. It is the
+ * conservative half of both answers — two distinct objects never collide, the
+ * same object always matches.
+ */
+const identityTokens = new WeakMap<object, string>()
+let nextIdentityToken = 0
+export function objectIdentity(value: object): string {
+  const hit = identityTokens.get(value)
+  if (hit !== undefined) return hit
+  const made = `#${++nextIdentityToken}`
+  identityTokens.set(value, made)
+  return made
+}
+
+/**
+ * A canonical, order-free identity for a plain record of settings — a
+ * criterion profile, a config object, anything whose CONTENT decides whether
+ * two consumers of it are computing the same function.
+ *
+ * DELIBERATELY NOT A FIELD LIST. Anything that keys a cache on "which profile
+ * is this" must keep working when the profile grows a field, because the
+ * failure mode of forgetting to amend a hand-written key is a WRONG NUMBER
+ * served at cache latency, not a slow one. So every own enumerable key is
+ * walked in sorted order; primitives serialise; arrays and plain records
+ * recurse; and anything else — a function, a class instance, a symbol — falls
+ * back to `objectIdentity` rather than being dropped. Unrecognised is never
+ * treated as absent.
+ *
+ * Not a hash and not stable across processes: it is an identity for caches
+ * that live inside one decision, never a key that gets written down.
+ */
+export function structuralIdentity(value: unknown): string {
+  if (value === null) return "null"
+  switch (typeof value) {
+    case "undefined":
+      return "undef"
+    case "number":
+    case "boolean":
+    case "bigint":
+      return String(value)
+    case "string":
+      return JSON.stringify(value)
+    case "symbol":
+      return `sym${objectIdentity(Object(value) as object)}`
+    case "function":
+      return `fn${objectIdentity(value)}`
+    default:
+      break
+  }
+  const obj = value as object
+  if (Array.isArray(obj)) return `[${obj.map(structuralIdentity).join(",")}]`
+  const proto: unknown = Object.getPrototypeOf(obj)
+  if (proto !== Object.prototype && proto !== null) return `obj${objectIdentity(obj)}`
+  const record = obj as Record<string, unknown>
+  return `{${Object.keys(record)
+    .sort()
+    .map((k) => `${k}:${structuralIdentity(record[k])}`)
+    .join(",")}}`
+}
+
 /** Evaluation triple. `est` is advisory ordering only — it must never gate a
  * decision that lo/hi make (contract non-negotiable: est never adjudicates). */
 export interface Bound {
@@ -290,10 +357,25 @@ export type CohortLadder = ReadonlyArray<CohortId>
  */
 export interface AdmissionConditions {
   /**
-   * Could any unit on this board be a slider right now? PESSIMISTIC under fog
-   * (owner ruling Q2): a held unit counts if ANY kind its claim's `kindSet`
-   * still admits is a slider, so a pawn held long enough that it might have
-   * promoted counts as a slider until an observation clears it.
+   * OWN-TEAM slider possibility: could a unit OF THE DECIDING TEAM be a slider
+   * right now? PESSIMISTIC under fog (owner ruling Q2): a held unit counts if
+   * ANY kind its claim's `kindSet` still admits is a slider, so a pawn held
+   * long enough that it might have promoted counts as a slider until an
+   * observation clears it. The team is read off the frozen claim record, which
+   * is exact — a unit never changes team — so the pessimism is over KIND only.
+   *
+   * THIS IS THE BIT THE PREDICATE IS KEYED ON, and E1 is why. See
+   * `ADMISSION_LADDERS`' first row for the numbers and the caveat.
+   */
+  readonly ownSliderPossible: boolean
+  /**
+   * BOARD-LEVEL (any-team) slider possibility, same pessimism, no team test.
+   *
+   * NOT what the predicate keys on. It is emitted because the compute census
+   * and M4 are stated in terms of board-level presence, and a refit corpus
+   * that carried only the own-team bit could not be read against either of
+   * them — nor could it re-derive what the arch/s2 predicate would have
+   * decided, which is exactly the comparison E1 is an answer to.
    */
   readonly sliderPossible: boolean
   /** The subject's own live trail units, off the turn-start roster. */
@@ -301,15 +383,22 @@ export interface AdmissionConditions {
   /** Every other team's live trail units, off the same roster. */
   readonly theirTrailCount: number
   /**
-   * The pre-arm. True when some unit is one meal from promoting — for a live
-   * unit `weight + 1 ≥ pawnPromotionWeight`, and for a HELD one the
-   * pessimistic `record.weight + holdDepth + 1 ≥ pawnPromotionWeight`, since a
-   * unit we have not seen for `holdDepth` turns could have eaten every one of
-   * them. Promotion is the only way a slider ever appears on a slider-free
-   * board, and it is a plan-space event the material-denominated evaluator
-   * never sees coming — so it is armed one turn EARLY and the transition
-   * happens between turns, never inside one.
+   * The pre-arm, OWN-TEAM. True when a unit of the deciding team is one meal
+   * from promoting — for a live unit `weight + 1 ≥ pawnPromotionWeight`, and
+   * for a HELD one the pessimistic `record.weight + holdDepth + 1 ≥
+   * pawnPromotionWeight`, since a unit we have not seen for `holdDepth` turns
+   * could have eaten every one of them. Promotion is the only way a slider
+   * ever appears on a slider-free board, and it is a plan-space event the
+   * material-denominated evaluator never sees coming — so it is armed one turn
+   * EARLY and the transition happens between turns, never inside one.
+   *
+   * Scoped own-team for the same reason `ownSliderPossible` is: the pre-arm
+   * exists to treat an imminent promotion AS slider presence, so it has to be
+   * scoped the way slider presence is or the two halves of one rule disagree.
    */
+  readonly ownPromotionImminent: boolean
+  /** The same pre-arm with no team test, emitted for the same reason
+   * `sliderPossible` is. Not what the predicate keys on. */
   readonly promotionImminent: boolean
 }
 

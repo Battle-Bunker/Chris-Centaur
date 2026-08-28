@@ -8,12 +8,35 @@
  * number about — and that stamp is the whole stage, so it is the one
  * difference this gate is allowed to see.
  *
- * HOW IT WORKS. `fixtures/cohort-noop-baseline.json` was produced by running
- * the replay below on `arch/s0` — the branch immediately before this one, with
- * no cohort anywhere in it. This test re-runs the identical replay on the
- * current tree and asserts that, with every mention of a cohort removed, the
- * two are equal; and, separately, that the only thing the current tree added
- * is exactly one cohort assumption per emitted record.
+ * HOW IT WORKS. `fixtures/cohort-noop-baseline.json` holds the replay below,
+ * run on a tree with no cohort anywhere in it. This test re-runs the identical
+ * replay on the current tree and asserts that, with every mention of a cohort
+ * removed, the two are equal; and, separately, that the only thing the current
+ * tree added is exactly one cohort assumption per emitted record.
+ *
+ * ── RE-BASED ON arch/s3, AND WHAT THE GATE NOW MEANS ───────────────────────
+ *
+ * The baseline was originally taken on `arch/s0`. arch/s3 merges the
+ * integrated evaluator work (`claude/mid-turn-collision-logic-mkxurg`, tip
+ * `66904d2`: gainOrdering promoted into the shipped generator, the bound
+ * bank's evaluation memo, fix/o-p3's room renormalisation, idea/i2's slider
+ * repair, staging safety, the re-vendored partial engine), all of which change
+ * what a decision decides. An arch/s0 baseline is therefore stale for a reason
+ * that has nothing to do with the cohort, and keeping it would only measure
+ * the merge.
+ *
+ * REGENERATED FROM `66904d2` ITSELF — the merge's OTHER parent, which carries
+ * every one of those changes and NO cohort, no admission governor and no
+ * registry. That is a better baseline than arch/s0 was, not a weaker one: the
+ * gate now asserts that the WHOLE cohort stack (S0a's compute gate, S0b's
+ * discharge split, S1's basis identity, S2's governor with the flag off, and
+ * arch/s3's own detector amendment and slider wiring) is a behavioural no-op
+ * against the shipped tree, modulo the stamp — one claim covering four stages
+ * instead of one covering one.
+ *
+ * MEASURED WHEN IT WAS TAKEN: 26 replays, 0 differing leaves after
+ * `stripCohort`, and two runs on each side byte-identical. Recorded in
+ * `scratchpad/arch-s3-report.md` §4.
  *
  * WHAT IT DRIVES. The real trio — `EngineSubstrate` +
  * `GrammarCandidateGenerator` + `defaultEvaluator` + `makeSearchCore` +
@@ -201,7 +224,7 @@ const SAMPLES: Sample[] = [
   fixture.mid11 as unknown as Sample,
 ];
 
-describe('Stage 1 is a behavioural no-op with the single-cohort registry', () => {
+describe('the cohort stack is a behavioural no-op against the pre-cohort tree', () => {
   let current: Array<Record<string, unknown>> = [];
 
   beforeAll(async () => {
@@ -226,7 +249,7 @@ describe('Stage 1 is a behavioural no-op with the single-cohort registry', () =>
     expect(emissions).toBeGreaterThan(20);
   });
 
-  it('IS BYTE-IDENTICAL to arch/s0 with the cohort stamp removed', () => {
+  it('IS BYTE-IDENTICAL to the pre-cohort tree (66904d2) with the stamp removed', () => {
     // The hard acceptance criterion. Plans, brackets, slice counts, refusals,
     // cache statistics, posture flips, basis history, crossfade verdicts,
     // context bookkeeping — everything a decision decided — unchanged.

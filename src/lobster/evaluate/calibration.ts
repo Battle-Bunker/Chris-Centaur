@@ -72,6 +72,12 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
   healthEconomy: 0.5,
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
+  /**
+   * The piece-command term — OFF here, and off is the honest default: it is
+   * the slider repair, and it has its own profile so the two can be measured
+   * against each other. See `TERRITORY_SLIDER_PROFILE`.
+   */
+  command: 0,
 };
 
 /**
@@ -160,6 +166,14 @@ export const ALL_FEATURE_KEYS: ReadonlyArray<string> = [
   'room',
   'healthEconomy',
   'kingMargin',
+  // The slider repair's gradient. It joins the list because the list is
+  // FEATURES' own fold order and a test pins the two equal — not because every
+  // profile scores it. `TERRITORY_PROFILE` invokes it and weights it ZERO, so
+  // it is computed and folded as an exact zero; `commandFeature` returns
+  // `point(0)` in one branch when the profile carries no `command` knobs, so
+  // the compute the invoked gate now admits costs a null check. The profile
+  // that actually pays for it is `TERRITORY_SLIDER_PROFILE`.
+  'command',
 ];
 
 /** The invoked set of a profile that computes everything. */
@@ -196,6 +210,63 @@ export interface CriterionProfile {
   readonly invoked: ReadonlySet<string>;
   /** The reach flood's depth. No longer a gate. */
   readonly reachHorizonTurns: number;
+  /**
+   * Whether `kingMargin` counts OUR OWN units among the things that can stand
+   * on our king's square next turn. These rules have no friendly-fire
+   * exemption, so the honest answer is yes; left undefined the profile defers
+   * to `CENTAUR_ROYAL_MARGIN`, which defaults to the behaviour that shipped.
+   */
+  readonly royalReachers?: boolean;
+  /**
+   * The piece-command term's two multipliers, or `undefined` to leave the
+   * feature switched off (its evaluation then costs one branch). See
+   * `commandFeature` for what the two count.
+   */
+  readonly command?: CommandKnobs;
+  /**
+   * Fraction of a kind's max health below which the movement budget starts to
+   * bind, for kinds that may DECLINE to spend it (`stayLegal`). `undefined`
+   * keeps the linear reading for every kind — today's behaviour.
+   */
+  readonly healthReserveRatio?: number;
+}
+
+/** What a piece's next-turn command set is counted for, and for whom. */
+export interface CommandKnobs {
+  /** Multiplier on contested ground: cells a trail unit also reaches. */
+  readonly ground: number;
+  /** Multiplier on food cells inside the command set. */
+  readonly food: number;
+  /**
+   * Whether a ROYAL unit earns command. Off — and the honest account of why is
+   * that the ARGUMENT survived and the MEASUREMENT did not settle it.
+   *
+   * The argument: a king's only protections under these rules are
+   * unreachability, out-weighing everything that reaches it, and tier
+   * (`SPECIALIST_FACTS` king-weight-margin). A term that pays a unit for the
+   * ground it can act on pays it, in exactly those units, for giving up the
+   * first of the three — and a king's death is TERMINAL, a lattice element and
+   * not something a positional term may trade against.
+   *
+   * The measurement, and it is a negative one. `TERRITORY_SLIDER_ROYAL_PROFILE`
+   * lifts this flag; run as a third concurrent arm on `s3-mix23-base` at 150 ms
+   * over 16 seed blocks a side, it moves the king's stay share by
+   * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
+   * and placement by +0.052 [-0.104, +0.188] — i.e. the flag is close to inert
+   * and what signal there is points the other way. The king's real activation
+   * under this profile comes from `healthReserveRatio`, which applies to every
+   * stay-legal kind: its stay share falls 80.4% -> 59.3% with THIS flag already
+   * off.
+   *
+   * An earlier, louder reading (stay 90.8% -> 80.8%, deaths 17 -> 24) came from
+   * a run whose two arms were sequential on a machine carrying six other
+   * sweeps, and it did not survive a paired-concurrent rerun. It is recorded
+   * here because it is what the flag was originally set on.
+   *
+   * So: off, on the argument, with the ablation arm kept so the next person can
+   * settle it at a block count that resolves 0.05.
+   */
+  readonly royal: boolean;
 }
 
 /**
@@ -241,6 +312,89 @@ export const TERRITORY_PROFILE: CriterionProfile = assertProfileCoherent({
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
 
 /**
+ * ── THE SLIDER REPAIR ──────────────────────────────────────────────────────
+ *
+ * The territory profile beats material on every board with no slider on it and
+ * loses on every board with one, at every budget from 150 ms to 1500 ms. The
+ * budget ladder ruled search starvation out; these two numbers say what is left,
+ * measured over 1 610 (position, piece) samples on the ladder's own replays,
+ * sweeping ONE piece across its own legal options with the joint context fixed:
+ *
+ *   the weighted spread of `reach` over a slider's own options   0.0000–0.0076
+ *   the weighted spread of `healthEconomy` over the same options 0.2300–0.3700
+ *
+ * Inside the material-tie class — which is exactly the class `est` orders — the
+ * median spread of `reach` is ZERO for the rook, the knight, the king and the
+ * pawn and ONE BOARD CELL for the queen, while `healthEconomy` spreads
+ * 0.030–0.045. Read directly off the partition: `ours` and `theirs` do not move
+ * by a single cell across all 71 of a queen's legal actions.
+ *
+ * The cause is structural rather than a tuning miss. Plane 2 credits a piece
+ * where `arrival_p(c) ≤ D(c)`, and a slider's arrival is ≤ 2 turns to nearly
+ * every cell FROM ANYWHERE — so the displacement set is saturated and carries
+ * no gradient in the slider's own position. `room` is plane 1 only, so it is
+ * identically zero for a piece. That leaves `healthEconomy` as the ONLY term
+ * with dynamic range over a slider's move, and it is a linear travel tax: the
+ * territory profile's est-argmax is the shortest-travel option among material
+ * ties in 73–96% of positions. The evaluator is not indifferent to slider
+ * activity. It is against it.
+ *
+ * So the repair is two changes, and neither one touches a board with no piece
+ * on it:
+ *
+ *   1. `command` — the gradient plane 2 structurally cannot carry. A piece is
+ *      worth the CONTESTED ground it can act on next turn plus the food it can
+ *      take, which is position-dependent where arrival-by-D is not.
+ *   2. `healthReserveRatio` — health is a movement budget for a kind that may
+ *      decline to spend it, and a budget's marginal value rises as it runs out.
+ *      A linear `health/max` prices the 98th health point exactly like the 2nd,
+ *      which is what turned a survival term into a travel tax. Below the
+ *      reserve the term is sharper than it was; above it, flat.
+ *
+ * Both are gated on class properties the rules already carry (`leavesTrail`,
+ * `stayLegal`), so on an all-snake board this profile is bit-identical to
+ * `TERRITORY_PROFILE` — asserted, not asserted-by-comment, in
+ * `src/tests/territory-slider.test.ts`.
+ */
+export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
+
+/**
+ * Half a kind's maximum. A piece at or above it has a movement budget that does
+ * not bind — nothing it can do this turn brings it near exhaustion — and below
+ * it the term slides to zero twice as fast as the linear reading did.
+ */
+export const HEALTH_RESERVE_RATIO = 0.5;
+
+export const TERRITORY_SLIDER_PROFILE: CriterionProfile = assertProfileCoherent({
+  name: 'lobster-territory-x',
+  weights: { ...DEFAULT_WEIGHTS, command: 2 },
+  // MERGE NOTE (arch/s3). The repair landed on a tree that had no compute gate,
+  // where every profile computed every feature. On this tree `invoked` is the
+  // compute switch (S0a), so the repair has to NAME the set it computes or
+  // `assertProfileCoherent` refuses it for weighting `command` at 2 without
+  // invoking it. It computes everything the territory profile computes plus
+  // `command` — which is `ALL_FEATURES` — so this is the same objective the
+  // sweep raced, said in the vocabulary this tree uses.
+  invoked: ALL_FEATURES,
+  reachHorizonTurns: REACH_HORIZON_TURNS,
+  command: COMMAND_KNOBS,
+  healthReserveRatio: HEALTH_RESERVE_RATIO,
+});
+
+/**
+ * THE ABLATION ARM. Identical to the repair except that a royal unit earns
+ * command too. It exists so `CommandKnobs.royal` is a measured ruling rather
+ * than an argued one — the king is the one piece whose activity trades against
+ * a terminal, and a knob that is off on reasoning alone is a knob nobody has
+ * checked. Not a production profile.
+ */
+export const TERRITORY_SLIDER_ROYAL_PROFILE: CriterionProfile = assertProfileCoherent({
+  ...TERRITORY_SLIDER_PROFILE,
+  name: 'lobster-territory-a',
+  command: { ...COMMAND_KNOBS, royal: true },
+});
+
+/**
  * Material only — the profile a differential or a 1 ms reflex rung wants, and
  * the explicit fallback if the territory profile ever has to be backed out.
  *
@@ -250,10 +404,16 @@ export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
  * no horizon guard — was evaluated in full and then dropped by its zero weight.
  * The gate now says that in one place instead of two, and `reachHorizonTurns`
  * is kept at 0 only so the profile is bit-identical under BOTH mechanisms.
+ *
+ * MERGE NOTE (arch/s3): `command` joins the weight vector at zero, from the
+ * slider repair's side of the merge, and stays OUT of `invoked` — the same
+ * treatment `reach`/`room`/`kingMargin` already get here. `commandFeature`
+ * would return `point(0)` anyway (`horizonTurns <= 0`), so the profile is
+ * bit-identical under both mechanisms with the key present or absent.
  */
 export const MATERIAL_ONLY_PROFILE: CriterionProfile = assertProfileCoherent({
   name: 'material-only',
-  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0 },
+  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0, command: 0 },
   invoked: new Set(['material', 'healthEconomy']),
   reachHorizonTurns: 0,
 });
@@ -360,9 +520,35 @@ export const BASE_COHORT_ID: CohortId = 'base';
 /** The territory-carrying objective — the production default. */
 export const TERRITORY_COHORT_ID: CohortId = 'territory';
 
+/**
+ * THE SLIDER REPAIR AS A COHORT (arch/s3).
+ *
+ * `TERRITORY_SLIDER_PROFILE` — territory plus `command` at weight 2 and the
+ * `healthReserveRatio` knee — raced as `lobster-slider` in batch 1 and won its
+ * cell: +0.115 [+0.014, +0.216] paired score on `snake5-queen` at 2000 ms with
+ * `place` −0.229 and `boundsInversions` −15,670 corroborating, and EXACTLY 0
+ * on the provably-inert `null-snake6` control. j4 replicated +0.313 at
+ * 1000 ms. Read with the ledger's own two caveats: the queen cell has no local
+ * A/A floor (it clears `headline-mix-king`'s ±0.0973 narrowly), and only the
+ * 2000 ms point of the quoted 150/1000/2000 gradient was measured in batch 1.
+ *
+ * The id is `territory-slider` and not the profile's `lobster-territory-x`,
+ * because a cohort id is a corpus identity and the registry — not a profile
+ * name — is the authority (see `CohortRow`).
+ */
+export const SLIDER_COHORT_ID: CohortId = 'territory-slider';
+
+/**
+ * ASCENDING COST, which is also ladder order. `base` skips the partition;
+ * `territory` pays for it; `territory-slider` pays for it plus `command`'s
+ * per-piece front intersection. The third row is not a default — nothing but
+ * the admission policy selects, the policy ships off, and
+ * `DEFAULT_COHORT_ID` is unchanged.
+ */
 export const COHORTS: ReadonlyArray<CohortRow> = [
   { id: BASE_COHORT_ID, profile: BASE_PROFILE },
   { id: TERRITORY_COHORT_ID, profile: TERRITORY_PROFILE },
+  { id: SLIDER_COHORT_ID, profile: TERRITORY_SLIDER_PROFILE },
 ];
 
 /**
@@ -465,24 +651,101 @@ export const OWN_TRAIL_ADMISSION_THRESHOLD = 4;
 
 export const ADMISSION_LADDERS: ReadonlyArray<LadderRow> = [
   {
-    id: 'slider-or-pre-arm',
+    id: 'own-slider-or-pre-arm',
+    // ── RE-KEYED ON arch/s3: OWN-TEAM, AND THE RUNG IS THE REPAIR ──────────
+    //
+    // arch/s2 shipped this row as `sliderPossible || promotionImminent` ->
+    // `[base]`: board-level scope, and demote to the material-ish objective.
+    // E1 and E2 between them change BOTH halves.
+    //
+    // (a) SCOPE. E1 raced asymmetric rosters the 945-game corpus could not
+    //     produce — every corpus roster is team-symmetric, so "I own a slider"
+    //     and "a slider exists" were the same bit and no amount of that corpus
+    //     could separate them. Territory's advantage over material, rosters
+    //     held fixed (20 blocks, percentile bootstrap over blocks, 150 ms):
+    //
+    //       any=F own=F  no slider anywhere      +0.58 [+0.43, +0.73]
+    //       any=T own=F  ENEMY owns the slider   +0.57 [+0.23, +0.88]
+    //       any=T own=T  we own the slider       -0.03 [-0.17, +0.13]
+    //       any=T own=T  both own one (sym cell) -0.05 [-0.24, +0.13]
+    //
+    //     `own` separates the two regimes completely and `any` separates
+    //     nothing (+0.57 vs +0.58). An any-team detector demotes a profile on
+    //     the enemy-slider board while it is beating material by +0.57 there.
+    //     It is the SLIDER and not the piece: the +0.57 row is territory
+    //     holding a PAWN.
+    //
+    //     E1's own overturn condition — "unless a contact-forced cell collapses
+    //     the any=T own=F row" — was run and did NOT overturn. On a 15x15 cell
+    //     where the enemy queen starts at Chebyshev 6.3 instead of 13.0 and
+    //     half the games end by elimination: +0.53 [+0.28, +0.78] at 150 ms
+    //     (E1's +0.57, reproduced to within 0.04) and +0.75 [+0.19, +1.13] at
+    //     1000 ms, against own=T rows of -0.03 and +0.06. So there is no
+    //     "own-team, or any-team within k of us" clause to add.
+    //
+    //     ONLY THE MATCHED CONTRAST MAY BE QUOTED. The raw ownership split on
+    //     the contact cell says the OPPOSITE of the truth — read raw it looks
+    //     as if owning the queen is worth +0.68 and owning no slider -0.10,
+    //     i.e. as if territory NEEDS a slider — because a queen is 4 material
+    //     and a pawn is 1 and most of a raw split is that. The A/A arm, one
+    //     identical evaluator on both sides, gives +0.72 and -0.03 for the same
+    //     two classes. Every number above is the roster-matched, null-corrected
+    //     contrast. The unforced-death tables are inconclusive at both cells
+    //     and support neither scope; do not quote them either way.
+    //
+    // (b) THE RUNG. E2 ablated the bundle one weight at a time: on the
+    //     no-slider cell zeroing `reach` costs +0.514 [+0.417, +0.611] against
+    //     an A/A null of -0.069, while zeroing `room` is inside its null; on
+    //     the slider cell zeroing `reach` costs +0.000 [-0.278, +0.264].
+    //     The deficit is REACH CEASING TO DISCRIMINATE, not room doing damage
+    //     — i2 measured the mechanism independently: the partition cannot see a
+    //     slider move at all, `ours - theirs` range exactly 0 across all 71
+    //     legal actions of a queen in 87-100% of positions. So E2's conclusion
+    //     is "do not turn territory off on slider boards: demoting the bundle
+    //     throws away a +0.514 feature to avoid a +0.000 one." The right answer
+    //     is the profile that RESTORES the missing gradient, which is
+    //     `TERRITORY_SLIDER_PROFILE` and its `command` term.
+    //
     // THE PRE-ARM IS THE SECOND DISJUNCT, and it is not a separate rule: A3's
-    // recommendation is to treat `promotionImminent` AS slider presence, so
+    // recommendation is to treat an imminent promotion AS slider presence, so
     // that the one transition that actually happens in this corpus — a pawn
     // promoting to a queen — occurs BETWEEN turns, one turn early, and never
     // inside one. Promotion is a plan-space event (a promoted queen multiplies
-    // the joint plan space ~13×), which is exactly why the material-
-    // denominated evaluator never sees it coming.
-    when: (c) => c.sliderPossible || c.promotionImminent,
-    ladder: [BASE_COHORT_ID],
+    // the joint plan space ~13x), which is exactly why the material-denominated
+    // evaluator never sees it coming. It is scoped OWN-TEAM here for the same
+    // reason the slider bit is: half of one rule cannot be keyed on a different
+    // board than the other half.
+    //
+    // WHY THE LADDER IS [base, slider] AND NOT [base, territory, slider]. A
+    // rung is an objective this turn is ALLOWED to spend on. `territory` is the
+    // objective E2 measured as producing nothing here, so admitting it would be
+    // registering an expense against evidence that it buys zero. `base` stays
+    // because it is the always-admitted safety floor (anti-spaghetti rule 6).
+    when: (c) => c.ownSliderPossible || c.ownPromotionImminent,
+    ladder: [BASE_COHORT_ID, SLIDER_COHORT_ID],
     evidence:
-      '940 games: the OFF arm is lobster-material, raced 707 times in slider worlds ' +
-      '(paired score -0.347) and 233 times slider-free (+0.275). Board-level slider ' +
-      'presence flipped 0 times in 767 slider-roster games; the only way one appears ' +
-      'is promotion (10 promotions / 1,070 games, all in slider-free rosters).',
+      'E1 (sweeps/e1-findings.md, 360 games, 20 blocks/cell, 150 ms): matched contrast ' +
+      'own=F +0.58 / +0.57, own=T -0.03 / -0.05 — `own` separates, `any` does not. ' +
+      'E1c addendum (168 games, contact forced 23x23 -> 15x15): own=F +0.53 at 150 ms ' +
+      'and +0.75 at 1000 ms, own=T -0.03 / +0.06 — survives contact at both budgets. ' +
+      'E2 (o-p3-e2-findings.md §E2): the deficit is reach ceasing to discriminate ' +
+      '(full-reachZeroed +0.514 no-slider vs +0.000 on the slider cell), room inert at ' +
+      '±0.25 — so the rung is the repair, not a demotion. lobster-slider raced ' +
+      '+0.115 [+0.014, +0.216] on snake5-queen at 2000 ms (batch 1) and +0.313 at ' +
+      '1000 ms (j4), with the inert control at exactly 0. RAW OWNERSHIP SPLITS ARE ' +
+      'ROSTER-CONFOUNDED AND SAY THE OPPOSITE: quote the matched contrast only.',
   },
   {
     id: 'thin-trail-roster',
+    // UNCHANGED BY arch/s3, AND ITS PRECEDENCE IS NOW LOAD-BEARING. It sits
+    // BELOW the slider row, so a thin-trail board on which we own a slider gets
+    // the repair rather than the demotion — which is the case the repair was
+    // built for. `commandFeature`'s own docstring says so from the other side:
+    // "a team whose last trail unit died has an EMPTY trail domain, and a term
+    // that read only the domain would go blind on exactly the position where
+    // the pieces are the entire game — the late mixed board this repair is
+    // for." Below the threshold and with no own slider, the demotion stands:
+    // room sums over an empty own side and reach degenerates.
     when: (c) => c.ownTrailCount < OWN_TRAIL_ADMISSION_THRESHOLD,
     ladder: [BASE_COHORT_ID],
     evidence:
@@ -492,10 +755,18 @@ export const ADMISSION_LADDERS: ReadonlyArray<LadderRow> = [
   },
   {
     id: 'default-admit-territory',
+    // THIS IS THE ROW arch/s3 MOVED THE MOST BOARDS ONTO, without editing a
+    // character of it. Under arch/s2's board-level key, every board carrying
+    // any slider fell to row 1 and ran `base`; under the own-team key, a board
+    // where only the ENEMY owns one falls through to here and runs the shipped
+    // objective. E1 measures that class at +0.57 [+0.23, +0.88] for territory
+    // over material — so the amendment's main effect is to stop demoting on
+    // boards territory was winning.
     when: () => true,
     ladder: [BASE_COHORT_ID, TERRITORY_COHORT_ID],
     evidence:
       'the shipped default: TERRITORY_PROFILE is what the 2026-08-26 flag gate measured ' +
-      '(snake-only pooled, 32 seeds, paired score +0.81 [+0.44, +1.19]).',
+      '(snake-only pooled, 32 seeds, paired score +0.81 [+0.44, +1.19]). E1 adds the ' +
+      'enemy-slider class to this row at +0.57 [+0.23, +0.88] (matched contrast).',
   },
 ];

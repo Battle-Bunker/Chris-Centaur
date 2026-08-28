@@ -100,6 +100,7 @@ import type {
 import { kindOfWireType, toUnitSpec } from '../partial-engine/wire-adapter';
 
 import { NO_ORDER_MOVE } from './contracts';
+import { potionBoardEnabled, tierExpiryEnabled } from './tier-truth';
 import type {
   BoundedResolution,
   Candidate,
@@ -184,6 +185,13 @@ export interface SubstrateUnit {
   readonly weight: number;
   readonly health: number;
   readonly tier: number;
+  /**
+   * The first absolute turn at which `tier` no longer governs a contest, or
+   * null when the wire carries no effect schedule for this unit. EXCLUSIVE:
+   * the wire's `invulnerabilityExpiryTurn` is the LAST governing turn and the
+   * +1 is applied once, in `marshalBoard`.
+   */
+  readonly tierExpiresAtTurn: number | null;
   readonly orientation: number;
   /** `turn − observedTurn`; this turn's unmade choice is NOT counted. */
   readonly staleness: number;
@@ -342,7 +350,8 @@ function geometryFor(
   maxHealth: number,
   maxHealthPerKind: ReadonlyArray<number> | null,
   hazardDamage: number,
-  promotionWeight: number
+  promotionWeight: number,
+  potions: ReadonlyArray<number>
 ): Geometry {
   const { config, fullWidth, fullHeight } = marshalled;
   const key = [
@@ -363,6 +372,10 @@ function geometryFor(
     // The cloud source's premise includes the food board, so a changed food
     // layout must not reuse an engine built around the old one.
     config.food.join(','),
+    // ...and the potion board, for exactly the same reason: `boundsAt` prices
+    // a tier interval against `premise.potions`, so two boards with different
+    // potion layouts are different engines even at identical terrain.
+    potions.join(','),
   ].join('\u0000');
   const hit = GEOMETRIES.get(key);
   if (hit !== undefined && !hit.retire) {
@@ -375,7 +388,7 @@ function geometryFor(
   const terrain = makeTerrain(grid, config.walls, config.hazards);
   const engine = new PartialEngine(
     terrain,
-    { food: boardWith(grid, config.food), potions: boardWith(grid, []) },
+    { food: boardWith(grid, config.food), potions: boardWith(grid, potions) },
     {
       maxUnits,
       maxTrail,
@@ -529,6 +542,8 @@ export class EngineSubstrate implements Substrate {
     food: Board;
   } | null = null;
   private targets: Board | null = null;
+  /** The turn-start potion board, materialised on first ask. */
+  private potions: Board | null = null;
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
   private resolveCount = 0;
   private released = false;
@@ -554,6 +569,11 @@ export class EngineSubstrate implements Substrate {
     );
     const maxHealthPerKind = healthPerKind(maxHealth, configured);
     const promotionWeight = board.pawnPromotionWeight ?? 10;
+    // THE POTION BOARD, which used to be built empty here. It is the premise
+    // `CloudSource.boundsAt` prices a frozen unit's tier interval against; with
+    // no cells in it `reachablePotions` is identically zero and the whole
+    // tier-ceiling arithmetic collapses to the observed tier. See tier-truth.ts.
+    const potions = potionBoardEnabled() ? marshalled.potions : [];
     const geometry = geometryFor(
       marshalled,
       options.gameId ?? '',
@@ -562,7 +582,8 @@ export class EngineSubstrate implements Substrate {
       maxHealth,
       maxHealthPerKind,
       marshalled.config.hazardDamage,
-      promotionWeight
+      promotionWeight,
+      potions
     );
     this.geometry = geometry;
     this.grid = geometry.grid;
@@ -586,9 +607,16 @@ export class EngineSubstrate implements Substrate {
     const observed = options.observedTurns;
     const specs: UnitSpec[] = [];
     const units: SubstrateUnit[] = [];
+    const expiries = marshalled.tierExpiry;
+    const useExpiry = tierExpiryEnabled();
     marshalled.units.forEach((unit, index) => {
       const team = this.teamNumbers.get(unit.teamID) as number;
-      const spec = toUnitSpec(unit, { unitId: index, team });
+      // A tier is a WINDOW. `MarshalledBoard.tierExpiry` carries the first turn
+      // at which it no longer governs (exclusive — the conversion from the
+      // wire's inclusive figure is done once, in marshalBoard). Passing null
+      // here is what made the search price a three-turn buff as permanent.
+      const tierExpiresAtTurn = useExpiry ? (expiries[index] ?? null) : null;
+      const spec = toUnitSpec(unit, { unitId: index, team, tierExpiresAtTurn });
       specs.push(spec);
       const seen = observed?.get(unit.id);
       const staleness = seen === undefined ? 0 : Math.max(0, turn - seen);
@@ -604,6 +632,7 @@ export class EngineSubstrate implements Substrate {
         weight: spec.weight ?? spec.cells.length,
         health: unit.health,
         tier: unit.tier,
+        tierExpiresAtTurn,
         orientation: spec.orientation ?? 0,
         staleness,
       };
@@ -649,7 +678,7 @@ export class EngineSubstrate implements Substrate {
     }
     this.modeledIds = modeled;
 
-    this.state = this.engine.create(specs, marshalled.config.food, [], turn);
+    this.state = this.engine.create(specs, marshalled.config.food, potions, turn);
     this.borrowed.add(this.state.slab);
   }
 
@@ -739,6 +768,22 @@ export class EngineSubstrate implements Substrate {
   /** Did this cell hold food at the start of the turn? */
   foodAt(cell: CellIndex): boolean {
     return bbTest(this.claims().food, cell);
+  }
+
+  /**
+   * Does this cell hold an invulnerability potion?
+   *
+   * Item spawning is gated off while anything is frozen, so the turn-start
+   * board is the whole answer for the turn being decided. Read off the
+   * MARSHALLED board rather than off the engine state, deliberately: the
+   * engine's copy is what the cloud premise prices tier intervals against and
+   * is gated by the tier-truth seam, while this predicate answers a question
+   * about the rules ("would ending here collect a potion, and therefore take a
+   * −1") that is true whatever the search is allowed to model.
+   */
+  potionAt(cell: CellIndex): boolean {
+    if (this.potions === null) this.potions = boardWith(this.grid, this.marshalled.potions);
+    return bbTest(this.potions, cell);
   }
 
   /** Every distinct action this unit could take, from the engine's enumerator. */
@@ -1126,7 +1171,7 @@ export class EngineSubstrate implements Substrate {
         heldAtTurn: this.turn - unit.staleness,
         health: unit.health,
         tier: unit.tier,
-        tierExpiresAtTurn: null,
+        tierExpiresAtTurn: unit.tierExpiresAtTurn,
         weight: unit.weight,
         orientation: unit.orientation,
         narrowedTo: this.narrowings.get(unitId) ?? null,

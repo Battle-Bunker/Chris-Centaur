@@ -289,8 +289,9 @@ export interface Resolution {
    */
   readonly severedCells: ReadonlyMap<number, ReadonlyArray<number>>;
   /**
-   * THE OTHER HALF OF `deathPossible` — frozen slots whose claim this turn's
-   * MODELLED FOOTPRINT reached, so no consumer may price them certainly-alive.
+   * THE OTHER TWO HALVES OF `deathPossible` — frozen slots this turn's
+   * MODELLED FOOTPRINT reached, plus frozen slots ANOTHER FROZEN CLAIM could
+   * have killed. Either way: no consumer may price them certainly-alive.
    *
    * A `Cloud` is deliberately a pure function of (record, terrain, item set,
    * turns held, narrowing) and of nothing a sibling branch does — that purity
@@ -298,24 +299,35 @@ export interface Resolution {
    * So `cloud.deathPossible` can only ever answer from the claim's own side of
    * the board: exhaustion, a hazard, a wall it was free to enter, its own body.
    * It cannot know that a unit somebody IS modelling walked through the cell
-   * the held unit might be standing on.
+   * the held unit might be standing on, and it cannot know that ANOTHER CLAIM
+   * could have taken it — the overlap is a property of the field, which the
+   * cloud does not belong to.
    *
    * That gap is harmless in a FLOOR (which prices an enemy alive anyway) and a
    * FALSE PROOF in a CEILING: the subject's best world is the one where the
    * enemy dies, and a held unit reported certainly-alive forbids exactly that
-   * world. A real resolution then scores ABOVE the "upper" bound.
+   * world. A real resolution then scores ABOVE the "upper" bound. Where the two
+   * claims are MUTUALLY fatal the false proof is worse than a loose bound: a
+   * tie kills both, so the world in which a whole held side is gone is a real
+   * one, and naming only one of the pair leaves that WIN outside a ceiling
+   * that reads finite — which a searcher's `hi[m] <= lo[best]` then retires
+   * for good.
    *
-   * This mask is the branch-dependent fact, published where it belongs — on
-   * the resolution, which is the one object that knows both halves. Read it as
+   * This mask is where both facts are published, on the object that has them
+   * both to hand: the resolution knows its own footprint, and its field
+   * computed the claim-versus-claim half once for every state that shares it
+   * (`CloudField.contestedClaims`). Read it as
    *
    *     survival = cloud.certainlyGone ? "no"
    *              : cloud.deathPossible || (mayHaveDied & (1 << slot)) ? "maybe"
    *              : "yes"
    *
-   * which is what `resolveBounded` does. It is deliberately TARGETED: only
-   * slots whose `possible` intersects `touched`, so a held unit nobody came
-   * near keeps its tight ceiling. Bit `slot`, not array index. Always 0 when
-   * nothing is frozen.
+   * which is what `resolveBounded` does. Both halves are deliberately TARGETED
+   * rather than blanket: the footprint half names only slots whose `possible`
+   * intersects `touched`, and the claim half only slots another claim could
+   * actually reach AND beat — a held unit nobody came near, or one that
+   * strictly outranks every neighbour it can meet, keeps its tight ceiling.
+   * Bit `slot`, not array index. Always 0 when nothing is frozen.
    */
   readonly mayHaveDied: SlotMask;
 }
@@ -1463,12 +1475,19 @@ export class PartialEngine {
     // complete by now (stage 1 wrote every origin head, `advance` every
     // landing), and `field` is the POST-MOVE claim — the same turn — so the
     // intersection is between two boards describing the same instant.
+    //
+    // Then the claims' own half, which the field computed once and shares by
+    // pointer with every sibling: two frozen claims that could have killed
+    // each other. Both halves answer the same question — "no consumer may
+    // price this slot certainly-alive" — so they are published as one mask
+    // rather than as two a reader has to remember to OR.
     let mayHaveDied = 0;
     if (anyFrozen) {
       const w = this.grid.words;
       for (const slot of field.slots) {
         if (bbIntersects(slot.cloud.possible, this.touched, w)) mayHaveDied |= 1 << slot.slot;
       }
+      mayHaveDied |= field.contestedClaims;
     }
     return {
       state: next,

@@ -584,3 +584,112 @@ describe('conform repairs what the pin broke', () => {
     }
   }, 120_000);
 });
+
+// ------------------------------------------------- the session's live clock
+
+/**
+ * THE STALE-CLOCK REGRESSION.
+ *
+ * A session — candidate sets, bound bank, memo — is cached across slices on
+ * purpose: rebuilding it per slice made the anytime loop idle. The bank was
+ * built with the FIRST slice's `BudgetHandle` and then kept it, so from slice
+ * two its `shouldStop()` answered for a deadline that had already passed.
+ * Every B1/B2/B3 sweep aborted at its first check and every price silently
+ * degraded to B0 — measured in production shape at 1 724 of 1 724 prices in a
+ * one-second decision, with zero rung admissions and zero witnesses banked for
+ * the whole life of the session. The ladder read as ON and was OFF.
+ *
+ * The shape this test needs, and the reason a simple "run it twice" does not
+ * catch it: the FIRST slice's budget must be live during slice one and EXPIRED
+ * by slice two. Under a never-expiring stub the defect is invisible.
+ */
+describe('a cached session runs on the CURRENT slice clock', () => {
+  /** A clock the test moves by hand, and slice budgets over it. */
+  function fakeClock(): { at: number } {
+    return { at: 0 };
+  }
+  const sliceBudget = (clock: { at: number }, end: number): SearchContext['budget'] => ({
+    now: () => clock.at,
+    elapsedMs: () => clock.at,
+    remainingMs: () => Math.max(0, end - clock.at),
+    shouldStop: () => clock.at >= end,
+  });
+
+  /** Every rung the bank admitted, per improve() call, by spying the bank. */
+  function rungsPerSlice(
+    core: ReturnType<typeof makeSearchCore>,
+    ctxOf: () => SearchContext,
+    slices: number,
+    advance: (n: number) => void,
+  ): number[] {
+    const original = BoundBank.prototype.price;
+    const counts: number[] = [];
+    let current = 0;
+    BoundBank.prototype.price = function patched(this: BoundBank, plan: JointPlan) {
+      const out = original.call(this, plan);
+      for (const m of out.members) if (m.rung !== 'B0') current++;
+      return out;
+    };
+    try {
+      for (let i = 0; i < slices; i++) {
+        current = 0;
+        core.improve(ctxOf());
+        counts.push(current);
+        advance(i);
+      }
+    } finally {
+      BoundBank.prototype.price = original;
+    }
+    return counts;
+  }
+
+  test('slice two admits rungs above B0 under a generous budget', () => {
+    // A board with enemies in contact, so there is something for B1 to
+    // enumerate at all — asserted below rather than assumed.
+    const h = harness(seededBoard(4, 6, 2));
+    const clock = fakeClock();
+    const core = makeSearchCore();
+    try {
+      // Slice n runs at clock 100n and ends at 100n + 50. So by the time slice
+      // two starts, slice one's handle has been expired for 50 ticks.
+      const counts = rungsPerSlice(
+        core,
+        () => ({ ...h.ctx, budget: sliceBudget(clock, clock.at + 50) }),
+        4,
+        () => {
+          clock.at += 100;
+        },
+      );
+      expect(counts[0]).toBeGreaterThan(0); // the ladder is reachable at all
+      // THE REGRESSION. Every one of these was zero.
+      for (let i = 1; i < counts.length; i++) {
+        expect([i, counts[i] as number > 0]).toEqual([i, true]);
+      }
+    } finally {
+      core.release?.();
+      h.close();
+    }
+  }, 120_000);
+
+  test('a genuinely expired slice still stops — the fix is a live clock, not a disabled one', () => {
+    // The other direction, which a "just stop asking the budget" fix would
+    // break: an expired handle for the CURRENT slice must still cut the sweep.
+    const h = harness(seededBoard(4, 6, 2));
+    const clock = fakeClock();
+    const core = makeSearchCore();
+    try {
+      core.improve({ ...h.ctx, budget: sliceBudget(clock, 50) });
+      clock.at = 1_000;
+      const counts = rungsPerSlice(
+        core,
+        () => ({ ...h.ctx, budget: sliceBudget(clock, 0) }),
+        1,
+        () => undefined,
+      );
+      expect(counts[0]).toBe(0);
+    } finally {
+      core.release?.();
+      h.close();
+    }
+  }, 120_000);
+});
