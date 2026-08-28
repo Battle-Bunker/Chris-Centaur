@@ -1,0 +1,17 @@
+OK   same bundle sha: 66904d256103 vs 66904d256103
+OK   same env overrides: {} vs {}
+OK   sweep n0-aa-null: 96 games compared, 0 problems
+
+THE MEASURED NOISE FLOOR (this batch, this box, this load)
+
+Any treatment delta in this batch that is not comfortably LARGER than the
+half-width below is a null result. Quote these numbers next to it in findings.md.
+
+  n0-aa-null::headline-mix-king score: +0.0000 ± 0.0973 [-0.0973, 0.0973] n=16 blocks
+  n0-aa-null::headline-mix-king win: -0.0417 ± 0.1932 [-0.2348, 0.1515] n=16 blocks
+  n0-aa-null::headline-mix-king turns: -1.6875 ± 18.0935 [-19.7810, 16.4060] n=16 blocks
+  n0-aa-null::null-snake6 score: +0.0000 ± 0.0324 [-0.0324, 0.0324] n=16 blocks
+  n0-aa-null::null-snake6 win: +0.0000 ± 0.0648 [-0.0648, 0.0648] n=16 blocks
+  n0-aa-null::null-snake6 turns: +0.2500 ± 0.8367 [-0.5867, 1.0867] n=16 blocks
+
+VERDICT: nullA vs nullB is a valid A/A null.
