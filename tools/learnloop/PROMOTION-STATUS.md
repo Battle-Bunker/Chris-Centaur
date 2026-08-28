@@ -21,12 +21,12 @@ arm, may write a live status.
 |---|---|---|---|---|
 | `CENTAUR_CLUSTER_SEED` | CL1 | **LIVE FAILED** | `off` | P7R *(blocked)* |
 | `CENTAUR_UNIT_FATALITY` | CL1 | **live null** | `off` | P7F |
+| `CENTAUR_WASM` | W3 | **probe only** | `off` | P5R |
 | `CENTAUR_EDGE_EV` | CL2 | **probe only** | `off` | P12 |
 | `CENTAUR_CLUSTER_ENUM` | CL3 | **probe only** | `off` | P8/P9-joint |
 | `CENTAUR_SAMPLED_CAP` | CL4 | **probe only** | `off` | P9 |
 | `CENTAUR_TERRITORY_REFINE` | CL5 | **probe only** | `off` | P10 |
 | `CENTAUR_SCOUT` | CL6a | **probe only** | `off` | P11 |
-| `CENTAUR_WASM` | W3 | **probe only** | `off` | P5R |
 | `CENTAUR_WORKERS` | W1 | **probe only** | `off` | P13 |
 | `CENTAUR_TIER_TRUTH` | Stage 2.5 | **live null** | `expiry` | P4R *(blocked)* |
 | `CENTAUR_COHORT_POLICY` | arch/s2 | **live null** | `off` | P6R *(blocked)* |
@@ -55,6 +55,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 | `rungZeroFloor` | mechanism | yes | EmitRecord.lo of the first emission |
 | `finalFloor` | mechanism | yes | EmitRecord.lo of the last emission |
 | `score` | placement | yes | manifest row results[].score |
+| `survived` | mechanism | yes (batch 20260827 (added when the piece-cell gradient was found)) | manifest row results[].eliminatedOnTurn Added by the batch-1 fold. On piece boards the seed IMPROVES survival, which is the opposite sign to the snake-board collapse and is the reason this flag's verdict is now density-conditional rather than flat. |
 
 **Measurements:**
 
@@ -65,6 +66,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `win` → **failed**  
   snake6 win rate 1.00 -> 0.15 (delta -0.854, excludes zero)  
   <sub>live · null verified</sub>
+  > analysis-p7.md prints its standing warning on this cell: more than half of these games hit the turn cap (cl-off cap rate 0.938, cl-fatality 0.917), and the file says to treat its placement rows as UNINTERPRETABLE and raise the cap before rerunning. The cl-seed and cl-both arms escape the warning only because they die early (cap rate 0.458). The verdict survives the caveat on two independent grounds — the effect is 13-18x the cell's own measured floor, and the exhaustion mechanism is a non-placement measurement that does not route through the cap at all — but the row does not get to inherit "score -0.594" unqualified.
   > The effect is an order of magnitude outside the cell's own null band, so power is not the question here.
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `deathsExhaustion` → **failed**  
   snake exhaustion deaths x1.9 (39 -> 75 over 48 games)  
@@ -74,15 +76,36 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   seed+fatality together: same collapse as seed alone  
   <sub>live · null verified</sub>
   > So the cost is the seed's, not the pair's. UNIT_FATALITY alone carried no placement cost.
+- **20260827-overnight** · p7-cl1-gates::headline-mix-king · `finalMaterial` → **supports-promotion**  
+  +5.1042 [+0.4423, +9.7661] over 16 blocks (excludes zero)  
+  <sub>live · null verified</sub>
+  > THE PIECE-DENSITY GRADIENT, first row. On the full piece roster the seed does not merely fail to hurt — it measurably helps on material. findings.md section 2 summarises the piece cells as "all three treatments null", which is true of PLACEMENT only.
+- **20260827-overnight** · p7-cl1-gates::headline-mix-king · `survived` → **supports-promotion**  
+  +0.1458 [+0.0013, +0.2904] over 16 blocks (excludes zero, narrowly)  
+  <sub>live · null verified</sub>
+  > Second support row on the same cell and the same direction. Two ✱ rows favouring the seed where a full piece roster is present, against a catastrophic loss where none is.
+- **20260827-overnight** · p7-cl1-gates::snake5-knight · `deathsExhaustion` → **failed**  
+  exhaustion deaths 23 -> 48 over 48 games (x2.09)  
+  <sub>live · null verified</sub>
+  > THE GRADIENT`S OTHER END, and it corrects the headline. The bridge summaries carry "exhaustion x1.9", which is the null-snake6 figure (39 -> 75). snake5-knight is x2.09 — a LARGER ratio, on a cell whose placement is null. So exhaustion inflation is not a proxy for the placement collapse: it appears without one. Ordered by piece density the ratios are x2.09 (snake5-knight) / x1.92 (null-snake6) / x1.19 (headline-mix-king), and only the snake-heavy cells convert it into a loss.
+- **20260827-overnight** · p7-cl1-gates::snake5-knight · `score` → **null**  
+  -0.0104 [-0.1420, +0.1212] over 16 blocks  
+  <sub>live · no null</sub>
+  > UNREADABLE, not null. snake5-knight carried no A/A floor in this batch (see the batch's nullBandCoverage), so this delta has nothing to be read against. Recorded at the ledger's own standard: an absent instrument is not a finding.
+- **20260827-overnight** · p7-cl1-gates (cl-both arm) · `deathsExhaustion` → **failed**  
+  seed+fatality together: 72 exhaustion deaths over 48 games, against 75 seed-alone and 39 off  
+  <sub>live · null verified</sub>
+  > The joint arm reproduces the seed's exhaustion inflation almost exactly. Removing 3 of the seed's 36 extra deaths is inside the noise of a 48-game count, so the cost in this pair is the seed's and the classifier does not offset it.
 
-**Verdict.** DO NOT PROMOTE AS-IS. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure.
+**Verdict.** DO NOT PROMOTE AS-IS — and the failure is SNAKE-DENSITY-DEPENDENT, not global. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure. But the collapse is confined to the cells with few or no pieces: on null-snake6 the seed loses 1.00 -> 0.15, while on headline-mix-king placement is flat and two mechanism rows (finalMaterial +5.10 ✱, survived +0.146 ✱) run in its FAVOUR. Exhaustion inflation is present everywhere the snakes outnumber the pieces (x2.09 knight, x1.92 snake6, x1.19 mix-king) but only converts into a placement loss where there is no piece play to absorb it. The live reading is therefore not "the seed is a dead idea" but "the seed is admissible on some boards and ruinous on others, and nothing currently decides which board it is on". That points at a CONDITIONAL ADMISSION future — the same shape CENTAUR_STAGING_SAFETY already ships as `auto` after helping on piece boards and regressing on snake-only — and NOT at a retirement. The status stays live-failed and the ledger's own rule is why: a failure is undone by a root cause and a repaired arm, never by other cells declining to reproduce it. The piece-cell rows are the beginning of a root cause, not a second opinion.
 
-**Next: P7R.** Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on.
+**Next: P7R.** Two questions now, and the second is new. (1) Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on. (2) Is the seed CONDITIONALLY admissible — does the piece-density gradient hold up, and can the same own-board predicate that gates CENTAUR_STAGING_SAFETY's `auto` mode gate this one?
 
 - Arms: `off` · `seed-on` · `seed-on+restarts-raised` · `seed-on+rungZeroRepair`
-- Cells: null-snake6, headline-mix-king at 16 blocks
-- Reads out: `deathsExhaustion`, `deathsSelf`, `finalFloor`, `turns`, `score`
-- **Blocked on:** the root-cause miner on the delivered 20260827 replays, which may answer it without new games. Schedule the live arms only if the miner needs them.
+- Cells: null-snake6, snake5-knight, headline-mix-king at 16 blocks
+- Reads out: `deathsExhaustion`, `deathsSelf`, `finalFloor`, `finalMaterial`, `survived`, `turns`, `score`
+- Design: Batch 1 changed this experiment's shape. It was a two-cell falsifier hunt; it is now a three-cell DENSITY LADDER with a support cell at one end and the failing cell at the other, because the batch showed the effect has a sign that depends on the board. Adding snake5-knight costs one cell and is what makes the ladder a ladder.
+- **Blocked on:** the root-cause miner on the delivered 20260827 replays, which may answer it without new games — AND the miner cannot start until the replay archive is uploaded. That upload is now this experiment's critical path: it is the only not-scheduled item in batch 2 and the only thing standing between the program and the seed's root cause.
 
 ### `CENTAUR_UNIT_FATALITY` — live null
 
@@ -108,14 +131,75 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   no placement cost from UNIT_FATALITY alone  
   <sub>live · null verified · underpowered (16/58 blocks)</sub>
   > 16 blocks against the pooled stratum's 58 for MDE 0.25. 'No placement cost' means 'no cost this cell could resolve'. That is the honest reading and it is enough to keep the flag alive; it is not enough to promote it.
+- **20260827-overnight** · p7-cl1-gates::null-snake6 · `deathsExhaustion` → **null**  
+  exhaustion deaths 39 -> 33 over 48 games (x0.85) — they FALL  
+  <sub>live · null verified</sub>
+  > The classifier does not merely avoid the seed's failure mode, it moves slightly the other way on the very cell the seed destroyed. Absent from every bridge summary, and it is the strongest half of "fatality alone is safe". Recorded as null and not as support: 39 -> 33 over 48 games has no measured floor of its own, and one directional mechanism row does not promote anything. POLARITY WARNING: had bin/ingest.js scored this row it would have called it FAILED, because its verdict rule reads any negative mechanism delta as a failure and it does not know that fewer deaths is better. See open item METRIC-POLARITY.
+- **20260827-overnight** · p7-cl1-gates (cl-both arm) · `deathsExhaustion` → **null**  
+  seed+fatality together: 72 deaths over 48 games, against 75 for the seed alone and 39 off  
+  <sub>live · null verified</sub>
+  > THE BOUNDARY OF THE CLASSIFIER`S CLAIM, and deliberately not a failure verdict. Written as `failed` in the first pass of this fold, it moved UNIT_FATALITY live-null -> live-failed — and that was a mis-attribution the rules made visible: the 72 deaths are the SEED's cost, recorded against CENTAUR_CLUSTER_SEED where they belong. All this row says about the classifier is what it does NOT do: it is safe alone, and it is not a repair for something else.
 
-**Verdict.** Alive, unpromoted. It costs nothing measurable and has not yet been shown to buy anything on its own.
+**Verdict.** Alive, unpromoted, and cheaper than it looked. It costs nothing measurable in placement (16 blocks against the pooled stratum's 58, so "no cost this cell could resolve"), it demonstrably runs, and on null-snake6 exhaustion deaths FALL under it (39 -> 33). What it has still never been shown to do is buy anything on its own. Note the asymmetry the batch settled: the cl-both arm reproduces the seed's collapse almost exactly (-0.573 vs -0.594; 72 deaths vs 75), so the cost in that pair is the seed's and not the pair's — but equally, the classifier is not a repair for the seed.
 
 **Next: P7F.** Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?
 
 - Arms: `off` · `fatality-on`
 - Cells: headline-mix-king, snake5-knight, null-snake6 at 16 blocks
 - Reads out: `deathsSelf`, `deathsTeammate`, `unstagedRate`, `score`
+
+### `CENTAUR_WASM` — probe only
+
+*W3. Runs the territory evaluator's hot kernels in WebAssembly; refused per partition, silently, when an input is not resident in linear memory.*
+
+- Per engine: `TeamDecisionOptions.wasm`
+- Parses: on | off only — anything else warns and falls back to off
+
+**Promotion metrics** (the gate, and whether the build emits it):
+
+| metric | family | emitted | source |
+|---|---|---|---|
+| `wasmRuns` | engagement | yes (CL7) | MechanismReport.wasm.runs THE GAP THAT VOIDED P5. Existed on the territory workspace since W3 and was unreachable outside evaluate/territory.ts. |
+| `wasmRefused` | engagement | yes (CL7) | MechanismReport.wasm.refused |
+| `worstWallMs` | cost | yes | manifest health row |
+| `capRate` | shape | yes | manifest row terminal |
+| `score` | placement | yes | manifest row |
+
+**Measurements:**
+
+- **20260827-overnight** · p5-wasm-arena · `score` → **null**  
+  placement NULL  
+  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  > ENGAGEMENT VOCABULARY. `armEngagementVerified: false` is carried on this row because false is the only value the current applyMeasurement refuses on. The honest value is `null` — CANNOT SAY. wasmRuns was never read and returned zero here; it did not exist in these bundles at all. The ledger's stated tri-state (null = cannot say, false = read and was zero) and its enforcement disagree, and this row is where the disagreement is being papered over. Left as false deliberately: correcting it to null on this branch would UNBLOCK a status write that must stay blocked, and the one-line fix belongs on the home branch. See ENGAGEMENT-TRISTATE.
+  > STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.
+- **20260827-overnight** · p5-wasm-arena · `capRate` → **anomaly**  
+  cap-terminal rate DOUBLES under wasm-on on headline-mix-king: 0.229 -> 0.458 (x2.0); and goes 0.917 -> 1.000 on null-snake6, where it saturates  
+  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  > THE ANOMALY IS A CLUSTER OF FOUR ROWS, NOT ONE RATE. Bridge summaries carry only the doubled cap rate. On the same cell, wasm-on games also run ~21 turns LONGER (+21.44 ✱), take ~22 more decisions (+21.75 ✱) and end LESS decisively (-0.2292 ✱ — decisive 0.771 -> 0.542), and on null-snake6 the cap rate saturates at 1.000. Four independent rows pointing the same way with placement dead flat: something changes materially about how games TERMINATE while leaving the ranking untouched. Score the anomaly on the cluster; a single rate is dismissable and the cluster is not.
+  > A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.
+- **20260827-overnight** · p5-wasm-arena::headline-mix-king · `turns` → **anomaly**  
+  +21.44 [+0.47, +42.41] over 16 blocks, against a measured A/A floor of +/-18.09  
+  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  > Anomaly corroborant 1. Clears the cell's own measured floor, but not by much — this is the weakest of the four rows on its own and the most convincing in company.
+- **20260827-overnight** · p5-wasm-arena::headline-mix-king · `decisions` → **anomaly**  
+  +21.75 [+0.94, +42.56] over 16 blocks  
+  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  > Anomaly corroborant 2. Tracks the turn count almost exactly, as it must if the games are simply longer.
+- **20260827-overnight** · p5-wasm-arena::headline-mix-king · `decisive` → **anomaly**  
+  -0.2292 [-0.4511, -0.0072] over 16 blocks (decisive rate 0.7708 -> 0.5417)  
+  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
+  > Anomaly corroborant 3, and the one that makes the cluster a finding rather than a slowdown. Longer games that end at the cap instead of at a result is a different GAME SHAPE, not a different amount of compute.
+
+**Verdict.** THE ONE MEASURED ANOMALY ON THE BRANCH, AND IT IS STILL UNREADABLE. Placement is null on all three cells and that null is worth nothing: the arm cannot be shown to have run. Meanwhile four shape rows on the same cell say the games changed — twice the cap rate, ~21 more turns, ~22 more decisions, a quarter less decisive — and shape rows never move a status by rule, which is correct and is also exactly why this flag cannot be resolved from batch 1 at all. The root cause is already named upstream (refused per partition, silently; counters trapped in the module) and CL7 closed the telemetry, so the decisive experiment is now cheap and unambiguous. P5R IS THAT EXPERIMENT and it is the highest-value run in batch 2: it is the only scheduled experiment that resolves a standing anomaly rather than opening a new question, and its gate makes it impossible to mis-report — wasmRuns 0 on the treatment arm is a BROKEN ARM and must be reported as a refusal, not as a null.
+
+**Next: P5R.** With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?
+
+- Arms: `off` · `wasm-on`
+- Cells: headline-mix-king, hazard-mix-king, null-snake6 at 16 blocks
+- Reads out: `wasmRuns`, `wasmRefused`, `capRate`, `turns`, `decisions`, `decisive`, `worstWallMs`, `score`
+- **Gate:** REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.
+- Requires: A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists.
+- Priority: HIGHEST of the probe-passed flags, and raised by batch 1. CENTAUR_WASM has been moved ahead of the never-raced flags in this ledger's flag order, which is the order the batch generator emits and therefore the order the batch is cut from the bottom in. Reason: every other scheduled experiment opens a question, and this one closes the batch's only measured anomaly with instrumentation that now exists. If the night is short, P5R survives the cut.
 
 ### `CENTAUR_EDGE_EV` — probe only
 
@@ -288,44 +372,6 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 - Reads out: `scoutThreads`, `scoutPlies`, `postContactPlies`, `scoutRefusals`, `worstWallMs`, `decisions`, `score`
 - Design: observe AND advise as separate arms: observe measures the cost with no behaviour change at all, so observe-vs-off isolates the tithe and advise-vs-observe isolates the advice. One arm carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is.
 
-### `CENTAUR_WASM` — probe only
-
-*W3. Runs the territory evaluator's hot kernels in WebAssembly; refused per partition, silently, when an input is not resident in linear memory.*
-
-- Per engine: `TeamDecisionOptions.wasm`
-- Parses: on | off only — anything else warns and falls back to off
-
-**Promotion metrics** (the gate, and whether the build emits it):
-
-| metric | family | emitted | source |
-|---|---|---|---|
-| `wasmRuns` | engagement | yes (CL7) | MechanismReport.wasm.runs THE GAP THAT VOIDED P5. Existed on the territory workspace since W3 and was unreachable outside evaluate/territory.ts. |
-| `wasmRefused` | engagement | yes (CL7) | MechanismReport.wasm.refused |
-| `worstWallMs` | cost | yes | manifest health row |
-| `capRate` | shape | yes | manifest row terminal |
-| `score` | placement | yes | manifest row |
-
-**Measurements:**
-
-- **20260827-overnight** · p5-wasm-arena · `score` → **null**  
-  placement NULL  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
-  > STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.
-- **20260827-overnight** · p5-wasm-arena · `capRate` → **anomaly**  
-  cap rate DOUBLES under wasm-on: 0.458 vs 0.229  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED**</sub>
-  > A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.
-
-**Verdict.** The one measured anomaly on the branch, and it was unreadable. CL7 makes it readable.
-
-**Next: P5R.** With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?
-
-- Arms: `off` · `wasm-on`
-- Cells: headline-mix-king, hazard-mix-king, null-snake6 at 16 blocks
-- Reads out: `wasmRuns`, `wasmRefused`, `capRate`, `worstWallMs`, `decisions`, `turns`, `score`
-- **Gate:** REFUSE THE CELL if wasmRuns is 0 on the treatment arm. That is not a null, it is a broken arm, and reporting it as a null is exactly the error this rerun exists to correct.
-- Requires: A bundle built from a tip at or after the CL7 telemetry closure, so TeamTurnResult.mechanism exists.
-
 ### `CENTAUR_WORKERS` — probe only
 
 *W1. Evaluation worker pool, one worker per spare core capped at three.*
@@ -349,18 +395,27 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   <sub>probe · no null</sub>
   > The cap of three follows this measurement, not an expectation.
 - **20260827-overnight** · p1-substrate-headline · `score` → **null**  
-  the perf substrate is SPEED, NOT STRENGTH, at 2000 ms  
+  PLACEMENT NULL at 2000 ms: headline-mix-king -0.0104 [-0.1294, +0.1086] against a measured +/-0.0973 floor; snake5-queen 0.0000 [-0.1123, +0.1123]; null-snake6 exactly 0  
   <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  > THE "SPEED, NOT STRENGTH" CLAIM IS NOT SUPPORTED BY THIS BATCH AND HAS BEEN REMOVED FROM THIS ROW. The null on strength is solid. The speed half is not merely unmeasured here — the batch's own wall-clock rows run the OTHER WAY. perf-substrate is worstWallMs +4.021 [+0.332, +7.710] ✱ on snake5-queen and +1.917 [+0.279, +3.554] ✱ on null-snake6, i.e. marginally SLOWER in the worst case, while evaluating ~21.7k more plans on the queen cell. (+7.479 [-2.737, +17.696] on headline, not significant.) Whatever supports "speed play" is prior benchmark evidence and is not in this delivery. The ledger must not cite batch 1 as its source. What batch 1 shows, and all it shows, is PLACEMENT-NULL.
   > P1 raced whole BUILDS, not this flag: `integrated` vs `perf-substrate` at their shipped defaults. It bounds the substrate's strength effect and does not isolate the pool. Recorded against this flag because it is the closest live evidence that exists, and labelled so nobody mistakes it for an isolated arm.
+- **20260827-overnight** · p1-substrate-headline::snake5-queen · `worstWallMs` → **cost**  
+  +4.0208 [+0.3318, +7.7098] over 16 blocks (1961.19 -> 1965.21) — the substrate is SLOWER here  
+  <sub>live · null verified</sub>
+  > A cost row, and by rule never a verdict — recorded here because it is the direct counter-evidence to the speed claim this batch was being cited for. Both cells, both ✱, both in the slower direction.
+- **20260827-overnight** · p1-substrate-headline::null-snake6 · `worstWallMs` → **cost**  
+  +1.9167 [+0.2794, +3.5539] over 16 blocks (1962.81 -> 1964.73) — slower here too  
+  <sub>live · null verified</sub>
+  > A cost row, and by rule never a verdict — recorded here because it is the direct counter-evidence to the speed claim this batch was being cited for. Both cells, both ✱, both in the slower direction.
 
-**Verdict.** Throughput is measured and real; strength is bounded and null. The pool has never been raced as an isolated arm.
+**Verdict.** Throughput is measured and real ON A PROTOTYPE BENCH; strength is bounded and null; and the batch that bounded strength did NOT confirm the speed. P1`s placement null is solid. Its wall-clock rows run mildly against the substrate (+4.02 ✱ queen, +1.92 ✱ snake6 worst-case ms), so "speed, not strength" is a claim resting on the w1-bench probe and on prior benchmark work, NOT on batch 1 — which is worth stating plainly because it is the citation the program has been making. The pool has still never been raced as an isolated arm.
 
 **Next: P13.** At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?
 
 - Arms: `workers-off` · `workers-auto`
 - Cells: headline-mix-king, null-snake6 at 16 blocks
 - Reads out: `workers`, `decisions`, `worstWallMs`, `score`
-- Priority: LOW. P1 already bounds the whole substrate's strength effect at null; this only sharpens attribution. Schedule it after the flags that have never been raced at all.
+- Priority: LOW, and lower than it looks. P1 already bounds the whole substrate's strength effect at null, so this only sharpens attribution. Schedule it after the flags that have never been raced at all; it is the natural first cut if the night is short. Batch-1 note: P1`s worst-case wall rows went the WRONG way for the substrate, so if this is run, read worstWallMs as a primary output and not as a footnote — the pool's throughput case now has live evidence against it as well as bench evidence for it.
 
 ### `CENTAUR_TIER_TRUTH` — live null
 
@@ -383,11 +438,12 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   <sub>probe · no null</sub>
   > Production reads ONLY n=1 (TeamTurnInput.observedTurns has no production producer), so keeping `expiry` today is a PROVABLE NO-OP live. But `expiry` is UNSOUND at n>=2: 4,622/6,383 pot-sparse slot readings lack a rules-allowed ceiling, an under-approximation.
 - **20260827-overnight** · p4-tiertruth-potions · `score` → **null**  
-  NULL on potion cells; the default stays expiry  
+  NULL on all three potion cells; the default stays expiry  
   <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  > Distinguish this null from CENTAUR_COHORT_POLICY's. Both flags read `live-null`. There, four ✱ rows prove the arm ran and did not help. Here, no row moved at all, so the null is about the MEASUREMENT and not about the flag. Recorded as nullKind: engagement-unshown.
   > Consistent with the n=1 no-op finding: at ply 1 there is nothing for `full` to change.
 
-**Verdict.** A null at ply 1, exactly as predicted, AND A HARD PREREQUISITE OF PLY 2. This flag will be promoted for a soundness reason and not a placement one — the ledger records that so a future reader does not go looking for the placement win that will never arrive.
+**Verdict.** A null at ply 1, exactly as predicted, AND A HARD PREREQUISITE OF PLY 2 — but read the null carefully. No ✱ row appears anywhere in P4, on any cell, on any metric, which means this batch cannot distinguish "the flag ran and changed nothing" from "the flag did not run". The n=1 no-op finding predicts the former and the ledger records it as unshown either way (nullKind: engagement-unshown), because a prediction is not a measurement. None of this changes the disposition: this flag will be promoted for a SOUNDNESS reason and not a placement one — at n>=2, expiry is an under-approximation and full is the only sound setting — and the ledger records that so a future reader does not go looking for the placement win that will never arrive.
 
 **Next: P4R.** None at ply 1. The decisive experiment is the ply-2 arm: with the scout on and n>=2 readings live, `expiry` becomes an under-approximation and `full` is the only sound setting.
 
@@ -414,18 +470,30 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 **Measurements:**
 
 - **20260827-overnight** · p6-admission · `score` → **null**  
-  NULL everywhere — the governor's first measurement  
-  <sub>live · null verified · **ENGAGEMENT UNVERIFIED** · underpowered (16/58 blocks)</sub>
-  > Engagement unverified for the same structural reason as P5: the governor publishes no counter the harness can read. A null from a governor that never admitted anything is not a null about the governor.
+  NULL everywhere (headline +0.0104 [-0.0945, +0.1153]; hazard +0.0208 [-0.1342, +0.1759]; snake6 -0.0208 [-0.0652, +0.0236]) — the governor's first measurement, and an ENGAGED null  
+  <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  > REVISED BY THE BATCH-1 FOLD. The seeded row read this as engagement-unverified "for the same structural reason as P5". That was wrong, and the difference matters more than the similarity. P5 has no evidence of any kind that its arm ran. P6 has four ✱ harness-side rows proving its arm ran and cost something. This is the strongest ENGAGED-AND-DID-NOT-HELP row in the batch and the only one in the ledger: a measured cost with no measured benefit, which is a real finding about the governor and not an absence of one.
+- **20260827-overnight** · p6-admission::headline-mix-king · `worstWallMs` → **cost**  
+  +5.125 [+3.3141, +6.9359] over 16 blocks (1961.33 -> 1966.46)  
+  <sub>live · null verified</sub>
+  > One side of a trade, and by rule never a verdict. Recorded because together with its twin on the other cell it is what PROVES the arm engaged, which is the precondition for reading the placement null as a null at all.
+- **20260827-overnight** · p6-admission::hazard-mix-king · `worstWallMs` → **cost**  
+  +5.3125 [+3.4093, +7.2157] over 16 blocks (1960.08 -> 1965.40)  
+  <sub>live · null verified</sub>
+  > One side of a trade, and by rule never a verdict. Recorded because together with its twin on the other cell it is what PROVES the arm engaged, which is the precondition for reading the placement null as a null at all.
+- **20260827-overnight** · p6-admission (both piece cells) · `plansEvaluated_RETIRED` → **engaged**  
+  +14,270 [+9,174, +19,365] ✱ headline; +14,284 [+5,754, +22,814] ✱ hazard  
+  <sub>live · null verified</sub>
+  > RETIRED COUNTER, DIAGNOSTIC USE ONLY. plansEvaluated carries no verdict on a live arm — at any budget it is dominated by how much CPU the process got. It is kept precisely to diagnose a broken or an idle arm, and that is the only claim made on it here: the governor ran. Both cells, same magnitude, both ✱.
 
-**Verdict.** First measurement, null, engagement unverified, and its telemetry is on a branch CL7 does not reach.
+**Verdict.** LIVE NULL WITH ENGAGEMENT SHOWN — and that phrase is doing work the ledger's status vocabulary alone cannot. Placement is flat on all three cells, and unlike every other null in this batch the arm is PROVEN to have run: four ✱ harness-side rows on two cells (worstWallMs +5.1/+5.3, plansEvaluated +14.3k). So the reading is a measured cost with no measured benefit. Contrast CENTAUR_TIER_TRUTH, which is also `live-null` and where NO row moved anywhere — there the reading is "cannot say whether the flag did anything". Two flags, one status word, opposite epistemic states; `nullKind` records which is which so a future reader does not average them. What is still unmeasured is what the governor DID: admissionRate has no counter, so the cost is attributed to the governor running and not to any particular admission decision. First measurement of this flag, ever, and it earns a real finding rather than a shrug.
 
-**Next: P6R.** Did the governor act at all? Answer that before re-measuring placement.
+**Next: P6R.** Not "did the governor act" any more — batch 1 answered that: it acted and it cost about 5 ms of worst-case wall time and ~14k plans per game. The question is now WHAT it admitted, and whether the cost buys anything on boards where a governor can act at all.
 
 - Arms: `off` · `cohort-on`
 - Cells: headline-mix-king, hazard-mix-king, null-snake6 at 16 blocks
 - Reads out: `assumptionRate`, `decisions`, `score`
-- **Blocked on:** arch/s2 needs its own mechanism counters folded into the CL7 report before a rerun is worth the box time. Its target boards are the CROWDED ones — more claimants than budget is where a governor can act at all.
+- **Blocked on:** arch/s2 needs its own admission counters folded into the CL7 mechanism report before a rerun is worth the box time. Its target boards are the CROWDED ones — more claimants than budget is where a governor can act at all, and headline/hazard mix-king may simply not be crowded enough for admission to bind. NOTE the batch-1 revision: a rerun is no longer needed to establish engagement, only to interpret it, which makes the counters the whole of the block.
 - Priority: DEFERRED until the counters exist.
 
 ### `TERRITORY_SLIDER_PROFILE` — supported — flip owed
@@ -433,7 +501,7 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
 *I2. The slider evaluator profile: command and movement-budget terms, gated on piece class. Bit-identical to the baseline on a snake-only board.*
 
 - Per engine: `TeamDecisionOptions.evaluate (no env flag, no config field)`
-- **Action owed:** Wire the profile behind the own-team slider detector as the shipped default, and record the commit as promotedBy.
+- **Action owed:** Wire the profile behind the own-team slider detector as the shipped default, and record the commit as promotedBy. SECOND ITEM ADDED BY THE BATCH-1 FOLD: the next batch owes a snake5-queen A/A cell, so this flag's one win finally gets a floor of its own instead of borrowing mix-king's. The batch generator hard-codes the A/A cells as headline-mix-king and null-snake6, so this cannot be scheduled from the ledger and must be added by hand or by the one-line generator fix named in AA-FLOOR-COVERAGE.
 
 **Promotion metrics** (the gate, and whether the build emits it):
 
@@ -448,12 +516,25 @@ Counts: 1 LIVE FAILED, 3 live null, 7 probe only, 1 supported — flip owed, 2 P
   +0.021 [-0.062, +0.125] vs null; snake wins preserved to the digit  
   <sub>live · null verified</sub>
   > The provably-inert cell behaving inertly. This is the control, and it passed.
-- **20260827-overnight** · p3-slider-2000 · `score` → **supports-promotion**  
-  budget gradient: 150 ms ~0 / 1000 ms +0.31 / 2000 ms +0.115 (excludes zero, narrowly clears the floor); snake6 exactly 0, inert  
+- **20260827-overnight** · p3-slider-2000::snake5-queen · `score` → **supports-promotion**  
+  +0.115 [+0.014, +0.216] over 16 blocks on snake5-queen (0.6667 -> 0.7812), excludes zero  
+  <sub>live · null verified · underpowered (16/58 blocks)</sub>
+  > TWO CAVEATS, BOTH NARROWING THE CLAIM, AND NEITHER IN THE BRIDGE SUMMARIES. (1) NO LOCAL A/A FLOOR. The batch's A/A ran on headline-mix-king and null-snake6 only. This win is on snake5-queen and is compared against the mix-king floor (+/-0.0973) as a PROXY, which findings.md is explicit that it clears "narrowly" — +0.115 against +/-0.097 is a margin of 0.018. A queen-cell A/A would settle it and is owed. (2) ONLY THE 2000 ms POINT IS FROM THIS BATCH. The gradient quoted as "150 ms ~0 / 1000 ms +0.31 / 2000 ms +0.115" has one point in this delivery. The 150 ms and 1000 ms points come from earlier I2 work and are unverifiable from anything shipped here. Attribute only +0.115 to batch 1.
+  > REVISED BY THE BATCH-1 FOLD. The seeded row quoted all three gradient points as though the batch had measured them and gave no CI. What the batch actually shows is one modest, confirmed-direction effect on one cell, with a provably-inert control at exactly 0 and two corroborating mechanism rows. That is still the most complete evidence chain in this ledger — it is simply a smaller claim than the seed made, and the flip it supports is unchanged.
+- **20260827-overnight** · p3-slider-2000::snake5-queen · `place` → **supports-promotion**  
+  -0.2292 [-0.4313, -0.0270] over 16 blocks (lower place is better)  
   <sub>live · null verified</sub>
-  > Three points on a gradient, an inert cell that stayed inert, and a control run that confirmed the neutrality claim. This is the most complete evidence chain in the ledger.
+  > Placement corroborant, same cell, same direction as score. POLARITY: this is an IMPROVEMENT recorded as a negative delta; bin/ingest.js would have scored it "failed". See METRIC-POLARITY.
+- **20260827-overnight** · p3-slider-2000::snake5-queen · `finalMaterial` → **supports-promotion**  
+  +4.021 [+0.222, +7.820] over 16 blocks  
+  <sub>live · null verified</sub>
+  > Mechanism corroborant: the profile is winning by holding more material, which is what it is for.
+- **20260827-overnight** · p3-slider-2000::null-snake6 (INERT CONTROL) · `score` → **control-passed**  
+  EXACTLY 0, against a measured floor of +/-0.0324  
+  <sub>live · null verified</sub>
+  > THE INERT CONTROL, AND IT PASSED PERFECTLY. The profile is bit-identical to the baseline on a snake-only board, so its delta there must be exactly zero — not small, zero. It is. This is the cell that makes the queen-cell win credible despite having no floor of its own: the instrument demonstrably reports zero when zero is the truth. FAMILY IS `audit`, ADVISEDLY. Filed first as `placement`/`null`, it demoted this flag supported -> live-null: applyMeasurement has no concept of a control cell, so a cell that is null BY DESIGN reads to it as a treatment that failed to show an effect. An inert control is evidence about the INSTRUMENT and not a placement claim about the treatment, so `audit` is both the honest family and the one the rules handle correctly. See open item CONTROL-CELLS-DEMOTE.
 
-**Verdict.** SUPPORTED, AND THE FLIP IS OWED. The dark-shipped repair's evidence chain is complete and the wire-up via the own-team detector is fully supported. What has not happened is the wiring itself: there is no env flag and no config field, so 'promotion' here means a code change, not a default flip.
+**Verdict.** SUPPORTED, AND THE FLIP IS OWED. The evidence chain is the most complete in this ledger and it is also smaller than the seeded row claimed: one confirmed-direction, modest effect on ONE cell (+0.115 [+0.014, +0.216] on snake5-queen), two corroborating rows on that cell (place -0.229 ✱, finalMaterial +4.02 ✱), a provably-inert control sitting at EXACTLY 0 against a measured +/-0.032 floor, and a separate control run confirming the neutrality claim. The two weaknesses are recorded rather than smoothed: the winning cell has no A/A floor of its own and clears the borrowed one narrowly, and two of the three gradient points quoted for it were measured elsewhere. Neither weakens the FLIP, which is what is owed: the wiring is a code change, not a default flip, because the profile has no env flag and no config field.
 
 **Next: P3-slice.** The 10% exploration slice, once the wiring lands: keep a tenth of piece-board cells running the BASELINE profile so the cell that turned it on can still be turned back off.
 
@@ -528,11 +609,11 @@ Owner-approved program questions that are not any one flag's promotion.
 ### P16 — The budget ladder
 
 - Approved by: owner — pre-approved, conditional on budget-probe v2 confirming
-- Trigger: CONFIRMED. budget-probe v2: a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 +/- 7.0 against an A/A floor of 1.7 +/- 3.2). The engine is deadline-aware; the second second changes about 7% of decisions net. The condition on the pre-approval is met.
+- Trigger: CONFIRMED, and here is the whole arithmetic. budget-probe v2, 60 recorded positions drawn from 480 integrated replays, idle box, FRESH ENGINE PER POSITION, sample seed 1, 9 skipped: a true 1000 ms run reproduces the 2000 ms decision on 55 of 60 positions. FLIPS 5/60 = 8.3% (+/-7.0). A/A FLOOR, 2000 ms against itself: 1/60 = 1.7% (+/-3.2). EXCESS ATTRIBUTABLE TO BUDGET = 6.7 points, wide at n=60 and the intervals overlap — the direction is clear and the magnitude is not. The condition on the owner's pre-approval is met.
 - Question: Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line.
 - Rungs: 500 / 1000 / 2000 ms, 8 blocks each
-- Design: ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable.
-- Caveat: changed != improved. The 35.0% figure counts decisions whose staged move-set CHANGED after the 1000 ms mark; nothing in it says the later set is better. Probe v1 was RETRACTED (a shared engine carried per-game ledger state); v2 is the valid one.
+- Design: ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable. BATCH-1 NOTE: the 500 ms rung is now the interesting one. If the deep pass lands at 1000-1500 ms and the engine reschedules it under a 1 s budget, then 1000 ms may barely differ from 2000 ms while 500 ms amputates the pass outright — so the ladder's information is concentrated at its bottom rung.
+- Caveat: CHANGED != IMPROVED, and nothing measures the difference. The 35.0%/60.1% figures count decisions whose staged move-set changed; the 8.3% counts decisions a shorter budget decides differently. Whether those ~7% are BETTER is unmeasured and is exactly what the ladder is for.
 
 ## Open instrument items
 
@@ -566,4 +647,52 @@ ports.env reaches the wire policy, the worker count and the WASM default. It doe
 
 *Impact:* None on the sim harness, which sets process-level environment per bundle. It is a trap for any in-process paired arm.
 *Closed by:* threading ports.env into flaggedKnobs() and the five *Enabled() helpers — which changes which arm an env-injecting caller runs, so it is a behaviour change and not a CL7 item.
+
+### BATCH1-REPLAY-DEFERRED
+
+The 20260827-overnight delivery contains no per-game manifest.jsonl rows, so bin/ingest.js could not run against it at all (`no arms found`) and every row folded from batch 1 was transcribed by hand from the committed analysis markdown. The full deferred list is on the batch record at batches[0].ingest.deferredRows.
+
+*Impact:* The ledger and the analysis files now share a single point of failure: nothing has independently recomputed a single CI, pairing check, or hygiene row from the games themselves. The batch's integrity counters (0 illegal, 0 errors over 1,824 games) are the harness checking itself. The instrument-event detectors — including cap-rate-asymmetry, which is precisely the shape of the P5 anomaly — never ran.
+*Workaround:* The analysis files are per-priority recuts and are authoritative (the earlier pooled analysis.md was poisoned by a global --subject-map and is superseded). Hand transcription was checked row by row against analysis-p1p2/p3/p5/p6/p7.md.
+*Closed by:* uploading the 77,388,008-byte replay archive (2,592 replays) or pushing the arms/ tree to sim-results/local-20260827, then running: node tools/learnloop/bin/ingest.js --batch results/20260827-overnight --null nullA,nullB --pair <base>=<treat> --flag <FLAG> [--engagement <counter>] --write, once per pair.
+
+### METRIC-POLARITY
+
+bin/ingest.js decides a verdict by SIGN ALONE: a mechanism or placement delta outside the null band scores `failed` if its mean is negative and `supports-promotion` if positive. It has no notion of which metrics are better when they go DOWN. So deathsExhaustion, deathsSelf, fatalStagings, teammateKills, place, boundsInversions, overrunRate and every other cost-shaped counter are scored exactly backwards.
+
+*Impact:* SEVERE, AND THE EXHIBIT IS THIS LEDGER`S FOUNDING FINDING. CENTAUR_CLUSTER_SEED's failure is an exhaustion-death INCREASE of +36 per 48 games on a metric declared family:mechanism. Run through the ingest, that positive delta scores `supports-promotion`. It is caught here only because the flag is ALREADY live-failed and "a supporting cell does not overturn a live failure" refuses it — i.e. the ledger is saved by a different rule, and would not have been had the flag still been probe-passed when the row arrived. Two further rows in the batch-1 fold trip it in the other direction: UNIT_FATALITY's exhaustion deaths FALLING 39 -> 33 would score `failed`, and TERRITORY_SLIDER_PROFILE's place improving by -0.229 would score `failed`. All three are recorded by hand with the correct verdict and a polarity note.
+*Workaround:* The fold declares `lowerIsBetter: true` on the affected promotionMetrics entries of CENTAUR_CLUSTER_SEED and CENTAUR_UNIT_FATALITY. Nothing reads the field yet. It exists so the fix is a lookup rather than a re-derivation.
+*Closed by:* A one-line change on claude/cluster-lookahead, in bin/ingest.js's verdict expression: consult the gate's `lowerIsBetter` and flip the sign test. Plus the polarity declarations on the remaining gate metrics, and a selftest assertion that a falling death count does not read as a failure. NOT applied here: this branch is the mirror and its code must not fork from home.
+
+### ENGAGEMENT-TRISTATE
+
+The ledger documents `armEngagementVerified` as a tri-state — true = shown engaged, false = a counter was READ and was zero, null = CANNOT SAY (an old bundle) — and README.md states the rule as "a live measurement on an arm whose engagement is not SHOWN moves nothing". applyMeasurement refuses only on `=== false`. `null` sails through and may write a live status.
+
+*Impact:* Every batch predating the CL7 mechanism report has null engagement on every row, which is the common case and not the edge case. The seeded ledger hides the gap by marking CENTAUR_WASM's batch-1 rows `false` — a value the vocabulary reserves for a counter that was read — because false is the only value that actually refuses. The datum was bent to fit the code. The fold leaves it bent ON PURPOSE and says so on the row, because correcting it to the honest `null` on this branch would unblock a status write that must stay blocked.
+*Workaround:* CENTAUR_WASM's rows keep `false` with a caveat naming this item. CENTAUR_TIER_TRUTH's row, which is NOT load-bearing for a refusal, is corrected to the honest `null` and carries an engagementEvidence block.
+*Closed by:* On claude/cluster-lookahead: change `if (m.armEngagementVerified === false)` to refuse on anything that is not `true`, add the selftest assertion for the null case, then correct CENTAUR_WASM's two batch-1 rows to `null` in the same commit. All three selftest engagement cases pass explicit booleans, so the tightening is assertion-safe.
+
+### AA-FLOOR-COVERAGE
+
+bin/make-promotion-batch.js hard-codes the A/A null's cells as headline-mix-king and null-snake6, regardless of which cells the batch's treatments actually run on. Batch 1 therefore measured a floor for two of its eight cells, and batch 2 as generated repeats the pattern: P5R runs hazard-mix-king, P3`s support cells are snake5-queen and snake5-knight, and none of them will get a floor.
+
+*Impact:* By the ledger's own rule, a metric with no floor in the A/A cell is UNREADABLE and not null, so an uncovered cell cannot produce a verdict at all — it produces a row that must be recorded and refused. Batch 1 spent six of eight cells this way. It also lands on the ledger's single best result: TERRITORY_SLIDER_PROFILE's only win is on snake5-queen and clears a BORROWED mix-king floor by 0.018.
+*Workaround:* Uncovered cells are recorded with nullVerified: false and verdict `unreadable`, which is what the rules already demand. Add the missing cells to the N0 spec by hand before running batch 2.
+*Closed by:* On claude/cluster-lookahead: derive the A/A null's cells from the union of the scheduled specs` cells instead of the hard-coded pair, so the floor is measured wherever a treatment is read. It costs box time and it is the cheapest box time in the batch — an unfloored treatment cell is games spent on a row nobody may read.
+
+### CONTROL-CELLS-DEMOTE
+
+applyMeasurement has no concept of a CONTROL cell. A cell that is null BY DESIGN — a provably-inert path included precisely to prove the instrument reports zero when zero is the truth — is indistinguishable to the rules from a treatment cell that failed to show an effect, and it takes the same `live-null` branch.
+
+*Impact:* Demonstrated live during the batch-1 fold. TERRITORY_SLIDER_PROFILE's null-snake6 control sat at EXACTLY 0 against a measured +/-0.0324 floor — the strongest single row in the ledger, because it shows the measurement is not manufacturing effects — and filing it as family `placement` demoted the flag `supported` -> `live-null`. The better the control, the harder it demotes. This is a rule that punishes the practice it exists to encourage.
+*Workaround:* The row is filed as family `audit`, which never moves a status and is arguably its true family anyway: an inert control is evidence about the INSTRUMENT, not a placement claim about the treatment. Recorded on the row itself so the choice is not mistaken for a dodge.
+*Closed by:* On claude/cluster-lookahead: an explicit `control: true` on a measurement, refused from moving a status and rendered as a distinct badge; plus a selftest asserting that a passing control does not demote a supported flag. Until then `audit` is the correct filing and the note carries the reasoning.
+
+### LIVE-NULL-IS-TERMINAL
+
+L.undecided() returns dark, probe-passed and live-failed. A `live-null` flag is treated as settled, so make-promotion-batch.js never schedules its nextExperiment — even when the ledger has written one out in full and even when the null came from a cell the ledger itself marked underpowered.
+
+*Impact:* Three flags are affected and their named experiments are unreachable from the generator: CENTAUR_UNIT_FATALITY (P7F — "is the classifier promotable independently of the flag that failed?"), CENTAUR_TIER_TRUTH (P4R, separately blocked on P11) and CENTAUR_COHORT_POLICY (P6R, separately deferred on counters). UNIT_FATALITY is the sharp case: its null is explicitly "no cost this cell could resolve" at 16 blocks against 58 needed, which is not a decision, and P7F silently never runs.
+*Workaround:* None applied. P7F is named here so it is visible to a reader of the status page even though the generator will not emit it.
+*Closed by:* On claude/cluster-lookahead, one of: include live-null flags whose last placement row is `underpowered` in undecided(); or add an explicit `scheduleAnyway` field to nextExperiment. The first is principled and the second is honest about being a manual override.
 
