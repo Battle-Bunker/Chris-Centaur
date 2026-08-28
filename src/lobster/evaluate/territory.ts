@@ -766,6 +766,46 @@ export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
   return ws;
 }
 
+/**
+ * WHETHER THE WASM ARM ACTUALLY RAN — telemetry, and the answer to the one
+ * question the P5 sweep could not answer about itself.
+ *
+ * `CENTAUR_WASM=on` is REFUSED per partition, silently, whenever an input the
+ * kernel needs is not resident in linear memory (see the residency note on
+ * `TerritoryWorkspace`). An arm can therefore be `on` and do nothing, and a
+ * null from such an arm means "the treatment never happened", which is a
+ * different finding from "the treatment happened and did not help". The
+ * counters that separate them have existed on the workspace since W3; nothing
+ * outside this module could read them, so batch 20260827's P5 cell had to
+ * report its cap-rate anomaly with engagement UNVERIFIED.
+ *
+ * Null when this substrate never built a workspace at all — the decision never
+ * reached the territory evaluator, which is itself a distinguishable state.
+ * `arena` records whether linear memory was obtained: `mode: 'on'` with
+ * `arena: false` is a refusal at ALLOCATION (no WebAssembly, or a grid past
+ * the arena cap), while `arena: true` with a nonzero `refused` is a refusal at
+ * RESIDENCY. Read-only: nothing in the decision path consults any of it.
+ */
+export interface WasmEngagement {
+  readonly mode: 'off' | 'on';
+  readonly arena: boolean;
+  /** Partitions the wasm kernels actually ran. */
+  readonly runs: number;
+  /** Partitions that had an arena and still took the JS path. */
+  readonly refused: number;
+}
+
+export function wasmEngagementOf(sub: EngineSubstrate): WasmEngagement | null {
+  const ws = workspaces.get(sub);
+  if (ws === undefined) return null;
+  return {
+    mode: wasmModeFor(sub),
+    arena: ws.arena !== null,
+    runs: ws.wasmRuns,
+    refused: ws.wasmRefused,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The partition
 // ---------------------------------------------------------------------------

@@ -60,8 +60,16 @@ import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
-import { pinWasmMode, wasmMode } from './wasm/policy';
+import { pinWasmMode, wasmMode, wasmModeFor } from './wasm/policy';
 import type { WasmMode } from './wasm/policy';
+import { clusterSeedEnabled } from './search/cluster-seed';
+import { clusterEnumEnabled } from './search/cluster-partition';
+import { territoryRefineEnabled } from './evaluate/refine';
+import { scoutMode } from './search/scout';
+import { sampledCapEnabled } from './selection';
+import { TIER_TRUTH } from './tier-truth';
+import { mechanismReportOf } from './telemetry/mechanism';
+import type { MechanismReport } from './telemetry/mechanism';
 import type { StagingSafety } from './staging-safety';
 import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
@@ -395,6 +403,17 @@ export type TeamRefusal = 'unit-lookup-miss' | 'unexpressible-move' | 'pin-event
 
 export interface TeamTurnResult {
   readonly report: KernelReport | null;
+  /**
+   * CL7 — WHAT THIS DECISION'S MECHANISMS DID, and which flags were actually
+   * resolved on. Read-only telemetry, assembled after the kernel loop from
+   * reports the stages already built; see `telemetry/mechanism.ts` for why it
+   * lives here rather than on `KernelReport` (it spans the substrate and the
+   * search core, neither of which the kernel report reaches) and for the
+   * channel argument that keeps it off the wire.
+   *
+   * Null only when the decision threw before a substrate existed.
+   */
+  readonly mechanism: MechanismReport | null;
   /** setBotRecommendation calls actually forwarded (changed moves only). */
   readonly forwarded: number;
   /** The declared modelling basis of the decision (held-capacity included),
@@ -770,6 +789,15 @@ export class TeamDecisionEngine {
     let lastAdvice = '';
     let forwarded = 0;
     let emitted = 0;
+    /**
+     * CL7's telemetry closure. Assembled in the `finally` below, BEFORE
+     * `sub.release()` — the refiner and the territory workspace are keyed on
+     * the substrate and their counters do not survive it — and before the
+     * search core's own release drops the sessions the cluster, selection and
+     * scout reports are read off. Read-only throughout; see
+     * `telemetry/mechanism.ts`.
+     */
+    let mechanism: MechanismReport | null = null;
     try {
       for await (const rec of kernel.decide(kin)) {
         emitted++;
@@ -795,6 +823,32 @@ export class TeamDecisionEngine {
       // now, and nulling it here would silently kill its pin routing for the
       // rest of the turn (V4 B1).
       if (game.live !== null && game.live.turn === input.turn) game.live = null;
+      // BEFORE the release below: every one of these accessors reads state the
+      // substrate or the core owns for exactly this decision.
+      mechanism = mechanismReportOf({
+        search,
+        sub,
+        knobs: gen.resolvedKnobs(),
+        stagingSafety: safety,
+        // READ THE SAME SOURCE THE CONSUMER READS, not `this.env`. The five
+        // search-side flags are resolved inside `makeSearchCore` as
+        // `cfg.X ?? XEnabled()`, and every `XEnabled()` reads `process.env`
+        // directly — `ports.env` reaches the wire policy, the worker count and
+        // the WASM default, and does not reach these. A stamp that consulted
+        // `this.env` would be accurate about the injection and WRONG about the
+        // arm, which is the one thing a stamp may never be. (That the two
+        // sources differ at all is a pre-existing inconsistency; it is recorded
+        // in the CL7 report and not silently repaired here, because repairing
+        // it would change which arm an env-injecting caller actually runs.)
+        clusterSeed: this.options.clusterSeed ?? clusterSeedEnabled(),
+        clusterEnum: this.options.clusterEnum ?? clusterEnumEnabled(),
+        territoryRefine: this.options.territoryRefine ?? territoryRefineEnabled(),
+        sampledCap: this.options.sampledCap ?? sampledCapEnabled(),
+        scout: this.options.scout ?? scoutMode(),
+        wasm: wasmModeFor(sub),
+        workers: this.pool?.size ?? 0,
+        tierTruth: TIER_TRUTH,
+      });
       const report = kernel.lastReport;
       // Same guard on the carried slice cost: a decision that finishes late
       // must not overwrite a newer turn's measurement with its own.
@@ -827,7 +881,7 @@ export class TeamDecisionEngine {
     if (advice.length > 0 && adviceSignature(advice) !== lastAdvice) {
       this.emitAdvice(input.gameId, advice);
     }
-    return { report, forwarded, assumptions, advice, emitted, refusals };
+    return { report, mechanism, forwarded, assumptions, advice, emitted, refusals };
   }
 
   /**
@@ -1356,6 +1410,34 @@ function tapWitnesses(core: SearchCore, into: Witness[]): SearchCore {
   if (core.refine !== undefined) {
     const refine = core.refine.bind(core);
     wrapped.refine = (ctx, lever) => absorb(refine(ctx, lever));
+  }
+  // CL7 — THE TELEMETRY ACCESSORS, WHICH THIS WRAPPER USED TO SWALLOW.
+  //
+  // This function rebuilds the core as a fresh object literal rather than
+  // spreading it, so every accessor added to `SearchCore` after the wrapper was
+  // written silently disappeared behind it. Four did: the cluster, selection,
+  // adjudication and scout reports. Production and the sim harness both reach
+  // the core THROUGH this wrapper, so the consequence was not a missing sim
+  // row — it was that `EmitRecord.selection` and `EmitRecord.scout` were never
+  // stamped on any record a `TeamDecisionEngine` produced. CL4's replay
+  // manifest (the `matchSeed` an operator replays a match from) and CL6's
+  // thread accounting existed, passed their own tests against a bare core, and
+  // were invisible on every live decision.
+  //
+  // Forwarded by hand, like the five above, and asserted by
+  // `mechanism-report.test.ts`: a stage that adds a sixth accessor and forgets
+  // this list makes an unmeasurable layer, and that test is what says so.
+  if (core.clusterReport !== undefined) {
+    wrapped.clusterReport = core.clusterReport.bind(core);
+  }
+  if (core.selectionReport !== undefined) {
+    wrapped.selectionReport = core.selectionReport.bind(core);
+  }
+  if (core.adjudicationReport !== undefined) {
+    wrapped.adjudicationReport = core.adjudicationReport.bind(core);
+  }
+  if (core.scoutReport !== undefined) {
+    wrapped.scoutReport = core.scoutReport.bind(core);
   }
   return wrapped;
 }

@@ -602,7 +602,28 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   /** Drop every live session and return every slab they cached. */
+  /**
+   * CL7 — THE LAST DECISION'S TELEMETRY, KEPT ACROSS `release()`.
+   *
+   * The three session-derived reports below are summed over LIVE sessions, and
+   * the kernel calls `release()` when a decision ends — so by the time anything
+   * outside the kernel could ask, every one of them answered `null`. A layer's
+   * whole promotion case then reads as "the layer never ran", which is exactly
+   * the reading the reports exist to prevent.
+   *
+   * So `release()` snapshots them first, and each accessor falls back to the
+   * snapshot when no session is live. Telemetry only: no bound, no plan and no
+   * schedule reads any of it, and a live session always wins, so nothing that
+   * runs during a decision sees a stale number.
+   */
+  let lastCluster: ClusterReport | null = null;
+  let lastSelection: SelectionReport | null = null;
+  let lastScout: ScoutReport | null = null;
+
   const release = (): void => {
+    lastCluster = clusterReport();
+    lastSelection = selectionReport();
+    lastScout = scoutReport();
     for (const key of [...sessions.keys()]) closeSession(key);
   };
 
@@ -1987,7 +2008,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         swept: out.swept + dirty.swept,
       };
     }
-    if (!seen) return null;
+    // No live session: the decision has ended and `release()` took its
+    // snapshot. Falling back to it is what makes this report readable from
+    // outside the kernel loop at all.
+    if (!seen) return lastCluster;
     const { skipped, swept, ...rest } = out;
     return { ...rest, sweepsSkipped: skipped, sweepsRun: swept };
   };
@@ -2020,7 +2044,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       admitted += r.admitted;
       farAdmitted += r.farAdmitted;
     }
-    if (last === null) return null;
+    if (last === null) return lastSelection;
     return { ...last, permutations, arms, draws, admitted, farAdmitted };
   };
 
@@ -2043,7 +2067,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (session.scout === null) continue;
       last = session.scout.report();
     }
-    return last;
+    return last ?? lastScout;
   };
 
   return {
