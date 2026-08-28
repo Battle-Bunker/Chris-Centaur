@@ -156,6 +156,19 @@ export interface ManifestRow {
     boundViolations: number;
     boundsInversions: number;
     ratchetRefusals: number;
+    /** Deaths by cause, attributed to the team that lost the unit. P7's
+     * verdict — exhaustion x1.9 under CENTAUR_CLUSTER_SEED — is this row. */
+    deathsSelf: number;
+    deathsWall: number;
+    deathsExhaustion: number;
+    deathsBodyBlock: number;
+    deathsContest: number;
+    deathsTeammate: number;
+    /** CL7's mechanism fold, including the RESOLVED flag stamp. Null on any
+     * bundle built before that landed — null and not zero, because a counter a
+     * build never had did not read zero, and the ingest reports the difference
+     * as UNREADABLE rather than as a null result. */
+    mechanism: MatchOutcome['counters'][string]['mechanism'];
     errors: number;
   }>;
   readonly worstHeldObserved: number;
@@ -223,6 +236,13 @@ export function manifestRow(job: SweepJob, outcome: MatchOutcome): ManifestRow {
         boundViolations: c.boundViolations,
         boundsInversions: c.boundsInversions,
         ratchetRefusals: c.ratchetRefusals,
+        deathsSelf: c.deathsSelf,
+        deathsWall: c.deathsWall,
+        deathsExhaustion: c.deathsExhaustion,
+        deathsBodyBlock: c.deathsBodyBlock,
+        deathsContest: c.deathsContest,
+        deathsTeammate: c.deathsTeammate,
+        mechanism: c.mechanism,
         errors: c.errors.length,
       };
     }),

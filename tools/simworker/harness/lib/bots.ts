@@ -174,8 +174,79 @@ export interface DecisionTelemetry {
   readonly ratchetRefusals: number | null;
   /** The full refusal histogram, for a miner that wants the detail. */
   readonly refusals: Readonly<Record<string, number>> | null;
+  /**
+   * CL7 — THE MECHANISM FOLD, and the arm audit.
+   *
+   * `TeamTurnResult.mechanism` reduced to scalars a manifest row can carry.
+   * Null on any bundle built before the CL7 telemetry closure landed, which is
+   * every batch up to and including 20260827 — and null, not zero, because a
+   * counter a build never had is not a counter that read zero. The ingest
+   * carries that distinction all the way through: it reports such a metric as
+   * UNREADABLE rather than as a null result.
+   *
+   * `flags` is the RESOLVED position of every promotable flag, which is the
+   * field that answers "was this actually the treatment arm?". The manifest's
+   * envAtRun block records what the environment was SET to; every CL flag
+   * parses only `1|on|true` with no warning, and several are overridable per
+   * engine, so the two can disagree and only this one is the arm.
+   *
+   * `wasmRuns` is the specific gap that voided P5: the wasm arm is refused per
+   * partition, silently, whenever an input is not resident in linear memory, so
+   * an arm can be `on` and do nothing. A null placement from an arm that never
+   * ran is a different finding from a null from an arm that ran and did not
+   * help, and this is what tells them apart.
+   */
+  readonly mechanism: {
+    readonly flags: Readonly<Record<string, string | number | boolean>>;
+    readonly wasmRuns: number | null;
+    readonly wasmRefused: number | null;
+    readonly clusterJoints: number | null;
+    readonly clusterEnumMs: number | null;
+    readonly selectionFar: number | null;
+    readonly selectionDraws: number | null;
+    readonly refineMovedLo: number | null;
+    readonly refineInverted: number | null;
+    readonly scoutThreads: number | null;
+    readonly scoutPlies: number | null;
+    readonly scoutRefusals: number | null;
+    readonly ceilingDecided: number | null;
+  } | null;
   /** The decision threw. Production logs and moves on; so does this harness. */
   readonly error: string | null;
+}
+
+/**
+ * Fold one decision's mechanism report into the scalars a manifest row holds.
+ *
+ * DEFENSIVE ON PURPOSE. The harness compiles against whatever bundle it was
+ * built with, and a bundle from before the CL7 closure has no `mechanism` on
+ * its result at all. `any` here is not laziness: this is a cross-version seam,
+ * and the alternative — a type that asserts the field exists — would make the
+ * kit refuse to build the older branches it exists to race.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
+  if (m === null || m === undefined) return null;
+  const n = (x: unknown): number | null => (typeof x === 'number' ? x : null);
+  const refusalCount = (r: unknown): number | null =>
+    r === null || r === undefined || typeof r !== 'object'
+      ? null
+      : Object.values(r as Record<string, number>).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+  return {
+    flags: { ...(m.flags ?? {}) },
+    wasmRuns: n(m.wasm?.runs),
+    wasmRefused: n(m.wasm?.refused),
+    clusterJoints: n(m.cluster?.jointsEnumerated),
+    clusterEnumMs: n(m.cluster?.enumMs),
+    selectionFar: n(m.selection?.farAdmitted),
+    selectionDraws: n(m.selection?.draws),
+    refineMovedLo: n(m.refine?.movedLo),
+    refineInverted: n(m.refine?.inverted),
+    scoutThreads: n(m.scout?.threads),
+    scoutPlies: n(m.scout?.plies),
+    scoutRefusals: refusalCount(m.scout?.refusals),
+    ceilingDecided: n(m.adjudication?.ceilingDecided),
+  };
 }
 
 export interface DecisionOutcome {
@@ -237,6 +308,7 @@ const IDLE: DecisionOutcome = {
     boundViolations: null,
     boundsInversions: null,
     ratchetRefusals: null,
+    mechanism: null,
     refusals: null,
     error: null,
   },
@@ -288,6 +360,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
       let error: string | null = null;
       let report: KernelReport | null = null;
       let assumptions = 0;
+      let mechanism: DecisionTelemetry['mechanism'] = null;
       try {
         const result = await engine.decideTurn({
           gameId: 'sweep',
@@ -299,6 +372,9 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
         });
         report = result.report;
         assumptions = result.assumptions.length;
+        // Cross-version seam: absent on any bundle from before the CL7
+        // telemetry closure, and absent must stay absent.
+        mechanism = foldMechanism((result as { mechanism?: unknown }).mechanism);
       } catch (err) {
         const e = err as { name?: string; message?: string; code?: string };
         error = `${e.name ?? 'Error'}: ${e.message ?? String(err)}${e.code ? ` [${e.code}]` : ''}`;
@@ -332,6 +408,7 @@ function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
               ? null
               : (report.refusals['ratchet-floor'] ?? 0) + (report.refusals['ratchet-gap'] ?? 0),
           refusals: report === null ? null : { ...report.refusals },
+          mechanism,
           error,
         },
       };
@@ -422,6 +499,7 @@ function legacyBot(): Bot {
           boundViolations: null,
           boundsInversions: null,
           ratchetRefusals: null,
+          mechanism: null,
           refusals: null,
           error: null,
         },
@@ -498,6 +576,7 @@ function reflexBot(): Bot {
           boundViolations: null,
           boundsInversions: null,
           ratchetRefusals: null,
+          mechanism: null,
           refusals: null,
           error,
         },
@@ -612,6 +691,7 @@ function neutralBot(): Bot {
           boundViolations: null,
           boundsInversions: null,
           ratchetRefusals: null,
+          mechanism: null,
           refusals: null,
           error: null,
         },

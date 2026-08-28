@@ -57,7 +57,63 @@ export interface SeatCounters {
   boundsInversions: number;
   /** `ratchet-floor` + `ratchet-gap` — refused slices, not broken bounds. */
   ratchetRefusals: number;
+  /**
+   * DEATHS BY CAUSE, attributed to the team that lost the unit.
+   *
+   * P7's verdict turned on exactly this row and nothing else could have
+   * produced it: CENTAUR_CLUSTER_SEED passed its deterministic fatal-staging
+   * gate (41 -> 0) and then lost snake6 1.00 -> 0.15 live, with EXHAUSTION
+   * deaths x1.9. The probe scores positions; exhaustion is travel economy,
+   * which is a property of a whole game and invisible to it.
+   *
+   * `teammate` is the one that needs a definition rather than a lookup: a unit
+   * that died in a clash where some other participant was on its own team. The
+   * engine does not label a death that way, and a fatal-staging gate that
+   * cannot see it is a gate measuring the wrong thing.
+   *
+   * THE CATEGORIES OVERLAP, DELIBERATELY. The first five partition deaths by
+   * CAUSE and sum to the team's total; `teammate` cuts the same deaths by WHO,
+   * so a unit that walked into a teammate's body is counted once in
+   * `deathsBodyBlock` and once in `deathsTeammate`. Adding all six together is
+   * a mistake; reading them as two independent views of the same deaths is
+   * what they are for.
+   */
+  deathsSelf: number;
+  deathsWall: number;
+  deathsExhaustion: number;
+  deathsBodyBlock: number;
+  deathsContest: number;
+  deathsTeammate: number;
+  /**
+   * CL7's mechanism fold, LAST WRITE WINS across the game's decisions for the
+   * flag stamp, and SUMMED for the counters. The stamp is a property of the
+   * engine and does not vary within a game; the counters accumulate.
+   * Null on any bundle built before the CL7 telemetry closure — and null, not
+   * zero, because a counter a build never had did not read zero.
+   */
+  mechanism: {
+    flags: Record<string, string | number | boolean>;
+    wasmRuns: number | null;
+    wasmRefused: number | null;
+    clusterJoints: number | null;
+    clusterEnumMs: number | null;
+    selectionFar: number | null;
+    selectionDraws: number | null;
+    refineMovedLo: number | null;
+    refineInverted: number | null;
+    scoutThreads: number | null;
+    scoutPlies: number | null;
+    scoutRefusals: number | null;
+    ceilingDecided: number | null;
+  } | null;
   errors: string[];
+}
+
+/** Sum two nullable counters, keeping null when NEITHER side has a number. */
+function addNullable(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a + b;
 }
 
 function emptyCounters(): SeatCounters {
@@ -77,6 +133,13 @@ function emptyCounters(): SeatCounters {
     boundViolations: 0,
     boundsInversions: 0,
     ratchetRefusals: 0,
+    deathsSelf: 0,
+    deathsWall: 0,
+    deathsExhaustion: 0,
+    deathsBodyBlock: 0,
+    deathsContest: 0,
+    deathsTeammate: 0,
+    mechanism: null,
     errors: [],
   };
 }
@@ -293,6 +356,30 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
       c.boundViolations += out.telemetry.boundViolations ?? 0;
       c.boundsInversions += out.telemetry.boundsInversions ?? 0;
       c.ratchetRefusals += out.telemetry.ratchetRefusals ?? 0;
+      const mech = out.telemetry.mechanism;
+      if (mech !== null && mech !== undefined) {
+        const prev = c.mechanism;
+        c.mechanism =
+          prev === null
+            ? { ...mech, flags: { ...mech.flags } }
+            : {
+                // The stamp is a property of the engine, not of the decision:
+                // last write wins, and they must all agree.
+                flags: { ...mech.flags },
+                wasmRuns: addNullable(prev.wasmRuns, mech.wasmRuns),
+                wasmRefused: addNullable(prev.wasmRefused, mech.wasmRefused),
+                clusterJoints: addNullable(prev.clusterJoints, mech.clusterJoints),
+                clusterEnumMs: addNullable(prev.clusterEnumMs, mech.clusterEnumMs),
+                selectionFar: addNullable(prev.selectionFar, mech.selectionFar),
+                selectionDraws: addNullable(prev.selectionDraws, mech.selectionDraws),
+                refineMovedLo: addNullable(prev.refineMovedLo, mech.refineMovedLo),
+                refineInverted: addNullable(prev.refineInverted, mech.refineInverted),
+                scoutThreads: addNullable(prev.scoutThreads, mech.scoutThreads),
+                scoutPlies: addNullable(prev.scoutPlies, mech.scoutPlies),
+                scoutRefusals: addNullable(prev.scoutRefusals, mech.scoutRefusals),
+                ceilingDecided: addNullable(prev.ceilingDecided, mech.ceilingDecided),
+              };
+      }
       if (out.telemetry.error !== null) {
         c.errors.push(out.telemetry.error);
         errors.push({ seat: seat.seat, turn, error: out.telemetry.error });
@@ -327,6 +414,62 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
 
     const outcome = resolveFullTurn(board, turn, staged);
     board = outcome.board;
+
+    // --- deaths by cause, attributed to the team that lost the unit --------
+    //
+    // Read off the resolver's own event block, not inferred from the board
+    // diff: the engine names what killed each unit, and a miner that
+    // reconstructs it from before/after states will get the multi-unit cells
+    // wrong. `teamOf` is built from the PRE-resolution board above, which is
+    // the only board on which a dead unit still has a team.
+    for (const [unitID, death] of Object.entries(outcome.events.deaths)) {
+      const team = teamOf.get(unitID);
+      if (team === undefined) continue;
+      const dc = counters[team];
+      if (dc === undefined) continue;
+      switch (death.cause) {
+        case 'self':
+          dc.deathsSelf += 1;
+          break;
+        case 'wall':
+          dc.deathsWall += 1;
+          break;
+        case 'exhaustion':
+        case 'hazard':
+          dc.deathsExhaustion += 1;
+          break;
+        case 'bodyBlock':
+          dc.deathsBodyBlock += 1;
+          break;
+        case 'contest':
+        case 'edge':
+          dc.deathsContest += 1;
+          break;
+        default:
+          break;
+      }
+    }
+    // TEAMMATE-CAUSED: a unit that died in a clash where another participant
+    // was on its own team. Counted per victim, once, across every clash record
+    // it appears in — a unit can only die once, and a single collision that
+    // spans two cells emits one record per cell.
+    {
+      const chargedTeammate = new Set<string>();
+      for (const clash of outcome.events.clashes) {
+        for (const victim of clash.victimIDs) {
+          if (chargedTeammate.has(victim)) continue;
+          const vTeam = teamOf.get(victim);
+          if (vTeam === undefined) continue;
+          const withTeammate = clash.playerIDs.some(
+            (other) => other !== victim && teamOf.get(other) === vTeam
+          );
+          if (!withTeammate) continue;
+          chargedTeammate.add(victim);
+          const tc = counters[vTeam];
+          if (tc !== undefined) tc.deathsTeammate += 1;
+        }
+      }
+    }
 
     const worldStep = stepWorld(
       board,

@@ -46,101 +46,36 @@ const SIZE = Number(arg('size', '25'));
 const TURN_CAP = Number(arg('cap', '120'));
 const SEED_BASE = Number(arg('seed-base', '4001'));
 
-const TEAMS = ['red', 'blue', 'green'];
-
-/**
- * ROSTERS — six units a side, the owner's shape, varied by what pieces are on
- * the board.
+/*
+ * THE VOCABULARY LIVES IN tools/learnloop/lib/cells.js, AND THIS FILE READS IT.
  *
- * `snake6` is not merely one more roster. It is the NULL ROSTER for every
- * treatment that is gated on piece class: I2's slider profile adds terms that
- * are switched off when nothing on the board is a piece (asserted in
- * src/tests/territory-slider.test.ts), and the staging-safety guard's whole
- * regression is a snake-only phenomenon. On this roster those arms are
- * bit-identical to their baseline, so the contrast measured there is the
- * run-to-run noise floor and nothing else — a null that rides along inside the
- * treatment batch instead of costing a separate pair.
+ * Two generators now write specs: this one, which produces the standing
+ * library, and `tools/learnloop/bin/make-promotion-batch.js`, which produces
+ * the next batch from the promotion ledger. If each carried its own copy of the
+ * rosters, the board-condition axes and the seed derivation, then two cells
+ * sharing a name would eventually describe different experiments — and the
+ * ledger's history, which is keyed on cell names, would quietly stop meaning
+ * anything.
+ *
+ * So there is one definition and both require it. `tools/learnloop/` is
+ * dependency-free plain node and is mirrored verbatim onto this branch, so the
+ * require works here exactly as it does on the engine branch.
+ *
+ * `bin/selftest.js` asserts that the shared vocabulary reproduces the COMMITTED
+ * spec library — seed sequences and cell configs, byte for byte — which is what
+ * makes this a refactor rather than a rewrite.
  */
-const ROSTERS = {
-  snake6: ['snake', 'snake', 'snake', 'snake', 'snake', 'snake'],
-  'snake5-pawn': ['pawn', 'snake', 'snake', 'snake', 'snake', 'snake'],
-  'snake5-knight': ['knight', 'snake', 'snake', 'snake', 'snake', 'snake'],
-  'snake5-queen': ['queen', 'snake', 'snake', 'snake', 'snake', 'snake'],
-  'mix-king': ['king', 'queen', 'rook', 'knight', 'snake', 'snake'],
-};
+const CELLS = require('../../learnloop/lib/cells');
 
-/** Board-condition axes, one step off the baseline each. */
-const POTIONS = {
-  off: { enabled: false },
-  on: { enabled: true, spawnRate: 0.15, initial: 2, effectTurns: 3 },
-};
-const HAZARDS = {
-  none: { layout: 'none' },
-  // "Interior" hazards. `border` is the edge and `random` is not reproducible
-  // across board sizes in a way a reader can picture, so the interior arm is
-  // `cross` — a deterministic pair of bands through the middle that every team
-  // must cross or route around, at the default damageRatio (0.15 of the
-  // reference kind's max health, i.e. a COST rather than a wall).
-  interior: { layout: 'cross', damageRatio: 0.15 },
-};
-const FOOD = {
-  normal: { initial: 6, spawnRate: 0.5 },
-  sparse: { initial: 4, spawnRate: 0.15 },
-};
+const { TEAMS, ROSTERS, POTIONS, HAZARDS, FOOD, FIELD } = CELLS;
 
-function seedsFor(cellName, blocks) {
-  // A stable per-cell offset so two different cells never share a seed
-  // sequence — identical seeds across cells would correlate their noise.
-  let h = 0;
-  for (const ch of cellName) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const base = SEED_BASE + (h % 1000) * 100;
-  return Array.from({ length: blocks }, (_, i) => base + i);
-}
+/** The CLI's overrides, threaded into every cell and every seed sequence. */
+const OPTS = { blocks: BLOCKS, budget: BUDGET, size: SIZE, turnCap: TURN_CAP, seedBase: SEED_BASE };
 
-function cell(name, { roster, potions = 'off', hazards = 'none', food = 'normal' }) {
-  return {
-    cell: name,
-    config: {
-      name,
-      size: SIZE,
-      teams: TEAMS,
-      roster: ROSTERS[roster],
-      budgetMs: BUDGET,
-      turnCap: TURN_CAP,
-      food: FOOD[food],
-      hazards: HAZARDS[hazards],
-      potions: POTIONS[potions],
-    },
-  };
-}
-
-/**
- * Bots seated in EVERY arm of a cross-build comparison.
- *
- * The contender sits in one seat and a fixed reference field fills the others.
- * `lobster-material` and `reflex` are the field: they are not the subject of
- * any claim, they are there so the subject has something to play against that
- * is the same in both arms.
- *
- * READ THE CAVEAT. In a CROSS-BRANCH pair the field is compiled from each
- * branch too, so "the same in both arms" is an assumption, not a guarantee —
- * it holds exactly to the extent the branches did not change those paths. That
- * is precisely what the A/A null and the inert `snake6` cell are for: if the
- * field moved, the null moves with it and the batch says so.
- */
-const FIELD = ['lobster-territory', 'lobster-material', 'reflex'];
-
-function spec(sweepId, comment, cells, bots = FIELD, blocks = BLOCKS) {
-  const seeds = seedsFor(sweepId, blocks);
-  return {
-    _comment: comment,
-    sweepId,
-    bots,
-    seeds,
-    rotateSeats: true,
-    cells,
-  };
-}
+const seedsFor = (cellName, blocks) => CELLS.seedsFor(cellName, blocks, SEED_BASE);
+const cell = (name, axes) => CELLS.cell(name, axes, OPTS);
+const spec = (sweepId, comment, cells, bots = FIELD, blocks = BLOCKS) =>
+  CELLS.spec(sweepId, comment, cells, bots, blocks, OPTS);
 
 const specs = [];
 
@@ -463,6 +398,27 @@ specs.push({
   rotateSeats: false,
   cells: [{ cell: 'smoke-control11', config: { preset: 'control11', budgetMs: 150, turnCap: 25 } }],
 });
+
+// -------------------------------------------------------- --promotion-batch
+//
+// "What should the PC run next?" is a question with an answer, and the answer
+// is a function of the promotion ledger — not of whoever happens to be reading
+// it. A judgement call made freshly each time drifts, forgets the exploration
+// slice, and quietly stops scheduling the cells whose answers were
+// inconvenient.
+//
+// This is the kit's own entry point to that answer, so an operator does not
+// have to know `tools/learnloop/` exists. It delegates rather than
+// reimplementing: the generator there is the one the engine branch runs, and
+// two copies of a scheduler is two schedulers.
+
+if (process.argv.includes('--promotion-batch')) {
+  const { spawnSync } = require('child_process');
+  const gen = path.join(__dirname, '..', '..', 'learnloop', 'bin', 'make-promotion-batch.js');
+  const passthrough = process.argv.slice(2).filter((a) => a !== '--promotion-batch');
+  const r = spawnSync(process.execPath, [gen, ...passthrough], { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
+}
 
 // ------------------------------------------------------------------- write
 

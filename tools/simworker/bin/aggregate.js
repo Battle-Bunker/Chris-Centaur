@@ -217,6 +217,35 @@ function metricsFor(row, subjectBot) {
     stagedNothingRate: h ? per(h.stagedNothing) : null,
     assumptionRate: h ? per(h.assumptions) : null,
     ratchetRate: h ? per(h.ratchetRefusals) : null,
+    // --- deaths by cause (CL7) ------------------------------------------
+    // P7's verdict lives here and nowhere else: CENTAUR_CLUSTER_SEED passed a
+    // deterministic fatal-staging gate and lost snake6 1.00 -> 0.15 live with
+    // EXHAUSTION deaths x1.9. A gate that cannot see travel economy is a gate
+    // measuring the wrong thing.
+    deathsSelf: h ? h.deathsSelf ?? null : null,
+    deathsWall: h ? h.deathsWall ?? null : null,
+    deathsExhaustion: h ? h.deathsExhaustion ?? null : null,
+    deathsBodyBlock: h ? h.deathsBodyBlock ?? null : null,
+    deathsContest: h ? h.deathsContest ?? null : null,
+    deathsTeammate: h ? h.deathsTeammate ?? null : null,
+    // --- mechanism, engine-side (CL7) -----------------------------------
+    // Null on every bundle built before the CL7 telemetry closure, and null
+    // rather than zero on purpose: a counter a build never had did not read
+    // zero. `wasmRuns` is the ENGAGEMENT row — the wasm arm is refused per
+    // partition, silently, so an arm can be `on` and do nothing, and P5's null
+    // could equally have meant it never ran.
+    wasmRuns: h && h.mechanism ? h.mechanism.wasmRuns : null,
+    wasmRefused: h && h.mechanism ? h.mechanism.wasmRefused : null,
+    clusterJoints: h && h.mechanism ? h.mechanism.clusterJoints : null,
+    clusterEnumMs: h && h.mechanism ? h.mechanism.clusterEnumMs : null,
+    selectionFar: h && h.mechanism ? h.mechanism.selectionFar : null,
+    selectionDraws: h && h.mechanism ? h.mechanism.selectionDraws : null,
+    refineMovedLo: h && h.mechanism ? h.mechanism.refineMovedLo : null,
+    refineInverted: h && h.mechanism ? h.mechanism.refineInverted : null,
+    scoutThreads: h && h.mechanism ? h.mechanism.scoutThreads : null,
+    scoutPlies: h && h.mechanism ? h.mechanism.scoutPlies : null,
+    scoutRefusals: h && h.mechanism ? h.mechanism.scoutRefusals : null,
+    ceilingDecided: h && h.mechanism ? h.mechanism.ceilingDecided : null,
     // --- integrity (must be zero) --------------------------------------
     illegal: h ? h.illegal : null,
     errors: h ? h.errors : null,
@@ -231,9 +260,33 @@ const METRIC_KEYS = [
   'turns', 'decisive',
   'decisions', 'worstWallMs', 'overrunRate', 'unstagedRate', 'stagedNothingRate',
   'assumptionRate', 'ratchetRate',
+  'deathsSelf', 'deathsWall', 'deathsExhaustion', 'deathsBodyBlock',
+  'deathsContest', 'deathsTeammate',
+  'wasmRuns', 'wasmRefused', 'clusterJoints', 'clusterEnumMs',
+  'selectionFar', 'selectionDraws', 'refineMovedLo', 'refineInverted',
+  'scoutThreads', 'scoutPlies', 'scoutRefusals', 'ceilingDecided',
   'illegal', 'errors',
   'plansEvaluated_RETIRED', 'boundsInversions_RETIRED',
 ];
+
+/**
+ * THE ARM AUDIT — the resolved flag stamp, per arm.
+ *
+ * Not a metric and not differenced: it is the answer to "was this actually the
+ * treatment arm?". Every CL flag parses only `1|on|true` with no warning on a
+ * typo, and several are overridable per engine, so the manifest's envAtRun
+ * block (what was SET) and this (what the engine RESOLVED) can disagree — and
+ * when they do, this one is the arm. Absent on bundles from before the CL7
+ * telemetry closure.
+ */
+function flagStampOf(rows) {
+  for (const r of rows) {
+    for (const h of r.health ?? []) {
+      if (h.mechanism && h.mechanism.flags) return h.mechanism.flags;
+    }
+  }
+  return null;
+}
 
 // ------------------------------------------------------------- pairing
 
@@ -303,7 +356,20 @@ for (const sweepId of [...allSweepIds].sort()) {
     cells.get(cell).push(gameId);
   }
 
-  const sweepOut = { sweepId, subject, arms: present, gamesPaired: common.length, gamesDropped: dropped, cells: [] };
+  const sweepOut = {
+    sweepId,
+    subject,
+    arms: present,
+    gamesPaired: common.length,
+    gamesDropped: dropped,
+    // THE ARM AUDIT. What each arm's engine actually resolved, as opposed to
+    // what its environment was set to. Null on bundles from before the CL7
+    // telemetry closure — which is every batch through 20260827.
+    flagStamps: Object.fromEntries(
+      present.map((a) => [a, flagStampOf(arms.get(a).sweeps.get(sweepId) ?? [])])
+    ),
+    cells: [],
+  };
 
   for (const [cell, gameIds] of [...cells].sort()) {
     const blocks = new Map();
@@ -397,6 +463,13 @@ md.push('**Placement resolution.** At 16 blocks the normalized placement score r
 md.push('roughly ±0.10. A |delta score| under that is not a small effect, it is no effect');
 md.push('this design can see — read the mechanism rows instead.');
 md.push('');
+md.push('**Read the arm audit first.** Every CL flag parses only `1`, `on` or `true`, with no');
+md.push('warning on a typo, and several are overridable per engine — so an arm can carry the');
+md.push('name of a treatment and have run the baseline. The flag-stamp table under each sweep');
+md.push('is what the engine RESOLVED; the manifest\'s `envAtRun` is what was set. When they');
+md.push('disagree, the stamp is the arm. And a mechanism counter that stayed at zero on the');
+md.push('treatment arm means the arm never engaged, which is a different finding from a null.');
+md.push('');
 
 for (const s of report.sweeps) {
   md.push(`## ${s.sweepId}`);
@@ -404,6 +477,29 @@ for (const s of report.sweeps) {
   md.push(`Subject: \`${s.subject}\` · arms: ${s.arms.join(', ')} · paired ${s.gamesPaired} games` +
           (s.gamesDropped > 0 ? ` · **DROPPED ${s.gamesDropped} unpaired**` : ''));
   md.push('');
+  {
+    const stamped = Object.entries(s.flagStamps ?? {}).filter(([, v]) => v !== null);
+    if (stamped.length === 0) {
+      md.push('*No flag stamp on this build — it predates the CL7 telemetry closure, so which');
+      md.push('arm actually ran cannot be read off these rows. Check `envAtRun` in the manifest*');
+      md.push('*and treat any null here as engagement-unverified.*');
+      md.push('');
+    } else {
+      const keys = [...new Set(stamped.flatMap(([, v]) => Object.keys(v)))].sort();
+      md.push('**Arm audit** — the flags each engine RESOLVED:');
+      md.push('');
+      md.push(`| flag | ${stamped.map(([a]) => a).join(' | ')} |`);
+      md.push(`|---|${stamped.map(() => '---').join('|')}|`);
+      for (const k of keys) {
+        const vals = stamped.map(([, v]) => String(v[k] ?? '—'));
+        // Only rows that DIFFER between arms are interesting; a table of
+        // identical rows buries the one line that matters.
+        if (new Set(vals).size === 1) continue;
+        md.push(`| \`${k}\` | ${vals.join(' | ')} |`);
+      }
+      md.push('');
+    }
+  }
   for (const c of s.cells) {
     md.push(`### cell \`${c.cell}\` — ${c.shape.size}x${c.shape.size}, ${c.shape.teams} teams x ${c.shape.unitsPerTeam}, ` +
             `${c.shape.budgetMs}ms, cap ${c.shape.turnCap}, food ${c.shape.food}, hazards ${c.shape.hazards}, potions ${c.shape.potions}`);

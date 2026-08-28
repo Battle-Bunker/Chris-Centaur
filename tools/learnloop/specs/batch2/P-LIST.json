@@ -1,0 +1,212 @@
+{
+  "generatedFrom": "tools/learnloop/promotion-ledger.json",
+  "blocks": 16,
+  "sliceBlocks": 4,
+  "plist": [
+    {
+      "id": "P7R",
+      "flag": "CENTAUR_CLUSTER_SEED",
+      "status": "live-failed",
+      "scheduled": false,
+      "reason": "the root-cause miner on the delivered 20260827 replays, which may answer it without new games. Schedule the live arms only if the miner needs them.",
+      "question": "Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on."
+    },
+    {
+      "id": "P12",
+      "flag": "CENTAUR_EDGE_EV",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p12-edge_ev",
+      "arms": [
+        "off",
+        "edgeev-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "snake5-queen",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "On piece-bearing boards, does the EV's staged-eat gain survive into eaten meals and placement, or is the 84 -> 81 shortfall real?"
+    },
+    {
+      "id": "P8/P9-joint",
+      "flag": "CENTAUR_CLUSTER_ENUM",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p8-p9-joint-cluster_enum",
+      "arms": [
+        "off",
+        "enum-on",
+        "enum-on+seed-graded"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "snake5-knight",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts?"
+    },
+    {
+      "id": "P9",
+      "flag": "CENTAUR_SAMPLED_CAP",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p9-sampled_cap",
+      "arms": [
+        "off",
+        "sampledcap-on",
+        "sampledcap-on+enum-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "snake5-queen",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "Do far-priced options pay on piece boards at 2000 ms, and does the same-seed replay stay byte-identical across the batch?"
+    },
+    {
+      "id": "P10",
+      "flag": "CENTAUR_TERRITORY_REFINE",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p10-territory_refine",
+      "arms": [
+        "enum-on",
+        "enum-on+refine-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "hazard-mix-king",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "Does a floor that is 1-2 cells tighter on a quarter of emissions pay for a third more territory time, at equal wall clock?"
+    },
+    {
+      "id": "P11",
+      "flag": "CENTAUR_SCOUT",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p11-scout",
+      "arms": [
+        "off",
+        "scout-observe",
+        "scout-advise"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "hazard-mix-king",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?"
+    },
+    {
+      "id": "P5R",
+      "flag": "CENTAUR_WASM",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p5r-wasm",
+      "arms": [
+        "off",
+        "wasm-on"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "hazard-mix-king",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 144,
+      "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
+    },
+    {
+      "id": "P13",
+      "flag": "CENTAUR_WORKERS",
+      "status": "probe-passed",
+      "scheduled": true,
+      "sweepId": "p13-workers",
+      "arms": [
+        "workers-off",
+        "workers-auto"
+      ],
+      "cells": [
+        "headline-mix-king",
+        "null-snake6"
+      ],
+      "blocks": 16,
+      "gamesPerArm": 96,
+      "question": "At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?"
+    },
+    {
+      "id": "P16@500",
+      "flag": "The budget ladder",
+      "status": "standing",
+      "scheduled": true,
+      "sweepId": "p16-budget-500",
+      "arms": [
+        "integrated",
+        "perf-substrate"
+      ],
+      "blocks": 8,
+      "gamesPerArm": 48,
+      "question": "Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line. (rung 500 ms)"
+    },
+    {
+      "id": "P16@1000",
+      "flag": "The budget ladder",
+      "status": "standing",
+      "scheduled": true,
+      "sweepId": "p16-budget-1000",
+      "arms": [
+        "integrated",
+        "perf-substrate"
+      ],
+      "blocks": 8,
+      "gamesPerArm": 48,
+      "question": "Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line. (rung 1000 ms)"
+    },
+    {
+      "id": "P16@2000",
+      "flag": "The budget ladder",
+      "status": "standing",
+      "scheduled": true,
+      "sweepId": "p16-budget-2000",
+      "arms": [
+        "integrated",
+        "perf-substrate"
+      ],
+      "blocks": 8,
+      "gamesPerArm": 48,
+      "question": "Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line. (rung 2000 ms)"
+    },
+    {
+      "id": "X9",
+      "flag": "TERRITORY_SLIDER_PROFILE + CENTAUR_STAGING_SAFETY + gainOrdering",
+      "status": "exploration-slice",
+      "scheduled": true,
+      "sweepId": "x9-exploration-slice",
+      "blocks": 4,
+      "gamesPerArm": 36,
+      "question": "Keep the promoted defaults falsifiable."
+    },
+    {
+      "id": "N0",
+      "flag": "(A/A null)",
+      "status": "mandatory",
+      "scheduled": true,
+      "sweepId": "n0-aa-null",
+      "blocks": 16,
+      "gamesPerArm": 96,
+      "question": "What is the noise floor on this box, at this load, at this block count?"
+    }
+  ]
+}

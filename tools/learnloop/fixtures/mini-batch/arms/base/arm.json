@@ -1,0 +1,8 @@
+{
+ "arm": "base",
+ "bundleStamp": {
+  "sha": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+  "ref": "fixture"
+ },
+ "envOverrides": {}
+}
