@@ -598,6 +598,25 @@ export class PartialEngine {
    */
   private readonly threatStamp: Int32Array;
   /**
+   * WHO STOPPED ME, as a slot mask, on the same generation stamp (O-P7).
+   *
+   * A mover that meets something mid-ray CAPTURE-STOPS: it wins the cell and
+   * its ray ends there. That is the optimistic timeline's reading, and it is
+   * only as certain as the units that did the stopping. If one of them turns
+   * out to be Contingent — a claim could have killed it before the two ever
+   * met — then in that world nothing stopped the mover, it travels the rest of
+   * its ray, and everything that happens to it out there is a turn the
+   * timeline never priced. The mover is then Contingent too, and the relation
+   * is TRANSITIVE (a stopper stopped by a stopper), so it is resolved as a
+   * fixpoint in `fatesFrom` rather than at the stop.
+   *
+   * This is the FLOOR-side twin of a known ceiling defect: the bank-inversion
+   * round measured our own king dying only because a held enemy was not there
+   * to sever the unit that reached it. Same mechanism, opposite bound.
+   */
+  private readonly stopBlame: Int32Array;
+  private readonly stopBlameStamp: Int32Array;
+  /**
    * Slots this turn's adjudication has stopped trusting the certainty of —
    * folded into the resolution's `softFrozen`. Shrinking certainty is always
    * sound, and one word carries it.
@@ -706,6 +725,8 @@ export class PartialEngine {
     this.notedStamp = new Int32Array(B);
     this.notedMask = new Int32Array(B);
     this.threatStamp = new Int32Array(U);
+    this.stopBlame = new Int32Array(U);
+    this.stopBlameStamp = new Int32Array(U);
     this.touched = new Uint32Array(this.grid.words);
     this.planFootprint = new Uint32Array(this.grid.words);
   }
@@ -1060,11 +1081,7 @@ export class PartialEngine {
    * and put that field on the handle. That is the general recipe; this
    * parameter is the one-turn-for-all shorthand.
    */
-  holdMany(
-    state: StateHandle,
-    slots: ReadonlyArray<number>,
-    heldAtTurn?: number,
-  ): StateHandle {
+  holdMany(state: StateHandle, slots: ReadonlyArray<number>, heldAtTurn?: number): StateHandle {
     if (slots.length === 0) return state;
     const records: FrozenRecord[] = [];
     for (const slot of slots) {
@@ -1299,11 +1316,7 @@ export class PartialEngine {
    * `options.strict` separates that rule from CALLER SILENCE: an `orders` entry
    * that is absent altogether becomes an `UnnamedUnitError` instead of a default.
    */
-  resolve(
-    state: StateHandle,
-    orders: ArrayLike<number>,
-    options?: ResolveOptions,
-  ): Resolution {
+  resolve(state: StateHandle, orders: ArrayLike<number>, options?: ResolveOptions): Resolution {
     this.resolutions++;
     const arena = this.unitArena;
     const base = this.uBase(state.slab);
@@ -1735,19 +1748,11 @@ export class PartialEngine {
         const loser = cmp > 0 ? j : i;
         const cell = cmp > 0 ? pj : pi;
         this.squashAtNeck(state, loser, cell);
-        this.settleEdgeWinner(winner, s);
+        this.settleEdgeWinner(winner, s, loser);
         // The winner completes into the loser's head cell and capture-stops. It
         // is the SURVIVOR of that cell, not a fresh arrival at it, so the pile
         // it just made there is not re-adjudicated against it this sub-step.
-        this.clash(
-          "edge",
-          cell,
-          s,
-          [idI, idJ],
-          [cmp > 0 ? idJ : idI],
-          reason,
-          cmp > 0 ? idI : idJ,
-        );
+        this.clash("edge", cell, s, [idI, idJ], [cmp > 0 ? idJ : idI], reason, cmp > 0 ? idI : idJ);
       }
     }
   }
@@ -1764,9 +1769,12 @@ export class PartialEngine {
     this.uAdvanced[i] = 0;
   }
 
-  private settleEdgeWinner(i: number, s: number): void {
+  private settleEdgeWinner(i: number, s: number, loser: number): void {
     this.edgeSettled[i] = 1;
-    if ((this.uPathLen[i] as number) > s) this.pendStop[i] = 1;
+    if ((this.uPathLen[i] as number) > s) {
+      this.pendStop[i] = 1;
+      this.blameStop(i, 1 << loser);
+    }
   }
 
   private idOf(base: number, i: number): number {
@@ -1928,7 +1936,12 @@ export class PartialEngine {
         if (prior === -1 || cut < prior) this.pendSever[owner] = cut;
         this.clash("sever", cell, s, [id, this.idOf(base, owner)], [], REASON.sever, id);
       }
-      if ((this.uPathLen[i] as number) > s) this.pendStop[i] = 1;
+      if ((this.uPathLen[i] as number) > s) {
+        this.pendStop[i] = 1;
+        let by = 0;
+        for (let k = 0; k < owners; k++) by |= 1 << (this.ownerBuf[k] as number);
+        this.blameStop(i, by);
+      }
     }
 
     // c5 AGAINST A FROZEN CLAIM — for the claims this branch may actually read
@@ -1981,7 +1994,15 @@ export class PartialEngine {
       const cell = arena[this.trailBase(state.slab, i)] as number;
       const id = arena[base + i * U_FIELDS + U_ID] as number;
       const midRay = (this.uPathLen[i] as number) > s;
-      this.noteCellUncertainty(id, i, cell, s, field, midRay ? Channel.Transit : Channel.Contest);
+      this.noteCellUncertainty(
+        state,
+        id,
+        i,
+        cell,
+        s,
+        field,
+        midRay ? Channel.Transit : Channel.Contest,
+      );
       if (profileOf(arena[base + i * U_FIELDS + U_KIND] as UnitKind).traversesEdges) {
         this.noteEdgeUncertainty(id, i, this.uPrevHead[i] as number, cell, s, field, startField);
       }
@@ -1993,7 +2014,15 @@ export class PartialEngine {
       const o = base + i * U_FIELDS;
       if (arena[o + U_STATUS] !== Standing.Alive) continue;
       const cell = arena[this.trailBase(state.slab, i)] as number;
-      this.noteCellUncertainty(arena[o + U_ID] as number, i, cell, s, field, Channel.Contest);
+      this.noteCellUncertainty(
+        state,
+        arena[o + U_ID] as number,
+        i,
+        cell,
+        s,
+        field,
+        Channel.Contest,
+      );
     }
   }
 
@@ -2026,10 +2055,14 @@ export class PartialEngine {
     // call — on a per-contested-cell-per-sub-step path. Two copies of four
     // lines is the price of the loop staying allocation-free.
 
+    // The participant SET, as a mask, for `blameStop`: the units whose being
+    // here is what ends a mid-ray winner's ray (O-P7).
+    let participants = 0;
     for (let p = this.occHead[cell] as number; p !== -1; p = this.occNext[p] as number) {
       if (this.uStanding[p] !== 1) continue;
       this.partStamp[p] = this.partGen;
       this.partBuf[n++] = p;
+      participants |= 1 << p;
       const tier = this.uTier[p] as number;
       const weight = this.uWeight[p] as number;
       if (tier > bestTier || (tier === bestTier && weight > bestWeight)) {
@@ -2054,6 +2087,7 @@ export class PartialEngine {
           if (this.partStamp[p] === this.partGen) continue;
           this.partStamp[p] = this.partGen;
           this.partBuf[n++] = p;
+          participants |= 1 << p;
           const tier = this.uTier[p] as number;
           const weight = this.uWeight[p] as number;
           if (tier > bestTier || (tier === bestTier && weight > bestWeight)) {
@@ -2106,7 +2140,10 @@ export class PartialEngine {
       // Every participant keeps wrestling for this cell for the rest of the turn.
       this.pileAdd(cell, p);
       if (unique && p === best) {
-        if ((this.uPathLen[p] as number) > s) this.pendStop[p] = 1; // capture-stop
+        if ((this.uPathLen[p] as number) > s) {
+          this.pendStop[p] = 1; // capture-stop
+          this.blameStop(p, participants);
+        }
         continue;
       }
       // Only a STANDING participant can be a victim. The pile's dead are
@@ -2451,6 +2488,7 @@ export class PartialEngine {
    * 1.4 ns and produce nothing.
    */
   private noteCellUncertainty(
+    state: StateHandle,
     id: number,
     i: number,
     cell: number,
@@ -2469,6 +2507,7 @@ export class PartialEngine {
     } else if (((this.notedMask[cell] as number) & bit) !== 0) {
       return;
     }
+    const alsoHere = (this.notedMask[cell] as number) & ~bit;
     this.notedMask[cell] = (this.notedMask[cell] as number) | bit;
     const maybe = field.maybeAt(cell);
     const ever = field.everAt(cell);
@@ -2524,9 +2563,63 @@ export class PartialEngine {
       if ((bodyOnly & bit) !== 0 && bbTest(slot.cloud.bodyPossible, cell)) beat |= bit;
     }
     const trailOnly = maybe & ~certainBit & ~front;
-    if (front !== 0) this.record(s, cell, id, i, front, channel, false, (beat & front) !== 0);
+    if (front !== 0) {
+      this.record(s, cell, id, i, front, channel, false, (beat & front) !== 0);
+      // THE BODY OWNER'S SHARE OF THE SAME CELL (O-P7, second channel). If a
+      // LIVING trail unit's body covers this cell, a claim whose front reaches
+      // it may ARRIVE on that body — and c5 then either kills the claim here,
+      // which enlists the OWNER in this cell's persistent pile (`pileAdd(cell,
+      // owner)`, tier 5), or severs the owner. Neither is anything the owner's
+      // own head did, so the overlay's head walk never sees it and the owner
+      // came back `Fate.Alive` — while a later arrival at this cell contests
+      // the whole pile and can kill the owner WHERE IT STANDS.
+      //
+      // The gate is `front`: a claim's mere BODY overlapping a body is two
+      // living occupants of one cell, which the rules do not admit. Nothing
+      // is stamped on a cell no claim can arrive at.
+      if (this.bodyGen[cell] === this.gen) {
+        if ((this.bodyCount[cell] as number) <= 1) {
+          const owner = this.bodyOwner[cell] as number;
+          if (owner !== i && this.uBodyAlive[owner] === 1) this.threatStamp[owner] = this.turnGen;
+        } else {
+          const owners = this.ownersAt(state, cell, i);
+          for (let k = 0; k < owners; k++) {
+            this.threatStamp[this.ownerBuf[k] as number] = this.turnGen;
+          }
+        }
+      }
+    }
     if (trailOnly !== 0) {
       this.record(s, cell, id, i, trailOnly, Channel.BodyBlock, false, (beat & trailOnly) !== 0);
+    }
+    // THE PILE'S POPULATION (O-P7, third channel). A contest at a cell is over
+    // the WHOLE persistent pile, so what a claim decides at this cell is not
+    // only "did it beat me" but WHO ELSE IS STANDING HERE when I arrive. A
+    // claim that halts one mover here — or dies here and is avenged by the
+    // cumulative rule — leaves that mover standing on a cell the optimistic
+    // timeline had it pass straight through, and the next arrival meets a
+    // participant that was never in its reading of the turn.
+    //
+    // So every OTHER live unit that touches this same cell is a possible
+    // participant, and the comparator is the resolver's own uniqueness test:
+    // survival is being the UNIQUE STRICT MAXIMUM, so a rival at a higher tier
+    // — or at the same tier and no lighter, ties killing everyone — is fatal.
+    // Nothing is stamped where mere overlap cannot kill: a mover that strictly
+    // dominates every other unit at the cell wins the pile however it is
+    // populated, and keeps `Fate.Alive`.
+    if (alsoHere !== 0) {
+      const tier = this.uTier[i] as number;
+      const weight = this.uWeight[i] as number;
+      let bits = alsoHere;
+      while (bits !== 0) {
+        const b = bits & -bits;
+        bits ^= b;
+        const o = bitIndex(b);
+        const ot = this.uTier[o] as number;
+        const ow = this.uWeight[o] as number;
+        if (ot > tier || (ot === tier && ow >= weight)) this.threatStamp[i] = this.turnGen;
+        if (tier > ot || (tier === ot && weight >= ow)) this.threatStamp[o] = this.turnGen;
+      }
     }
     // Cells a frozen unit might have died on keep fighting for the rest of the
     // turn even when it is certainly no longer standing there. That is the
@@ -2703,6 +2796,15 @@ export class PartialEngine {
     this.uBodyBeatenBy[i] = body & trailSlots & ~head;
   }
 
+  /** `i` capture-stopped here, and `by` is the set of units that stopped it. */
+  private blameStop(i: number, by: number): void {
+    if (this.stopBlameStamp[i] !== this.turnGen) {
+      this.stopBlameStamp[i] = this.turnGen;
+      this.stopBlame[i] = 0;
+    }
+    this.stopBlame[i] = (this.stopBlame[i] as number) | (by & ~(1 << i));
+  }
+
   private couldBeat(_field: CloudField, mask: SlotMask, i: number): boolean {
     return (mask & (this.uBeatenBy[i] as number)) !== 0;
   }
@@ -2751,6 +2853,26 @@ export class PartialEngine {
     // written around is now simply the general case: nothing recorded, nothing
     // stamped, nothing to read.
     const gen = this.turnGen;
+    // CONTINGENCY TRAVELS DOWN THE STOP CHAIN (O-P7). See `stopBlame`: a
+    // mid-ray winner's ray ended where it did only because the units it met
+    // were there to meet, and a Contingent stopper may not have been. The
+    // relation is transitive, so it is closed here — cheaply, because the
+    // frontier is the stamped set and the whole thing is skipped when nothing
+    // is stamped at all, which is every turn with no claim in contact.
+    let stamped = 0;
+    for (let i = 0; i < U; i++) if (this.threatStamp[i] === gen) stamped |= 1 << i;
+    while (stamped !== 0) {
+      let added = 0;
+      for (let i = 0; i < U; i++) {
+        if ((stamped & (1 << i)) !== 0) continue;
+        if (this.stopBlameStamp[i] !== gen) continue;
+        if (((this.stopBlame[i] as number) & stamped) === 0) continue;
+        this.threatStamp[i] = gen;
+        added |= 1 << i;
+      }
+      if (added === 0) break;
+      stamped |= added;
+    }
     for (let i = 0; i < U; i++) {
       const o = base + i * U_FIELDS;
       const standing = arena[o + U_STATUS];

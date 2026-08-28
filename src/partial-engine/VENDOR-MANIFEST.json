@@ -3,7 +3,7 @@
   "subtree": "packages/engine/src/partial",
   "sourceRepo": "https://github.com/Cyphid-Academy/snek-centaur-platform",
   "sourceCommit": "c3da9cacb532c4d261124f1ec7d8cd65221333a9",
-  "vendoredAt": "2026-08-27T07:37:33.858Z",
+  "vendoredAt": "2026-08-28T02:40:45.837Z",
   "hashAlgorithm": "sha256-of-source-bytes-header-stripped",
   "files": {
     "bitgrid.ts": {
@@ -27,8 +27,8 @@
       "bytes": 2604
     },
     "engine.ts": {
-      "sha256": "859550a6f089c10c3ecd842dec11dfb5a96a57f061311b07b1559bb6180f7f66",
-      "bytes": 120886
+      "sha256": "9014fe249aff9db4955efc02b7653020bbaaa127cd113501eafe8d059109655e",
+      "bytes": 126892
     },
     "exact.ts": {
       "sha256": "68e5bcb60e487b83f865453817cc0ffb65f3f8fddd16ec07a0e630b42965411d",
