@@ -290,6 +290,18 @@ export interface Discrimination {
   /** Did the argmax over root options move at this ply? The instability the
    *  value proxy is actually about. */
   readonly argmaxMoved: boolean;
+  /**
+   * The argmax itself, as `keyOfJoint` writes it — the joint move over the
+   * cluster's own units that the ply's `max_a min_b` proved best at its root.
+   *
+   * DECLARED, because it is read twice and both readers are load-bearing: the
+   * next ply compares against it for `argmaxMoved`, and the next ply's
+   * continuation is that line. It used to be an untyped side-field, which is
+   * how one of those readers came to be looking at the wrong object.
+   *
+   * Absent when the ply priced no option at all.
+   */
+  readonly argmax?: string;
 }
 
 export const FLAT: Discrimination = {

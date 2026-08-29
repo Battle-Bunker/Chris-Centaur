@@ -51,7 +51,7 @@ import {
   tierAtRoot,
   tierPremiseAdmits,
 } from '../search/scout';
-import type { ThreadEntry } from '../search/scout';
+import type { ThreadEntry, ThreadPly } from '../search/scout';
 import { ShellTable } from '../evaluate';
 import { SubtreeCertificate } from '../../partial-engine/index';
 import type { Resolution } from '../../partial-engine/index';
@@ -1304,4 +1304,105 @@ describe('the runner', () => {
     scout.release();
     b.close();
   }, 60000);
+
+  test('a continuation follows the line the previous ply PROVED, not the generator\'s first option', () => {
+    // LINK 7 of the depth-blockage diagnosis, closed.
+    //
+    // `deepPlan` is documented as putting "each member on its own best option,
+    // as the previous ply's max-min found it". It took
+    // `candidatesFor(root, id).candidates[0]` — the candidate generator's
+    // first heuristic option, which is a ONE-TURN ordering and knows nothing
+    // about what the ply below it priced. The argmax was computed, stored, and
+    // read only to decide `argmaxMoved`. So from the third turn onward a
+    // thread walked a greedily-chosen line while its security value, its
+    // `argmaxMoved` and this comment all claimed the proved one. A value of
+    // the wrong line is not a cheaper value; it is a different question's
+    // answer, and it inflates the measured cost of depth without buying the
+    // discrimination depth is supposed to buy.
+    //
+    // Two assertions, and the second is what gives the first its teeth:
+    //
+    //   1. every ply n+1's plan agrees with ply n's recorded argmax on every
+    //      unit that argmax names;
+    //   2. on at least one thread the generator's first options AT THAT SAME
+    //      ROOT are a DIFFERENT plan — so (1) cannot be passing by accident.
+    //
+    // The ply-1 root is rebuilt here through the door, from the thread's own
+    // recorded ply-1 move, which is exactly how the scout built it; threads
+    // whose cluster grew after that ply are skipped, because an expansion
+    // changes the plan's domain and the two roots would not be comparable.
+    let checked = 0;
+    let followed = 0;
+    let witnesses = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const b = bench(snakesBoard(seed));
+      const gen = new GrammarCandidateGenerator({});
+      const partition = partitionOf({ sub: b.sub, roster: b.roster, fixed: new Set<UnitId>() });
+      const { plans } = enumerateProposals({
+        sub: b.sub,
+        partition,
+        roster: b.roster,
+        sets: b.sets,
+        fixed: new Map(),
+        doomed: new Set(),
+        asTeam: b.asTeam,
+        tuning: DEFAULT_CLUSTER_TUNING,
+        salt: 1,
+      });
+      const scout = new Scout('observe');
+      scout.run({
+        sub: b.sub,
+        asTeam: b.asTeam,
+        gen,
+        partition,
+        sets: b.sets,
+        seeds: plans,
+        epoch: 0,
+        posture: 'SIGHTED',
+        decisionMs: 0,
+      });
+
+      for (const t of scout.ledger.all()) {
+        // (1) THE LINE IS FOLLOWED.
+        for (let i = 1; i < t.plies.length; i++) {
+          const argmax = (t.plies[i - 1] as ThreadPly).discrimination.argmax;
+          if (argmax === undefined || argmax === '') continue;
+          const move = (t.plies[i] as ThreadPly).move;
+          checked++;
+          const agrees = argmax.split('|').every((part) => {
+            const [id, to] = part.split('>').map(Number) as [number, number];
+            return move.get(id as UnitId)?.to === to;
+          });
+          if (agrees) followed++;
+        }
+        // (2) AND IT IS A DIFFERENT LINE FROM THE HEURISTIC ONE.
+        if (t.plies.length < 2 || scout.report().expanded !== 0) continue;
+        const first = t.plies[0] as ThreadPly;
+        const out = b.sub.resolveBoundedFor(first.move, b.asTeam);
+        const cont = continueFrom({
+          from: b.sub,
+          resolution: out.resolution,
+          cluster: t.cluster,
+          carriedContingent: new Set<UnitId>(),
+          ply: 1,
+        });
+        if (cont.ok) {
+          const second = (t.plies[1] as ThreadPly).move;
+          for (const id of t.cluster) {
+            if (cont.sub.unitOf(id) === undefined) continue;
+            const heuristic = gen.candidatesFor(cont.sub, id).candidates[0];
+            if (heuristic !== undefined && second.get(id)?.to !== heuristic.to) witnesses++;
+          }
+          cont.release();
+        }
+        b.sub.releaseResolution(out.resolution);
+      }
+      scout.release();
+      b.close();
+      clearGeometryCache();
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(followed).toBe(checked);
+    expect(witnesses).toBeGreaterThan(0);
+  }, 120000);
 });

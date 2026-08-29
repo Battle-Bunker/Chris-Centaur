@@ -139,6 +139,18 @@ export class Scout {
   /** The best advisory value per thread key — the ordering sink's input. */
   private readonly values = new Map<string, number>();
   /**
+   * THE LINE THE THREAD PROVED, by thread key: the joint move over the
+   * cluster's own units that `scoreOptions` found to be the argmax at the
+   * thread's CURRENT root, i.e. at the root `roots` holds for the same key.
+   *
+   * It is what the next ply continues from. Holding it here rather than on
+   * `ThreadPly` is deliberate twice over: a published ply is never edited
+   * (contract rule 24), and a plan is a set of `Candidate`s AT A ROOT, so it
+   * is only meaningful while that root is alive — which is exactly the
+   * lifetime `roots` has, and why `releaseRoots` clears both.
+   */
+  private readonly lines = new Map<string, JointPlan>();
+  /**
    * THE THREAD'S OWN PARTITION, which is the decision's until it expands.
    *
    * `expandCluster` RETURNS A NEW PARTITION and leaves the old one valid, and
@@ -342,6 +354,15 @@ export class Scout {
     const scored = this.scoreOptions(cont, req, members);
     const discrimination = this.discriminationOf(entry, scored, contact, cont);
 
+    // ---- the line this ply proved, for the next one to continue from ------
+    //
+    // ONE argmax decision, not two: the plan is looked up by the very key
+    // `discriminationOf` chose, so the line a thread follows and the key its
+    // `argmaxMoved` compares against can never be two different options.
+    const line = scored.perOption.find((o) => o.key === discrimination.argmax);
+    if (line === undefined) this.lines.delete(entry.key);
+    else this.lines.set(entry.key, line.plan);
+
     // ---- the accumulator, weighted by what this ply actually decided ------
     accumulate(
       entry,
@@ -410,18 +431,40 @@ export class Scout {
 
   /**
    * The cluster's joint move at a deeper root: each member on its own best
-   * option, as the previous ply's max-min found it. Everything else is absent
+   * option, AS THE PREVIOUS PLY'S MAX-MIN FOUND IT. Everything else is absent
    * from the plan and is therefore HELD — the plan-domain rule, which is what
    * makes shell 2 automatic rather than something this file has to remember.
+   *
+   * The proved line is `lines[entry.key]`, recorded by the ply that built
+   * `parent` and therefore denominated at exactly this root. Before CL6a's
+   * repair this method took `candidates[0]` — the generator's FIRST heuristic
+   * option — for every member, so from the third turn onward a thread followed
+   * a greedily-chosen line while its documentation, its `argmaxMoved` and its
+   * security value all claimed the line the search had proved. A value of the
+   * wrong line is not a cheaper value; it is a different question's answer.
+   *
+   * Two members are still on the heuristic, and both are honest:
+   *   · IN-CLUSTER ENEMIES. The max-min mins over their profiles INTO A SCALAR
+   *     (F-5) and never records which reply achieved the min, so there is no
+   *     proved line for them to follow. Naming one would be inventing it.
+   *   · A UNIT THE CLUSTER GREW INTO after the parent ply priced its options
+   *     (§7.2 expansion is monotone), which the argmax cannot mention because
+   *     it was not a variable when the argmax was taken.
    */
   private deepPlan(
     entry: ThreadEntry,
     parent: Continuation,
     req: ScoutRequest
   ): JointPlan | null {
+    const line = this.lines.get(entry.key);
     const plan = new Map<UnitId, Candidate>();
     for (const id of entry.cluster) {
       if (parent.sub.unitOf(id) === undefined) continue;
+      const proved = line?.get(id);
+      if (proved !== undefined) {
+        plan.set(id, proved);
+        continue;
+      }
       const set = req.gen.candidatesFor(parent.sub, id);
       const c = set.candidates[0];
       if (c !== undefined) plan.set(id, c);
@@ -445,7 +488,15 @@ export class Scout {
     members: ReadonlyArray<UnitId>
   ): {
     readonly best: { readonly lo: number; readonly est: number; readonly hi: number };
-    readonly perOption: ReadonlyArray<{ readonly key: string; readonly lo: number; readonly hi: number }>;
+    readonly perOption: ReadonlyArray<{
+      readonly key: string;
+      readonly lo: number;
+      readonly hi: number;
+      /** The option itself — OUR units' joint move at this root. Carried so
+       *  the argmax the max-min proved can be continued from, rather than
+       *  re-derived from a one-turn heuristic ordering. */
+      readonly plan: JointPlan;
+    }>;
     /** Worlds actually resolved — the ply's cost, in resolution-equivalents. */
     readonly priced: number;
   } {
@@ -466,7 +517,7 @@ export class Scout {
 
     const ourJoints = enumerateJoints(ours, 6);
     const theirJoints = theirs.length === 0 ? [new Map<UnitId, Candidate>()] : enumerateJoints(theirs, 4);
-    const perOption: Array<{ key: string; lo: number; hi: number }> = [];
+    const perOption: Array<{ key: string; lo: number; hi: number; plan: JointPlan }> = [];
     let priced = 0;
     let bestLo = -Infinity;
     let bestHi = -Infinity;
@@ -489,7 +540,7 @@ export class Scout {
         cont.sub.releaseResolution(scored.resolution);
       }
       if (!Number.isFinite(worst)) continue;
-      perOption.push({ key: keyOfJoint(a), lo: worst, hi: worstHi });
+      perOption.push({ key: keyOfJoint(a), lo: worst, hi: worstHi, plan: a });
       if (worst > bestLo) {
         bestLo = worst;
         bestHi = worstHi;
@@ -527,12 +578,12 @@ export class Scout {
       }
     }
     const previous = entry.plies.length === 0 ? null : (entry.plies[entry.plies.length - 1] as ThreadPly);
-    const previousArgmax = previous === null ? null : (previous as ThreadPly & { argmax?: string }).argmax ?? null;
+    const previousArgmax = previous === null ? null : previous.discrimination.argmax ?? null;
     const spread = (a: number, b: number): number =>
       Number.isFinite(a) && Number.isFinite(b) ? Math.max(0, b - a) : 0;
     const saturation =
       cont.held.size === 0 ? 0 : contact.saturated.length / cont.held.size;
-    const d: Discrimination & { argmax?: string } = {
+    return {
       floorSpread: spread(lo, hiLo),
       estSpread: spread(hi, hiHi),
       // The SOUND currency, and it is deliberately zero in this tranche: a
@@ -543,9 +594,8 @@ export class Scout {
       witnesses: 0,
       saturation,
       argmaxMoved: previousArgmax !== null && previousArgmax !== argmax,
+      argmax,
     };
-    d.argmax = argmax;
-    return d;
   }
 
   /**
@@ -603,6 +653,9 @@ export class Scout {
   private releaseRoots(): void {
     for (const cont of this.roots.values()) cont.release();
     this.roots.clear();
+    // A proved line is a plan AT A ROOT. The roots are gone, so the plans that
+    // named their cells are no longer plans of anything.
+    this.lines.clear();
   }
 
   /** Every finding, in canonical order. */
