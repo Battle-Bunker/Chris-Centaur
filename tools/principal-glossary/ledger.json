@@ -2123,6 +2123,19 @@
           ]
         },
         {
+          "term": "sharePar",
+          "state": "defined",
+          "gloss": "the true-metric column: a team's share of total end-of-game weight × number of teams; par 1; mutual final wipes score on the previous turn's weights.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (metric fix landing)"
+            }
+          ]
+        },
+        {
           "term": "SIGHTED",
           "state": "internal",
           "gloss": "posture value: the unit's position is known.",
