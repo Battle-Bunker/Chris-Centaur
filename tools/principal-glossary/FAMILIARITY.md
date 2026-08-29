@@ -47,14 +47,14 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 > Must be re-defined at EVERY use, even if it was previously defined. Corrections never auto-expire; only the principal using the term correctly themselves promotes it out of here.
 
-- **cluster seed** — the initial cluster membership a turn starts with (CENTAUR_CLUSTER_SEED is its flag).
-  <br><sub>2026-08-29 · owner message 2026-08-29</sub>
+- **cluster seed** — the flagged construction (CENTAUR_CLUSTER_SEED, rejected) of the team's initial complete joint move assignment via the cell-claim index — the seed being the starting assignment coordinate ascent refines, NOT a cluster membership and NOT the cheapest rung of a heuristic ladder.
+  <br><sub>2026-08-29 · gloss-defect fix: prior gloss ('initial cluster membership a turn starts with') conflated the seed with the cluster partition; verified vs cl1 report and search code</sub>
   <br><sub>evidence (quoted): "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics."</sub>
-  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected</sub>
-- **lat** — shorthand for decision latency (wall-clock ms to produce a move). Was flagged in standing directive 0e as NOT defined; defined 2026-08-28.
-  <br><sub>2026-08-29 · owner message 2026-08-29</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
+- **lat** — one lat = 10 score units = one lightest-unit material step. Derived, never chosen: unit weights are integers and material carries CLIFF_MATERIAL_WEIGHT=10 (src/lobster/search/edge-ev.ts: LAT=10); a meal's material half is exactly one lat. Name = lattice step.
+  <br><sub>2026-08-29 · gloss-defect fix: the 2026-08-28 gloss ('decision latency') was WRONG against source; verified vs edge-ev.ts LAT=10 and the 'one lat is ten score units' law test</sub>
   <br><sub>evidence (quoted): "explain the 'Lat' scoring rule (and name choice) in more detail."</sub>
-  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
 - **one-translation rule** — the architectural rule that a position may be translated from enumerable substrate to resolved state once and never back. Owner was explicitly lost by it; a plain-language explanation was owed and given, but the TERM itself stays corrected — say the rule, not the name.
   <br><sub>2026-08-27 · owner message, cloud coordinator session</sub>
   <br><sub>evidence (quoted): "I'm still completely mystified about the term 'one-translation rule'"</sub>
