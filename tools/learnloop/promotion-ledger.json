@@ -12,6 +12,13 @@
         "why": "The local sim session fetches sim/worker-kit and only sim/worker-kit, and the updated ledger IS its next set of instructions. Waiting for a home-branch edit to be mirrored forward would have handed the consumer a ledger older than the batch it had just run.",
         "scope": "DATA ONLY. Nothing under lib/ or bin/ was touched on the kit branch, so the two copies never forked as CODE and the executable behaviour of the two branches never diverged. That line — data may diverge and be stamped, code may not — is why the five machinery defects batch 1 exposed were filed on the kit branch rather than fixed there.",
         "resolved": "BACKPORTED onto claude/cluster-lookahead by cl/llfix, byte-identical, in the same change that fixed the five defects here at home. The standing direction is restored: edit here, copy the whole directory to sim/worker-kit, update mirroredFrom."
+      },
+      {
+        "what": "the 20260829 machine ingest: the ingest run on the real per-game rows, the three defect fixes it exposed, the batch record, and the P7/P5 manifest mining.",
+        "appliedFirstOn": "claude/cluster-lookahead @ 281399f, merged as 685d208 — the STANDING direction, restored and used.",
+        "why": "The run needed code fixes as well as data, and code is edited at home by the mirror rule. Once the code was moving here, the ledger write belonged in the same commit as the machinery that produced it.",
+        "scope": "CODE AND DATA, both here, then the whole tools/learnloop/ directory copied to sim/worker-kit and re-stamped.",
+        "resolved": "nothing to resolve — no divergence occurred."
       }
     ]
   },
