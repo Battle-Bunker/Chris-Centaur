@@ -434,16 +434,36 @@ function reopen(ledger, flagName, claim) {
  * P7F came to be written out in full and then silently never scheduled: its
  * null is 16 blocks against the 58 its own dispersion demands.
  *
- * So a `live-null` flag is UNRESOLVED — and therefore schedulable — unless its
- * most recent live placement row was adequately powered. A flag whose null
- * really did come from a cell that could have seen the effect is settled, and
- * drops out of the batch on the evidence rather than on the status name.
+ * So a `live-null` flag is UNRESOLVED — and therefore schedulable — unless the
+ * MOST RECENT BATCH that measured it could resolve the effect on EVERY cell it
+ * used. A flag whose null really did come from cells that could have seen the
+ * effect is settled, and drops out of the batch on the evidence rather than on
+ * the status name.
+ *
+ * BATCH-SCOPED AND ALL-ROWS, NOT "the last row appended", AND THE FIRST REAL
+ * INGEST RUN IS WHY. That version asked only about `placement[length - 1]`,
+ * which is an artifact of the order rows happen to be written. When the machine
+ * ingest ran on 20260827-overnight it appended per-cell rows AFTER the fold's
+ * sweep-level row, and those per-cell rows carry each cell's OWN measured block
+ * SD instead of the program's pooled-stratum prior — so `blocksNeeded` fell
+ * from 58 to between 1 and 11 and every live-null flag's null became "resolved"
+ * on the strength of whichever row was written last. P7F, written out in full
+ * and already once rescued from exactly this, silently left batch 2 again.
+ *
+ * Both power numbers are honest and they answer different questions. The
+ * per-cell one is right that 16 blocks resolves an effect of 0.25 on these
+ * cells. Nobody is looking for 0.25: CENTAUR_UNIT_FATALITY's question is
+ * whether the classifier costs two or three points of placement. The MDE the
+ * ingest used is a program default, not this flag's question — see
+ * MDE-HARDCODED — so the rule is kept conservative: one cell in the batch that
+ * could not resolve the effect leaves the null unsettled.
  */
 function nullIsUnresolved(f) {
   const placement = (f.measurements ?? []).filter((m) => m.kind === 'live' && m.family === 'placement');
   if (placement.length === 0) return true;
-  const last = placement[placement.length - 1];
-  return !(last.power && last.power.underpowered === false);
+  const lastBatch = placement[placement.length - 1].batch;
+  const rows = placement.filter((m) => m.batch === lastBatch);
+  return !rows.every((m) => m.power && m.power.underpowered === false);
 }
 
 /**
