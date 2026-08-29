@@ -281,3 +281,84 @@ costs no new games and no new instrumentation; it is blocked only on the archive
 being reachable, same as everything else on that list.
 
 Nothing else about batch 2 changes. P5R first, P7F second, cut from the bottom.
+
+---
+
+# ADDENDUM — 20260829, later the same day: WASM IS ELIMINATED. P5R IS OFF THE LIST.
+
+**Read this before you start batch 2. It changes what you run.**
+
+The owner ruled, and this is his sentence, not a summary of it:
+
+> You should eliminate wasm. it's not worth the complexity to shoe horn another
+> language into our code at 10% throughout gain.
+
+So the WebAssembly layer is gone from `claude/cluster-lookahead` — the
+AssemblyScript kernels and the compiled artefact, the build step, the
+fixed-size memory block the kernels ran out of, the residency checks, the
+differential test, and the `CENTAUR_WASM` switch itself. Everything above this
+addendum that talks about P5R, about logging which partition refused, or about
+launching the two wasm contenders side by side, is now history. Read it as the
+record of how the batch got its shape, not as instructions.
+
+## What you have to do
+
+**PULL THIS BRANCH BEFORE YOU RUN ANYTHING.** `tools/learnloop/` has been
+re-mirrored from home at `96c5763`. If you run from a checkout you already
+have, you will run a spec for a switch that no longer exists in any bundle you
+can build, and the result will be an A/A pair wearing a treatment's name.
+
+**Delete nothing by hand — the generator already did it.**
+`tools/learnloop/specs/batch2/p5r-wasm.json` is deleted in this commit.
+
+**Do not set `CENTAUR_WASM` on any contender.** It is not a switch any more. A
+bundle built from `claude/cluster-lookahead` at or after `96c5763` ignores it.
+`HANDOFF.md`'s environment table has been corrected in this commit so it does
+not tell you otherwise.
+
+## The new size of batch 2
+
+| | before | now |
+|---|---|---|
+| specs | 13 | **12** |
+| games, both contenders of every pair | 2,952 | **2,760** |
+
+The 192 games are exactly P5R's 96 per contender. **Nothing else moved.** Every
+other spec is byte-for-byte what it was — same boards, same seeds, same
+contents. Two files changed as a consequence and neither is an edit:
+`P-LIST.json`, and `n0-aa-null.json`, whose five boards, configs and seeds are
+identical and only reordered, because the A/A null derives its boards from the
+order the scheduled specs mention them.
+
+**The A/A null still floors all five boards.** `hazard-mix-king` was P5R's, and
+it is P10's and P11's too, so nothing lost its floor.
+
+**P7F is now first, and the cut order is unchanged below it:** P7F, P12,
+P8/P9-joint, P9, P10, P11, P13, then the budget ladder. Never cut X9. Never cut
+N0.
+
+## What is NOT settled by this
+
+Batch 1's odd result on `headline-mix-king` — twice as many games hitting the
+clock, about 21 turns longer, a quarter fewer decided — is **still
+unexplained.** All the removal establishes is that it cannot be this switch,
+because this switch no longer exists. The leading candidate is `CELL-QUALITY`:
+that board flips 26 of its 48 placements between two builds of the *same*
+commit, so it may simply be a board that cannot measure anything at this
+number of games. That item is open and untouched.
+
+## One word in the ledger that could mislead you
+
+`CENTAUR_WASM` now reads **`frozen`**. That is not the loop saying the
+experiment came back empty. The rules have seven status words and none of them
+means "the owner decided against it", so `frozen` is the closest terminal one
+the code can express, and the ruling is quoted in the flag's verdict where it
+cannot be mistaken for a measurement. Its `reopenOn` says a new owner ruling
+and nothing else reopens it.
+
+Its eleven measurement rows, its manifest mining and its old verdict are all
+still there on purpose. That cell is the exhibit that bought the rule about
+refusing a result whose contender cannot be shown to have run, and a rule whose
+exhibit has been deleted is a rule nobody can check.
+
+Nothing else about batch 2 changes.

@@ -193,18 +193,21 @@ configuration. Say which kind you measured.
 | `CENTAUR_TIER_TRUTH` | `off` \| `expiry` \| `full` | `expiry` | both | `full` re-enables the dark potion-board widening |
 | `CENTAUR_TIER_DEFENSE` | `off` disables | on | both | the tier-window filter |
 | `CENTAUR_ROYAL_MARGIN` | — | unchanged | both | separate D2 flag; default NOT moved |
-| `CENTAUR_WASM` | `on` \| `off` | `off` | perf-substrate | wasm territory kernels |
 | `CENTAUR_WORKERS` | `off` \| `auto` \| `on` \| `0..8` | `off` | perf-substrate | evaluation worker pool; `auto`=`min(cores-1,3)` |
 | `CENTAUR_WORKERS_AUDIT` | `1` to enable | off | perf-substrate | recompute worker results on main thread; throws on disagreement |
 | `CENTAUR_CLUSTER_SEED` | `1` \| `on` \| `true` | off | perf-substrate (CL1) | index-driven pairwise seed |
 | `CENTAUR_UNIT_FATALITY` | `1` \| `on` \| `true` | off | perf-substrate (CL1) | rung-0 fatality classifier |
 | `CENTAUR_COHORT_POLICY` | `on` \| `off` | `off` | `arch/s2` only | cohort admission governor |
 
-**Three corrections to what you may have been told, all verified in source:**
+**`CENTAUR_WASM` IS GONE — 20260829, by owner ruling.** It used to sit in the
+table above and it has been struck from it. The whole WebAssembly layer was
+removed from `claude/cluster-lookahead` (see
+`tools/simworker/COORDINATION-20260829.md`, the second addendum). A bundle built
+at or after `96c5763` ignores the variable entirely, so setting it produces an
+A/A pair wearing a treatment's name. Do not set it.
 
-- **`CENTAUR_WASM` has no `auto`.** It accepts `on` and `off` only
-  (`src/lobster/wasm/policy.ts`). Anything else logs a warning and falls back to
-  `off` — which would silently turn a treatment arm into an A/A null.
+**Two corrections to what you may have been told, both verified in source:**
+
 - **`CENTAUR_CLUSTER_SEED` and `CENTAUR_UNIT_FATALITY` parse only `1`, `on`,
   `true`.** There is **no validation warning and no `off` keyword** — every
   other value, including `yes` or `ON`, is silently off. Set the off arm by
@@ -300,7 +303,7 @@ null and its findings stub.
 | **P2** | the deployed-relevant re-baseline at the target shape | one bundle, `CENTAUR_ENGINE` lobster vs legacy | `p2-legacy-rebaseline.json` |
 | **P3** | I2's budget gradient, 1000 ms -> 2000 ms | one bundle, `lobster-territory` vs `lobster-slider` | `p3-slider-2000.json` |
 | **P4** | tier-truth `full` vs `expiry`, potion-rich | one bundle, `CENTAUR_TIER_TRUTH` | `p4-tiertruth-potions.json` |
-| **P5** | the WASM flip gate | perf-substrate, `CENTAUR_WASM` on vs off | `p5-wasm-arena.json` |
+| ~~**P5**~~ | ~~the WASM flip gate~~ | **RAN IN BATCH 1; CANNOT BE RERUN** — the flag and the layer under it were removed 20260829 by owner ruling | `p5-wasm-arena.json` |
 | **P6** | the admission governor | **BLOCKED** — arch/s2 unpublished | `p6-admission.json` |
 | **P7** | CL1's two promotion gates | perf-substrate, `CENTAUR_CLUSTER_SEED` and `CENTAUR_UNIT_FATALITY`, each alone then both | `p7-cl1-gates.json` |
 
@@ -311,10 +314,14 @@ look at. **Read it before running the spec.** Notably:
   Below ~1000 ms it plays its *fallback move* and its own telemetry says so
   (`statesEvaluated: 0`, `deadlineHit: true`). 2000 ms is the first shape where
   the comparison is honest.
-- **P5** can produce a null that means "the arm never engaged" — the wasm path
-  refuses itself silently, per partition, when inputs are not resident. Check
-  the mechanism rows before calling it a null; "engaged and did not help" and
-  "never engaged" are different findings.
+- **P5** ran in batch 1 and is not rerunnable: the flag was eliminated by owner
+  ruling on 20260829 and its rerun (P5R) is withdrawn from batch 2. The reading
+  it left behind is kept, because it is the exhibit behind a standing rule — a
+  null could equally have meant "the arm never engaged", since the wasm path
+  refused itself silently, per partition, whenever inputs were not resident.
+  "Engaged and did not help" and "never engaged" are different findings, and
+  that is why the ledger now refuses a result whose arm cannot be shown to have
+  run. See `tools/learnloop/promotion-ledger.json`, `CENTAUR_WASM`.
 - **P7** measures each flag **separately** before both together. Two features
   behind one flag is an experiment that measures their sum. Watch for CL1's own
   honest negative: final floors were slightly *worse* on 14 of 26 replay

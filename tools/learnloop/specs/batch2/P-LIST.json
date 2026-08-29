@@ -12,24 +12,6 @@
       "question": "Two questions now, and the second is new. (1) Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on. (2) Is the seed CONDITIONALLY admissible — does the piece-density gradient hold up, and can the same own-board predicate that gates CENTAUR_STAGING_SAFETY's `auto` mode gate this one?"
     },
     {
-      "id": "P5R",
-      "flag": "CENTAUR_WASM",
-      "status": "probe-passed",
-      "scheduled": true,
-      "sweepId": "p5r-wasm",
-      "arms": [
-        "off",
-        "wasm-on"
-      ],
-      "cells": [
-        "hazard-mix-king",
-        "null-snake6"
-      ],
-      "blocks": 16,
-      "gamesPerArm": 96,
-      "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
-    },
-    {
       "id": "P7F",
       "flag": "CENTAUR_UNIT_FATALITY",
       "status": "live-null",
