@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-159 terms tracked: **2** corrected, **56** internal, **36** defined, **65** native.
+159 terms tracked: **2** corrected, **55** internal, **37** defined, **65** native.
 
 > **Evidence quality.** 47 of the 65 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -56,7 +56,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>evidence (quoted): "what does 'trail' mean? this is new terminology"</sub>
   <br><sub>history: 2026-08-27 → internal; 2026-08-28 → corrected</sub>
 
-### INTERNAL — code / agent-report jargon, NEVER briefed (56)
+### INTERNAL — code / agent-report jargon, NEVER briefed (55)
 
 > Define inline at first use — in the sentence that uses it, not in a glossary appendix — and record the definition event in the ledger in the same work cycle. Or say it in native words instead.
 
@@ -87,8 +87,6 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **discharge** — resolving a cloud into a definite position; a "discharged" frame is clean.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **emissionTrail** — the per-decision log of emitted evaluations.
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **engagement** — the learnloop requirement that a treatment arm demonstrably did the thing it is being tested for.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **envelope** — the declared deviation band of a cohort from the base objective.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
@@ -173,7 +171,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (36)
+### DEFINED — we defined it for them, on a date, somewhere (37)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -213,6 +211,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
 - **drift gates** *(also: drift gate)* — the tests that fail if the vendored engine has drifted from its upstream source.
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
+- **engagement** — the learnloop requirement that a treatment arm demonstrably did the thing it is being tested for.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (batch-1 deep-mining): defined inline as the learning loop writing 'engaged'/'not engaged' -- whether the treatment demonstrably did the thing it is tested for</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-29 → defined</sub>
 - **est** — the point estimate between floor and ceiling; the number you would bet on.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **floor** — the guaranteed-at-least score of a position under the worst reading of its clouds (lower bound).
