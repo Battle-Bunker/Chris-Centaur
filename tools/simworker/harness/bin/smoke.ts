@@ -122,6 +122,36 @@ function checkAdjudication(): void {
     capped.every((p) => p.adjudicatedMaterial === p.finalMaterial),
     'off the mutual-wipe path adjudicatedMaterial must equal finalMaterial'
   );
+
+  // THE OBJECTIVE. `sharePar` is share of end weight x teams, par 1, and it is
+  // read off `adjudicatedMaterial` — so on the wipe above it shares out the
+  // PREVIOUS turn's 18/16/0 rather than a board of zeroes, which is the whole
+  // reason that fix matters to the metric and not only to the placement.
+  const parOf = (p: ReturnType<typeof placementsOf>) =>
+    p.map((x) => `${x.teamID}:${(x.sharePar ?? 0).toFixed(3)}`).join(' ');
+  check(
+    parOf(wipe) === 'A:1.588 B:1.412 C:0.000',
+    `a mutual wipe must share out the previous turn's weights, got ${parOf(wipe)}`
+  );
+  check(
+    parOf(capped) === 'A:1.895 B:1.105 C:0.000',
+    `a cap must share out the final weights, got ${parOf(capped)}`
+  );
+  // Par sums to the team count by construction, whatever the board did.
+  for (const p of [wipe, drawn, soleSurvivor, capped]) {
+    const total = p.reduce((a, x) => a + (x.sharePar ?? 0), 0);
+    check(
+      Math.abs(total - seats.length) < 1e-9,
+      `sharePar must sum to the team count (${seats.length}), got ${total}`
+    );
+  }
+  // A board with no weight anywhere is an exact draw at par, not a total loss
+  // for everyone: 0/0 is not 0.
+  const empty = placementsOf(seats, new Map([['A', 1], ['B', 1], ['C', 1]]), allDead, allDead);
+  check(
+    empty.every((p) => p.sharePar === 1),
+    'an empty board must score every team at par, not at zero'
+  );
 }
 
 async function main(): Promise<void> {

@@ -15,9 +15,9 @@ harness/              the sweep harness (TypeScript; compiled into each bundle)
   bin/                run-sweep, run-match, read-replay, smoke, throughput
 bin/                  plain-node tooling; no build step
   run-pair.js         launch paired arms simultaneously  <- the entry point
-  aggregate.js        block-paired stats + markdown tables; reports the graded
-                      placement `score` AND `pFirst`, the game's own
-                      winner-take-all reward (METHODOLOGY §3.0)
+  aggregate.js        block-paired stats + markdown tables; reports `sharePar`
+                      — THE OBJECTIVE, share of end weight x teams, par 1 —
+                      beside the older rank readings (METHODOLOGY §3.0)
   verify-null.js      prove an A/A null is A/A; print the noise floor
   batch-manifest.js   assemble manifest.json; size accounting; replay pruning
   make-specs.js       regenerate the spec library

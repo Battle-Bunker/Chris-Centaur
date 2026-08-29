@@ -157,10 +157,12 @@ console.log('');
 console.log('Any treatment delta in this batch that is not comfortably LARGER than the');
 console.log('half-width below is a null result. Quote these numbers next to it in findings.md.');
 console.log('');
-console.log('`score` is the harness\'s GRADED placement; `win` is P(first) — place 1, outright or');
-console.log('joint — which is the only thing TacticToes actually pays, and the metric');
-console.log('aggregate.js also emits under the name `pFirst`. A spec written against P(first)');
-console.log('reads its floor off the `win` line here.');
+console.log('These three are RANK readings, and the objective is not one of them: the program');
+console.log('optimizes `sharePar` — share of total end weight x team count, par 1 — which');
+console.log('aggregate.js reports and which is continuous in the weight margin where a rank is');
+console.log('not. A treatment quoted against `sharePar` needs its floor measured on `sharePar`;');
+console.log('this script does not yet compute one, so quote the score/win floors as what they');
+console.log('are (rank floors) and say so.');
 console.log('');
 
 const mean = (xs) => (xs.length ? xs.reduce((p, q) => p + q, 0) / xs.length : null);

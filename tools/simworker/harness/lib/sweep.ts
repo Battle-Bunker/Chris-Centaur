@@ -145,6 +145,12 @@ export interface ManifestRow {
      * 2026-08-29.
      */
     adjudicatedMaterial?: number;
+    /**
+     * THE OBJECTIVE: share of total end weight × team count, par 1. Continuous
+     * in the weight margin and commensurate across team counts. Absent on
+     * manifests written before 2026-08-29.
+     */
+    sharePar?: number;
     eliminatedOnTurn: number | null;
   }>;
   /** Per seat health counters — a nonzero illegal/error count invalidates a row. */
@@ -225,6 +231,7 @@ export function manifestRow(job: SweepJob, outcome: MatchOutcome): ManifestRow {
       finalUnits: p.finalUnits,
       finalMaterial: p.finalMaterial,
       adjudicatedMaterial: p.adjudicatedMaterial,
+      sharePar: p.sharePar,
       eliminatedOnTurn: p.eliminatedOnTurn,
     })),
     health: outcome.seats.map((s) => {

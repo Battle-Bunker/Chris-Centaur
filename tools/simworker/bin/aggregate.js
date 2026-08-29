@@ -29,25 +29,29 @@
  * assignment match across arms, and it drops — loudly — any gameId that is not
  * present in every arm. A pairing that is not exact is not a pairing.
  *
- * ── TWO OUTCOME CURRENCIES, AND ONLY ONE OF THEM IS THE GAME'S ─────────────
+ * ── THE OBJECTIVE IS `sharePar`, NOT A PLACEMENT ───────────────────────────
  *
- * `score` is the harness's own GRADED placement, normalized to [0,1]: a clean
- * 2nd of 3 is worth 0.5. TacticToes pays nothing for it. Its
- * `processTurn.ts:144-174` scores every non-winning team 0, so winner(s) place
- * 1st and ALL losers tie 2nd — there is no reward for margin, none for a
- * tidier loss, and a turn-cap win pays exactly what wiping the board pays.
+ * Owner ruling, 2026-08-29. The cross-game metric this program optimizes is
  *
- * `pFirst` is that reward: 1 when this seat placed first (outright or joint —
- * the game pays every team in a draw in full), 0 otherwise. It is the row to
- * read when the question is "does this arm win more games"; `score` is the
- * finer, more sensitive instrument that answers a question the game does not
- * ask. On a 2-team cell the two agree up to scale; on a 3-team cell they can
- * disagree in sign, and when they do, `pFirst` is the one that is about the
- * game.
+ *     sharePar = (team's share of total weight owned at game end) × (teams)
  *
- * `win` is the SAME quantity as `pFirst` under the key it has always had here.
- * Both are emitted: existing analyses, ledger rows and `--metric win` callers
- * keep resolving, and new work can name the currency it means.
+ * Par is 1. A team holding its fair share of the board scores exactly 1
+ * whether the cell had two teams or four, which is what makes the column
+ * COMMENSURATE ACROSS TEAM COUNTS and poolable across a sweep, and it is
+ * CONTINUOUS IN THE WEIGHT MARGIN — a one-point lead and a thirty-point lead
+ * are different numbers, and a narrow loss is not scored like a wipe-out.
+ *
+ * `score`, the harness's normalized placement, is none of those things. It is a
+ * rank, it steps at rank boundaries, it pays a clean 2nd of 3 half a point on a
+ * scale a 2-team cell does not share, and it is blind to margin. It stays —
+ * every prior finding in this program is denominated in it, and it is the more
+ * sensitive instrument for a small ordering change — but it is NOT the
+ * objective. When `sharePar` and `score` disagree, `sharePar` is the one the
+ * program is optimizing.
+ *
+ * `win` (P(first)) is likewise a rank reading and likewise not the objective.
+ * It is kept because existing analyses and ledger rows resolve it; do not
+ * promote it to a headline.
  *
  * ── RETIRED COUNTERS ───────────────────────────────────────────────────────
  *
@@ -219,12 +223,16 @@ function metricsFor(row, subjectBot) {
   const decisions = h ? h.decisions : 0;
   const per = (x) => (decisions > 0 ? x / decisions : null);
   return {
-    // --- outcome (placement family) ------------------------------------
-    // `score` is the harness's graded placement; `pFirst` is the game's actual
-    // winner-take-all reward. See the header. `win` is `pFirst` under its
-    // historical key, kept so nothing downstream has to be rewritten.
+    // --- outcome ---------------------------------------------------------
+    // `sharePar` is THE OBJECTIVE (see the header). `score`, `win` and `place`
+    // are rank readings kept for continuity with every earlier finding.
+    //
+    // Null rather than 0 on a manifest written before 2026-08-29: those rows
+    // carry no `adjudicatedMaterial` and no share, and a missing column is not
+    // a team that owned nothing. `blockCI` drops nulls, so an old batch
+    // aggregates exactly as it used to and simply has no `sharePar` row.
+    sharePar: res.sharePar ?? null,
     score: res.score,
-    pFirst: res.place === 1 ? 1 : 0,
     win: res.place === 1 ? 1 : 0,
     place: res.place,
     finalMaterial: res.finalMaterial,
@@ -280,7 +288,7 @@ function metricsFor(row, subjectBot) {
 }
 
 const METRIC_KEYS = [
-  'score', 'pFirst', 'win', 'place', 'finalMaterial', 'finalUnits', 'survived',
+  'sharePar', 'score', 'win', 'place', 'finalMaterial', 'finalUnits', 'survived',
   'turns', 'decisive',
   'decisions', 'worstWallMs', 'overrunRate', 'unstagedRate', 'stagedNothingRate',
   'assumptionRate', 'ratchetRate',
@@ -487,13 +495,15 @@ md.push('**Placement resolution.** At 16 blocks the normalized placement score r
 md.push('roughly ±0.10. A |delta score| under that is not a small effect, it is no effect');
 md.push('this design can see — read the mechanism rows instead.');
 md.push('');
-md.push('**Two outcome currencies.** `score` is the harness\'s GRADED placement — a clean 2nd');
-md.push('of 3 is worth 0.5 — and TacticToes pays nothing for it: every non-winning team scores');
-md.push('0, so winner(s) place 1st and all losers tie 2nd. `pFirst` is that reward, 1 for an');
-md.push('outright or joint first and 0 otherwise, and it is the row to read when the question');
-md.push('is whether an arm WINS MORE GAMES. `score` is the more sensitive instrument and');
-md.push('answers a question the game does not ask; on a 3-team cell the two can disagree in');
-md.push('sign. `win` is the same quantity as `pFirst` under its historical key name.');
+md.push('**`sharePar` IS THE OBJECTIVE.** Share of the total weight owned at game end, times');
+md.push('the number of teams. Par is 1, so the column means the same thing on a 2-team cell and');
+md.push('a 3-team one, and it moves CONTINUOUSLY with the weight margin. `score` is a rank: it');
+md.push('steps at rank boundaries, is blind to margin, and its 0.5 on a 3-team cell has no');
+md.push('counterpart on a 2-team one. Both are reported, because every earlier finding in this');
+md.push('program is denominated in `score` — but when they disagree, `sharePar` is the one being');
+md.push('optimized. `win` (P(first)) is a rank reading too; it is kept for continuity and is not');
+md.push('a headline. A `sharePar` row of `—` means a manifest written before 2026-08-29, which');
+md.push('carries no per-team end weight to share out.');
 md.push('');
 md.push('**Read the arm audit first.** Every CL flag parses only `1`, `on` or `true`, with no');
 md.push('warning on a typo, and several are overridable per engine — so an arm can carry the');

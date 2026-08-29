@@ -127,22 +127,43 @@ four branches, in this order:
    MANDATORY here — a cap-heavy corpus is a property of this harness's regime,
    not a law of the game.)
 
-Weight is occupied squares — a snake's length, a piece's stack size — and it
-enters only through an argmax. A one-point lead pays exactly what a thirty-point
-lead pays; a cap win pays exactly what wiping the board pays. Then
-`processTurn.ts:144-174` scores every non-winning team 0, so **the winner(s)
-place 1st and every loser ties 2nd.** The game has no graded reward for 2nd
-versus 3rd, none for margin, and none for elimination order among losers.
+Weight is occupied squares — a snake's length, a piece's stack size.
 
-Two consequences for how you read a table:
+### §3.0b. The objective is `sharePar`, and it is not a placement
 
-- **`score` is finer than the game's reward, and `pFirst` is the reward.**
-  The harness's normalized placement pays a clean 2nd of 3 half a point. Nothing
-  in the game does. `aggregate.js` reports `pFirst` — 1 for an outright or joint
-  first, 0 otherwise — beside it for exactly this reason (`win` is the same
-  number under its historical key). On a 2-team cell the two agree up to scale.
-  On a 3-team cell they can disagree in sign, and when they do, the one that is
-  about the game is `pFirst`. Report both; when they part, say so.
+Those four branches decide **who wins one game**. They are not what this program
+optimizes. The cross-game objective is the owner's, stated 2026-08-29:
+
+> **`sharePar` = (a team's share of the total weight owned at game end) ×
+> (the number of teams competing).**
+
+**Par is 1.** A team holding its fair share of the board scores exactly 1
+whether the cell ran two teams or four, which is the property that makes the
+column mean the same thing in every cell and lets a sweep pool it. And it is
+**continuous in the weight margin**: a one-point lead and a thirty-point lead
+are different numbers, a narrow loss is not scored like a wipe-out, and there is
+no rank boundary for a treatment to step across by accident.
+
+The end weight it is computed from is the SAME weight the winner branches read —
+the final board normally, the previous committed turn's board on a mutual wipe.
+One quantity, `adjudicatedMaterial`, feeds both, so the objective and the
+adjudication can never drift apart.
+
+What this means for every table you read:
+
+- **`score` is a RANK, and it is not the objective.** The harness's normalized
+  placement steps at rank boundaries, is blind to margin, and pays a clean 2nd
+  of 3 half a point on a scale a 2-team cell does not have. It stays in every
+  table — every prior finding in this program is denominated in it, and it is
+  the more sensitive instrument for a small ordering change — but when it and
+  `sharePar` disagree, `sharePar` is the one being optimized. Say which moved.
+- **`win` (P(first)) is a rank reading too.** Kept for continuity with the
+  ledger and with `verify-null.js`; never a headline. A winner-take-all column
+  is not this program's reward function and a table that leads with one invites
+  optimising the wrong quantity.
+- **Old manifests have no `sharePar`.** Rows written before 2026-08-29 carry no
+  per-team end weight to share out, so the cell reads `—` rather than 0. A
+  missing column is not a team that owned nothing.
 - **A mutual wipe is not a draw.** Branch 1 was mis-implemented here until
   2026-08-29: placements were read off the FINAL board, where every eliminated
   team carries zero material, so `all-eliminated` always scored a shared first
@@ -152,8 +173,12 @@ Two consequences for how you read a table:
   own rule: **a team ahead on weight that trades its last units for its rival's
   last units WINS.** Each placement row carries `adjudicatedMaterial` — the
   weight the placement was actually decided on, equal to `finalMaterial` on
-  every other end kind — so a miner can always see which board settled it.
-  Every other end kind is scored exactly as before.
+  every other end kind — so a miner can always see which board settled it, and
+  **`sharePar` is computed from that same number**, so a mutual wipe is shared
+  out on the previous turn's weights rather than on a board of zeroes. Under the
+  old reading every team in a mutual wipe held share 0/0; under this one they
+  hold the shares they actually had. Every other end kind is scored exactly as
+  before.
 
   It is a rare branch. Across the 13,245 manifest rows in this program's corpus,
   `endKind: "all-eliminated"` occurs **10 times (0.076%; 0.21% of the 4,781

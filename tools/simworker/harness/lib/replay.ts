@@ -114,7 +114,18 @@ export interface ReplayResult {
      * Absent on replays written before that fix (2026-08-29).
      */
     readonly adjudicatedMaterial?: number;
-    /** Normalized score in [0,1]: 1 for a clear first, 0 for a clear last. */
+    /**
+     * THE OBJECTIVE (owner, 2026-08-29): this team's share of the total end
+     * weight, times the number of teams. Par is 1, so the number is
+     * commensurate across two-team and three-team cells, and it is CONTINUOUS
+     * in the weight margin rather than stepping at a rank boundary. Computed
+     * from `adjudicatedMaterial`, so a mutual wipe is shared out on the
+     * previous committed turn's weights. Absent on replays written before
+     * 2026-08-29.
+     */
+    readonly sharePar?: number;
+    /** Normalized placement in [0,1]: 1 for a clear first, 0 for a clear last.
+     * The harness's own graded rank — NOT the objective; see `sharePar`. */
     readonly score: number;
   }>;
   /** Per team, material after every turn — index 0 is after turn 1. */

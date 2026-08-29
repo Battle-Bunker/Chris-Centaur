@@ -34,11 +34,27 @@
  *      an exact tie is a draw among the tied top teams.
  *   4. Otherwise the game continues.
  *
- * Weight is occupied squares: a snake's length, a piece's stack size. It enters
- * only through an ARGMAX — a one-point lead pays exactly what a thirty-point
- * lead pays — and the game ranks no loser above another. That is why this file
- * reports P(first) alongside its own graded placement score, and why the graded
- * score is the harness's finer objective rather than the game's reward.
+ * Weight is occupied squares: a snake's length, a piece's stack size.
+ *
+ * ── THE METRIC THIS PROGRAM OPTIMIZES (owner, 2026-08-29) ──────────────────
+ *
+ * The branches above decide WHO WINS ONE GAME. They are not the objective. The
+ * objective is a CROSS-GAME metric, and it is continuous:
+ *
+ *     sharePar = (this team's share of the total weight at game end) × (teams)
+ *
+ * Par is 1 — a team holding its fair share of the board scores exactly 1
+ * whether the game had two teams or four, which is what makes the number
+ * commensurate across cell shapes and poolable across a sweep. It is
+ * CONTINUOUS IN THE WEIGHT MARGIN: a one-point lead and a thirty-point lead do
+ * not pay the same, and a team that loses narrowly is not scored identically to
+ * one that was wiped out. `placementsOf` computes it per team, and `pFirst`
+ * (a winner-take-all reading of the same board) is deliberately NOT reported —
+ * it is not the objective and a column for it invites optimising the wrong one.
+ *
+ * The end weight the share is computed from is the SAME weight the winner
+ * branches read: the final board normally, and the previous committed turn's
+ * board on a mutual wipe. One quantity, `adjudicatedMaterial`, feeds both.
  *
  * Branch 1 is the one this harness got wrong until 2026-08-29. Every eliminated
  * team carries zero material on the FINAL board, so a mutual wipe read off that
@@ -288,6 +304,27 @@ export function placementsOf(
   }
 
   const n = seats.length;
+
+  /*
+   * THE SHARE METRIC — par 1, commensurate across team counts, continuous.
+   *
+   *     sharePar = n × (this team's end weight) / (total end weight)
+   *
+   * The weight is `adjudicatedMaterial`, so this is read off the same board the
+   * winner branches are: the final one normally, the previous committed turn's
+   * on a mutual wipe. A team on exactly its fair share scores 1; a team holding
+   * everything scores n; a team wiped out scores 0. Nothing here is a
+   * placement, and nothing here rounds: the whole point of the metric is that
+   * it moves with the weight margin instead of stepping at a rank boundary.
+   *
+   * A board with NO WEIGHT ANYWHERE is the one degenerate case — a mutual wipe
+   * on the very first turn, on a previous board that was already empty. Every
+   * team then holds an equal (empty) share, so every team scores par. Dividing
+   * by zero and calling the result 0 would score an exact draw as a total loss
+   * for everyone.
+   */
+  const totalWeight = rows.reduce((a, r) => a + r.adjudicatedMaterial, 0);
+
   return rows.map((r) => {
     const p = place.get(r.teamID) ?? n;
     return {
@@ -299,6 +336,7 @@ export function placementsOf(
       finalUnits: r.finalUnits,
       finalMaterial: r.finalMaterial,
       adjudicatedMaterial: r.adjudicatedMaterial,
+      sharePar: totalWeight > 0 ? (n * r.adjudicatedMaterial) / totalWeight : 1,
       score: n === 1 ? 1 : (n - p) / (n - 1),
     };
   });
