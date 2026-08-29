@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-168 terms tracked: **4** corrected, **52** internal, **44** defined, **68** native.
+169 terms tracked: **4** corrected, **52** internal, **45** defined, **68** native.
 
 > **Evidence quality.** 47 of the 68 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -177,7 +177,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (44)
+### DEFINED — we defined it for them, on a date, somewhere (45)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -261,6 +261,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **seed plan** — the cheap first plan a cluster starts from before refinement.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **sharePar** — the true-metric column: a team's share of total end-of-game weight × number of teams; par 1; mutual final wipes score on the previous turn's weights.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (metric fix landing)</sub>
 - **slices** — the fixed time chunks the anytime kernel runs in, so it can yield between them.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **staged plan** — the multi-turn move sequence currently committed for a cluster.
