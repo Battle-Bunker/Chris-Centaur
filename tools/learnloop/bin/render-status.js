@@ -121,6 +121,20 @@ for (const f of ledger.flags) {
     w(`  <sub>${tags.join(' · ')}</sub>`);
     if (m.caveat) w(`  > ${m.caveat}`);
     if (m.note) w(`  > ${m.note}`);
+    // THE MACHINE'S OWN RECOMPUTATION OF A ROW SOMEBODY TRANSCRIBED. A row that
+    // agrees with the rows it came from and a row nobody has ever checked look
+    // identical without this line, and they are not the same row.
+    if (m.machineIngest) {
+      const mi = m.machineIngest;
+      w(`  > *Machine ingest:* ${mi.agreement ? `**${mi.agreement}** — ` : ''}${mi.what ?? mi.why ?? mi.status}`);
+      for (const c of mi.perCell ?? []) {
+        w(
+          `  >   - \`${c.cell}\` (${c.arm}): ${c.mean >= 0 ? '+' : ''}${c.mean} [${c.lo}, ${c.hi}] over ` +
+            `${c.blocks} blocks; floor ${c.nullHalfWidth === null ? '**none — UNREADABLE**' : `+/-${c.nullHalfWidth}`}` +
+            `${c.outsideNull === true ? ' — **outside the floor**' : ''}`
+        );
+      }
+    }
   }
   w();
   if (f.controlEvidence) {
@@ -130,6 +144,16 @@ for (const f of ledger.flags) {
     w();
     for (const c of ce.inert ?? []) w(`- PASSED (inert as designed): \`${c}\``);
     for (const c of ce.violated ?? []) w(`- **VIOLATED — instrument failure:** \`${c}\``);
+    w();
+  }
+  if (f.manifestMining) {
+    const mm = f.manifestMining;
+    w(`**Mined from the per-game manifests — ${mm.label}**`);
+    w();
+    for (const x of mm.findings ?? []) w(`- **${x.id}.** ${x.detail}`);
+    w();
+    if (mm.whatTheRowsCarry) w(`*What the rows carry:* ${mm.whatTheRowsCarry}`);
+    if (mm.stillNeedsReplays) w(`*Still needs turn-level replays:* ${mm.stillNeedsReplays}`);
     w();
   }
   if (f.verdict) {
@@ -171,6 +195,50 @@ if ((ledger.standingExperiments ?? []).length > 0) {
   }
 }
 
+// THE BATCHES, AND WHETHER A MACHINE EVER READ THEM. A ledger whose rows were
+// transcribed by a human from a summary is a different artifact from one whose
+// rows were recomputed from the games, and the difference belongs on the page.
+if ((ledger.batches ?? []).length > 0) {
+  w('## Batches');
+  w();
+  for (const bt of ledger.batches) {
+    w(`### ${bt.id}`);
+    w();
+    w(`- Games: ${bt.games}${bt.gamesRecorded && bt.gamesRecorded !== bt.games ? ` (delivery said ${bt.gamesRecorded})` : ''}`);
+    w(`- Ingest: **${bt.ingest ? bt.ingest.mode : 'no record'}**`);
+    if (bt.ingest && bt.ingest.theHeadline) w(`- ${bt.ingest.theHeadline}`);
+    if (bt.integrity) {
+      w(`- Integrity: illegal ${bt.integrity.illegal}, errors ${bt.integrity.errors}`);
+      if (bt.integrity.correction) w(`  > ${bt.integrity.correction}`);
+      for (const r of bt.integrity.rows ?? []) w(`  > - \`${r}\``);
+      if (bt.integrity.ruleConsequence) w(`  > ${bt.integrity.ruleConsequence}`);
+    }
+    if (bt.instrumentEvents) {
+      w('- Instrument events:');
+      for (const e of bt.instrumentEvents.events ?? []) {
+        w(`  - \`${e.kind}\` ${e.cell}${e.arm ? ` [${e.arm}]` : ''}`);
+      }
+      if (bt.instrumentEvents.capRateAsymmetryFiredOnP5) {
+        w(`  > *cap-rate-asymmetry on P5:* ${bt.instrumentEvents.capRateAsymmetryFiredOnP5}`);
+      }
+      if (bt.instrumentEvents.secondFiring) w(`  > ${bt.instrumentEvents.secondFiring}`);
+    }
+    if (bt.flipRateProxy) {
+      w(`- Paired outcome flip rate (proxy): ${bt.flipRateProxy.reading}`);
+    }
+    if (bt.ingest && bt.ingest.agreementWithTheHandFold) {
+      const a = bt.ingest.agreementWithTheHandFold;
+      w(
+        `- Machine vs the hand fold: **${a.confirmed} confirmed, ${a.refined} refined, ` +
+          `${a.contradicted} contradicted, ${a.notRecomputable} not recomputable.** ${a.note}`
+      );
+      if (a.refinementsAreOfTwoKinds) w(`  > ${a.refinementsAreOfTwoKinds}`);
+    }
+    for (const d of (bt.ingest && bt.ingest.stillDeferred) || []) w(`- Still owed: ${d}`);
+    w();
+  }
+}
+
 w('## Open instrument items');
 w();
 w('Gaps in what can be measured at all. Each names what would close it, and');
@@ -182,7 +250,10 @@ for (const i of ledger.openInstrumentItems ?? []) {
   w();
   w(i.what);
   w();
+  if (i.foundBy) w(`*Found by:* ${i.foundBy}`);
+  if (i.exhibit) w(`*Exhibit:* ${i.exhibit}`);
   if (i.impact) w(`*Impact:* ${i.impact}`);
+  if (i.consequence) w(`*Consequence:* ${i.consequence}`);
   if (i.workaround) w(`*Workaround:* ${i.workaround}`);
   w(`*Closed by:* ${i.closedBy}`);
   if (i.closedIn) w(`*Closed in:* ${i.closedIn}`);

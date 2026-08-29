@@ -454,6 +454,36 @@ const P = require('../lib/polarity');
     names.includes('CENTAUR_UNIT_FATALITY'),
     'a live-null flag whose placement row is UNDERPOWERED is undecided — P7F can be scheduled'
   );
+  // ORDER-INDEPENDENCE, and the first real ingest run is the exhibit. Appending
+  // an adequately-powered per-cell row from the SAME batch after an
+  // underpowered sweep-level one must not settle the null: the rule asks about
+  // the batch, not about whichever row happened to be written last.
+  {
+    const l2 = clone();
+    const f2 = L.flagOf(l2, 'CENTAUR_UNIT_FATALITY');
+    const lastBatch = f2.measurements.filter((m) => m.kind === 'live' && m.family === 'placement').pop().batch;
+    f2.measurements.push({
+      batch: lastBatch,
+      kind: 'live',
+      cell: 'later-row::some-cell',
+      metric: 'score',
+      family: 'placement',
+      verdict: 'null',
+      value: 'appended after the underpowered row',
+      nullVerified: true,
+      armEngagementVerified: true,
+      power: { blocksHad: 16, blocksNeeded: 3, underpowered: false, mdeTarget: 0.25 },
+    });
+    ok(
+      L.nullIsUnresolved(f2),
+      'and a later adequately-powered row from the SAME batch does not settle it — the rule is order-independent'
+    );
+    const f3 = L.flagOf(l2, 'CENTAUR_UNIT_FATALITY');
+    for (const m of f3.measurements) {
+      if (m.kind === 'live' && m.family === 'placement' && m.power) m.power.underpowered = false;
+    }
+    ok(!L.nullIsUnresolved(f3), 'but a batch whose every placement cell could resolve the effect does settle it');
+  }
   const settled = clone();
   for (const m of L.flagOf(settled, 'CENTAUR_UNIT_FATALITY').measurements) {
     if (m.family === 'placement' && m.power) m.power.underpowered = false;
@@ -493,7 +523,16 @@ const D = require('../lib/drift');
 const arms = E.loadArms(fixtureDir);
 ok(arms.size === 4, 'four arms load');
 
-const nullPair = E.pairCells(arms.get('nullA'), arms.get('nullB'));
+// EVERY CALL DECLARES ITS SUBJECT. The fixture seats two lobsters and rotates
+// them, exactly as the real batches do, so the ingest refuses to guess which
+// one is the contender. See extract.js subjectOf.
+const FIXTURE_SUBJECT = {
+  nullA: 'lobster-territory',
+  nullB: 'lobster-territory',
+  base: 'lobster-territory',
+  treat: 'lobster-territory',
+};
+const nullPair = E.pairCells(arms.get('nullA'), arms.get('nullB'), { subjectMap: FIXTURE_SUBJECT });
 ok(nullPair.paired === 36 && nullPair.problems.length === 0, 'the A/A pair pairs all 36 games cleanly');
 ok(
   arms.get('nullA').meta.bundleStamp.sha === arms.get('nullB').meta.bundleStamp.sha,
@@ -502,7 +541,11 @@ ok(
 
 const band = D.nullBand(nullPair, E.METRIC_KEYS);
 const hyg = D.hygiene(arms);
-const events = D.instrumentEvents({ band, flips: D.flipRate(arms.get('nullA'), arms.get('nullB')), hygieneRows: hyg });
+const events = D.instrumentEvents({
+  band,
+  flips: D.flipRate(arms.get('nullA'), arms.get('nullB'), { subjectMap: FIXTURE_SUBJECT }),
+  hygieneRows: hyg,
+});
 ok(
   events.some((e) => e.kind === 'cap-rate-asymmetry'),
   'the planted cap-rate doubling is raised as an instrument event (P5 in miniature)'
@@ -512,7 +555,7 @@ ok(
   'integrity counters are zero across every arm'
 );
 
-const treatPair = E.pairCells(arms.get('base'), arms.get('treat'));
+const treatPair = E.pairCells(arms.get('base'), arms.get('treat'), { subjectMap: FIXTURE_SUBJECT });
 ok(treatPair.paired === 36, 'the treatment pair pairs all 36 games');
 
 function blockMean(cellKey, metric) {
@@ -553,12 +596,137 @@ function blockMean(cellKey, metric) {
       '--pair', 'base=treat',
       '--flag', 'CENTAUR_WASM',
       '--engagement', 'wasmRuns',
+      '--subject-map', 'nullA=lobster-territory,nullB=lobster-territory,base=lobster-territory,treat=lobster-territory',
     ],
     { encoding: 'utf8' }
   );
   ok(out.includes('probe-passed -> live-failed'), 'the CLI ingest proposes the failure the fixture planted');
   ok(out.includes('does not move a status'), 'and refuses to let a non-status-moving family move it');
   ok(!fs.readFileSync(L.LEDGER_PATH, 'utf8').includes('selftest-fixture'), 'a dry read wrote nothing');
+}
+
+// -------------------------------- 2b. the two defects the FIRST REAL BATCH found
+//
+// Both were invisible against the synthetic fixture and fatal against
+// `20260827-overnight`, for the same reason: the fixture runs its A/A null and
+// its treatment under ONE sweepId and writes its rows in a fixed order, and a
+// real batch does neither. Each assertion below reproduces the row that exposed
+// its defect.
+
+section('2b. WHAT THE FIRST REAL BATCH FOUND');
+
+// --- SUBJECT-SEAT-NONDETERMINISM -------------------------------------------
+//
+// `subjectOf` read `rows[0].seats` and took the first `lobster*`. The manifest
+// is written in COMPLETION order by a worker pool and the seats rotate, so the
+// answer was a race. On 20260827-overnight it resolved differently in the two
+// arms of P2, P4, P5 and P7's seed arm, silently comparing `lobster-territory`
+// against `lobster-material` and reporting score -0.5938 / win -1.0000 on
+// `null-snake6` -- a cell whose true delta is exactly zero.
+{
+  const seatRow = (bots) => ({
+    sweepId: 's',
+    gameId: 'g',
+    cell: 'c',
+    block: 'b',
+    configHash: 'h',
+    seats: bots.map((bot, seat) => ({ seat, bot })),
+    results: [],
+    health: [],
+  });
+  const rotated = [
+    seatRow(['lobster-territory', 'lobster-material', 'reflex']),
+    seatRow(['lobster-material', 'reflex', 'lobster-territory']),
+    seatRow(['reflex', 'lobster-territory', 'lobster-material']),
+  ];
+  ok(
+    E.subjectOf(rotated) === null,
+    'an arm seating two candidate subjects resolves to null — the ingest does not guess which bot it is measuring'
+  );
+  ok(
+    JSON.stringify(E.subjectCandidates(rotated)) === JSON.stringify(E.subjectCandidates([...rotated].reverse())),
+    'and the candidate set is order-independent, because manifest.jsonl is written in completion order'
+  );
+  ok(
+    E.subjectOf([seatRow(['lobster-territory', 'reflex'])]) === 'lobster-territory',
+    'a single seated candidate still resolves without a declaration'
+  );
+  ok(E.subjectOf(rotated, 'lobster-material') === 'lobster-material', 'and a declared subject always wins');
+
+  const undeclared = E.pairCells(arms.get('base'), arms.get('treat'));
+  ok(undeclared.paired === 0, 'pairing WITHOUT a declared subject pairs nothing rather than guessing');
+  ok(
+    undeclared.problems.some((p) => p.includes('--subject-map') && p.includes('lobster-material')),
+    'and says so loudly, naming both candidates and the flag that resolves it'
+  );
+}
+
+// --- NULL-BAND-CELL-KEY ----------------------------------------------------
+//
+// The floor is a property of the CELL. Cell keys carry the sweepId, and the A/A
+// runs under its own (`n0-aa-null`), so a whole-key lookup never matched on a
+// real batch and the code fell back to the FIRST A/A cell's half-width for
+// every cell in the batch -- lending `headline-mix-king`'s +/-0.0973 to
+// `null-snake6` (true floor +/-0.0324) and to five cells with no floor at all.
+{
+  const os = require('os');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'learnloop-crosssweep-'));
+  const copyArm = (from, to, sweepFrom, sweepTo, rewrite) => {
+    const dst = path.join(scratch, 'arms', to, sweepTo);
+    fs.mkdirSync(dst, { recursive: true });
+    fs.copyFileSync(
+      path.join(fixtureDir, 'arms', from, 'arm.json'),
+      path.join(scratch, 'arms', to, 'arm.json')
+    );
+    const rows = E.readRows(path.join(fixtureDir, 'arms', from, sweepFrom, 'manifest.jsonl'))
+      .map((r) => ({ ...r, sweepId: sweepTo, ...(rewrite ? rewrite(r) : {}) }))
+      .filter((r) => r !== null);
+    fs.writeFileSync(path.join(dst, 'manifest.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  };
+  // The null runs on ONE cell, under its own sweepId, exactly as a real batch does.
+  copyArm('nullA', 'nullA', 'f1-fixture', 'n0-aa-null');
+  copyArm('nullB', 'nullB', 'f1-fixture', 'n0-aa-null');
+  for (const a of ['nullA', 'nullB']) {
+    const f = path.join(scratch, 'arms', a, 'n0-aa-null', 'manifest.jsonl');
+    const kept = E.readRows(f).filter((r) => r.cell === 'headline-mix-king');
+    fs.writeFileSync(f, kept.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  }
+  copyArm('base', 'base', 'f1-fixture', 'p9-treatment');
+  copyArm('treat', 'treat', 'f1-fixture', 'p9-treatment');
+
+  const out = execFileSync(
+    process.execPath,
+    [
+      path.join(ROOT, 'bin', 'ingest.js'),
+      '--batch', scratch,
+      '--batch-id', 'selftest-crosssweep',
+      '--null', 'nullA,nullB',
+      '--pair', 'base=treat',
+      '--flag', 'CENTAUR_WASM',
+      '--engagement', 'wasmRuns',
+      '--subject-map', 'nullA=lobster-territory,nullB=lobster-territory,base=lobster-territory,treat=lobster-territory',
+      '--out', path.join(scratch, 'report.json'),
+    ],
+    { encoding: 'utf8' }
+  );
+  const rep = JSON.parse(fs.readFileSync(path.join(scratch, 'report.json'), 'utf8'));
+  const cells = rep.pairs[0].cells;
+  const aaFloor = rep.null.band['n0-aa-null::headline-mix-king'].score.halfWidth;
+  ok(
+    cells['p9-treatment::headline-mix-king'].score.nullHalfWidth === aaFloor && aaFloor !== null,
+    'the floor resolves ACROSS sweep ids — a null under n0-aa-null floors the same cell under p9-treatment'
+  );
+  ok(
+    cells['p9-treatment::null-snake6'].score.nullHalfWidth === null &&
+      cells['p9-treatment::null-snake6'].score.outsideNull === null,
+    'and a treated cell the A/A never ran has NO floor — it never borrows the floor of another cell'
+  );
+  ok(
+    out.includes('UNREADABLE'),
+    'so the ledger records that row as UNREADABLE rather than as a null result'
+  );
+  ok(out.includes('probe-passed -> live-failed'), 'while the floored cell still carries its verdict');
+  fs.rmSync(scratch, { recursive: true, force: true });
 }
 
 // ------------------------------------------------- 3. the historical corpus

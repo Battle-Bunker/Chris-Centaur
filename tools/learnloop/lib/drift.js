@@ -101,6 +101,12 @@ function flipRate(base, treat, { subjectMap = {}, subject = null } = {}) {
     const byId = new Map(bRows.map((r) => [r.gameId, r]));
     const subjA = subjectMap[base.name] ?? subjectOf(aRows, subject);
     const subjB = subjectMap[treat.name] ?? subjectOf(bRows, subject);
+    // An arm seating more than one candidate subject is refused, not guessed
+    // at (see extract.js subjectOf). Recorded so the absence is visible.
+    if (subjA === null || subjB === null) {
+      out[`${sweepId}::<subject undeclared>`] = { games: 0, flips: 0, rate: null, ambiguousSubject: true };
+      continue;
+    }
     for (const ra of aRows) {
       const rb = byId.get(ra.gameId);
       if (rb === undefined) continue;

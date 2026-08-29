@@ -182,14 +182,48 @@ const METRIC_KEYS = Object.keys(
 /** Metrics that must never be read as a verdict on a live arm. */
 const RETIRED_KEYS = ['plansEvaluated_RETIRED', 'boundsInversions_RETIRED'];
 
-/** The subject seat: the contender, which in every cell this program runs is
- * the first lobster in the seat list unless a caller names one. */
+/**
+ * THE CANDIDATE SUBJECTS SEATED IN AN ARM, over ALL of its rows.
+ *
+ * Deliberately not `rows[0]`: `manifest.jsonl` is written in COMPLETION order
+ * by a pool of workers, so its first row is a race, and the harness rotates
+ * seats between games. Two arms of one pair therefore routinely begin with
+ * different bots in seat 0.
+ */
+function subjectCandidates(rows) {
+  const bots = new Set();
+  for (const r of rows) for (const s of r.seats ?? []) bots.add(s.bot);
+  const all = [...bots].sort();
+  const lobsters = all.filter((b) => b.startsWith('lobster'));
+  return lobsters.length > 0 ? lobsters : all;
+}
+
+/**
+ * THE SUBJECT SEAT: the contender. Returns `null` when the arm seats more than
+ * one candidate, because THE INGEST MAY NOT GUESS WHICH BOT IT IS MEASURING.
+ *
+ * The first version read `rows[0].seats` and took the first `lobster*` it saw.
+ * That is a lottery on two counts -- the row order is completion order, and the
+ * seats rotate -- and on the 20260827-overnight batch it came up differently in
+ * the two arms of FOUR of the eight pairings (P2, P4, P5 and P7's seed arm),
+ * comparing `lobster-territory` in one arm against `lobster-material` in the
+ * other. It did not error. It reported the largest effects in the batch: score
+ * -0.5938 and win -1.0000 on `null-snake6` for P2 and P5, two cells whose true
+ * delta is EXACTLY ZERO. A silent wrong answer of that size is worse than no
+ * answer, and it is not detectable downstream -- the seat-equality gate passes,
+ * because the seats really are identical; it is the subject NAME that differs.
+ *
+ * So an ambiguous arm is refused and the caller must declare the seat with
+ * `--subject-map <arm>=<bot>`, which is the same channel a legitimate subject
+ * substitution (P3's slider) already uses. The aggregate the sim harness writes
+ * prints the same declaration in its `Subject:` line; the two now agree by
+ * construction instead of by luck.
+ */
 function subjectOf(rows, named) {
   if (named) return named;
-  const first = rows[0];
-  if (first === undefined) return null;
-  const bots = first.seats.map((s) => s.bot);
-  return bots.find((b) => b.startsWith('lobster')) ?? bots[0];
+  const cands = subjectCandidates(rows);
+  if (cands.length === 1) return cands[0];
+  return null;
 }
 
 /**
@@ -224,6 +258,26 @@ function pairCells(base, treat, { subjectMap = {}, subject = null } = {}) {
     const byId = new Map(b.map((r) => [r.gameId, r]));
     const subjA = subjectMap[base.name] ?? subjectOf(a, subject);
     const subjB = subjectMap[treat.name] ?? subjectOf(b, subject);
+    // AN UNDECLARED SUBJECT IS A REFUSAL, NOT A DEFAULT. See subjectOf.
+    if (subjA === null || subjB === null) {
+      const amb = subjA === null ? base.name : treat.name;
+      const rows = subjA === null ? a : b;
+      problems.push(
+        `sweep ${sweepId}: arm ${amb} seats more than one candidate subject ` +
+          `(${subjectCandidates(rows).join(', ')}) -- declare it with ` +
+          `--subject-map ${amb}=<bot>. The ingest does not guess which bot it is measuring.`
+      );
+      dropped += a.length;
+      continue;
+    }
+    if (subjA !== subjB && !(subjectMap[base.name] && subjectMap[treat.name])) {
+      problems.push(
+        `sweep ${sweepId}: resolved subjects differ (${base.name}=${subjA} vs ${treat.name}=${subjB}) ` +
+          'and neither was declared. A substitution must be declared with --subject-map.'
+      );
+      dropped += a.length;
+      continue;
+    }
     for (const ra of a) {
       const rb = byId.get(ra.gameId);
       if (rb === undefined) {
@@ -278,6 +332,7 @@ module.exports = {
   pairCells,
   readJson,
   readRows,
+  subjectCandidates,
   subjectOf,
   METRIC_KEYS,
   RETIRED_KEYS,
