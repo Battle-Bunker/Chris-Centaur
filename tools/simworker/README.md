@@ -18,7 +18,8 @@ bin/                  plain-node tooling; no build step
   aggregate.js        block-paired stats + markdown tables; reports `sharePar`
                       — THE OBJECTIVE, share of end weight x teams, par 1 —
                       beside the older rank readings (METHODOLOGY §3.0)
-  verify-null.js      prove an A/A null is A/A; print the noise floor
+  verify-null.js      prove an A/A null is A/A; print the noise floor, in
+                      `sharePar` units first (rank floors do not convert)
   batch-manifest.js   assemble manifest.json; size accounting; replay pruning
   make-specs.js       regenerate the spec library
 specs/                the spec library (generated; edit make-specs.js, not these)

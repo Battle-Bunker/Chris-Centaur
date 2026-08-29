@@ -161,9 +161,24 @@ What this means for every table you read:
   ledger and with `verify-null.js`; never a headline. A winner-take-all column
   is not this program's reward function and a table that leads with one invites
   optimising the wrong quantity.
-- **Old manifests have no `sharePar`.** Rows written before 2026-08-29 carry no
-  per-team end weight to share out, so the cell reads `—` rather than 0. A
-  missing column is not a team that owned nothing.
+- **The objective's floor is not the rank floor, and it is wider.** Measured on
+  the 20260827 A/A null at 16 blocks: `sharePar` resolves to **±0.53** on
+  `headline-mix-king` and **±0.15** on `null-snake6`, against ±0.097 and ±0.032
+  for `score`. Put the two ranges on the same footing (`score` spans 1,
+  `sharePar` spans the team count) and the objective is still **1.6–1.8×
+  noisier**, so roughly **3× the blocks** buy the same power. `verify-null.js`
+  prints the `sharePar` line first for exactly this reason. Never read a share
+  delta against a rank floor: it will look bigger than it is.
+- **Old manifests have no stamped `sharePar` — it is RECOMPUTED, not dropped.**
+  Rows written before 2026-08-29 carry every team's `finalMaterial`, which IS
+  the weight the share is taken over on every end kind but one, so `aggregate.js`
+  recomputes the objective for them from the same quantity the harness would
+  have used. The exception is a mutual final wipe, where the final board is all
+  zeroes and the previous turn's weights are not in the manifest: those games,
+  and only those, fall back to a flat draw at par, and the tool NAMES each one
+  under Integrity problems rather than absorbing it into a mean. Batch
+  20260827-overnight holds 3 such games in 2,592, all in P7; backfilling them
+  from the replays moves no cell's delta past the third decimal.
 - **A mutual wipe is not a draw.** Branch 1 was mis-implemented here until
   2026-08-29: placements were read off the FINAL board, where every eliminated
   team carries zero material, so `all-eliminated` always scored a shared first

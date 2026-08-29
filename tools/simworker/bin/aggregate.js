@@ -208,13 +208,57 @@ if (!arms.has(baseName)) {
 
 // --------------------------------------------------------------- metrics
 
+/*
+ * ── SCORING AN OLD BATCH UNDER THE OBJECTIVE ───────────────────────────────
+ *
+ * A manifest written before 2026-08-29 carries no `sharePar` and no
+ * `adjudicatedMaterial`. It DOES carry every team's `finalMaterial`, and on
+ * every end kind but one that IS the weight the share is taken over — the
+ * winner branches read the final board too. So the objective is recoverable
+ * for an old batch rather than lost, and this recomputes it here from exactly
+ * the quantity the harness would have used.
+ *
+ * The one exception is a MUTUAL FINAL WIPE, where TacticToes adjudicates on
+ * the previous committed turn and every team's `finalMaterial` is the zero a
+ * dead team carries. The fallback scores those games a flat draw at par, which
+ * is wrong, and the previous turn's weights are not in the manifest to fix it
+ * with. So they are NAMED — `mutualWipeGapOf` below lists them per arm as an
+ * integrity problem — rather than silently absorbed into a mean. They are the
+ * only rows the fallback gets wrong; the rest of the batch is exact.
+ *
+ * (Naming beats dropping the column. Batch 20260827-overnight holds 3 such
+ * games in 2,592, all in P7, and backfilling them from the replays moves no
+ * cell's delta past the third decimal. Refusing to score the batch at all
+ * would have lost 2,589 correct rows to protect 3.)
+ */
+const adjudicatedOf = (r) =>
+  r.adjudicatedMaterial === undefined || r.adjudicatedMaterial === null
+    ? r.finalMaterial
+    : r.adjudicatedMaterial;
+
+/** The objective, recomputed from a row. Same formula as `placementsOf`. */
+function shareParOf(row, res) {
+  const teams = row.results.length;
+  if (teams === 0) return null;
+  const total = row.results.reduce((a, r) => a + adjudicatedOf(r), 0);
+  return total > 0 ? (teams * adjudicatedOf(res)) / total : 1;
+}
+
+/** Games whose sharePar the fallback above gets wrong, and only those. */
+function mutualWipeGapOf(rows) {
+  return rows
+    .filter((r) => r.endKind === 'all-eliminated')
+    .filter((r) => r.results.every((x) => x.sharePar === undefined || x.sharePar === null))
+    .filter((r) => r.results.every((x) => x.adjudicatedMaterial === undefined || x.adjudicatedMaterial === null))
+    .map((r) => r.gameId);
+}
+
 /**
  * Per-game metrics for ONE bot's seat.
  *
- * `score` is the harness's normalized placement in [0,1] — the primary OUTCOME
- * metric, and the one with the worst resolution (see the header note printed
- * with the table). The rest are MECHANISM: they describe what the engine did,
- * not who won, and they move first and move cleaner.
+ * `sharePar` is THE OBJECTIVE (see the header) and the row to read first. The
+ * rank readings sit beside it. The rest are MECHANISM: they describe what the
+ * engine did, not who won, and they move first and move cleaner.
  */
 function metricsFor(row, subjectBot) {
   const res = row.results.find((r) => r.bot === subjectBot);
@@ -227,11 +271,11 @@ function metricsFor(row, subjectBot) {
     // `sharePar` is THE OBJECTIVE (see the header). `score`, `win` and `place`
     // are rank readings kept for continuity with every earlier finding.
     //
-    // Null rather than 0 on a manifest written before 2026-08-29: those rows
-    // carry no `adjudicatedMaterial` and no share, and a missing column is not
-    // a team that owned nothing. `blockCI` drops nulls, so an old batch
-    // aggregates exactly as it used to and simply has no `sharePar` row.
-    sharePar: res.sharePar ?? null,
+    // The harness stamps `sharePar` on every row it writes. On a manifest from
+    // before 2026-08-29 it is recomputed from the per-team end weights the row
+    // does carry — see the note above `adjudicatedOf`, and the integrity
+    // problem that names the mutual wipes that recomputation cannot reach.
+    sharePar: res.sharePar ?? shareParOf(row, res),
     score: res.score,
     win: res.place === 1 ? 1 : 0,
     place: res.place,
@@ -337,6 +381,25 @@ for (const sweepId of [...allSweepIds].sort()) {
 
   const byArm = new Map(present.map((a) => [a, new Map(arms.get(a).sweeps.get(sweepId).map((r) => [r.gameId, r]))]));
 
+  // THE sharePar GAP on an OLD BATCH — the one game shape the fallback cannot
+  // score. Named per arm rather than dropped: every other row in the same cell
+  // is exact, and dropping the cell would lose all of them to protect a few.
+  const wipeGap = new Map();
+  for (const a of present) {
+    const g = mutualWipeGapOf(arms.get(a).sweeps.get(sweepId) ?? []);
+    if (g.length > 0) wipeGap.set(a, g);
+  }
+  for (const [a, g] of wipeGap) {
+    problems.push(
+      `sweep ${sweepId}, arm ${a}: ${g.length} game(s) ended in a MUTUAL WIPE on a manifest ` +
+      `predating sharePar, so the objective falls back to the final board — which is all ` +
+      `zeroes there, and reads as a flat draw at par where the game awards the game on the ` +
+      `PREVIOUS turn's weights. Not reconstructible from the manifest (the replays carry it); ` +
+      `every other row in this sweep is exact. ` +
+      `First few: ${g.slice(0, 5).join(', ')}${g.length > 5 ? ', …' : ''}`
+    );
+  }
+
   // INTEGRITY GATE. Same gameId must mean the same board and the same seats in
   // every arm, or the pairing is a fiction.
   const baseRows = byArm.get(baseName) ?? byArm.get(present[0]);
@@ -400,6 +463,9 @@ for (const sweepId of [...allSweepIds].sort()) {
     flagStamps: Object.fromEntries(
       present.map((a) => [a, flagStampOf(arms.get(a).sweeps.get(sweepId) ?? [])])
     ),
+    // Games whose sharePar this manifest cannot support: a mutual wipe on a
+    // batch predating the column. Empty on anything run after 2026-08-29.
+    shareParGapUnscoreable: Object.fromEntries([...wipeGap]),
     cells: [],
   };
 
@@ -502,8 +568,17 @@ md.push('steps at rank boundaries, is blind to margin, and its 0.5 on a 3-team c
 md.push('counterpart on a 2-team one. Both are reported, because every earlier finding in this');
 md.push('program is denominated in `score` — but when they disagree, `sharePar` is the one being');
 md.push('optimized. `win` (P(first)) is a rank reading too; it is kept for continuity and is not');
-md.push('a headline. A `sharePar` row of `—` means a manifest written before 2026-08-29, which');
-md.push('carries no per-team end weight to share out.');
+md.push('a headline. On a batch run before 2026-08-29 the harness stamped no `sharePar`, so it is');
+md.push('recomputed here from the per-team end weights those manifests do carry — exact on every');
+md.push('end kind except a mutual final wipe, and the Integrity problems section names each of');
+md.push('those games individually rather than letting it disappear into a mean.');
+md.push('');
+md.push('**The `sharePar` floor is not the `score` floor.** They are different units and do not');
+md.push('convert. Measured on the 20260827 A/A null at 16 blocks, `sharePar` resolves to ±0.53');
+md.push('on `headline-mix-king` and ±0.15 on `null-snake6`, against ±0.097 and ±0.032 for');
+md.push('`score` — about 1.6-1.8x noisier once the two ranges are put on the same footing, so');
+md.push('roughly 3x the blocks buy the same power. Read a sharePar delta against a sharePar');
+md.push('floor from `verify-null.js`, never against a rank floor.');
 md.push('');
 md.push('**Read the arm audit first.** Every CL flag parses only `1`, `on` or `true`, with no');
 md.push('warning on a typo, and several are overridable per engine — so an arm can carry the');

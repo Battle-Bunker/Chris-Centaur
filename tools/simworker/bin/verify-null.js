@@ -65,6 +65,32 @@ if (!nameA || !nameB) { console.error('--null takes two comma-separated arm name
 
 function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } }
 
+/*
+ * THE OBJECTIVE'S OWN FLOOR.
+ *
+ * A treatment quoted against `sharePar` needs a floor measured on `sharePar`.
+ * A rank floor will not do: the two are different units, they do not convert,
+ * and the objective is measurably noisier per unit of its own range — so
+ * reading a share delta against a score floor overstates it.
+ *
+ * Same formula as `placementsOf` and `aggregate.js`: share of the adjudicated
+ * end weight x team count, par 1, and par for everyone on a board with no
+ * weight anywhere. On a manifest predating the column the weight falls back to
+ * `finalMaterial`, which is the adjudicated weight on every end kind but a
+ * mutual wipe; `aggregate.js` is the tool that names those games.
+ */
+const adjudicatedOf = (r) =>
+  r.adjudicatedMaterial === undefined || r.adjudicatedMaterial === null
+    ? r.finalMaterial
+    : r.adjudicatedMaterial;
+function shareParOf(row, res) {
+  if (res.sharePar !== undefined && res.sharePar !== null) return res.sharePar;
+  const teams = row.results.length;
+  if (teams === 0) return 1;
+  const total = row.results.reduce((a, r) => a + adjudicatedOf(r), 0);
+  return total > 0 ? (teams * adjudicatedOf(res)) / total : 1;
+}
+
 function loadArm(name) {
   const dir = path.join(batchDir, 'arms', name);
   if (!fs.existsSync(dir)) return null;
@@ -143,8 +169,9 @@ for (const sweepId of [...sweepIds].sort()) {
     const key = `${sweepId}::${ra.cell}`;
     if (!deltas.has(key)) deltas.set(key, new Map());
     const byBlock = deltas.get(key);
-    if (!byBlock.has(ra.block)) byBlock.set(ra.block, { score: [], win: [], turns: [] });
+    if (!byBlock.has(ra.block)) byBlock.set(ra.block, { sharePar: [], score: [], win: [], turns: [] });
     const d = byBlock.get(ra.block);
+    d.sharePar.push(shareParOf(rb, pb) - shareParOf(ra, pa));
     d.score.push(pb.score - pa.score);
     d.win.push((pb.place === 1 ? 1 : 0) - (pa.place === 1 ? 1 : 0));
     d.turns.push(rb.turns - ra.turns);
@@ -157,12 +184,12 @@ console.log('');
 console.log('Any treatment delta in this batch that is not comfortably LARGER than the');
 console.log('half-width below is a null result. Quote these numbers next to it in findings.md.');
 console.log('');
-console.log('These three are RANK readings, and the objective is not one of them: the program');
-console.log('optimizes `sharePar` — share of total end weight x team count, par 1 — which');
-console.log('aggregate.js reports and which is continuous in the weight margin where a rank is');
-console.log('not. A treatment quoted against `sharePar` needs its floor measured on `sharePar`;');
-console.log('this script does not yet compute one, so quote the score/win floors as what they');
-console.log('are (rank floors) and say so.');
+console.log('`sharePar` IS THE OBJECTIVE and its floor is the first line to quote: share of total');
+console.log('end weight x team count, par 1, continuous in the weight margin. `score` and `win`');
+console.log('(P(first)) are RANK readings kept for continuity with earlier findings. THE FLOORS');
+console.log('ARE IN DIFFERENT UNITS AND DO NOT CONVERT — a share delta read against a rank floor');
+console.log('is overstated, because the objective is measurably noisier per unit of its own');
+console.log('range. Quote each delta against the floor in its own units, and say which.');
 console.log('');
 
 const mean = (xs) => (xs.length ? xs.reduce((p, q) => p + q, 0) / xs.length : null);
@@ -170,7 +197,7 @@ const T95 = { 2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571, 7: 2.447, 8: 2.
 
 for (const [key, byBlock] of [...deltas].sort()) {
   const blocks = [...byBlock.values()];
-  for (const metric of ['score', 'win', 'turns']) {
+  for (const metric of ['sharePar', 'score', 'win', 'turns']) {
     const blockMeans = blocks.map((b) => mean(b[metric])).filter((x) => x !== null);
     const n = blockMeans.length;
     if (n === 0) continue;
