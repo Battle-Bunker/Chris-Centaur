@@ -1,0 +1,376 @@
+{
+ "spec": {
+  "_comment": [
+   "P3 — I2's TERRITORY_SLIDER_PROFILE, extended from 1000ms to 2000ms.",
+   "",
+   "I2 found the repair WINS at 1000ms and not at 150ms: the profile adds terms",
+   "(command, movement budget) that only pay once the search has budget to act on",
+   "them. That is a BUDGET GRADIENT, and a gradient measured at two points is a",
+   "line drawn through two points. 2000ms is the third.",
+   "",
+   "Both arms are the SAME bundle. The arms differ only in which bot name is",
+   "seated in the subject seat, because the profile has NO env flag and no config",
+   "field — `TeamDecisionOptions.evaluate` is the only seam that reaches it, and",
+   "the harness holds that seam. See the bot-version map in HANDOFF.md.",
+   "",
+   "null-snake6 is a PROVABLY INERT cell for this arm: with no piece on the board",
+   "the two profiles are bit-identical. If a delta appears there, it is noise, and",
+   "its size is the yardstick for the piece cells in the same batch."
+  ],
+  "sweepId": "p3-slider-2000",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   84801,
+   84802,
+   84803,
+   84804,
+   84805,
+   84806,
+   84807,
+   84808,
+   84809,
+   84810,
+   84811,
+   84812,
+   84813,
+   84814,
+   84815,
+   84816
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-queen",
+    "config": {
+     "name": "snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-pawn",
+    "config": {
+     "name": "snake5-pawn",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "pawn",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p3-slider-2000",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   84801,
+   84802,
+   84803,
+   84804,
+   84805,
+   84806,
+   84807,
+   84808,
+   84809,
+   84810,
+   84811,
+   84812,
+   84813,
+   84814,
+   84815,
+   84816
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-queen",
+    "config": {
+     "name": "snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-pawn",
+    "config": {
+     "name": "snake5-pawn",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "pawn",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 192,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/claude/mid-turn-collision-logic-mkxurg",
+  "sha": "66904d256103a1d3f32d060fe742e98b092d33b6",
+  "subject": "Merge idea/i2 into integ/round-a: the slider repair (command + movement budget)",
+  "committedAt": "2026-08-27T05:37:01+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:05.909Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   4.23,
+   12.02,
+   17.47
+  ]
+ },
+ "startedAt": "2026-08-27T15:25:55.773Z",
+ "resumedAt": []
+}

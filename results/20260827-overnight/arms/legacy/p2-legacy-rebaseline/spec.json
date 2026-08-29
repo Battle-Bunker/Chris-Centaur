@@ -1,0 +1,313 @@
+{
+ "spec": {
+  "_comment": [
+   "P2 — the deployed-relevant re-baseline at the owner's target shape.",
+   "",
+   "ONE build, TWO seat assignments is NOT how this runs. Both arms are the same",
+   "bundle; the arms differ by CENTAUR_ENGINE (lobster vs legacy), which selects",
+   "which engine drives the full pass.",
+   "",
+   "BUDGET WARNING, and it is the reason this cell is at 2000ms and not lower:",
+   "legacy's chunk dispatch is not preemptible. At 150ms it overruns to ~1s and",
+   "its own telemetry reports statesEvaluated: 0, chunksCompleted: 0,",
+   "deadlineHit: true — it is not playing badly, it is playing its FALLBACK MOVE.",
+   "A legacy arm under 1000ms is a reflex baseline wearing legacy's name. 2000ms",
+   "is comfortably clear of that, which makes this the first shape where the",
+   "comparison is honest.",
+   "",
+   "Legacy also gives PIECES NO BOT — that is the production truth under the flag,",
+   "and it is why the piece-bearing rosters matter here more than anywhere else."
+  ],
+  "sweepId": "p2-legacy-rebaseline",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   26501,
+   26502,
+   26503,
+   26504,
+   26505,
+   26506,
+   26507,
+   26508,
+   26509,
+   26510,
+   26511,
+   26512,
+   26513,
+   26514,
+   26515,
+   26516
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-knight",
+    "config": {
+     "name": "snake5-knight",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p2-legacy-rebaseline",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   26501,
+   26502,
+   26503,
+   26504,
+   26505,
+   26506,
+   26507,
+   26508,
+   26509,
+   26510,
+   26511,
+   26512,
+   26513,
+   26514,
+   26515,
+   26516
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-knight",
+    "config": {
+     "name": "snake5-knight",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/claude/mid-turn-collision-logic-mkxurg",
+  "sha": "66904d256103a1d3f32d060fe742e98b092d33b6",
+  "subject": "Merge idea/i2 into integ/round-a: the slider repair (command + movement budget)",
+  "committedAt": "2026-08-27T05:37:01+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:05.909Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": "legacy",
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   2.65,
+   10.47,
+   16.95
+  ]
+ },
+ "startedAt": "2026-08-27T13:45:37.951Z",
+ "resumedAt": []
+}

@@ -1,0 +1,2260 @@
+{
+ "batch": "20260827-overnight",
+ "base": "integrated",
+ "generatedAt": "2026-08-28T01:36:31.280Z",
+ "sweeps": [
+  {
+   "sweepId": "p3-slider-2000",
+   "subject": "integrated:lobster-territory slider:lobster-slider",
+   "arms": [
+    "integrated",
+    "slider"
+   ],
+   "gamesPaired": 192,
+   "gamesDropped": 0,
+   "cells": [
+    {
+     "cell": "headline-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.7396,
+        "lo": 0.654,
+        "hi": 0.8252,
+        "n": 16,
+        "sd": 0.1607
+       },
+       "win": {
+        "mean": 0.5208,
+        "lo": 0.3763,
+        "hi": 0.6654,
+        "n": 16,
+        "sd": 0.2713
+       },
+       "place": {
+        "mean": 1.5208,
+        "lo": 1.3497,
+        "hi": 1.692,
+        "n": 16,
+        "sd": 0.3213
+       },
+       "finalMaterial": {
+        "mean": 19.9167,
+        "lo": 14.3671,
+        "hi": 25.4663,
+        "n": 16,
+        "sd": 10.4169
+       },
+       "finalUnits": {
+        "mean": 3.125,
+        "lo": 2.5276,
+        "hi": 3.7224,
+        "n": 16,
+        "sd": 1.1213
+       },
+       "survived": {
+        "mean": 0.6875,
+        "lo": 0.5504,
+        "hi": 0.8246,
+        "n": 16,
+        "sd": 0.2573
+       },
+       "turns": {
+        "mean": 70.7708,
+        "lo": 60.1072,
+        "hi": 81.4345,
+        "n": 16,
+        "sd": 20.0162
+       },
+       "decisive": {
+        "mean": 0.75,
+        "lo": 0.6287,
+        "hi": 0.8713,
+        "n": 16,
+        "sd": 0.2277
+       },
+       "decisions": {
+        "mean": 70.3542,
+        "lo": 59.6206,
+        "hi": 81.0877,
+        "n": 16,
+        "sd": 20.1474
+       },
+       "worstWallMs": {
+        "mean": 1947.2708,
+        "lo": 1941.4215,
+        "hi": 1953.1202,
+        "n": 16,
+        "sd": 10.9796
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0114,
+        "lo": 0.0027,
+        "hi": 0.0202,
+        "n": 16,
+        "sd": 0.0164
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 5716,
+        "lo": 1567.5598,
+        "hi": 9864.4402,
+        "n": 16,
+        "sd": 7786.8422
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "slider": {
+       "score": {
+        "mean": 0.7708,
+        "lo": 0.6922,
+        "hi": 0.8494,
+        "n": 16,
+        "sd": 0.1475
+       },
+       "win": {
+        "mean": 0.5417,
+        "lo": 0.3845,
+        "hi": 0.6988,
+        "n": 16,
+        "sd": 0.295
+       },
+       "place": {
+        "mean": 1.4583,
+        "lo": 1.3012,
+        "hi": 1.6155,
+        "n": 16,
+        "sd": 0.295
+       },
+       "finalMaterial": {
+        "mean": 20.2083,
+        "lo": 14.0304,
+        "hi": 26.3862,
+        "n": 16,
+        "sd": 11.5962
+       },
+       "finalUnits": {
+        "mean": 2.7292,
+        "lo": 2.0577,
+        "hi": 3.4006,
+        "n": 16,
+        "sd": 1.2603
+       },
+       "survived": {
+        "mean": 0.6042,
+        "lo": 0.4425,
+        "hi": 0.7659,
+        "n": 16,
+        "sd": 0.3035
+       },
+       "turns": {
+        "mean": 66.4792,
+        "lo": 52.88,
+        "hi": 80.0784,
+        "n": 16,
+        "sd": 25.5264
+       },
+       "decisive": {
+        "mean": 0.7083,
+        "lo": 0.5512,
+        "hi": 0.8655,
+        "n": 16,
+        "sd": 0.295
+       },
+       "decisions": {
+        "mean": 66.4792,
+        "lo": 52.88,
+        "hi": 80.0784,
+        "n": 16,
+        "sd": 25.5264
+       },
+       "worstWallMs": {
+        "mean": 1925.1667,
+        "lo": 1910.0142,
+        "hi": 1940.3191,
+        "n": 16,
+        "sd": 28.442
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0186,
+        "lo": 0.0028,
+        "hi": 0.0345,
+        "n": 16,
+        "sd": 0.0297
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 5993.6875,
+        "lo": -42.0634,
+        "hi": 12029.4384,
+        "n": 16,
+        "sd": 11329.4244
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 23.3333,
+        "lo": -26.39,
+        "hi": 73.0567,
+        "n": 16,
+        "sd": 93.3333
+       }
+      }
+     },
+     "deltas": {
+      "slider": {
+       "score": {
+        "mean": 0.0313,
+        "lo": -0.091,
+        "hi": 0.1535,
+        "n": 16,
+        "sd": 0.2295,
+        "bootLo": -0.0729,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0.0208,
+        "lo": -0.1988,
+        "hi": 0.2404,
+        "n": 16,
+        "sd": 0.4122,
+        "bootLo": -0.1667,
+        "bootHi": 0.2292,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.0625,
+        "lo": -0.307,
+        "hi": 0.182,
+        "n": 16,
+        "sd": 0.459,
+        "bootLo": -0.2917,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 0.2917,
+        "lo": -7.9749,
+        "hi": 8.5582,
+        "n": 16,
+        "sd": 15.5167,
+        "bootLo": -6.9583,
+        "bootHi": 7.6875,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.3958,
+        "lo": -1.3225,
+        "hi": 0.5308,
+        "n": 16,
+        "sd": 1.7394,
+        "bootLo": -1.1875,
+        "bootHi": 0.4375,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": -0.0833,
+        "lo": -0.2935,
+        "hi": 0.1268,
+        "n": 16,
+        "sd": 0.3944,
+        "bootLo": -0.2708,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": -4.2917,
+        "lo": -20.1676,
+        "hi": 11.5843,
+        "n": 16,
+        "sd": 29.8,
+        "bootLo": -19.2083,
+        "bootHi": 8.9792,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0417,
+        "lo": -0.2454,
+        "hi": 0.1621,
+        "n": 16,
+        "sd": 0.3825,
+        "bootLo": -0.2292,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": -3.875,
+        "lo": -19.8363,
+        "hi": 12.0863,
+        "n": 16,
+        "sd": 29.9602,
+        "bootLo": -18.8958,
+        "bootHi": 9.4375,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -22.1042,
+        "lo": -36.1483,
+        "hi": -8.0601,
+        "n": 16,
+        "sd": 26.3615,
+        "bootLo": -34.9583,
+        "bootHi": -10.1042,
+        "excludesZero": true
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0.0072,
+        "lo": -0.0135,
+        "hi": 0.0279,
+        "n": 16,
+        "sd": 0.0388,
+        "bootLo": -0.0098,
+        "bootHi": 0.0268,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 277.6875,
+        "lo": -6600.2734,
+        "hi": 7155.6484,
+        "n": 16,
+        "sd": 12910.2973,
+        "bootLo": -5272.2292,
+        "bootHi": 6972.7292,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 23.3333,
+        "lo": -26.39,
+        "hi": 73.0567,
+        "n": 16,
+        "sd": 93.3333,
+        "bootLo": 0,
+        "bootHi": 70,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.25,
+      "slider": 0.292
+     }
+    },
+    {
+     "cell": "null-snake6",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 41.6667,
+        "lo": 37.7841,
+        "hi": 45.5492,
+        "n": 16,
+        "sd": 7.2877
+       },
+       "finalUnits": {
+        "mean": 4.9792,
+        "lo": 4.6519,
+        "hi": 5.3064,
+        "n": 16,
+        "sd": 0.6143
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 119.4167,
+        "lo": 118.4826,
+        "hi": 120.3507,
+        "n": 16,
+        "sd": 1.7533
+       },
+       "decisive": {
+        "mean": 0.0417,
+        "lo": -0.019,
+        "hi": 0.1023,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "decisions": {
+        "mean": 119.4167,
+        "lo": 118.4826,
+        "hi": 120.3507,
+        "n": 16,
+        "sd": 1.7533
+       },
+       "worstWallMs": {
+        "mean": 1963.875,
+        "lo": 1961.5972,
+        "hi": 1966.1528,
+        "n": 16,
+        "sd": 4.2755
+       },
+       "overrunRate": {
+        "mean": 0.0002,
+        "lo": -0.0002,
+        "hi": 0.0005,
+        "n": 16,
+        "sd": 0.0007
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 118321.5833,
+        "lo": 111035.262,
+        "hi": 125607.9046,
+        "n": 16,
+        "sd": 13676.8114
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "slider": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 39.7083,
+        "lo": 36.376,
+        "hi": 43.0406,
+        "n": 16,
+        "sd": 6.2549
+       },
+       "finalUnits": {
+        "mean": 4.8125,
+        "lo": 4.5086,
+        "hi": 5.1164,
+        "n": 16,
+        "sd": 0.5705
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 119.7917,
+        "lo": 119.3477,
+        "hi": 120.2356,
+        "n": 16,
+        "sd": 0.8333
+       },
+       "decisive": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "decisions": {
+        "mean": 119.7917,
+        "lo": 119.3477,
+        "hi": 120.2356,
+        "n": 16,
+        "sd": 0.8333
+       },
+       "worstWallMs": {
+        "mean": 1962.9375,
+        "lo": 1961.8443,
+        "hi": 1964.0307,
+        "n": 16,
+        "sd": 2.052
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 120964.8333,
+        "lo": 115275.2071,
+        "hi": 126654.4596,
+        "n": 16,
+        "sd": 10679.7302
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 16.6458,
+        "lo": -18.8264,
+        "hi": 52.1181,
+        "n": 16,
+        "sd": 66.5833
+       }
+      }
+     },
+     "deltas": {
+      "slider": {
+       "score": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": -1.9583,
+        "lo": -6.2099,
+        "hi": 2.2932,
+        "n": 16,
+        "sd": 7.9804,
+        "bootLo": -5.9167,
+        "bootHi": 1.8125,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.1667,
+        "lo": -0.5869,
+        "hi": 0.2536,
+        "n": 16,
+        "sd": 0.7888,
+        "bootLo": -0.5417,
+        "bootHi": 0.2083,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 0.375,
+        "lo": -0.6942,
+        "hi": 1.4442,
+        "n": 16,
+        "sd": 2.0069,
+        "bootLo": -0.4583,
+        "bootHi": 1.4167,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0208,
+        "lo": -0.0994,
+        "hi": 0.0578,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0833,
+        "bootHi": 0.0417,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.375,
+        "lo": -0.6942,
+        "hi": 1.4442,
+        "n": 16,
+        "sd": 2.0069,
+        "bootLo": -0.4583,
+        "bootHi": 1.4167,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -0.9375,
+        "lo": -3.2522,
+        "hi": 1.3772,
+        "n": 16,
+        "sd": 4.3448,
+        "bootLo": -3.2292,
+        "bootHi": 0.9375,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": -0.0002,
+        "lo": -0.0005,
+        "hi": 0.0002,
+        "n": 16,
+        "sd": 0.0007,
+        "bootLo": -0.0005,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 2643.25,
+        "lo": -4937.4403,
+        "hi": 10223.9403,
+        "n": 16,
+        "sd": 14229.3576,
+        "bootLo": -3590.3333,
+        "bootHi": 9723.5833,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 16.6458,
+        "lo": -18.8264,
+        "hi": 52.1181,
+        "n": 16,
+        "sd": 66.5833,
+        "bootLo": 0,
+        "bootHi": 49.9375,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.958,
+      "slider": 0.979
+     }
+    },
+    {
+     "cell": "snake5-pawn",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.4271,
+        "lo": 0.2975,
+        "hi": 0.5566,
+        "n": 16,
+        "sd": 0.2432
+       },
+       "win": {
+        "mean": 0.25,
+        "lo": 0.0847,
+        "hi": 0.4153,
+        "n": 16,
+        "sd": 0.3103
+       },
+       "place": {
+        "mean": 2.1458,
+        "lo": 1.8867,
+        "hi": 2.405,
+        "n": 16,
+        "sd": 0.4864
+       },
+       "finalMaterial": {
+        "mean": 6.5,
+        "lo": 3.8453,
+        "hi": 9.1547,
+        "n": 16,
+        "sd": 4.9829
+       },
+       "finalUnits": {
+        "mean": 1.2917,
+        "lo": 0.9314,
+        "hi": 1.652,
+        "n": 16,
+        "sd": 0.6763
+       },
+       "survived": {
+        "mean": 0.6458,
+        "lo": 0.4942,
+        "hi": 0.7975,
+        "n": 16,
+        "sd": 0.2846
+       },
+       "turns": {
+        "mean": 117.0625,
+        "lo": 113.2316,
+        "hi": 120.8934,
+        "n": 16,
+        "sd": 7.1908
+       },
+       "decisive": {
+        "mean": 0.1042,
+        "lo": 0.0192,
+        "hi": 0.1892,
+        "n": 16,
+        "sd": 0.1596
+       },
+       "decisions": {
+        "mean": 101.2708,
+        "lo": 93.1699,
+        "hi": 109.3718,
+        "n": 16,
+        "sd": 15.2059
+       },
+       "worstWallMs": {
+        "mean": 1962.875,
+        "lo": 1962.3732,
+        "hi": 1963.3768,
+        "n": 16,
+        "sd": 0.9418
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 272792.625,
+        "lo": 230592.1776,
+        "hi": 314993.0724,
+        "n": 16,
+        "sd": 79212.4775
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 131.375,
+        "lo": -148.5851,
+        "hi": 411.3351,
+        "n": 16,
+        "sd": 525.5
+       }
+      },
+      "slider": {
+       "score": {
+        "mean": 0.4375,
+        "lo": 0.3306,
+        "hi": 0.5444,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "win": {
+        "mean": 0.3125,
+        "lo": 0.1754,
+        "hi": 0.4496,
+        "n": 16,
+        "sd": 0.2573
+       },
+       "place": {
+        "mean": 2.125,
+        "lo": 1.9112,
+        "hi": 2.3388,
+        "n": 16,
+        "sd": 0.4014
+       },
+       "finalMaterial": {
+        "mean": 7.2292,
+        "lo": 5.1605,
+        "hi": 9.2978,
+        "n": 16,
+        "sd": 3.883
+       },
+       "finalUnits": {
+        "mean": 1.3125,
+        "lo": 0.9984,
+        "hi": 1.6266,
+        "n": 16,
+        "sd": 0.5896
+       },
+       "survived": {
+        "mean": 0.625,
+        "lo": 0.5151,
+        "hi": 0.7349,
+        "n": 16,
+        "sd": 0.2064
+       },
+       "turns": {
+        "mean": 119.0833,
+        "lo": 117.9743,
+        "hi": 120.1923,
+        "n": 16,
+        "sd": 2.0817
+       },
+       "decisive": {
+        "mean": 0.0625,
+        "lo": -0.0091,
+        "hi": 0.1341,
+        "n": 16,
+        "sd": 0.1344
+       },
+       "decisions": {
+        "mean": 101.7917,
+        "lo": 94.3135,
+        "hi": 109.2698,
+        "n": 16,
+        "sd": 14.0369
+       },
+       "worstWallMs": {
+        "mean": 1962.8542,
+        "lo": 1962.3912,
+        "hi": 1963.3171,
+        "n": 16,
+        "sd": 0.869
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 251472.9792,
+        "lo": 216406.7693,
+        "hi": 286539.189,
+        "n": 16,
+        "sd": 65821.1353
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 129.7292,
+        "lo": -146.7237,
+        "hi": 406.182,
+        "n": 16,
+        "sd": 518.9167
+       }
+      }
+     },
+     "deltas": {
+      "slider": {
+       "score": {
+        "mean": 0.0104,
+        "lo": -0.072,
+        "hi": 0.0929,
+        "n": 16,
+        "sd": 0.1548,
+        "bootLo": -0.0625,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0.0625,
+        "lo": -0.0538,
+        "hi": 0.1788,
+        "n": 16,
+        "sd": 0.2184,
+        "bootLo": -0.0208,
+        "bootHi": 0.1667,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.0208,
+        "lo": -0.1858,
+        "hi": 0.1441,
+        "n": 16,
+        "sd": 0.3096,
+        "bootLo": -0.1667,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 0.7292,
+        "lo": -0.3148,
+        "hi": 1.7732,
+        "n": 16,
+        "sd": 1.9597,
+        "bootLo": -0.2083,
+        "bootHi": 1.6667,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.0208,
+        "lo": -0.1441,
+        "hi": 0.1858,
+        "n": 16,
+        "sd": 0.3096,
+        "bootLo": -0.125,
+        "bootHi": 0.1667,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": -0.0208,
+        "lo": -0.1227,
+        "hi": 0.0811,
+        "n": 16,
+        "sd": 0.1912,
+        "bootLo": -0.1042,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 2.0208,
+        "lo": -1.7959,
+        "hi": 5.8375,
+        "n": 16,
+        "sd": 7.1642,
+        "bootLo": 0,
+        "bootHi": 5.8333,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0417,
+        "lo": -0.1023,
+        "hi": 0.019,
+        "n": 16,
+        "sd": 0.1139,
+        "bootLo": -0.1042,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.5208,
+        "lo": -1.7726,
+        "hi": 2.8143,
+        "n": 16,
+        "sd": 4.305,
+        "bootLo": -1.3958,
+        "bootHi": 2.625,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -0.0208,
+        "lo": -0.5952,
+        "hi": 0.5536,
+        "n": 16,
+        "sd": 1.0782,
+        "bootLo": -0.5208,
+        "bootHi": 0.4792,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": -21319.6458,
+        "lo": -42820.1936,
+        "hi": 180.9019,
+        "n": 16,
+        "sd": 40357.6682,
+        "bootLo": -41585.75,
+        "bootHi": -3118.625,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -1.6458,
+        "lo": -5.1531,
+        "hi": 1.8614,
+        "n": 16,
+        "sd": 6.5833,
+        "bootLo": -4.9375,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.896,
+      "slider": 0.938
+     }
+    },
+    {
+     "cell": "snake5-queen",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.6667,
+        "lo": 0.5809,
+        "hi": 0.7524,
+        "n": 16,
+        "sd": 0.161
+       },
+       "win": {
+        "mean": 0.3542,
+        "lo": 0.1892,
+        "hi": 0.5191,
+        "n": 16,
+        "sd": 0.3096
+       },
+       "place": {
+        "mean": 1.6667,
+        "lo": 1.4951,
+        "hi": 1.8382,
+        "n": 16,
+        "sd": 0.322
+       },
+       "finalMaterial": {
+        "mean": 29.7083,
+        "lo": 26.3222,
+        "hi": 33.0945,
+        "n": 16,
+        "sd": 6.356
+       },
+       "finalUnits": {
+        "mean": 1.1458,
+        "lo": 1.0341,
+        "hi": 1.2576,
+        "n": 16,
+        "sd": 0.2097
+       },
+       "survived": {
+        "mean": 0.9583,
+        "lo": 0.8977,
+        "hi": 1.019,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "turns": {
+        "mean": 119.1875,
+        "lo": 117.4561,
+        "hi": 120.9189,
+        "n": 16,
+        "sd": 3.25
+       },
+       "decisive": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "decisions": {
+        "mean": 119.1875,
+        "lo": 117.4561,
+        "hi": 120.9189,
+        "n": 16,
+        "sd": 3.25
+       },
+       "worstWallMs": {
+        "mean": 1961.1667,
+        "lo": 1960.1353,
+        "hi": 1962.1981,
+        "n": 16,
+        "sd": 1.936
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0.0005,
+        "lo": -0.0006,
+        "hi": 0.0016,
+        "n": 16,
+        "sd": 0.0021
+       },
+       "stagedNothingRate": {
+        "mean": 0.0002,
+        "lo": -0.0002,
+        "hi": 0.0005,
+        "n": 16,
+        "sd": 0.0007
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 81764.875,
+        "lo": 63903.1103,
+        "hi": 99626.6397,
+        "n": 16,
+        "sd": 33527.4796
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 15712.5833,
+        "lo": 6634.3901,
+        "hi": 24790.7766,
+        "n": 16,
+        "sd": 17040.2501
+       }
+      },
+      "slider": {
+       "score": {
+        "mean": 0.7812,
+        "lo": 0.6972,
+        "hi": 0.8653,
+        "n": 16,
+        "sd": 0.1577
+       },
+       "win": {
+        "mean": 0.5625,
+        "lo": 0.3944,
+        "hi": 0.7306,
+        "n": 16,
+        "sd": 0.3155
+       },
+       "place": {
+        "mean": 1.4375,
+        "lo": 1.2694,
+        "hi": 1.6056,
+        "n": 16,
+        "sd": 0.3155
+       },
+       "finalMaterial": {
+        "mean": 33.7292,
+        "lo": 30.5842,
+        "hi": 36.8741,
+        "n": 16,
+        "sd": 5.9032
+       },
+       "finalUnits": {
+        "mean": 1.1458,
+        "lo": 1.0013,
+        "hi": 1.2904,
+        "n": 16,
+        "sd": 0.2713
+       },
+       "survived": {
+        "mean": 0.9792,
+        "lo": 0.9348,
+        "hi": 1.0236,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "turns": {
+        "mean": 119.7083,
+        "lo": 119.2837,
+        "hi": 120.1329,
+        "n": 16,
+        "sd": 0.797
+       },
+       "decisive": {
+        "mean": 0.0417,
+        "lo": -0.019,
+        "hi": 0.1023,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "decisions": {
+        "mean": 119.7083,
+        "lo": 119.2837,
+        "hi": 120.1329,
+        "n": 16,
+        "sd": 0.797
+       },
+       "worstWallMs": {
+        "mean": 1960.8125,
+        "lo": 1959.5435,
+        "hi": 1962.0815,
+        "n": 16,
+        "sd": 2.3819
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 67622.7917,
+        "lo": 39916.8757,
+        "hi": 95328.7076,
+        "n": 16,
+        "sd": 52005.4734
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 42.875,
+        "lo": -48.4916,
+        "hi": 134.2416,
+        "n": 16,
+        "sd": 171.5
+       }
+      }
+     },
+     "deltas": {
+      "slider": {
+       "score": {
+        "mean": 0.1146,
+        "lo": 0.0135,
+        "hi": 0.2157,
+        "n": 16,
+        "sd": 0.1897,
+        "bootLo": 0.0208,
+        "bootHi": 0.1979,
+        "excludesZero": true
+       },
+       "win": {
+        "mean": 0.2083,
+        "lo": -0.0055,
+        "hi": 0.4222,
+        "n": 16,
+        "sd": 0.4014,
+        "bootLo": 0.0208,
+        "bootHi": 0.3958,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.2292,
+        "lo": -0.4313,
+        "hi": -0.027,
+        "n": 16,
+        "sd": 0.3794,
+        "bootLo": -0.3958,
+        "bootHi": -0.0417,
+        "excludesZero": true
+       },
+       "finalMaterial": {
+        "mean": 4.0208,
+        "lo": 0.2218,
+        "hi": 7.8199,
+        "n": 16,
+        "sd": 7.131,
+        "bootLo": 0.4792,
+        "bootHi": 7.1667,
+        "excludesZero": true
+       },
+       "finalUnits": {
+        "mean": 0,
+        "lo": -0.2051,
+        "hi": 0.2051,
+        "n": 16,
+        "sd": 0.3849,
+        "bootLo": -0.1875,
+        "bootHi": 0.1875,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.0208,
+        "lo": -0.0578,
+        "hi": 0.0994,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0417,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 0.5208,
+        "lo": -1.3017,
+        "hi": 2.3434,
+        "n": 16,
+        "sd": 3.421,
+        "bootLo": -0.5833,
+        "bootHi": 2.4375,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0.0208,
+        "lo": -0.0578,
+        "hi": 0.0994,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0417,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.5208,
+        "lo": -1.3017,
+        "hi": 2.3434,
+        "n": 16,
+        "sd": 3.421,
+        "bootLo": -0.5833,
+        "bootHi": 2.4375,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -0.3542,
+        "lo": -2.0118,
+        "hi": 1.3034,
+        "n": 16,
+        "sd": 3.1114,
+        "bootLo": -1.7708,
+        "bootHi": 1.1875,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": -0.0005,
+        "lo": -0.0016,
+        "hi": 0.0006,
+        "n": 16,
+        "sd": 0.0021,
+        "bootLo": -0.0016,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": -0.0002,
+        "lo": -0.0005,
+        "hi": 0.0002,
+        "n": 16,
+        "sd": 0.0007,
+        "bootLo": -0.0005,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": -0.0208,
+        "lo": -0.0652,
+        "hi": 0.0236,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": -0.0625,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": -14142.0833,
+        "lo": -43801.5589,
+        "hi": 15517.3922,
+        "n": 16,
+        "sd": 55672.4084,
+        "bootLo": -39280.1042,
+        "bootHi": 13556.3958,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -15669.7083,
+        "lo": -24759.8229,
+        "hi": -6579.5937,
+        "n": 16,
+        "sd": 17062.6271,
+        "bootLo": -24215.7917,
+        "bootHi": -8068.8125,
+        "excludesZero": true
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.979,
+      "slider": 0.958
+     }
+    }
+   ]
+  }
+ ],
+ "problems": [
+  "sweep n0-aa-null: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "p1-substrate-headline/headline-mix-king-s70803-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70804-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70802-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70801-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70805-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70802-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70805-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70801-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70807-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70804-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70803-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70806-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70808-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70809-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70806-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70809-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70807-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70812-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70810-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70813-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70808-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70814-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70815-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70810-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70811-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70815-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70811-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/headline-mix-king-s70813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70813-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70812-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/headline-mix-king-s70814-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70816-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/headline-mix-king-s70816-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70801-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70801-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70802-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70802-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70803-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70803-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70804-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70804-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70805-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70805-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70806-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70806-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70807-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70807-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70808-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70808-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70809-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70809-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70810-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70810-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70811-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70811-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70812-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70812-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70813-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70813-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70814-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70814-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70815-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70815-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/null-snake6-s70816-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/null-snake6-s70816-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/null-snake6-s70816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70801-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70801-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70802-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70802-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70803-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70803-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70804-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70804-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70805-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70805-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70806-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70806-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70807-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70807-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70808-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70808-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70809-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70809-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70810-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70810-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70811-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70811-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70812-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70812-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70813-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70813-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70814-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70814-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70815-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70815-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p1-substrate-headline/snake5-queen-s70815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> perf-substrate=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p1-substrate-headline/snake5-queen-s70816-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex perf-substrate=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p1-substrate-headline/snake5-queen-s70816-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material perf-substrate=0:reflex,1:lobster-territory,2:lobster-material)",
+  "sweep p1-substrate-headline: no gameId is present and consistent across all arms — nothing to pair",
+  "p2-legacy-rebaseline/headline-mix-king-s26501-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26503-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26501-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26502-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26502-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26503-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26501-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26503-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26502-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26504-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26504-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26506-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26507-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26504-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26505-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26505-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26506-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26508-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26505-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26509-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26509-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26510-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26506-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26508-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26511-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26510-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26507-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26507-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26512-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26508-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26512-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26510-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26511-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26509-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26515-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26513-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26512-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26511-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26515-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26515-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26514-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26513-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26513-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/headline-mix-king-s26516-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26514-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26516-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/headline-mix-king-s26514-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/headline-mix-king-s26516-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26501-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26501-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26502-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26501-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26502-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26502-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26503-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26503-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26503-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26504-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26504-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26504-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26505-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26505-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26505-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26506-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26506-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26506-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26507-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26507-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26507-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26508-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26508-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26508-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26509-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26509-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26509-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26510-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26510-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26510-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26512-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26511-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26511-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26511-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26512-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26512-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26513-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26513-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26513-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26514-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26514-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26514-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26515-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26515-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26515-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/null-snake6-s26516-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/null-snake6-s26516-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/null-snake6-s26516-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26501-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26502-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26501-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26501-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26502-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26502-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26503-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26503-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26503-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26504-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26504-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26504-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26505-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26505-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26505-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26506-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26506-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26506-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26507-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26507-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26507-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26508-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26508-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26508-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26509-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26509-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26509-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26510-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26510-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26510-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26511-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26511-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26511-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26512-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26512-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26512-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26513-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26513-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26513-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26514-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26514-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26514-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26515-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26515-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26515-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "p2-legacy-rebaseline/snake5-knight-s26516-r0: seats differ (integrated=0:<SUBJECT>,1:lobster-material,2:reflex legacy=0:lobster-territory,1:lobster-material,2:reflex)",
+  "p2-legacy-rebaseline/snake5-knight-s26516-r1: seats differ (integrated=0:reflex,1:<SUBJECT>,2:lobster-material legacy=0:reflex,1:lobster-territory,2:lobster-material)",
+  "p2-legacy-rebaseline/snake5-knight-s26516-r2: seats differ (integrated=0:lobster-material,1:reflex,2:<SUBJECT> legacy=0:lobster-material,1:reflex,2:lobster-territory)",
+  "sweep p2-legacy-rebaseline: no gameId is present and consistent across all arms — nothing to pair",
+  "sweep p4-tiertruth-potions: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p5-wasm-arena: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p6-admission: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p7-cl1-gates: base arm \"integrated\" did not run it — skipped (use its own --base)"
+ ]
+}

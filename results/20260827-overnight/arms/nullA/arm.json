@@ -1,0 +1,25 @@
+{
+ "arm": "nullA",
+ "bundle": "/home/chris/lobster/bundles/integrated",
+ "bundleStamp": {
+  "ref": "origin/claude/mid-turn-collision-logic-mkxurg",
+  "sha": "66904d256103a1d3f32d060fe742e98b092d33b6",
+  "subject": "Merge idea/i2 into integ/round-a: the slider repair (command + movement budget)",
+  "committedAt": "2026-08-27T05:37:01+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:05.909Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "envOverrides": {},
+ "spec": "n0-aa-null",
+ "specPath": "/home/chris/lobster/results-wt/tools/simworker/specs/n0-aa-null.json",
+ "specVariantOf": null,
+ "workers": 10,
+ "startedAt": "2026-08-27T12:45:18.933Z",
+ "note": "A/A null for batch 20260827-overnight"
+}

@@ -1,0 +1,616 @@
+{
+ "bundle": "/home/chris/lobster/bundles/integrated-t2",
+ "arm": "integrated",
+ "bot": "lobster-territory",
+ "n": 60,
+ "skipped": 9,
+ "budgets": [
+  1000,
+  2000
+ ],
+ "sampleSeed": 1,
+ "flipsLoHi": 5,
+ "flipsAA": 1,
+ "rows": [
+  {
+   "game": "snake5-queen-s70806-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 45,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26509-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 2,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26504-r1",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 71,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s84813-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 104,
+   "team": "red",
+   "bot": "lobster-material",
+   "units": 1,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26506-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 26,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26514-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 46,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s84805-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 22,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26515-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 26,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": true,
+   "flipAA": true
+  },
+  {
+   "game": "snake5-pawn-s84813-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 86,
+   "team": "green",
+   "bot": "reflex",
+   "units": 1,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70809-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 45,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26515-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 21,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26505-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 3,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-pawn-s84806-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 4,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26508-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 16,
+   "team": "green",
+   "bot": "reflex",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70808-r1",
+   "sweep": "p1-substrate-headline",
+   "turn": 74,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s70802-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 1,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": true,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26509-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 47,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84806-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 59,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s84801-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 90,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26507-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 7,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s84808-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 41,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26506-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 43,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84808-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 54,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s70814-r0",
+   "sweep": "p1-substrate-headline",
+   "turn": 1,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s70813-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 21,
+   "team": "red",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84812-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 61,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s84814-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 58,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84804-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 76,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70803-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 113,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70815-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 68,
+   "team": "red",
+   "bot": "lobster-material",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26513-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 55,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84813-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 61,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-pawn-s84802-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 42,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s70816-r1",
+   "sweep": "p1-substrate-headline",
+   "turn": 94,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 1,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70807-r0",
+   "sweep": "p1-substrate-headline",
+   "turn": 4,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s70814-r0",
+   "sweep": "p1-substrate-headline",
+   "turn": 5,
+   "team": "green",
+   "bot": "reflex",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84809-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 40,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84816-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 81,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26514-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 2,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": true,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-pawn-s84811-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 69,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84801-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 29,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s84816-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 119,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 1,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-pawn-s84808-r0",
+   "sweep": "p3-slider-2000",
+   "turn": 12,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s70812-r1",
+   "sweep": "p1-substrate-headline",
+   "turn": 4,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84811-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 32,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26501-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 75,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26503-r2",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 58,
+   "team": "red",
+   "bot": "lobster-material",
+   "units": 4,
+   "flipLoHi": true,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70802-r2",
+   "sweep": "p1-substrate-headline",
+   "turn": 109,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 1,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26501-r1",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 37,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26515-r1",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 58,
+   "team": "green",
+   "bot": "lobster-material",
+   "units": 3,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s26508-r0",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 81,
+   "team": "red",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s26501-r1",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 4,
+   "team": "red",
+   "bot": "reflex",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70810-r0",
+   "sweep": "p1-substrate-headline",
+   "turn": 92,
+   "team": "blue",
+   "bot": "lobster-material",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-knight-s26503-r1",
+   "sweep": "p2-legacy-rebaseline",
+   "turn": 30,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84811-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 17,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 6,
+   "flipLoHi": true,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84804-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 35,
+   "team": "green",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-pawn-s84801-r2",
+   "sweep": "p3-slider-2000",
+   "turn": 114,
+   "team": "blue",
+   "bot": "reflex",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "snake5-queen-s70809-r1",
+   "sweep": "p1-substrate-headline",
+   "turn": 23,
+   "team": "blue",
+   "bot": "lobster-territory",
+   "units": 5,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "headline-mix-king-s84804-r1",
+   "sweep": "p3-slider-2000",
+   "turn": 21,
+   "team": "red",
+   "bot": "reflex",
+   "units": 4,
+   "flipLoHi": false,
+   "flipAA": false
+  },
+  {
+   "game": "null-snake6-s70803-r1",
+   "sweep": "p1-substrate-headline",
+   "turn": 96,
+   "team": "red",
+   "bot": "reflex",
+   "units": 2,
+   "flipLoHi": false,
+   "flipAA": false
+  }
+ ]
+}

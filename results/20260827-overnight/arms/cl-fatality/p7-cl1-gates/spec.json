@@ -1,0 +1,331 @@
+{
+ "spec": {
+  "_comment": [
+   "P7 — CL1's two new per-engine flags, on the perf-substrate branch.",
+   "These are their EMPIRICAL PROMOTION GATES. Both ship default OFF pending",
+   "exactly this measurement.",
+   "",
+   "  CENTAUR_CLUSTER_SEED    index-driven pairwise seed (search/cluster-seed.ts)",
+   "  CENTAUR_UNIT_FATALITY   rung-0 fatality classifier (candidates.ts)",
+   "",
+   "Kept as SEPARATE flags on purpose, and measured separately for the same",
+   "reason the code gives: \"two features behind one flag is a paired experiment",
+   "that measures their sum\". Race each on-vs-off, then both-on, each against",
+   "its own null. Do not read a both-on result as evidence for either alone.",
+   "",
+   "FLAG-VALUE TRAP, and it is a silent one. Both parse ONLY `1`, `on` or",
+   "`true` as on. There is no validation warning and no `off` keyword —",
+   "anything else, including `yes` or `ON`, is off. An arm with a mistyped",
+   "value is an A/A null wearing a treatment's name and will look exactly like",
+   "a null result. Set the off arm by OMITTING the variable, and check the",
+   "batch manifest's envAtRun block afterwards to confirm the on arm carried",
+   "the value you meant.",
+   "",
+   "MECHANISM PRIMARY, and here that is what the gate is actually about. CL1's",
+   "deterministic probe measured fatal stagings 41->0 and teammate kills 25->4.",
+   "The live arm asks the two things that probe cannot: does the effect survive",
+   "real play, and does it cost placement?",
+   "",
+   "CL1'S OWN HONEST NEGATIVE, which this sweep exists to adjudicate: final",
+   "floors came out slightly WORSE on 14 of 26 replay positions. A cleaner",
+   "rung-0 that prices out to a worse floor is a real tension, not a wash. Read",
+   "the placement rows against the null with that specifically in mind, and do",
+   "not let a good mechanism story carry a bad placement row.",
+   "",
+   "Mine the replays for deaths by cause (self-inflicted, teammate kills, wall,",
+   "bodyBlock) and staged-move fatality. The manifest health counters are the",
+   "coarse view; the per-turn `events` block carries the causes."
+  ],
+  "sweepId": "p7-cl1-gates",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   67701,
+   67702,
+   67703,
+   67704,
+   67705,
+   67706,
+   67707,
+   67708,
+   67709,
+   67710,
+   67711,
+   67712,
+   67713,
+   67714,
+   67715,
+   67716
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-knight",
+    "config": {
+     "name": "snake5-knight",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p7-cl1-gates",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   67701,
+   67702,
+   67703,
+   67704,
+   67705,
+   67706,
+   67707,
+   67708,
+   67709,
+   67710,
+   67711,
+   67712,
+   67713,
+   67714,
+   67715,
+   67716
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-knight",
+    "config": {
+     "name": "snake5-knight",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 5,
+ "poolSize": 4,
+ "bundle": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:24.058Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": "1"
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   1.62,
+   8.86,
+   15.63
+  ]
+ },
+ "startedAt": "2026-08-27T19:19:57.173Z",
+ "resumedAt": []
+}

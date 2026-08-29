@@ -1,0 +1,1486 @@
+{
+ "batch": "20260827-overnight",
+ "base": "wasm-off",
+ "generatedAt": "2026-08-28T01:30:02.467Z",
+ "sweeps": [
+  {
+   "sweepId": "p5-wasm-arena",
+   "subject": "wasm-off:lobster-territory wasm-on:lobster-territory",
+   "arms": [
+    "wasm-off",
+    "wasm-on"
+   ],
+   "gamesPaired": 144,
+   "gamesDropped": 0,
+   "cells": [
+    {
+     "cell": "hazard-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "cross",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "wasm-off": {
+       "score": {
+        "mean": 0.7813,
+        "lo": 0.7108,
+        "hi": 0.8517,
+        "n": 16,
+        "sd": 0.1322
+       },
+       "win": {
+        "mean": 0.5625,
+        "lo": 0.4216,
+        "hi": 0.7034,
+        "n": 16,
+        "sd": 0.2644
+       },
+       "place": {
+        "mean": 1.4375,
+        "lo": 1.2966,
+        "hi": 1.5784,
+        "n": 16,
+        "sd": 0.2644
+       },
+       "finalMaterial": {
+        "mean": 22.4583,
+        "lo": 17.1301,
+        "hi": 27.7866,
+        "n": 16,
+        "sd": 10.0014
+       },
+       "finalUnits": {
+        "mean": 2.8125,
+        "lo": 2.1325,
+        "hi": 3.4925,
+        "n": 16,
+        "sd": 1.2764
+       },
+       "survived": {
+        "mean": 0.6875,
+        "lo": 0.5359,
+        "hi": 0.8391,
+        "n": 16,
+        "sd": 0.2846
+       },
+       "turns": {
+        "mean": 78.2917,
+        "lo": 65.4214,
+        "hi": 91.1619,
+        "n": 16,
+        "sd": 24.1581
+       },
+       "decisive": {
+        "mean": 0.6042,
+        "lo": 0.4425,
+        "hi": 0.7659,
+        "n": 16,
+        "sd": 0.3035
+       },
+       "decisions": {
+        "mean": 78.2917,
+        "lo": 65.4214,
+        "hi": 91.1619,
+        "n": 16,
+        "sd": 24.1581
+       },
+       "worstWallMs": {
+        "mean": 1953.9375,
+        "lo": 1950.8684,
+        "hi": 1957.0066,
+        "n": 16,
+        "sd": 5.7609
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.006,
+        "lo": 0.0004,
+        "hi": 0.0117,
+        "n": 16,
+        "sd": 0.0106
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 9427.2708,
+        "lo": 4595.0332,
+        "hi": 14259.5084,
+        "n": 16,
+        "sd": 9070.3662
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 493.4792,
+        "lo": -365.0814,
+        "hi": 1352.0397,
+        "n": 16,
+        "sd": 1611.5637
+       }
+      },
+      "wasm-on": {
+       "score": {
+        "mean": 0.8125,
+        "lo": 0.7339,
+        "hi": 0.8911,
+        "n": 16,
+        "sd": 0.1475
+       },
+       "win": {
+        "mean": 0.6458,
+        "lo": 0.5088,
+        "hi": 0.7829,
+        "n": 16,
+        "sd": 0.2573
+       },
+       "place": {
+        "mean": 1.375,
+        "lo": 1.2178,
+        "hi": 1.5322,
+        "n": 16,
+        "sd": 0.295
+       },
+       "finalMaterial": {
+        "mean": 24.2708,
+        "lo": 19.0521,
+        "hi": 29.4896,
+        "n": 16,
+        "sd": 9.7959
+       },
+       "finalUnits": {
+        "mean": 3.1667,
+        "lo": 2.594,
+        "hi": 3.7394,
+        "n": 16,
+        "sd": 1.075
+       },
+       "survived": {
+        "mean": 0.75,
+        "lo": 0.6124,
+        "hi": 0.8876,
+        "n": 16,
+        "sd": 0.2582
+       },
+       "turns": {
+        "mean": 79.875,
+        "lo": 69.4194,
+        "hi": 90.3306,
+        "n": 16,
+        "sd": 19.6257
+       },
+       "decisive": {
+        "mean": 0.5833,
+        "lo": 0.4458,
+        "hi": 0.7209,
+        "n": 16,
+        "sd": 0.2582
+       },
+       "decisions": {
+        "mean": 79.1458,
+        "lo": 68.6549,
+        "hi": 89.6368,
+        "n": 16,
+        "sd": 19.6921
+       },
+       "worstWallMs": {
+        "mean": 1955.0833,
+        "lo": 1952.9558,
+        "hi": 1957.2109,
+        "n": 16,
+        "sd": 3.9935
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 11499.9583,
+        "lo": 7314.013,
+        "hi": 15685.9037,
+        "n": 16,
+        "sd": 7857.2414
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 318.2708,
+        "lo": -267.1518,
+        "hi": 903.6935,
+        "n": 16,
+        "sd": 1098.8694
+       }
+      }
+     },
+     "deltas": {
+      "wasm-on": {
+       "score": {
+        "mean": 0.0313,
+        "lo": -0.0952,
+        "hi": 0.1577,
+        "n": 16,
+        "sd": 0.2374,
+        "bootLo": -0.0833,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0.0833,
+        "lo": -0.1549,
+        "hi": 0.3216,
+        "n": 16,
+        "sd": 0.4472,
+        "bootLo": -0.125,
+        "bootHi": 0.3125,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.0625,
+        "lo": -0.3155,
+        "hi": 0.1905,
+        "n": 16,
+        "sd": 0.4748,
+        "bootLo": -0.2917,
+        "bootHi": 0.1667,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 1.8125,
+        "lo": -7.1985,
+        "hi": 10.8235,
+        "n": 16,
+        "sd": 16.9141,
+        "bootLo": -6.3333,
+        "bootHi": 9.7708,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.3542,
+        "lo": -0.6302,
+        "hi": 1.3386,
+        "n": 16,
+        "sd": 1.8478,
+        "bootLo": -0.5208,
+        "bootHi": 1.25,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.0625,
+        "lo": -0.182,
+        "hi": 0.307,
+        "n": 16,
+        "sd": 0.459,
+        "bootLo": -0.1458,
+        "bootHi": 0.2917,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 1.5833,
+        "lo": -12.1876,
+        "hi": 15.3542,
+        "n": 16,
+        "sd": 25.8487,
+        "bootLo": -11.2917,
+        "bootHi": 12.9375,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0208,
+        "lo": -0.2204,
+        "hi": 0.1787,
+        "n": 16,
+        "sd": 0.3745,
+        "bootLo": -0.1875,
+        "bootHi": 0.1667,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.8542,
+        "lo": -13.5955,
+        "hi": 15.3038,
+        "n": 16,
+        "sd": 27.1228,
+        "bootLo": -12.5417,
+        "bootHi": 12.8542,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 1.1458,
+        "lo": -2.5229,
+        "hi": 4.8145,
+        "n": 16,
+        "sd": 6.8863,
+        "bootLo": -1.875,
+        "bootHi": 4.6458,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": -0.006,
+        "lo": -0.0117,
+        "hi": -0.0004,
+        "n": 16,
+        "sd": 0.0106,
+        "bootLo": -0.0116,
+        "bootHi": -0.0016,
+        "excludesZero": true
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 2072.6875,
+        "lo": -4490.7572,
+        "hi": 8636.1322,
+        "n": 16,
+        "sd": 12319.9338,
+        "bootLo": -3853.0417,
+        "bootHi": 7967.5208,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -175.2083,
+        "lo": -1237.4785,
+        "hi": 887.0618,
+        "n": 16,
+        "sd": 1993.9374,
+        "bootLo": -1226.5417,
+        "bootHi": 726.6875,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "wasm-off": 0.396,
+      "wasm-on": 0.417
+     }
+    },
+    {
+     "cell": "headline-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "wasm-off": {
+       "score": {
+        "mean": 0.75,
+        "lo": 0.6527,
+        "hi": 0.8473,
+        "n": 16,
+        "sd": 0.1826
+       },
+       "win": {
+        "mean": 0.5208,
+        "lo": 0.3497,
+        "hi": 0.692,
+        "n": 16,
+        "sd": 0.3213
+       },
+       "place": {
+        "mean": 1.5,
+        "lo": 1.3055,
+        "hi": 1.6945,
+        "n": 16,
+        "sd": 0.3651
+       },
+       "finalMaterial": {
+        "mean": 16.1458,
+        "lo": 11.2743,
+        "hi": 21.0173,
+        "n": 16,
+        "sd": 9.1441
+       },
+       "finalUnits": {
+        "mean": 2.8125,
+        "lo": 1.9048,
+        "hi": 3.7202,
+        "n": 16,
+        "sd": 1.7039
+       },
+       "survived": {
+        "mean": 0.6042,
+        "lo": 0.4299,
+        "hi": 0.7784,
+        "n": 16,
+        "sd": 0.327
+       },
+       "turns": {
+        "mean": 63.8542,
+        "lo": 52.5203,
+        "hi": 75.188,
+        "n": 16,
+        "sd": 21.2742
+       },
+       "decisive": {
+        "mean": 0.7708,
+        "lo": 0.6458,
+        "hi": 0.8959,
+        "n": 16,
+        "sd": 0.2347
+       },
+       "decisions": {
+        "mean": 63.5417,
+        "lo": 52.1895,
+        "hi": 74.8938,
+        "n": 16,
+        "sd": 21.3086
+       },
+       "worstWallMs": {
+        "mean": 1953.0208,
+        "lo": 1949.9936,
+        "hi": 1956.0481,
+        "n": 16,
+        "sd": 5.6823
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0034,
+        "lo": -0.0011,
+        "hi": 0.0079,
+        "n": 16,
+        "sd": 0.0084
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 8466.5417,
+        "lo": 3660.8843,
+        "hi": 13272.1991,
+        "n": 16,
+        "sd": 9020.4738
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 10.9792,
+        "lo": -11.5334,
+        "hi": 33.4918,
+        "n": 16,
+        "sd": 42.2573
+       }
+      },
+      "wasm-on": {
+       "score": {
+        "mean": 0.75,
+        "lo": 0.6642,
+        "hi": 0.8358,
+        "n": 16,
+        "sd": 0.161
+       },
+       "win": {
+        "mean": 0.5,
+        "lo": 0.3284,
+        "hi": 0.6716,
+        "n": 16,
+        "sd": 0.322
+       },
+       "place": {
+        "mean": 1.5,
+        "lo": 1.3284,
+        "hi": 1.6716,
+        "n": 16,
+        "sd": 0.322
+       },
+       "finalMaterial": {
+        "mean": 23.8333,
+        "lo": 17.9243,
+        "hi": 29.7424,
+        "n": 16,
+        "sd": 11.0915
+       },
+       "finalUnits": {
+        "mean": 3.1042,
+        "lo": 2.4127,
+        "hi": 3.7957,
+        "n": 16,
+        "sd": 1.298
+       },
+       "survived": {
+        "mean": 0.75,
+        "lo": 0.5979,
+        "hi": 0.9021,
+        "n": 16,
+        "sd": 0.2854
+       },
+       "turns": {
+        "mean": 85.2917,
+        "lo": 70.2089,
+        "hi": 100.3745,
+        "n": 16,
+        "sd": 28.3112
+       },
+       "decisive": {
+        "mean": 0.5417,
+        "lo": 0.3845,
+        "hi": 0.6988,
+        "n": 16,
+        "sd": 0.295
+       },
+       "decisions": {
+        "mean": 85.2917,
+        "lo": 70.2089,
+        "hi": 100.3745,
+        "n": 16,
+        "sd": 28.3112
+       },
+       "worstWallMs": {
+        "mean": 1952.9167,
+        "lo": 1949.8852,
+        "hi": 1955.9481,
+        "n": 16,
+        "sd": 5.6901
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0034,
+        "lo": -0.0001,
+        "hi": 0.0069,
+        "n": 16,
+        "sd": 0.0065
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 7534.7083,
+        "lo": 4256.7806,
+        "hi": 10812.636,
+        "n": 16,
+        "sd": 6152.8441
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 1.125,
+        "lo": -1.2724,
+        "hi": 3.5224,
+        "n": 16,
+        "sd": 4.5
+       }
+      }
+     },
+     "deltas": {
+      "wasm-on": {
+       "score": {
+        "mean": 0,
+        "lo": -0.1297,
+        "hi": 0.1297,
+        "n": 16,
+        "sd": 0.2434,
+        "bootLo": -0.1042,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0208,
+        "lo": -0.2498,
+        "hi": 0.2081,
+        "n": 16,
+        "sd": 0.4298,
+        "bootLo": -0.2083,
+        "bootHi": 0.1875,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": -0.2594,
+        "hi": 0.2594,
+        "n": 16,
+        "sd": 0.4869,
+        "bootLo": -0.25,
+        "bootHi": 0.2083,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 7.6875,
+        "lo": -0.309,
+        "hi": 15.684,
+        "n": 16,
+        "sd": 15.0099,
+        "bootLo": 0.6042,
+        "bootHi": 14.875,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.2917,
+        "lo": -0.923,
+        "hi": 1.5063,
+        "n": 16,
+        "sd": 2.2799,
+        "bootLo": -0.7708,
+        "bootHi": 1.3958,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.1458,
+        "lo": -0.0785,
+        "hi": 0.3702,
+        "n": 16,
+        "sd": 0.4211,
+        "bootLo": -0.0625,
+        "bootHi": 0.3542,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 21.4375,
+        "lo": 0.4675,
+        "hi": 42.4075,
+        "n": 16,
+        "sd": 39.3619,
+        "bootLo": 2.7708,
+        "bootHi": 40,
+        "excludesZero": true
+       },
+       "decisive": {
+        "mean": -0.2292,
+        "lo": -0.4511,
+        "hi": -0.0072,
+        "n": 16,
+        "sd": 0.4167,
+        "bootLo": -0.4375,
+        "bootHi": -0.0417,
+        "excludesZero": true
+       },
+       "decisions": {
+        "mean": 21.75,
+        "lo": 0.9374,
+        "hi": 42.5626,
+        "n": 16,
+        "sd": 39.0664,
+        "bootLo": 3.2083,
+        "bootHi": 40.1042,
+        "excludesZero": true
+       },
+       "worstWallMs": {
+        "mean": -0.1042,
+        "lo": -3.9833,
+        "hi": 3.775,
+        "n": 16,
+        "sd": 7.2813,
+        "bootLo": -3.5625,
+        "bootHi": 3.2708,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": -0.0063,
+        "hi": 0.0063,
+        "n": 16,
+        "sd": 0.0118,
+        "bootLo": -0.0059,
+        "bootHi": 0.0054,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": -931.8333,
+        "lo": -5893.4697,
+        "hi": 4029.803,
+        "n": 16,
+        "sd": 9313.2545,
+        "bootLo": -5398.4375,
+        "bootHi": 3449.25,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -9.8542,
+        "lo": -32.6586,
+        "hi": 12.9503,
+        "n": 16,
+        "sd": 42.8052,
+        "bootLo": -32.1458,
+        "bootHi": 2.5833,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "wasm-off": 0.229,
+      "wasm-on": 0.458
+     }
+    },
+    {
+     "cell": "null-snake6",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "wasm-off": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 39.7083,
+        "lo": 36.3117,
+        "hi": 43.105,
+        "n": 16,
+        "sd": 6.3757
+       },
+       "finalUnits": {
+        "mean": 4.8542,
+        "lo": 4.4494,
+        "hi": 5.259,
+        "n": 16,
+        "sd": 0.7598
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 118.6667,
+        "lo": 116.7974,
+        "hi": 120.5359,
+        "n": 16,
+        "sd": 3.5087
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": -0.0192,
+        "hi": 0.1859,
+        "n": 16,
+        "sd": 0.1925
+       },
+       "decisions": {
+        "mean": 118.6667,
+        "lo": 116.7974,
+        "hi": 120.5359,
+        "n": 16,
+        "sd": 3.5087
+       },
+       "worstWallMs": {
+        "mean": 1965.1875,
+        "lo": 1963.9884,
+        "hi": 1966.3866,
+        "n": 16,
+        "sd": 2.2508
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0005,
+        "lo": -0.0003,
+        "hi": 0.0013,
+        "n": 16,
+        "sd": 0.0015
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 132897.3958,
+        "lo": 121910.8822,
+        "hi": 143883.9095,
+        "n": 16,
+        "sd": 20622.2687
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "wasm-on": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 40.4167,
+        "lo": 37.9191,
+        "hi": 42.9142,
+        "n": 16,
+        "sd": 4.688
+       },
+       "finalUnits": {
+        "mean": 4.9583,
+        "lo": 4.7082,
+        "hi": 5.2084,
+        "n": 16,
+        "sd": 0.4694
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 120,
+        "lo": 120,
+        "hi": 120,
+        "n": 16,
+        "sd": 0
+       },
+       "decisive": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "decisions": {
+        "mean": 120,
+        "lo": 120,
+        "hi": 120,
+        "n": 16,
+        "sd": 0
+       },
+       "worstWallMs": {
+        "mean": 1963.1875,
+        "lo": 1962.4149,
+        "hi": 1963.9601,
+        "n": 16,
+        "sd": 1.4503
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 166407.2708,
+        "lo": 133516.2009,
+        "hi": 199298.3408,
+        "n": 16,
+        "sd": 61738.2824
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      }
+     },
+     "deltas": {
+      "wasm-on": {
+       "score": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 0.7083,
+        "lo": -3.1952,
+        "hi": 4.6119,
+        "n": 16,
+        "sd": 7.3271,
+        "bootLo": -2.6042,
+        "bootHi": 4.3333,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.1042,
+        "lo": -0.3246,
+        "hi": 0.5329,
+        "n": 16,
+        "sd": 0.8048,
+        "bootLo": -0.25,
+        "bootHi": 0.5,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 1.3333,
+        "lo": -0.5359,
+        "hi": 3.2026,
+        "n": 16,
+        "sd": 3.5087,
+        "bootLo": 0,
+        "bootHi": 3.3542,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0833,
+        "lo": -0.1859,
+        "hi": 0.0192,
+        "n": 16,
+        "sd": 0.1925,
+        "bootLo": -0.1875,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 1.3333,
+        "lo": -0.5359,
+        "hi": 3.2026,
+        "n": 16,
+        "sd": 3.5087,
+        "bootLo": 0,
+        "bootHi": 3.3542,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -2,
+        "lo": -3.2149,
+        "hi": -0.7851,
+        "n": 16,
+        "sd": 2.2804,
+        "bootLo": -3.0625,
+        "bootHi": -0.9167,
+        "excludesZero": true
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": -0.0005,
+        "lo": -0.0013,
+        "hi": 0.0003,
+        "n": 16,
+        "sd": 0.0015,
+        "bootLo": -0.0014,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 33509.875,
+        "lo": 998.9398,
+        "hi": 66020.8102,
+        "n": 16,
+        "sd": 61024.7493,
+        "bootLo": 8354,
+        "bootHi": 65457.75,
+        "excludesZero": true
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "wasm-off": 0.917,
+      "wasm-on": 1
+     }
+    }
+   ]
+  }
+ ],
+ "problems": [
+  "sweep n0-aa-null: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p1-substrate-headline: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p2-legacy-rebaseline: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p3-slider-2000: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p4-tiertruth-potions: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p6-admission: base arm \"wasm-off\" did not run it — skipped (use its own --base)",
+  "sweep p7-cl1-gates: base arm \"wasm-off\" did not run it — skipped (use its own --base)"
+ ]
+}

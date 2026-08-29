@@ -1,0 +1,82 @@
+{
+ "cl-off": {
+  "headline-mix-king": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 16
+   }
+  },
+  "null-snake6": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 39
+   }
+  },
+  "snake5-knight": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 23
+   }
+  }
+ },
+ "cl-seed": {
+  "headline-mix-king": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 19
+   }
+  },
+  "null-snake6": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 75
+   }
+  },
+  "snake5-knight": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 48
+   }
+  }
+ },
+ "cl-fatality": {
+  "headline-mix-king": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 15
+   }
+  },
+  "null-snake6": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 33
+   }
+  },
+  "snake5-knight": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 30
+   }
+  }
+ },
+ "cl-both": {
+  "headline-mix-king": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 22
+   }
+  },
+  "null-snake6": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 72
+   }
+  },
+  "snake5-knight": {
+   "games": 48,
+   "deaths": {
+    "exhaustion": 58
+   }
+  }
+ }
+}

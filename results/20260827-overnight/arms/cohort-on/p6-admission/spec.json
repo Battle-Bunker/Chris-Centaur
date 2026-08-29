@@ -1,0 +1,315 @@
+{
+ "spec": {
+  "_comment": [
+   "P6 — CENTAUR_COHORT_POLICY=on against off (the flag-gated cohort governor).",
+   "",
+   "BLOCKED AS SHIPPED. The governor lives on branch `arch/s2`, which at the time",
+   "this kit was cut existed ONLY on the cloud session's machine and was never",
+   "pushed to GitHub. build-bot.sh cannot check out a branch that is not in the",
+   "clone, and it will say so rather than substituting a different branch.",
+   "",
+   "Run this only after someone confirms arch/s2 is on origin. Verify with:",
+   "    git ls-remote --heads origin arch/s2",
+   "If that prints nothing, skip P6, and say in findings.md that it was skipped",
+   "because the branch is unpublished. Do NOT silently run it against a branch",
+   "that happens to build.",
+   "",
+   "Its target boards are the crowded ones — the governor decides which units get",
+   "admitted to a joint decision, so a roster with more claimants than budget is",
+   "where it can act at all."
+  ],
+  "sweepId": "p6-admission",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   17001,
+   17002,
+   17003,
+   17004,
+   17005,
+   17006,
+   17007,
+   17008,
+   17009,
+   17010,
+   17011,
+   17012,
+   17013,
+   17014,
+   17015,
+   17016
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p6-admission",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   17001,
+   17002,
+   17003,
+   17004,
+   17005,
+   17006,
+   17007,
+   17008,
+   17009,
+   17010,
+   17011,
+   17012,
+   17013,
+   17014,
+   17015,
+   17016
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/arch/s2",
+  "sha": "724d83f4e992b84b1ca20d7496c0cab02f2a1463",
+  "subject": "S2d: count the classifications, and clear the bias the way the ruling says",
+  "committedAt": "2026-08-27T01:25:36+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:43:27.993Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": "on",
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   4.65,
+   13.68,
+   18.7
+  ]
+ },
+ "startedAt": "2026-08-27T17:35:34.515Z",
+ "resumedAt": []
+}
