@@ -198,3 +198,86 @@ The practical consequence for you: **batch 2's bundles must be built from a tip
 that carries the mechanism rows.** If they are not, batch 2 lands in exactly the
 same place batch 1 did, and P5R in particular becomes unanswerable — its whole
 point is `wasmRuns`.
+
+---
+
+# ADDENDUM 2 — 20260829, P5R changed shape; two asks for the run
+
+Two new open items on the ledger and one changed experiment. **Batch 2 is still
+13 specs and P5R still runs first**, but it is now **2,952 games, not 3,048**,
+and **P5R is 96 games per contender, not 144**. Fetch this branch again before
+you cut the specs; the numbers in the previous addendum are superseded.
+
+## P5R lost a cell, and the reason is about the board, not the flag
+
+`headline-mix-king` is **out of P5R**. Not a preference — a measurement. Two
+builds of the *same commit*, raced against each other with nothing changed
+between them, disagree about who placed where in **26 of 48 games** on that
+board, agree on game length in only **5 of 48**, and swing plans-per-decision by
+**+65%**. So every placement number that board produces at this size is zero by
+construction, including the ones batch 1 produced. It cannot resolve the ~10%
+speed effect this experiment is about.
+
+The other way to fix it is four times the games on that one board. Not worth it,
+and the spec generator cannot express it anyway — the block count belongs to the
+whole spec, not to one cell. So the cell is dropped. It stays in `n0-aa-null`,
+so its floor keeps being measured and a later experiment can have it back.
+
+Filed on the ledger as `CELL-QUALITY`. What is *not* decided is where a number
+like that should live so the rules can use it. That is the owner's call and no
+schema was invented for it here.
+
+## P5R is now scored on speed, not on who won
+
+The wasm path is bit-exact: there is a test asserting the two paths return the
+same rows, and a refused kernel degrades to the same answer rather than a wrong
+one. It cannot change a decision, so it cannot change a result. Scoring it on
+win rate was a category error. What it is scored on now: how often the kernel
+ran versus refused, **as a rate and per cell**; plans per decision; decisions per
+second; and worst wall time. Placement is still read out, as description.
+
+## Two things I need from the run
+
+**1. Launch both contenders simultaneously — for anything measured on speed.**
+P7 launched all four at once and so had the same machine weather in every one of
+them by construction. The two-contender pairs did not, and rested on the weaker
+claim of being internally load-symmetric. This whole analysis turned on telling
+timing artifacts apart from real effects, so please make it the default: any
+contender whose question is throughput launches beside its partner, never after
+it. It is now written into the P5R spec as a requirement.
+
+**2. When the wasm path refuses, log *which* partition refused, and by how much.**
+Today the residency check is all-or-nothing and returns a bare `false` from about
+eight different pointer tests, against an arena whose size is fixed at build
+time. One bad pointer sends the whole partition back to JavaScript and nothing
+records which one it was. If P5R comes back with a high refusal count and no
+detail, we learn that it refused and nothing else — which is exactly where batch
+1 left us. With the detail, "the wasm path may be refused on piece boards"
+becomes "the arena is N bytes too small", which is a fix.
+
+## One thing that could not go in the spec, so it is an operator instruction
+
+The snake board is the only cell that shows the wasm path engaging **and** is
+stable enough to measure it — but at a 120-turn cap it ends 92-100% of its games
+on the clock, so it is measuring a stall rather than play. It wants a **raised
+turn cap** (or a smaller board). That is not in the spec: a board at a different
+cap is a different cell and needs its own name, and the generator has no way to
+pass a per-cell turn cap today. Both are code, and code is edited at home.
+
+So, your call and only if the box time is there: run P5R's snake cell a second
+time at a raised turn cap **under a distinct cell name**, and report it as its
+own cell. Do not re-label the existing one — two cells sharing a name is how a
+ledger's history stops meaning anything.
+
+## Also new on the ledger, and it is the archive that unblocks it
+
+`DEATH-CAUSE-SINGLE-KEY`. The death-cause extract records **one** of the nine
+ways a unit can die. On the snake board the cluster seed loses 260 units where
+the off contender loses 53, and the one cause we extracted accounts for 29% of
+that. The other ~180 deaths have no cause recorded — and on that board, with no
+hazards and no king, the candidates are exactly the collision cases CL1's ship
+gate certified as fixed. The replays already carry all nine kinds. Re-mining
+costs no new games and no new instrumentation; it is blocked only on the archive
+being reachable, same as everything else on that list.
+
+Nothing else about batch 2 changes. P5R first, P7F second, cut from the bottom.
