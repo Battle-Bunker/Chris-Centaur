@@ -6,7 +6,7 @@
   "runs on appears here, because a treatment metric with no floor in the A/A",
   "cell is UNREADABLE rather than null, and an unfloored treatment cell is box",
   "time spent on a row nobody may read. This batch floors:",
-  "    headline-mix-king, hazard-mix-king, null-snake6, snake5-knight, snake5-queen",
+  "    hazard-mix-king, null-snake6, headline-mix-king, snake5-knight, snake5-queen",
   "",
   "Run with two arms that are the SAME bundle and the SAME env under two names:",
   "    --arm nullA=<bundle> --arm nullB=<bundle>",
@@ -51,38 +51,6 @@
  ],
  "rotateSeats": true,
  "cells": [
-  {
-   "cell": "headline-mix-king",
-   "config": {
-    "name": "headline-mix-king",
-    "size": 25,
-    "teams": [
-     "red",
-     "blue",
-     "green"
-    ],
-    "roster": [
-     "king",
-     "queen",
-     "rook",
-     "knight",
-     "snake",
-     "snake"
-    ],
-    "budgetMs": 2000,
-    "turnCap": 120,
-    "food": {
-     "initial": 6,
-     "spawnRate": 0.5
-    },
-    "hazards": {
-     "layout": "none"
-    },
-    "potions": {
-     "enabled": false
-    }
-   }
-  },
   {
    "cell": "hazard-mix-king",
    "config": {
@@ -131,6 +99,38 @@
      "snake",
      "snake",
      "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
      "snake",
      "snake"
     ],

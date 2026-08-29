@@ -22,12 +22,11 @@
         "wasm-on"
       ],
       "cells": [
-        "headline-mix-king",
         "hazard-mix-king",
         "null-snake6"
       ],
       "blocks": 16,
-      "gamesPerArm": 144,
+      "gamesPerArm": 96,
       "question": "With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?"
     },
     {

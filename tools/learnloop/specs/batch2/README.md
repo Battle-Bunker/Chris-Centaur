@@ -31,18 +31,52 @@ things moved:
    replay archive is uploaded" — the single upload that unblocks the only
    not-scheduled item in this batch.
 
+## What the 20260829 replay-miner pass changed here
+
+Regenerated again after the source-level pass at bundle SHA `8059b86`. **P5R is
+the only experiment touched**, the batch is still 13 specs, and no other spec's
+cells, seeds or content moved. Four changes, all of them to the P5R spec, all of
+them made in the ledger and regenerated rather than hand-edited:
+
+1. **Scored on throughput, not on placement.** The flag is bit-exact by
+   construction *and* by test, so it cannot move `score` — placement there is
+   null by design and reads as description only. What is scored is the
+   engagement rate, plans per decision, decisions per second and `worstWallMs`.
+   Note the standing retirement: `plansEvaluated` carries a verdict on a live
+   arm **only** under simultaneous launch plus a same-cell A/A floor for the
+   same statistic. Batch 1's A/A pair swung it +65% under zero treatment.
+2. **`headline-mix-king` dropped**, on a measured disqualification: A/A
+   turn-correlation −0.193, 5/48 games identical, 26/48 placements flipped
+   between two builds of the same commit, and a cap rate spanning 0.229–0.458
+   across 14 sweeps of the identical `configHash`. It cannot resolve a ~10%
+   throughput effect at n=48. The alternative the evidence allows — raise *that
+   cell's* n by ~4× — is not expressible, because blocks are a property of the
+   spec and not of a cell. Filed as the `CELL-QUALITY` open item.
+3. **Log which partition refused.** The residency check is all-or-nothing and
+   returns a bare `false` from ~8 pointer tests against a fixed-size arena, so
+   P5R must record *which* buffer was non-resident and by how much the arena was
+   over. That is what turns a suspicion into an arena-sizing bug with an address.
+4. **Simultaneous launch is now a `REQUIRES`,** not an implicit assumption.
+
+The one recommendation **not** carried into the spec is the raised turn cap on
+the snake cell. `null-snake6` runs at cap rate 0.917–1.000 — a stall rather than
+play — but a cell at a different cap needs its own name and a generator that can
+pass per-cell options, both of which are code. It is carried to the local session
+as an operator instruction instead, and the vocabulary should gain a named
+long-cap snake cell before batch 3.
+
 ## The list
 
 | id | flag | blocks | games/arm | why now |
 |---|---|---|---|---|
-| **P5R** | `CENTAUR_WASM` | 16 | 144 | **Run first.** See the table row below; promoted to the head of the cut order by batch 1. |
+| **P5R** | `CENTAUR_WASM` | 16 | 96 | **Run first.** See the table row below; promoted to the head of the cut order by batch 1, and cut from three cells to two by the 20260829 replay-miner pass. |
 | **P7F** | `CENTAUR_UNIT_FATALITY` | 16 | 144 | **Newly reachable.** The flag is `live-null` and a `live-null` used to be treated as settled, so this experiment was written out in full and silently never scheduled (`LIVE-NULL-IS-TERMINAL`, now closed). Its null is 16 blocks against the 58 its own dispersion demands — not a decision. Batch 1 also sharpened the question: on the cell the seed destroyed, the classifier's exhaustion deaths *fall* 39 → 33 (×0.85), and the `cl-both` row bounds that at inside a 48-game count's noise. So it is safe alone and it is **not** a repair for the seed. Asks whether it is promotable independently of the flag that failed. |
 | **P12** | `CENTAUR_EDGE_EV` | 16 | 144 | Never raced. The probe found staged meals up (5→8) and meals *eaten* down (84→81) on piece boards — a tension only a live arm can adjudicate. |
 | **P8/P9-joint** | `CENTAUR_CLUSTER_ENUM` | 16 | 144 | The strongest deterministic case on the branch (fatal stagings fall at every point of the q-curve, mean Δfloor +1.03 at the census's own regime) and never raced. Includes the graded-seed joint arm as a **diagnostic** on the seed's failure, not as a promotion candidate. |
 | **P9** | `CENTAUR_SAMPLED_CAP` | 16 | 144 | Far-priced options 0→22 at q=32 with zero fatal stagings. Raced **jointly with enum**: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. |
 | **P10** | `CENTAUR_TERRITORY_REFINE` | 16 | 144 | Sound by brute force, zero argmax flips offline, +22 µs/**evaluation**. The question is purely economic and purely live. Base arm is `enum-on`, not `off` — the refiner requires the enumeration. |
 | **P11** | `CENTAUR_SCOUT` | 16 | 144 | The scout exists and costs 16.8 ms/decision. `observe` and `advise` are **separate arms**: observe−off isolates the tithe, advise−observe isolates the advice. One arm carrying both would report their sum. |
-| **P5R** *(first)* | `CENTAUR_WASM` | 16 | 144 | The rerun with engagement on the record, and the batch's highest-value run. **Gated: refuse the cell if `wasmRuns` is 0 on the treatment arm** — that is a broken arm, not a null, and reporting it as a null is the error this rerun exists to correct. Requires a bundle built at or after the CL7 telemetry closure. One run separates the three candidate readings of batch 1's four-row shape cluster: `wasmRuns == 0` (the arm never engaged and P5 was never about wasm), `wasmRuns > 0` with `wasmRefused` high (the silent per-partition refusal is real), or engaged and refusing little with the cluster still present (the arm genuinely changes how games terminate). |
+| **P5R** *(first)* | `CENTAUR_WASM` | 16 | 96 | The rerun with engagement on the record, and the batch's highest-value run. **Now scored on throughput, not placement** — the flag is bit-exact by construction and by test (`differential.test.ts` asserts `on.rows == off.rows`; `policy.ts`: *"`on` is never a correctness bet. It is a THROUGHPUT bet."*), so `score` here is null by design and scoring it on win rate is a category error. **Gated: refuse the cell if the engagement rate `wasmRuns/(wasmRuns+wasmRefused)` is 0 in the treatment arm** — that is a broken arm, not a null, and reporting it as a null is the error this rerun exists to correct — and **when it refuses, log WHICH buffer or partition was non-resident and by how much the arena was over** (`territory.ts:388-416` returns a bare `false` from ~8 pointer tests against a fixed-size arena). **`headline-mix-king` is dropped** on a measured disqualification, which is why this row is 96 games/arm and not 144: see below. Requires a bundle built at or after the CL7 telemetry closure, and **both arms launched simultaneously**. One run still separates the three candidate readings of batch 1's four-row shape cluster: engagement rate 0 (the arm never engaged and P5 was never about wasm), engaged with `wasmRefused` high (the silent per-partition refusal is real), or engaged and refusing little with the cluster still present (the arm genuinely changes how games terminate). |
 | **P13** | `CENTAUR_WORKERS` | 16 | 96 | Low priority, and lower after batch 1. P1 bounds the whole substrate's strength effect at null — but its *wall-clock* rows ran the wrong way for the substrate (worstWallMs +4.02 ✱ on `snake5-queen`, +1.92 ✱ on `null-snake6`), so if this is run, read `worstWallMs` as a primary output rather than a footnote. First to cut. |
 | **P16 @ 500 / 1000 / 2000** | budget ladder | 8 each | 48 each | The owner's pre-approved follow-up, and its condition is **met**: budget-probe v2 confirmed a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 ± 7.0 against an A/A floor of 1.7 ± 3.2). One trail-instrumented cell — the 35% revision wave was measured pre-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved. |
 | **X9** | the exploration slice | 4 | 36 | `TERRITORY_SLIDER_PROFILE`, `CENTAUR_STAGING_SAFETY` and `gainOrdering` each run their **opposite** branch. The ratchet guard: today's policy selects tomorrow's corpus. Mechanism-first; do not read placement off these cells. |
@@ -77,9 +111,13 @@ treatment cell is games spent on a row nobody is allowed to read.
 `n0-aa-null.json` by hand is withdrawn — do not hand-edit the spec.** It is
 generated, and re-running the generator would silently discard the edit.
 
-**13 specs, 3,048 games across both arms of every pair.** Batch 1 was 1,824
-games in one overnight on the 24-core box, so this is roughly 1.7 nights at the
+**13 specs, 2,952 games across both arms of every pair.** Batch 1 was 1,824
+games in one overnight on the 24-core box, so this is roughly 1.6 nights at the
 same throughput. It is ordered to be cut from the bottom.
+
+*(Was 3,048. The 96 games came off P5R when `headline-mix-king` was dropped from
+it — the same number of specs, one fewer cell on one of them. N0 still floors
+that board, so nothing else in the batch changes.)*
 
 Two changes against the 12-spec / 2,472-game version this file first described,
 both of them machinery fixes landing rather than experiments being added:
