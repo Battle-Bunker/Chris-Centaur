@@ -69,6 +69,8 @@ import { sampledCapEnabled } from './selection';
 import { TIER_TRUTH } from './tier-truth';
 import { mechanismReportOf } from './telemetry/mechanism';
 import type { MechanismReport } from './telemetry/mechanism';
+import { REGISTRY, slateFor, slateStampOf } from './registry';
+import type { ResolvedSlate, SlateId } from './registry';
 import type { StagingSafety } from './staging-safety';
 import {
   defaultEvaluator,
@@ -346,6 +348,22 @@ export interface TeamDecisionOptions {
   readonly parcelBudgetMs?: number;
   /** Plans in one parcel — a latency cap. Defaults to `DEFAULT_SPECULATION`. */
   readonly maxPlansPerParcel?: number;
+  /**
+   * WHICH SLATE OF REGISTRY ENTRIES THIS ENGINE RUNS (core redesign §1.1).
+   *
+   * Per-engine and never process-wide, by the standing rule every option above
+   * follows: what has to be measurable is one seat against unchanged
+   * opponents. The harness's paired arms are slates differing in exactly ONE
+   * entry, and this is where an arm names its side.
+   *
+   * `SlateId` has exactly ONE member today — `'legacy'`, the byte-identity
+   * bridge — so a non-legacy selection is unrepresentable rather than merely
+   * unused. That is deliberate: this increment ships the registry and the
+   * per-branch belief with everything byte-identical, and the first real
+   * entry-versus-entry comparison is the next one. It is NOT an environment
+   * flag and it never will be; entries are data.
+   */
+  readonly slate?: SlateId;
 }
 
 /**
@@ -516,6 +534,20 @@ export class TeamDecisionEngine {
   /** How this decision's evaluator is rebuilt on a worker, or why it cannot
    * be. Computed once — the evaluator is fixed for the engine's life. */
   private readonly evaluatorSpec: EvaluatorSpec;
+  /**
+   * THE ENTRY REGISTRY'S SLATE FOR THIS ENGINE — resolved once, here, because
+   * the registry is immutable data and the slate is fixed for the engine's
+   * life. One entry per socket per decision, which is what the resolution
+   * guarantees; the stamp of it rides the mechanism report.
+   *
+   * PER-ENGINE, NEVER PROCESS-WIDE. The standing rule I1 established for every
+   * option on this class: what has to be measurable is ONE SEAT against
+   * unchanged opponents, and a process-wide switch moves every lobster seat on
+   * the board at once. Resolution THROWS on an entry that does not exist —
+   * never falls back — because a measurement attributed to an entry that never
+   * ran is the one failure the identity law exists to prevent.
+   */
+  private readonly slate: ResolvedSlate;
 
   constructor(
     private readonly ports: TeamDecisionPorts,
@@ -526,6 +558,7 @@ export class TeamDecisionEngine {
     this.env = ports.env ?? process.env;
     this.log = ports.log ?? ((m) => console.log(m));
     this.evaluatorSpec = evaluatorSpecOf(this.options.evaluate ?? defaultEvaluator);
+    this.slate = REGISTRY.resolve(slateFor(this.options.slate));
     if (this.options.pool !== undefined) this.pool = this.options.pool;
   }
 
@@ -866,6 +899,12 @@ export class TeamDecisionEngine {
         // `TeamDecisionOptions` overrides it, so the stamp reads it the same
         // way the evaluator does.
         mutualWipeAward: mutualWipeAwardEnabled(),
+        // THE REGISTRY'S RESOLUTION for this decision. Resolved from the
+        // engine's own slate — per-engine and never process-wide, so one seat
+        // can carry a slate while the seat across the board does not, which is
+        // the same standing rule every per-engine option above follows.
+        slate: slateStampOf(this.slate),
+        belief: kernel.lastReport?.belief ?? null,
       });
       const report = kernel.lastReport;
       // Same guard on the carried slice cost: a decision that finishes late

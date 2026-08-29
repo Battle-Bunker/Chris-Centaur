@@ -52,6 +52,8 @@
  */
 
 import type { AdjudicationReport, ClusterReport, SearchCore } from '../contracts';
+import type { BeliefReport } from '../belief';
+import type { SlateStamp } from '../registry';
 import type { CandidateKnobs } from '../candidates';
 import type { MutualWipeReport, RefineReport } from '../evaluate';
 import { mutualWipeReportOf, refineReportOf } from '../evaluate';
@@ -116,6 +118,29 @@ export interface FlagStamp {
  */
 export interface MechanismReport {
   readonly flags: FlagStamp;
+  /**
+   * THE ENTRY REGISTRY'S RESOLUTION for this decision — the core redesign's
+   * unit of account, alongside the flag stamp that is its predecessor.
+   *
+   * One entry id per socket. It is the same argument `flags` carries, moved to
+   * the thing the redesign judges: a batch manifest records what a slate was
+   * SET to; this records the entries the decision actually resolved, and an
+   * entry id is what a measurement attaches to under the identity law.
+   *
+   * Always `slate: 'legacy'` in this increment, which is not a placeholder but
+   * the claim being gated: the legacy entries ARE what ships, so a decision
+   * that resolves them must be byte-identical to one taken before the registry
+   * existed.
+   */
+  readonly slate: SlateStamp;
+  /**
+   * THE PER-BRANCH BELIEFS this decision carried (core redesign §3.1). Null
+   * only when the decision produced no kernel report at all.
+   *
+   * `belief.deciding` is false here and says so on the wire of the report: the
+   * structure is computed and carried and no decision reads it.
+   */
+  readonly belief: BeliefReport | null;
   /** CL3's per-decision cluster accounting; null unless `clusterEnum` ran. */
   readonly cluster: ClusterReport | null;
   /** CL4's lottery ledger, seed included; null unless `sampledCap` ran. */
@@ -158,6 +183,10 @@ export interface MechanismInputs {
   readonly workers: number;
   readonly tierTruth: TierTruth;
   readonly mutualWipeAward: boolean;
+  /** The slate this decision resolved, as entry ids. */
+  readonly slate: SlateStamp;
+  /** The kernel's folded belief row, or null when no kernel report exists. */
+  readonly belief: BeliefReport | null;
 }
 
 /**
@@ -183,6 +212,8 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       gainOrdering: knobs.gainOrdering,
       mutualWipeAward: inputs.mutualWipeAward,
     },
+    slate: inputs.slate,
+    belief: inputs.belief,
     cluster: search.clusterReport?.() ?? null,
     selection: search.selectionReport?.() ?? null,
     scout: search.scoutReport?.() ?? null,

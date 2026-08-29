@@ -59,6 +59,8 @@ import type {
   UnitId,
   Witness,
 } from "./contracts"
+import { beliefReportOf, posteriorOfBranch } from "./belief"
+import type { BeliefReport, BranchPosterior } from "./belief"
 import {
   DEFAULT_DEAD_BELOW,
   PostureGovernor,
@@ -643,7 +645,20 @@ export interface KernelReport {
     readonly visits: number
     readonly evaluations: number
     readonly horizon: number
+    /** The branch's belief as the decision ended (core redesign §3.1). Carried
+     * on the same terms as `visits`: populated, reported, read by nothing. */
+    readonly belief: BranchPosterior
   }>
+  /**
+   * THE DECISION'S BELIEFS, folded (core redesign §3.1).
+   *
+   * Assembled at report time from the posteriors the plan table already
+   * carried — no second pass over anything, and no decision consulted. Its
+   * `deciding: false` is published rather than assumed: the increment that
+   * gives the belief its readers flips it, and a sweep can then tell the two
+   * builds apart without reading the source.
+   */
+  readonly belief: BeliefReport
   /** The context the wire's last record came from. */
   readonly activeContextKey: string
   /** True only if the kernel never put a plan on the wire. Must never happen. */
@@ -722,6 +737,45 @@ interface PlanCandidate {
    */
   visits: number
   evaluations: number
+  /**
+   * THE PER-BRANCH BELIEF (core redesign §3.1) — CARRIED, POPULATED, AND READ
+   * BY NOTHING.
+   *
+   * The same standing as `visits` above, and for the same reason: it is the
+   * quantity the increment that turns it on will be judged against, and it
+   * cannot be reconstructed after the fact. It is REBUILT from the latest
+   * triple on every update rather than folded observation by observation —
+   * see `refreshBelief` for why accumulating precision over a re-priced plan
+   * would manufacture confidence out of repeat work.
+   *
+   * Nothing in this file reads it. Every decision this kernel makes still runs
+   * through `rows()` -> the stager -> the gates, on `lo`/`est`/`hi`, exactly as
+   * before. `src/lobster/belief.ts` carries the structural argument, and
+   * `eslint.config.js` keeps the bounds, search and evaluate layers from
+   * importing it at all.
+   */
+  belief: BranchPosterior
+}
+
+/**
+ * REBUILD a branch's posterior from its latest reading.
+ *
+ * The sound support is the one the staging row uses — `bounds?.worst ?? bound.lo`
+ * — so the belief and the row can never disagree about which interval they are
+ * describing. The density is the computed `est` at the precision that interval
+ * earns.
+ *
+ * REBUILT, NOT FOLDED. `score` and `bound` are the LATEST reading and replace;
+ * a plan re-priced by a later slice returns the identical number (the
+ * evaluation memo proves it — 99.7% of evaluations on the measured board were
+ * repeats), so folding each one in as a fresh observation would add precision
+ * for work that learned nothing.
+ */
+function refreshBelief(cand: PlanCandidate): void {
+  const bounds = cand.score?.bounds
+  const lo = bounds?.worst ?? cand.bound.lo
+  const hi = bounds?.best ?? cand.bound.hi
+  cand.belief = posteriorOfBranch(lo, hi, cand.bound.est)
 }
 
 /** Consecutive slices that charge nothing to the clock before the loop gives
@@ -1448,13 +1502,24 @@ export class LobsterKernel implements Kernel {
     const horizon = run.lastView?.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
-      run.plans.set(key, { key, plan: score.plan, score, bound, horizon, visits: 1, evaluations: 1 })
+      const made: PlanCandidate = {
+        key,
+        plan: score.plan,
+        score,
+        bound,
+        horizon,
+        visits: 1,
+        evaluations: 1,
+        belief: posteriorOfBranch(score.bounds.worst, score.bounds.best, bound.est),
+      }
+      run.plans.set(key, made)
     } else {
       existing.score = score
       existing.bound = bound
       existing.horizon = horizon
       existing.visits++
       existing.evaluations++
+      refreshBelief(existing)
     }
   }
 
@@ -1479,6 +1544,7 @@ export class LobsterKernel implements Kernel {
       // evaluation has been charged to it yet.
       visits: 0,
       evaluations: 0,
+      belief: posteriorOfBranch(c.lo, c.hi, c.est),
     }
     run.plans.set(c.key, cand)
     return cand
@@ -1528,20 +1594,28 @@ export class LobsterKernel implements Kernel {
     if (existing !== undefined) {
       existing.bound = bound
       existing.evaluations++
+      refreshBelief(existing)
       return existing
     }
+    const carried =
+      run.active.incumbent !== null && planKey(run.active.incumbent.plan) === key
+        ? run.active.incumbent
+        : null
     const cand: PlanCandidate = {
       key,
       plan,
-      score: run.active.incumbent !== null && planKey(run.active.incumbent.plan) === key
-        ? run.active.incumbent
-        : null,
+      score: carried,
       bound,
       horizon: 1,
       // `conform` evaluates but does not commit a search score, so this is one
       // unit of work and no visit — the divergence the two counters exist for.
       visits: 0,
       evaluations: 1,
+      belief: posteriorOfBranch(
+        carried?.bounds.worst ?? bound.lo,
+        carried?.bounds.best ?? bound.hi,
+        bound.est,
+      ),
     }
     run.plans.set(key, cand)
     return cand
@@ -1583,7 +1657,10 @@ export class LobsterKernel implements Kernel {
       // candidate table updated with it.
       const bound = this.evaluateBound(run, carriedPlan)
       const cand = run.plans.get(planKey(carriedPlan))
-      if (cand !== undefined) cand.bound = bound
+      if (cand !== undefined) {
+        cand.bound = bound
+        refreshBelief(cand)
+      }
       // The incumbent carries over as the STAGED record — the wire did not
       // change — but its FLOOR does not: it was proved while a different
       // channel led, and comparing across the flip is the thing this basis
@@ -2056,6 +2133,11 @@ export class LobsterKernel implements Kernel {
         epoch: e.boundsBasis?.epoch ?? null,
       })
     }
+    // The belief of whatever the wire ended up holding. Read from the plan
+    // table, not recomputed: the report describes the decision that happened.
+    const stagedPlan = run.basis.stagedPlan
+    const stagedBelief =
+      stagedPlan === null ? null : (run.plans.get(planKey(stagedPlan))?.belief ?? null)
     return {
       elapsedMs: end - run.t0,
       budgetMs: run.budgetMs,
@@ -2090,7 +2172,12 @@ export class LobsterKernel implements Kernel {
         visits: c.visits,
         evaluations: c.evaluations,
         horizon: c.horizon,
+        belief: c.belief,
       })),
+      belief: beliefReportOf(
+        [...run.plans.values()].map((c) => c.belief),
+        stagedBelief,
+      ),
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,
       leverOrderBinding: run.refiner !== null,

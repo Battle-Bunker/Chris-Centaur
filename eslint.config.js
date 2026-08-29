@@ -43,16 +43,37 @@ const RESTRICTED_IMPORTS = {
   },
 };
 
-function restrictedImports(exceptKeys = []) {
+function restrictedImports(exceptKeys = [], patterns = []) {
   return [
     'error',
     {
       paths: Object.entries(RESTRICTED_IMPORTS)
         .filter(([key]) => !exceptKeys.includes(key))
         .map(([, entry]) => entry),
+      ...(patterns.length > 0 ? { patterns } : {}),
     },
   ];
 }
+
+// ── The per-branch belief is NON-DECIDING, structurally ─────────────────────
+// Core redesign §3.1 gives every branch a posterior alongside its sound
+// interval. In the first increment it is CARRIED, POPULATED AND READ BY
+// NOTHING: every decision still flows through the floor/est path. That is a
+// claim about the whole build, not about one file, so it is a lint error and
+// not a review note — the same shape rule 17 has for the clock and rule 20 has
+// for the RNG. The kernel (which stores one per plan, next to the equally
+// unread `visits`) and the telemetry layer are the only consumers, and neither
+// is a comparator.
+const BELIEF_PATTERN = {
+  group: ['**/belief', '**/belief.ts', '../belief', '../../belief'],
+  message:
+    'The bounds, search, evaluate and selection layers may not import ' +
+    'src/lobster/belief.ts. The per-branch belief is carried and reported and ' +
+    'decides nothing (core redesign §3.1): the sound interval moves only by ' +
+    'proof and the density may not reach a comparator, a bound or a candidate ' +
+    'set. The increment that gives the belief its readers changes this rule ' +
+    'deliberately, and its diff is where that decision is reviewed.',
+};
 
 const TIMER_MESSAGE_TAIL =
   'from src/server/activity-controller.ts so idle teardown stays reliable: managed ' +
@@ -266,5 +287,31 @@ module.exports = [
   {
     files: ['src/server/websocket-server.ts'],
     rules: { 'no-restricted-imports': restrictedImports(['ws']) },
+  },
+
+  // ── Core redesign §3.1: the belief decides nothing ───────────────────────
+  // Every layer that can move a decision — the bounds bank, the search (the
+  // scout included), the evaluators and the selection lottery — may not import
+  // it. See BELIEF_PATTERN above.
+  //
+  // LAST IN THE ARRAY ON PURPOSE. Flat-config rule entries REPLACE rather than
+  // merge, so a `no-restricted-imports` block placed before the keepalive base
+  // block below-the-fold is silently overwritten by it. This block therefore
+  // re-declares the base paths alongside the pattern, and sits after every
+  // other declaration of the rule.
+  //
+  // PRE-EXISTING AND DELIBERATELY NOT REPAIRED HERE: the scout's own
+  // `no-restricted-imports` (its bounds ban, above) is shadowed by exactly that
+  // ordering and does not currently fire. Repairing it would newly constrain
+  // the scout, which is out of this increment's scope; it is recorded rather
+  // than silently changed.
+  {
+    files: [
+      'src/lobster/bounds/**/*.ts',
+      'src/lobster/search/**/*.ts',
+      'src/lobster/evaluate/**/*.ts',
+      'src/lobster/selection/**/*.ts',
+    ],
+    rules: { 'no-restricted-imports': restrictedImports([], [BELIEF_PATTERN]) },
   },
 ];

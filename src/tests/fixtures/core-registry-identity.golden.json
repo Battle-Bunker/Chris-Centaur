@@ -1,0 +1,165 @@
+[
+  {
+    "name": "pieces-7x7",
+    "staged": [
+      "a:38",
+      "b:56"
+    ],
+    "journal": [
+      {
+        "lo": 10,
+        "est": 20.5625,
+        "hi": "Infinity",
+        "horizon": 1,
+        "slack": "Infinity",
+        "posture": "SIGHTED",
+        "epoch": 0,
+        "crossfade": "independent",
+        "assumptions": 1
+      }
+    ],
+    "structure": {
+      "emits": 1,
+      "conformCalls": 1,
+      "epochs": 1,
+      "boundViolations": 0,
+      "stagedNothing": false,
+      "leverOrderBinding": false,
+      "planKeys": [
+        "0>38:|1>56:",
+        "0>39:39|1>56:"
+      ],
+      "planHorizons": [
+        1,
+        1
+      ],
+      "refusals": {
+        "ratchet-floor": 0,
+        "ratchet-gap": 0,
+        "switch-floor": 0,
+        "switch-dominance": 0,
+        "rate": 0,
+        "nonconforming": 0,
+        "crossfade": 0,
+        "sink": 0,
+        "pin-unreachable": 0,
+        "bounds-inversion": 0
+      }
+    },
+    "assumptions": [],
+    "forwarded": 2
+  },
+  {
+    "name": "mixed-9x9",
+    "staged": [
+      "t:left",
+      "q:83",
+      "t:right",
+      "q:60"
+    ],
+    "journal": [
+      {
+        "lo": 30.33567901234568,
+        "est": 41.641234567901236,
+        "hi": 52.94679012345679,
+        "horizon": 1,
+        "slack": 22.611111111111114,
+        "posture": "SIGHTED",
+        "epoch": 0,
+        "crossfade": "independent",
+        "assumptions": 1
+      },
+      {
+        "lo": 40.43944444444444,
+        "est": 41.00617283950617,
+        "hi": 41.00617283950617,
+        "horizon": 1,
+        "slack": 0.5667283950617303,
+        "posture": "FOGGED-DISCRIMINATING",
+        "epoch": 0,
+        "crossfade": "independent",
+        "assumptions": 1
+      }
+    ],
+    "structure": {
+      "emits": 2,
+      "conformCalls": 1,
+      "epochs": 1,
+      "boundViolations": 0,
+      "stagedNothing": false,
+      "leverOrderBinding": false,
+      "planKeys": [
+        "0>79:79|1>83:83",
+        "0>81:81|1>60:82.71.60"
+      ],
+      "planHorizons": [
+        1,
+        1
+      ],
+      "refusals": {
+        "ratchet-floor": 0,
+        "ratchet-gap": 0,
+        "switch-floor": 0,
+        "switch-dominance": 0,
+        "rate": 51,
+        "nonconforming": 0,
+        "crossfade": 0,
+        "sink": 0,
+        "pin-unreachable": 0,
+        "bounds-inversion": 0
+      }
+    },
+    "assumptions": [],
+    "forwarded": 4
+  },
+  {
+    "name": "three-team-9x9",
+    "staged": [
+      "a:90",
+      "b:92"
+    ],
+    "journal": [
+      {
+        "lo": -31.166666666666668,
+        "est": -10.041666666666666,
+        "hi": "Infinity",
+        "horizon": 1,
+        "slack": "Infinity",
+        "posture": "SIGHTED",
+        "epoch": 0,
+        "crossfade": "independent",
+        "assumptions": 1
+      }
+    ],
+    "structure": {
+      "emits": 1,
+      "conformCalls": 1,
+      "epochs": 1,
+      "boundViolations": 0,
+      "stagedNothing": false,
+      "leverOrderBinding": false,
+      "planKeys": [
+        "0>90:|1>92:",
+        "0>90:|1>56:80.68.56"
+      ],
+      "planHorizons": [
+        1,
+        1
+      ],
+      "refusals": {
+        "ratchet-floor": 0,
+        "ratchet-gap": 0,
+        "switch-floor": 0,
+        "switch-dominance": 0,
+        "rate": 0,
+        "nonconforming": 0,
+        "crossfade": 0,
+        "sink": 0,
+        "pin-unreachable": 0,
+        "bounds-inversion": 0
+      }
+    },
+    "assumptions": [],
+    "forwarded": 2
+  }
+]
