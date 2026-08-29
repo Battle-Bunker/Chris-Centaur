@@ -18,13 +18,27 @@
  *    inside the material interval, which is the same fact expressed so that
  *    they cannot drift apart.
  *
- * 2. TERMINAL CLAMPS ARE ORDERED, NOT ADDITIVE. A team whose last unit dies has
- *    lost, whatever happened to anyone else — so mutual annihilation is a LOSS,
- *    not a wash. Scoring the two clamps additively made them cancel, and the
- *    blunder attribution put the entire cost of every blunder on that one line:
- *    the evaluator was happily trading its own last unit for the opponent's.
- *    Fixing the ordering moved optimality 78.9% → 81.3% and blunders
- *    4.4% → 3.1% in one change.
+ * 2. TERMINAL CLAMPS ARE ORDERED, NOT ADDITIVE. Scoring the two clamps
+ *    additively made them cancel, and a mutual annihilation then read as a
+ *    wash; the blunder attribution put the entire cost of every blunder on that
+ *    one line, because the evaluator was happily trading its own last unit for
+ *    the opponent's. Fixing the ordering moved optimality 78.9% → 81.3% and
+ *    blunders 4.4% → 3.1% in one change.
+ *
+ *    THE ORDER IS OURS, NOT THE GAME'S — say it that way round. "A team whose
+ *    last unit dies has lost, whatever happened to anyone else" is how this
+ *    file used to state it, and that sentence is false of TacticToes. Its
+ *    `TeamSnekProcessor.calculatePreviousTurnTeamOutcome` settles a game in
+ *    which every remaining team dies on the same turn from the PREVIOUS
+ *    COMMITTED TURN's board: the team ahead on weight there wins, and an exact
+ *    tie there is a draw in which every tied team is paid as a winner. So a
+ *    mutual annihilation is a loss only when we were BEHIND. Ordering our own
+ *    elimination first is a conservative approximation of that rule which is
+ *    exactly right everywhere except the mutual final wipe — a measured 0.076%
+ *    of games — and exactly wrong there, and wrong in the direction that
+ *    refuses a win. `CENTAUR_MUTUAL_WIPE_AWARD` (`./mutual-wipe.ts`) is the
+ *    repair, DARK by default and never yet measured live; with it off the
+ *    clamps are the ones this fact describes, byte for byte.
  *
  * 3. DEAD IS A LATTICE BOTTOM, NEVER A SCALAR ON THE HEURISTIC SCALE. A large
  *    finite penalty inverts the cliff the moment another term outgrows it.
@@ -125,7 +139,10 @@ export const SPECIALIST_FACTS: ReadonlyArray<SpecialistFact> = [
       'that one of those two deaths ends a team.',
     carriedBy:
       'the ORDERED terminal clamps: our own elimination is checked first, so a trade that ' +
-      'ends their team while ours still stands is a win, and a mutual one is a loss',
+      'ends their team while ours still stands is a win, and a mutual one is a loss — a ' +
+      'conservative reading of the rules rather than the rules themselves, since TacticToes ' +
+      'awards a mutual final wipe to whoever led on the previous turn. Under ' +
+      'CENTAUR_MUTUAL_WIPE_AWARD (dark) that case prices as the win it is',
   },
   {
     id: 'king-weight-margin',

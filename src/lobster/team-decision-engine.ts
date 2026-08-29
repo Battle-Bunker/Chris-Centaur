@@ -70,7 +70,12 @@ import { TIER_TRUTH } from './tier-truth';
 import { mechanismReportOf } from './telemetry/mechanism';
 import type { MechanismReport } from './telemetry/mechanism';
 import type { StagingSafety } from './staging-safety';
-import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import {
+  defaultEvaluator,
+  earliestShells,
+  mutualWipeAwardEnabled,
+  standingOf,
+} from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
@@ -856,6 +861,11 @@ export class TeamDecisionEngine {
         scout: this.options.scout ?? scoutMode(),
         workers: this.pool?.size ?? 0,
         tierTruth: TIER_TRUTH,
+        // Env-only, exactly like the six above: `./evaluate/mutual-wipe.ts`
+        // reads `process.env` from inside the clamp and nothing in
+        // `TeamDecisionOptions` overrides it, so the stamp reads it the same
+        // way the evaluator does.
+        mutualWipeAward: mutualWipeAwardEnabled(),
       });
       const report = kernel.lastReport;
       // Same guard on the carried slice cost: a decision that finishes late

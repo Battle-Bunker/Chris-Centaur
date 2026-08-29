@@ -53,8 +53,8 @@
 
 import type { AdjudicationReport, ClusterReport, SearchCore } from '../contracts';
 import type { CandidateKnobs } from '../candidates';
-import type { RefineReport } from '../evaluate';
-import { refineReportOf } from '../evaluate';
+import type { MutualWipeReport, RefineReport } from '../evaluate';
+import { mutualWipeReportOf, refineReportOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
 import type { ScoutMode, ScoutReport } from '../search/scout';
 import type { MultiStartReport } from '../search/multistart-seed';
@@ -98,6 +98,12 @@ export interface FlagStamp {
   readonly stagingSafety: ResolvedStagingSafety;
   /** Promoted at integ/round-a; carried for the exploration slice. */
   readonly gainOrdering: boolean;
+  /**
+   * The mutual-wipe repair — `CENTAUR_MUTUAL_WIPE_AWARD`. Env-only, like the
+   * six search-side flags: nothing in `TeamDecisionOptions` overrides it, so
+   * this is read from the same source the evaluator reads.
+   */
+  readonly mutualWipeAward: boolean;
 }
 
 /**
@@ -124,6 +130,14 @@ export interface MechanismReport {
   readonly adjudication: AdjudicationReport | null;
   /** CL5's Door-C refiner telemetry; null unless the refiner ran. */
   readonly refine: RefineReport | null;
+  /**
+   * The mutual-wipe award's engagement counters; null when the flag is off or
+   * when no evaluation ever reached a world with every team gone — which, at a
+   * measured 0.076% base rate for that end kind, is most games. Null and not
+   * zero: an arm that carried the flag and never reached the branch is a
+   * different finding from an arm that reached it and refused.
+   */
+  readonly mutualWipe: MutualWipeReport | null;
 }
 
 /** What the assembler needs that it cannot derive from the search core. */
@@ -143,6 +157,7 @@ export interface MechanismInputs {
   readonly scout: ScoutMode;
   readonly workers: number;
   readonly tierTruth: TierTruth;
+  readonly mutualWipeAward: boolean;
 }
 
 /**
@@ -166,6 +181,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       tierTruth: inputs.tierTruth,
       stagingSafety: inputs.stagingSafety,
       gainOrdering: knobs.gainOrdering,
+      mutualWipeAward: inputs.mutualWipeAward,
     },
     cluster: search.clusterReport?.() ?? null,
     selection: search.selectionReport?.() ?? null,
@@ -173,5 +189,6 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
     multistart: search.multistartReport?.() ?? null,
     adjudication: search.adjudicationReport?.() ?? null,
     refine: refineReportOf(sub),
+    mutualWipe: mutualWipeReportOf(sub),
   };
 }

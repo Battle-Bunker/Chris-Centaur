@@ -30,7 +30,7 @@ import { CLUSTER_ENUM_ENV } from '../lobster/search/cluster-partition';
 import { UNIT_FATALITY_ENV } from '../lobster/candidates';
 import { EDGE_EV_ENV } from '../lobster/search/edge-ev';
 import { SAMPLED_CAP_ENV } from '../lobster/selection';
-import { TERRITORY_REFINE_ENV } from '../lobster/evaluate';
+import { MUTUAL_WIPE_AWARD_ENV, TERRITORY_REFINE_ENV } from '../lobster/evaluate';
 import { SCOUT_ENV } from '../lobster/search/scout';
 
 // ------------------------------------------------------------------ fixtures
@@ -98,10 +98,10 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
  * `ports.env` reaches the wire's write interval and the worker count. It does
  * NOT reach the six search-side flags or the two candidate
  * knobs: `clusterSeedEnabled()`, `clusterEnumEnabled()`,
- * `territoryRefineEnabled()`, `sampledCapEnabled()`, `scoutMode()` and
- * `flaggedKnobs()` all read `process.env` directly. The stamp reads the same
- * source its consumers read, so a test that set `ports.env` would prove the
- * stamp agreed with a value nothing ran on.
+ * `territoryRefineEnabled()`, `sampledCapEnabled()`, `scoutMode()`,
+ * `mutualWipeAwardEnabled()` and `flaggedKnobs()` all read `process.env`
+ * directly. The stamp reads the same source its consumers read, so a test that
+ * set `ports.env` would prove the stamp agreed with a value nothing ran on.
  */
 const FLAG_ENVS = [
   CLUSTER_SEED_ENV,
@@ -112,6 +112,7 @@ const FLAG_ENVS = [
   SAMPLED_CAP_ENV,
   TERRITORY_REFINE_ENV,
   SCOUT_ENV,
+  MUTUAL_WIPE_AWARD_ENV,
 ];
 
 async function decide(
@@ -170,6 +171,7 @@ describe('CL7: the mechanism report is present and complete', () => {
         'clusterSeed',
         'edgeEv',
         'multistartSeed',
+        'mutualWipeAward',
         'gainOrdering',
         'sampledCap',
         'scout',
@@ -189,6 +191,9 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.flags.sampledCap).toBe(false);
     expect(m.flags.territoryRefine).toBe(false);
     expect(m.flags.scout).toBe('off');
+    // The mutual-wipe repair ships DARK: the ordered clamps are unchanged
+    // unless an arm asks for it by name.
+    expect(m.flags.mutualWipeAward).toBe(false);
     // `gainOrdering` was PROMOTED at integ/round-a and ships on.
     expect(m.flags.gainOrdering).toBe(true);
     // `auto` is board-conditional; this board bears pieces, so it resolves on.
@@ -219,6 +224,7 @@ describe('CL7: the mechanism report is present and complete', () => {
       [SAMPLED_CAP_ENV]: 'TRUE',
       [TERRITORY_REFINE_ENV]: 'y',
       [SCOUT_ENV]: 'yes',
+      [MUTUAL_WIPE_AWARD_ENV]: 'Y',
     });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
@@ -229,6 +235,7 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.flags.sampledCap).toBe(false);
     expect(m.flags.territoryRefine).toBe(false);
     expect(m.flags.scout).toBe('off');
+    expect(m.flags.mutualWipeAward).toBe(false);
   }, 20_000);
 
   test('with every flag off, a layer that never ran reports NULL, not zero', async () => {
@@ -240,6 +247,9 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.cluster).toBeNull();
     expect(m.selection).toBeNull();
     expect(m.scout).toBeNull();
+    // The mutual-wipe award allocates nothing off its flag, and a mutual final
+    // wipe is a 0.076% end kind, so this stays null on almost every ON arm too.
+    expect(m.mutualWipe).toBeNull();
     // L17's instrument is not flag-gated: adjudication is always published.
     expect(m.adjudication).not.toBeNull();
     expect(m.adjudication?.floorDecided).toBeGreaterThanOrEqual(0);

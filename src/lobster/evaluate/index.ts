@@ -48,6 +48,7 @@ import {
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
 import type { EvalContext } from './features';
+import { mutualWipeAwardFor, mutualWipeCountersFor } from './mutual-wipe';
 
 export * from './bound';
 export * from './calibration';
@@ -85,6 +86,17 @@ export {
   territoryRefineFrom,
 } from './refine';
 export type { RefineReport, RefineScope, Shield } from './refine';
+export {
+  MUTUAL_WIPE_AWARD_ENV,
+  MutualWipeCounters,
+  mutualWipeAwardEnabled,
+  mutualWipeAwardFor,
+  mutualWipeAwardFrom,
+  mutualWipeCountersFor,
+  mutualWipeReportOf,
+  mutualWipeVerdict,
+} from './mutual-wipe';
+export type { MutualWipeReport, MutualWipeVerdict } from './mutual-wipe';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
@@ -172,18 +184,58 @@ export class BoundEvaluator implements Evaluator {
  * anyone else's, in each reading independently. Adding a "my team wiped" term to
  * a "their team wiped" term lets the two cancel, and a mutual annihilation then
  * scores as a wash — which is how an evaluator ends up trading its own last unit
- * for the opponent's. It is not a wash: it is a loss.
+ * for the opponent's. It is not a wash.
+ *
+ * IS IT A LOSS, THOUGH. Not always, and this file used to say it was. TacticToes
+ * settles a game in which every remaining team dies on the same turn from the
+ * PREVIOUS COMMITTED TURN's board, so a team ahead on weight that trades its
+ * last units for everyone else's WINS. The ordering above prices that win as the
+ * lattice bottom and refuses it — and refuses it hardest when we are ahead,
+ * which is exactly when the option arises. `CENTAUR_MUTUAL_WIPE_AWARD` is the
+ * repair, DARK by default; `./mutual-wipe.ts` carries the rule, the four guards
+ * it refuses on, and the R1–R3 argument for the clamp shape below.
+ *
+ * With the flag off `award` is false and both expressions collapse term for
+ * term to the ones that shipped — `X ? ((false && Y) ? WIN : DEAD) : Z` is
+ * `X ? DEAD : Z` — and nothing in `./mutual-wipe.ts` is even reached: the
+ * environment is read only from inside a world where every team is gone.
  */
 export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
   const { worst, best } = terminalVerdicts(ctx);
 
-  const lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : evaluation.total.lo;
-  const hi = best.subjectGone ? DEAD : best.othersGone ? WIN : evaluation.total.hi;
+  const wipeWorst = worst.subjectGone && worst.othersGone;
+  const wipeBest = best.subjectGone && best.othersGone;
+  const award = (wipeWorst || wipeBest) && mutualWipeAwardFor(ctx.sub, ctx.asTeam);
+
+  const lo = worst.subjectGone
+    ? award && worst.othersGone
+      ? WIN
+      : DEAD
+    : worst.othersGone
+      ? WIN
+      : evaluation.total.lo;
+  const hi = best.subjectGone
+    ? award && best.othersGone
+      ? WIN
+      : DEAD
+    : best.othersGone
+      ? WIN
+      : evaluation.total.hi;
+
+  if (award) {
+    // Endpoints this award actually moved off DEAD. Counted here rather than in
+    // the module because only the clamp knows which end it changed.
+    const c = mutualWipeCountersFor(ctx.sub);
+    if (wipeWorst) c.movedLo += 1;
+    if (wipeBest) c.movedHi += 1;
+  }
 
   // Elimination in the BEST world implies elimination in the worst (our
   // best-world alive set contains our worst-world one), and a clean sweep in
   // the worst world implies one in the best. So the clamps can only ever
-  // tighten an interval, never invert it — asserted rather than assumed.
+  // tighten an interval, never invert it — asserted rather than assumed. The
+  // award preserves that: `lo = WIN` needs `worst.othersGone`, which implies
+  // `best.othersGone`, which forces `hi = WIN` down both of its branches.
   const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
 
   const basis = ctx.resolution.state.field.assumptions();
