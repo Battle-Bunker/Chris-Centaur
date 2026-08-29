@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-159 terms tracked: **2** corrected, **55** internal, **37** defined, **65** native.
+163 terms tracked: **4** corrected, **53** internal, **41** defined, **65** native.
 
 > **Evidence quality.** 47 of the 65 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -43,10 +43,18 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **2026-08-28** (standing-directive) — "design a dedicated memory system within repos for you to track across sessions which terminology each human principal involved in a project is so far familiar with"
   <br>→ This file is that system. It lives in the repo so every session -- cloud coordinator, local sim worker, post-compaction resume -- reads the same state.
 
-### CORRECTED — they told us they did not know it. NEVER use undefined. (2)
+### CORRECTED — they told us they did not know it. NEVER use undefined. (4)
 
 > Must be re-defined at EVERY use, even if it was previously defined. Corrections never auto-expire; only the principal using the term correctly themselves promotes it out of here.
 
+- **cluster seed** — the initial cluster membership a turn starts with (CENTAUR_CLUSTER_SEED is its flag).
+  <br><sub>2026-08-29 · owner message 2026-08-29</sub>
+  <br><sub>evidence (quoted): "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics."</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected</sub>
+- **lat** — shorthand for decision latency (wall-clock ms to produce a move). Was flagged in standing directive 0e as NOT defined; defined 2026-08-28.
+  <br><sub>2026-08-29 · owner message 2026-08-29</sub>
+  <br><sub>evidence (quoted): "explain the 'Lat' scoring rule (and name choice) in more detail."</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected</sub>
 - **one-translation rule** — the architectural rule that a position may be translated from enumerable substrate to resolved state once and never back. Owner was explicitly lost by it; a plain-language explanation was owed and given, but the TERM itself stays corrected — say the rule, not the name.
   <br><sub>2026-08-27 · owner message, cloud coordinator session</sub>
   <br><sub>evidence (quoted): "I'm still completely mystified about the term 'one-translation rule'"</sub>
@@ -56,7 +64,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>evidence (quoted): "what does 'trail' mean? this is new terminology"</sub>
   <br><sub>history: 2026-08-27 → internal; 2026-08-28 → corrected</sub>
 
-### INTERNAL — code / agent-report jargon, NEVER briefed (55)
+### INTERNAL — code / agent-report jargon, NEVER briefed (53)
 
 > Define inline at first use — in the sentence that uses it, not in a glossary appendix — and record the definition event in the ledger in the same work cycle. Or say it in native words instead.
 
@@ -114,13 +122,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **kindSet** — a bitmask of every piece kind a clouded unit might currently be.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **lattice** — the partial order of cohorts/frames used to compare scores from different rounds.
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **maximin** — maximising the guaranteed floor against the worst reply.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **Mobius** — the inclusion-exclusion (Mobius) decomposition used to combine per-edge terms.
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **null band** — the noise interval measured by the A/A null cell. "A/A null" is defined; this framing is not.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **overhang** — the amount by which a bound exceeds what has actually been proven.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
@@ -171,7 +175,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (37)
+### DEFINED — we defined it for them, on a date, somewhere (41)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -195,14 +199,13 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **CL0-CL7** *(also: CL0, CL1, CL2, CL3, CL4, CL5, CL6, CL6a, CL7)* — the cluster-lookahead stage codenames, CL0 through CL7.
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
-- **cluster seed** — the initial cluster membership a turn starts with (CENTAUR_CLUSTER_SEED is its flag).
-  <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **cohort** — a named bundle of heuristics evaluated together (e.g. "material", "territory"); richer cohorts cost more.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **contact countdown** — the number of turns before two units could first affect each other; drives clustering.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
-- **coordinate ascent** — improving a joint plan by optimising one unit at a time, holding the others fixed, and repeating.
-  <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **coordinate ascent** — the refinement loop over a joint move assignment: hold every unit's move fixed except one, try to improve that one, repeat.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → defined</sub>
 - **dark** — a feature that is built and merged but off by default, awaiting promotion.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **detector** — a cheap board test that decides whether an expensive heuristic is worth running at all (e.g. "is there a slider?").
@@ -211,6 +214,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
 - **drift gates** *(also: drift gate)* — the tests that fail if the vendored engine has drifted from its upstream source.
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
+- **E3** — the double-pricing probe: 8,878 real decisions priced through both evaluator profiles with two independent banks and an unbounded budget; source of the material-lattice finding and the tie-breaking-only result.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
 - **engagement** — the learnloop requirement that a treatment arm demonstrably did the thing it is being tested for.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (batch-1 deep-mining): defined inline as the learning loop writing 'engaged'/'not engaged' -- whether the treatment demonstrably did the thing it is tested for</sub>
   <br><sub>history: 2026-08-28 → internal; 2026-08-29 → defined</sub>
@@ -218,14 +223,24 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **floor** — the guaranteed-at-least score of a position under the worst reading of its clouds (lower bound).
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **formation pinning** — the measured cluster-seed failure state: joint cell-claims compress own-team separation (10.70 to 6.51 cells) and push the team against the board edge (wall distance 3.95 to 2.00, pinned by median turn 5 in 48/48 games), after which wall/body-block/contest deaths follow.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
 - **ladder** — an ordered sequence of increasingly expensive stages, run until the budget runs out.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
-- **lat** — shorthand for decision latency (wall-clock ms to produce a move). Was flagged in standing directive 0e as NOT defined; defined 2026-08-28.
-  <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
+- **lattice** — the grid material scores live on: every finite material score in the corpus is an integer multiple of 10, so material differences come in steps of 10 with nothing in between (E3).
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-29 → defined</sub>
 - **mechanism metrics** — process measures: unforced deaths by cause, eats per 100 unit-turns, self/teammate kills, decision overruns. Resolve at 4-8 blocks.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **null band** — the interval a batch's own concurrent A/A null reports; any treatment effect inside it is noise by that batch's own showing.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-29 → defined</sub>
 - **P-experiment ids** *(also: P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, N0, X9)* — the simulation program's experiment labels: P1..P16 plus N0 (null), X9, and an R suffix for a re-run.
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
+- **P5R** *(also: P5 rerun)* — batch-2 rerun of the WASM experiment: scored on throughput/timing mechanism metrics rather than placement; headline-mix-king cell dropped; the refusal path must log which buffer was non-resident.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
+- **pair repair** — the two-unit companion to coordinate ascent: try improving two units' moves jointly while the rest stay fixed.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
 - **placement metrics** — outcome measures: mean score, probability of first place. Slow to resolve (+/-0.10 at 16 blocks).
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **promotion** — turning a dark flag on by default, after a live paired sweep with a verified null.
