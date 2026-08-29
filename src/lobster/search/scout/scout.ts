@@ -163,6 +163,17 @@ export class Scout {
    */
   private readonly partitions = new Map<string, Partition>();
   private purse: ScoutPurse;
+  /**
+   * WHY THE RUNNER WAS NEVER REACHED, or `null` once it has been.
+   *
+   * A scout is CONSTRUCTED whenever `CENTAUR_SCOUT` is on, and `run` is called
+   * from one place only: below the cluster-enumeration gate, because the
+   * threads' seeds are the enumeration's own proposals. The caller owns that
+   * gate and so the caller states the reason; the scout only has to make sure
+   * a report can never claim to be a null about the scout when it is a null
+   * about the harness.
+   */
+  private gate: string | null = null;
 
   constructor(
     readonly mode: ScoutMode,
@@ -178,6 +189,21 @@ export class Scout {
    *  point of a ledger — but the tithe does not roll over. */
   beginDecision(decisionMs: number): void {
     this.purse = new ScoutPurse(decisionMs, this.tuning);
+  }
+
+  /**
+   * THE GATE THE CALLER IS STANDING AT — a reason string when the scout was
+   * asked for and the call site was never reached, `null` when it was.
+   *
+   * Declared here rather than inferred from `threads === 0` because the two
+   * readings are not the same claim. Zero threads with `gatedBy: null` is the
+   * scout saying "I ran and there was nothing to open". Zero threads with a
+   * reason is the scout saying "nobody ever called me" — which is a fact about
+   * the configuration, and filing it against the scout is how an experiment
+   * races three identical contenders and reports a null on the wrong flag.
+   */
+  gatedBy(reason: string | null): void {
+    this.gate = reason;
   }
 
   /** The evaluator's own shell table, one per scout, allocated on the first
@@ -203,6 +229,10 @@ export class Scout {
    */
   run(req: ScoutRequest): void {
     if (this.mode === 'off') return;
+    // Being here IS the proof that the call site was reached. Anything that
+    // stops the scout from this line down is a scout finding — `no-cluster` is
+    // a refusal, not a gate — and belongs in `refusals`, not in `gatedBy`.
+    this.gate = null;
     if (req.partition.clusters.length === 0 || req.seeds.length === 0) {
       this.refuse('no-cluster');
       return;
@@ -678,7 +708,14 @@ export class Scout {
   }
 
   report(): ScoutReport {
-    return reportOf(this.mode, this.ledger, this.purse, this.findings.size, { ...this.refusals });
+    return reportOf(
+      this.mode,
+      this.ledger,
+      this.purse,
+      this.findings.size,
+      { ...this.refusals },
+      this.gate
+    );
   }
 
   /** Sum of clean prefixes — the §7.1 measurement, exposed for the probe. */

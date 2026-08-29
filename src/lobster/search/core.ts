@@ -872,8 +872,32 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // substrate, or the evaluator would keep refining against a partition
     // nothing recomputed.
     if (s.sub instanceof EngineSubstrate) setRefineScope(s.sub, null);
-    if (!clusterEnumerating() || !(s.sub instanceof EngineSubstrate)) return null;
-    if (s.ours.length === 0) return null;
+    // ---- CL6a'S SILENT DEPENDENCY, SAID OUT LOUD -------------------------
+    //
+    // `scout.run` has exactly ONE call site and it is below this gate, because
+    // the threads' seeds are the enumeration's own proposals. So a scout that
+    // is switched on while the cluster enumeration is off is not a scout that
+    // ran and found nothing — it is a scout that was never called, and its
+    // report used to be indistinguishable from the first case
+    // (`mode=advise threads=0 findings=0`).
+    //
+    // Those two are opposite facts about a measurement: one is a null about
+    // the scout, the other is a null about the harness. The gate the report
+    // could not see is therefore handed to the scout here, in words, so a
+    // batch can never file a configuration mistake against the flag. Nothing
+    // is auto-enabled: a dependency you cannot see is the defect, not a
+    // dependency you have to satisfy.
+    const scoutGate: string | null = !clusterEnumerating()
+      ? "CENTAUR_CLUSTER_ENUM off — the scout runs inside the cluster enumeration and was never reached"
+      : !(s.sub instanceof EngineSubstrate)
+        ? "substrate is not the engine's — no door to continue through"
+        : s.ours.length === 0
+          ? "no commandable units to vary"
+          : null;
+    if (s.scout !== null) s.scout.gatedBy(scoutGate);
+    // The substrate test is repeated in the guard itself so the narrowing the
+    // rest of this function relies on survives; `scoutGate` already covers it.
+    if (scoutGate !== null || !(s.sub instanceof EngineSubstrate)) return null;
     const started = Date.now();
     // Pins and reference actions are CONSTRAINTS, not variables: they ride
     // every proposal at their declared move and are never enumerated over.

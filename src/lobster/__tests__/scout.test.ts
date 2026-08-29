@@ -1159,6 +1159,61 @@ describe('the gates', () => {
     b.close();
   }, 60000);
 
+  test('a scout that was never reached says so, instead of reporting a null', () => {
+    // THE SILENT DEPENDENCY, made loud. `scout.run` has one call site and it
+    // is inside `openCluster`, below the cluster-enumeration gate — so
+    // `CENTAUR_SCOUT=advise` on its own is a no-op that USED TO REPORT
+    // `mode=advise threads=0 findings=0`, which reads as "it ran and found
+    // nothing". It is "it never ran", and the two are opposite facts about a
+    // measurement: the first is a null about the scout, the second is a null
+    // about the harness. P11's contenders are three arms of one flag, and an
+    // experiment that cannot tell these apart files the harness's null against
+    // the flag.
+    //
+    // Nothing here auto-enables the enumeration. The defect is a dependency a
+    // report could not see, not a dependency an operator has to satisfy.
+    const ctxFor = (b: Bench) => ({
+      sub: b.sub,
+      gen: new GrammarCandidateGenerator({}),
+      evaluate: defaultEvaluator,
+      asTeam: b.asTeam,
+      pins: [],
+      assumptions: [],
+      incumbent: null,
+      witnesses: [],
+      budget: unboundedBudget(),
+    });
+
+    // BOTH WAYS, on the same board, so the only difference is the gate.
+    const gated = bench(snakesBoard(59));
+    const shut = makeSearchCore({ clusterEnum: false, scout: 'advise' });
+    shut.improve(ctxFor(gated));
+    const shutReport = shut.scoutReport?.();
+    expect(shutReport).not.toBeNull();
+    // The mode is still what the operator asked for — the report does not lie
+    // about the request, it explains the absence.
+    expect(shutReport?.mode).toBe('advise');
+    expect(shutReport?.threads).toBe(0);
+    expect(shutReport?.findings).toBe(0);
+    expect(typeof shutReport?.gatedBy).toBe('string');
+    expect(shutReport?.gatedBy).toContain('CENTAUR_CLUSTER_ENUM');
+    shut.release?.();
+    gated.close();
+    clearGeometryCache();
+
+    const open = bench(snakesBoard(59));
+    const ran = makeSearchCore({ clusterEnum: true, scout: 'advise' });
+    ran.improve(ctxFor(open));
+    const ranReport = ran.scoutReport?.();
+    expect(ranReport?.mode).toBe('advise');
+    expect(ranReport?.threads).toBeGreaterThan(0);
+    // Reached. `gatedBy: null` is the positive statement that a zero anywhere
+    // else in this report is the scout's own answer.
+    expect(ranReport?.gatedBy).toBeNull();
+    ran.release?.();
+    open.close();
+  }, 60000);
+
   test('the scout returns every slab it borrows, decision after decision', () => {
     // The slab contract applies to a thread exactly as to a decision: a leak
     // does not look like a leak, it looks like the engine getting slower.

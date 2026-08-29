@@ -487,6 +487,20 @@ export function priceExpansion(args: {
  */
 export interface ScoutReport {
   readonly mode: ScoutMode;
+  /**
+   * WHY THE SCOUT NEVER RAN, or `null` when it did.
+   *
+   * `scout.run` has exactly one call site — inside `search/core.ts`'s
+   * `openCluster`, BELOW the cluster-enumeration gate — because the threads'
+   * seeds are the enumeration's own proposals. So `CENTAUR_SCOUT=advise` with
+   * `CENTAUR_CLUSTER_ENUM` off is a silent no-op, and a report that said only
+   * `mode=advise threads=0 findings=0` read as "it ran and found nothing".
+   *
+   * Those are different facts and a measurement cannot be allowed to confuse
+   * them: the first is a null about the scout, the second is a null about the
+   * harness. This field is the difference, in the report, in words.
+   */
+  readonly gatedBy: string | null;
   readonly threads: number;
   readonly deepened: number;
   readonly parked: number;
@@ -518,9 +532,10 @@ export interface ScoutReport {
   readonly plies: number;
 }
 
-export function emptyReport(mode: ScoutMode): ScoutReport {
+export function emptyReport(mode: ScoutMode, gatedBy: string | null = null): ScoutReport {
   return {
     mode,
+    gatedBy,
     threads: 0,
     deepened: 0,
     parked: 0,
@@ -549,7 +564,8 @@ export function reportOf(
   ledger: ThreadLedger,
   purse: ScoutPurse,
   findings: number,
-  refusals: Readonly<Record<string, number>>
+  refusals: Readonly<Record<string, number>>,
+  gatedBy: string | null = null
 ): ScoutReport {
   const threads = ledger.all();
   let maxDepth = 0;
@@ -568,6 +584,7 @@ export function reportOf(
   }
   return {
     mode,
+    gatedBy,
     threads: threads.length,
     deepened: ledger.counters.deepened,
     parked: ledger.counters.parked,
