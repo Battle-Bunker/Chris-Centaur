@@ -29,6 +29,26 @@
  * assignment match across arms, and it drops — loudly — any gameId that is not
  * present in every arm. A pairing that is not exact is not a pairing.
  *
+ * ── TWO OUTCOME CURRENCIES, AND ONLY ONE OF THEM IS THE GAME'S ─────────────
+ *
+ * `score` is the harness's own GRADED placement, normalized to [0,1]: a clean
+ * 2nd of 3 is worth 0.5. TacticToes pays nothing for it. Its
+ * `processTurn.ts:144-174` scores every non-winning team 0, so winner(s) place
+ * 1st and ALL losers tie 2nd — there is no reward for margin, none for a
+ * tidier loss, and a turn-cap win pays exactly what wiping the board pays.
+ *
+ * `pFirst` is that reward: 1 when this seat placed first (outright or joint —
+ * the game pays every team in a draw in full), 0 otherwise. It is the row to
+ * read when the question is "does this arm win more games"; `score` is the
+ * finer, more sensitive instrument that answers a question the game does not
+ * ask. On a 2-team cell the two agree up to scale; on a 3-team cell they can
+ * disagree in sign, and when they do, `pFirst` is the one that is about the
+ * game.
+ *
+ * `win` is the SAME quantity as `pFirst` under the key it has always had here.
+ * Both are emitted: existing analyses, ledger rows and `--metric win` callers
+ * keep resolving, and new work can name the currency it means.
+ *
  * ── RETIRED COUNTERS ───────────────────────────────────────────────────────
  *
  * `plansEvaluated` and `boundsInversions` are reported but marked RETIRED. At
@@ -200,7 +220,11 @@ function metricsFor(row, subjectBot) {
   const per = (x) => (decisions > 0 ? x / decisions : null);
   return {
     // --- outcome (placement family) ------------------------------------
+    // `score` is the harness's graded placement; `pFirst` is the game's actual
+    // winner-take-all reward. See the header. `win` is `pFirst` under its
+    // historical key, kept so nothing downstream has to be rewritten.
     score: res.score,
+    pFirst: res.place === 1 ? 1 : 0,
     win: res.place === 1 ? 1 : 0,
     place: res.place,
     finalMaterial: res.finalMaterial,
@@ -256,7 +280,7 @@ function metricsFor(row, subjectBot) {
 }
 
 const METRIC_KEYS = [
-  'score', 'win', 'place', 'finalMaterial', 'finalUnits', 'survived',
+  'score', 'pFirst', 'win', 'place', 'finalMaterial', 'finalUnits', 'survived',
   'turns', 'decisive',
   'decisions', 'worstWallMs', 'overrunRate', 'unstagedRate', 'stagedNothingRate',
   'assumptionRate', 'ratchetRate',
@@ -462,6 +486,14 @@ md.push('');
 md.push('**Placement resolution.** At 16 blocks the normalized placement score resolves to');
 md.push('roughly ±0.10. A |delta score| under that is not a small effect, it is no effect');
 md.push('this design can see — read the mechanism rows instead.');
+md.push('');
+md.push('**Two outcome currencies.** `score` is the harness\'s GRADED placement — a clean 2nd');
+md.push('of 3 is worth 0.5 — and TacticToes pays nothing for it: every non-winning team scores');
+md.push('0, so winner(s) place 1st and all losers tie 2nd. `pFirst` is that reward, 1 for an');
+md.push('outright or joint first and 0 otherwise, and it is the row to read when the question');
+md.push('is whether an arm WINS MORE GAMES. `score` is the more sensitive instrument and');
+md.push('answers a question the game does not ask; on a 3-team cell the two can disagree in');
+md.push('sign. `win` is the same quantity as `pFirst` under its historical key name.');
 md.push('');
 md.push('**Read the arm audit first.** Every CL flag parses only `1`, `on` or `true`, with no');
 md.push('warning on a typo, and several are overridable per engine — so an arm can carry the');

@@ -138,6 +138,13 @@ export interface ManifestRow {
     score: number;
     finalUnits: number;
     finalMaterial: number;
+    /**
+     * The weight the placement was decided on — `finalMaterial` except on a
+     * mutual wipe, which TacticToes and this harness both settle from the
+     * PREVIOUS committed turn's board. Absent on manifests written before
+     * 2026-08-29.
+     */
+    adjudicatedMaterial?: number;
     eliminatedOnTurn: number | null;
   }>;
   /** Per seat health counters — a nonzero illegal/error count invalidates a row. */
@@ -217,6 +224,7 @@ export function manifestRow(job: SweepJob, outcome: MatchOutcome): ManifestRow {
       score: p.score,
       finalUnits: p.finalUnits,
       finalMaterial: p.finalMaterial,
+      adjudicatedMaterial: p.adjudicatedMaterial,
       eliminatedOnTurn: p.eliminatedOnTurn,
     })),
     health: outcome.seats.map((s) => {

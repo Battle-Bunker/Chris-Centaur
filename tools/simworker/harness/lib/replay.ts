@@ -105,6 +105,15 @@ export interface ReplayResult {
     readonly eliminatedOnTurn: number | null;
     readonly finalUnits: number;
     readonly finalMaterial: number;
+    /**
+     * The weight this placement was actually decided on. Equal to
+     * `finalMaterial` except when every team was eliminated on the same turn —
+     * TacticToes settles that from the PREVIOUS committed turn's board, and so
+     * does this harness, so on a mutual wipe this is the previous turn's
+     * weight and `finalMaterial` is the zero every dead team carries.
+     * Absent on replays written before that fix (2026-08-29).
+     */
+    readonly adjudicatedMaterial?: number;
     /** Normalized score in [0,1]: 1 for a clear first, 0 for a clear last. */
     readonly score: number;
   }>;

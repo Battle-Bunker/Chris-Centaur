@@ -157,6 +157,11 @@ console.log('');
 console.log('Any treatment delta in this batch that is not comfortably LARGER than the');
 console.log('half-width below is a null result. Quote these numbers next to it in findings.md.');
 console.log('');
+console.log('`score` is the harness\'s GRADED placement; `win` is P(first) — place 1, outright or');
+console.log('joint — which is the only thing TacticToes actually pays, and the metric');
+console.log('aggregate.js also emits under the name `pFirst`. A spec written against P(first)');
+console.log('reads its floor off the `win` line here.');
+console.log('');
 
 const mean = (xs) => (xs.length ? xs.reduce((p, q) => p + q, 0) / xs.length : null);
 const T95 = { 2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571, 7: 2.447, 8: 2.365, 12: 2.201, 16: 2.131, 20: 2.093 };

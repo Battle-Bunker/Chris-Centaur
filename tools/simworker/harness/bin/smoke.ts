@@ -30,6 +30,7 @@ import { BOT_NAMES, isBotName, type BotName } from '../lib/bots';
 import { MAX_FROZEN_CAPACITY } from '../lib/config';
 import { preset } from '../lib/presets';
 import { poolSizeFor, runJobs } from '../lib/runner';
+import { placementsOf } from '../lib/match';
 import { iterateTurns, loadReplay } from '../lib/replay';
 import { manifestRow, planSweep, readManifest, ManifestWriter, type ManifestRow } from '../lib/sweep';
 import { resolveOutRoot } from '../lib/outdir';
@@ -47,7 +48,84 @@ function check(ok: boolean, msg: string): void {
   if (!ok) failures.push(msg);
 }
 
+/**
+ * THE TERMINAL RULE, checked without playing a game.
+ *
+ * `placementsOf` is a pure function, and the branch that was wrong for the
+ * longest is the one games almost never reach: a mutual final wipe happens in
+ * 0.076% of this program's corpus (10 of 13,245 manifest rows), so no
+ * game-playing gate is ever going to cover it. Table-drive it instead.
+ *
+ * The rule being asserted is TacticToes' own
+ * (`TeamSnekProcessor.calculatePreviousTurnTeamOutcome`): when every remaining
+ * team dies on the same turn, the PREVIOUS committed turn's weights decide, and
+ * a team ahead there that trades its last units for its rival's last units
+ * WINS. Read off the final board — where every dead team carries zero — it
+ * would always be a draw.
+ */
+function checkAdjudication(): void {
+  const seats = [
+    { seat: 0, teamID: 'A', bot: 'lobster-territory' as BotName },
+    { seat: 1, teamID: 'B', bot: 'lobster-material' as BotName },
+    { seat: 2, teamID: 'C', bot: 'reflex' as BotName },
+  ];
+  const row = (teamID: string, seat: number, units: number, material: number) => ({
+    teamID, seat, units, material, health: 0, hasKing: false, alive: units > 0,
+  });
+  const allDead = [row('A', 0, 0, 0), row('B', 1, 0, 0), row('C', 2, 0, 0)];
+  const places = (p: ReturnType<typeof placementsOf>) =>
+    p.map((x) => `${x.teamID}:${x.place}`).join(' ');
+
+  // A and B wipe each other on turn 18; C died on turn 3. A led 18-16 the turn
+  // before, so A wins outright and C is still last.
+  const wipe = placementsOf(
+    seats,
+    new Map([['A', 18], ['B', 18], ['C', 3]]),
+    allDead,
+    [row('A', 0, 3, 18), row('B', 1, 3, 16), row('C', 2, 0, 0)]
+  );
+  check(places(wipe) === 'A:1 B:2 C:3', `mutual wipe should award the previous-turn leader, got ${places(wipe)}`);
+  check(
+    wipe.every((p) => p.finalMaterial === 0) && wipe[0]!.adjudicatedMaterial === 18,
+    'a mutual wipe should keep finalMaterial at zero and report the deciding weight in adjudicatedMaterial'
+  );
+
+  // Exactly equal on the previous turn: a genuine draw, which the game also
+  // scores as a draw. Both place first.
+  const drawn = placementsOf(
+    seats,
+    new Map([['A', 18], ['B', 18], ['C', 3]]),
+    allDead,
+    [row('A', 0, 2, 4), row('B', 1, 2, 4), row('C', 2, 0, 0)]
+  );
+  check(places(drawn) === 'A:1 B:1 C:3', `an exact tie on previous-turn weight is a draw, got ${places(drawn)}`);
+
+  // Only B was alive on the previous board — it wins whatever the weights say,
+  // and an argmax over that board reproduces the branch for free.
+  const soleSurvivor = placementsOf(
+    seats,
+    new Map([['A', 19], ['B', 20], ['C', 5]]),
+    allDead,
+    [row('A', 0, 0, 0), row('B', 1, 1, 2), row('C', 2, 0, 0)]
+  );
+  check(places(soleSurvivor) === 'A:2 B:1 C:3', `the only team alive on the previous board wins, got ${places(soleSurvivor)}`);
+
+  // EVERY OTHER END KIND IS UNCHANGED. Omitting `previousStandings` must score
+  // exactly as it did before the mutual-wipe fix: final board, survival first.
+  const capped = placementsOf(
+    seats,
+    new Map([['C', 40]]),
+    [row('A', 0, 3, 12), row('B', 1, 2, 7), row('C', 2, 0, 0)]
+  );
+  check(places(capped) === 'A:1 B:2 C:3', `cap adjudication must be unchanged, got ${places(capped)}`);
+  check(
+    capped.every((p) => p.adjudicatedMaterial === p.finalMaterial),
+    'off the mutual-wipe path adjudicatedMaterial must equal finalMaterial'
+  );
+}
+
 async function main(): Promise<void> {
+  checkAdjudication();
   const workers = Number(arg('workers', '3'));
   const budgetMs = Number(arg('budget', '150'));
   const sweepId = `smoke-${Date.now()}`;

@@ -18,6 +18,35 @@
  * Then: the vendored resolver adjudicates every unit's staged move at once
  * (`resolveFullTurn`), and the game-level layer runs (`stepWorld`) — spawning,
  * potion collection, effect expiry. Nothing here decides a rule.
+ *
+ * ── HOW A GAME ENDS, AND WHAT DECIDES IT ───────────────────────────────────
+ *
+ * The authority is TacticToes' `TeamSnekProcessor.calculateWinners`
+ * (`functions/src/gameprocessors/TeamSnekProcessor.ts`), and it takes four
+ * branches in this order:
+ *
+ *   1. EVERY REMAINING TEAM DIED ON THE SAME TURN. The outcome is settled from
+ *      the PREVIOUS COMMITTED TURN's board (`calculatePreviousTurnTeamOutcome`):
+ *      the team alive there wins if it is the only one, otherwise the highest
+ *      total weight on that board wins, and an exact tie there is a draw.
+ *   2. EXACTLY ONE TEAM ALIVE — it wins outright, whatever its weight.
+ *   3. TURN CAP with two or more teams alive — highest total alive weight wins,
+ *      an exact tie is a draw among the tied top teams.
+ *   4. Otherwise the game continues.
+ *
+ * Weight is occupied squares: a snake's length, a piece's stack size. It enters
+ * only through an ARGMAX — a one-point lead pays exactly what a thirty-point
+ * lead pays — and the game ranks no loser above another. That is why this file
+ * reports P(first) alongside its own graded placement score, and why the graded
+ * score is the harness's finer objective rather than the game's reward.
+ *
+ * Branch 1 is the one this harness got wrong until 2026-08-29. Every eliminated
+ * team carries zero material on the FINAL board, so a mutual wipe read off that
+ * board is always a tie, and the "material breaks ties among teams that fell on
+ * the same turn" rule below was vacuous exactly where it was supposed to bite.
+ * `placementsOf` now takes the previous committed turn's standings and
+ * adjudicates a mutual wipe on those, which is the game's own rule: a team ahead
+ * on weight that trades its last units for its rival's last units WINS.
  */
 
 import type { Board, CentaurMove } from '../src/types/battlesnake';
@@ -190,19 +219,44 @@ export interface RunMatchOptions {
  *   1. SURVIVAL ORDER first — a team that outlived another placed above it,
  *      whatever the material said. Teams still standing at the cap all share
  *      the "never eliminated" rank.
- *   2. MATERIAL breaks ties among teams that fell on the same turn (and among
+ *   2. WEIGHT breaks ties among teams that fell on the same turn (and among
  *      the survivors at the cap).
  *
  * Ties share a placement, so three teams can all place 1st in a true draw, and
  * `score` normalizes placement to [0,1] — 1 for a clear first, 0 for a clear
  * last, 0.5 for everyone in a total draw — so a sweep can average it.
+ *
+ * ── WHICH BOARD RULE 2 READS ───────────────────────────────────────────────
+ *
+ * `previousStandings` is the standings after the SECOND-TO-LAST turn played —
+ * the game's "previous committed turn". Pass it ONLY when the match ended with
+ * every team eliminated; pass `null` everywhere else and every row's
+ * `adjudicatedMaterial` is its final material, which is what rule 2 has always
+ * used and leaves the scoring of every other end kind byte-identical.
+ *
+ * It has to be passed, because on a mutual wipe the final board is all zeroes:
+ * every eliminated team carries no material, rule 2 could never separate them,
+ * and the harness scored a shared first — a draw — where TacticToes
+ * (`calculatePreviousTurnTeamOutcome`) awards the game to whoever led on weight
+ * the turn before. Reading the previous board restores the game's rule in both
+ * of its branches at once: a team that was the only one alive there necessarily
+ * holds the most weight there (alive means at least one occupied square, dead
+ * means none), so an argmax over the previous board's weights reproduces the
+ * "only one alive there wins" branch without a second test.
+ *
+ * Teams eliminated on EARLIER turns keep their lower `survivedTo`, so they
+ * still rank below the teams that made it to the wipe; their previous-turn
+ * weight is zero anyway, which is exactly how the game scores them.
  */
 export function placementsOf(
   seats: ReadonlyArray<{ seat: number; teamID: string; bot: BotName }>,
   eliminatedOnTurn: ReadonlyMap<string, number>,
-  finalStandings: ReadonlyArray<TeamStandingRow>
+  finalStandings: ReadonlyArray<TeamStandingRow>,
+  previousStandings: ReadonlyArray<TeamStandingRow> | null = null
 ): ReplayResult['placements'] {
   const byTeam = new Map(finalStandings.map((r) => [r.teamID, r]));
+  const byTeamPrev =
+    previousStandings === null ? null : new Map(previousStandings.map((r) => [r.teamID, r]));
   const rows = seats.map((s) => {
     const st = byTeam.get(s.teamID);
     return {
@@ -214,11 +268,15 @@ export function placementsOf(
       eliminatedOnTurn: eliminatedOnTurn.get(s.teamID) ?? null,
       finalUnits: st?.units ?? 0,
       finalMaterial: st?.material ?? 0,
+      // The weight this placement was actually decided on. Equal to
+      // `finalMaterial` unless the game ended in a mutual wipe.
+      adjudicatedMaterial:
+        byTeamPrev === null ? st?.material ?? 0 : byTeamPrev.get(s.teamID)?.material ?? 0,
     };
   });
 
   const better = (a: typeof rows[number], b: typeof rows[number]): number =>
-    b.survivedTo - a.survivedTo || b.finalMaterial - a.finalMaterial;
+    b.survivedTo - a.survivedTo || b.adjudicatedMaterial - a.adjudicatedMaterial;
   const sorted = [...rows].sort(better);
 
   const place = new Map<string, number>();
@@ -240,6 +298,7 @@ export function placementsOf(
       eliminatedOnTurn: r.eliminatedOnTurn,
       finalUnits: r.finalUnits,
       finalMaterial: r.finalMaterial,
+      adjudicatedMaterial: r.adjudicatedMaterial,
       score: n === 1 ? 1 : (n - p) / (n - 1),
     };
   });
@@ -298,6 +357,18 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
   let endKind: EndKind = 'cap';
   let reason = `turn cap (${config.turnCap})`;
   let worstHeldObserved = 0;
+
+  /*
+   * THE PREVIOUS COMMITTED TURN, carried one step behind the latest one.
+   *
+   * A mutual wipe is adjudicated on the board as it stood BEFORE the turn that
+   * emptied it, so the standings of the second-to-last turn played have to
+   * survive that turn. Both are seeded with the starting board: a wipe on turn
+   * 1 is then read off the board the game started from, which is the turn
+   * TacticToes has committed at that point.
+   */
+  let previousRows: TeamStandingRow[] = standingRows(board, seats);
+  let latestRows: TeamStandingRow[] = previousRows;
 
   for (let t = 0; t < config.turnCap; t++) {
     const alive = seats.filter((s) => teamAlive(board, s.teamID));
@@ -488,6 +559,8 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
     }
 
     const rows = standingRows(board, seats);
+    previousRows = latestRows;
+    latestRows = rows;
     for (const s of seats) {
       const row = rows.find((r) => r.teamID === s.teamID)!;
       materialTrajectory[s.teamID]!.push(row.material);
@@ -528,11 +601,27 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
   }
 
   const finalRows = standingRows(board, seats);
-  const placements = placementsOf(seats, eliminatedOnTurn, finalRows);
+  // Only a mutual wipe is adjudicated on the previous committed turn; every
+  // other end kind reads the final board, exactly as before.
+  const placements = placementsOf(
+    seats,
+    eliminatedOnTurn,
+    finalRows,
+    endKind === 'all-eliminated' ? previousRows : null
+  );
   const terminal: 'decisive' | 'cap' = endKind === 'cap' ? 'cap' : 'decisive';
   if (endKind === 'cap') {
     const top = [...placements].sort((a, b) => a.place - b.place)[0];
     reason = `turn cap (${config.turnCap}); adjudicated on material, leader ${top?.teamID} (${top?.finalMaterial})`;
+  } else if (endKind === 'all-eliminated') {
+    const first = placements.filter((p) => p.place === 1);
+    const weight = first[0]?.adjudicatedMaterial ?? 0;
+    reason =
+      first.length === 1
+        ? `every team eliminated on turn ${played}; adjudicated on the previous turn's weight, ` +
+          `leader ${first[0]!.teamID} (${weight})`
+        : `every team eliminated on turn ${played}; previous turn's weight tied at ${weight} — ` +
+          `draw between ${first.map((p) => p.teamID).join(', ')}`;
   }
 
   const wallMs = Date.now() - startedWall;

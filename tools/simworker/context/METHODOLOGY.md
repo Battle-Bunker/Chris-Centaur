@@ -111,6 +111,57 @@ direction that makes a treatment look significant when it is not.
 A delta smaller than that is not a small effect — it is no effect this design
 can see. Chasing it costs nights and returns noise.
 
+### §3.0. What the game actually scores, and what this harness scores
+
+The authority is `TeamSnekProcessor.calculateWinners` in TacticToes, and it has
+four branches, in this order:
+
+1. **Every remaining team died on the same turn.** The outcome is settled from
+   the PREVIOUS COMMITTED TURN's board: the team alive there wins if it is the
+   only one, otherwise the highest total weight on that board wins, and an exact
+   tie there is a draw.
+2. **Exactly one team alive** — it wins outright, whatever its weight.
+3. **Turn cap with two or more teams alive** — the highest total alive weight
+   wins; an exact tie is a draw among the tied top teams.
+4. Otherwise the game continues. (`maxTurns` is OPTIONAL in the game and
+   MANDATORY here — a cap-heavy corpus is a property of this harness's regime,
+   not a law of the game.)
+
+Weight is occupied squares — a snake's length, a piece's stack size — and it
+enters only through an argmax. A one-point lead pays exactly what a thirty-point
+lead pays; a cap win pays exactly what wiping the board pays. Then
+`processTurn.ts:144-174` scores every non-winning team 0, so **the winner(s)
+place 1st and every loser ties 2nd.** The game has no graded reward for 2nd
+versus 3rd, none for margin, and none for elimination order among losers.
+
+Two consequences for how you read a table:
+
+- **`score` is finer than the game's reward, and `pFirst` is the reward.**
+  The harness's normalized placement pays a clean 2nd of 3 half a point. Nothing
+  in the game does. `aggregate.js` reports `pFirst` — 1 for an outright or joint
+  first, 0 otherwise — beside it for exactly this reason (`win` is the same
+  number under its historical key). On a 2-team cell the two agree up to scale.
+  On a 3-team cell they can disagree in sign, and when they do, the one that is
+  about the game is `pFirst`. Report both; when they part, say so.
+- **A mutual wipe is not a draw.** Branch 1 was mis-implemented here until
+  2026-08-29: placements were read off the FINAL board, where every eliminated
+  team carries zero material, so `all-eliminated` always scored a shared first
+  and the "material breaks ties among teams that fell on the same turn" rule was
+  vacuous exactly where it was meant to bite. `placementsOf` now adjudicates a
+  mutual wipe on the previous committed turn's standings, which is the game's
+  own rule: **a team ahead on weight that trades its last units for its rival's
+  last units WINS.** Each placement row carries `adjudicatedMaterial` — the
+  weight the placement was actually decided on, equal to `finalMaterial` on
+  every other end kind — so a miner can always see which board settled it.
+  Every other end kind is scored exactly as before.
+
+  It is a rare branch. Across the 13,245 manifest rows in this program's corpus,
+  `endKind: "all-eliminated"` occurs **10 times (0.076%; 0.21% of the 4,781
+  decisive games)**, richest on `headline-mix-king` (4 in 2,928, 0.137%). Of the
+  7 distinct games, re-adjudication turns **6 into a decisive result** and leaves
+  1 a genuine tie on previous-turn weight. Correct the rule because it is the
+  rule; do not expect it to move a placement column.
+
 Mechanism metrics move first, move cleaner, and often move 5–25× outside the
 null band where placement has not moved at all. I3 measured its ordering change
 at 5–25× outside the null in every arm, cell and budget on mechanism, while
