@@ -160,6 +160,13 @@ for (const f of ledger.flags) {
     w(`**Verdict.** ${f.verdict}`);
     w();
   }
+  // A frozen flag's reopen condition is part of its verdict, not a footnote:
+  // the schema refuses `frozen` without one precisely so a reader can see what
+  // it would take, and a human view that dropped it would hide the only route.
+  if (f.status === 'frozen' && f.reopenOn) {
+    w(`**Re-opened by.** ${f.reopenOn}`);
+    w();
+  }
   const nx = f.nextExperiment;
   if (nx) {
     w(`**Next: ${nx.id}.** ${nx.question}`);

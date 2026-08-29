@@ -79,8 +79,8 @@ for (const f of ledger.flags) {
   );
 }
 ok(
-  ledger.flags.every((f) => f.status === 'promoted' || f.nextExperiment),
-  'every unpromoted flag names its next decisive experiment'
+  ledger.flags.every((f) => f.status === 'promoted' || f.status === 'frozen' || f.nextExperiment),
+  'every open flag names its next decisive experiment — promoted and frozen owe none'
 );
 
 /** A working copy, so the assertions below cannot touch the real ledger. */
@@ -223,11 +223,11 @@ const clone = () => JSON.parse(JSON.stringify(ledger));
 
 {
   const l = clone();
-  const r = L.applyMeasurement(l, 'CENTAUR_WASM', {
+  const r = L.applyMeasurement(l, 'CENTAUR_SCOUT', {
     batch: 'test-live',
     kind: 'live',
     cell: 'headline',
-    metric: 'wasmRuns',
+    metric: 'scoutThreads',
     family: 'engagement',
     verdict: 'supports-promotion',
     nullVerified: true,
@@ -594,7 +594,7 @@ function blockMean(cellKey, metric) {
       '--batch-id', 'selftest-fixture',
       '--null', 'nullA,nullB',
       '--pair', 'base=treat',
-      '--flag', 'CENTAUR_WASM',
+      '--flag', 'CENTAUR_TERRITORY_REFINE',
       '--engagement', 'wasmRuns',
       '--subject-map', 'nullA=lobster-territory,nullB=lobster-territory,base=lobster-territory,treat=lobster-territory',
     ],
@@ -702,7 +702,7 @@ section('2b. WHAT THE FIRST REAL BATCH FOUND');
       '--batch-id', 'selftest-crosssweep',
       '--null', 'nullA,nullB',
       '--pair', 'base=treat',
-      '--flag', 'CENTAUR_WASM',
+      '--flag', 'CENTAUR_TERRITORY_REFINE',
       '--engagement', 'wasmRuns',
       '--subject-map', 'nullA=lobster-territory,nullB=lobster-territory,base=lobster-territory,treat=lobster-territory',
       '--out', path.join(scratch, 'report.json'),
@@ -796,10 +796,10 @@ section('4. THE BATCH GENERATOR');
   ok(uncovered.length === 0, `the A/A null floors every cell the batch treats${uncovered.length ? ` (missing ${uncovered.join(', ')})` : ''}`);
   ok(
     floored.has('snake5-queen') && floored.has('hazard-mix-king'),
-    "including the two batch-1 missed: the slider's only win cell and P5R's hazard board"
+    "including the two batch-1 missed: the slider's only win cell and P10/P11's hazard board"
   );
   ok(
-    specOf('n0-aa-null').seeds.length === specOf('p5r-wasm').seeds.length,
+    specOf('n0-aa-null').seeds.length === specOf('p7f-unit_fatality').seeds.length,
     'and it is still sized like the treatment cells'
   );
   fs.rmSync(outDir, { recursive: true, force: true });

@@ -27,7 +27,7 @@ node tools/learnloop/bin/make-promotion-batch.js --out tools/learnloop/specs/bat
 # A batch came back. Check its null, read its instrument, update the ledger.
 node tools/learnloop/bin/ingest.js --batch results/<batch> \
      --null nullA,nullB --pair base=treat \
-     --flag CENTAUR_WASM --engagement wasmRuns [--write]
+     --flag CENTAUR_SCOUT --engagement scoutThreads [--write]
 
 # Re-render the human view. --check fails if it has drifted from the ledger.
 node tools/learnloop/bin/render-status.js

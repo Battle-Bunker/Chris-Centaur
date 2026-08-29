@@ -6,7 +6,7 @@
   "runs on appears here, because a treatment metric with no floor in the A/A",
   "cell is UNREADABLE rather than null, and an unfloored treatment cell is box",
   "time spent on a row nobody may read. This batch floors:",
-  "    hazard-mix-king, null-snake6, headline-mix-king, snake5-knight, snake5-queen",
+  "    headline-mix-king, snake5-knight, null-snake6, snake5-queen, hazard-mix-king",
   "",
   "Run with two arms that are the SAME bundle and the SAME env under two names:",
   "    --arm nullA=<bundle> --arm nullB=<bundle>",
@@ -51,71 +51,6 @@
  ],
  "rotateSeats": true,
  "cells": [
-  {
-   "cell": "hazard-mix-king",
-   "config": {
-    "name": "hazard-mix-king",
-    "size": 25,
-    "teams": [
-     "red",
-     "blue",
-     "green"
-    ],
-    "roster": [
-     "king",
-     "queen",
-     "rook",
-     "knight",
-     "snake",
-     "snake"
-    ],
-    "budgetMs": 2000,
-    "turnCap": 120,
-    "food": {
-     "initial": 6,
-     "spawnRate": 0.5
-    },
-    "hazards": {
-     "layout": "cross",
-     "damageRatio": 0.15
-    },
-    "potions": {
-     "enabled": false
-    }
-   }
-  },
-  {
-   "cell": "null-snake6",
-   "config": {
-    "name": "null-snake6",
-    "size": 25,
-    "teams": [
-     "red",
-     "blue",
-     "green"
-    ],
-    "roster": [
-     "snake",
-     "snake",
-     "snake",
-     "snake",
-     "snake",
-     "snake"
-    ],
-    "budgetMs": 2000,
-    "turnCap": 120,
-    "food": {
-     "initial": 6,
-     "spawnRate": 0.5
-    },
-    "hazards": {
-     "layout": "none"
-    },
-    "potions": {
-     "enabled": false
-    }
-   }
-  },
   {
    "cell": "headline-mix-king",
    "config": {
@@ -181,6 +116,38 @@
    }
   },
   {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
    "cell": "snake5-queen",
    "config": {
     "name": "snake5-queen",
@@ -206,6 +173,39 @@
     },
     "hazards": {
      "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
     },
     "potions": {
      "enabled": false
