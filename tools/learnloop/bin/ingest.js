@@ -66,6 +66,7 @@ const flag = (n) => process.argv.includes(`--${n}`);
 const batchDir = arg('batch', '') ? path.resolve(arg('batch', '')) : null;
 const batchId = arg('batch-id', batchDir ? path.basename(batchDir) : 'unnamed');
 const WRITE = flag('write');
+const MDE = Number(arg('mde', '0.25'));
 
 const sweepArms = {};
 for (const s of args('sweep-arm')) {
@@ -176,6 +177,33 @@ function readPrevious(p) {
 
 // --------------------------------------------------------- 3. the treatment
 
+/**
+ * THE FLOOR IS A PROPERTY OF THE CELL, NOT OF THE SWEEP.
+ *
+ * Cell keys are `<sweepId>::<cell>`, and the A/A null runs under its OWN
+ * sweepId (`n0-aa-null`), so a whole-key lookup against the null band never
+ * matches for any real batch -- only for a fixture where the null and the
+ * treatment share one sweepId. The first version fell back to
+ * `band[Object.keys(band)[0]]` when the lookup missed, which silently lent the
+ * FIRST A/A cell's half-width to every cell in the batch. On 20260827-overnight
+ * that lent `headline-mix-king`'s +/-0.0973 to `null-snake6` (true floor
+ * +/-0.0324, three times tighter) and to `snake5-queen`, `snake5-knight`,
+ * `snake5-pawn`, `hazard-mix-king` and the three potion cells, which have NO
+ * measured floor at all -- laundering the ledger's own `unreadable, not null`
+ * rule into a readable verdict on eight cells out of ten.
+ *
+ * So: match on the CELL NAME, and refuse to substitute another cell's floor.
+ * A cell the A/A never ran has no floor, `nullHalfWidth` is null, and the
+ * ledger records the row as `unreadable`. That is the honest answer and it is
+ * the one `AA-FLOOR-COVERAGE` exists to make expensive.
+ */
+const cellNameOf = (k) => (k.includes('::') ? k.slice(k.indexOf('::') + 2) : k);
+const bandByCell = {};
+for (const [k, row] of Object.entries(report.null.band)) bandByCell[cellNameOf(k)] = row;
+function bandForCell(cellKey) {
+  return bandByCell[cellNameOf(cellKey)] ?? null;
+}
+
 const ledger = L.load(arg('ledger', L.LEDGER_PATH));
 const flagName = arg('flag', '');
 const kind = arg('kind', batchDir ? 'live' : 'historical');
@@ -200,7 +228,7 @@ for (const p of args('pair')) {
         .filter((x) => x !== null);
       if (blockMeans.length === 0) continue;
       const ci = blockCI(blockMeans);
-      const band = report.null.band[cellKey] ?? report.null.band[Object.keys(report.null.band)[0]] ?? null;
+      const band = bandForCell(cellKey);
       const floor = band && band[metric] ? band[metric].halfWidth : null;
       row[metric] = {
         ...ci,
@@ -246,7 +274,11 @@ for (const p of args('pair')) {
       const gate = (f.promotionMetrics ?? []).find((g) => g.name === metric);
       if (gate === undefined) continue; // not one of this flag's gate metrics
       const family = gate.family;
-      const power = L.powerRow({ blocksHad: r.n, blockSd: r.sd, mde: 0.25 });
+      // THE MDE IS A PROGRAM DEFAULT, NOT THE FLAG'S QUESTION, and the row says
+      // so. `--mde` overrides it. A power verdict is only as meaningful as the
+      // effect size it was computed against, and "adequately powered" with no
+      // MDE beside it is not a statement. See MDE-HARDCODED.
+      const power = L.powerRow({ blocksHad: r.n, blockSd: r.sd, mde: MDE });
       // A METRIC WITH NO FLOOR OF ITS OWN IS UNREADABLE, not null. If the A/A
       // cell never carried this counter — an older bundle, a cell where the
       // layer cannot act — there is nothing to read its delta against, and
@@ -276,6 +308,11 @@ for (const p of args('pair')) {
         nullBandHalfWidth: r.nullHalfWidth,
         armEngagementVerified: engaged,
         power,
+        powerNote:
+          `power computed against MDE ${MDE} (the ingest's default unless --mde was given) using ` +
+          "this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately " +
+          'powered for 0.25 is not adequately powered for the two or three points a cost question ' +
+          'is usually about.',
       };
       const res = L.applyMeasurement(ledger, flagName, m);
       report.ledgerUpdates.push({ flag: flagName, measurement: m, ...res });

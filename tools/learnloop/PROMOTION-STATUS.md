@@ -68,36 +68,69 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   <sub>live · null verified · engagement shown</sub>
   > analysis-p7.md prints its standing warning on this cell: more than half of these games hit the turn cap (cl-off cap rate 0.938, cl-fatality 0.917), and the file says to treat its placement rows as UNINTERPRETABLE and raise the cap before rerunning. The cl-seed and cl-both arms escape the warning only because they die early (cap rate 0.458). The verdict survives the caveat on two independent grounds — the effect is 13-18x the cell's own measured floor, and the exhaustion mechanism is a non-placement measurement that does not route through the cap at all — but the row does not get to inherit "score -0.594" unqualified.
   > The effect is an order of magnitude outside the cell's own null band, so power is not the question here.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: -0.8542 [-0.9452, -0.7632] over 16 blocks against a measured floor of +/-0.0648. The transcription was exact.
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `deathsExhaustion` → **failed**  
   snake exhaustion deaths x1.9 (39 -> 75 over 48 games)  
   <sub>live · null verified · engagement shown</sub>
   > THE MECHANISM. The pairwise seed appears to disrupt snake parallel-motion and food economics — travel economy, not staging safety. The deterministic gate measures positions; this is the shape of a whole game.
+  > *Machine ingest:* no per-game counter in manifest.jsonl carries this metric. `deathsExhaustion`, `deathsSelf`, `fatalStagings`, `teammateKills`, `admissionRate` and the CL7 mechanism counters are absent from every 20260827 bundle; the exhaustion counts this row rests on were mined from the REPLAYS into deaths-p7.json, which is a different instrument from the one the ingest reads. The row stands on that file.
 - **20260827-overnight** · p7-cl1-gates (cl-both arm) · `win` → **failed**  
   seed+fatality together: same collapse as seed alone  
   <sub>live · null verified · engagement shown</sub>
   > So the cost is the seed's, not the pair's. UNIT_FATALITY alone carried no placement cost.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: -0.7708 [-0.8959, -0.6458] over 16 blocks against a measured floor of +/-0.0648. The transcription was exact.
 - **20260827-overnight** · p7-cl1-gates::headline-mix-king · `finalMaterial` → **supports-promotion**  
   +5.1042 [+0.4423, +9.7661] over 16 blocks (excludes zero)  
   <sub>live · null verified · engagement shown</sub>
   > THE PIECE-DENSITY GRADIENT, first row. On the full piece roster the seed does not merely fail to hurt — it measurably helps on material. findings.md section 2 summarises the piece cells as "all three treatments null", which is true of PLACEMENT only.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +5.1042 [0.4423, 9.7661] over 16 blocks against a measured floor of +/-5.8863. The transcription was exact.
 - **20260827-overnight** · p7-cl1-gates::headline-mix-king · `survived` → **supports-promotion**  
   +0.1458 [+0.0013, +0.2904] over 16 blocks (excludes zero, narrowly)  
   <sub>live · null verified · engagement shown</sub>
   > Second support row on the same cell and the same direction. Two ✱ rows favouring the seed where a full piece roster is present, against a catastrophic loss where none is.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +0.1458 [0.0013, 0.2904] over 16 blocks against a measured floor of +/-0.2102. The transcription was exact.
 - **20260827-overnight** · p7-cl1-gates::snake5-knight · `deathsExhaustion` → **failed**  
   exhaustion deaths 23 -> 48 over 48 games (x2.09)  
   <sub>live · null verified · engagement shown</sub>
   > THE GRADIENT`S OTHER END, and it corrects the headline. The bridge summaries carry "exhaustion x1.9", which is the null-snake6 figure (39 -> 75). snake5-knight is x2.09 — a LARGER ratio, on a cell whose placement is null. So exhaustion inflation is not a proxy for the placement collapse: it appears without one. Ordered by piece density the ratios are x2.09 (snake5-knight) / x1.92 (null-snake6) / x1.19 (headline-mix-king), and only the snake-heavy cells convert it into a loss.
+  > *Machine ingest:* no per-game counter in manifest.jsonl carries this metric. `deathsExhaustion`, `deathsSelf`, `fatalStagings`, `teammateKills`, `admissionRate` and the CL7 mechanism counters are absent from every 20260827 bundle; the exhaustion counts this row rests on were mined from the REPLAYS into deaths-p7.json, which is a different instrument from the one the ingest reads. The row stands on that file.
 - **20260827-overnight** · p7-cl1-gates::snake5-knight · `score` → **null**  
   -0.0104 [-0.1420, +0.1212] over 16 blocks  
   <sub>live · no null · engagement shown</sub>
   > UNREADABLE, not null. snake5-knight carried no A/A floor in this batch (see the batch's nullBandCoverage), so this delta has nothing to be read against. Recorded at the ledger's own standard: an absent instrument is not a finding.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: -0.0104 [-0.142, 0.1212] over 16 blocks against a measured floor of NONE (this cell has no A/A floor). The transcription was exact.
 - **20260827-overnight** · p7-cl1-gates (cl-both arm) · `deathsExhaustion` → **failed**  
   seed+fatality together: 72 exhaustion deaths over 48 games, against 75 seed-alone and 39 off  
   <sub>live · null verified · engagement shown</sub>
   > The joint arm reproduces the seed's exhaustion inflation almost exactly. Removing 3 of the seed's 36 extra deaths is inside the noise of a 48-game count, so the cost in this pair is the seed's and the classifier does not offset it.
+  > *Machine ingest:* no per-game counter in manifest.jsonl carries this metric. `deathsExhaustion`, `deathsSelf`, `fatalStagings`, `teammateKills`, `admissionRate` and the CL7 mechanism counters are absent from every 20260827 bundle; the exhaustion counts this row rests on were mined from the REPLAYS into deaths-p7.json, which is a different instrument from the one the ingest reads. The row stands on that file.
+- **20260827-overnight** · p7-cl1-gates::headline-mix-king · `score` → **null**  
+  0.0417 [-0.0471, 0.1305] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p7-cl1-gates::null-snake6 · `score` → **failed**  
+  -0.5938 [-0.666, -0.5215] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p7-cl1-gates::null-snake6 · `survived` → **failed**  
+  -0.5625 [-0.7034, -0.4216] over 16 blocks; null half-width 0  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p7-cl1-gates::snake5-knight · `survived` → **unreadable**  
+  -0.1042 [-0.2111, 0.0028] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
 
-**Verdict.** DO NOT PROMOTE AS-IS — and the failure is SNAKE-DENSITY-DEPENDENT, not global. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure. But the collapse is confined to the cells with few or no pieces: on null-snake6 the seed loses 1.00 -> 0.15, while on headline-mix-king placement is flat and two mechanism rows (finalMaterial +5.10 ✱, survived +0.146 ✱) run in its FAVOUR. Exhaustion inflation is present everywhere the snakes outnumber the pieces (x2.09 knight, x1.92 snake6, x1.19 mix-king) but only converts into a placement loss where there is no piece play to absorb it. The live reading is therefore not "the seed is a dead idea" but "the seed is admissible on some boards and ruinous on others, and nothing currently decides which board it is on". That points at a CONDITIONAL ADMISSION future — the same shape CENTAUR_STAGING_SAFETY already ships as `auto` after helping on piece boards and regressing on snake-only — and NOT at a retirement. The status stays live-failed and the ledger's own rule is why: a failure is undone by a root cause and a repaired arm, never by other cells declining to reproduce it. The piece-cell rows are the beginning of a root cause, not a second opinion.
+**Mined from the per-game manifests — PARTIAL -- from per-game manifest rows only. No replay was read. Nothing here names a cause.**
+
+- **the seed does not lose battles, it loses the team.** On `null-snake6`, cl-off and cl-fatality end 48 of 48 games with the subject team ALIVE (mean 4.90 and 4.92 units of 6 surviving). cl-seed is eliminated in 27 of 48 and ends with a mean of 0.58 units; 27 of its 48 games end with ZERO units and 16 more with one. cl-both: 25 of 48, mean 0.71.
+- **exhaustion explains under a third of the damage.** Total units lost per 48 games on null-snake6: cl-off 53, cl-seed 260 -- x4.91. The replay-mined exhaustion count over the same games is 39 -> 75, x1.92. So exhaustion accounts for 74% of cl-off's losses and only 29% of cl-seed's: 185 of the seed's 260 lost units died of something the exhaustion headline does not name. THIS IS A CONSTRAINT ON P7R: a root cause that explains only exhaustion explains less than a third of the deaths on the cell where the seed collapses.
+- **on the piece cell the seed changes the cause mix, not the amount.** On `snake5-knight` total units lost is FLAT -- cl-off 209, cl-seed 215 (x1.03) -- while exhaustion doubles, 23 -> 48 (x2.09). The seed substitutes exhaustion deaths for other deaths without changing how many units die, and placement reads null. That is a much sharper statement than "x2.09 inflation on a cell whose placement is null" and it is the strongest single argument for the conditional-admission reading. On `headline-mix-king` the seed REDUCES total unit loss, 163 -> 137 (x0.84), while exhaustion rises 16 -> 19 -- the same substitution, with the trade landing in its favour.
+- **it is a grind, not a blunder.** Turn of elimination on null-snake6 under cl-seed: median 98 of a 120 cap, quartiles 54/108, range 30-119. 15 of the 27 eliminations happen after turn 90 and only 8 before turn 60; NOTHING happens before turn 30. cl-both is slightly earlier (median 82). A travel-economy story fits this; a single early fatal staging does not.
+- **the fold's "dies earlier" gloss is wrong at the per-game level.** turns -9.979 [-15.499, -4.459] was read as "dies earlier". Per game: cl-off games run to the cap (median 120, cap rate 0.938); cl-seed games END, at a median of 118 turns, because a team is gone. cl-seed's LOSSES are its LONGER games (median 118) and its wins are its shorter ones (median 100). The aggregate turns delta is a change in terminal KIND, not in how long the subject survives. The `decisive +0.4792` row is the same fact stated correctly: endKind on null-snake6 goes from 45 cap / 3 last-team-standing under cl-off to 22 cap / 26 last-team-standing under cl-seed.
+- **the damage is total on snake6 and board-specific on the knight cell.** Per-block (per-seed) subject score, cl-seed minus cl-off: on null-snake6 ALL 16 blocks are hurt, from -0.333 to -0.833, with none unchanged and none helped -- no board is spared, so there is no pathological-seed story. On snake5-knight it is bimodal: 4 blocks hurt (two at -0.5), 8 unchanged, 4 helped (up to +0.333), netting the -0.0104 null. On headline-mix-king: 4 hurt, 6 unchanged, 6 helped. The knight cell is not inert; it is two populations cancelling, and a root cause should predict which board is which.
+- **the seed searches about twice as hard on the cell it destroys.** Median plansEvaluated per game on null-snake6: cl-off 132,340, cl-seed 247,242 -- while median decisions FALL from 120 to 106.5 (games end sooner). ratchetRefusals over 48 games: 1 -> 28. On snake5-knight plans are flat (237k -> 224k) but ratchet goes 3 -> 54. Retired counters, quoted here as broken-arm diagnostics only: they say the arm ran, and they say the extra work is on the snake cells.
+
+*What the rows carry:* per game: turns, terminal kind, endKind, and per seat place / score / finalUnits / finalMaterial / eliminatedOnTurn, plus health counters. They do NOT carry a death cause. Every "exhaustion" number in this ledger comes from deaths-p7.json, which was mined from the replays; the manifests can say WHETHER and WHEN a team died and how much of it was left, and no more.
+*Still needs turn-level replays:* WHAT KILLED THE OTHER 185 UNITS. The manifests cannot distinguish a wall collision from a contested loss from a teammate kill; only deathsSelf/Wall/BodyBlock/Contest/Teammate can, and those exist only in the replays (CL7 adds them to the manifest row going forward). Also replay-only: whether the seed's extra search is spent on unreachable targets (the travel-economy hypothesis), the two named falsifiers (`restarts` raised, `rungZeroRepair` on), and the turn-level question of what the seed staged in the 60 turns before the team ran out.
+
+**Verdict.** DO NOT PROMOTE AS-IS — and the failure is SNAKE-DENSITY-DEPENDENT, not global. The deterministic gate passed and the live arm collapsed through a channel the gate does not measure. But the collapse is confined to the cells with few or no pieces: on null-snake6 the seed loses 1.00 -> 0.15, while on headline-mix-king placement is flat and two mechanism rows (finalMaterial +5.10 ✱, survived +0.146 ✱) run in its FAVOUR. Exhaustion inflation is present everywhere the snakes outnumber the pieces (x2.09 knight, x1.92 snake6, x1.19 mix-king) but only converts into a placement loss where there is no piece play to absorb it. The live reading is therefore not "the seed is a dead idea" but "the seed is admissible on some boards and ruinous on others, and nothing currently decides which board it is on". That points at a CONDITIONAL ADMISSION future — the same shape CENTAUR_STAGING_SAFETY already ships as `auto` after helping on piece boards and regressing on snake-only — and NOT at a retirement. The status stays live-failed and the ledger's own rule is why: a failure is undone by a root cause and a repaired arm, never by other cells declining to reproduce it. The piece-cell rows are the beginning of a root cause, not a second opinion. MACHINE INGEST, 20260829 — every transcribed number reproduces exactly, and the per-game rows sharpen the mechanism in three ways the aggregates could not. (1) EXHAUSTION IS A MINORITY OF THE DAMAGE: on null-snake6 the seed loses 260 units per 48 games against cl-off's 53 (x4.91), while replay-mined exhaustion goes 39 -> 75 (x1.92) — 185 of the 260 died of something the exhaustion headline does not name, which is a constraint on any root cause. (2) ON THE PIECE CELL IT CHANGES THE CAUSE MIX, NOT THE AMOUNT: snake5-knight total unit loss is flat (209 -> 215) while exhaustion doubles, and on headline-mix-king total loss FALLS (163 -> 137). That is the density-dependence stated mechanically. (3) IT IS A GRIND: median elimination turn 98 of a 120 cap, nothing before turn 30, and the losing games are the LONGER ones — so the `turns -9.98` row is a change in terminal KIND, not "dies earlier". Per block, all 16 snake6 seeds are hurt and none is spared, while snake5-knight is two populations cancelling (4 hurt, 8 flat, 4 helped). A root cause must predict which board is which.
 
 **Next: P7R.** Two questions now, and the second is new. (1) Is the exhaustion cost the pairwise seed itself, or the greedy basin it converges to? Two named falsifiers exist and neither needs new code: raise `restarts`, and turn `rungZeroRepair` on. (2) Is the seed CONDITIONALLY admissible — does the piece-density gradient hold up, and can the same own-board predicate that gates CENTAUR_STAGING_SAFETY's `auto` mode gate this one?
 
@@ -131,28 +164,70 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
   > ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.
   > STATUS UNMOVED BY THIS ROW. Engagement was unverifiable at the time — wasmRuns did not leave the module — so a null here could equally mean the arm never engaged.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null).
+  >   - `p5-wasm-arena::hazard-mix-king` (wasm-on): +0.0313 [-0.0952, 0.1577] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p5-wasm-arena::headline-mix-king` (wasm-on): +0 [-0.1297, 0.1297] over 16 blocks; floor +/-0.0973
+  >   - `p5-wasm-arena::null-snake6` (wasm-on): +0 [0, 0] over 16 blocks; floor +/-0.0324
 - **20260827-overnight** · p5-wasm-arena · `capRate` → **anomaly**  
   cap-terminal rate DOUBLES under wasm-on on headline-mix-king: 0.229 -> 0.458 (x2.0); and goes 0.917 -> 1.000 on null-snake6, where it saturates  
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
   > ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.
   > A doubled cap rate with null placement is a real shape change. Suspects, in the order the record ranks them: (1) the env-vs-options seam across workers — the flag is per-engine and the pool may not carry it; (2) the WSL wasm build/load path; (3) the arm is genuinely slower there. The engagement counters separate (1) and (2) from (3) in one run.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null). Recomputed as `capped`, the per-game terminal indicator, which the extractor carries and which the fold could only quote as two raw rates: it now has a paired block CI of its own.
+  >   - `p5-wasm-arena::hazard-mix-king` (wasm-on): +0.0208 [-0.1787, 0.2204] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p5-wasm-arena::headline-mix-king` (wasm-on): +0.2292 [0.0072, 0.4511] over 16 blocks; floor +/-0.2021 — **outside the floor**
+  >   - `p5-wasm-arena::null-snake6` (wasm-on): +0.0833 [-0.0192, 0.1859] over 16 blocks; floor +/-0.11
 - **20260827-overnight** · p5-wasm-arena::headline-mix-king · `turns` → **anomaly**  
   +21.44 [+0.47, +42.41] over 16 blocks, against a measured A/A floor of +/-18.09  
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
   > ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.
   > Anomaly corroborant 1. Clears the cell's own measured floor, but not by much — this is the weakest of the four rows on its own and the most convincing in company.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +21.4375 [0.4675, 42.4075] over 16 blocks against a measured floor of +/-18.0935. The transcription was exact.
 - **20260827-overnight** · p5-wasm-arena::headline-mix-king · `decisions` → **anomaly**  
   +21.75 [+0.94, +42.56] over 16 blocks  
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
   > ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.
   > Anomaly corroborant 2. Tracks the turn count almost exactly, as it must if the games are simply longer.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +21.75 [0.9374, 42.5626] over 16 blocks against a measured floor of +/-18.7274. The transcription was exact.
 - **20260827-overnight** · p5-wasm-arena::headline-mix-king · `decisive` → **anomaly**  
   -0.2292 [-0.4511, -0.0072] over 16 blocks (decisive rate 0.7708 -> 0.5417)  
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
   > ENGAGEMENT VOCABULARY — CORRECTED. This row carried `armEngagementVerified: false` because false was the only value applyMeasurement refused on, and the row had to stay refused. The honest value is `null` — CANNOT SAY: wasmRuns was not read and returned zero here, it did not exist in these bundles at all. ENGAGEMENT-TRISTATE is now closed and `null` refuses on its own, so the datum no longer has to be bent to fit the code. The refusal is unchanged; only the reason it is refused is now true.
   > Anomaly corroborant 3, and the one that makes the cluster a finding rather than a slowdown. Longer games that end at the cap instead of at a result is a different GAME SHAPE, not a different amount of compute.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: -0.2292 [-0.4511, -0.0072] over 16 blocks against a measured floor of +/-0.2021. The transcription was exact.
+- **20260827-overnight** · p5-wasm-arena::headline-mix-king · `score` → **null**  
+  0 [-0.1297, 0.1297] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p5-wasm-arena::headline-mix-king · `worstWallMs` → **null**  
+  -0.1042 [-3.9833, 3.775] over 16 blocks; null half-width 7.373  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better · underpowered (16/6659 blocks)</sub>
+- **20260827-overnight** · p5-wasm-arena::hazard-mix-king · `score` → **unreadable**  
+  0.0313 [-0.0952, 0.1577] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p5-wasm-arena::hazard-mix-king · `worstWallMs` → **unreadable**  
+  1.1458 [-2.5229, 4.8145] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better · underpowered (16/5956 blocks)</sub>
+- **20260827-overnight** · p5-wasm-arena::null-snake6 · `score` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p5-wasm-arena::null-snake6 · `worstWallMs` → **supports-promotion**  
+  -2 [-3.2149, -0.7851] over 16 blocks; null half-width 0.5907  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better · underpowered (16/654 blocks)</sub>
 
-**Verdict.** THE ONE MEASURED ANOMALY ON THE BRANCH, AND IT IS STILL UNREADABLE. Placement is null on all three cells and that null is worth nothing: the arm cannot be shown to have run. Meanwhile four shape rows on the same cell say the games changed — twice the cap rate, ~21 more turns, ~22 more decisions, a quarter less decisive — and shape rows never move a status by rule, which is correct and is also exactly why this flag cannot be resolved from batch 1 at all. The root cause is already named upstream (refused per partition, silently; counters trapped in the module) and CL7 closed the telemetry, so the decisive experiment is now cheap and unambiguous. P5R IS THAT EXPERIMENT and it is the highest-value run in batch 2: it is the only scheduled experiment that resolves a standing anomaly rather than opening a new question, and its gate makes it impossible to mis-report — wasmRuns 0 on the treatment arm is a BROKEN ARM and must be reported as a refusal, not as a null.
+**Mined from the per-game manifests — PARTIAL -- from per-game manifest rows only. No replay was read. Engagement is NOT resolved and cannot be from this source.**
+
+- **the cap-rate doubling now has an interval, and it is marginal.** Recomputed as the paired per-game `capped` indicator: headline-mix-king +0.2292 [+0.0072, +0.4511] over 16 blocks against a MEASURED A/A floor of +/-0.2021. Outside the floor by 0.027. The fold had "0.229 -> 0.458, x2.0" with no interval; the machine says the doubling is real and barely clears the noise of a cell that flips 54% of its placements between two identical builds.
+- **null-snake6's cap saturation is INSIDE the floor.** 0.9167 -> 1.0000 recomputes to +0.0833 [-0.0192, +0.1859] against a floor of +/-0.1100 -- inside it. The fold listed it as an anomaly corroborant. It is not one. The anomaly cluster is smaller by a row.
+- **it is not uniform, and it is not a subset of bad boards either.** Per seed on headline-mix-king (3 games each): 8 of 16 blocks cap more, 5 unchanged, 3 cap less; net +11 games. Not a clean bimodality and not a flat shift -- a broad directional drift with ordinary per-board scatter.
+- **the churn is ordinary; only the DIRECTION is not.** Paired terminal-kind transitions on headline-mix-king, wasm-off -> wasm-on: 18 decisive->cap against 7 cap->decisive, 25 of 48 games changed. THE A/A NULL ON THE SAME CELL CHANGES 23 OF 48, with 9 decisive->cap against 14 the other way. So the amount of churn is exactly normal for this board; the net is +11 where the null's net is -5. The anomaly is a 16-game directional swing sitting on top of a background that is already at 48%.
+- **it is NOT "long games tip over the cap".** The 18 games that flipped decisive->cap had a median wasm-off length of 39.5 turns (range 14-104) -- short, cleanly decisive games. Under wasm-on they run the full 120. Whatever changes, it changes games that were finishing early, not games that were already close to the cap.
+- **on those games the subject is far ahead on material and does not convert.** Mean deltas on the 18 decisive->cap games: finalMaterial +23.89, score -0.0278. On the 7 that went the other way: finalMaterial -15.00, score 0.0000. The shape is "cannot close out a won position", and placement stays flat because a capped game the subject leads still scores well.
+- **timing cannot tell engaged from not-engaged, and says so.** Median ms per decision: headline 3669 (off) vs 3690 (on); hazard 3700 vs 3623; snake6 3918 vs 3919. Median worstWallMs: 1955 vs 1956, 1957 vs 1958, 1963 vs 1963. IDENTICAL. The per-game wall clock doubles on headline (181,624 -> 398,558 ms) purely because the games are twice as long. So the wall clock is not a back door to the engagement question: an arena that never ran and an arena that ran off the hot path look the same here. P5R remains the only instrument.
+- **hazard-mix-king is not a second instance.** 12 decisive->cap against 11 cap->decisive, net +1, median turn delta 0.0 -- heavy churn with no direction, i.e. the A/A pattern. The anomaly is one cell, not the arm.
+
+*Still needs turn-level replays:* EVERYTHING ABOUT WHY. Whether the wasm arena ran at all (`wasmRuns`/`wasmRefused` do not exist in these bundles and no manifest field substitutes), what the engine chose differently on the 18 flipped games, and whether the failure to convert is a search change or a staging change. P5R with the CL7 mechanism block answers the first in one run and its gate makes a broken arm impossible to misreport.
+
+**Verdict.** THE ONE MEASURED ANOMALY ON THE BRANCH, AND IT IS STILL UNREADABLE. Placement is null on all three cells and that null is worth nothing: the arm cannot be shown to have run. Meanwhile four shape rows on the same cell say the games changed — twice the cap rate, ~21 more turns, ~22 more decisions, a quarter less decisive — and shape rows never move a status by rule, which is correct and is also exactly why this flag cannot be resolved from batch 1 at all. The root cause is already named upstream (refused per partition, silently; counters trapped in the module) and CL7 closed the telemetry, so the decisive experiment is now cheap and unambiguous. P5R IS THAT EXPERIMENT and it is the highest-value run in batch 2: it is the only scheduled experiment that resolves a standing anomaly rather than opening a new question, and its gate makes it impossible to mis-report — wasmRuns 0 on the treatment arm is a BROKEN ARM and must be reported as a refusal, not as a null. MACHINE INGEST, 20260829 — THE ANOMALY IS ONE ROW SMALLER AND ONE ROW SHARPER. The cap rate now has an interval of its own: +0.2292 [+0.0072, +0.4511] over 16 blocks against a MEASURED A/A floor of +/-0.2021, i.e. real but clearing the noise by 0.027. `null-snake6`'s 0.917 -> 1.000 saturation, which the fold listed as a corroborant, is INSIDE its floor (+0.0833 against +/-0.1100) and is withdrawn. `hazard-mix-king` is not a second instance: it churns 23 of 48 terminal kinds with a net of +1. What the machine adds instead is the direction: on headline-mix-king 18 games go decisive -> cap against 7 the other way, where the A/A null on the same board goes 9 against 14. The churn is ordinary for that cell; the 16-game swing is not. And the flipped games were SHORT (median 39.5 turns under wasm-off), with the subject +23.9 material ahead when the clock ran out — the shape is "cannot close out a won position", not "long games tip over the cap". Timing is identical to the millisecond per decision in both arms on all three cells, so the wall clock is not a back door to the engagement question. P5R remains the only instrument.
 
 **Next: P5R.** With engagement on the record: did the wasm arm run at all, and is the doubled cap rate a slower arm or a refused one?
 
@@ -187,16 +262,31 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   no placement cost from UNIT_FATALITY alone  
   <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > 16 blocks against the pooled stratum's 58 for MDE 0.25. 'No placement cost' means 'no cost this cell could resolve'. That is the honest reading and it is enough to keep the flag alive; it is not enough to promote it.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null).
+  >   - `p7-cl1-gates::headline-mix-king` (cl-fatality): -0.0208 [-0.15, 0.1083] over 16 blocks; floor +/-0.0973
+  >   - `p7-cl1-gates::null-snake6` (cl-fatality): -0.0104 [-0.0326, 0.0118] over 16 blocks; floor +/-0.0324
+  >   - `p7-cl1-gates::snake5-knight` (cl-fatality): +0.0313 [-0.0428, 0.1053] over 16 blocks; floor **none — UNREADABLE**
 - **20260827-overnight** · p7-cl1-gates::null-snake6 · `deathsExhaustion` → **null**  
   exhaustion deaths 39 -> 33 over 48 games (x0.85) — they FALL  
   <sub>live · null verified · engagement shown</sub>
   > The classifier does not merely avoid the seed's failure mode, it moves slightly the other way on the very cell the seed destroyed. Absent from every bridge summary, and it is the strongest half of "fatality alone is safe". Recorded as null and not as support: 39 -> 33 over 48 games has no measured floor of its own, and one directional mechanism row does not promote anything. POLARITY WARNING: had bin/ingest.js scored this row it would have called it FAILED, because its verdict rule reads any negative mechanism delta as a failure and it does not know that fewer deaths is better. See open item METRIC-POLARITY.
+  > *Machine ingest:* no per-game counter in manifest.jsonl carries this metric. `deathsExhaustion`, `deathsSelf`, `fatalStagings`, `teammateKills`, `admissionRate` and the CL7 mechanism counters are absent from every 20260827 bundle; the exhaustion counts this row rests on were mined from the REPLAYS into deaths-p7.json, which is a different instrument from the one the ingest reads. The row stands on that file.
 - **20260827-overnight** · p7-cl1-gates (cl-both arm) · `deathsExhaustion` → **null**  
   seed+fatality together: 72 deaths over 48 games, against 75 for the seed alone and 39 off  
   <sub>live · null verified · engagement shown</sub>
   > THE BOUNDARY OF THE CLASSIFIER`S CLAIM, and deliberately not a failure verdict. Written as `failed` in the first pass of this fold, it moved UNIT_FATALITY live-null -> live-failed — and that was a mis-attribution the rules made visible: the 72 deaths are the SEED's cost, recorded against CENTAUR_CLUSTER_SEED where they belong. All this row says about the classifier is what it does NOT do: it is safe alone, and it is not a repair for something else.
+  > *Machine ingest:* no per-game counter in manifest.jsonl carries this metric. `deathsExhaustion`, `deathsSelf`, `fatalStagings`, `teammateKills`, `admissionRate` and the CL7 mechanism counters are absent from every 20260827 bundle; the exhaustion counts this row rests on were mined from the REPLAYS into deaths-p7.json, which is a different instrument from the one the ingest reads. The row stands on that file.
+- **20260827-overnight** · p7-cl1-gates::headline-mix-king · `score` → **null**  
+  -0.0208 [-0.15, 0.1083] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p7-cl1-gates::null-snake6 · `score` → **null**  
+  -0.0104 [-0.0326, 0.0118] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p7-cl1-gates::snake5-knight · `score` → **unreadable**  
+  0.0313 [-0.0428, 0.1053] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
 
-**Verdict.** Alive, unpromoted, and cheaper than it looked. It costs nothing measurable in placement (16 blocks against the pooled stratum's 58, so "no cost this cell could resolve"), it demonstrably runs, and on null-snake6 exhaustion deaths FALL under it (39 -> 33). What it has still never been shown to do is buy anything on its own. Note the asymmetry the batch settled: the cl-both arm reproduces the seed's collapse almost exactly (-0.573 vs -0.594; 72 deaths vs 75), so the cost in that pair is the seed's and not the pair's — but equally, the classifier is not a repair for the seed.
+**Verdict.** Alive, unpromoted, and cheaper than it looked. It costs nothing measurable in placement (16 blocks against the pooled stratum's 58, so "no cost this cell could resolve"), it demonstrably runs, and on null-snake6 exhaustion deaths FALL under it (39 -> 33). What it has still never been shown to do is buy anything on its own. Note the asymmetry the batch settled: the cl-both arm reproduces the seed's collapse almost exactly (-0.573 vs -0.594; 72 deaths vs 75), so the cost in that pair is the seed's and not the pair's — but equally, the classifier is not a repair for the seed. MACHINE INGEST, 20260829: the "16 blocks against the pooled stratum's 58" reading is now contested by the batch's own dispersion. Computed from each cell's measured block SD instead of the pooled prior, 16 blocks resolves an MDE of 0.25 on all three cells (blocksNeeded 1, 3 and 8). That is true and it is not the question: the cost being looked for is two or three points, not twenty-five. P7F stays scheduled, and the rule that keeps it scheduled is now batch-scoped rather than reading whichever row was appended last — see MDE-HARDCODED and LIVE-NULL-IS-TERMINAL. Per-game rows also confirm the classifier is a near-exact no-op on unit loss: 53 -> 52 on null-snake6, 209 -> 209 on snake5-knight, and 48 of 48 teams alive at the end on the cell the seed destroys.
 
 **Next: P7F.** Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?
 
@@ -402,14 +492,41 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > THE "SPEED, NOT STRENGTH" CLAIM IS NOT SUPPORTED BY THIS BATCH AND HAS BEEN REMOVED FROM THIS ROW. The null on strength is solid. The speed half is not merely unmeasured here — the batch's own wall-clock rows run the OTHER WAY. perf-substrate is worstWallMs +4.021 [+0.332, +7.710] ✱ on snake5-queen and +1.917 [+0.279, +3.554] ✱ on null-snake6, i.e. marginally SLOWER in the worst case, while evaluating ~21.7k more plans on the queen cell. (+7.479 [-2.737, +17.696] on headline, not significant.) Whatever supports "speed play" is prior benchmark evidence and is not in this delivery. The ledger must not cite batch 1 as its source. What batch 1 shows, and all it shows, is PLACEMENT-NULL.
   > P1 raced whole BUILDS, not this flag: `integrated` vs `perf-substrate` at their shipped defaults. It bounds the substrate's strength effect and does not isolate the pool. Recorded against this flag because it is the closest live evidence that exists, and labelled so nobody mistakes it for an isolated arm.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null).
+  >   - `p1-substrate-headline::headline-mix-king` (perf-substrate): -0.0104 [-0.1294, 0.1086] over 16 blocks; floor +/-0.0973
+  >   - `p1-substrate-headline::null-snake6` (perf-substrate): +0 [0, 0] over 16 blocks; floor +/-0.0324
+  >   - `p1-substrate-headline::snake5-queen` (perf-substrate): +0 [-0.1123, 0.1123] over 16 blocks; floor **none — UNREADABLE**
 - **20260827-overnight** · p1-substrate-headline::snake5-queen · `worstWallMs` → **cost**  
   +4.0208 [+0.3318, +7.7098] over 16 blocks (1961.19 -> 1965.21) — the substrate is SLOWER here  
   <sub>live · null verified · engagement shown</sub>
   > A cost row, and by rule never a verdict — recorded here because it is the direct counter-evidence to the speed claim this batch was being cited for. Both cells, both ✱, both in the slower direction.
+  > *Machine ingest:* **REFINED** — POINT ESTIMATE CONFIRMED (+4.0208 [0.3318, 7.7098] over 16 blocks), FLOOR WITHDRAWN. The fold read this row as nullVerified, against the mix-king A/A half-width used as a PROXY. Reading the floor per CELL as the rule requires, this cell has NO A/A floor in this batch: the batch floored 2 of its 8 treated cells. By the ledger's own rule the row is UNREADABLE, not null and not a win. Nothing about the number changes; what changes is that there is no longer anything to read it against. This is AA-FLOOR-COVERAGE measured rather than predicted, and batch 2 already floors all five treated cells.
 - **20260827-overnight** · p1-substrate-headline::null-snake6 · `worstWallMs` → **cost**  
   +1.9167 [+0.2794, +3.5539] over 16 blocks (1962.81 -> 1964.73) — slower here too  
   <sub>live · null verified · engagement shown</sub>
   > A cost row, and by rule never a verdict — recorded here because it is the direct counter-evidence to the speed claim this batch was being cited for. Both cells, both ✱, both in the slower direction.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +1.9167 [0.2794, 3.5539] over 16 blocks against a measured floor of +/-0.5907. The transcription was exact.
+- **20260827-overnight** · p1-substrate-headline::headline-mix-king · `score` → **null**  
+  -0.0104 [-0.1294, 0.1086] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p1-substrate-headline::headline-mix-king · `decisions` → **null**  
+  -2.1667 [-23.8937, 19.5603] over 16 blocks; null half-width 18.7274  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · contextual · underpowered (16/208872 blocks)</sub>
+- **20260827-overnight** · p1-substrate-headline::headline-mix-king · `worstWallMs` → **failed**  
+  7.4792 [-2.7372, 17.6956] over 16 blocks; null half-width 7.373  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better · underpowered (16/46183 blocks)</sub>
+- **20260827-overnight** · p1-substrate-headline::null-snake6 · `score` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p1-substrate-headline::null-snake6 · `decisions` → **null**  
+  -0.7083 [-2.2872, 0.8706] over 16 blocks; null half-width 0.8367  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · contextual · underpowered (16/1104 blocks)</sub>
+- **20260827-overnight** · p1-substrate-headline::snake5-queen · `score` → **unreadable**  
+  0 [-0.1123, 0.1123] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p1-substrate-headline::snake5-queen · `decisions` → **unreadable**  
+  2.4375 [-2.3477, 7.2227] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say) · contextual · underpowered (16/10132 blocks)</sub>
 
 **Verdict.** Throughput is measured and real ON A PROTOTYPE BENCH; strength is bounded and null; and the batch that bounded strength did NOT confirm the speed. P1`s placement null is solid. Its wall-clock rows run mildly against the substrate (+4.02 ✱ queen, +1.92 ✱ snake6 worst-case ms), so "speed, not strength" is a claim resting on the w1-bench probe and on prior benchmark work, NOT on batch 1 — which is worth stating plainly because it is the citation the program has been making. The pool has still never been raced as an isolated arm.
 
@@ -445,6 +562,19 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · underpowered (16/58 blocks)</sub>
   > Distinguish this null from CENTAUR_COHORT_POLICY's. Both flags read `live-null`. There, four ✱ rows prove the arm ran and did not help. Here, no row moved at all, so the null is about the MEASUREMENT and not about the flag. Recorded as nullKind: engagement-unshown.
   > Consistent with the n=1 no-op finding: at ply 1 there is nothing for `full` to change.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 0 have a measured A/A floor and 3 have none (those are UNREADABLE, not null).
+  >   - `p4-tiertruth-potions::null-nopotion-mix-king` (tier-full): +0.0313 [-0.0672, 0.1297] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p4-tiertruth-potions::potion-mix-king` (tier-full): -0.0625 [-0.2176, 0.0926] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p4-tiertruth-potions::potion-snake5-queen` (tier-full): +0 [-0.0725, 0.0725] over 16 blocks; floor **none — UNREADABLE**
+- **20260827-overnight** · p4-tiertruth-potions::potion-mix-king · `score` → **unreadable**  
+  -0.0625 [-0.2176, 0.0926] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p4-tiertruth-potions::potion-snake5-queen · `score` → **unreadable**  
+  0 [-0.0725, 0.0725] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p4-tiertruth-potions::null-nopotion-mix-king · `score` → **unreadable**  
+  0.0313 [-0.0672, 0.1297] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
 
 **Verdict.** A null at ply 1, exactly as predicted, AND A HARD PREREQUISITE OF PLY 2 — but read the null carefully. No ✱ row appears anywhere in P4, on any cell, on any metric, which means this batch cannot distinguish "the flag ran and changed nothing" from "the flag did not run". The n=1 no-op finding predicts the former and the ledger records it as unshown either way (nullKind: engagement-unshown), because a prediction is not a measurement. None of this changes the disposition: this flag will be promoted for a SOUNDNESS reason and not a placement one — at n>=2, expiry is an under-approximation and full is the only sound setting — and the ledger records that so a future reader does not go looking for the placement win that will never arrive.
 
@@ -476,18 +606,46 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   NULL everywhere (headline +0.0104 [-0.0945, +0.1153]; hazard +0.0208 [-0.1342, +0.1759]; snake6 -0.0208 [-0.0652, +0.0236]) — the governor's first measurement, and an ENGAGED null  
   <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > REVISED BY THE BATCH-1 FOLD. The seeded row read this as engagement-unverified "for the same structural reason as P5". That was wrong, and the difference matters more than the similarity. P5 has no evidence of any kind that its arm ran. P6 has four ✱ harness-side rows proving its arm ran and cost something. This is the strongest ENGAGED-AND-DID-NOT-HELP row in the batch and the only one in the ledger: a measured cost with no measured benefit, which is a real finding about the governor and not an absence of one.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null).
+  >   - `p6-admission::hazard-mix-king` (cohort-on): +0.0208 [-0.1342, 0.1759] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p6-admission::headline-mix-king` (cohort-on): +0.0104 [-0.0945, 0.1153] over 16 blocks; floor +/-0.0973
+  >   - `p6-admission::null-snake6` (cohort-on): -0.0208 [-0.0652, 0.0236] over 16 blocks; floor +/-0.0324
 - **20260827-overnight** · p6-admission::headline-mix-king · `worstWallMs` → **cost**  
   +5.125 [+3.3141, +6.9359] over 16 blocks (1961.33 -> 1966.46)  
   <sub>live · null verified · engagement shown</sub>
   > One side of a trade, and by rule never a verdict. Recorded because together with its twin on the other cell it is what PROVES the arm engaged, which is the precondition for reading the placement null as a null at all.
+  > *Machine ingest:* **CONFIRMED** — recomputed from the 144 paired per-game rows: +5.125 [3.3141, 6.9359] over 16 blocks against a measured floor of +/-7.373. The transcription was exact.
 - **20260827-overnight** · p6-admission::hazard-mix-king · `worstWallMs` → **cost**  
   +5.3125 [+3.4093, +7.2157] over 16 blocks (1960.08 -> 1965.40)  
   <sub>live · null verified · engagement shown</sub>
   > One side of a trade, and by rule never a verdict. Recorded because together with its twin on the other cell it is what PROVES the arm engaged, which is the precondition for reading the placement null as a null at all.
+  > *Machine ingest:* **REFINED** — POINT ESTIMATE CONFIRMED (+5.3125 [3.4093, 7.2157] over 16 blocks), FLOOR WITHDRAWN. The fold read this row as nullVerified, against the mix-king A/A half-width used as a PROXY. Reading the floor per CELL as the rule requires, this cell has NO A/A floor in this batch: the batch floored 2 of its 8 treated cells. By the ledger's own rule the row is UNREADABLE, not null and not a win. Nothing about the number changes; what changes is that there is no longer anything to read it against. This is AA-FLOOR-COVERAGE measured rather than predicted, and batch 2 already floors all five treated cells.
 - **20260827-overnight** · p6-admission (both piece cells) · `plansEvaluated_RETIRED` → **engaged**  
   +14,270 [+9,174, +19,365] ✱ headline; +14,284 [+5,754, +22,814] ✱ hazard  
   <sub>live · null verified · engagement shown</sub>
   > RETIRED COUNTER, DIAGNOSTIC USE ONLY. plansEvaluated carries no verdict on a live arm — at any budget it is dominated by how much CPU the process got. It is kept precisely to diagnose a broken or an idle arm, and that is the only claim made on it here: the governor ran. Both cells, same magnitude, both ✱.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 3 cell(s), of which 2 have a measured A/A floor and 1 have none (those are UNREADABLE, not null). Retired counter: recorded as a broken-arm diagnostic, never as a verdict.
+  >   - `p6-admission::hazard-mix-king` (cohort-on): +14284 [5753.9441, 22814.0559] over 16 blocks; floor **none — UNREADABLE**
+  >   - `p6-admission::headline-mix-king` (cohort-on): +14269.75 [9174.4859, 19365.0141] over 16 blocks; floor +/-4452.973 — **outside the floor**
+  >   - `p6-admission::null-snake6` (cohort-on): +8899.6667 [-1934.8751, 19734.2084] over 16 blocks; floor +/-8394.2306 — **outside the floor**
+- **20260827-overnight** · p6-admission::headline-mix-king · `score` → **null**  
+  0.0104 [-0.0945, 0.1153] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p6-admission::headline-mix-king · `assumptionRate` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better</sub>
+- **20260827-overnight** · p6-admission::hazard-mix-king · `score` → **unreadable**  
+  0.0208 [-0.1342, 0.1759] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p6-admission::hazard-mix-king · `assumptionRate` → **unreadable**  
+  0 [0, 0] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better</sub>
+- **20260827-overnight** · p6-admission::null-snake6 · `score` → **null**  
+  -0.0208 [-0.0652, 0.0236] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p6-admission::null-snake6 · `assumptionRate` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · lower-is-better</sub>
 
 **Verdict.** LIVE NULL WITH ENGAGEMENT SHOWN — and that phrase is doing work the ledger's status vocabulary alone cannot. Placement is flat on all three cells, and unlike every other null in this batch the arm is PROVEN to have run: four ✱ harness-side rows on two cells (worstWallMs +5.1/+5.3, plansEvaluated +14.3k). So the reading is a measured cost with no measured benefit. Contrast CENTAUR_TIER_TRUTH, which is also `live-null` and where NO row moved anywhere — there the reading is "cannot say whether the flag did anything". Two flags, one status word, opposite epistemic states; `nullKind` records which is which so a future reader does not average them. What is still unmeasured is what the governor DID: admissionRate has no counter, so the cost is attributed to the governor running and not to any particular admission decision. First measurement of this flag, ever, and it earns a real finding rather than a shrug.
 
@@ -504,7 +662,7 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
 *I2. The slider evaluator profile: command and movement-budget terms, gated on piece class. Bit-identical to the baseline on a snake-only board.*
 
 - Per engine: `TeamDecisionOptions.evaluate (no env flag, no config field)`
-- **Action owed:** Wire the profile behind the own-team slider detector as the shipped default, and record the commit as promotedBy. SECOND ITEM ADDED BY THE BATCH-1 FOLD: the next batch owes a snake5-queen A/A cell, so this flag's one win finally gets a floor of its own instead of borrowing mix-king's. The batch generator hard-codes the A/A cells as headline-mix-king and null-snake6, so this cannot be scheduled from the ledger and must be added by hand or by the one-line generator fix named in AA-FLOOR-COVERAGE.
+- **Action owed:** Wire the profile behind the own-team slider detector as the shipped default, and record the commit as promotedBy. SECOND ITEM ADDED BY THE BATCH-1 FOLD: the next batch owes a snake5-queen A/A cell, so this flag's one win finally gets a floor of its own instead of borrowing mix-king's. The batch generator hard-codes the A/A cells as headline-mix-king and null-snake6, so this cannot be scheduled from the ledger and must be added by hand or by the one-line generator fix named in AA-FLOOR-COVERAGE. MACHINE INGEST, 20260829: this is no longer a suspicion. The ingest computed the null band for every metric on every A/A cell and confirmed the batch floored 2 of its 8 treated cells; the queen cell is one of the six with nothing.
 
 **Promotion metrics** (the gate, and whether the build emits it):
 
@@ -524,25 +682,50 @@ Counts: 1 LIVE FAILED, 7 probe only, 3 live null, 1 supported — flip owed, 2 P
   <sub>live · null verified · engagement shown · underpowered (16/58 blocks)</sub>
   > TWO CAVEATS, BOTH NARROWING THE CLAIM, AND NEITHER IN THE BRIDGE SUMMARIES. (1) NO LOCAL A/A FLOOR. The batch's A/A ran on headline-mix-king and null-snake6 only. This win is on snake5-queen and is compared against the mix-king floor (+/-0.0973) as a PROXY, which findings.md is explicit that it clears "narrowly" — +0.115 against +/-0.097 is a margin of 0.018. A queen-cell A/A would settle it and is owed. (2) ONLY THE 2000 ms POINT IS FROM THIS BATCH. The gradient quoted as "150 ms ~0 / 1000 ms +0.31 / 2000 ms +0.115" has one point in this delivery. The 150 ms and 1000 ms points come from earlier I2 work and are unverifiable from anything shipped here. Attribute only +0.115 to batch 1.
   > REVISED BY THE BATCH-1 FOLD. The seeded row quoted all three gradient points as though the batch had measured them and gave no CI. What the batch actually shows is one modest, confirmed-direction effect on one cell, with a provably-inert control at exactly 0 and two corroborating mechanism rows. That is still the most complete evidence chain in this ledger — it is simply a smaller claim than the seed made, and the flip it supports is unchanged.
+  > *Machine ingest:* **REFINED** — POINT ESTIMATE CONFIRMED (+0.1146 [0.0135, 0.2157] over 16 blocks), FLOOR WITHDRAWN. The fold read this row as nullVerified, against the mix-king A/A half-width used as a PROXY. Reading the floor per CELL as the rule requires, this cell has NO A/A floor in this batch: the batch floored 2 of its 8 treated cells. By the ledger's own rule the row is UNREADABLE, not null and not a win. Nothing about the number changes; what changes is that there is no longer anything to read it against. This is AA-FLOOR-COVERAGE measured rather than predicted, and batch 2 already floors all five treated cells.
 - **20260827-overnight** · p3-slider-2000::snake5-queen · `place` → **supports-promotion**  
   -0.2292 [-0.4313, -0.0270] over 16 blocks (lower place is better)  
   <sub>live · null verified · engagement shown</sub>
   > Placement corroborant, same cell, same direction as score. POLARITY: this is an IMPROVEMENT recorded as a negative delta; bin/ingest.js would have scored it "failed". See METRIC-POLARITY.
+  > *Machine ingest:* **REFINED** — POINT ESTIMATE CONFIRMED (-0.2292 [-0.4313, -0.027] over 16 blocks), FLOOR WITHDRAWN. The fold read this row as nullVerified, against the mix-king A/A half-width used as a PROXY. Reading the floor per CELL as the rule requires, this cell has NO A/A floor in this batch: the batch floored 2 of its 8 treated cells. By the ledger's own rule the row is UNREADABLE, not null and not a win. Nothing about the number changes; what changes is that there is no longer anything to read it against. This is AA-FLOOR-COVERAGE measured rather than predicted, and batch 2 already floors all five treated cells.
 - **20260827-overnight** · p3-slider-2000::snake5-queen · `finalMaterial` → **supports-promotion**  
   +4.021 [+0.222, +7.820] over 16 blocks  
   <sub>live · null verified · engagement shown</sub>
   > Mechanism corroborant: the profile is winning by holding more material, which is what it is for.
+  > *Machine ingest:* **REFINED** — POINT ESTIMATE CONFIRMED (+4.0208 [0.2218, 7.8199] over 16 blocks), FLOOR WITHDRAWN. The fold read this row as nullVerified, against the mix-king A/A half-width used as a PROXY. Reading the floor per CELL as the rule requires, this cell has NO A/A floor in this batch: the batch floored 2 of its 8 treated cells. By the ledger's own rule the row is UNREADABLE, not null and not a win. Nothing about the number changes; what changes is that there is no longer anything to read it against. This is AA-FLOOR-COVERAGE measured rather than predicted, and batch 2 already floors all five treated cells.
 - **20260827-overnight** · p3-slider-2000::null-snake6 (INERT CONTROL) · `score` → **inert**  
   EXACTLY 0, against a measured floor of +/-0.0324  
   <sub>**CONTROL CELL** · null verified</sub>
   > THE STRONGEST SINGLE ROW IN THE LEDGER, and it now enters the channel it belongs in. A provably-inert path read EXACTLY 0 against a measured +/-0.0324 floor: the measurement is not manufacturing effects, which is the precondition for believing the +0.115 it does report on snake5-queen. Filed as family `audit` during the batch-1 fold because filing it as what it literally is — a placement cell that showed nothing — demoted the flag it vouches for, `supported -> live-null`. CONTROL-CELLS-DEMOTE is now closed: `control` is a measurement KIND that strengthens the instrument and enters no effect channel, so the row can be filed honestly as placement and still move nothing.
+  > *Machine ingest:* **REFINED** — the fold filed this at sweep level; the rows give it per CELL. 1 cell(s), of which 1 have a measured A/A floor and 0 have none (those are UNREADABLE, not null).
+  >   - `p3-slider-2000::null-snake6` (slider): +0 [0, 0] over 16 blocks; floor +/-0.0324
+- **20260827-overnight** · p3-slider-2000::headline-mix-king · `score` → **null**  
+  0.0313 [-0.091, 0.1535] over 16 blocks; null half-width 0.0973  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p3-slider-2000::headline-mix-king · `finalMaterial` → **null**  
+  0.2917 [-7.9749, 8.5582] over 16 blocks; null half-width 5.8863  
+  <sub>live · null verified · **ENGAGEMENT NOT SHOWN** (cannot say) · underpowered (16/30237 blocks)</sub>
+- **20260827-overnight** · p3-slider-2000::null-snake6 · `score` → **inert**  
+  0 [0, 0] over 16 blocks; null half-width 0.0324  
+  <sub>**CONTROL CELL** · null verified</sub>
+- **20260827-overnight** · p3-slider-2000::null-snake6 · `finalMaterial` → **inert**  
+  -1.9583 [-6.2099, 2.2932] over 16 blocks; null half-width 2.7117  
+  <sub>**CONTROL CELL** · null verified · underpowered (16/7998 blocks)</sub>
+- **20260827-overnight** · p3-slider-2000::snake5-pawn · `score` → **unreadable**  
+  0.0104 [-0.072, 0.0929] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260827-overnight** · p3-slider-2000::snake5-pawn · `finalMaterial` → **unreadable**  
+  0.7292 [-0.3148, 1.7732] over 16 blocks; null half-width null  
+  <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say) · underpowered (16/483 blocks)</sub>
 
 **Control cells** — cells the design requires to read zero. They vouch for the
 instrument and move no status in either direction.
 
 - PASSED (inert as designed): `20260827-overnight/p3-slider-2000::null-snake6 (INERT CONTROL)/score`
+- PASSED (inert as designed): `20260827-overnight/p3-slider-2000::null-snake6/score`
+- PASSED (inert as designed): `20260827-overnight/p3-slider-2000::null-snake6/finalMaterial`
 
-**Verdict.** SUPPORTED, AND THE FLIP IS OWED. The evidence chain is the most complete in this ledger and it is also smaller than the seeded row claimed: one confirmed-direction, modest effect on ONE cell (+0.115 [+0.014, +0.216] on snake5-queen), two corroborating rows on that cell (place -0.229 ✱, finalMaterial +4.02 ✱), a provably-inert control sitting at EXACTLY 0 against a measured +/-0.032 floor, and a separate control run confirming the neutrality claim. The two weaknesses are recorded rather than smoothed: the winning cell has no A/A floor of its own and clears the borrowed one narrowly, and two of the three gradient points quoted for it were measured elsewhere. Neither weakens the FLIP, which is what is owed: the wiring is a code change, not a default flip, because the profile has no env flag and no config field.
+**Verdict.** SUPPORTED, AND THE FLIP IS OWED. The evidence chain is the most complete in this ledger and it is also smaller than the seeded row claimed: one confirmed-direction, modest effect on ONE cell (+0.115 [+0.014, +0.216] on snake5-queen), two corroborating rows on that cell (place -0.229 ✱, finalMaterial +4.02 ✱), a provably-inert control sitting at EXACTLY 0 against a measured +/-0.032 floor, and a separate control run confirming the neutrality claim. The two weaknesses are recorded rather than smoothed: the winning cell has no A/A floor of its own and clears the borrowed one narrowly, and two of the three gradient points quoted for it were measured elsewhere. Neither weakens the FLIP, which is what is owed: the wiring is a code change, not a default flip, because the profile has no env flag and no config field. MACHINE INGEST, 20260829: the numbers reproduce exactly from the per-game rows (+0.1146 [+0.0135, +0.2157] over 16 blocks, place -0.2292, finalMaterial +4.0208), and the borrowed floor is now WITHDRAWN rather than described. Reading the floor per cell as the rule requires, `snake5-queen` has no A/A floor in this batch at all, so the win row is UNREADABLE and not a win-against-a-proxy. The status does not move: it rests on the whole chain and on the inert control, which the machine re-filed as a control cell and which passed on both its metrics. But the single strongest number in the chain is now formally unreadable until batch 2 floors that cell, which it does.
 
 **Next: P3-slice.** The 10% exploration slice, once the wiring lands: keep a tenth of piece-board cells running the BASELINE profile so the cell that turned it on can still be turned back off.
 
@@ -622,6 +805,38 @@ Owner-approved program questions that are not any one flag's promotion.
 - Rungs: 500 / 1000 / 2000 ms, 8 blocks each
 - Design: ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable. BATCH-1 NOTE: the 500 ms rung is now the interesting one. If the deep pass lands at 1000-1500 ms and the engine reschedules it under a 1 s budget, then 1000 ms may barely differ from 2000 ms while 500 ms amputates the pass outright — so the ladder's information is concentrated at its bottom rung.
 - Caveat: CHANGED != IMPROVED, and nothing measures the difference. The 35.0%/60.1% figures count decisions whose staged move-set changed; the 8.3% counts decisions a shorter budget decides differently. Whether those ~7% are BETTER is unmeasured and is exactly what the ladder is for.
+
+## Batches
+
+### 20260827-overnight
+
+- Games: 2592 (delivery said 1824)
+- Ingest: **RAN, ON THE REAL PER-GAME ROWS**
+- THE MACHINE MOVES NOTHING, AND ITS REASON IS NOT THE FOLD'S. The hand fold reached 0 status changes through twelve individual rule refusals. The machine reaches 0 through ONE structural refusal that applies to every live row in the batch: `armEngagementVerified` is `null` on all sixteen arms, because no 20260827 bundle carries the CL7 mechanism block and `--engagement` has no other counter to read. Under the ENGAGEMENT-TRISTATE fix, `null` moves nothing. So batch 1, run through the fixed machinery, is structurally incapable of writing a live status -- INCLUDING the CENTAUR_CLUSTER_SEED failure that is this program's founding finding. That flag is live-failed on the seeded record and on the fold's adjudication, not on anything the machine path could have written. Filed as ENGAGEMENT-SOURCES.
+- Integrity: illegal 0, errors 4
+  > CONTRADICTION, AND IT IS THE ONE THE HAND FOLD COULD NOT HAVE CAUGHT. findings.md section 1 states "Illegal moves and decision errors: 0 in every arm of every sweep", HANDOFF-SUMMARY repeats "0 illegal, 0 errors", and the fold transcribed it. Summing health[].errors over all 2,592 rows gives FOUR thrown decisions, in four different games in four different arm/cell pairs. The per-experiment analysis files do print them (analysis-p7.md carries errors 0.0208 on cl-seed); only the summaries claim zero.
+  > - `cl-seed/p7-cl1-gates::headline-mix-king: illegal=0 errors=1 over 48 games / 7575 decisions`
+  > - `integrated/p1-substrate-headline::snake5-queen: illegal=0 errors=1 over 48 games / 14932 decisions`
+  > - `integrated/p3-slider-2000::snake5-queen: illegal=0 errors=1 over 48 games / 15331 decisions`
+  > - `perf-substrate/p1-substrate-headline::snake5-queen: illegal=0 errors=1 over 48 games / 14967 decisions`
+  > By lib/drift.js's own rule a nonzero integrity counter "voids the BATCH, not the arm", and the ingest raised four `integrity` instrument events accordingly. Applied literally that voids every verdict in batch 1. THE LEDGER DOES NOT APPLY IT LITERALLY HERE, and says why: 4 thrown decisions in 195,000+ is a rate of 2e-5, the four sit in four unrelated arms with no shared cell or bundle, and none is in the null pair. What it does void is the CLAIM of zero. The rule as written has no severity band, which is itself an instrument item (INTEGRITY-SEVERITY): a rule that fires identically at 4 errors and at 4,000 will be ignored at 4, and a rule that is ignored is not a rule.
+- Instrument events:
+  - `integrity` p7-cl1-gates::headline-mix-king [cl-seed]
+  - `integrity` p1-substrate-headline::snake5-queen [integrated]
+  - `integrity` p3-slider-2000::snake5-queen [integrated]
+  - `integrity` p1-substrate-headline::snake5-queen [perf-substrate]
+  - `cap-rate-asymmetry` p7-cl1-gates::null-snake6
+  - `cap-rate-asymmetry` p5-wasm-arena::headline-mix-king
+  > *cap-rate-asymmetry on P5:* YES, AND UNPROMPTED. `cap-rate-asymmetry p5-wasm-arena::headline-mix-king, 0.2292 to 0.4583 across arms (x2)` is the P5 anomaly, raised by the rule written for its shape, without a human reading a table. The batch-1 fold had to raise it by hand and recorded that as the deferral's sharpest cost. It is now closed.
+  > `cap-rate-asymmetry p7-cl1-gates::null-snake6, 0.4583 to 0.9375 (x2.05)` also fired, and is NOT a second anomaly of the same kind: it is the cluster-seed arms dying early on a cell where the off arms run to the cap, i.e. the P7 failure seen from the shape side. analysis-p7.md prints its own uninterpretability warning on that cell for the same reason. The rule cannot tell "the treatment stalls games" from "the treatment loses games faster"; both are cap-rate asymmetries. Recorded so the event is read with its cell.
+- Paired outcome flip rate (proxy): ON `headline-mix-king` THE A/A NULL FLIPS 26 OF 48 PLACEMENTS -- 54.2% -- BETWEEN TWO BUILDS OF THE SAME COMMIT, and 23 of 48 terminal kinds (47.9%). On `null-snake6` it is 2/48 (4.2%) and 4/48. That is the single largest instrument number this batch produced and nothing in the ledger had it before. It is the mechanical reason the mix-king score floor is +/-0.0973 and the snake6 floor is +/-0.0324, and it is why every mix-king placement row in this batch is a null: on that board the same build disagrees with itself about who won in more than half of games.
+- Machine vs the hand fold: **10 confirmed, 13 refined, 0 contradicted, 5 not recomputable.** ZERO CONTRADICTIONS AT THE ROW LEVEL. Every point estimate and every interval the fold transcribed from the analysis files reproduces exactly from the rows -- P7's -0.5938 / -0.8542, P3's +0.1146 [+0.0135, +0.2157], P5's +21.4375 / +21.75 / -0.2292, P6's +5.125 / +5.3125, P1's +4.0208 / +1.9167. The analysis files and the ledger no longer share a single point of failure. The five not-recomputable rows are all `deathsExhaustion`: no manifest row carries a death cause, and deaths-p7.json was mined from the replays.
+  > (1) FLOOR WITHDRAWN, five rows: read as nullVerified against a borrowed mix-king floor, now UNREADABLE because their cell has no A/A floor -- including the slider's +0.1146 win. (2) SWEEP-LEVEL ROWS GIVEN PER CELL, eight rows, with real block CIs where the fold had prose or raw rates -- the P5 cap rate most importantly.
+- Still owed: EDGE-EV-EATS -- CENTAUR_EDGE_EV's gate metric (uncontested meals staged, by contest class) is in the replays and in no manifest row. P12 is scheduled.
+- Still owed: P7R's root-cause miner -- needs turn-level replays. The manifest mining below narrows it substantially but cannot name a cause.
+- Still owed: P5's engagement question -- `wasmRuns` does not exist in these bundles. Only P5R answers it; no amount of mining can.
+- Still owed: death CAUSE per game -- deaths-p7.json is the only source and it is a replay product. The manifests carry only WHETHER and WHEN a team was eliminated.
+- Still owed: the DETECTOR flip rate -- unchanged, still needs detector state on the emission path.
 
 ## Open instrument items
 
@@ -708,4 +923,62 @@ L.undecided() returns dark, probe-passed and live-failed. A `live-null` flag is 
 *Workaround:* None applied. P7F is named here so it is visible to a reader of the status page even though the generator will not emit it.
 *Closed by:* On claude/cluster-lookahead, one of: include live-null flags whose last placement row is `underpowered` in undecided(); or add an explicit `scheduleAnyway` field to nextExperiment. The first is principled and the second is honest about being a manual override.
 *Closed in:* CLOSED, by the first of the two options named here — the principled one. L.undecided() includes a live-null flag while its most recent live placement row is not adequately powered, so the decision is made on the evidence rather than on the status name. CENTAUR_UNIT_FATALITY`s P7F is scheduled in batch 2; CENTAUR_TIER_TRUTH`s P4R and CENTAUR_COHORT_POLICY`s P6R now surface as NOT SCHEDULED with their blockers named, which is visible where silence was. cl/llfix on claude/cluster-lookahead — see lib/polarity.js, lib/ledger.js MEASUREMENT_KINDS, and bin/selftest.js sections 1b / 4.
+
+### SUBJECT-SEAT-NONDETERMINISM — **CLOSED**
+
+extract.js subjectOf read `rows[0].seats` and took the first bot named `lobster*`. manifest.jsonl is written in COMPLETION order by a pool of ten workers and the harness rotates seats between games, so the first row is a race. On 20260827-overnight the two arms of FOUR of the eight pairings resolved to different bots -- P2, P4, P5 and P7's seed arm -- and the ingest compared lobster-territory in one arm against lobster-material in the other WITHOUT ERROR. The seat-equality gate passes, because the seats really are identical; it is the subject NAME that differs.
+
+*Found by:* the first run of bin/ingest.js against a real batch, 20260829.
+*Exhibit:* It reported the two largest placement effects in the batch out of nothing: P2 (legacy rebaseline) and P5 (wasm) each read score -0.5938 / -0.5833 and win -1.0000 on `null-snake6`, a cell whose true delta is EXACTLY ZERO in both. P7's seed row read win -0.7083 instead of -0.8542. A silent wrong answer of that size cannot be caught downstream.
+*Closed by:* subjectOf now scans ALL rows, is order-independent, and returns null when more than one candidate is seated -- an ambiguous arm is REFUSED, not guessed at, and pairCells says so naming both candidates and the flag that resolves it. The declaration channel is the one a legitimate substitution already used (--subject-map), and it is the same declaration the sim harness's own aggregate prints in its `Subject:` line, so the two now agree by construction rather than by luck.
+*Closed in:* the 20260829 machine-ingest run. 6 selftest assertions; the defect is kept reachable (restoring the old subjectOf fails 3 of them).
+
+### NULL-BAND-CELL-KEY — **CLOSED**
+
+Cell keys are `<sweepId>::<cell>` and the A/A null runs under its own sweepId (`n0-aa-null`), so bin/ingest.js's whole-key lookup into the null band NEVER matched on a real batch -- only on the fixture, where null and treatment share one sweepId. On a miss it fell back to `band[Object.keys(band)[0]]`, lending the FIRST A/A cell's half-width to every cell in the batch.
+
+*Found by:* the same run.
+*Exhibit:* It lent headline-mix-king's +/-0.0973 to `null-snake6`, whose true floor is +/-0.0324 -- three times tighter -- and to snake5-queen, snake5-knight, snake5-pawn, hazard-mix-king and the three potion cells, which have NO measured floor at all. Eight of ten treated cells were being read against a floor that is not theirs, which is AA-FLOOR-COVERAGE laundered into a readable verdict. Visible in the wreckage: snake5-queen's overrunRate delta of +0.0003 marked OUTSIDE THE NULL, because mix-king's overrun floor is exactly 0.
+*Consequence:* Five batch-1 rows change their reading, all in the narrowing direction, and one of them is the ledger's best result: TERRITORY_SLIDER_PROFILE's +0.1146 [+0.0135, +0.2157] on snake5-queen is now UNREADABLE rather than a win read against a borrowed floor it cleared by 0.018. The status stays `supported` -- it rests on the whole chain, and the inert control is untouched -- but the row no longer carries a floor it never had.
+*Closed by:* the floor is resolved by CELL NAME across sweep ids, and there is no fallback. A cell the A/A never ran has no floor, and its rows are recorded UNREADABLE.
+*Closed in:* the 20260829 run. 4 selftest assertions on a cross-sweep scratch batch; the defect is kept reachable.
+
+### ENGAGEMENT-SOURCES
+
+ingest.js can read engagement from exactly one place: `health[].mechanism[<counter>]`, the CL7 block. No bundle built before CL7 has it, so `--engagement` returns `null` = CANNOT SAY on every arm of every pre-CL7 batch, and the ENGAGEMENT-TRISTATE rule then moves nothing. The consequence is total, not marginal: NO pre-CL7 batch can write a live status through the machine path, whatever it measured.
+
+*Found by:* the same run, as the reason it wrote nothing.
+*Exhibit:* CENTAUR_CLUSTER_SEED lost snake6 1.00 -> 0.15, 13-18x the measured floor, with plansEvaluated roughly doubling and 27 of 48 games ending in the subject's elimination where the off arm never lost a team. An arm that did not engage cannot do that. The ledger already accepts exactly this kind of reasoning -- CENTAUR_COHORT_POLICY carries an `engagementEvidence` block built from worstWallMs and the retired plansEvaluated as a broken-arm diagnostic -- but the ingest has no channel to supply it.
+*Workaround:* NONE TAKEN, DELIBERATELY. Passing a counter that does not exist, or asserting engagement on the command line, would bend the datum to fit the code -- the exact move ENGAGEMENT-TRISTATE was raised to retire. The machine wrote `null` and moved nothing, and the hand-adjudicated statuses stand on their own record.
+*Closed by:* a decision that is the owner's, not the loop's: either a second engagement channel (--engagement-evidence <metric> <arm-delta>, admitting a broken-arm diagnostic as evidence of running), or the acceptance that pre-CL7 batches are informative and never status-moving, in which case every row above is correctly refused and P5R/P7R are the only paths. NOT DECIDED HERE.
+
+### INTEGRITY-SEVERITY
+
+lib/drift.js raises `integrity` on any nonzero illegal/errors and its text says the event "voids the BATCH, not the arm". There is no severity band, so the rule fires identically at 4 errors in 195,000 decisions and at 4,000. Applied literally it voids batch 1 entirely; applied by judgement it is not a rule.
+
+*Found by:* the same run, from four thrown decisions in 2,592 games.
+*Closed by:* a threshold or a rate the owner sets, plus a distinct event kind for "nonzero but negligible". Not invented here.
+
+### FLIP-RATE-LEVEL
+
+The paired flip rate raises an event only when it RISES against a previous batch. There is no rule on its LEVEL. Batch 1 is the first batch, so nothing could fire -- and its A/A flip rate on `headline-mix-king` is 0.5417: the same build disagrees with itself about the subject's placement in 26 of 48 games. That is a first-order fact about what the headline cell can measure and no rule reported it.
+
+*Found by:* the same run.
+*Closed by:* a level threshold on the A/A cell, which needs a second batch to calibrate against. Batch 2 gives it one.
+
+### MDE-HARDCODED — **CLOSED**
+
+bin/ingest.js computed every power row against a hard-coded MDE of 0.25. The number is a program-wide default and no flag declares the effect size its own question is about, so "adequately powered" reached the ledger with nothing beside it saying powered FOR WHAT.
+
+*Found by:* the same run, when P7F silently left batch 2.
+*Exhibit:* The machine's per-cell power rows use each cell's OWN measured block SD instead of the pooled-stratum prior the fold used, and blocksNeeded falls from 58 to between 1 and 11 on every cell of this batch. Both numbers are honest: 16 blocks really does resolve an effect of 0.25 on these cells. But CENTAUR_UNIT_FATALITY's question is whether the classifier costs two or three points, not twenty-five, and on the first `nullIsUnresolved` rule -- which read only the LAST placement row appended -- that arithmetic settled the null and dropped P7F out of batch 2 for the second time, with nobody deciding it.
+*Closed by:* PARTLY. `--mde` now overrides the default and every row carries a `powerNote` naming the MDE it was computed against, and `nullIsUnresolved` is batch-scoped and all-rows so no single optimistic row can settle a null. What is NOT closed: no flag declares the MDE its question needs, so the default still decides by omission. A `mde` field on promotionMetrics would close it and is a claim about each flag, which is the owner's to make.
+*Closed in:* partly, in the 20260829 run. 2 selftest assertions pin the order-independence.
+
+### CAP-RATE-GATE-NAME
+
+CENTAUR_WASM names `capRate` as a promotion gate; the extractor emits the per-game indicator as `capped`. The names do not meet, so the flag's own shape gate matched no row and the P5 cap-rate anomaly reached the ledger only because this run recomputed it by hand as `capped`. lib/polarity.js has totality assertions over the metric table; there is no equivalent assertion that every gate NAME resolves to a metric the extractor emits.
+
+*Found by:* the same run.
+*Closed by:* rename the gate to `capped`, or alias it, and add the totality assertion. One line plus a test; not taken here because it edits a flag's gate list, which is a claim about the flag.
 
