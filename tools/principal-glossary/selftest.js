@@ -117,7 +117,7 @@ const r4 = check('The trail behind each snake blocks movement.\n');
 ok('a CORRECTED term blocks', r4.code !== 0 && /CORRECTED/.test(r4.out));
 ok('the correction quote is shown back', /this is new terminology/.test(r4.out));
 
-const r5 = check('Each trail unit blocks the cluster seed.\n');
+const r5 = check('Each trail unit blocks movement.\n'); // fixture must not name a term whose state can legitimately change; 'cluster seed' became corrected 2026-08-29
 ok('a defined phrase shields the corrected word nested inside it',
   r5.code === 0, r5.out);
 ok('but the re-defined term still raises its reminder',
