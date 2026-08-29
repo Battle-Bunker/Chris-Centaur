@@ -63,6 +63,7 @@ import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-
 import { pinWasmMode, wasmMode, wasmModeFor } from './wasm/policy';
 import type { WasmMode } from './wasm/policy';
 import { clusterSeedEnabled } from './search/cluster-seed';
+import { multistartSeedEnabled, multistartSeedFrom } from './search/multistart-seed';
 import { clusterEnumEnabled } from './search/cluster-partition';
 import { territoryRefineEnabled } from './evaluate/refine';
 import { scoutMode } from './search/scout';
@@ -191,6 +192,19 @@ export interface TeamDecisionOptions {
    * Left unset the environment decides, and the environment's default is OFF.
    */
   readonly clusterSeed?: boolean;
+  /**
+   * Whether this ENGINE seeds with the MULTI-START sampler, overriding
+   * `CENTAUR_MULTISTART_SEED` for this instance only. Same reason as the line
+   * above, and the same shape: what has to be measurable is one seat against
+   * unchanged opponents.
+   *
+   * This is the owner's search-seeding redesign and it REPLACES `clusterSeed`
+   * where both are on — a random safe baseline, then sampled multi-start hill
+   * climbing inside a slice of the decision budget, then a weighted-random
+   * selection among what was found. Left unset the environment decides, and the
+   * environment's default is OFF.
+   */
+  readonly multistartSeed?: boolean;
   /**
    * Whether this ENGINE runs the rung-0 fatality classifier, overriding
    * `CENTAUR_UNIT_FATALITY`. Separate from `clusterSeed` on purpose: two
@@ -712,14 +726,20 @@ export class TeamDecisionEngine {
         rungZeroRepair: safety === 'full',
         seedDeconflict: safety !== 'off',
         clusterSeed: this.options.clusterSeed,
+        multistartSeed: this.options.multistartSeed,
         clusterEnum: this.options.clusterEnum,
         territoryRefine: this.options.territoryRefine,
         sampledCap: this.options.sampledCap,
         scout: this.options.scout,
-        // THE PRIVATE HALF OF THE LOTTERY. Zero when the lottery is off (and
-        // then nothing reads it); the caller's number when one is pinned; a
-        // per-game crypto-random word otherwise. See `matchSeedFor`.
-        ...(matchSeed === 0 ? {} : { samplingTuning: { matchSeed } }),
+        // THE PRIVATE HALF OF EVERY SEEDED DRAW THIS ENGINE TAKES. Zero when
+        // no seeded layer is on (and then nothing reads it); the caller's
+        // number when one is pinned; a per-game crypto-random word otherwise.
+        // ONE seed feeds both consumers, which is the point: the lottery and
+        // the multi-start are two channels of one match's private stream, and
+        // replaying a match means replaying both. See `matchSeedFor`.
+        ...(matchSeed === 0
+          ? {}
+          : { samplingTuning: { matchSeed }, multistartTuning: { matchSeed } }),
         ...(this.options.search ?? {}),
         // AFTER the caller's tuning, and deliberately: these two are not
         // preferences the caller expresses, they are facts about THIS
@@ -830,7 +850,7 @@ export class TeamDecisionEngine {
         sub,
         knobs: gen.resolvedKnobs(),
         stagingSafety: safety,
-        // READ THE SAME SOURCE THE CONSUMER READS, not `this.env`. The five
+        // READ THE SAME SOURCE THE CONSUMER READS, not `this.env`. The six
         // search-side flags are resolved inside `makeSearchCore` as
         // `cfg.X ?? XEnabled()`, and every `XEnabled()` reads `process.env`
         // directly — `ports.env` reaches the wire policy, the worker count and
@@ -841,6 +861,7 @@ export class TeamDecisionEngine {
         // in the CL7 report and not silently repaired here, because repairing
         // it would change which arm an env-injecting caller actually runs.)
         clusterSeed: this.options.clusterSeed ?? clusterSeedEnabled(),
+        multistartSeed: this.options.multistartSeed ?? multistartSeedEnabled(),
         clusterEnum: this.options.clusterEnum ?? clusterEnumEnabled(),
         territoryRefine: this.options.territoryRefine ?? territoryRefineEnabled(),
         sampledCap: this.options.sampledCap ?? sampledCapEnabled(),
@@ -962,15 +983,16 @@ export class TeamDecisionEngine {
   }
 
   /**
-   * THE SEED THIS GAME'S LOTTERY RUNS ON — pinned, minted, or absent.
+   * THE SEED THIS GAME'S SEEDED LAYERS RUN ON — pinned, minted, or absent.
    *
    * Three answers, in this order, and the order is the whole policy:
    *
-   *  1. **The lottery is off for this engine ⇒ 0, and nothing is minted.** The
-   *     seed is read by exactly one thing (`openSampler`), which is not built
-   *     when `sampledCap` resolves off. Minting anyway would put an
-   *     unpredictable number into a `SamplingTuning` nothing reads, which is
-   *     how a flag-off path stops being byte-identical for no reason at all.
+   *  1. **Every seeded layer is off for this engine ⇒ 0, and nothing is
+   *     minted.** The seed is read by exactly two things (`openSampler` and
+   *     `openMultiStart`), neither of which is built when its own flag resolves
+   *     off. Minting anyway would put an unpredictable number into a tuning
+   *     nothing reads, which is how a flag-off path stops being byte-identical
+   *     for no reason at all.
    *  2. **A caller named one ⇒ that one, for every game.** This is the replay
    *     and probe path: a pinned seed is what makes two arms comparable and a
    *     recorded match re-runnable, and it must never be silently overridden by
@@ -986,7 +1008,9 @@ export class TeamDecisionEngine {
    * be asserting the CSPRNG instead.
    */
   matchSeedFor(gameId: string): number {
-    if (!(this.options.sampledCap ?? sampledCapFrom(this.env))) return 0;
+    const lottery = this.options.sampledCap ?? sampledCapFrom(this.env);
+    const multistart = this.options.multistartSeed ?? multistartSeedFrom(this.env);
+    if (!lottery && !multistart) return 0;
     if (this.options.matchSeed !== undefined) return this.options.matchSeed;
     const game = this.gameFor(gameId);
     if (game.matchSeed === null) {

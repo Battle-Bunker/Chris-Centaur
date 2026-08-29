@@ -182,6 +182,27 @@ export interface CandidateSet {
     readonly survivors: number
     readonly provenance: "rules-only" | "policy"
   }
+  /**
+   * THE RUNG-1/2 EDGE-EV PRIOR PER CANDIDATE, IN WEIGHT UNITS, positionally
+   * aligned with `candidates` — absent unless the edge-EV pass ran.
+   *
+   * φ_u(a), the first order of the Möbius expansion around the incumbent: what
+   * the cheap heuristics expect this option to be worth, denominated in the
+   * material lattice itself, so a unit of weight `w` dying is exactly `−w` and
+   * composing it with any other term in that currency is literally addition.
+   *
+   * ORDERING ONLY, and the placement law is why it can live on the set at all:
+   * it is never on a `Bound`, a `ScoreBounds`, a `PlanScore` or an
+   * `Assumption`, no consumer may fold it into `est`, and nothing that reads it
+   * may remove a candidate. It is published because the generator already
+   * computes it to sort by and a selection layer downstream cannot recompute it
+   * — not because anything is licensed to adjudicate on it.
+   *
+   * Absent, not `undefined`-valued: a set built with the pass off must be
+   * indistinguishable from the one the shipped build produced, and an own
+   * property holding `undefined` is not.
+   */
+  readonly edgeEv?: ReadonlyArray<number>
 }
 
 // ---------------------------------------------------------- score accounting
@@ -625,6 +646,23 @@ export interface SearchCore {
    * is legible as a refusal rather than as a zero.
    */
   scoutReport?(): import("./search/scout").ScoutReport | null
+  /**
+   * Optional: what the MULTI-START SEED did on the last slice that ran one, or
+   * null when the layer never ran.
+   *
+   * Stage 0's attempts and whether one came back conflict-free, stage 1's
+   * samples, climbs, evaluations and pool sizes, the slice asked for against
+   * the time spent, and the objective of the random baseline against the
+   * objective of the plan actually selected. That last pair is the layer's own
+   * falsifier: a selection that never beats its own random baseline is a
+   * selection that bought nothing.
+   *
+   * It also carries the DECISION SEED, which is what makes a weighted-random
+   * selection auditable at all — hand the same private `matchSeed` back on the
+   * same board and the seeding reproduces bit for bit. Operator-side, like
+   * `selectionReport`: it never reaches the wire.
+   */
+  multistartReport?(): import("./search/multistart-seed").MultiStartReport | null
 }
 
 /** Which slot of `better()` decided. See `SearchCore.adjudicationReport`. */

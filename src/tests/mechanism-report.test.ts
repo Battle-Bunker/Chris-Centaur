@@ -25,6 +25,7 @@ import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battl
 import type { PinEvent } from '../lobster/contracts';
 import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
 import { CLUSTER_SEED_ENV } from '../lobster/search/cluster-seed';
+import { MULTISTART_SEED_ENV } from '../lobster/search/multistart-seed';
 import { CLUSTER_ENUM_ENV } from '../lobster/search/cluster-partition';
 import { UNIT_FATALITY_ENV } from '../lobster/candidates';
 import { EDGE_EV_ENV } from '../lobster/search/edge-ev';
@@ -95,7 +96,7 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
  * POINT.
  *
  * `ports.env` reaches the wire's write interval, the worker count and the WASM
- * default. It does NOT reach the five search-side flags or the two candidate
+ * default. It does NOT reach the six search-side flags or the two candidate
  * knobs: `clusterSeedEnabled()`, `clusterEnumEnabled()`,
  * `territoryRefineEnabled()`, `sampledCapEnabled()`, `scoutMode()` and
  * `flaggedKnobs()` all read `process.env` directly. The stamp reads the same
@@ -104,6 +105,7 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
  */
 const FLAG_ENVS = [
   CLUSTER_SEED_ENV,
+  MULTISTART_SEED_ENV,
   UNIT_FATALITY_ENV,
   EDGE_EV_ENV,
   CLUSTER_ENUM_ENV,
@@ -158,7 +160,7 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m).not.toBeNull();
     if (m === null) throw new Error('unreachable');
 
-    // The eleven promotable flags plus the two already-promoted ones the
+    // The twelve promotable flags plus the two already-promoted ones the
     // exploration slice needs. Named exhaustively on purpose: a stage that
     // adds a flag and forgets the stamp makes an unauditable arm, and this
     // list is what fails when that happens.
@@ -167,6 +169,7 @@ describe('CL7: the mechanism report is present and complete', () => {
         'clusterEnum',
         'clusterSeed',
         'edgeEv',
+        'multistartSeed',
         'gainOrdering',
         'sampledCap',
         'scout',

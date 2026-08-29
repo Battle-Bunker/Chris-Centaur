@@ -76,6 +76,14 @@ import {
 import type { CandidateKnobs } from "../candidates";
 import { EngineSubstrate } from "../substrate";
 import { SeedWorkspace, clusterSeedEnabled, greedySeed } from "./cluster-seed";
+import {
+  DEFAULT_MULTISTART,
+  crowdedUnits,
+  multiStartSeed,
+  multistartSeedEnabled,
+  type MultiStartReport,
+  type MultiStartTuning,
+} from "./multistart-seed";
 import { clusterEnumEnabled, partitionOf, type Partition } from "./cluster-partition";
 import { setRefineScope, territoryRefineEnabled } from "../evaluate/refine";
 import {
@@ -161,6 +169,33 @@ export interface SearchTuning {
    * DEFAULT OFF pending its empirical gate. See `./cluster-seed.ts`.
    */
   readonly clusterSeed: boolean | undefined;
+  /**
+   * THE MULTI-START SEED — a random safe baseline, then sampled multi-start
+   * hill climbing, then a weighted-random selection among what was found.
+   *
+   * This is the owner's redesign of search seeding, and it REPLACES the
+   * rejected `clusterSeed` rather than composing with it: where both resolve
+   * on, the multi-start runs and the greedy pairwise seed does not, because two
+   * seeds cannot both be the plan the ascent starts from.
+   *
+   * Stage 0 is a LITERALLY RANDOM selection of maximally safe moves — a uniform
+   * draw over each unit's fatality-safe options, with the risky cells
+   * coordinated so at most one unit takes each. Stage 1 samples hundreds to
+   * thousands of random joint combos per cluster inside a configurable slice of
+   * the decision budget (a tenth of it by default), hill-climbs a few
+   * coordinate-ascent steps from each, and picks among what it found by
+   * softmax. Nothing is pruned, no bound moves, and `better()` still
+   * adjudicates on the proved floor.
+   *
+   * Undefined follows `CENTAUR_MULTISTART_SEED`; named by a caller it is that
+   * caller's answer, so one seat can carry it while the seat across the board
+   * does not. DEFAULT OFF: no options are classified, no draw is taken, no
+   * clock is read, and the seed is byte-for-byte the one that shipped.
+   */
+  readonly multistartSeed: boolean | undefined;
+  /** Budget share, sample sizing, climb depth and temperature. Only read when
+   * `multistartSeed` resolves on. See `./multistart-seed.ts`. */
+  readonly multistartTuning: Partial<MultiStartTuning>;
   /**
    * CLUSTER-FACTORED EXACT ENUMERATION — the owner's core intervention.
    *
@@ -351,6 +386,8 @@ export const DEFAULT_TUNING: SearchTuning = {
   rungZeroRepair: undefined,
   seedDeconflict: undefined,
   clusterSeed: undefined,
+  multistartSeed: undefined,
+  multistartTuning: {},
   clusterEnum: undefined,
   clusterTuning: {},
   territoryRefine: undefined,
@@ -406,6 +443,20 @@ interface Session {
    * workspace is an allocation nobody asked for.
    */
   readonly seedWorkspace: SeedWorkspace | null;
+  /**
+   * The multi-start seed's per-session state, or null when the flag is off.
+   *
+   * PER SESSION and never per slice, for the two reasons every other seeded
+   * layer here is: the decision seed must be stable across the slices of one
+   * decision or two slices replay each other's draws, and the partition is a
+   * function of per-decision facts (influence footprints over frozen option
+   * sets) that no slice changes.
+   */
+  readonly multistart: {
+    readonly seed: number;
+    readonly partition: Partition;
+    readonly tuning: MultiStartTuning;
+  } | null;
   /**
    * CL4's lottery, or null when the flag is off.
    *
@@ -619,6 +670,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   let lastCluster: ClusterReport | null = null;
   let lastSelection: SelectionReport | null = null;
   let lastScout: ScoutReport | null = null;
+  let lastMultiStart: MultiStartReport | null = null;
 
   const release = (): void => {
     lastCluster = clusterReport();
@@ -651,6 +703,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const match = matchPin(sets.get(pin.unitId) as CandidateSet, pin.to);
       if (match !== null) pins.set(pin.unitId, match);
     }
+    // ONE DECISION INDEX PER SESSION, shared by every seeded layer.
+    //
+    // Both consumers below mix it into their own decision seed, and if each
+    // took its own the LOTTERY's stream would shift whenever the MULTI-START
+    // flag moved — which would make a paired experiment on one flag a paired
+    // experiment on both. One index, handed to both, keeps each layer's stream
+    // a function of its own seed and the board and nothing else.
+    const decisionIndex = decisions++;
     const session: Session = {
       sub: ctx.sub,
       bank,
@@ -664,7 +724,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // Allocated only for a session that will use it, and then kept for the
       // session's whole life: the buffers are what make a rebuild O(1).
       seedWorkspace: clusterSeeding() ? new SeedWorkspace() : null,
-      sampler: openSampler(ctx, ours, sets),
+      multistart: openMultiStart(ctx, ours, sets, pins, references, decisionIndex),
+      sampler: openSampler(ctx, ours, sets, decisionIndex),
       ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
       cluster: null,
       scout: scouting() === "off" ? null : new Scout(scouting(), cfg.scoutTuning),
@@ -696,9 +757,29 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     ctx: SearchContext,
     ours: ReadonlyArray<UnitId>,
     sets: ReadonlyMap<UnitId, CandidateSet>,
+    decisionIndex: number,
   ): SelectionSampler | null => {
     if (!sampling()) return null;
     const tuning: SamplingTuning = { ...DEFAULT_SAMPLING, ...cfg.samplingTuning };
+    return new SelectionSampler(
+      decisionSeed(tuning.matchSeed, boardFingerprint(ctx, ours, sets), decisionIndex),
+      tuning,
+    );
+  };
+
+  /**
+   * A hash over the roster's frozen facts — the PUBLIC half of a decision seed.
+   *
+   * Built from quantities already computed and already in hand: the team, the
+   * roster order, each unit's origin cell, and how many legal actions the
+   * engine counted for it. It costs one pass over the roster, no substrate
+   * query, and it changes every turn because `from` does.
+   */
+  const boardFingerprint = (
+    ctx: SearchContext,
+    ours: ReadonlyArray<UnitId>,
+    sets: ReadonlyMap<UnitId, CandidateSet>,
+  ): number => {
     let fingerprint = mix(0x10b57e12, ctx.asTeam | 0);
     for (const unitId of ours) {
       const set = sets.get(unitId);
@@ -706,10 +787,47 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       fingerprint = mix(fingerprint, set?.candidates[0]?.from ?? -1);
       fingerprint = mix(fingerprint, set?.legalCount ?? 0);
     }
-    return new SelectionSampler(
-      decisionSeed(tuning.matchSeed, fingerprint, decisions++),
+    return fingerprint;
+  };
+
+  /**
+   * THE MULTI-START SEED'S SESSION STATE — the decision seed and the partition.
+   *
+   * Null, never a throw and never a silent degradation, when the layer cannot
+   * run: the flag is off, or the substrate is not the engine's (which is what
+   * happens in the bounds harness and under the memo proxies). The seed is then
+   * exactly what it was.
+   *
+   * The partition is taken over the units this decision could vary — pins and
+   * reference actions held out, exactly as `openCluster` holds them out. Which
+   * of the remainder are actually free changes per slice as the incumbent fixes
+   * them, and `groupsOf` in the seed module filters to that; the graph itself
+   * does not move.
+   */
+  const openMultiStart = (
+    ctx: SearchContext,
+    ours: ReadonlyArray<UnitId>,
+    sets: ReadonlyMap<UnitId, CandidateSet>,
+    pins: ReadonlyMap<UnitId, Candidate>,
+    references: ReadonlyMap<UnitId, Candidate>,
+    decisionIndex: number,
+  ): Session["multistart"] => {
+    if (!multistarting() || !(ctx.sub instanceof EngineSubstrate)) return null;
+    const tuning: MultiStartTuning = { ...DEFAULT_MULTISTART, ...cfg.multistartTuning };
+    const fixedIds = new Set<UnitId>([...pins.keys(), ...references.keys()]);
+    const partition = partitionOf({ sub: ctx.sub, roster: ours, fixed: fixedIds });
+    return {
+      seed: decisionSeed(
+        // The MULTI-START's own tag folded in, so the two layers never share a
+        // stream even at the same decision index: `multistartTuning.matchSeed`
+        // and `samplingTuning.matchSeed` are one number by construction.
+        mix(tuning.matchSeed, 0x4d_53_00_01),
+        boardFingerprint(ctx, ours, sets),
+        decisionIndex,
+      ),
+      partition,
       tuning,
-    );
+    };
   };
 
   /**
@@ -929,6 +1047,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const clusterSeeding = (): boolean => cfg.clusterSeed ?? clusterSeedEnabled();
 
+  /** Is the multi-start seed on for THIS core? Same discipline, same reason. */
+  const multistarting = (): boolean => cfg.multistartSeed ?? multistartSeedEnabled();
+
   /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
   const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
 
@@ -1118,7 +1239,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * starts from. Pins are seeded first and their cells are reserved before any
    * free unit picks, so an operator's cell is never the one taken away.
    */
-  const seedPlan = (s: Session, from: JointPlan | null): JointPlan => {
+  const seedPlan = (
+    s: Session,
+    from: JointPlan | null,
+    budget: SearchContext["budget"] | null,
+  ): JointPlan => {
+    // THE MULTI-START COMES FIRST, and where it runs the greedy pairwise seed
+    // does not: two seeds cannot both be the plan the ascent starts from, and
+    // the multi-start is the owner's replacement for the greedy one rather than
+    // a layer on top of it.
+    const sampled = multiStart(s, from, budget);
+    if (sampled !== null) return sampled;
     const clustered = clusterSeed(s, from);
     if (clustered !== null) return clustered;
     const plan = new Map<UnitId, Candidate>();
@@ -1231,6 +1362,80 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       salt: cfg.seed,
     });
     const out = new Map<UnitId, Candidate>(plan);
+    // The declared reference actions ride every plan (see Session.references).
+    for (const [unitId, candidate] of s.references) out.set(unitId, candidate);
+    return out;
+  };
+
+  /**
+   * THE MULTI-START SEED, or `null` for whichever seed would otherwise run.
+   *
+   * The same three things go in as every other seed's: pins first, then
+   * whatever of the incumbent still stands, then the declared reference
+   * actions. What changes is how the REMAINING units choose — a uniform draw
+   * over their fatality-safe options (stage 0), then sampled joint combos per
+   * cluster with a short coordinate ascent from each and a softmax over what
+   * was found (stage 1).
+   *
+   * On a later slice the incumbent has already fixed every free unit, so there
+   * is nothing left to vary, no sample is drawn and no budget is spent. The
+   * seed is load-bearing at rung 0, which is where it runs from a null
+   * incumbent, and that is the case this branch exists for.
+   *
+   * THE BUDGET SLICE. The sampler takes `budgetFraction` of what the handle
+   * says is left and no more, so it can never starve the ascent it is seeding;
+   * with no handle at all (the `conform` fast path's `null`) it takes stage 0
+   * and stops, which is the negligible-compute baseline doing exactly its job.
+   */
+  const multiStart = (
+    s: Session,
+    from: JointPlan | null,
+    budget: SearchContext["budget"] | null,
+  ): JointPlan | null => {
+    const state = s.multistart;
+    if (state === null || !(s.sub instanceof EngineSubstrate)) return null;
+    const fixed = new Map<UnitId, Candidate>();
+    for (const [unitId, candidate] of s.pins) fixed.set(unitId, candidate);
+    for (const unitId of s.ours) {
+      if (fixed.has(unitId)) continue;
+      const existing = from?.get(unitId);
+      const set = s.sets.get(unitId);
+      if (existing === undefined || set === undefined) continue;
+      if (isStillOffered(set, existing)) fixed.set(unitId, existing);
+    }
+    // The clusters, as a partition of the VARIABLES: each component, then one
+    // group holding the sliders. See `MultiStartRequest.clusters` for why the
+    // sliders are one group here rather than a member of every one.
+    const clusters: Array<ReadonlyArray<UnitId>> = state.partition.clusters.map((c) => c.members);
+    if (state.partition.sliders.length > 0) clusters.push(state.partition.sliders);
+    const result = multiStartSeed({
+      sub: s.sub,
+      roster: s.ours,
+      order: dangerOrder(s.ours, null, s.pinned),
+      sets: s.sets,
+      fixed,
+      clusters,
+      tuning: state.tuning,
+      seed: state.seed,
+      cap: cfg.candidateCap,
+      budgetMs:
+        budget === null
+          ? 0
+          : Math.min(
+              budget.remainingMs() * state.tuning.budgetFraction,
+              state.tuning.maxBudgetMs,
+            ),
+      remainingFraction: budget?.decisionFraction?.() ?? 1,
+      now: () => (budget === null ? 0 : budget.now()),
+      // THE PRIORS, in weight units, straight off the rung-1/2 edge-EV pass
+      // where it ran. Absent — the pass is off, or the generator did not price
+      // this set — every option weighs the same and the selection is uniform
+      // over the safety terms alone, which is the honest reading when nothing
+      // cheap has an opinion.
+      priorOf: (unitId, optionIndex) => s.sets.get(unitId)?.edgeEv?.[optionIndex] ?? 0,
+    });
+    lastMultiStart = result.report;
+    const out = new Map<UnitId, Candidate>(result.plan);
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) out.set(unitId, candidate);
     return out;
@@ -1626,7 +1831,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     start: BankResult,
   ): BankResult => {
     let best = start;
-    const units = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
+    const units = polishUnits(s, best);
     if (units.length === 0) return best;
     const lists = units.map((id) =>
       optionsOf(s, id, (s.sets.get(id) as CandidateSet).candidates, NODE_POLISH, cfg.polishPerUnit),
@@ -1646,6 +1851,46 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     };
     walk(0, []);
     return best;
+  };
+
+  /**
+   * WHICH UNITS THE POLISH MOVES TOGETHER — the accident report, and under the
+   * multi-start the room/dispersion gate beside it.
+   *
+   * `contestedUnits` is the shipped gate and is unchanged: it weights units off
+   * `resolution.clashes` and `resolution.ledger`, i.e. it fires when the
+   * resolver says something went wrong. That is exactly the right gate for a
+   * plan with accidents in it, and it is empty on a plan with none — which is
+   * how the rejected seed disarmed the only multi-unit escape the search owns
+   * while the team walked into a corner with nothing going wrong for thirty
+   * turns.
+   *
+   * So when the multi-start is on, the polish ALSO takes the units a
+   * room/dispersion signal names (`crowdedUnits`) — geometry, off the staged
+   * plan, needing no resolution. Union, never replacement: an accident is still
+   * a reason, this adds a second one. With the flag off nothing here is
+   * reached, `polishUnits` is `contestedUnits`, and the search is byte-for-byte
+   * the one that shipped.
+   */
+  const polishUnits = (s: Session, best: BankResult): ReadonlyArray<UnitId> => {
+    const contested = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
+    if (s.multistart === null || !(s.sub instanceof EngineSubstrate)) return contested;
+    if (contested.length >= cfg.polishUnits) return contested;
+    const seen = new Set<UnitId>(contested);
+    const out = [...contested];
+    for (const unitId of crowdedUnits(
+      s.sub,
+      s.ours,
+      best.plan,
+      s.pinned,
+      cfg.polishUnits,
+      s.multistart.tuning.crowdingRadius,
+    )) {
+      if (seen.has(unitId)) continue;
+      out.push(unitId);
+      if (out.length >= cfg.polishUnits) break;
+    }
+    return out;
   };
 
   /** A deterministic perturbation: one unpinned unit onto a different option. */
@@ -1690,7 +1935,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // function of the slice count and not of how much sampling happened
       // inside a slice (arch-s1 correction 7, in its selection-layer form).
       s.sampler?.beginRound(ctx.budget.decisionFraction?.() ?? 1);
-      let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null, ctx.budget));
       // A witness admitted since the last slice makes a fresh B2 branch of
       // every plan priced after it, so every clean mark is stale. Once per
       // call, before anything is skipped.
@@ -1781,7 +2026,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // Taking free answers that are already here is not.
       foldParallel(s);
       if (incumbent.size === 0) {
-        const seed = seedPlan(s, null);
+        const seed = seedPlan(s, null, ctx.budget);
         // One resolution set — and the SEED IS RETURNED WHATEVER IT SAYS.
         //
         // The price warms the bank's witness set and proves the plan resolves,
@@ -1822,7 +2067,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       }
 
       // 1. splice: pins first, then whatever of the incumbent still stands.
-      let plan = seedPlan(s, incumbent);
+      // NO SAMPLING BUDGET ON THE SPLICE PATH, deliberately: `conform` with a
+      // standing incumbent runs while an operator waits and its cost must track
+      // the disturbance, not the roster. A null handle takes the multi-start's
+      // stage-0 baseline for whatever the splice left free and stops there.
+      let plan = seedPlan(s, incumbent, null);
 
       // 2. repair legality — only the units the splice actually disturbed.
       const disturbed = disturbedBy(s, plan, incumbent);
@@ -2070,6 +2319,21 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return last ?? lastScout;
   };
 
+  /**
+   * WHAT THE MULTI-START SEED DID, on the last slice that ran one. Null when
+   * the layer never ran, which is the shipped default and is how a reader tells
+   * "off" from "on and sampled nothing".
+   *
+   * Not summed over sessions like the three above, and the difference is real:
+   * the multi-start is a per-SLICE act, not a per-session one, so the honest
+   * quantity is the last seeding rather than a total over a decision's slices.
+   * It carries the decision seed, which is what makes the selection auditable —
+   * hand the same `matchSeed` back on the same board and the run reproduces.
+   * TELEMETRY: nothing in the decision path reads it and none of it reaches the
+   * wire.
+   */
+  const multistartReport = (): MultiStartReport | null => lastMultiStart;
+
   return {
     improve,
     conform,
@@ -2079,5 +2343,6 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     selectionReport,
     adjudicationReport,
     scoutReport,
+    multistartReport,
   };
 }

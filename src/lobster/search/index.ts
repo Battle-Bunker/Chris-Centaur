@@ -19,6 +19,26 @@ export {
 } from "./cluster-partition";
 export type { Cluster, Expansion, Partition, PartitionRequest } from "./cluster-partition";
 
+// The owner's search-seeding redesign: a random safe baseline, sampled
+// multi-start hill climbing, and a weighted-random selection among what was
+// found. `./multistart-seed.ts` states what it may and may not do.
+export {
+  DEFAULT_MULTISTART,
+  MULTISTART_SEED_ENV,
+  classifyOptions,
+  crowdedUnits,
+  multiStartSeed,
+  multistartSeedEnabled,
+  multistartSeedFrom,
+} from "./multistart-seed";
+export type {
+  MultiStartReport,
+  MultiStartRequest,
+  MultiStartResult,
+  MultiStartTuning,
+  UnitOptions,
+} from "./multistart-seed";
+
 export { DEFAULT_CLUSTER_TUNING, enumerateProposals } from "./cluster-enum";
 export type {
   ClusterProposals,

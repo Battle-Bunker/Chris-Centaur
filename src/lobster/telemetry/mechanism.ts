@@ -62,6 +62,7 @@ import type { RefineReport, WasmEngagement } from '../evaluate';
 import { refineReportOf, wasmEngagementOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
 import type { ScoutMode, ScoutReport } from '../search/scout';
+import type { MultiStartReport } from '../search/multistart-seed';
 import type { EngineSubstrate } from '../substrate';
 import type { ResolvedStagingSafety } from '../staging-safety';
 import type { TierTruth } from '../tier-truth';
@@ -76,8 +77,12 @@ import type { WasmMode } from '../wasm/policy';
  * cannot be audited is a slice nobody can read.
  */
 export interface FlagStamp {
-  /** CL1 — `CENTAUR_CLUSTER_SEED`. */
+  /** CL1 — `CENTAUR_CLUSTER_SEED`. REJECTED on measurement; carried so an arm
+   * that still sets it is legible. */
   readonly clusterSeed: boolean;
+  /** The seeding redesign — `CENTAUR_MULTISTART_SEED`. Supersedes
+   * `clusterSeed`: where both resolve on, the multi-start is the seed. */
+  readonly multistartSeed: boolean;
   /** CL1 — `CENTAUR_UNIT_FATALITY`. */
   readonly unitFatality: boolean;
   /** CL2 — `CENTAUR_EDGE_EV`. */
@@ -119,6 +124,9 @@ export interface MechanismReport {
   readonly selection: SelectionReport | null;
   /** CL6's thread accounting; null unless the scout ran. */
   readonly scout: ScoutReport | null;
+  /** The multi-start seed's stage-0/stage-1 accounting for the last slice that
+   * ran one; null unless the layer ran. */
+  readonly multistart: MultiStartReport | null;
   /** Which slot of `better()` decided, over the decision. Always present when
    * the core publishes it — L17's instrument is not flag-gated. */
   readonly adjudication: AdjudicationReport | null;
@@ -136,8 +144,9 @@ export interface MechanismInputs {
   readonly knobs: Required<CandidateKnobs>;
   /** The staging-safety level RESOLVED against this board. */
   readonly stagingSafety: ResolvedStagingSafety;
-  /** The core's own answers for the five search-side flags. */
+  /** The core's own answers for the six search-side flags. */
   readonly clusterSeed: boolean;
+  readonly multistartSeed: boolean;
   readonly clusterEnum: boolean;
   readonly territoryRefine: boolean;
   readonly sampledCap: boolean;
@@ -157,6 +166,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
   return {
     flags: {
       clusterSeed: inputs.clusterSeed,
+      multistartSeed: inputs.multistartSeed,
       unitFatality: knobs.unitFatality,
       edgeEv: knobs.edgeEv,
       clusterEnum: inputs.clusterEnum,
@@ -172,6 +182,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
     cluster: search.clusterReport?.() ?? null,
     selection: search.selectionReport?.() ?? null,
     scout: search.scoutReport?.() ?? null,
+    multistart: search.multistartReport?.() ?? null,
     adjudication: search.adjudicationReport?.() ?? null,
     refine: refineReportOf(sub),
     wasm: wasmEngagementOf(sub),

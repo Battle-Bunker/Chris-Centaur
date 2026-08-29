@@ -659,7 +659,7 @@ function generate(
     occupancy,
     economy
   );
-  const set: CandidateSet = {
+  const base: CandidateSet = {
     unitId,
     candidates: kept.map((k) => k.candidate),
     prunedLedger: pruned,
@@ -668,7 +668,16 @@ function generate(
   // Absent, not `undefined`-valued: a set built with the classifier off must
   // be indistinguishable from the one the shipped build produced, and an own
   // property holding `undefined` is not.
-  return marks === undefined ? set : { ...set, marks };
+  const set = marks === undefined ? base : { ...base, marks };
+  // THE PRIORS, PUBLISHED, and only where the pass actually ran.
+  //
+  // `economy === null` is the edge-EV pass switched off, and then every
+  // `edgeEv` on the assessment is the structural zero `priceEdges` left there
+  // rather than a measurement — publishing that would be a selection layer
+  // downstream reading zeros as if a heuristic had said something. Same
+  // discipline as `marks`: absent, not present-and-empty.
+  if (economy === null) return set;
+  return { ...set, edgeEv: kept.map((k) => k.edgeEv) };
 }
 
 function generateAssessed(
