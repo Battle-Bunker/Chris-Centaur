@@ -390,3 +390,15 @@ slider, so an ON arm measured there contains **no cell in which the shipped
 territory objective runs at all**. That corpus is a replay gate, not a sweep
 corpus. Your cells are unaffected; this is stated so nobody substitutes one for
 the other.
+
+---
+
+## Addendum, 2026-08-29 — P11's spec is corrected: repull `specs/batch2/` before batch 2
+
+**One line, and it changes what you run:** every P11 contender now carries
+`CENTAUR_CLUSTER_ENUM=on`, base included (`enum-on` / `enum-on+scout-observe` /
+`enum-on+scout-advise`, where the spec said `off` / `scout-observe` /
+`scout-advise`) — `CENTAUR_SCOUT` alone is a silent no-op because `scout.run`'s
+only call site sits inside the cluster enumeration, so the old triple was three
+identical builds; nothing else in the batch moved (still 12 specs / 2,760
+games), and the ledger's `home.mirroredFrom.state` carries the full delta.
