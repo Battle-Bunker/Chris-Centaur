@@ -147,6 +147,18 @@
           "kind": "standing-directive",
           "quote": "design a dedicated memory system within repos for you to track across sessions which terminology each human principal involved in a project is so far familiar with",
           "lesson": "This file is that system. It lives in the repo so every session -- cloud coordinator, local sim worker, post-compaction resume -- reads the same state."
+        },
+        {
+          "date": "2026-08-29",
+          "kind": "correction-event",
+          "quote": "holy shit! I did not say this and this is exactly the mistake I was trying to correct.",
+          "lesson": "Never attribute a claim to the owner they did not make, and never relay an agent's finding as agreement with the owner without checking it against the owner's actual words. The audit's winner-take-all reading was presented as 'exactly as you said' when the owner had said the opposite (continuous share metric)."
+        },
+        {
+          "date": "2026-08-29",
+          "kind": "correction-event",
+          "quote": "Potions are decisively powerful many times a game when humans are involved... we shouldn't prematurely discount the value of heuristics that we know advantages a Centaur team just because pure bots aren't smart enough to take advantage of those positional values",
+          "lesson": "Measured frequency/impact of a mechanism under our own dumb bots is endogenous, not a game fact. Centaur-valuable heuristics are not gated on pure-bot payoff."
         }
       ],
       "terms": [
@@ -177,6 +189,19 @@
               "to": "defined",
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "alpha-beta",
+          "state": "native",
+          "gloss": "alpha-beta pruning.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "take inspiration from [MCTS/alpha-beta]... integrate the principles of MCTS and alpha beta pruning",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
             }
           ]
         },
@@ -1420,6 +1445,12 @@
               "to": "native",
               "quote": "Take inspiration from [MCTS / alpha-beta] and generalise in a principled way",
               "where": "owner ruling, synthesis-pins.md:900"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "applies your deep understanding of the math behind the likes of MCTS",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
             }
           ]
         },
@@ -2436,6 +2467,19 @@
               "to": "internal",
               "quote": null,
               "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "voronoi",
+          "state": "native",
+          "gloss": "space-partition control heuristic family the owner named for positional value.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "develop the positional value heuristics like voronoi and potion control",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
             }
           ]
         },

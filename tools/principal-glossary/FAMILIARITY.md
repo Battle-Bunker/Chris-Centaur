@@ -25,9 +25,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-166 terms tracked: **4** corrected, **52** internal, **44** defined, **66** native.
+168 terms tracked: **4** corrected, **52** internal, **44** defined, **68** native.
 
-> **Evidence quality.** 47 of the 66 `native` terms rest on an
+> **Evidence quality.** 47 of the 68 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
 > transcript that was not quoted line by line. They are the weakest rows here.
 > Upgrade each one with the principal's own words the next time they use it.
@@ -42,6 +42,10 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br>→ The founding mandate for this ledger. Familiarity is not to be assumed; it is to be tracked, with evidence, and deduced by elimination.
 - **2026-08-28** (standing-directive) — "design a dedicated memory system within repos for you to track across sessions which terminology each human principal involved in a project is so far familiar with"
   <br>→ This file is that system. It lives in the repo so every session -- cloud coordinator, local sim worker, post-compaction resume -- reads the same state.
+- **2026-08-29** (correction-event) — "holy shit! I did not say this and this is exactly the mistake I was trying to correct."
+  <br>→ Never attribute a claim to the owner they did not make, and never relay an agent's finding as agreement with the owner without checking it against the owner's actual words. The audit's winner-take-all reading was presented as 'exactly as you said' when the owner had said the opposite (continuous share metric).
+- **2026-08-29** (correction-event) — "Potions are decisively powerful many times a game when humans are involved... we shouldn't prematurely discount the value of heuristics that we know advantages a Centaur team just because pure bots aren't smart enough to take advantage of those positional values"
+  <br>→ Measured frequency/impact of a mechanism under our own dumb bots is endogenous, not a game fact. Centaur-valuable heuristics are not gated on pure-bot payoff.
 
 ### CORRECTED — they told us they did not know it. NEVER use undefined. (4)
 
@@ -272,10 +276,13 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **W1-W3** *(also: W1, W2, W3)* — the perf-ladder stage codenames: W1 worker pool, W2 data layout, W3 WASM.
   <br><sub>2026-08-27 · owner briefing 2026-08-27 (directive 0d) and 2026-08-28</sub>
 
-### NATIVE — they used it correctly themselves (66)
+### NATIVE — they used it correctly themselves (68)
 
 > Safe to use unqualified. Strongest evidence there is.
 
+- **alpha-beta** — alpha-beta pruning.
+  <br><sub>2026-08-29 · owner message 2026-08-29 (architecture/metric corrections)</sub>
+  <br><sub>evidence (quoted): "take inspiration from [MCTS/alpha-beta]... integrate the principles of MCTS and alpha beta pruning"</sub>
 - **alpha-beta pruning** — the classic bound-based branch cutoff; owner named it alongside MCTS.
   <br><sub>2026-08-27 · owner ruling, synthesis-pins.md:900</sub>
   <br><sub>evidence (quoted): "Take inspiration from [MCTS / alpha-beta]"</sub>
@@ -370,8 +377,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner messages, cloud coordinator session 2026-08-26..28</sub>
   <br><sub>evidence (ATTESTED, no verbatim fragment): owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it.</sub>
 - **MCTS** — Monte Carlo Tree Search; the owner named it as the inspiration to generalise from.
-  <br><sub>2026-08-27 · owner ruling, synthesis-pins.md:900</sub>
-  <br><sub>evidence (quoted): "Take inspiration from [MCTS / alpha-beta] and generalise in a principled way"</sub>
+  <br><sub>2026-08-29 · owner message 2026-08-29 (architecture/metric corrections)</sub>
+  <br><sub>evidence (quoted): "applies your deep understanding of the math behind the likes of MCTS"</sub>
+  <br><sub>history: 2026-08-27 → native; 2026-08-29 → native</sub>
 - **meta heuristic** — the higher-level rule that decides which heuristics to run/trust for a given board.
   <br><sub>2026-08-28 · owner messages, cloud coordinator session 2026-08-26..28</sub>
   <br><sub>evidence (ATTESTED, no verbatim fragment): owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it.</sub>
@@ -460,6 +468,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **unit** — one controllable entity on a board (snake or piece).
   <br><sub>2026-08-26 · owner messages, cloud coordinator session 2026-08-26..28</sub>
   <br><sub>evidence (ATTESTED, no verbatim fragment): owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it.</sub>
+- **voronoi** — space-partition control heuristic family the owner named for positional value.
+  <br><sub>2026-08-29 · owner message 2026-08-29 (architecture/metric corrections)</sub>
+  <br><sub>evidence (quoted): "develop the positional value heuristics like voronoi and potion control"</sub>
 - **WASM** — WebAssembly builds of the hot kernels.
   <br><sub>2026-08-27 · owner directive 0d, synthesis-pins.md:47</sub>
   <br><sub>evidence (quoted): "worker threads + WASM + data-layout improvements"</sub>
