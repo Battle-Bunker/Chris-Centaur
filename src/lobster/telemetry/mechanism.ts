@@ -6,18 +6,13 @@
  * Every stage of this program shipped its flag OFF and named an empirical
  * promotion gate that some later live sweep would have to run. Each stage also
  * built the counters its own gate needs — `ClusterReport`, `SelectionReport`,
- * `ScoutReport`, `RefineReport`, `AdjudicationReport`, the territory
- * workspace's `wasmRuns`/`wasmRefused`. What none of them did was give the
- * SWEEP a way to read them: `TeamTurnResult` carried a `KernelReport` and
- * nothing else, and the kernel report does not fold any of them in. So the
- * live harness — the one authority a promotion has — could see wall time,
- * emissions, refusals and bounds, and could not see whether the treatment arm
- * had engaged at all.
+ * `ScoutReport`, `RefineReport`, `AdjudicationReport`. What none of them did
+ * was give the SWEEP a way to read them: `TeamTurnResult` carried a
+ * `KernelReport` and nothing else, and the kernel report does not fold any of
+ * them in. So the live harness — the one authority a promotion has — could see
+ * wall time, emissions, refusals and bounds, and could not see whether the
+ * treatment arm had engaged at all.
  *
- * That was not hypothetical. Batch 20260827's P5 cell (`CENTAUR_WASM`) had to
- * be reported as "placement NULL, and engagement UNVERIFIED", because the wasm
- * arm is refused per partition, silently, whenever an input it needs is not
- * resident — and `wasmRuns` was unreachable from outside `evaluate/territory`.
  * A null from an arm that never ran is a different finding from a null from an
  * arm that ran and did not help, and only these counters tell them apart.
  *
@@ -58,15 +53,14 @@
 
 import type { AdjudicationReport, ClusterReport, SearchCore } from '../contracts';
 import type { CandidateKnobs } from '../candidates';
-import type { RefineReport, WasmEngagement } from '../evaluate';
-import { refineReportOf, wasmEngagementOf } from '../evaluate';
+import type { RefineReport } from '../evaluate';
+import { refineReportOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
 import type { ScoutMode, ScoutReport } from '../search/scout';
 import type { MultiStartReport } from '../search/multistart-seed';
 import type { EngineSubstrate } from '../substrate';
 import type { ResolvedStagingSafety } from '../staging-safety';
 import type { TierTruth } from '../tier-truth';
-import type { WasmMode } from '../wasm/policy';
 
 /**
  * The resolved position of every promotable flag, for THIS decision's engine.
@@ -95,8 +89,6 @@ export interface FlagStamp {
   readonly territoryRefine: boolean;
   /** CL6 — `CENTAUR_SCOUT`. */
   readonly scout: ScoutMode;
-  /** W3 — `CENTAUR_WASM`, as pinned onto this decision's substrate. */
-  readonly wasm: WasmMode;
   /** W1 — `CENTAUR_WORKERS`, as the pool actually resolved it. 0 = no pool. */
   readonly workers: number;
   /** Stage 2.5 — `CENTAUR_TIER_TRUTH`. */
@@ -132,8 +124,6 @@ export interface MechanismReport {
   readonly adjudication: AdjudicationReport | null;
   /** CL5's Door-C refiner telemetry; null unless the refiner ran. */
   readonly refine: RefineReport | null;
-  /** W3's engagement counters; null when no territory workspace was built. */
-  readonly wasm: WasmEngagement | null;
 }
 
 /** What the assembler needs that it cannot derive from the search core. */
@@ -151,7 +141,6 @@ export interface MechanismInputs {
   readonly territoryRefine: boolean;
   readonly sampledCap: boolean;
   readonly scout: ScoutMode;
-  readonly wasm: WasmMode;
   readonly workers: number;
   readonly tierTruth: TierTruth;
 }
@@ -173,7 +162,6 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       sampledCap: inputs.sampledCap,
       territoryRefine: inputs.territoryRefine,
       scout: inputs.scout,
-      wasm: inputs.wasm,
       workers: inputs.workers,
       tierTruth: inputs.tierTruth,
       stagingSafety: inputs.stagingSafety,
@@ -185,6 +173,5 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
     multistart: search.multistartReport?.() ?? null,
     adjudication: search.adjudicationReport?.() ?? null,
     refine: refineReportOf(sub),
-    wasm: wasmEngagementOf(sub),
   };
 }

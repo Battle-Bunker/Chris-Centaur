@@ -60,8 +60,6 @@ import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
-import { pinWasmMode, wasmMode, wasmModeFor } from './wasm/policy';
-import type { WasmMode } from './wasm/policy';
 import { clusterSeedEnabled } from './search/cluster-seed';
 import { multistartSeedEnabled, multistartSeedFrom } from './search/multistart-seed';
 import { clusterEnumEnabled } from './search/cluster-partition';
@@ -343,16 +341,6 @@ export interface TeamDecisionOptions {
   readonly parcelBudgetMs?: number;
   /** Plans in one parcel — a latency cap. Defaults to `DEFAULT_SPECULATION`. */
   readonly maxPlansPerParcel?: number;
-  /**
-   * Whether this ENGINE runs the territory evaluator's hot kernels in
-   * WebAssembly, overriding `CENTAUR_WASM` for this instance only.
-   *
-   * Per-engine for the reason `stagingSafety` is: the experiment that has to be
-   * possible is one SEAT against unchanged opponents. The default is `off` and
-   * the JS path stays the source of truth; see `lobster/wasm/policy.ts` and
-   * `scratchpad/perf-w3-report.md` for the evidence behind that default.
-   */
-  readonly wasm?: WasmMode;
 }
 
 /**
@@ -853,8 +841,8 @@ export class TeamDecisionEngine {
         // READ THE SAME SOURCE THE CONSUMER READS, not `this.env`. The six
         // search-side flags are resolved inside `makeSearchCore` as
         // `cfg.X ?? XEnabled()`, and every `XEnabled()` reads `process.env`
-        // directly — `ports.env` reaches the wire policy, the worker count and
-        // the WASM default, and does not reach these. A stamp that consulted
+        // directly — `ports.env` reaches the wire policy and the worker count,
+        // and does not reach these. A stamp that consulted
         // `this.env` would be accurate about the injection and WRONG about the
         // arm, which is the one thing a stamp may never be. (That the two
         // sources differ at all is a pre-existing inconsistency; it is recorded
@@ -866,7 +854,6 @@ export class TeamDecisionEngine {
         territoryRefine: this.options.territoryRefine ?? territoryRefineEnabled(),
         sampledCap: this.options.sampledCap ?? sampledCapEnabled(),
         scout: this.options.scout ?? scoutMode(),
-        wasm: wasmModeFor(sub),
         workers: this.pool?.size ?? 0,
         tierTruth: TIER_TRUTH,
       });
@@ -1176,11 +1163,6 @@ export class TeamDecisionEngine {
       // referenced units are modelled, so they must not be claims either.
       modeled: [...input.units.map((u) => u.snakeId), ...modelled],
     });
-    // Pinned HERE and not at the call sites: the retry loop builds a second
-    // substrate when a modelling choice cannot be named, and a mode pinned once
-    // at the top would silently not reach it. The evaluator reads this when it
-    // builds the substrate's workspace, which is before anything evaluates.
-    pinWasmMode(sub, this.options.wasm ?? wasmMode());
     return sub;
   }
 

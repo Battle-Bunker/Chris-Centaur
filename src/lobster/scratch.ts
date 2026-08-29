@@ -179,30 +179,14 @@ export class SlabPool<T extends Uint32Array | Int32Array | Float64Array> {
 }
 
 /**
- * WHERE A BUFFER COMES FROM.
- *
- * `null` means "I could not give you one" — never an error. The one caller that
- * passes a non-default allocator is the territory workspace under
- * `CENTAUR_WASM=on`, where a slab is a view onto a fixed-size WebAssembly linear
- * memory (`lobster/wasm/arena.ts`); when that memory is full the column takes an
- * ordinary heap array instead and the wasm path simply declines to run on it.
- * A degraded allocation therefore costs throughput and nothing else, which is
- * the only reason it is allowed to be silent.
- */
-export type SlabAlloc<T> = (length: number) => T | null;
-
-/**
  * A growable `Int32Array` column, for a per-unit or per-(unit × turn) fact the
  * hot loop reads by index. Capacity doubles; the contents are NOT preserved
  * across a grow, because every consumer writes the whole prefix it reads.
  */
 export class Int32Column {
   private buf: Int32Array;
-  private readonly alloc: SlabAlloc<Int32Array>;
-  constructor(initial = 64, alloc: SlabAlloc<Int32Array> | null = null) {
-    this.alloc = alloc ?? ((n) => new Int32Array(n));
-    const cap = Math.max(1, initial);
-    this.buf = this.alloc(cap) ?? new Int32Array(cap);
+  constructor(initial = 64) {
+    this.buf = new Int32Array(Math.max(1, initial));
   }
 
   /** A buffer of at least `n` slots. The same object when it already fits. */
@@ -210,7 +194,7 @@ export class Int32Column {
     if (this.buf.length < n) {
       let cap = this.buf.length;
       while (cap < n) cap *= 2;
-      this.buf = this.alloc(cap) ?? new Int32Array(cap);
+      this.buf = new Int32Array(cap);
     }
     return this.buf;
   }
@@ -223,18 +207,15 @@ export class Int32Column {
 /** The same, for a per-index byte flag. */
 export class Uint8Column {
   private buf: Uint8Array;
-  private readonly alloc: SlabAlloc<Uint8Array>;
-  constructor(initial = 64, alloc: SlabAlloc<Uint8Array> | null = null) {
-    this.alloc = alloc ?? ((n) => new Uint8Array(n));
-    const cap = Math.max(1, initial);
-    this.buf = this.alloc(cap) ?? new Uint8Array(cap);
+  constructor(initial = 64) {
+    this.buf = new Uint8Array(Math.max(1, initial));
   }
 
   ensure(n: number): Uint8Array {
     if (this.buf.length < n) {
       let cap = this.buf.length;
       while (cap < n) cap *= 2;
-      this.buf = this.alloc(cap) ?? new Uint8Array(cap);
+      this.buf = new Uint8Array(cap);
     }
     return this.buf;
   }

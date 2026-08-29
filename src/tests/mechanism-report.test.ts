@@ -3,8 +3,8 @@
  *
  * `TeamTurnResult.mechanism` is the seam a live promotion sweep reads. Every CL
  * stage built the counters its own gate needs and none of them was reachable
- * from `decideTurn`'s result, which is why batch 20260827's P5 cell had to
- * report `CENTAUR_WASM` as "null placement, engagement UNVERIFIED".
+ * from `decideTurn`'s result, which is why batch 20260827's cells had to be
+ * reported as "null placement, engagement UNVERIFIED".
  *
  * What is asserted here, in the order it matters:
  *
@@ -95,8 +95,8 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
  * THE FLAGS ARE SET ON `process.env`, NOT ON `ports.env`, AND THAT IS THE
  * POINT.
  *
- * `ports.env` reaches the wire's write interval, the worker count and the WASM
- * default. It does NOT reach the six search-side flags or the two candidate
+ * `ports.env` reaches the wire's write interval and the worker count. It does
+ * NOT reach the six search-side flags or the two candidate
  * knobs: `clusterSeedEnabled()`, `clusterEnumEnabled()`,
  * `territoryRefineEnabled()`, `sampledCapEnabled()`, `scoutMode()` and
  * `flaggedKnobs()` all read `process.env` directly. The stamp reads the same
@@ -177,7 +177,6 @@ describe('CL7: the mechanism report is present and complete', () => {
         'territoryRefine',
         'tierTruth',
         'unitFatality',
-        'wasm',
         'workers',
       ].sort()
     );
@@ -190,7 +189,6 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.flags.sampledCap).toBe(false);
     expect(m.flags.territoryRefine).toBe(false);
     expect(m.flags.scout).toBe('off');
-    expect(m.flags.wasm).toBe('off');
     // `gainOrdering` was PROMOTED at integ/round-a and ships on.
     expect(m.flags.gainOrdering).toBe(true);
     // `auto` is board-conditional; this board bears pieces, so it resolves on.
@@ -245,20 +243,6 @@ describe('CL7: the mechanism report is present and complete', () => {
     // L17's instrument is not flag-gated: adjudication is always published.
     expect(m.adjudication).not.toBeNull();
     expect(m.adjudication?.floorDecided).toBeGreaterThanOrEqual(0);
-  }, 20_000);
-
-  test('the WASM arm is legible as ENGAGED or REFUSED, not merely as a flag', async () => {
-    const { result } = await decide({});
-    const m = result.mechanism;
-    if (m === null) throw new Error('no mechanism report');
-    // Off arm: a workspace exists (the territory evaluator ran), the mode is
-    // off, no arena was taken, and neither counter moved. This is the shape
-    // that makes an ON arm's `runs: 0` readable as a refusal.
-    expect(m.wasm).not.toBeNull();
-    expect(m.wasm?.mode).toBe('off');
-    expect(m.wasm?.arena).toBe(false);
-    expect(m.wasm?.runs).toBe(0);
-    expect(m.wasm?.refused).toBe(0);
   }, 20_000);
 
   test('the report moves nothing: the staged set is what it was without it', async () => {

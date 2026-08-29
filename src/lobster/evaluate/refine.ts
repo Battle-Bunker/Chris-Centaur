@@ -169,10 +169,6 @@ export function refineScopeOf(sub: EngineSubstrate): RefineScope | null {
  *
  * Everything else delegates to the base shells, including `heldAtTurn` and
  * `horizonTurn`, so the sweep sees the same time window it always did.
- * `residentFronts()` returns null deliberately: the wasm sweep reads fronts out
- * of the arena where the mask is not, so the refined pass takes the JS kernel.
- * That shows up as `wasmSweepRefused`, and the report says so rather than
- * leaving a counter to be misread.
  */
 class MaskedShells implements UnitShells {
   private masked: Uint32Array[] | null = null;
@@ -197,11 +193,6 @@ class MaskedShells implements UnitShells {
   }
   get fronts(): ReadonlyArray<Board> {
     return this.base.fronts;
-  }
-
-  /** Null: the mask lives on the heap, so the resident sweep must decline. */
-  residentFronts(): Uint32Array | null {
-    return null;
   }
 
   frontAt(turn: number): Board | null {

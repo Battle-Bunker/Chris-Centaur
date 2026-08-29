@@ -72,45 +72,11 @@ export interface UnitShells {
   /** True when this unit can be on `cell` at or before absolute turn `turn`. */
   reachesBy(cell: number, turn: number): boolean;
   /**
-   * `fronts` laid end to end in the resident arena, or null when there is none.
-   * `row i` is `fronts[i]`, so the front at absolute turn `t` starts at word
-   * `(t − heldAtTurn) * words`. Copied on first ask and dropped by `extendTo`.
-   */
-  residentFronts(): Uint32Array | null;
-  /**
    * `earliest[c]`, stamped from the same shells in the same order
    * `CloudTimeline.arrival` stamps them. Built once, on demand: the bitboard
    * sweep never needs it, so a snake-only decision never pays for it.
    */
   earliest(): Int32Array;
-}
-
-/**
- * WHERE A UNIT'S ARRIVAL GRID LIVES.
- *
- * Under `CENTAUR_WASM=on` the territory workspace hands the table one of these,
- * backed by the WebAssembly arena (`lobster/wasm/arena.ts`), and every
- * `earliest()` grid is stamped straight into linear memory. That is the whole
- * residency story of this round in one seam: the grid is stamped ONCE per
- * `Shells` object and read by every later partition on the board without a
- * copy, so the marshalling W2 measured as bigger than the win (~57 KB per
- * partition) is paid ~140 times per decision instead of ~4 000.
- *
- * `grid()` returning null means "no room" and is not an error: the shells take
- * an ordinary heap array, the workspace's residency check fails for that unit,
- * and that partition runs the JS kernel.
- */
-export interface ShellResidency {
-  grid(cells: number): Int32Array | null;
-  /**
-   * Room for `count × words` u32 — one unit's arriving FRONTS, laid end to end.
-   *
-   * The fronts are `Board`s a vendored `CloudTimeline` owns, so the plane-1
-   * sweep cannot read them from wasm where they are. Copying them once per
-   * `Shells` is ~160 words on the profiled board against `nT × turns` front
-   * reads per partition, which is the same trade the arrival grids make.
-   */
-  fronts(count: number, words: number): Uint32Array | null;
 }
 
 /**
@@ -139,22 +105,14 @@ export function earliestShells(
   return earliest;
 }
 
-/**
- * The same stamping, from fronts already collected.
- *
- * `out` is the resident grid when there is one. It is NEVER a buffer a previous
- * stamping of this unit is still handing out — `extendTo` drops the slab along
- * with the cached grid, so a caller holding the pre-extension array keeps the
- * pre-extension values exactly as it did before residency existed.
- */
+/** The same stamping, from fronts already collected. */
 function stampFronts(
   fronts: ReadonlyArray<Board>,
   heldAtTurn: number,
   words: number,
-  cells: number,
-  out: Int32Array | null
+  cells: number
 ): Int32Array {
-  const earliest = out ?? new Int32Array(cells);
+  const earliest = new Int32Array(cells);
   earliest.fill(NEVER);
   for (let i = 0; i < fronts.length; i++) {
     const stamp = heldAtTurn + i;
@@ -172,22 +130,13 @@ class Shells implements UnitShells {
   horizonTurn: number;
   private readonly timeline: CloudTimeline;
   private readonly grid: Grid;
-  private readonly residency: ShellResidency | null;
   private stamped: Int32Array | null = null;
-  private frontsFlat: Uint32Array | null = null;
 
-  constructor(
-    unitId: UnitId,
-    timeline: CloudTimeline,
-    heldAtTurn: number,
-    grid: Grid,
-    residency: ShellResidency | null
-  ) {
+  constructor(unitId: UnitId, timeline: CloudTimeline, heldAtTurn: number, grid: Grid) {
     this.unitId = unitId;
     this.timeline = timeline;
     this.heldAtTurn = heldAtTurn;
     this.grid = grid;
-    this.residency = residency;
     this.horizonTurn = heldAtTurn - 1;
   }
 
@@ -197,26 +146,10 @@ class Shells implements UnitShells {
       const stamp = this.horizonTurn + 1;
       this.fronts.push(this.timeline.at(Math.max(0, stamp - this.heldAtTurn)).headPossible);
       this.horizonTurn = stamp;
-      // Dropping the cached grid means the NEXT `earliest()` asks residency for
-      // a fresh slab rather than overwriting the one it already handed out. A
-      // reused slab would silently retro-fit the extended horizon into an array
-      // a caller took before the extension — which is not what this did before
-      // residency existed, and the difference would be invisible.
+      // Dropping the cached grid means the NEXT `earliest()` re-stamps rather
+      // than handing back a grid built for a shorter horizon.
       this.stamped = null;
-      this.frontsFlat = null;
     }
-  }
-
-  residentFronts(): Uint32Array | null {
-    if (this.residency === null) return null;
-    if (this.frontsFlat === null) {
-      const w = this.grid.words;
-      const flat = this.residency.fronts(this.fronts.length, w);
-      if (flat === null) return null;
-      for (let i = 0; i < this.fronts.length; i++) flat.set(this.fronts[i] as Board, i * w);
-      this.frontsFlat = flat;
-    }
-    return this.frontsFlat;
   }
 
   frontAt(turn: number): Board | null {
@@ -234,13 +167,7 @@ class Shells implements UnitShells {
 
   earliest(): Int32Array {
     if (this.stamped === null) {
-      this.stamped = stampFronts(
-        this.fronts,
-        this.heldAtTurn,
-        this.grid.words,
-        this.grid.cells,
-        this.residency === null ? null : this.residency.grid(this.grid.cells)
-      );
+      this.stamped = stampFronts(this.fronts, this.heldAtTurn, this.grid.words, this.grid.cells);
     }
     return this.stamped;
   }
@@ -269,7 +196,6 @@ function sourceIdOf(src: CloudSource): number {
 
 export class ShellTable {
   private readonly grid: Grid;
-  private readonly residency: ShellResidency | null;
   private readonly map = new Map<string, Shells>();
   /**
    * The identity tier. A held unit's record is one stable object for the whole
@@ -284,10 +210,9 @@ export class ShellTable {
   identityHits = 0;
   evictions = 0;
 
-  constructor(grid: Grid, capacity = 4096, residency: ShellResidency | null = null) {
+  constructor(grid: Grid, capacity = 4096) {
     this.grid = grid;
     this.capacity = Math.max(1, capacity);
-    this.residency = residency;
   }
 
   /** Entries currently retained. A working set larger than this is a warning. */
@@ -321,7 +246,7 @@ export class ShellTable {
     if (entry === undefined) {
       this.misses++;
       const timeline = held ?? (source as CloudSource).timelineFor(record);
-      entry = new Shells(record.unitId, timeline, record.heldAtTurn, this.grid, this.residency);
+      entry = new Shells(record.unitId, timeline, record.heldAtTurn, this.grid);
       this.map.set(key, entry);
       if (this.map.size > this.capacity) {
         const oldest = this.map.keys().next();
