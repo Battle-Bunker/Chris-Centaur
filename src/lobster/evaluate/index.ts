@@ -40,6 +40,7 @@ import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
 import type { Evaluation, Feature, Weights } from './bound';
 import {
+  CLIFF_MATERIAL_WEIGHT,
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
   TERRITORY_SLIDER_PROFILE,
@@ -96,7 +97,7 @@ export {
   mutualWipeReportOf,
   mutualWipeVerdict,
 } from './mutual-wipe';
-export type { MutualWipeReport, MutualWipeVerdict } from './mutual-wipe';
+export type { MutualWipeAward, MutualWipeReport, MutualWipeVerdict } from './mutual-wipe';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
@@ -172,7 +173,11 @@ export class BoundEvaluator implements Evaluator {
         this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
-      return finish(ctx, evaluation);
+      // The material weight is the fold's own denominator, and the terminal
+      // mutual-wipe value has to land on the same scale — so it is the
+      // PROFILE's, not the default, or a recalibrated profile would price its
+      // terminals in the shipped profile's units.
+      return finish(ctx, evaluation, this.weights.material ?? CLIFF_MATERIAL_WEIGHT);
     });
   }
 }
@@ -188,41 +193,50 @@ export class BoundEvaluator implements Evaluator {
  *
  * IS IT A LOSS, THOUGH. Not always, and this file used to say it was. TacticToes
  * settles a game in which every remaining team dies on the same turn from the
- * PREVIOUS COMMITTED TURN's board, so a team ahead on weight that trades its
- * last units for everyone else's WINS. The ordering above prices that win as the
- * lattice bottom and refuses it — and refuses it hardest when we are ahead,
- * which is exactly when the option arises. `CENTAUR_MUTUAL_WIPE_AWARD` is the
- * repair, DARK by default; `./mutual-wipe.ts` carries the rule, the four guards
- * it refuses on, and the R1–R3 argument for the clamp shape below.
+ * PREVIOUS COMMITTED TURN's board, and the metric this program optimizes is the
+ * owner's continuous `sharePar` — share of the end weight times the team count,
+ * par 1 — not a winner flag. So a mutual final wipe BANKS THE PREVIOUS TURN'S
+ * POSITION, and it is worth more the further ahead we were. The ordering above
+ * prices it at the lattice bottom whatever we were holding, and it is most
+ * wrong when we were holding most. `CENTAUR_MUTUAL_WIPE_AWARD` is the repair,
+ * DARK by default; `./mutual-wipe.ts` carries the rule, the value, the four
+ * guards it refuses on, and the R1–R3 argument for the clamp shape below.
  *
- * With the flag off `award` is false and both expressions collapse term for
- * term to the ones that shipped — `X ? ((false && Y) ? WIN : DEAD) : Z` is
- * `X ? DEAD : Z` — and nothing in `./mutual-wipe.ts` is even reached: the
- * environment is read only from inside a world where every team is gone.
+ * `award` is that value — the previous board's subject-frame material fold on
+ * the fold's own scale — and it is `null` whenever the flag is off or a guard
+ * refused, which is what makes both expressions collapse term for term to the
+ * ones that shipped: `X ? ((null !== null && Y) ? V : DEAD) : Z` is
+ * `X ? DEAD : Z`. Nothing in `./mutual-wipe.ts` is even reached off the flag —
+ * the environment is read only from inside a world where every team is gone.
  */
-export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
+export function finish(
+  ctx: EvalContext,
+  evaluation: Evaluation,
+  materialWeight: number = CLIFF_MATERIAL_WEIGHT
+): PlanEvaluation {
   const { worst, best } = terminalVerdicts(ctx);
 
   const wipeWorst = worst.subjectGone && worst.othersGone;
   const wipeBest = best.subjectGone && best.othersGone;
-  const award = (wipeWorst || wipeBest) && mutualWipeAwardFor(ctx.sub, ctx.asTeam);
+  const award =
+    wipeWorst || wipeBest ? mutualWipeAwardFor(ctx.sub, ctx.asTeam, materialWeight) : null;
 
   const lo = worst.subjectGone
-    ? award && worst.othersGone
-      ? WIN
+    ? award !== null && worst.othersGone
+      ? award
       : DEAD
     : worst.othersGone
       ? WIN
       : evaluation.total.lo;
   const hi = best.subjectGone
-    ? award && best.othersGone
-      ? WIN
+    ? award !== null && best.othersGone
+      ? award
       : DEAD
     : best.othersGone
       ? WIN
       : evaluation.total.hi;
 
-  if (award) {
+  if (award !== null) {
     // Endpoints this award actually moved off DEAD. Counted here rather than in
     // the module because only the clamp knows which end it changed.
     const c = mutualWipeCountersFor(ctx.sub);
@@ -234,8 +248,9 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
   // best-world alive set contains our worst-world one), and a clean sweep in
   // the worst world implies one in the best. So the clamps can only ever
   // tighten an interval, never invert it — asserted rather than assumed. The
-  // award preserves that: `lo = WIN` needs `worst.othersGone`, which implies
-  // `best.othersGone`, which forces `hi = WIN` down both of its branches.
+  // award preserves that: `lo = award` needs `worst.othersGone`, which implies
+  // `best.othersGone`, so `hi` is either the same finite `award` or `WIN`, and
+  // the award is finite.
   const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
 
   const basis = ctx.resolution.state.field.assumptions();

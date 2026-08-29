@@ -30,18 +30,30 @@
  *    file used to state it, and that sentence is false of TacticToes. Its
  *    `TeamSnekProcessor.calculatePreviousTurnTeamOutcome` settles a game in
  *    which every remaining team dies on the same turn from the PREVIOUS
- *    COMMITTED TURN's board: the team ahead on weight there wins, and an exact
- *    tie there is a draw in which every tied team is paid as a winner. So a
- *    mutual annihilation is a loss only when we were BEHIND. Ordering our own
- *    elimination first is a conservative approximation of that rule which is
- *    exactly right everywhere except the mutual final wipe — a measured 0.076%
- *    of games — and exactly wrong there, and wrong in the direction that
- *    refuses a win. `CENTAUR_MUTUAL_WIPE_AWARD` (`./mutual-wipe.ts`) is the
- *    repair, DARK by default and never yet measured live; with it off the
- *    clamps are the ones this fact describes, byte for byte.
+ *    COMMITTED TURN's board. And the metric this program optimizes is the
+ *    owner's continuous score — a team's share of the total weight owned at
+ *    game end, times the number of teams, par 1 — not a winner flag. So a
+ *    mutual annihilation is not a loss and not a win: it BANKS THE PREVIOUS
+ *    TURN'S POSITION, and it is worth more the further ahead we were.
+ *
+ *    Ordering our own elimination first is a conservative approximation of that
+ *    rule which is exactly right everywhere except the mutual final wipe — a
+ *    measured 0.076% of games — and there it prices the lattice bottom for a
+ *    world worth whatever share we were holding, most wrongly when that share
+ *    was largest. `CENTAUR_MUTUAL_WIPE_AWARD` (`./mutual-wipe.ts`) is the
+ *    repair, DARK by default and never yet measured live: it prices that one
+ *    branch at the previous board's subject-frame material fold, on this
+ *    table's own scale, and leaves every other terminal a lattice element. With
+ *    the flag off the clamps are the ones this fact describes, byte for byte.
  *
  * 3. DEAD IS A LATTICE BOTTOM, NEVER A SCALAR ON THE HEURISTIC SCALE. A large
  *    finite penalty inverts the cliff the moment another term outgrows it.
+ *    ONE EXCEPTION, and it is the flag in fact 2 rather than a softening of
+ *    this one: a world in which EVERY team is gone is not a death, it is the
+ *    game ending on a scored position, and under the owner's continuous metric
+ *    it is genuinely tradeable against material. Dying while anyone else
+ *    survives stays a lattice bottom and stays untradeable, which is every
+ *    position this fact was protecting.
  *
  * 4. THE VOCABULARY IS CLASS-LEVEL, NOT KIND-LEVEL. Nothing here branches on
  *    "rook" or "knight"; features read properties the rules read — occupancy
@@ -141,8 +153,9 @@ export const SPECIALIST_FACTS: ReadonlyArray<SpecialistFact> = [
       'the ORDERED terminal clamps: our own elimination is checked first, so a trade that ' +
       'ends their team while ours still stands is a win, and a mutual one is a loss — a ' +
       'conservative reading of the rules rather than the rules themselves, since TacticToes ' +
-      'awards a mutual final wipe to whoever led on the previous turn. Under ' +
-      'CENTAUR_MUTUAL_WIPE_AWARD (dark) that case prices as the win it is',
+      'settles a mutual final wipe on the previous turn and the objective is continuous in ' +
+      'the weight margin. Under CENTAUR_MUTUAL_WIPE_AWARD (dark) that case is priced at the ' +
+      'position it banks rather than at the bottom of the lattice',
   },
   {
     id: 'king-weight-margin',
