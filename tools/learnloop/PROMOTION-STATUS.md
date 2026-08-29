@@ -430,6 +430,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — flip
 
 - Per engine: `TeamDecisionOptions.scout`
 - Parses: off | observe | advise
+- Requires: CENTAUR_CLUSTER_ENUM on
 
 **Promotion metrics** (the gate, and whether the build emits it):
 
@@ -453,10 +454,11 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — flip
 
 **Next: P11.** At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?
 
-- Arms: `off` · `scout-observe` · `scout-advise`
+- Arms: `enum-on` · `enum-on+scout-observe` · `enum-on+scout-advise`
 - Cells: headline-mix-king, hazard-mix-king, null-snake6 at 16 blocks
 - Reads out: `scoutThreads`, `scoutPlies`, `postContactPlies`, `scoutRefusals`, `worstWallMs`, `decisions`, `score`
-- Design: observe AND advise as separate arms: observe measures the cost with no behaviour change at all, so observe-vs-off isolates the tithe and advise-vs-observe isolates the advice. One arm carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is.
+- Design: The BASE arm must be enum-on, not off, and EVERY contender carries CENTAUR_CLUSTER_ENUM=on: `scout.run` has exactly one call site and it is inside `openCluster`, below the cluster-enumeration gate, because the threads' seeds are the enumeration's own proposals. CENTAUR_SCOUT alone is a silent no-op, so an off/observe/advise triple with the enumeration off is three IDENTICAL builds and its null is a null about the harness filed against the flag. Measured: enum off -> threads=0 plies=0 findings=0; enum on -> threads=7 plies=21 findings=3, same board. Since CL6a's repair the scout report also carries `gatedBy`, which names the gate when the runner was never reached — read it on every arm before reading anything else. Same shape as P10, and for the same reason. Within that base, observe AND advise as separate contenders: observe measures the cost with no behaviour change at all, so observe-vs-base isolates the tithe and advise-vs-observe isolates the advice. One contender carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is.
+- Requires: CENTAUR_CLUSTER_ENUM=on on every contender, including the base. Verify from the RESOLVED flag stamp on the per-game rows and from ScoutReport.gatedBy, not from the environment.
 
 ### `CENTAUR_WORKERS` — probe only
 

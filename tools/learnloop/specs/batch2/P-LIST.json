@@ -115,9 +115,9 @@
       "scheduled": true,
       "sweepId": "p11-scout",
       "arms": [
-        "off",
-        "scout-observe",
-        "scout-advise"
+        "enum-on",
+        "enum-on+scout-observe",
+        "enum-on+scout-advise"
       ],
       "cells": [
         "headline-mix-king",
