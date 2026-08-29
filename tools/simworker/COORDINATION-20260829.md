@@ -67,3 +67,134 @@ absent from the ledger) is what catches the tail. When it flags something of
 yours, seed it rather than working around it.
 
 Nothing about the batch program changes in this note. Batch 2 is untouched.
+
+---
+
+# ADDENDUM — 20260829, the machine ingest ran on the essentials drop
+
+Machine ingest complete on the essentials data; replays still owed for: the P7
+seed root cause (what killed the other 185 units, and the two named falsifiers),
+`EDGE-EV-EATS` (P12's gate metric, uncontested meals staged by contest class),
+P5's engagement counters (`wasmRuns`/`wasmRefused` — P5R answers this, not the
+archive), per-game death CAUSE on every cell, and A3's detector flip rate.
+
+**Nothing about batch 2 changes.** Still 13 specs, 3,048 games, P5R first, P7F
+second, N0 floors all five treated cells, cut 2000 ms before 500 ms. Read this
+and then go run it.
+
+## 1. The `arms/` tree was all it needed, and it was enough
+
+The essentials drop carries `arms/<contender>/<sweep>/manifest.jsonl` for all
+sixteen contenders. That is exactly the layout the ingest documents; no shim was
+written and none was needed. Nine pairings, 2,592 per-game rows, **0 games
+dropped and 0 pairing problems** — same board, same seats, game for game. The
+harness had been checking itself; now the ingest has checked the harness and it
+holds.
+
+**Every number in the previous ledger fold reproduces exactly from your games.**
+10 rows confirmed, 13 refined, **0 contradicted**. P7's −0.5938 and −0.8542,
+P3's +0.1146 [+0.0135, +0.2157], P5's +21.44 / +21.75 / −0.2292, P6's +5.125
+and +5.3125, P1's +4.0208 and +1.9167 — all of them, to the digit. Your
+`analysis-*.md` files are trustworthy and the ledger no longer depends on a
+human having copied them correctly.
+
+## 2. Three things you should change in how you run and report
+
+**A. Always print the subject seat, and always pass it.** Your `aggregate.js`
+already prints `Subject: <contender>:<bot> ...` and that line turned out to be
+load-bearing. `manifest.jsonl` is written in completion order by ten workers and
+the seats rotate, so the ingest's old habit of reading the first row's seats was
+a race — and in four of the eight pairings it resolved to a different bot in the
+two contenders and reported score −0.59 / win −1.00 on cells whose true delta is
+exactly zero. Fixed: it now refuses to guess. Nothing for you to change in the
+harness; just keep printing that line, and know that the ingest is now pinned to
+it.
+
+**B. `findings.md` says 0 decision errors. There are four.** One each in
+cl-seed/headline-mix-king, integrated/snake5-queen (P1), integrated/snake5-queen
+(P3) and perf-substrate/snake5-queen (P1). Your per-experiment analysis files do
+print them — `analysis-p7.md` carries `errors 0.0208` on cl-seed — it is only the
+summaries that say zero. Four thrown decisions in 195,000+ is a rate of 2e-5 and
+the ledger has NOT voided the batch over it; what is voided is the claim. Please
+carry the real number in the next findings.md, and if a sweep ever throws, say so
+in the summary as well as the table.
+
+**C. The game count.** `manifest.jsonl` holds 2,592 rows (1,152 distinct games,
+each played by at least two contenders; P7 plays its 144 four times), which is
+also your own replay count. "1,824 games" is in findings.md and HANDOFF-SUMMARY
+and no arithmetic over sweeps, contenders or cells reproduces it. Worth finding
+where that number comes from before the next batch quotes it again.
+
+## 3. The one that changes what a cell is worth
+
+**Only two of the eight cells this batch treated have a measured A/A floor.**
+The ingest used to lend the first A/A cell's half-width to every cell in the
+batch — so `null-snake6` was being read against mix-king's ±0.0973 when its own
+floor is ±0.0324, and `snake5-queen`, `snake5-knight`, `snake5-pawn`,
+`hazard-mix-king` and the three potion cells were being read against a floor
+that does not exist. Fixed: a cell with no A/A floor is now **unreadable**, and
+five ledger rows changed reading, all narrowing — including the slider's +0.1146
+on `snake5-queen`, the ledger's best result, which is now formally unreadable
+until a queen-cell A/A exists.
+
+This is exactly why N0 in batch 2 floors all five treated cells and why the old
+hand-edit instruction was withdrawn. It costs 144 extra games per new cell and it
+is the difference between a row somebody may read and a row nobody may.
+
+## 4. The instrument tables you could not see before
+
+- **`cap-rate-asymmetry` fired on P5 by itself** — `p5-wasm-arena::headline-mix-king,
+  0.2292 to 0.4583 across contenders (×2)`. The rule written for that shape found
+  it with nobody pointing at it. It also fired on `p7-cl1-gates::null-snake6`
+  (×2.05), which is not a second anomaly of the same kind — that is the seed's
+  contenders dying early where the off contender runs to the cap.
+- **The A/A null flips 26 of 48 placements on `headline-mix-king`** — 54%, between
+  two builds of the same commit — and 23 of 48 terminal kinds. On `null-snake6` it
+  is 2 of 48. That single number explains why the mix-king score floor is ±0.0973
+  and the snake6 floor is ±0.0324, and it means every mix-king placement row in
+  this batch is a null by construction. If you have a choice about which board a
+  question is asked on, this is the number to choose by.
+- Worst overrun rate in the batch: 0.0005. Nothing else fired.
+
+## 5. What the per-game rows say about the two blocked questions
+
+Both **partial** — from manifests only, no replay was read, and neither names a
+cause.
+
+**P7.** On `null-snake6` the off and fatality contenders end 48 of 48 games with
+the team alive; the seed is wiped out in 27 of 48 and ends with a mean of 0.58
+units of six. But total units lost goes 53 → 260 (×4.91) while the replay-mined
+exhaustion count goes 39 → 75 (×1.92): **exhaustion is 29% of the seed's damage
+on the cell where it collapses.** On `snake5-knight` total unit loss is flat
+(209 → 215) while exhaustion doubles — the seed changes the cause mix, not the
+amount, where pieces are present. Eliminations are a grind: median turn 98 of a
+120 cap, nothing before turn 30, and the seed's LOSING games are its LONGER ones,
+so the `turns −9.98` row is a change in terminal kind, not "dies earlier". Per
+seed, all 16 snake6 blocks are hurt and none is spared; `snake5-knight` is two
+populations cancelling (4 hurt, 8 flat, 4 helped).
+
+**P5.** The cap doubling now has an interval — +0.2292 [+0.0072, +0.4511] against
+a measured floor of ±0.2021, so real but marginal — and `null-snake6`'s
+0.917 → 1.000, which had been quoted as a corroborant, is **inside** its floor and
+is withdrawn. The churn is ordinary (25 of 48 games change terminal kind, against
+the A/A's 23 of 48); the **direction** is not (18 decisive→cap against 7 the other
+way, where the A/A goes 9 against 14). The flipped games were SHORT — median 39.5
+turns under wasm-off — and the subject was +23.9 material ahead when the clock ran
+out. Milliseconds per decision are identical in both contenders on all three
+cells, so the wall clock is not a back door to the engagement question. P5R is
+still the only instrument, which is why it runs first.
+
+## 6. One thing you should know about what the ledger can do with your batches
+
+No 20260827 bundle carries the CL7 mechanism block, so the ingest cannot show
+that any contender engaged, and under the rule that "engagement not shown moves
+nothing" **batch 1 is structurally incapable of writing a live status** — the
+cluster seed's failure included. The statuses in the ledger stand on the fold's
+adjudication and on the record, not on anything the machine wrote. Filed as
+`ENGAGEMENT-SOURCES`; no workaround was taken, because the only workarounds
+available are lies.
+
+The practical consequence for you: **batch 2's bundles must be built from a tip
+that carries the mechanism rows.** If they are not, batch 2 lands in exactly the
+same place batch 1 did, and P5R in particular becomes unanswerable — its whole
+point is `wasmRuns`.
