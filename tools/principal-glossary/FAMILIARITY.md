@@ -25,9 +25,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-163 terms tracked: **4** corrected, **53** internal, **41** defined, **65** native.
+166 terms tracked: **4** corrected, **52** internal, **44** defined, **66** native.
 
-> **Evidence quality.** 47 of the 65 `native` terms rest on an
+> **Evidence quality.** 47 of the 66 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
 > transcript that was not quoted line by line. They are the weakest rows here.
 > Upgrade each one with the principal's own words the next time they use it.
@@ -51,10 +51,10 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-29 · gloss-defect fix: prior gloss ('initial cluster membership a turn starts with') conflated the seed with the cluster partition; verified vs cl1 report and search code</sub>
   <br><sub>evidence (quoted): "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics."</sub>
   <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
-- **lat** — one lat = 10 score units = one lightest-unit material step. Derived, never chosen: unit weights are integers and material carries CLIFF_MATERIAL_WEIGHT=10 (src/lobster/search/edge-ev.ts: LAT=10); a meal's material half is exactly one lat. Name = lattice step.
-  <br><sub>2026-08-29 · gloss-defect fix: the 2026-08-28 gloss ('decision latency') was WRONG against source; verified vs edge-ev.ts LAT=10 and the 'one lat is ten score units' law test</sub>
-  <br><sub>evidence (quoted): "explain the 'Lat' scoring rule (and name choice) in more detail."</sub>
-  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
+- **lat** — one lat = 10 score units = one lightest-unit material step. Derived, never chosen: unit weights are integers and material carries CLIFF_MATERIAL_WEIGHT=10 (src/lobster/search/edge-ev.ts: LAT=10); a meal's material half is exactly one lat. Name = lattice step. DEPRECATED BY OWNER RULING 2026-08-29: owner-facing communication states heuristic outputs as expected impact on team weight; do not use 'lat' in new text.
+  <br><sub>2026-08-29 · owner message 2026-08-29 (ruling: retire the unit)</sub>
+  <br><sub>evidence (quoted): "Total weight equals score. It's unnecessary additional complexity to introduce a new unit which is a factor of ten multiplier on weight called Lat."</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
 - **one-translation rule** — the architectural rule that a position may be translated from enumerable substrate to resolved state once and never back. Owner was explicitly lost by it; a plain-language explanation was owed and given, but the TERM itself stays corrected — say the rule, not the name.
   <br><sub>2026-08-27 · owner message, cloud coordinator session</sub>
   <br><sub>evidence (quoted): "I'm still completely mystified about the term 'one-translation rule'"</sub>
@@ -64,7 +64,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>evidence (quoted): "what does 'trail' mean? this is new terminology"</sub>
   <br><sub>history: 2026-08-27 → internal; 2026-08-28 → corrected</sub>
 
-### INTERNAL — code / agent-report jargon, NEVER briefed (53)
+### INTERNAL — code / agent-report jargon, NEVER briefed (52)
 
 > Define inline at first use — in the sentence that uses it, not in a glossary appendix — and record the definition event in the ledger in the same work cycle. Or say it in native words instead.
 
@@ -154,8 +154,6 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **slab** — a preallocated memory block in the substrate's allocator.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **softmax** — the exponential weighting used to turn priors into sampling probabilities.
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **standingOf** — the function returning per-unit Standing records for an evaluation.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **substrate** — the enumerable board representation the search runs on. ~61 hits.
@@ -175,7 +173,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (41)
+### DEFINED — we defined it for them, on a date, somewhere (44)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -185,6 +183,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **anytime kernel** — the evaluator that can be stopped at any moment and still return its best-so-far answer.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **AssemblyScript** — a small statically-typed language wearing TypeScript syntax that compiles to WASM; NOT TypeScript — no JS object interop, flat typed memory. What the two kernels are written in.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **block** — one (cell, seed) pair, run as three games with the arms rotated across seats.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **bound bank** — the store that holds each candidate's floor/ceiling/est so successive rounds refine rather than recompute.
@@ -225,6 +225,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **formation pinning** — the measured cluster-seed failure state: joint cell-claims compress own-team separation (10.70 to 6.51 cells) and push the team against the board edge (wall distance 3.95 to 2.00, pinned by median turn 5 in 48/48 games), after which wall/body-block/contest deaths follow.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
+- **JIT** — just-in-time compiler: the runtime compiler inside Node's JavaScript engine that compiles hot code to native machine code with type feedback — the reason plain TypeScript-derived code is already fast.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **ladder** — an ordered sequence of increasingly expensive stages, run until the budget runs out.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **lattice** — the grid material scores live on: every finite material score in the corpus is an integer multiple of 10, so material differences come in steps of 10 with nothing in between (E3).
@@ -263,12 +265,14 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing 2026-08-28, issued directly in response to the "trail" correction</sub>
   <br><sub>NOTE: Defined ONLY as the two-word phrase "trail unit". Bare "trail" remains CORRECTED. Because this term was born out of a correction, a reminder clause is owed on every use — the checker raises it as a NOTE.</sub>
   <br><sub>WAS CORRECTED ONCE — a reminder clause is owed on every use.</sub>
+- **V8** — the JavaScript engine inside Node (and Chrome); JIT-compiles the bot's code to native machine code at runtime.
+  <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **vendored engine** — the copy of the game engine kept inside this repo (src/partial-engine/) rather than imported, so sims run in-process.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **W1-W3** *(also: W1, W2, W3)* — the perf-ladder stage codenames: W1 worker pool, W2 data layout, W3 WASM.
   <br><sub>2026-08-27 · owner briefing 2026-08-27 (directive 0d) and 2026-08-28</sub>
 
-### NATIVE — they used it correctly themselves (65)
+### NATIVE — they used it correctly themselves (66)
 
 > Safe to use unqualified. Strongest evidence there is.
 
@@ -437,6 +441,10 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **snake-only game** — a board configuration whose rosters contain only snakes (no chess-style pieces).
   <br><sub>2026-08-28 · owner messages, cloud coordinator session 2026-08-26..28</sub>
   <br><sub>evidence (ATTESTED, no verbatim fragment): owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it.</sub>
+- **softmax** — the exponential weighting used to turn priors into sampling probabilities.
+  <br><sub>2026-08-29 · owner message 2026-08-29</sub>
+  <br><sub>evidence (quoted): "Then softmax select from candidate move combos thus found within the sub turn time budget"</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-29 → native</sub>
 - **staging** — committing a chosen move for a unit this turn (the move staging event).
   <br><sub>2026-08-28 · owner messages, cloud coordinator session 2026-08-26..28</sub>
   <br><sub>evidence (ATTESTED, no verbatim fragment): owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it.</sub>
