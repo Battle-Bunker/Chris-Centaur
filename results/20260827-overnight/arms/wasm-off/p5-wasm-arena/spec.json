@@ -1,0 +1,316 @@
+{
+ "spec": {
+  "_comment": [
+   "P5 — CENTAUR_WASM=on against the shipped `off`, on the perf-substrate build.",
+   "",
+   "Both arms are the perf-substrate bundle; they differ by one environment",
+   "variable. The flag is OFF by default and that default follows a measurement,",
+   "not an expectation: W2 already took partitionOf from 55us to 26us, so the",
+   "naive \"wasm beats JS\" gap this was aimed at is mostly closed.",
+   "",
+   "The wasm arm is REFUSED at runtime, silently and per partition, whenever an",
+   "input it needs is not resident in linear memory. So `on` is never a",
+   "correctness bet — but it does mean an arm can be `on` and do nothing. Check",
+   "the mechanism rows before believing a null here: a null that is really",
+   "\"the arm never engaged\" is a different finding from \"the arm engaged and did",
+   "not help\", and only the mechanism rows tell them apart.",
+   "",
+   "Valid values are `on` and `off` ONLY. There is no `auto`; anything else is",
+   "ignored with a warning and falls back to off — which would silently turn this",
+   "into an A/A null."
+  ],
+  "sweepId": "p5-wasm-arena",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   62201,
+   62202,
+   62203,
+   62204,
+   62205,
+   62206,
+   62207,
+   62208,
+   62209,
+   62210,
+   62211,
+   62212,
+   62213,
+   62214,
+   62215,
+   62216
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p5-wasm-arena",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   62201,
+   62202,
+   62203,
+   62204,
+   62205,
+   62206,
+   62207,
+   62208,
+   62209,
+   62210,
+   62211,
+   62212,
+   62213,
+   62214,
+   62215,
+   62216
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T21:52:02.767Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "59e94deebb18c39d1efa9f8f2250ab518f021693",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   1.58,
+   7.15,
+   14.86
+  ]
+ },
+ "startedAt": "2026-08-28T00:00:36.122Z",
+ "resumedAt": []
+}

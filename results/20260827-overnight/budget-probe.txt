@@ -1,0 +1,12 @@
+# 480 replays under integrated; sampling 60 positions (seed 1)
+#   10/60  flips 1000v2000: 1  A/A@2000: 1  (48s)
+#   20/60  flips 1000v2000: 2  A/A@2000: 1  (96s)
+#   30/60  flips 1000v2000: 2  A/A@2000: 1  (145s)
+#   40/60  flips 1000v2000: 3  A/A@2000: 1  (192s)
+#   50/60  flips 1000v2000: 4  A/A@2000: 1  (240s)
+#   60/60  flips 1000v2000: 5  A/A@2000: 1  (288s)
+
+RESULT positions=60 (skipped 9)
+  flip(1000ms vs 2000ms): 5/60 = 8.3% ± 7.0%
+  flip(2000ms vs 2000ms): 1/60 = 1.7% ± 3.2%  <- same-budget noise floor
+  excess flips attributable to budget: 6.7 percentage points

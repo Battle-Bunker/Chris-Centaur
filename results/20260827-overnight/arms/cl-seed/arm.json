@@ -1,0 +1,27 @@
+{
+ "arm": "cl-seed",
+ "bundle": "/home/chris/lobster/bundles/perf-substrate",
+ "bundleStamp": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:24.058Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "envOverrides": {
+  "CENTAUR_CLUSTER_SEED": "1"
+ },
+ "spec": "p7-cl1-gates",
+ "specPath": "/home/chris/lobster/results-wt/tools/simworker/specs/p7-cl1-gates.json",
+ "specVariantOf": null,
+ "workers": 5,
+ "startedAt": "2026-08-27T19:19:57.033Z",
+ "note": "P7 CL1 promotion gates: each alone, then both, one simultaneous 4-arm launch"
+}

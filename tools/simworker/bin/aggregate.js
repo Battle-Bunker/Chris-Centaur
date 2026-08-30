@@ -379,6 +379,14 @@ for (const sweepId of [...allSweepIds].sort()) {
     continue;
   }
 
+  // A batch may hold several experiments with disjoint arm sets; a sweep the
+  // base arm never ran cannot be read against this base. Skip it loudly —
+  // aggregate that sweep in its own pass with its own --base.
+  if (!present.includes(baseName)) {
+    problems.push(`sweep ${sweepId}: base arm "${baseName}" did not run it — skipped (use its own --base)`);
+    continue;
+  }
+
   const byArm = new Map(present.map((a) => [a, new Map(arms.get(a).sweeps.get(sweepId).map((r) => [r.gameId, r]))]));
 
   // THE sharePar GAP on an OLD BATCH — the one game shape the fallback cannot

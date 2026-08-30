@@ -1,0 +1,27 @@
+{
+ "arm": "cohort-on",
+ "bundle": "/home/chris/lobster/bundles/admission",
+ "bundleStamp": {
+  "ref": "origin/arch/s2",
+  "sha": "724d83f4e992b84b1ca20d7496c0cab02f2a1463",
+  "subject": "S2d: count the classifications, and clear the bias the way the ruling says",
+  "committedAt": "2026-08-27T01:25:36+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:43:27.993Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "envOverrides": {
+  "CENTAUR_COHORT_POLICY": "on"
+ },
+ "spec": "p6-admission",
+ "specPath": "/home/chris/lobster/results-wt/tools/simworker/specs/p6-admission.json",
+ "specVariantOf": null,
+ "workers": 10,
+ "startedAt": "2026-08-27T17:35:34.384Z",
+ "note": "P6 admission governor; arch/s2 724d83f verified on origin 2026-08-27"
+}

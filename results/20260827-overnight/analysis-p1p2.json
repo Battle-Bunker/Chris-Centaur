@@ -1,0 +1,3147 @@
+{
+ "batch": "20260827-overnight",
+ "base": "integrated",
+ "generatedAt": "2026-08-28T01:36:30.922Z",
+ "sweeps": [
+  {
+   "sweepId": "p1-substrate-headline",
+   "subject": "integrated:lobster-territory perf-substrate:lobster-territory",
+   "arms": [
+    "integrated",
+    "perf-substrate"
+   ],
+   "gamesPaired": 144,
+   "gamesDropped": 0,
+   "cells": [
+    {
+     "cell": "headline-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.6979,
+        "lo": 0.6171,
+        "hi": 0.7788,
+        "n": 16,
+        "sd": 0.1518
+       },
+       "win": {
+        "mean": 0.4375,
+        "lo": 0.2966,
+        "hi": 0.5784,
+        "n": 16,
+        "sd": 0.2644
+       },
+       "place": {
+        "mean": 1.6042,
+        "lo": 1.4425,
+        "hi": 1.7659,
+        "n": 16,
+        "sd": 0.3035
+       },
+       "finalMaterial": {
+        "mean": 16.5208,
+        "lo": 11.4705,
+        "hi": 21.5712,
+        "n": 16,
+        "sd": 9.4798
+       },
+       "finalUnits": {
+        "mean": 2.5833,
+        "lo": 1.8986,
+        "hi": 3.268,
+        "n": 16,
+        "sd": 1.2852
+       },
+       "survived": {
+        "mean": 0.625,
+        "lo": 0.4678,
+        "hi": 0.7822,
+        "n": 16,
+        "sd": 0.295
+       },
+       "turns": {
+        "mean": 67.1667,
+        "lo": 54.6633,
+        "hi": 79.67,
+        "n": 16,
+        "sd": 23.4694
+       },
+       "decisive": {
+        "mean": 0.6667,
+        "lo": 0.5217,
+        "hi": 0.8117,
+        "n": 16,
+        "sd": 0.2722
+       },
+       "decisions": {
+        "mean": 66.8333,
+        "lo": 54.0582,
+        "hi": 79.6085,
+        "n": 16,
+        "sd": 23.9796
+       },
+       "worstWallMs": {
+        "mean": 1943.6042,
+        "lo": 1935.5287,
+        "hi": 1951.6796,
+        "n": 16,
+        "sd": 15.158
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0117,
+        "lo": 0.0029,
+        "hi": 0.0204,
+        "n": 16,
+        "sd": 0.0164
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 4755.6875,
+        "lo": 2703.2915,
+        "hi": 6808.0835,
+        "n": 16,
+        "sd": 3852.4562
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "perf-substrate": {
+       "score": {
+        "mean": 0.6875,
+        "lo": 0.5965,
+        "hi": 0.7785,
+        "n": 16,
+        "sd": 0.1708
+       },
+       "win": {
+        "mean": 0.3958,
+        "lo": 0.2216,
+        "hi": 0.5701,
+        "n": 16,
+        "sd": 0.327
+       },
+       "place": {
+        "mean": 1.625,
+        "lo": 1.443,
+        "hi": 1.807,
+        "n": 16,
+        "sd": 0.3416
+       },
+       "finalMaterial": {
+        "mean": 15.5417,
+        "lo": 10.1475,
+        "hi": 20.9358,
+        "n": 16,
+        "sd": 10.1251
+       },
+       "finalUnits": {
+        "mean": 2.5625,
+        "lo": 1.7906,
+        "hi": 3.3344,
+        "n": 16,
+        "sd": 1.449
+       },
+       "survived": {
+        "mean": 0.5625,
+        "lo": 0.4074,
+        "hi": 0.7176,
+        "n": 16,
+        "sd": 0.2911
+       },
+       "turns": {
+        "mean": 64.8958,
+        "lo": 51.3551,
+        "hi": 78.4366,
+        "n": 16,
+        "sd": 25.4167
+       },
+       "decisive": {
+        "mean": 0.7292,
+        "lo": 0.581,
+        "hi": 0.8773,
+        "n": 16,
+        "sd": 0.2781
+       },
+       "decisions": {
+        "mean": 64.6667,
+        "lo": 50.9429,
+        "hi": 78.3904,
+        "n": 16,
+        "sd": 25.7601
+       },
+       "worstWallMs": {
+        "mean": 1951.0833,
+        "lo": 1945.6131,
+        "hi": 1956.5536,
+        "n": 16,
+        "sd": 10.2679
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0019,
+        "lo": -0.0011,
+        "hi": 0.0049,
+        "n": 16,
+        "sd": 0.0056
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 6283.0833,
+        "lo": 3514.3034,
+        "hi": 9051.8632,
+        "n": 16,
+        "sd": 5197.1467
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      }
+     },
+     "deltas": {
+      "perf-substrate": {
+       "score": {
+        "mean": -0.0104,
+        "lo": -0.1294,
+        "hi": 0.1086,
+        "n": 16,
+        "sd": 0.2233,
+        "bootLo": -0.1146,
+        "bootHi": 0.0938,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0417,
+        "lo": -0.2555,
+        "hi": 0.1722,
+        "n": 16,
+        "sd": 0.4014,
+        "bootLo": -0.2292,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0.0208,
+        "lo": -0.2171,
+        "hi": 0.2588,
+        "n": 16,
+        "sd": 0.4467,
+        "bootLo": -0.1875,
+        "bootHi": 0.2292,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": -0.9792,
+        "lo": -8.7609,
+        "hi": 6.8025,
+        "n": 16,
+        "sd": 14.6067,
+        "bootLo": -7.7708,
+        "bootHi": 6.0208,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.0208,
+        "lo": -1.001,
+        "hi": 0.9593,
+        "n": 16,
+        "sd": 1.8398,
+        "bootLo": -0.8958,
+        "bootHi": 0.8542,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": -0.0625,
+        "lo": -0.3155,
+        "hi": 0.1905,
+        "n": 16,
+        "sd": 0.4748,
+        "bootLo": -0.2917,
+        "bootHi": 0.1667,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": -2.2708,
+        "lo": -23.6754,
+        "hi": 19.1337,
+        "n": 16,
+        "sd": 40.1774,
+        "bootLo": -20.8333,
+        "bootHi": 16.9583,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0.0625,
+        "lo": -0.1986,
+        "hi": 0.3236,
+        "n": 16,
+        "sd": 0.4902,
+        "bootLo": -0.1875,
+        "bootHi": 0.2917,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": -2.1667,
+        "lo": -23.8937,
+        "hi": 19.5603,
+        "n": 16,
+        "sd": 40.7827,
+        "bootLo": -21.0208,
+        "bootHi": 17.2917,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 7.4792,
+        "lo": -2.7372,
+        "hi": 17.6956,
+        "n": 16,
+        "sd": 19.1767,
+        "bootLo": -1.2917,
+        "bootHi": 16.6667,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": -0.0098,
+        "lo": -0.0194,
+        "hi": -0.0002,
+        "n": 16,
+        "sd": 0.018,
+        "bootLo": -0.0188,
+        "bootHi": -0.0018,
+        "excludesZero": true
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 1527.3958,
+        "lo": -2558.7278,
+        "hi": 5613.5194,
+        "n": 16,
+        "sd": 7669.8707,
+        "bootLo": -2086.0833,
+        "bootHi": 5130.375,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.333,
+      "perf-substrate": 0.271
+     }
+    },
+    {
+     "cell": "null-snake6",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 40.3958,
+        "lo": 37.0513,
+        "hi": 43.7403,
+        "n": 16,
+        "sd": 6.2778
+       },
+       "finalUnits": {
+        "mean": 4.875,
+        "lo": 4.5089,
+        "hi": 5.2411,
+        "n": 16,
+        "sd": 0.6872
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 119.6042,
+        "lo": 118.7606,
+        "hi": 120.4477,
+        "n": 16,
+        "sd": 1.5833
+       },
+       "decisive": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "decisions": {
+        "mean": 119.6042,
+        "lo": 118.7606,
+        "hi": 120.4477,
+        "n": 16,
+        "sd": 1.5833
+       },
+       "worstWallMs": {
+        "mean": 1962.8125,
+        "lo": 1962.2662,
+        "hi": 1963.3588,
+        "n": 16,
+        "sd": 1.0254
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 128381.125,
+        "lo": 123713.5569,
+        "hi": 133048.6931,
+        "n": 16,
+        "sd": 8761.2728
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 33.0625,
+        "lo": -37.3937,
+        "hi": 103.5187,
+        "n": 16,
+        "sd": 132.25
+       }
+      },
+      "perf-substrate": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 39.4375,
+        "lo": 36.6284,
+        "hi": 42.2466,
+        "n": 16,
+        "sd": 5.2729
+       },
+       "finalUnits": {
+        "mean": 4.8125,
+        "lo": 4.5156,
+        "hi": 5.1094,
+        "n": 16,
+        "sd": 0.5574
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 118.8958,
+        "lo": 117.6643,
+        "hi": 120.1274,
+        "n": 16,
+        "sd": 2.3117
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": 0.0039,
+        "hi": 0.1628,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "decisions": {
+        "mean": 118.8958,
+        "lo": 117.6643,
+        "hi": 120.1274,
+        "n": 16,
+        "sd": 2.3117
+       },
+       "worstWallMs": {
+        "mean": 1964.7292,
+        "lo": 1963.2332,
+        "hi": 1966.2251,
+        "n": 16,
+        "sd": 2.808
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0017,
+        "lo": -0.0001,
+        "hi": 0.0036,
+        "n": 16,
+        "sd": 0.0035
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 131096.9583,
+        "lo": 125509.5909,
+        "hi": 136684.3257,
+        "n": 16,
+        "sd": 10487.7849
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      }
+     },
+     "deltas": {
+      "perf-substrate": {
+       "score": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": -0.9583,
+        "lo": -4.639,
+        "hi": 2.7223,
+        "n": 16,
+        "sd": 6.9088,
+        "bootLo": -4.1458,
+        "bootHi": 2.5,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.0625,
+        "lo": -0.4788,
+        "hi": 0.3538,
+        "n": 16,
+        "sd": 0.7814,
+        "bootLo": -0.4167,
+        "bootHi": 0.3333,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": -0.7083,
+        "lo": -2.2872,
+        "hi": 0.8706,
+        "n": 16,
+        "sd": 2.9637,
+        "bootLo": -2.125,
+        "bootHi": 0.6875,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0.0625,
+        "lo": -0.0341,
+        "hi": 0.1591,
+        "n": 16,
+        "sd": 0.1813,
+        "bootLo": -0.0208,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": -0.7083,
+        "lo": -2.2872,
+        "hi": 0.8706,
+        "n": 16,
+        "sd": 2.9637,
+        "bootLo": -2.125,
+        "bootHi": 0.6875,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 1.9167,
+        "lo": 0.2794,
+        "hi": 3.5539,
+        "n": 16,
+        "sd": 3.0732,
+        "bootLo": 0.5208,
+        "bootHi": 3.4583,
+        "excludesZero": true
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0.0017,
+        "lo": -0.0001,
+        "hi": 0.0036,
+        "n": 16,
+        "sd": 0.0035,
+        "bootLo": 0.0002,
+        "bootHi": 0.0035,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 2715.8333,
+        "lo": -794.4092,
+        "hi": 6226.0758,
+        "n": 16,
+        "sd": 6588.9113,
+        "bootLo": -308.0417,
+        "bootHi": 5895.4583,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -33.0625,
+        "lo": -103.5187,
+        "hi": 37.3937,
+        "n": 16,
+        "sd": 132.25,
+        "bootLo": -99.1875,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.979,
+      "perf-substrate": 0.917
+     }
+    },
+    {
+     "cell": "snake5-queen",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.7188,
+        "lo": 0.6078,
+        "hi": 0.8297,
+        "n": 16,
+        "sd": 0.2083
+       },
+       "win": {
+        "mean": 0.5,
+        "lo": 0.3284,
+        "hi": 0.6716,
+        "n": 16,
+        "sd": 0.322
+       },
+       "place": {
+        "mean": 1.5625,
+        "lo": 1.3405,
+        "hi": 1.7845,
+        "n": 16,
+        "sd": 0.4167
+       },
+       "finalMaterial": {
+        "mean": 29.9792,
+        "lo": 25.2904,
+        "hi": 34.6679,
+        "n": 16,
+        "sd": 8.8011
+       },
+       "finalUnits": {
+        "mean": 1.1667,
+        "lo": 0.9833,
+        "hi": 1.3501,
+        "n": 16,
+        "sd": 0.3443
+       },
+       "survived": {
+        "mean": 0.9167,
+        "lo": 0.8141,
+        "hi": 1.0192,
+        "n": 16,
+        "sd": 0.1925
+       },
+       "turns": {
+        "mean": 118.4583,
+        "lo": 115.9579,
+        "hi": 120.9587,
+        "n": 16,
+        "sd": 4.6934
+       },
+       "decisive": {
+        "mean": 0.0417,
+        "lo": -0.019,
+        "hi": 0.1023,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "decisions": {
+        "mean": 116.375,
+        "lo": 112.2164,
+        "hi": 120.5336,
+        "n": 16,
+        "sd": 7.8059
+       },
+       "worstWallMs": {
+        "mean": 1961.1875,
+        "lo": 1960.1562,
+        "hi": 1962.2188,
+        "n": 16,
+        "sd": 1.9359
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0.0005,
+        "lo": -0.0006,
+        "hi": 0.0016,
+        "n": 16,
+        "sd": 0.0021
+       },
+       "stagedNothingRate": {
+        "mean": 0.0002,
+        "lo": -0.0002,
+        "hi": 0.0005,
+        "n": 16,
+        "sd": 0.0007
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 70422.2917,
+        "lo": 46054.2633,
+        "hi": 94790.32,
+        "n": 16,
+        "sd": 45740.0814
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 19210.7708,
+        "lo": 10393.0635,
+        "hi": 28028.4782,
+        "n": 16,
+        "sd": 16551.3043
+       }
+      },
+      "perf-substrate": {
+       "score": {
+        "mean": 0.7188,
+        "lo": 0.6653,
+        "hi": 0.7722,
+        "n": 16,
+        "sd": 0.1003
+       },
+       "win": {
+        "mean": 0.4375,
+        "lo": 0.3306,
+        "hi": 0.5444,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "place": {
+        "mean": 1.5625,
+        "lo": 1.4556,
+        "hi": 1.6694,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "finalMaterial": {
+        "mean": 32.0417,
+        "lo": 28.909,
+        "hi": 35.1743,
+        "n": 16,
+        "sd": 5.8801
+       },
+       "finalUnits": {
+        "mean": 1.3125,
+        "lo": 1.1754,
+        "hi": 1.4496,
+        "n": 16,
+        "sd": 0.2573
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 118.8125,
+        "lo": 117.0811,
+        "hi": 120.5439,
+        "n": 16,
+        "sd": 3.25
+       },
+       "decisive": {
+        "mean": 0.0417,
+        "lo": -0.019,
+        "hi": 0.1023,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "decisions": {
+        "mean": 118.8125,
+        "lo": 117.0811,
+        "hi": 120.5439,
+        "n": 16,
+        "sd": 3.25
+       },
+       "worstWallMs": {
+        "mean": 1965.2083,
+        "lo": 1961.9173,
+        "hi": 1968.4994,
+        "n": 16,
+        "sd": 6.1775
+       },
+       "overrunRate": {
+        "mean": 0.0003,
+        "lo": -0.0002,
+        "hi": 0.0009,
+        "n": 16,
+        "sd": 0.0009
+       },
+       "unstagedRate": {
+        "mean": 0.0003,
+        "lo": -0.0004,
+        "hi": 0.0011,
+        "n": 16,
+        "sd": 0.0014
+       },
+       "stagedNothingRate": {
+        "mean": 0.0002,
+        "lo": -0.0002,
+        "hi": 0.0005,
+        "n": 16,
+        "sd": 0.0007
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0025,
+        "lo": -0.0011,
+        "hi": 0.006,
+        "n": 16,
+        "sd": 0.0066
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 92150.5833,
+        "lo": 72941.9989,
+        "hi": 111359.1678,
+        "n": 16,
+        "sd": 36055.5316
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 33257.5417,
+        "lo": 10199.9324,
+        "hi": 56315.1509,
+        "n": 16,
+        "sd": 43280.3553
+       }
+      }
+     },
+     "deltas": {
+      "perf-substrate": {
+       "score": {
+        "mean": 0,
+        "lo": -0.1123,
+        "hi": 0.1123,
+        "n": 16,
+        "sd": 0.2108,
+        "bootLo": -0.0938,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0625,
+        "lo": -0.2367,
+        "hi": 0.1117,
+        "n": 16,
+        "sd": 0.327,
+        "bootLo": -0.2083,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": -0.2246,
+        "hi": 0.2246,
+        "n": 16,
+        "sd": 0.4216,
+        "bootLo": -0.2083,
+        "bootHi": 0.1875,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 2.0625,
+        "lo": -3.5345,
+        "hi": 7.6595,
+        "n": 16,
+        "sd": 10.5059,
+        "bootLo": -2.625,
+        "bootHi": 7.2292,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.1458,
+        "lo": -0.0589,
+        "hi": 0.3506,
+        "n": 16,
+        "sd": 0.3843,
+        "bootLo": -0.0417,
+        "bootHi": 0.3333,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.0833,
+        "lo": -0.0192,
+        "hi": 0.1859,
+        "n": 16,
+        "sd": 0.1925,
+        "bootLo": 0,
+        "bootHi": 0.1875,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 0.3542,
+        "lo": -2.8643,
+        "hi": 3.5726,
+        "n": 16,
+        "sd": 6.0412,
+        "bootLo": -2.375,
+        "bootHi": 3.5,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0,
+        "lo": -0.0917,
+        "hi": 0.0917,
+        "n": 16,
+        "sd": 0.1721,
+        "bootLo": -0.0833,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 2.4375,
+        "lo": -2.3477,
+        "hi": 7.2227,
+        "n": 16,
+        "sd": 8.9821,
+        "bootLo": -1.6042,
+        "bootHi": 7.1042,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 4.0208,
+        "lo": 0.3318,
+        "hi": 7.7098,
+        "n": 16,
+        "sd": 6.9244,
+        "bootLo": 1.0417,
+        "bootHi": 7.625,
+        "excludesZero": true
+       },
+       "overrunRate": {
+        "mean": 0.0003,
+        "lo": -0.0002,
+        "hi": 0.0009,
+        "n": 16,
+        "sd": 0.0009,
+        "bootLo": 0,
+        "bootHi": 0.0009,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": -0.0002,
+        "lo": -0.0015,
+        "hi": 0.0012,
+        "n": 16,
+        "sd": 0.0026,
+        "bootLo": -0.0016,
+        "bootHi": 0.001,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": -0.0005,
+        "hi": 0.0005,
+        "n": 16,
+        "sd": 0.001,
+        "bootLo": -0.0005,
+        "bootHi": 0.0005,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0.0025,
+        "lo": -0.0011,
+        "hi": 0.006,
+        "n": 16,
+        "sd": 0.0066,
+        "bootLo": 0,
+        "bootHi": 0.0061,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": -0.0648,
+        "hi": 0.0648,
+        "n": 16,
+        "sd": 0.1217,
+        "bootLo": -0.0625,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 21728.2917,
+        "lo": 929.6483,
+        "hi": 42526.935,
+        "n": 16,
+        "sd": 39040.1565,
+        "bootLo": 2854.25,
+        "bootHi": 39672.5625,
+        "excludesZero": true
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 14046.7708,
+        "lo": -12368.1767,
+        "hi": 40461.7184,
+        "n": 16,
+        "sd": 49582.2572,
+        "bootLo": -8332.7917,
+        "bootHi": 39251.5833,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.958,
+      "perf-substrate": 0.958
+     }
+    }
+   ]
+  },
+  {
+   "sweepId": "p2-legacy-rebaseline",
+   "subject": "integrated:lobster-territory legacy:lobster-territory",
+   "arms": [
+    "integrated",
+    "legacy"
+   ],
+   "gamesPaired": 144,
+   "gamesDropped": 0,
+   "cells": [
+    {
+     "cell": "headline-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.8021,
+        "lo": 0.728,
+        "hi": 0.8762,
+        "n": 16,
+        "sd": 0.139
+       },
+       "win": {
+        "mean": 0.6042,
+        "lo": 0.456,
+        "hi": 0.7523,
+        "n": 16,
+        "sd": 0.2781
+       },
+       "place": {
+        "mean": 1.3958,
+        "lo": 1.2477,
+        "hi": 1.544,
+        "n": 16,
+        "sd": 0.2781
+       },
+       "finalMaterial": {
+        "mean": 22.9583,
+        "lo": 17.869,
+        "hi": 28.0476,
+        "n": 16,
+        "sd": 9.5529
+       },
+       "finalUnits": {
+        "mean": 3.1458,
+        "lo": 2.4943,
+        "hi": 3.7974,
+        "n": 16,
+        "sd": 1.223
+       },
+       "survived": {
+        "mean": 0.75,
+        "lo": 0.6124,
+        "hi": 0.8876,
+        "n": 16,
+        "sd": 0.2582
+       },
+       "turns": {
+        "mean": 77.0833,
+        "lo": 63.8035,
+        "hi": 90.3632,
+        "n": 16,
+        "sd": 24.927
+       },
+       "decisive": {
+        "mean": 0.6875,
+        "lo": 0.5359,
+        "hi": 0.8391,
+        "n": 16,
+        "sd": 0.2846
+       },
+       "decisions": {
+        "mean": 77.0833,
+        "lo": 63.8035,
+        "hi": 90.3632,
+        "n": 16,
+        "sd": 24.927
+       },
+       "worstWallMs": {
+        "mean": 1949.5833,
+        "lo": 1945.4462,
+        "hi": 1953.7204,
+        "n": 16,
+        "sd": 7.7655
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0083,
+        "lo": 0.0022,
+        "hi": 0.0145,
+        "n": 16,
+        "sd": 0.0115
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 4979.5833,
+        "lo": 2834.9584,
+        "hi": 7124.2083,
+        "n": 16,
+        "sd": 4025.5748
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 202.7917,
+        "lo": -223.5207,
+        "hi": 629.104,
+        "n": 16,
+        "sd": 800.2109
+       }
+      },
+      "legacy": {
+       "score": {
+        "mean": 0.7396,
+        "lo": 0.6604,
+        "hi": 0.8188,
+        "n": 16,
+        "sd": 0.1487
+       },
+       "win": {
+        "mean": 0.5208,
+        "lo": 0.3624,
+        "hi": 0.6793,
+        "n": 16,
+        "sd": 0.2974
+       },
+       "place": {
+        "mean": 1.5208,
+        "lo": 1.3624,
+        "hi": 1.6793,
+        "n": 16,
+        "sd": 0.2974
+       },
+       "finalMaterial": {
+        "mean": 23.2083,
+        "lo": 17.4775,
+        "hi": 28.9392,
+        "n": 16,
+        "sd": 10.7572
+       },
+       "finalUnits": {
+        "mean": 2.8958,
+        "lo": 2.1863,
+        "hi": 3.6053,
+        "n": 16,
+        "sd": 1.3318
+       },
+       "survived": {
+        "mean": 0.6875,
+        "lo": 0.5359,
+        "hi": 0.8391,
+        "n": 16,
+        "sd": 0.2846
+       },
+       "turns": {
+        "mean": 78.2292,
+        "lo": 65.1873,
+        "hi": 91.271,
+        "n": 16,
+        "sd": 24.4803
+       },
+       "decisive": {
+        "mean": 0.6458,
+        "lo": 0.4942,
+        "hi": 0.7975,
+        "n": 16,
+        "sd": 0.2846
+       },
+       "decisions": {
+        "mean": 77.8542,
+        "lo": 64.6791,
+        "hi": 91.0292,
+        "n": 16,
+        "sd": 24.7302
+       },
+       "worstWallMs": {
+        "mean": 1948.1875,
+        "lo": 1943.8362,
+        "hi": 1952.5388,
+        "n": 16,
+        "sd": 8.1677
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0306,
+        "lo": 0.0058,
+        "hi": 0.0554,
+        "n": 16,
+        "sd": 0.0465
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 6451.6042,
+        "lo": -98.9325,
+        "hi": 13002.1409,
+        "n": 16,
+        "sd": 12295.7048
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 18.0833,
+        "lo": -16.5896,
+        "hi": 52.7563,
+        "n": 16,
+        "sd": 65.0829
+       }
+      }
+     },
+     "deltas": {
+      "legacy": {
+       "score": {
+        "mean": -0.0625,
+        "lo": -0.1644,
+        "hi": 0.0394,
+        "n": 16,
+        "sd": 0.1912,
+        "bootLo": -0.1562,
+        "bootHi": 0.0313,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0833,
+        "lo": -0.2832,
+        "hi": 0.1165,
+        "n": 16,
+        "sd": 0.3752,
+        "bootLo": -0.2708,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0.125,
+        "lo": -0.0788,
+        "hi": 0.3288,
+        "n": 16,
+        "sd": 0.3825,
+        "bootLo": -0.0625,
+        "bootHi": 0.3125,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 0.25,
+        "lo": -6.8363,
+        "hi": 7.3363,
+        "n": 16,
+        "sd": 13.3014,
+        "bootLo": -6.0833,
+        "bootHi": 6.6042,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.25,
+        "lo": -1.0322,
+        "hi": 0.5322,
+        "n": 16,
+        "sd": 1.4682,
+        "bootLo": -0.9375,
+        "bootHi": 0.4375,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": -0.0625,
+        "lo": -0.2242,
+        "hi": 0.0992,
+        "n": 16,
+        "sd": 0.3035,
+        "bootLo": -0.2083,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 1.1458,
+        "lo": -13.8368,
+        "hi": 16.1285,
+        "n": 16,
+        "sd": 28.1233,
+        "bootLo": -12.0208,
+        "bootHi": 14.7083,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0417,
+        "lo": -0.2454,
+        "hi": 0.1621,
+        "n": 16,
+        "sd": 0.3825,
+        "bootLo": -0.2292,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.7708,
+        "lo": -14.2107,
+        "hi": 15.7523,
+        "n": 16,
+        "sd": 28.1211,
+        "bootLo": -12.4375,
+        "bootHi": 14.2917,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -1.3958,
+        "lo": -7.2999,
+        "hi": 4.5083,
+        "n": 16,
+        "sd": 11.0823,
+        "bootLo": -6.5208,
+        "bootHi": 4,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0.0223,
+        "lo": -0.0036,
+        "hi": 0.0482,
+        "n": 16,
+        "sd": 0.0486,
+        "bootLo": 0.0016,
+        "bootHi": 0.0483,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 1472.0208,
+        "lo": -5338.2959,
+        "hi": 8282.3376,
+        "n": 16,
+        "sd": 12783.3257,
+        "bootLo": -3061.0417,
+        "bootHi": 8425.1458,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -184.7083,
+        "lo": -615.0162,
+        "hi": 245.5995,
+        "n": 16,
+        "sd": 807.7106,
+        "bootLo": -601.4167,
+        "bootHi": 46.2917,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.313,
+      "legacy": 0.354
+     }
+    },
+    {
+     "cell": "null-snake6",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 41.1667,
+        "lo": 37.1836,
+        "hi": 45.1497,
+        "n": 16,
+        "sd": 7.4764
+       },
+       "finalUnits": {
+        "mean": 4.9167,
+        "lo": 4.5527,
+        "hi": 5.2806,
+        "n": 16,
+        "sd": 0.6831
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 119.25,
+        "lo": 118.2278,
+        "hi": 120.2722,
+        "n": 16,
+        "sd": 1.9187
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": -0.0192,
+        "hi": 0.1859,
+        "n": 16,
+        "sd": 0.1925
+       },
+       "decisions": {
+        "mean": 119.25,
+        "lo": 118.2278,
+        "hi": 120.2722,
+        "n": 16,
+        "sd": 1.9187
+       },
+       "worstWallMs": {
+        "mean": 1961.9375,
+        "lo": 1961.3182,
+        "hi": 1962.5568,
+        "n": 16,
+        "sd": 1.1625
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 124093.125,
+        "lo": 116748.1091,
+        "hi": 131438.1409,
+        "n": 16,
+        "sd": 13786.9843
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 666.7708,
+        "lo": -720.4812,
+        "hi": 2054.0228,
+        "n": 16,
+        "sd": 2603.9456
+       }
+      },
+      "legacy": {
+       "score": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "win": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "place": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "finalMaterial": {
+        "mean": 40.9792,
+        "lo": 37.9638,
+        "hi": 43.9946,
+        "n": 16,
+        "sd": 5.6601
+       },
+       "finalUnits": {
+        "mean": 4.9167,
+        "lo": 4.5892,
+        "hi": 5.2441,
+        "n": 16,
+        "sd": 0.6146
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 119.6042,
+        "lo": 119.0455,
+        "hi": 120.1628,
+        "n": 16,
+        "sd": 1.0486
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": -0.0192,
+        "hi": 0.1859,
+        "n": 16,
+        "sd": 0.1925
+       },
+       "decisions": {
+        "mean": 119.6042,
+        "lo": 119.0455,
+        "hi": 120.1628,
+        "n": 16,
+        "sd": 1.0486
+       },
+       "worstWallMs": {
+        "mean": 1962.4792,
+        "lo": 1961.5925,
+        "hi": 1963.3658,
+        "n": 16,
+        "sd": 1.6643
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 125428.4792,
+        "lo": 117948.5926,
+        "hi": 132908.3657,
+        "n": 16,
+        "sd": 14040.1437
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 647.75,
+        "lo": -732.6052,
+        "hi": 2028.1052,
+        "n": 16,
+        "sd": 2591
+       }
+      }
+     },
+     "deltas": {
+      "legacy": {
+       "score": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": -0.1875,
+        "lo": -3.7486,
+        "hi": 3.3736,
+        "n": 16,
+        "sd": 6.6844,
+        "bootLo": -3.4375,
+        "bootHi": 2.9167,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0,
+        "lo": -0.4101,
+        "hi": 0.4101,
+        "n": 16,
+        "sd": 0.7698,
+        "bootLo": -0.3958,
+        "bootHi": 0.3333,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 0.3542,
+        "lo": -0.8264,
+        "hi": 1.5347,
+        "n": 16,
+        "sd": 2.216,
+        "bootLo": -0.625,
+        "bootHi": 1.5,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0,
+        "lo": -0.0917,
+        "hi": 0.0917,
+        "n": 16,
+        "sd": 0.1721,
+        "bootLo": -0.0833,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 0.3542,
+        "lo": -0.8264,
+        "hi": 1.5347,
+        "n": 16,
+        "sd": 2.216,
+        "bootLo": -0.625,
+        "bootHi": 1.5,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 0.5417,
+        "lo": -0.6396,
+        "hi": 1.723,
+        "n": 16,
+        "sd": 2.2174,
+        "bootLo": -0.4792,
+        "bootHi": 1.6042,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 1335.3542,
+        "lo": -5193.479,
+        "hi": 7864.1873,
+        "n": 16,
+        "sd": 12254.9661,
+        "bootLo": -3912.9792,
+        "bootHi": 7530.8958,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -19.0208,
+        "lo": -51.49,
+        "hi": 13.4483,
+        "n": 16,
+        "sd": 60.9463,
+        "bootLo": -53,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.917,
+      "legacy": 0.917
+     }
+    },
+    {
+     "cell": "snake5-knight",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "integrated": {
+       "score": {
+        "mean": 0.4687,
+        "lo": 0.3816,
+        "hi": 0.5559,
+        "n": 16,
+        "sd": 0.1635
+       },
+       "win": {
+        "mean": 0.3125,
+        "lo": 0.2339,
+        "hi": 0.3911,
+        "n": 16,
+        "sd": 0.1475
+       },
+       "place": {
+        "mean": 2.0625,
+        "lo": 1.8883,
+        "hi": 2.2367,
+        "n": 16,
+        "sd": 0.327
+       },
+       "finalMaterial": {
+        "mean": 6.5833,
+        "lo": 5.6425,
+        "hi": 7.5241,
+        "n": 16,
+        "sd": 1.7659
+       },
+       "finalUnits": {
+        "mean": 1.5625,
+        "lo": 1.3823,
+        "hi": 1.7427,
+        "n": 16,
+        "sd": 0.3382
+       },
+       "survived": {
+        "mean": 0.9375,
+        "lo": 0.8659,
+        "hi": 1.0091,
+        "n": 16,
+        "sd": 0.1344
+       },
+       "turns": {
+        "mean": 118.6667,
+        "lo": 115.8253,
+        "hi": 121.508,
+        "n": 16,
+        "sd": 5.3333
+       },
+       "decisive": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "decisions": {
+        "mean": 117.0625,
+        "lo": 113.5614,
+        "hi": 120.5636,
+        "n": 16,
+        "sd": 6.5718
+       },
+       "worstWallMs": {
+        "mean": 1962.8542,
+        "lo": 1962.2494,
+        "hi": 1963.4589,
+        "n": 16,
+        "sd": 1.1351
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 226226.8333,
+        "lo": 197897.3917,
+        "hi": 254556.275,
+        "n": 16,
+        "sd": 53175.8642
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "legacy": {
+       "score": {
+        "mean": 0.5,
+        "lo": 0.3877,
+        "hi": 0.6123,
+        "n": 16,
+        "sd": 0.2108
+       },
+       "win": {
+        "mean": 0.2708,
+        "lo": 0.1545,
+        "hi": 0.3872,
+        "n": 16,
+        "sd": 0.2184
+       },
+       "place": {
+        "mean": 2,
+        "lo": 1.7754,
+        "hi": 2.2246,
+        "n": 16,
+        "sd": 0.4216
+       },
+       "finalMaterial": {
+        "mean": 7.2917,
+        "lo": 6.2185,
+        "hi": 8.3648,
+        "n": 16,
+        "sd": 2.0143
+       },
+       "finalUnits": {
+        "mean": 1.6667,
+        "lo": 1.5078,
+        "hi": 1.8255,
+        "n": 16,
+        "sd": 0.2981
+       },
+       "survived": {
+        "mean": 0.9792,
+        "lo": 0.9348,
+        "hi": 1.0236,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "turns": {
+        "mean": 120,
+        "lo": 120,
+        "hi": 120,
+        "n": 16,
+        "sd": 0
+       },
+       "decisive": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "decisions": {
+        "mean": 119.1458,
+        "lo": 117.3256,
+        "hi": 120.9661,
+        "n": 16,
+        "sd": 3.4167
+       },
+       "worstWallMs": {
+        "mean": 1963.1458,
+        "lo": 1962.6521,
+        "hi": 1963.6395,
+        "n": 16,
+        "sd": 0.9267
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 239115.9792,
+        "lo": 198599.4581,
+        "hi": 279632.5003,
+        "n": 16,
+        "sd": 76051.6586
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      }
+     },
+     "deltas": {
+      "legacy": {
+       "score": {
+        "mean": 0.0313,
+        "lo": -0.0559,
+        "hi": 0.1184,
+        "n": 16,
+        "sd": 0.1635,
+        "bootLo": -0.0417,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0417,
+        "lo": -0.1305,
+        "hi": 0.0471,
+        "n": 16,
+        "sd": 0.1667,
+        "bootLo": -0.125,
+        "bootHi": 0.0417,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.0625,
+        "lo": -0.2367,
+        "hi": 0.1117,
+        "n": 16,
+        "sd": 0.327,
+        "bootLo": -0.2083,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 0.7083,
+        "lo": -0.2727,
+        "hi": 1.6893,
+        "n": 16,
+        "sd": 1.8414,
+        "bootLo": -0.1458,
+        "bootHi": 1.5833,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.1042,
+        "lo": -0.0509,
+        "hi": 0.2592,
+        "n": 16,
+        "sd": 0.2911,
+        "bootLo": -0.0417,
+        "bootHi": 0.25,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.0417,
+        "lo": -0.019,
+        "hi": 0.1023,
+        "n": 16,
+        "sd": 0.1139,
+        "bootLo": 0,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 1.3333,
+        "lo": -1.508,
+        "hi": 4.1747,
+        "n": 16,
+        "sd": 5.3333,
+        "bootLo": 0,
+        "bootHi": 4,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0208,
+        "lo": -0.0652,
+        "hi": 0.0236,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": -0.0625,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 2.0833,
+        "lo": -1.0824,
+        "hi": 5.2491,
+        "n": 16,
+        "sd": 5.9423,
+        "bootLo": 0,
+        "bootHi": 5.3333,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": 0.2917,
+        "lo": -0.4242,
+        "hi": 1.0075,
+        "n": 16,
+        "sd": 1.3437,
+        "bootLo": -0.3542,
+        "bootHi": 0.9167,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 12889.1458,
+        "lo": -12834.3824,
+        "hi": 38612.6741,
+        "n": 16,
+        "sd": 48284.4265,
+        "bootLo": -7185.8542,
+        "bootHi": 37852.625,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "integrated": 0.979,
+      "legacy": 1
+     }
+    }
+   ]
+  }
+ ],
+ "problems": [
+  "sweep n0-aa-null: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "p3-slider-2000/headline-mix-king-s84803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84803-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84801-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84804-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84802-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84805-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84806-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84803-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84805-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84804-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84801-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84802-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84810-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84807-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84809-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84807-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84806-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84809-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84808-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84811-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84808-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84810-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84811-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84815-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84812-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84814-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84813-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84812-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84816-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84813-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84814-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84815-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/headline-mix-king-s84816-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84801-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84801-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84802-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84802-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84803-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84803-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84804-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84804-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84805-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84805-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84806-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84806-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84807-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84807-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84808-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84808-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84809-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84809-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84810-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84810-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84811-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84811-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84812-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84812-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84813-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84813-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84814-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84814-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84815-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84815-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84816-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84816-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/null-snake6-s84816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84801-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84801-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84802-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84802-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84803-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84803-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84804-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84804-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84805-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84805-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84806-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84806-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84807-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84807-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84808-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84808-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84809-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84809-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84810-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84810-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84811-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84811-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84812-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84812-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84813-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84813-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84814-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84814-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84815-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84815-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84801-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84816-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84816-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-queen-s84816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84801-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84804-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84801-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84802-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84803-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84802-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84802-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84803-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84803-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84804-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84804-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84805-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84806-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84805-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84805-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84806-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84806-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84807-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84807-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84807-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84808-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84808-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84808-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84809-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84809-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84809-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84810-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84810-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84811-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84811-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84810-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84811-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84812-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84812-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84813-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84813-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84812-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84813-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84814-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84814-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84814-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84816-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84816-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84815-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84815-r2: seats differ (integrated=0:lobster-material,1:reflex,2:lobster-territory slider=0:lobster-material,1:reflex,2:lobster-slider) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84816-r0: seats differ (integrated=0:lobster-territory,1:lobster-material,2:reflex slider=0:lobster-slider,1:lobster-material,2:reflex) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "p3-slider-2000/snake5-pawn-s84815-r1: seats differ (integrated=0:reflex,1:lobster-territory,2:lobster-material slider=0:reflex,1:lobster-slider,2:lobster-material) — if the arms deliberately seat different subject bots, declare it with --subject-map",
+  "sweep p3-slider-2000: no gameId is present and consistent across all arms — nothing to pair",
+  "sweep p4-tiertruth-potions: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p5-wasm-arena: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p6-admission: base arm \"integrated\" did not run it — skipped (use its own --base)",
+  "sweep p7-cl1-gates: base arm \"integrated\" did not run it — skipped (use its own --base)"
+ ]
+}

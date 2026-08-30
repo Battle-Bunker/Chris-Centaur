@@ -1,0 +1,25 @@
+{
+ "arm": "tier-expiry",
+ "bundle": "/home/chris/lobster/bundles/perf-substrate-t2",
+ "bundleStamp": {
+  "ref": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T21:52:02.767Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "59e94deebb18c39d1efa9f8f2250ab518f021693",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "envOverrides": {},
+ "spec": "p4-tiertruth-potions",
+ "specPath": "/home/chris/lobster/results-wt/tools/simworker/specs/p4-tiertruth-potions.json",
+ "specVariantOf": null,
+ "workers": 10,
+ "startedAt": "2026-08-27T22:34:03.028Z",
+ "note": "P4 tier-truth re-measure; off arm omits the variable (default expiry)"
+}

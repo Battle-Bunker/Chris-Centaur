@@ -1,0 +1,325 @@
+{
+ "spec": {
+  "_comment": [
+   "P4 — CENTAUR_TIER_TRUTH=full against the shipped default `expiry`, on",
+   "potion-rich cells.",
+   "",
+   "Both arms are the same bundle; they differ by one environment variable.",
+   "The widening is DARK by default for a reason: I4 measured an 858-inversion",
+   "interaction storm (class B0 floor > B1 ceiling) and Stage 2.5 shipped only the",
+   "expiry half. The engine fix that was supposed to enable the rest landed, and",
+   "the re-measure was never run. THIS IS THAT RE-MEASURE.",
+   "",
+   "It also changed TIMING since those numbers were taken: couldCollectPotion is",
+   "now gated n >= 2 rather than firing at the turn-start field, and own reach only",
+   "LOWERS own tier. The old inversion counts describe code that no longer exists —",
+   "do not compare against them, measure fresh.",
+   "",
+   "Potions ON everywhere here: with potions off the flag has nothing to feed on",
+   "and the cell is a second null."
+  ],
+  "sweepId": "p4-tiertruth-potions",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   21901,
+   21902,
+   21903,
+   21904,
+   21905,
+   21906,
+   21907,
+   21908,
+   21909,
+   21910,
+   21911,
+   21912,
+   21913,
+   21914,
+   21915,
+   21916
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-mix-king",
+    "config": {
+     "name": "potion-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-snake5-queen",
+    "config": {
+     "name": "potion-snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "null-nopotion-mix-king",
+    "config": {
+     "name": "null-nopotion-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p4-tiertruth-potions",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   21901,
+   21902,
+   21903,
+   21904,
+   21905,
+   21906,
+   21907,
+   21908,
+   21909,
+   21910,
+   21911,
+   21912,
+   21913,
+   21914,
+   21915,
+   21916
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-mix-king",
+    "config": {
+     "name": "potion-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-snake5-queen",
+    "config": {
+     "name": "potion-snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "null-nopotion-mix-king",
+    "config": {
+     "name": "null-nopotion-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T21:52:02.767Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "59e94deebb18c39d1efa9f8f2250ab518f021693",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   0.98,
+   4.58,
+   10.32
+  ]
+ },
+ "startedAt": "2026-08-27T22:34:03.159Z",
+ "resumedAt": []
+}

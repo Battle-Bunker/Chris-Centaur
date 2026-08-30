@@ -1,0 +1,24 @@
+{
+ "arm": "perf-substrate",
+ "bundle": "/home/chris/lobster/bundles/perf-substrate",
+ "bundleStamp": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "8059b86a9ce098a3fe7cc681b15edb221089ac98",
+  "subject": "Merge cl/1 into claude/cluster-lookahead: the conflict index, the fatality classifier, and the graded seed",
+  "committedAt": "2026-08-27T09:55:48+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-27T10:16:24.058Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "77049f92049873b71cb1f97b74bafb00f38d24c2",
+  "lockfileHash": "b991a8fd8c3ccb8f",
+  "tscErrors": 6
+ },
+ "envOverrides": {},
+ "spec": "p0-pilot",
+ "specPath": "/home/chris/lobster/Chris-Centaur/tools/simworker/specs/p0-pilot.json",
+ "workers": 3,
+ "startedAt": "2026-08-27T10:20:00.723Z",
+ "note": "P0 pilot: throughput at headline shape, 24-core WSL box"
+}
