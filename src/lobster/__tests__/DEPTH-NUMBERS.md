@@ -35,6 +35,39 @@ to anyone who meets it without its definition.
 | **horizon reached** | 2 turns | 2 turns |
 | **committed as** | the `is nonzero on piece-bearing boards at a one-second budget` test, which gates on **nonzero** and prints the rate | a one-off scan; this table is its record |
 
+## The owner-shape figures — 20260830, n = 24 per cell
+
+Measured by the `depth-effect rate at the owner's shape` block of
+`depth-acceptance.test.ts`: 25×25, three teams of six, a deterministic hazard
+cross at damage 15, **potions on**, 2000 ms, paired against `plyCap: 0`.
+96 whole decisions, 1,804 s on a 4-core box.
+
+| cell | roster | rate | horizon (funded / depthless) | threads | deep readings published | door refusals |
+|---|---|---|---|---|---|---|
+| `owner-mix-king` | king, queen, rook, knight, snake, snake | **2/24 = 8.3%** | 2 / 1 | 707 | 50 | **0 of 24** |
+| `owner-snake5-queen` | queen, snake × 5 | **5/24 = 20.8%** | 2 / 1 | 749 | 64 | **0 of 24** |
+
+Two readings worth keeping:
+
+- **Depth engages on this family and nothing refuses it.** Zero door refusals
+  across 48 funded decisions is the number that matters most here — the door
+  refused every potion-bearing board until the tier-truth premise became `full`,
+  and the owner's games always carry potions.
+- **The rate is lower than the probe family's, and the probe family is not an
+  upper bound on it either** — 8.3% on the mixed roster against 30% / 22.5% on
+  11×11, but 20.8% on the mostly-snake roster. A bigger board with three times
+  the units gives the same budget less to spend per unit; a sparser roster gives
+  the deepening more room. These are different board families and their rates
+  must not be averaged.
+
+**The quality signal came back empty, and honestly so.** All 7 disagreeing
+decisions had both plans replayed through `resolvePartialTurn`, and all 7 gave
+identical same-turn ledgers (`0/0/0` against `0/0/0` — our deaths / our severed
+cells / enemy deaths). The two arms are choosing between moves that are equally
+safe *this* turn, which is both the regime a further-looking search exists for
+and the regime a same-turn instrument cannot report on. **Quality needs live
+games.**
+
 ## What the method is, and why it has to be this one
 
 Both arms are the **same build**. `plyCap: 0` does not compile out the depth
@@ -60,7 +93,8 @@ effect.
    hazards on, potions on, 2000 ms — a different board family, and a
    disagreement rate is a property of a board family and a budget. The
    owner-shape measurement is its own block in `depth-acceptance.test.ts` (`the
-   depth-effect rate at the owner's shape`) and reports per cell.
+   depth-effect rate at the owner's shape`), reports per cell, and is tabled
+   above.
 3. **Not a snake-board rate.** Every board behind both figures bears pieces.
    The all-snake and mostly-snake families were unmeasured when these figures
    were taken.
