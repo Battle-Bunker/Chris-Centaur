@@ -9,7 +9,13 @@
   "one roster has been measured on one roster.",
   "",
   "At 8 blocks this is mechanism-first. Promote whichever roster shows the",
-  "largest mechanism separation to its own 16-block cell."
+  "largest mechanism separation to its own 16-block cell.",
+  "",
+  "ALL FIVE ARE POTIONS-ON, and they are new cells rather than the old names",
+  "with a new board: the legacy roster names are pinned potions-off by",
+  "`cells.js` so the ledger rows behind them keep describing the games that",
+  "made them. Same rosters, different board, different seeds — a different",
+  "experiment, said out loud."
  ],
  "sweepId": "x2-roster-ladder",
  "bots": [
@@ -30,9 +36,9 @@
  "rotateSeats": true,
  "cells": [
   {
-   "cell": "null-snake6",
+   "cell": "potion-snake6",
    "config": {
-    "name": "null-snake6",
+    "name": "potion-snake6",
     "size": 25,
     "teams": [
      "red",
@@ -57,14 +63,17 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
   {
-   "cell": "snake5-pawn",
+   "cell": "potion-snake5-pawn",
    "config": {
-    "name": "snake5-pawn",
+    "name": "potion-snake5-pawn",
     "size": 25,
     "teams": [
      "red",
@@ -89,14 +98,17 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
   {
-   "cell": "snake5-knight",
+   "cell": "potion-snake5-knight",
    "config": {
-    "name": "snake5-knight",
+    "name": "potion-snake5-knight",
     "size": 25,
     "teams": [
      "red",
@@ -121,14 +133,17 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
   {
-   "cell": "snake5-queen",
+   "cell": "potion-snake5-queen",
    "config": {
-    "name": "snake5-queen",
+    "name": "potion-snake5-queen",
     "size": 25,
     "teams": [
      "red",
@@ -153,14 +168,17 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
   {
-   "cell": "mix-king",
+   "cell": "potion-mix-king",
    "config": {
-    "name": "mix-king",
+    "name": "potion-mix-king",
     "size": 25,
     "teams": [
      "red",
@@ -185,7 +203,10 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   }

@@ -805,6 +805,37 @@ section('4. THE BATCH GENERATOR');
   fs.rmSync(outDir, { recursive: true, force: true });
 }
 {
+  // ── the potion default, and the guard that keeps one name on one board ────
+  const C = require('../lib/cells');
+  ok(C.POTION_DEFAULT === 'on', 'potions are ON by default — the board real games are played on');
+  ok(
+    C.cell('brand-new-mix-king', { roster: 'mix-king' }).config.potions.enabled === true,
+    'a new cell with no marker in its name is generated potions-on'
+  );
+  ok(
+    C.cell('nopotion-mix-king', { roster: 'mix-king' }).config.potions.enabled === false,
+    'a `nopotion-` name is the explicit off-control, and needs no argument to be one'
+  );
+  ok(
+    C.cell('headline-mix-king', { roster: 'mix-king' }).config.potions.enabled === false,
+    'a legacy name keeps the board its ledger rows were measured on'
+  );
+  throws(
+    () => C.cell('headline-mix-king', { roster: 'mix-king', potions: 'on' }),
+    'and re-pointing a legacy name at a different board throws rather than rewriting its history'
+  );
+  throws(
+    () => C.cell('potion-mix-king', { roster: 'mix-king', potions: 'off' }),
+    'a cell name that disagrees with its board throws — rename the cell instead'
+  );
+  for (const name of C.LEGACY_POTIONS_OFF) {
+    ok(
+      C.cell(name, { roster: 'mix-king' }).config.potions.enabled === false,
+      `${name}: pinned potions-off, so its ledger rows stay true`
+    );
+  }
+}
+{
   const C = require('../lib/cells');
   const s = C.spec('t', [], [C.cell('x', { roster: 'mix-king' })], C.FIELD, 16);
   ok(s.seeds.length === 16 && new Set(s.seeds).size === 16, 'seeds are 16 distinct values');

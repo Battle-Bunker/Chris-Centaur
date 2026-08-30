@@ -3,9 +3,17 @@
   "THE BOARD-CONDITION LADDER — for a batch that has budget left after its",
   "priority cell, or for exploration at 4-8 blocks.",
   "",
-  "Baseline plus one axis moved at a time: potions on, hazards interior, food",
+  "THE BASELINE IS POTIONS-ON, because that is the board real games are played",
+  "on (owner ruling 2026-08-29). The potion axis is therefore read the other way",
+  "round from here: `nopotion-mix-king` is the CONTROL that switches the",
+  "mechanism off, not a treatment that switches it on.",
+  "",
+  "Baseline plus one axis moved at a time: potions off, hazards interior, food",
   "sparse. Never two at once — a cell that moves two axes cannot say which one",
   "did the work, and at these block counts there is no power to interact them.",
+  "That rule is why the hazard arm is `potion-hazard-mix-king` and not the",
+  "legacy `hazard-mix-king`: the legacy name is pinned potions-off by",
+  "`cells.js`, so against a potions-on baseline it would move two axes at once.",
   "",
   "MECHANISM-FIRST. At 4-8 blocks nothing here can support a placement claim.",
   "Read the mechanism rows (overrun rate, unstaged rate, assumption rate, decision",
@@ -57,14 +65,17 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
   {
-   "cell": "potion-mix-king",
+   "cell": "nopotion-mix-king",
    "config": {
-    "name": "potion-mix-king",
+    "name": "nopotion-mix-king",
     "size": 25,
     "teams": [
      "red",
@@ -89,17 +100,14 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": true,
-     "spawnRate": 0.15,
-     "initial": 2,
-     "effectTurns": 3
+     "enabled": false
     }
    }
   },
   {
-   "cell": "hazard-mix-king",
+   "cell": "potion-hazard-mix-king",
    "config": {
-    "name": "hazard-mix-king",
+    "name": "potion-hazard-mix-king",
     "size": 25,
     "teams": [
      "red",
@@ -125,7 +133,10 @@
      "damageRatio": 0.15
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   },
@@ -157,7 +168,10 @@
      "layout": "none"
     },
     "potions": {
-     "enabled": false
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
     }
    }
   }

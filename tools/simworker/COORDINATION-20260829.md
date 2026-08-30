@@ -362,3 +362,5 @@ refusing a result whose contender cannot be shown to have run, and a rule whose
 exhibit has been deleted is a rule nobody can check.
 
 Nothing else about batch 2 changes.
+
+**ADDENDUM (potion terms thread).** Potions are now ON by default in `tools/learnloop/lib/cells.js` per the owner's 2026-08-29 ruling — the seven cell names carrying ledger history stay pinned potions-off so their rows keep describing the games that made them, a name that disagrees with its board now throws, only the two exploratory ladders and the A/A null were re-cut (every decisive P-spec is byte-identical), and re-cutting the P-specs onto potions-on cells is a scheduling decision left to whoever owns batch 3; contender selection is untouched, so if the teardown thread moves it from env flags to configs this change does not collide with it.
