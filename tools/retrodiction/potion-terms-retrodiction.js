@@ -19,6 +19,19 @@
  *       recommended never happened at all?
  *   (b) CONTROL. Does `potionControl` read at mid-game predict end-game weight
  *       share?
+ *   (c) THE DODGE DISCOUNT. The exposure half of (a) fired on 483 of 485
+ *       pickups, which is a property of the instrument rather than a judgement
+ *       about the game. Owner ruling 23 replaces the boolean with a
+ *       probability: our vulnerable unit's cost is discounted by its
+ *       improbability under a uniform prior over its own plausible moves, with
+ *       the enemy best-responding to that uniform. This section re-scores every
+ *       collection with the discount on the near endpoint and asks three
+ *       questions of it — does the rate become discriminating, do the
+ *       collectors that were ACTUALLY cut get a high number (the falsifier),
+ *       and do piece collectors discount harder than trail units as ruling 22
+ *       predicts. Nothing in (a) or (b) moves: `potionSeek` without a `dodge`
+ *       option is bit-for-bit what it was, and this section calls it a second
+ *       time rather than in place of the first.
  *
  * A term that fails (a) is mis-signed. A term that passes (a) and fails (b) is
  * a tactical read with no positional content, which is a finding and not a
@@ -92,6 +105,10 @@ const {
   potionSeekRecommends,
 } = require('../../src/lobster/evaluate/potion-seek');
 const { potionControlSummary } = require('../../src/lobster/evaluate/potion-control');
+const {
+  dodgeDiscount,
+  dodgeTerrain,
+} = require('../../src/lobster/evaluate/dodge-discount');
 const { severExchangeRate } = require('../../src/lobster/evaluate/slider-attack-vector');
 
 /** The potion effect's own length. `TeamSnekProcessor.ts:602`. */
@@ -322,6 +339,75 @@ function fold(into, from) {
 
 const mean = (xs) => (xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length);
 
+// ── (c) the dodge discount: summary machinery ───────────────────────────────
+
+/** The replay's own hazard cells, in the full-board index the terms read. */
+const hazardsOf = (row) =>
+  (row.board.hazards || []).map((c) =>
+    toFull(c.x, c.y, row.board.width, row.board.height)
+  );
+
+const quantile = (sorted, q) => {
+  if (sorted.length === 0) return null;
+  const i = (sorted.length - 1) * q;
+  const lo = Math.floor(i);
+  const hi = Math.ceil(i);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+};
+
+/**
+ * One stratum of the discount distribution. `share` is the headline the design
+ * asks for — the fraction of pickups whose DISCOUNTED near exposure still
+ * exceeds a stated fraction of the collector's weight — reported beside the
+ * undiscounted boolean it replaces, because a single post-discount rate would
+ * be the same mistake in the other direction.
+ */
+function discountSummary(rows) {
+  const charged = rows.map((r) => r.chargedFraction);
+  const sorted = [...charged].sort((a, b) => a - b);
+  const modelled = rows.map((r) => r.modelMean).sort((a, b) => a - b);
+  const share = (p) => (rows.length === 0 ? null : rows.filter(p).length / rows.length);
+  return {
+    n: rows.length,
+    // The instrument being replaced: the raw contested-near boolean.
+    contestedNear: rows.filter((r) => r.contestedNear).length,
+    contestedNearRate: share((r) => r.contestedNear),
+    // The replacement, as a distribution rather than a rate.
+    meanCharged: mean(charged),
+    medianCharged: quantile(sorted, 0.5),
+    p10Charged: quantile(sorted, 0.1),
+    p90Charged: quantile(sorted, 0.9),
+    chargedOverHalf: share((r) => r.chargedFraction > 0.5),
+    chargedOverQuarter: share((r) => r.chargedFraction > 0.25),
+    chargedOverTenth: share((r) => r.chargedFraction > 0.1),
+    chargedZero: share((r) => r.chargedFraction === 0),
+    // The model's own number, computed on every pickup including the three
+    // the near boolean did not fire on, so the two are separable.
+    meanModel: mean(rows.map((r) => r.modelMean)),
+    medianModel: quantile(modelled, 0.5),
+    meanBest: mean(rows.map((r) => r.modelBest)),
+    meanWorst: mean(rows.map((r) => r.modelWorst)),
+    meanBranching: mean(rows.map((r) => r.branching)),
+    meanAttackers: mean(rows.map((r) => r.attackers)),
+    refusals: rows.filter((r) => r.refusal !== null).length,
+    // Weight actually charged, in weight units, discounted and not.
+    weightChargedDiscounted: rows.reduce((a, r) => a + r.weightNearDiscounted, 0),
+    weightChargedRaw: rows.reduce((a, r) => a + r.weightNearRaw, 0),
+  };
+}
+
+const groupSummary = (rows, keyOf) => {
+  const out = {};
+  for (const r of rows) {
+    const k = String(keyOf(r));
+    (out[k] || (out[k] = [])).push(r);
+  }
+  const keys = Object.keys(out).sort();
+  const res = {};
+  for (const k of keys) res[k] = discountSummary(out[k]);
+  return res;
+};
+
 /**
  * The residual of `ys` after `xs` is regressed out of it — the arithmetic that
  * turns "control correlates with the end share" into "control correlates with
@@ -373,6 +459,12 @@ function run() {
   const offCorpus = { games: 0, severEvents: 0, turnRows: 0 };
   // (b) one row per (game, team)
   const control = [];
+  // (c) one row per scored collection
+  const dodgeRows = [];
+  let dodgeNs = 0;
+  let dodgeCalls = 0;
+  let seekDodgeNs = 0;
+  let seekDodgeCalls = 0;
   let rowCounter = 0;
 
   const cellFor = (key) => {
@@ -407,6 +499,14 @@ function run() {
     // ── pass 1: index the turns, the collections and the severs ────────────
     const rowAt = new Map();
     for (const row of replay.turns) rowAt.set(row.turn, row);
+    /** turn -> Set of unitIDs that were SEVERED on that turn — the falsifier's
+     * ground truth, read from the same `severTruth` the rest of the file uses. */
+    const severVictimsAt = new Map();
+    for (const row of replay.turns) {
+      const victims = new Set();
+      for (const s of severTruth(row)) for (const v of s.victims) victims.add(v);
+      if (victims.size > 0) severVictimsAt.set(row.turn, victims);
+    }
     /** turn -> [{unitID, team, cell}] */
     const collectionsAt = new Map();
     for (const row of replay.turns) {
@@ -511,6 +611,115 @@ function run() {
           gainPositive,
           team: c.team,
           gain: v.gain.est,
+        });
+
+        // ── (c) the same pickup, with the dodge discount on the near end ──
+        //
+        // TWO CONDITIONS FROM THE DESIGN, BOTH BINDING AND BOTH HONOURED HERE.
+        //
+        // 1. The replay's own HAZARD CELLS are passed in. `RayBoard` carries no
+        //    hazard board and the engine's `legalMoves` never consults one, so
+        //    without this list the move generator counts hazard cells as
+        //    escapes, over-states our branching and OVER-DISCOUNTS — on exactly
+        //    the high-hazard boards ruling 22 calls typical. A run without them
+        //    is not a measurement of this term.
+        // 2. Everything is stratified by `travelTurns` below rather than
+        //    pooled. The reach gate is a question about the future; the cover
+        //    fan is walked from where the attacker stands TODAY. They agree at
+        //    travelTurns = 1 and drift apart as the pickup recedes, so pooling
+        //    a three-turn pickup with a one-turn one mixes a measurement with
+        //    an artefact.
+        const hazardCells = hazardsOf(row);
+        // Terrain BORROWED, not rebuilt: `makeTerrain` walks every cell of the
+        // board to stamp the perimeter, so building one per (collector,
+        // potion) pair would cost more than the ray fan the term exists to
+        // walk. One per row, handed in — the same discipline the reach map
+        // gets.
+        const dodgeTerrainForRow = dodgeTerrain(ray.board, [], hazardCells);
+        const dodgeOpts = { hazardCells, terrain: dodgeTerrainForRow };
+        const t2 = process.hrtime.bigint();
+        const dodged = potionSeek(ray.board, collector, c.cell, {
+          turn: row.turn,
+          reach,
+          dodge: dodgeOpts,
+        });
+        seekDodgeNs += Number(process.hrtime.bigint() - t2);
+        seekDodgeCalls += 1;
+        // The wiring hands the caller only the interval; the model's own
+        // diagnostics (branching, who was walked, why it refused) come from
+        // the term directly, at the same turn and origin the wiring uses.
+        const t1 = process.hrtime.bigint();
+        const model = dodgeDiscount(ray.board, collector, {
+          turn: v.collectAtTurn,
+          origin: c.cell,
+          reach,
+          hazardCells,
+          terrain: dodgeTerrainForRow,
+        });
+        dodgeNs += Number(process.hrtime.bigint() - t1);
+        dodgeCalls += 1;
+        // GROUND TRUTH FOR THE FALSIFIER: was this collector actually cut
+        // inside its own three-turn debuff? That is the report's "one in
+        // eight" — a sever landing on a unit sitting at −1 from its own pickup.
+        //
+        // THE OFFSET MATTERS AS MUCH AS THE FACT. The near endpoint is the only
+        // one the discount touches, and it speaks about ONE turn — the turn
+        // after the collection, the only turn over which the model knows where
+        // the collector is standing. A cut landing two or three turns later is
+        // scored by the WINDOW endpoint, which is undiscounted by construction.
+        // So the falsifier that actually tests this term is the cut at offset
+        // 1, and pooling all three offsets would test something else.
+        let cutAt = 0;
+        let lostAt = 0;
+        for (let t = row.turn + 1; t <= row.turn + WINDOW; t++) {
+          if (cutAt === 0 && (severVictimsAt.get(t) || new Set()).has(c.unitID)) {
+            cutAt = t - row.turn;
+          }
+          const later = rowAt.get(t);
+          if (later === undefined) continue;
+          const still = (later.board.snakes || []).find(
+            (s) => s.id === c.unitID && s.health > 0
+          );
+          if (still === undefined && lostAt === 0) lostAt = t - row.turn;
+        }
+        const cut = cutAt > 0;
+        const lost = lostAt > 0;
+        dodgeRows.push({
+          cell: key,
+          game: path.relative(opt.replays, file),
+          turn: row.turn,
+          team: c.team,
+          ours: OURS(botOf.get(c.team)),
+          unitID: c.unitID,
+          kind: collector.kind,
+          // A trail unit's weight IS its occupancy; a piece carries a stack.
+          trail: collector.occupancy.length > 1 || collector.kind === UnitKind.Snake,
+          weight: collector.weight,
+          travelTurns: dodged.travelTurns,
+          hazardCells: hazardCells.length,
+          contestedNear: dodged.exposure.contestedNear,
+          contestedWindow: dodged.exposure.contested,
+          // What the wiring actually charges, as a fraction of the collector's
+          // weight: the discount where the near boolean fired, zero where it
+          // did not. This is the number that replaces the 99.6%.
+          chargedFraction:
+            collector.weight === 0
+              ? 0
+              : dodged.exposure.weightAtRiskNear / collector.weight,
+          weightNearDiscounted: dodged.exposure.weightAtRiskNear,
+          weightNearRaw: v.exposure.weightAtRiskNear,
+          modelMean: model.discount.mean,
+          modelBest: model.discount.best,
+          modelWorst: model.discount.worst,
+          branching: model.branching,
+          attackers: model.attackers.length,
+          applicable: model.applicable,
+          refusal: model.refusal,
+          converted,
+          cut,
+          cutAt,
+          lost,
+          lostAt,
         });
       }
 
@@ -705,6 +914,58 @@ function run() {
     }
   }
 
+  // ── (c) the dodge discount, stratified rather than pooled ────────────────
+  const cutRows = dodgeRows.filter((r) => r.cut);
+  const lostRows = dodgeRows.filter((r) => r.lost);
+  const dodge = {
+    collections: dodgeRows.length,
+    hazardCellsSeen: dodgeRows.reduce((a, r) => a + r.hazardCells, 0),
+    pickupsOnHazardBoards: dodgeRows.filter((r) => r.hazardCells > 0).length,
+    all: discountSummary(dodgeRows),
+    // CONDITION: stratify by travelTurns. The cover fan is a fact about now
+    // and the reach gate is a question about the future; they agree at 1.
+    byTravelTurns: groupSummary(dodgeRows, (r) => r.travelTurns),
+    // Ruling 22's claim: pieces flee and are hard to catch, so they should
+    // discount materially harder than trail units through higher branching.
+    byUnitClass: groupSummary(dodgeRows, (r) => (r.trail ? 'trail' : 'piece')),
+    byKind: groupSummary(dodgeRows, (r) => r.kind),
+    // THE FALSIFIER. The collectors that were actually cut inside their own
+    // debuff must NOT have been called safe. A term that assigned them a low
+    // discount is broken, and this is the comparison that says so.
+    falsifier: {
+      cut: discountSummary(cutRows),
+      survived: discountSummary(dodgeRows.filter((r) => !r.cut)),
+      cutByTravelTurns: groupSummary(cutRows, (r) => r.travelTurns),
+      // THE ONE THAT TESTS THIS TERM. The near endpoint speaks about the turn
+      // after the collection and no further, so the cuts that land on that
+      // turn are the ones the discount is answerable for; the later ones are
+      // scored by the undiscounted window endpoint.
+      cutByOffset: groupSummary(cutRows, (r) => r.cutAt),
+      cutNextTurn: discountSummary(cutRows.filter((r) => r.cutAt === 1)),
+      // A wider ground truth than the sever channel: the collector was gone
+      // from the board inside its own window, by any cause. A sever does not
+      // kill its victim — it takes the cells beyond the cut — so these are
+      // different populations and both are reported.
+      lost: discountSummary(lostRows),
+      lostByOffset: groupSummary(lostRows, (r) => r.lostAt),
+      lostNextTurn: discountSummary(lostRows.filter((r) => r.lostAt === 1)),
+      survivedAll: discountSummary(dodgeRows.filter((r) => !r.lost)),
+    },
+    meanMicroseconds: dodgeCalls === 0 ? null : dodgeNs / dodgeCalls / 1000,
+    calls: dodgeCalls,
+    // The wiring path's own cost: one `potionSeek` WITH the discount, against
+    // the 9.1 us the same call costs without it (`cost.seekMeanMicroseconds`).
+    seekWithDodgeMeanMicroseconds:
+      seekDodgeCalls === 0 ? null : seekDodgeNs / seekDodgeCalls / 1000,
+    refusalKinds: dodgeRows.reduce((a, r) => {
+      const k = r.refusal === null ? 'none' : r.refusal;
+      a[k] = (a[k] || 0) + 1;
+      return a;
+    }, {}),
+    converted: discountSummary(dodgeRows.filter((r) => r.converted)),
+    rows: dodgeRows,
+  };
+
   const report = {
     generatedFrom: path.resolve(opt.replays),
     replays: files.length,
@@ -735,6 +996,7 @@ function run() {
         partialBalanceVsEndShareGivenMidMaterialShare: partial,
       },
     },
+    dodge,
     perCell: [...cells.entries()]
       .map(([k, s]) => ({ cell: k, ...s }))
       .sort((a, b) => (a.cell < b.cell ? -1 : 1)),

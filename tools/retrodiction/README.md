@@ -94,3 +94,37 @@ priced at zero (+30.4 points [20.7, 40.1]); the collector-exposure half is a
 near-tautology at **99.6%** and is not usable as an ordering channel yet; and
 potion control adds **0.17** over the material share it mostly restates. The
 full write-up is `potion-terms-retrodiction.md` in the sweeps working set.
+
+### Section (c) — the dodge discount
+
+The same miner also measures `src/lobster/evaluate/dodge-discount.ts`, added to
+repair measurement 2's collector-exposure tautology. It re-scores all 485
+collections with the discount on the near endpoint and reports the **whole
+distribution**, not a rate — the failure to beat is a constant, so the success
+condition is a spread.
+
+Additive by construction: `potionSeek` is called a second time **with** the
+discount rather than in place of the first, so every counter in measurements
+1–4 is reproduced bit for bit and the published 57.0%/26.6% result stays
+attached to a term that still computes it.
+
+Two conditions the design puts on the run, both enforced here:
+
+- **the replay's own hazard cells are passed in** — the engine's `legalMoves`
+  never consults the hazard board, so without them the move generator counts
+  hazard cells as escapes and the discount is too generous;
+- **everything is stratified by travel distance** — the reach gate is a question
+  about the future while the cover fan is walked from where the attacker stands
+  today, so pooling a three-turn pickup with a one-turn one mixes a measurement
+  with an artefact.
+
+Headline result on `sim-results/local-20260827` (2026-08-30): the exposure
+reading falls from firing on **99.6%** of pickups to charging more than half the
+collector's weight on **7.0%** and nothing at all on **47.8%**; collectors that
+were actually lost inside their own window were charged **0.471** of their
+weight against **0.150** for the rest (+0.321 [+0.108, +0.535]); piece
+collectors, with 52.0 ways out against a snake's 2.5, were charged **0.095**
+against **0.178** (−0.083 [−0.117, −0.049]). Both conditions are honoured and
+neither is exercisable on this corpus — it contains no hazards and every pickup
+in it is one move away. The full write-up, including what the run does *not*
+establish, is `dodge-discount-retrodiction.md` in the sweeps working set.

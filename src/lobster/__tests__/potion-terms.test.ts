@@ -522,8 +522,13 @@ describe('the candidates are data, and nothing consumes them', () => {
       expect(e.soundness).toBe('advisory');
       expect(e.record.status).toBe('candidate');
       expect((e.params as { weight: number }).weight).toBe(0);
-      expect(e.id).toMatch(/^eval\/[a-z-]+@1$/);
+      // Slot prefix, name, version. The version is NOT pinned to 1: the
+      // identity law requires a params change to mint a new one, so a test
+      // that forbade @2 would forbid the law being obeyed. `potion-seek` is
+      // at @2 because its `exposure` param now names the dodge discount.
+      expect(e.id).toMatch(/^eval\/[a-z-]+@\d+$/);
     }
+    expect(POTION_SEEK_ENTRY.id).toBe('eval/potion-seek@2');
   });
 
   it('is not in the shipped registry — a candidate is configured in, never flagged on', () => {

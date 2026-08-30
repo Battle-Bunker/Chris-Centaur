@@ -76,6 +76,8 @@ import type {
   TeamAttackWindow,
   WindowInterval,
 } from './attack-window';
+import { NO_DISCOUNT, dodgeDiscount } from './dodge-discount';
+import type { DodgeDiscountOptions, DodgeInterval } from './dodge-discount';
 import type { StrategyEntry } from '../registry';
 
 /**
@@ -114,6 +116,25 @@ export interface CollectorExposure {
    */
   readonly weightAtRiskNear: number;
   readonly contestedNear: boolean;
+  /**
+   * THE DODGE DISCOUNT ON THE NEAR ENDPOINT — owner ruling 23, and the repair
+   * for the 99.6% false-alarm rate `sweeps/potion-terms-retrodiction.md` §3
+   * measured on the boolean above.
+   *
+   * `NO_DISCOUNT` (all endpoints 1) unless a `dodge` option was supplied, so
+   * this field is inert by default and every number already published is
+   * reproduced bit for bit without it. `weightAtRiskNear` is multiplied by
+   * `mean` and by no other endpoint: see `DodgeInterval.mean` for why reading
+   * `best` would be a second free lunch rather than a discount.
+   *
+   * `weightAtRisk` — the WINDOW endpoint — is deliberately NOT discounted.
+   * Past the first step the collector has moved and the model cannot generate
+   * its move set, so the chain's later factors are 1 by default
+   * (`chainedDiscount`) and the window reading keeps exactly the meaning and
+   * the value it has today. The bracket does not narrow; it stops being two
+   * booleans and becomes a boolean and a probability.
+   */
+  readonly nearDiscount: DodgeInterval;
   /**
    * The ally gain the engine CANCELS if the collector collides while
    * vulnerable — the buff-expiry coupling above. Equal to the gain when
@@ -164,6 +185,23 @@ export interface PotionSeekOptions {
    * behind.
    */
   readonly maxTravelTurns?: number;
+  /**
+   * THE DODGE DISCOUNT, OFF BY DEFAULT AND ADDITIVE WHEN ON.
+   *
+   * Absent — and it is absent on every path in the repository — nothing
+   * changes: `nearDiscount` is `NO_DISCOUNT`, `weightAtRiskNear` is the
+   * collector's whole weight exactly as before, and no ray is walked. That is
+   * what keeps the measured 57%/27% gain result attached to a term that still
+   * computes it, and it is asserted as a test rather than claimed here.
+   *
+   * Present, the near endpoint is multiplied by `dodgeDiscount(...).mean`,
+   * computed only where `contestedNear` is already true. Pass the replay's or
+   * the board's own `hazardCells`: without them the local move generator
+   * counts hazard cells as escapes and the discount is too generous, which on
+   * the high-hazard boards ruling 22 calls typical is the term's single
+   * largest source of optimism.
+   */
+  readonly dodge?: DodgeDiscountOptions | null;
 }
 
 const unreachable = (
@@ -187,6 +225,7 @@ const unreachable = (
     contested: false,
     weightAtRiskNear: 0,
     contestedNear: false,
+    nearDiscount: NO_DISCOUNT,
     windowAtRisk: 0,
     debuffUntilTurn: turn + windowTurns,
   },
@@ -256,6 +295,22 @@ export function potionSeek(
   }
   contested = contested || contestedNear;
 
+  // ── the dodge discount, and the gate that keeps it free ─────────────────
+  // Computed only where the existing boolean is already true, so on every
+  // board where it would change nothing it costs nothing — and absent the
+  // option it is not computed at all. `origin: potionCell` is the point: the
+  // collector's square after the collection is the potion cell, which is the
+  // one square over the whole window that the model actually knows.
+  let nearDiscount = NO_DISCOUNT;
+  if (contestedNear && options.dodge != null) {
+    nearDiscount = dodgeDiscount(
+      board,
+      collector,
+      { ...options.dodge, turn: collectAtTurn, origin: potionCell, reach },
+      occ
+    ).discount;
+  }
+
   return {
     collectorId: collector.unitId,
     team: collector.team,
@@ -270,8 +325,9 @@ export function potionSeek(
     exposure: {
       weightAtRisk: contested ? collector.weight : 0,
       contested,
-      weightAtRiskNear: contestedNear ? collector.weight : 0,
+      weightAtRiskNear: contestedNear ? collector.weight * nearDiscount.mean : 0,
       contestedNear,
+      nearDiscount,
       windowAtRisk: contested ? allies.total.est : 0,
       debuffUntilTurn: collectAtTurn + windowTurns,
     },
@@ -401,7 +457,12 @@ export function teamHasLiveWindow(board: RayBoard, team: number, turn: number): 
 // ---------------------------------------------------------------------------
 
 export const POTION_SEEK_ENTRY: StrategyEntry = {
-  id: 'eval/potion-seek@1',
+  // @2 rather than @1 BY THE IDENTITY LAW (`../registry.ts`): the params tree
+  // is part of the fingerprint, and `exposure` below now names a second term.
+  // The behaviour without a `dodge` option is bit-for-bit what @1 computed —
+  // which is asserted as a test — but "same numbers today" is not the law's
+  // test; "same structure" is, and the structure grew a discount.
+  id: 'eval/potion-seek@2',
   slot: 'evaluator',
   primitive: 'attack-window+arrival-shells',
   params: {
@@ -411,8 +472,14 @@ export const POTION_SEEK_ENTRY: StrategyEntry = {
     countHeads: false,
     /** Denial belongs to eval/potion-control@1 and is not summed here. */
     countDenial: false,
-    /** The collector's exposure is the worst case, not a survival rate. */
-    exposure: 'worst-case-contest, bracketed by a near reading',
+    /**
+     * The collector's exposure is the worst case, not a survival rate — and
+     * the NEAR endpoint alone is multiplied by the dodge discount when a
+     * caller supplies one. The window endpoint is undiscounted, because past
+     * the first step the collector's move set is not generable.
+     */
+    exposure:
+      'worst-case-contest, near reading dodge-discounted (eval/dodge-discount@1)',
     weight: 0,
   },
   soundness: 'advisory',
