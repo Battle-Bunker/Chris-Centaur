@@ -522,7 +522,14 @@ describe('slab discipline across the search (B1 integration invariant)', () => {
     // the previous slice had just priced.
     const t = trio(ROSTER(6));
     try {
-      const core = makeSearchCore();
+      // DEPTH RATIONED TO ZERO, and the reason is what the test is about. The
+      // claim here is that the SESSION survives between calls, so the second
+      // slice does not re-price what the first already priced. Depth spends
+      // resolutions of its own on every slice by design — it deepens the plan
+      // the slice settled on — and leaving it funded would measure that budget
+      // as if it were a cold rebuild. Its own cost is bounded by its own purse
+      // and is asserted where that purse is.
+      const core = makeSearchCore({ scoutTuning: { plyCap: 0 } });
       core.improve(t.ctx());
       const afterFirst = t.sub.resolutions();
       const incumbent = core.improve(t.ctx());
@@ -533,6 +540,19 @@ describe('slab discipline across the search (B1 integration invariant)', () => {
       core.release?.();
     } finally {
       t.close();
+    }
+    // And with depth funded the session is still warm — the second slice costs
+    // less than the first, which is the property a rebuild would destroy.
+    const warm = trio(ROSTER(6));
+    try {
+      const core = makeSearchCore();
+      core.improve(warm.ctx());
+      const afterFirst = warm.sub.resolutions();
+      core.improve(warm.ctx());
+      expect(warm.sub.resolutions() - afterFirst).toBeLessThan(afterFirst);
+      core.release?.();
+    } finally {
+      warm.close();
     }
   });
 

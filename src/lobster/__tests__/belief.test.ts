@@ -290,6 +290,8 @@ describe('the report folds what the branches carried', () => {
     // Nothing deeper spoke about any of these, so the horizon is a measured 1.
     expect(rep.deepestPlies).toBe(1);
     expect(rep.deepBranches).toBe(0);
+    expect(rep.depthChangedSearchAnswer).toBe(false);
+    expect(rep.depthChangedLeader).toBe(false);
     expect(rep.depthChangedStaging).toBe(false);
   });
 
@@ -309,12 +311,18 @@ describe('the report folds what the branches carried', () => {
       precision: 1,
       plies: 3,
     });
-    const rep = beliefReportOf([near, deepened], deepened, true);
+    const rep = beliefReportOf([near, deepened], deepened, {
+      changedSearchAnswer: true,
+      changedLeader: false,
+    });
     // MEASURED, never a constant: the max over what actually spoke.
     expect(rep.deepestPlies).toBe(3);
     expect(rep.deepBranches).toBe(1);
     expect(rep.provenance['deep-finding']).toBe(1);
-    // The per-decision indicator the depth-effect rate is the mean of.
+    // The per-decision indicator the depth-effect rate is the mean of, and the
+    // two exact halves it is the disjunction of.
+    expect(rep.depthChangedSearchAnswer).toBe(true);
+    expect(rep.depthChangedLeader).toBe(false);
     expect(rep.depthChangedStaging).toBe(true);
   });
 

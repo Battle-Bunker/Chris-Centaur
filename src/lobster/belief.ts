@@ -427,13 +427,31 @@ export interface BeliefReport {
   /** Branches carrying at least one deep observation. */
   readonly deepBranches: number;
   /**
-   * DID DEPTH DECIDE THIS ONE? True when re-running the staging ladder with
-   * every deep observation removed would have staged a DIFFERENT move.
+   * WOULD THE SEARCH HAVE ANSWERED DIFFERENTLY WITH THE DEEP CHANNEL SILENT?
    *
-   * This is the per-decision indicator the depth-effect rate is a mean of, and
-   * it is a counterfactual the kernel computes by re-running the same
-   * comparator over the same rows with the deep channel stripped — not an
-   * inference from "a finding existed".
+   * The search core's own counterfactual: a shadow incumbent maintained under
+   * the shipped ladder over exactly the trial stream this decision generated,
+   * starting from the same seed. Exact about the argmax over that stream;
+   * approximate only in that a depthless search would have generated a
+   * slightly different stream, because the incumbent steers the sweep.
+   */
+  readonly depthChangedSearchAnswer: boolean;
+  /**
+   * WOULD THE STAGER HAVE LED WITH A DIFFERENT ROW?
+   *
+   * The kernel's counterfactual, and this one is exact: the same comparator,
+   * on the same rows, with the belief rung removed. It can only fire where a
+   * deep value actually reached a staging row.
+   */
+  readonly depthChangedLeader: boolean;
+  /**
+   * WAS DEPTH LOAD-BEARING ON THIS DECISION? The disjunction of the two above.
+   *
+   * The per-decision indicator the DEPTH-EFFECT RATE is a mean of. It is
+   * deliberately a disjunction rather than an end-to-end paired run, which is
+   * the one thing a single decision cannot compute about itself: the honest
+   * end-to-end measurement is two decisions on one board, one of them with the
+   * depth ration set to zero, and the acceptance harness runs exactly that.
    */
   readonly depthChangedStaging: boolean;
 }
@@ -442,7 +460,10 @@ export interface BeliefReport {
 export function beliefReportOf(
   posteriors: ReadonlyArray<BranchPosterior>,
   staged: BranchPosterior | null,
-  depthChangedStaging = false
+  depth: { readonly changedSearchAnswer: boolean; readonly changedLeader: boolean } = {
+    changedSearchAnswer: false,
+    changedLeader: false,
+  }
 ): BeliefReport {
   let exact = 0;
   let unbounded = 0;
@@ -472,6 +493,8 @@ export function beliefReportOf(
     deciding: true,
     deepestPlies,
     deepBranches,
-    depthChangedStaging,
+    depthChangedSearchAnswer: depth.changedSearchAnswer,
+    depthChangedLeader: depth.changedLeader,
+    depthChangedStaging: depth.changedSearchAnswer || depth.changedLeader,
   };
 }

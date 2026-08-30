@@ -2303,15 +2303,14 @@ export class LobsterKernel implements Kernel {
       belief: beliefReportOf(
         [...run.plans.values()].map((c) => c.belief),
         stagedBelief,
-        // THE DEPTH-EFFECT INDICATOR, and it is a disjunction of two honest
-        // counterfactuals rather than one. The search core's is the primary:
-        // a shadow incumbent kept under the shipped ladder over the same
-        // trial stream, so "the plan this decision would have returned with
-        // the deep channel silent" is a key comparison. The kernel's is the
-        // staging half: the row the stager would have led with, on the same
-        // rows, with the belief rung removed. Either one moving is a decision
-        // depth changed.
-        run.depthChangedPlan || run.depthChangedLeader,
+        // THE DEPTH-EFFECT INDICATOR, and it is two honest counterfactuals
+        // rather than one. The search core's is a shadow incumbent kept under
+        // the shipped ladder over the same trial stream, from the same seed:
+        // "the plan this decision would have returned with the deep channel
+        // silent". The kernel's is the staging half: the row the stager would
+        // have led with, on the same rows, with the belief rung removed. The
+        // report carries both and their disjunction.
+        { changedSearchAnswer: run.depthChangedPlan, changedLeader: run.depthChangedLeader },
       ),
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,

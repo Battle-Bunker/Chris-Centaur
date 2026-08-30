@@ -27,9 +27,11 @@
       "leverOrderBinding": false,
       "planKeys": [
         "0>38:|1>56:",
-        "0>39:39|1>56:"
+        "0>39:39|1>56:",
+        "0>28:28|1>56:"
       ],
       "planHorizons": [
+        1,
         1,
         1
       ],
@@ -90,9 +92,11 @@
       "leverOrderBinding": false,
       "planKeys": [
         "0>79:79|1>83:83",
-        "0>81:81|1>60:82.71.60"
+        "0>81:81|1>60:82.71.60",
+        "0>79:79|1>60:82.71.60"
       ],
       "planHorizons": [
+        1,
         1,
         1
       ],
@@ -101,7 +105,7 @@
         "ratchet-gap": 0,
         "switch-floor": 0,
         "switch-dominance": 0,
-        "rate": 52,
+        "rate": 70,
         "nonconforming": 0,
         "crossfade": 0,
         "sink": 0,
@@ -160,7 +164,7 @@
         "ratchet-gap": 0,
         "switch-floor": 0,
         "switch-dominance": 0,
-        "rate": 21,
+        "rate": 23,
         "nonconforming": 0,
         "crossfade": 0,
         "sink": 0,

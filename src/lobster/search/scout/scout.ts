@@ -376,9 +376,22 @@ export class Scout {
 
     const offeredRoots = new Set<JointPlan>(req.seeds);
     for (const cluster of req.partition.clusters) {
-      for (const seed of this.seedFamily(cluster.members, req)) {
+      // VARIABLES, NOT MEMBERS, and the difference is not cosmetic. `members`
+      // is the non-slider component; `variables` is `members` union the shared
+      // sliders, which is the set the enumeration actually solves over.
+      //
+      // Reading `members` made the whole layer INERT on an all-slider board:
+      // `partitionOf` emits one cluster with an EMPTY member list and every
+      // slider in `variables`, so a thread opened on `members` carried no unit
+      // at all and the door answered `cluster-extinct` — a refusal that reads
+      // "everything died next turn" about a resolution in which nothing died.
+      // Measured: 9 threads per decision on 30 piece boards, every one of them
+      // refused, zero plies, zero observations, and a report that blamed the
+      // door. Depth was structurally unavailable on every board made of
+      // queens, rooks and bishops.
+      for (const seed of this.seedFamily(cluster.variables, req)) {
         if (!this.purse.canSpend()) break;
-        const key = `${cluster.id}:${threadKey(cluster.members, seed)}`;
+        const key = `${cluster.id}:${threadKey(cluster.variables, seed)}`;
         // A PERTURBATION IS NOT AN OFFER. `seedFamily` invents one-unit
         // variations of the anchor so the first-difference sink has pairs to
         // attribute over; those plans are not in the caller's proposal list,
@@ -390,7 +403,7 @@ export class Scout {
         this.ledger.open({
           key,
           clusterId: cluster.id,
-          cluster: new Set(cluster.members),
+          cluster: new Set(cluster.variables),
           rootPlan: seed,
           rootTurn: req.sub.turn,
           epochBaseline: req.epoch,
@@ -422,6 +435,92 @@ export class Scout {
     this.harvest();
     this.releaseRoots();
     this.partitions.clear();
+  }
+
+
+  /**
+   * DEEPEN A PLAN THE SEARCH IS ACTUALLY HOLDING — the execution semantics of
+   * "go one turn deeper", against the ledger that already exists.
+   *
+   * ── WHY THIS EXISTS, AND WHAT IT FIXES ───────────────────────────────────
+   *
+   * `run` roots its threads at the ENUMERATION'S PROPOSALS, because those are
+   * the plans it has in hand when the session opens. That was enough to make
+   * depth produce values and not enough to make it decide anything, and the
+   * measurement says so plainly: on 30 piece boards at a one-second budget,
+   * depth published observations on every one of them and changed the staged
+   * move on none, because the plans the search actually COMPARES are the
+   * sweep's one-unit neighbours of its own incumbent and no proposal is ever
+   * one of them.
+   *
+   * A value nobody compares against is not a value. So the search calls this
+   * at the end of every slice with the plan it settled on, and the next
+   * slice's comparisons have a deep reading on the side every comparison
+   * shares — the incumbent. That is the whole of "deepen(planKey)": open or
+   * extend the thread rooted at that plan by one turn, priced out of the same
+   * purse, against the same ledger.
+   *
+   * ── WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────
+   *
+   * No perturbations: `run`'s seed family invents one-unit variations so the
+   * first-difference sink has pairs to attribute over, and that is a
+   * GENERATOR'S job. This is not generating candidates, it is pricing one the
+   * search chose, so it opens exactly the threads it was asked for.
+   *
+   * It deepens ONLY the threads it opens here, and releases only their roots.
+   * Re-driving the whole ledger would restart continuations the previous call
+   * released, which would push a second ply-1 onto a thread that already has
+   * one and make every depth number a lie about its own line.
+   */
+  extend(req: ScoutRequest): void {
+    if (req.partition.clusters.length === 0 || req.seeds.length === 0) return;
+    if (!this.purse.canSpend()) return;
+    this.gate = null;
+    const opened: string[] = [];
+    for (const cluster of req.partition.clusters) {
+      for (const seed of req.seeds) {
+        const key = `${cluster.id}:${threadKey(cluster.variables, seed)}`;
+        this.offered.add(key);
+        if (this.ledger.get(key) !== undefined) continue;
+        this.ledger.open({
+          key,
+          clusterId: cluster.id,
+          cluster: new Set(cluster.variables),
+          rootPlan: seed,
+          rootTurn: req.sub.turn,
+          epochBaseline: req.epoch,
+          postureBaseline: req.posture,
+          plies: [],
+          citedUnits: new Set(),
+          accumulation: new Map(),
+          carriedContingent: new Set(),
+          skew: 0,
+          assumptions: [],
+          state: 'live',
+          stepCost: 0,
+        });
+        opened.push(key);
+      }
+    }
+    for (const key of opened) {
+      const entry = this.ledger.get(key);
+      if (entry === undefined) continue;
+      while (
+        this.purse.canSpend() &&
+        entry.state === 'live' &&
+        depthOf(entry) < this.tuning.depthMax
+      ) {
+        const before = depthOf(entry);
+        this.deepen(entry, req);
+        if (depthOf(entry) === before) break;
+        const verdict = shouldPark(entry, this.tuning, this.purse);
+        if (verdict.park) {
+          this.ledger.park(entry, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');
+        }
+      }
+    }
+    this.harvest();
+    this.releaseRootsFor(opened);
   }
 
   /**
@@ -889,6 +988,19 @@ export class Scout {
       if (a > b || (a === b && prior.delta <= delta)) return;
     }
     this.findings.set(key, { unitId: c.unitId, to: c.to, delta, note });
+  }
+
+  /** Release the continuation roots of named threads only. A thread whose root
+   *  is gone restarts from ply 1 on its next deepen, which is correct exactly
+   *  when it has not published a ply yet — so only `extend`'s own threads are
+   *  released here, and `releaseRoots` still clears everything at a decision's
+   *  end. */
+  private releaseRootsFor(keys: ReadonlyArray<string>): void {
+    for (const key of keys) {
+      this.roots.get(key)?.release();
+      this.roots.delete(key);
+      this.lines.delete(key);
+    }
   }
 
   private releaseRoots(): void {

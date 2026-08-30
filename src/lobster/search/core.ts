@@ -509,6 +509,15 @@ interface Session {
    */
   readonly deep: Map<string, DeepObservation>;
   /**
+   * `planKey` -> whether the depth table has anything to say about it.
+   *
+   * `better()` is called thousands of times per decision against a handful of
+   * distinct plans, so the lookup is memoised. Cleared whenever the table
+   * itself moves — a cached "nothing known" is a stale answer to a question
+   * that has changed.
+   */
+  readonly deepCache: Map<string, DeepObservation | null>;
+  /**
    * THE COUNTERFACTUAL INCUMBENT — what this session would be holding if no
    * deep observation had ever spoken.
    *
@@ -739,6 +748,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       cluster: null,
       scout: new Scout(cfg.scoutTuning),
       deep: new Map<string, DeepObservation>(),
+      deepCache: new Map<string, DeepObservation | null>(),
       shadow: null,
       held: null,
     };
@@ -1009,6 +1019,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // canonical order the scout publishes in makes even a collision
       // deterministic.
       for (const obs of s.scout.deepObservations()) s.deep.set(planKey(obs.root), obs);
+      s.deepCache.clear();
     }
     // DOOR C'S SCOPE — the units this decision has already paid an exact joint
     // solve for, and the only ones the territory refiner may spend on.
@@ -1518,11 +1529,22 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    *     A `mu` assembled from nothing but `(lo, hi, est)` carries nothing
    *     those three do not already carry, and ordering by it would be churn.
    */
+  const deepFor = (r: BankResult): DeepObservation | undefined => {
+    const s = acceptingFor;
+    if (s === null || s.deep.size === 0) return undefined;
+    const key = planKey(r.plan);
+    const cached = s.deepCache.get(key);
+    if (cached !== undefined) return cached ?? undefined;
+    const found = s.deep.get(key) ?? null;
+    s.deepCache.set(key, found);
+    return found ?? undefined;
+  };
+
   const depthRung = (trial: BankResult, incumbent: BankResult): boolean | null => {
-    const table = acceptingFor?.deep;
-    if (table === undefined || table.size === 0) return null;
-    const a = table.get(planKey(trial.plan));
-    const b = table.get(planKey(incumbent.plan));
+    const s = acceptingFor;
+    if (s === null || s.deep.size === 0) return null;
+    const a = deepFor(trial);
+    const b = deepFor(incumbent);
     if (a === undefined && b === undefined) return null;
     // The incumbent's own sound dominance. The trial's was checked by the
     // witness veto before this rung is reached.
@@ -2016,6 +2038,41 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   // ---------------------------------------------------------------- improve
 
+
+  /**
+   * OPEN A THREAD ON THE PLAN THE SEARCH IS HOLDING, and publish its value.
+   *
+   * Cheap by construction and bounded three ways: the scout's purse is a tithe
+   * of the decision and is spent in resolution-equivalents; a plan already
+   * threaded is a ledger hit and costs nothing; and no perturbations are
+   * generated, so it opens exactly one thread per cluster.
+   *
+   * Null-safe on every path this can be reached from — no partition, no door,
+   * a substrate that is not the engine's — because this is a value trade and a
+   * throw here would cost a decision.
+   */
+  const deepenHeld = (s: Session, ctx: SearchContext, plan: JointPlan): void => {
+    const scout = s.scout;
+    const cluster = s.cluster;
+    if (scout === null || cluster === null || !(s.sub instanceof EngineSubstrate)) return;
+    scout.extend({
+      sub: s.sub,
+      asTeam: ctx.asTeam,
+      gen: ctx.gen,
+      partition: cluster.partition,
+      sets: s.sets,
+      seeds: [plan],
+      epoch: 0,
+      posture: postureOf(ctx),
+      decisionMs: 0,
+      kingUnits: kingUnitsOf(s),
+    });
+    for (const obs of scout.deepObservations()) s.deep.set(planKey(obs.root), obs);
+    // The value channel moved, so a cached "this plan has no deep reading" is
+    // now a stale answer to a question that has changed.
+    s.deepCache.clear();
+  };
+
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
     acceptingFor = s;
@@ -2044,6 +2101,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // inside a slice (arch-s1 correction 7, in its selection-layer form).
       s.sampler?.beginRound(ctx.budget.decisionFraction?.() ?? 1);
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null, ctx.budget));
+      // THE COUNTERFACTUAL STARTS WHERE THE REAL SEARCH STARTS. The seed is
+      // never offered to `better` as a trial — it IS the incumbent — so a
+      // shadow that only saw trials would be comparing "the best trial" against
+      // "the seed, if the seed won", and would report a difference on every
+      // decision the seed carried. Feeding it here makes the two searches share
+      // an origin, which is the whole of what makes the comparison mean
+      // anything.
+      trackShadow(best);
       // A witness admitted since the last slice makes a fresh B2 branch of
       // every plan priced after it, so every clean mark is stale. Once per
       // call, before anything is skipped.
@@ -2091,6 +2156,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           if (!restarted) break;
         }
       }
+      // ---- DEEPEN WHAT THE SLICE SETTLED ON ------------------------------
+      //
+      // The incumbent is the plan every comparison in the NEXT slice is made
+      // against, so it is the one place a deep reading buys the most. This is
+      // the execution semantics of "deepen(planKey)" — the lever the depth
+      // diagnosis named as missing — in the smallest form that actually
+      // changes a decision: one plan, out of the same purse, against the same
+      // thread ledger. Done at the END of the slice so it is priced from what
+      // the slice concluded rather than from what it started with.
+      deepenHeld(s, ctx, best.plan);
       speculate(s, best, sliceMs);
       s.held = best;
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
