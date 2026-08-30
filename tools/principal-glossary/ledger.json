@@ -219,6 +219,19 @@
           ]
         },
         {
+          "term": "AlphaZero",
+          "state": "defined",
+          "gloss": "the reference MCTS variant whose selection bonus is multiplied by a cheap prior so promising unexplored branches get served first.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
           "term": "anytime kernel",
           "state": "defined",
           "gloss": "the evaluator that can be stopped at any moment and still return its best-so-far answer.",
@@ -725,6 +738,19 @@
               "to": "native",
               "quote": "data-layout improvements",
               "where": "owner directive 0d, synthesis-pins.md:47"
+            }
+          ]
+        },
+        {
+          "term": "depth-effect rate",
+          "state": "defined",
+          "gloss": "the fraction of decisions where deep (2+ turn) information changed the staged move; the continuously tested depth metric.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
             }
           ]
         },
@@ -2342,6 +2368,19 @@
           ]
         },
         {
+          "term": "Thompson sampling",
+          "state": "defined",
+          "gloss": "allocation by drawing one sample from each branch's belief and spending the next slice on the argmax; randomized, with exploration carried by belief width.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
           "term": "thread world",
           "state": "internal",
           "gloss": "one parallel unit of search work.",
@@ -2416,6 +2455,19 @@
           "everCorrected": true,
           "redefineOnNextUse": true,
           "note": "Defined ONLY as the two-word phrase \"trail unit\". Bare \"trail\" remains CORRECTED. Because this term was born out of a correction, a reminder clause is owed on every use — the checker raises it as a NOTE."
+        },
+        {
+          "term": "UCB",
+          "state": "defined",
+          "gloss": "upper confidence bound: MCTS's selection rule — average value found + c*sqrt(ln parent-visits / branch-visits); c is the explicit exploration/exploitation exchange rate.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
         },
         {
           "term": "uncertainty clouds",
