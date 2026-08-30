@@ -259,7 +259,7 @@
         },
         {
           "term": "arm",
-          "state": "internal",
+          "state": "defined",
           "gloss": "one contender in a paired comparison. The OWNER-facing word is \"contender\" or \"version\".",
           "evidence": [
             {
@@ -267,6 +267,12 @@
               "to": "internal",
               "quote": null,
               "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "dof-owner-summary 2026-08-30 (defined in place; debt recorded by coordinator)"
             }
           ]
         },

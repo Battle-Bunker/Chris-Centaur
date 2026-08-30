@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-173 terms tracked: **4** corrected, **52** internal, **49** defined, **68** native.
+173 terms tracked: **4** corrected, **51** internal, **50** defined, **68** native.
 
 > **Evidence quality.** 47 of the 68 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -68,13 +68,11 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>evidence (quoted): "what does 'trail' mean? this is new terminology"</sub>
   <br><sub>history: 2026-08-27 → internal; 2026-08-28 → corrected</sub>
 
-### INTERNAL — code / agent-report jargon, NEVER briefed (52)
+### INTERNAL — code / agent-report jargon, NEVER briefed (51)
 
 > Define inline at first use — in the sentence that uses it, not in a glossary appendix — and record the definition event in the ledger in the same work cycle. Or say it in native words instead.
 
 - **arity** — how many branches a unit contributes to a joint move (a queen ~ 3 snakes of arity).
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **arm** — one contender in a paired comparison. The OWNER-facing word is "contender" or "version".
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **assertProfileCoherent** — the guard that a weight table and its invoked features agree.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
@@ -177,7 +175,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (49)
+### DEFINED — we defined it for them, on a date, somewhere (50)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -189,6 +187,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **anytime kernel** — the evaluator that can be stopped at any moment and still return its best-so-far answer.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **arm** — one contender in a paired comparison. The OWNER-facing word is "contender" or "version".
+  <br><sub>2026-08-30 · dof-owner-summary 2026-08-30 (defined in place; debt recorded by coordinator)</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-30 → defined</sub>
 - **AssemblyScript** — a small statically-typed language wearing TypeScript syntax that compiles to WASM; NOT TypeScript — no JS object interop, flat typed memory. What the two kernels are written in.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **block** — one (cell, seed) pair, run as three games with the arms rotated across seats.
