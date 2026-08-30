@@ -255,13 +255,36 @@ re-running batch 1 against the ORIGINAL pre-teardown bundles, which do still
 read those variables. It stamps `legacyEnv: true` on the arm and the batch
 manifest prints a warning. Say so in `--note`.
 
-**STILL FLAGS, pending the search-layer teardown:** `CENTAUR_CLUSTER_SEED`,
-`CENTAUR_MULTISTART_SEED`, `CENTAUR_EDGE_EV`, `CENTAUR_CLUSTER_ENUM`,
-`CENTAUR_SAMPLED_CAP`, `CENTAUR_SCOUT`. These are still environment variables
-and still carry the old trap: **they parse only `1`, `on`, `true`**, with no
-validation warning and no `off` keyword — every other value, including `yes` or
-`ON`, is silently off. Set their off arm by **omitting** the variable, and
-check `envAtRun` in the batch manifest afterwards.
+**THE SEARCH-LAYER TEARDOWN HAS LANDED TOO (20260830) — there are no flags
+left.** The paragraph that used to stand here listed six "still flags" and is
+superseded. Nothing on `claude/cluster-lookahead` reads `process.env` in a
+decision, and the `1|on|true` trap no longer exists because there is no parser
+left to trap anyone.
+
+| gone flag | what happened to it |
+|---|---|
+| `CENTAUR_CLUSTER_ENUM` | **DELETED, no replacement and no off switch.** The cluster partition and the exact enumeration are unconditional machinery. `botConfigFromJson` refuses a `clusterEnum` field by name |
+| `CENTAUR_SCOUT` | **DELETED, and `ScoutMode` with it.** The deep layer always runs and its readings land in the branch's belief. What a bot configures is depth's RATION: `bot={"depth":{"plyCap":0}}` is the depthless arm — the same layer with an empty purse, not a second build |
+| `CENTAUR_EDGE_EV` | config: `bot={"candidates":{"edgeEv":true}}` (plus `candidates.edgeEvTuning`) |
+| `CENTAUR_SAMPLED_CAP` | config: `bot={"sampledCap":true}` |
+| `CENTAUR_MULTISTART_SEED` | config: `bot={"multistartSeed":true}` |
+| `CENTAUR_CLUSTER_SEED` | **DELETED** — the greedy seed, its flag and its tests. It is `live-failed` and the code is now gone |
+
+**This changed batch 2, so pull before you run it.** `P8/P9-joint` is
+**WITHDRAWN** — the enumeration has no off arm in any configuration of the
+shipped engine and its joint partner is deleted code, so neither arm is
+buildable — and its spec file is **pruned** from `tools/learnloop/specs/batch2/`
+by the generator. P11 is respecified as `default` vs `depthless`
+(`bot={"depth":{"plyCap":0}}`); P7F, P9, P10 and P12 carry config-named arms.
+Every generated spec now prints an **ARM CONFIGS** block with the exact `--arm`
+lines to type. The batch is **11 specs, 2,472 games**, and because every
+scheduled spec is a two-arm pair for the first time, that total is exact rather
+than an undercount.
+
+**AN OWNER DECISION IS PENDING AND NOTHING DOWNSTREAM SHOULD PRE-EMPT IT.** The
+depth landing turned the cluster enumeration and the deep layer on by default;
+both are still `probe-passed` and neither has ever been raced live. It is
+recorded verbatim on both ledger rows and rendered in `PROMOTION-STATUS.md`.
 
 ### TERRITORY_SLIDER_PROFILE — selectable, and how
 

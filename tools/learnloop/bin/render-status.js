@@ -55,7 +55,7 @@ for (const f of ledger.flags) {
   const nx = f.nextExperiment;
   w(
     `| \`${f.flag}\` | ${f.stage} | **${BADGE[f.status]}** | \`${f.shipsDefault}\` | ` +
-      `${nx ? `${nx.id}${nx.blockedOn ? ' *(blocked)*' : ''}` : '—'} |`
+      `${nx ? `${nx.id}${nx.withdrawn ? ' *(WITHDRAWN)*' : nx.blockedOn ? ' *(blocked)*' : ''}` : '—'} |`
   );
 }
 w();
@@ -79,6 +79,11 @@ for (const f of ledger.flags) {
   w(`*${f.stage}. ${f.whatItDoes}*`);
   w();
   if (f.perEngineOption) w(`- Per engine: \`${f.perEngineOption}\``);
+  // HOW AN ARM IS SELECTED TODAY. Rendered because a reader who cannot see it
+  // will reach for the flag name in the heading, and the flag name is history:
+  // every row here keeps it as its identity, and `selection` is the only field
+  // that says what actually asks for the thing now.
+  if (f.selection) w(`- **Selected by:** ${f.selection}`);
   if (f.parses) w(`- Parses: ${f.parses}`);
   if (f.requires) w(`- Requires: ${f.requires}`);
   if (f.branch) w(`- Branch: ${f.branch}`);
@@ -167,10 +172,31 @@ for (const f of ledger.flags) {
     w(`**Re-opened by.** ${f.reopenOn}`);
     w();
   }
+  // AN OPEN FINDING AGAINST THIS ROW, QUOTED. It moves no status by
+  // construction — that is what makes it a finding and not a measurement — so
+  // the human view is the only place a reader meets it, and burying it would
+  // make the view agree with itself while disagreeing with the branch.
+  if (f.distillerFinding) {
+    const d = f.distillerFinding;
+    w(`**OPEN FINDING — ${d.recordedBy}**`);
+    w();
+    w('> ' + String(d.verbatim).split('\n').join('\n> '));
+    w();
+    if (d.state) w(d.state);
+    if (d.owedRegardless) {
+      w();
+      w(d.owedRegardless);
+    }
+    w();
+  }
   const nx = f.nextExperiment;
   if (nx) {
     w(`**Next: ${nx.id}.** ${nx.question}`);
     w();
+    if (nx.withdrawn) {
+      w(`- **WITHDRAWN:** ${nx.withdrawn}`);
+      w();
+    }
     if (nx.arms) w(`- Arms: ${nx.arms.map((a) => `\`${a}\``).join(' · ')}`);
     if (nx.cells) w(`- Cells: ${nx.cells.join(', ')} at ${nx.blocks} blocks`);
     if (nx.readsOut) w(`- Reads out: ${nx.readsOut.map((r) => `\`${r}\``).join(', ')}`);

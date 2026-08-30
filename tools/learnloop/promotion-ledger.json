@@ -60,9 +60,9 @@
     ],
     "mirroredFrom": {
       "branch": "claude/cluster-lookahead",
-      "commit": "8b3bcd2",
+      "commit": "88c54ae",
       "rule": "THIS IS A VERBATIM COPY. Edit the ledger on claude/cluster-lookahead and re-copy the whole tools/learnloop/ directory here; never the other way round. A divergence is resolved by re-copying, not by merging — one of the two is the record and the other is a convenience.",
-      "state": "CURRENT — no divergence. Copied verbatim from claude/cluster-lookahead @ 8b3bcd2, which CORRECTS P11. WHAT THIS CHANGES FOR THE LOCAL SESSION, and it changes what you run: EVERY P11 CONTENDER NOW CARRIES CENTAUR_CLUSTER_ENUM=on, THE BASE INCLUDED — `enum-on` / `enum-on+scout-observe` / `enum-on+scout-advise`, where the spec used to say `off` / `scout-observe` / `scout-advise`. PULL BEFORE YOU RUN BATCH 2: a stale p11-scout.json would have you race three IDENTICAL builds. The reason is a dependency that was true in the code and written down nowhere. `scout.run` has exactly one call site and it is inside `openCluster`, below the cluster-enumeration gate, because the scout's threads are seeded from the enumeration's own proposals — so CENTAUR_SCOUT with CENTAUR_CLUSTER_ENUM off does NOTHING AT ALL. Measured on one board: enum off -> threads=0 plies=0 findings=0; enum on -> threads=7 plies=21 findings=3. As specified, P11 would have measured a null about the harness and filed it against the scout, and P4R and the whole ply-2 programme are recorded as blocked on P11. This is the same shape as P10, whose base arm has been `enum-on` from the start for the same reason; CENTAUR_SCOUT's ledger row now carries CL5's own line, `Requires: CENTAUR_CLUSTER_ENUM on`. HOW TO CHECK IT ACTUALLY RAN: read the RESOLVED flag stamp on the per-game rows, and read `ScoutReport.gatedBy` — a new field on the CL7 mechanism block, added in the same pass on the engine branch. It is null when the scout was reached and names the gate when it was not, so \"never ran\" can no longer be mistaken for \"ran and found nothing\" on any arm. NOTHING ELSE IN THE BATCH MOVED: still 12 specs and 2,760 games, every other spec byte-identical, same cells and same seeds. P-LIST.json changes only in P11's three arm names. NO STATUS MOVED, NO MEASUREMENT ROW WAS ADDED, NO VERDICT CHANGED. ALSO ON THE ENGINE BRANCH IN THE SAME PASS, and it does not travel with this directory because it is code under src/: two scout defect repairs — a thread's continuation now follows the line its own max-min PROVED rather than the candidate generator's first heuristic option (it was the wrong line on 109 of 153 continuations measured), and the `gatedBy` field above. Both are inside a flag that ships off, so no shipped behaviour changed and no bundle you have built behaves differently with the flags off. Copied here in the standing direction, so nothing is owed back."
+      "state": "CURRENT — no divergence. Copied verbatim from claude/cluster-lookahead @ 88c54ae. WHAT THIS CHANGES FOR THE LOCAL SESSION, and it changes what you run: THE SEARCH-LAYER TEARDOWN HAS LANDED AND THERE ARE NO FEATURE FLAGS LEFT ANYWHERE. CENTAUR_CLUSTER_ENUM and CENTAUR_SCOUT were DELETED OUTRIGHT, not moved to config — the cluster enumeration and the deep layer are unconditional machinery, and what a bot configures is depth's RATION (BotConfig.depth; the depthless arm is bot={\"depth\":{\"plyCap\":0}}). CENTAUR_EDGE_EV, CENTAUR_SAMPLED_CAP and CENTAUR_MULTISTART_SEED are BotConfig fields defaulting off. PULL BEFORE YOU RUN BATCH 2. P8/P9-joint is WITHDRAWN — neither arm can be built out of any current bundle — and ITS SPEC FILE IS PRUNED from specs/batch2/, because the generator now deletes any spec it no longer emits and you run the directory rather than the P-list. P11 is respecified as `default` vs `depthless` and IS THE LIVE PAIRED SWEEP THE DEPTH LANDING OWES. P7F, P9, P10 and P12 carry config-named arms; P9 and P10 each lost a third arm that existed only to carry the enumeration. Every generated spec now prints an ARM CONFIGS block with the exact --arm lines to type. THE BATCH IS 11 SPECS / 2,472 GAMES (was 12 / 2,760), and because every scheduled spec is a two-arm pair for the first time that total is exact rather than an undercount. Cells and seeds are untouched everywhere; n0-aa-null still floors the same five cells. NO STATUS MOVED, NO MEASUREMENT ROW WAS ADDED OR EDITED, NO VERDICT CHANGED. AN OWNER DECISION IS PENDING AND NOTHING DOWNSTREAM MAY PRE-EMPT IT: the depth landing turned the enumeration and the deep layer on by default while both are still probe-passed and neither has been raced live; the finding is quoted verbatim on both rows and rendered in PROMOTION-STATUS.md. ALSO ADOPTED HOME-WARD IN THIS PASS: the potions-ON cell default and its three guards, which had been edited on this mirror rather than on the record. Home now carries them, so the two copies are byte-identical as code again and nothing is owed back."
     }
   },
   "seededAt": "2026-08-28",
@@ -2310,9 +2310,9 @@
     {
       "flag": "CENTAUR_UNIT_FATALITY",
       "stage": "CL1",
-      "perEngineOption": "TeamDecisionOptions.unitFatality",
+      "perEngineOption": "TeamDecisionOptions.unitFatality — REMOVED with the flag; `BotConfig.candidates.unitFatality` replaces it.",
       "shipsDefault": "off",
-      "parses": "1|on|true only",
+      "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean candidate knob; a non-boolean throws.",
       "whatItDoes": "Rung-0 per-unit fatality classifier (candidates.ts), with the forced-sibling collapse.",
       "status": "live-null",
       "selection": "BotConfig.candidates.unitFatality (src/lobster/bot-config.ts, default false). Was CENTAUR_UNIT_FATALITY; the env reader is deleted. A contender names it as data, and a bad value is a refusal rather than the silent off the flag gave.",
@@ -2511,8 +2511,8 @@
         "id": "P7F",
         "question": "Does the classifier buy fatal-staging reduction on PIECE boards when the seed is off — i.e. is it promotable independently of the flag that failed?",
         "arms": [
-          "off",
-          "fatality-on"
+          "default",
+          "unit-fatality"
         ],
         "cells": [
           "headline-mix-king",
@@ -2525,18 +2525,27 @@
           "deathsTeammate",
           "unstagedRate",
           "score"
-        ]
+        ],
+        "designNote": "ARM NAMES RESPECIFIED 20260830 for post-teardown selection: `default` is the shipped bot and `unit-fatality` is `bot={\"candidates\":{\"unitFatality\":true}}`. The old `off`/`fatality-on` named an environment variable that no longer exists.",
+        "armConfigs": {
+          "default": null,
+          "unit-fatality": {
+            "candidates": {
+              "unitFatality": true
+            }
+          }
+        }
       }
     },
     {
       "flag": "CENTAUR_EDGE_EV",
       "stage": "CL2",
-      "perEngineOption": "TeamDecisionOptions.edgeEv",
+      "perEngineOption": "TeamDecisionOptions.edgeEv — REMOVED with the flag; `BotConfig.candidates.edgeEv` replaces it.",
       "shipsDefault": "off",
-      "parses": "1|on|true only",
+      "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean candidate knob; a non-boolean throws.",
       "whatItDoes": "Rung-1/2 edge-EV ordering pass; one composed EV in one slot, below every material-class key and above healthSpent.",
       "status": "probe-passed",
-      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it. Destined for CandidateKnobs.edgeEv, reachable as BotConfig.candidates.edgeEv.",
+      "selection": "BotConfig.candidates.edgeEv (a `CandidateKnobs` field, src/lobster/candidates.ts), default FALSE, with `candidates.edgeEvTuning` carrying the pass's own knobs. Was CENTAUR_EDGE_EV; the env reader is deleted and the search-layer teardown finished the move the old TODO promised. An arm is `bot={\"candidates\":{\"edgeEv\":true}}`. It orders candidates and never changes a bound, which is the seam rule's own test for configuration rather than kernel.",
       "promotionMetrics": [
         {
           "name": "uncontestedMealsStaged",
@@ -2587,8 +2596,8 @@
         "id": "P12",
         "question": "On piece-bearing boards, does the EV's staged-eat gain survive into eaten meals and placement, or is the 84 -> 81 shortfall real?",
         "arms": [
-          "off",
-          "edgeev-on"
+          "default",
+          "edge-ev"
         ],
         "cells": [
           "headline-mix-king",
@@ -2601,18 +2610,27 @@
           "finalMaterial",
           "score"
         ],
-        "scopeNote": "PIECE BOARDS ONLY for the claim; null-snake6 rides along as the provably-inert cell (CL2 section 7.5)."
+        "scopeNote": "PIECE BOARDS ONLY for the claim; null-snake6 rides along as the provably-inert cell (CL2 section 7.5).",
+        "designNote": "RESPECIFIED 20260830 for arm SELECTION only — the experiment is unchanged. Two contenders, both post-teardown bundles: `default`, and `edge-ev` = `bot={\"candidates\":{\"edgeEv\":true}}`. The old `off`/`edgeev-on` names described an environment variable that no longer exists, and an arm that exported it would play the shipped bot under a treatment's name.",
+        "armConfigs": {
+          "default": null,
+          "edge-ev": {
+            "candidates": {
+              "edgeEv": true
+            }
+          }
+        }
       }
     },
     {
       "flag": "CENTAUR_CLUSTER_ENUM",
       "stage": "CL3",
-      "perEngineOption": "TeamDecisionOptions.clusterEnum",
+      "perEngineOption": "TeamDecisionOptions.clusterEnum — REMOVED with the flag.",
       "shipsDefault": "off",
-      "parses": "1|on|true only",
+      "parses": "NOT PARSED ANY MORE — the reader is deleted, and nothing in a decision reads process.env on this branch. Setting CENTAUR_CLUSTER_ENUM in an arm's environment does nothing at all.",
       "whatItDoes": "Cluster partition of the residual interaction graph plus exact small-cluster enumeration; proposals the price adjudicates.",
       "status": "probe-passed",
-      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it.",
+      "selection": "NOT SELECTABLE — THERE IS NO SWITCH, IN EITHER DIRECTION. The search-layer teardown deleted CENTAUR_CLUSTER_ENUM and every reader of it. The cluster partition of the residual interaction graph and the exact small-cluster enumeration are now ALWAYS-BUILT MACHINERY, on the registry's seam rule — if it can change a sound bound it is kernel, if it can only change order or spend it is configurable (src/lobster/bot-config.ts, \"NOT IN: MACHINERY\"). What a bot configures is DEPTH'S RATION (`BotConfig.depth`), never the enumeration's existence, expressly because a switch on the enumeration was a silent switch on depth as well. `botConfigFromJson` refuses a `clusterEnum` field by name, so an arm that names it is a hard error rather than the silent A/A the flag would have given.",
       "promotionMetrics": [
         {
           "name": "fatalStagings",
@@ -2674,38 +2692,25 @@
       "verdict": "The strongest deterministic case on the branch. Never raced live.",
       "nextExperiment": {
         "id": "P8/P9-joint",
-        "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts?",
-        "arms": [
-          "off",
-          "enum-on",
-          "enum-on+seed-graded"
-        ],
-        "cells": [
-          "headline-mix-king",
-          "snake5-knight",
-          "null-snake6"
-        ],
-        "blocks": 16,
-        "readsOut": [
-          "clusterJoints",
-          "clusterEnumMs",
-          "deathsSelf",
-          "deathsTeammate",
-          "worstWallMs",
-          "score"
-        ],
-        "designNote": "RACE THE JOINT ARM, not only singles: graded+enum is the only arm at zero fatal stagings everywhere in the deterministic probes, and CL1xCL3 interact in a way neither solo arm can see. But CENTAUR_CLUSTER_SEED is now live-failed, so the joint arm is a DIAGNOSTIC on the seed's failure and not a promotion candidate."
+        "withdrawn": "WITHDRAWN 20260830 BY THE TEARDOWN, NOT BY A RESULT — and withdrawn rather than replaced, because the question it asked no longer exists to be asked. Both halves are unbuildable and for different reasons. (1) The enumeration has no off arm: `off` names a build that was deleted, so an on-vs-off pair cannot be built out of two post-teardown bundles at all. It is not that the arm is hard to express — there is no configuration of the shipped engine in which the enumeration does not run. (2) The joint arm's partner is gone too: CENTAUR_CLUSTER_SEED's greedy seed, flag and tests were deleted in the same teardown, so `enum-on+seed-graded` names two things that no longer exist. Nothing here is a verdict: this row keeps `probe-passed` and keeps its deterministic evidence, which stands as measured. AND THIS DOES NOT RESOLVE THE OPEN FINDING ABOVE — if the owner rules that the two unpromoted features must ship default-OFF until a live sweep promotes them, the off arm becomes expressible as a config field and this experiment is re-specifiable close to as written. That is exactly why it is withdrawn with its reason rather than deleted.",
+        "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts? — UNASKABLE AS WRITTEN: neither arm can be built. See `withdrawn`."
+      },
+      "distillerFinding": {
+        "recordedBy": "distiller pass 2, 2026-08-30. Recorded here VERBATIM and left OPEN: this is a finding about the branch, not a measurement, and it moves nothing.",
+        "verbatim": "P1: depth landing SILENTLY DEFAULTED-ON two never-promoted features (cluster enumeration + deep layer; both were probe-only/off; with enum off the search was byte-identical to shipped). This — not depth — moved the frozen replay comparison and cost the lottery fatal-staging gate its headroom (commit isolates it: plyCap 0 reproduces). PROMOTION-STATUS stale (still probe-only/off); P8/P9/P10/P11 batch-2 arms reference the deleted switch = UNBUILDABLE. OWNER DECISION POSED: default bot carries the two unpromoted features while the live sweep is owed, or default-off config until the sweep promotes them.",
+        "state": "OPEN — AN OWNER DECISION, AND NOBODY IN THE REPAIR CHAIN MAY TAKE IT. This row's `status` is deliberately untouched: the feature is still `probe-passed`, has never been raced live, and now runs in the shipped bot by default. That gap between what the ledger says a feature has earned and what the shipped bot does is the finding, and closing it by editing a status here would be the ledger promoting something no sweep promoted. The two options as posed: (a) the default bot keeps carrying both unpromoted features while the live paired sweep is owed, or (b) they become config fields defaulting off until a sweep promotes them. Option (b) is also what makes this row's withdrawn experiment specifiable again — see `nextExperiment`.",
+        "owedRegardless": "THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verified concurrent null may promote anything (lib/ledger.js), and no such measurement exists for either feature. The depth half of it is specified as P11 in CENTAUR_SCOUT's row."
       }
     },
     {
       "flag": "CENTAUR_SAMPLED_CAP",
       "stage": "CL4",
-      "perEngineOption": "TeamDecisionOptions.sampledCap",
+      "perEngineOption": "TeamDecisionOptions.sampledCap — REMOVED with the flag; `BotConfig.sampledCap` replaces it.",
       "shipsDefault": "off",
-      "parses": "1|on|true only",
+      "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean config field; a non-boolean throws.",
       "whatItDoes": "Seeded weighted candidate sampling where a cap binds: the cap becomes a sample, Gumbel-top-k returns a permutation.",
       "status": "probe-passed",
-      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it.",
+      "selection": "BotConfig.sampledCap (src/lobster/bot-config.ts), default FALSE — the shipped bot does not take the lottery. Was CENTAUR_SAMPLED_CAP; the env reader is deleted. An arm is `bot={\"sampledCap\":true}`, declared as data on the contender, and a misspelling is a refusal from `botConfigFromJson` rather than the silent off the flag gave. This is a STRATEGY ALTERNATIVE — the same NUMBER of options is tried and WHICH ones is a Gumbel-top-k draw over the same priors — so it became a config field rather than machinery or a deletion.",
       "promotionMetrics": [
         {
           "name": "selectionFar",
@@ -2763,9 +2768,8 @@
         "id": "P9",
         "question": "Do far-priced options pay on piece boards at 2000 ms, and does the same-seed replay stay byte-identical across the batch?",
         "arms": [
-          "off",
-          "sampledcap-on",
-          "sampledcap-on+enum-on"
+          "default",
+          "sampled-cap"
         ],
         "cells": [
           "headline-mix-king",
@@ -2780,16 +2784,22 @@
           "score",
           "finalMaterial"
         ],
-        "designNote": "RACE JOINTLY WITH clusterEnum: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. The harness can assert the determinism gate directly — same matchSeed and same board must replay bit-identically."
+        "designNote": "RESPECIFIED 20260830: THE JOINT ARM IS GONE BECAUSE ITS PARTNER IS UNCONDITIONAL. The old third arm existed because CL3's dirty set cannot mark clean under a sampled cap, so the singles arm did not describe the shipped combination. The enumeration now runs in every bundle, so `sampled-cap` against `default` already carries that interaction and a third arm would buy a duplicate. Two contenders, both post-teardown bundles, differing only by `bot={\"sampledCap\":true}`. The determinism gate is unchanged and the harness can still assert it directly: same matchSeed and same board must replay bit-identically.",
+        "armConfigs": {
+          "default": null,
+          "sampled-cap": {
+            "sampledCap": true
+          }
+        }
       }
     },
     {
       "flag": "CENTAUR_TERRITORY_REFINE",
       "stage": "CL5",
-      "perEngineOption": "TeamDecisionOptions.territoryRefine",
+      "perEngineOption": "TeamDecisionOptions.territoryRefine — REMOVED with the flag; `BotConfig.territoryRefine` replaces it.",
       "shipsDefault": "off",
-      "parses": "1|on|true only",
-      "requires": "CENTAUR_CLUSTER_ENUM on",
+      "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean config field; a non-boolean throws.",
+      "requires": "NOTHING TO REQUIRE ANY MORE. `Requires: CENTAUR_CLUSTER_ENUM on` named a gate that no longer exists — the enumeration the refiner needs is unconditional machinery in every bundle, so the base arm is simply the shipped bot.",
       "whatItDoes": "Door C: re-sweeps the two-plane partition with held units' floods stopped at cells our enumerated units certainly occupy; publishes the MEET at the same basis.",
       "status": "probe-passed",
       "selection": "BotConfig.territoryRefine (src/lobster/bot-config.ts, default false). Was CENTAUR_TERRITORY_REFINE; the env reader is deleted and DEFAULT_TERRITORY_REFINE carries the shipped value. A STRATEGY ALTERNATIVE, so it became config rather than a correction or a deletion.",
@@ -2840,8 +2850,8 @@
         "id": "P10",
         "question": "Does a floor that is 1-2 cells tighter on a quarter of emissions pay for a third more territory time, at equal wall clock?",
         "arms": [
-          "enum-on",
-          "enum-on+refine-on"
+          "default",
+          "refiner"
         ],
         "cells": [
           "headline-mix-king",
@@ -2856,19 +2866,25 @@
           "decisions",
           "score"
         ],
-        "designNote": "The BASE arm must be enum-on, not off: the refiner requires the enumeration, so an off-vs-refine pair measures their sum. A cell that never exercises a held teammate will never move the `hi` channel — build the arm knowing that."
+        "designNote": "RESPECIFIED 20260830: the base arm is now the SHIPPED BOT, not `enum-on`. The refiner requires the enumeration and the enumeration is unconditional, so `default` already carries it and an off-vs-refine pair no longer measures their sum. Two contenders, both post-teardown bundles: `default`, and `refiner` = `bot={\"territoryRefine\":true}`. Unchanged from the original spec: a cell that never exercises a held teammate will never move the `hi` channel — build the arm knowing that.",
+        "armConfigs": {
+          "default": null,
+          "refiner": {
+            "territoryRefine": true
+          }
+        }
       }
     },
     {
       "flag": "CENTAUR_SCOUT",
       "stage": "CL6a",
-      "perEngineOption": "TeamDecisionOptions.scout",
+      "perEngineOption": "TeamDecisionOptions.scout — REMOVED with the flag. The ration reaches the search as `makeSearchCore({ scoutTuning })`, fed from `BotConfig.depth`.",
       "shipsDefault": "off",
-      "parses": "off | observe | advise",
-      "requires": "CENTAUR_CLUSTER_ENUM on",
+      "parses": "NOT PARSED ANY MORE — the reader and the ScoutMode type are deleted. `BotConfig.depth` is a JSON object of ration knobs and a non-object throws.",
+      "requires": "NOTHING TO REQUIRE ANY MORE. `Requires: CENTAUR_CLUSTER_ENUM on` was the dependency that would have made P11 race three identical builds; the enumeration is unconditional now, so a depth-ration arm engages by construction and there is no gate that can silently swallow it. Read engagement off the decision's own report — `belief.deepestPlies > 1` and `belief.deepBranches > 0` on the funded arm, and an honest 1 / 0 on the `plyCap: 0` arm — not off any flag stamp, of which there are none left.",
       "whatItDoes": "Door A: a real EngineSubstrate at ply n+1 built from a ply-n Resolution; thread ledger, parking, advisory ordering only.",
       "status": "probe-passed",
-      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it. Its aggregator half is already registry entry agg/legacy-clamp@1.",
+      "selection": "SELECTABLE ONLY AS A BUDGET, AND THE FLAG'S THREE-WAY CHOICE IS GONE. CENTAUR_SCOUT and its `ScoutMode` (`off | observe | advise`) are deleted. The deep layer is always-built machinery for the same seam reason as the enumeration its threads are rooted in, and its readings are no longer advisory-ordering-only: a deepened line is published into the branch's BELIEF at the precision it earned, and the belief resolves among floor-undominated candidates in `better()` and in the stager. So there is no observe-vs-advise contrast left to race — observe was \"run it and change nothing\", and the layer no longer has that setting. What a bot configures is DEPTH'S RATION: `BotConfig.depth`, a Partial<ScoutTuning> (tithe, reserve, plyCap, the park hysteresis), `DEFAULT_SCOUT_TUNING` when omitted. THE DEPTHLESS ARM IS `bot={\"depth\":{\"plyCap\":0}}` — the same layer with an empty purse, not a second build — and it is the arm every depth-effect rate quoted on this branch is measured against.",
       "promotionMetrics": [
         {
           "name": "scoutThreads",
@@ -2927,16 +2943,16 @@
       ],
       "verdict": "The scout exists and is advisory. Its cost is real (16.8 ms/decision) and its value has never been raced.",
       "prerequisites": [
-        "CENTAUR_TIER_TRUTH=full — measured no-op at ply 1, UNSOUND to omit at ply 2 (I4 re-measure). MET as a floor prerequisite; the flag itself is still default expiry.",
-        "O-P7 blocking-kill threat stamp — LANDED (9b96ca5)."
+        "CENTAUR_TIER_TRUTH=full — MET AND NO LONGER CONDITIONAL: the widening is a correction, went in unconditionally in the teardown, and the flag that gated it is deleted. This is what makes depth available on the potion-bearing boards the door used to refuse, which the owner's ruling says is every real game.",
+        "O-P7 blocking-kill threat stamp — LANDED (9b96ca5).",
+        "THE STRUCTURAL BLOCKER, and it was the whole story: threads opened on `cluster.members` (the non-slider component, empty on an all-slider board) instead of `cluster.variables` (members UNION sliders), so depth was structurally unavailable on every piece-bearing board for the life of the layer. Repaired in the depth landing. Any measurement of this flag taken before that repair is a measurement of a layer that could not run."
       ],
       "nextExperiment": {
         "id": "P11",
-        "question": "At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?",
+        "question": "At 2000 ms, does the depth ration buy placement on the owner's board, and what does it cost the one-turn search that pays for it?",
         "arms": [
-          "enum-on",
-          "enum-on+scout-observe",
-          "enum-on+scout-advise"
+          "default",
+          "depthless"
         ],
         "cells": [
           "headline-mix-king",
@@ -2945,16 +2961,29 @@
         ],
         "blocks": 16,
         "readsOut": [
-          "scoutThreads",
-          "scoutPlies",
-          "postContactPlies",
-          "scoutRefusals",
+          "deepestPlies",
+          "deepBranches",
+          "depthEffectRate",
           "worstWallMs",
           "decisions",
           "score"
         ],
-        "designNote": "The BASE arm must be enum-on, not off, and EVERY contender carries CENTAUR_CLUSTER_ENUM=on: `scout.run` has exactly one call site and it is inside `openCluster`, below the cluster-enumeration gate, because the threads' seeds are the enumeration's own proposals. CENTAUR_SCOUT alone is a silent no-op, so an off/observe/advise triple with the enumeration off is three IDENTICAL builds and its null is a null about the harness filed against the flag. Measured: enum off -> threads=0 plies=0 findings=0; enum on -> threads=7 plies=21 findings=3, same board. Since CL6a's repair the scout report also carries `gatedBy`, which names the gate when the runner was never reached — read it on every arm before reading anything else. Same shape as P10, and for the same reason. Within that base, observe AND advise as separate contenders: observe measures the cost with no behaviour change at all, so observe-vs-base isolates the tithe and advise-vs-observe isolates the advice. One contender carrying both would report their sum. Potion-bearing boards are REFUSED by the door under a potion-free premise and are counted as refusals — expect nonzero scoutRefusals on potion cells, and read it as the honest refusal it is.",
-        "requires": "CENTAUR_CLUSTER_ENUM=on on every contender, including the base. Verify from the RESOLVED flag stamp on the per-game rows and from ScoutReport.gatedBy, not from the environment."
+        "designNote": "RESPECIFIED 20260830 FOR THE POST-TEARDOWN ENGINE, and it is the same question in the new paradigm rather than a new experiment. Two contenders, both the shipped post-teardown bundle, differing only by a named BotConfig: `default` takes DEFAULT_SCOUT_TUNING whole, `depthless` is `bot={\"depth\":{\"plyCap\":0}}`. That pair is the faithful translation of the old off-vs-on, and it is strictly better than what the flag could express: the two arms share every line of evaluator, every bound and every seed, and differ only in how many turns the search was allowed to look. THE OLD THREE-ARM SHAPE IS GONE, deliberately. `enum-on` as a base is meaningless now that the enumeration is unconditional; `observe` was \"run the layer and change nothing\", a setting that no longer exists; and depth is no longer advisory at all — it lands in the belief, so `advise` is simply what the shipped bot does. THIS IS THE LIVE PAIRED SWEEP THE DEPTH LANDING OWES. Deterministic paired probes exist and are not enough by this ledger's founding rule; the deep layer currently runs in the DEFAULT bot while its row still reads `probe-passed`, which is the open finding on this row. NOTE THE DIRECTION OF THE PAIR: `depthless` is the arm that departs from the shipped bot, so a reader must not mistake it for the base. AND READ THE RATE FOR WHAT IT IS: the 30% and 22.5% figures on this branch are DISAGREEMENT rates — how often removing depth would stage a different move — measured on 11x11 two-team piece boards. They are not improvement and they are not the owner's board; src/lobster/__tests__/DEPTH-NUMBERS.md is the committed record of what each figure measures, and the owner-shape rates are measured by the `depth-effect rate at the owner's shape` block of src/lobster/__tests__/depth-acceptance.test.ts.",
+        "requires": "BOTH ARMS FROM POST-TEARDOWN BUNDLES. A pre-teardown bundle has no bot-config module, would ignore `depth` entirely and play the shipped bot under the depthless arm's name — the exact silent A/A that voided P5. `checkContenders` refuses that pairing; do not override it here. Verify engagement from `belief.deepestPlies`/`deepBranches` on the per-game rows.",
+        "armConfigs": {
+          "default": null,
+          "depthless": {
+            "depth": {
+              "plyCap": 0
+            }
+          }
+        }
+      },
+      "distillerFinding": {
+        "recordedBy": "distiller pass 2, 2026-08-30. Recorded here VERBATIM and left OPEN: this is a finding about the branch, not a measurement, and it moves nothing.",
+        "verbatim": "P1: depth landing SILENTLY DEFAULTED-ON two never-promoted features (cluster enumeration + deep layer; both were probe-only/off; with enum off the search was byte-identical to shipped). This — not depth — moved the frozen replay comparison and cost the lottery fatal-staging gate its headroom (commit isolates it: plyCap 0 reproduces). PROMOTION-STATUS stale (still probe-only/off); P8/P9/P10/P11 batch-2 arms reference the deleted switch = UNBUILDABLE. OWNER DECISION POSED: default bot carries the two unpromoted features while the live sweep is owed, or default-off config until the sweep promotes them.",
+        "state": "OPEN — AN OWNER DECISION, AND NOBODY IN THE REPAIR CHAIN MAY TAKE IT. This row's `status` is deliberately untouched: the feature is still `probe-passed`, has never been raced live, and now runs in the shipped bot by default. That gap between what the ledger says a feature has earned and what the shipped bot does is the finding, and closing it by editing a status here would be the ledger promoting something no sweep promoted. The two options as posed: (a) the default bot keeps carrying both unpromoted features while the live paired sweep is owed, or (b) they become config fields defaulting off until a sweep promotes them. Option (b) is also what makes this row's withdrawn experiment specifiable again — see `nextExperiment`.",
+        "owedRegardless": "THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verified concurrent null may promote anything (lib/ledger.js), and no such measurement exists for either feature. The depth half of it is specified as P11 in CENTAUR_SCOUT's row."
       }
     },
     {

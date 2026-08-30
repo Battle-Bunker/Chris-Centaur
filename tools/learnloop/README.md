@@ -25,9 +25,11 @@ node tools/learnloop/bin/make-promotion-batch.js --dry
 node tools/learnloop/bin/make-promotion-batch.js --out tools/learnloop/specs/batch2
 
 # A batch came back. Check its null, read its instrument, update the ledger.
+# (`--flag` names the LEDGER ROW, which keeps its historical flag name as its
+#  identity. What SELECTS the arm today is the row's `selection` field.)
 node tools/learnloop/bin/ingest.js --batch results/<batch> \
-     --null nullA,nullB --pair base=treat \
-     --flag CENTAUR_SCOUT --engagement scoutThreads [--write]
+     --null nullA,nullB --pair default=depthless \
+     --flag CENTAUR_SCOUT --engagement deepestPlies [--write]
 
 # Re-render the human view. --check fails if it has drifted from the ledger.
 node tools/learnloop/bin/render-status.js
@@ -135,7 +137,11 @@ any table it prints:
   manifest rows.
 - **The `arch/s2` cohort governor publishes no counter**, so P6's null is
   engagement-unverified by construction.
-- **`ports.env` does not reach the five search-side flags** or the two candidate
-  knobs; they read `process.env` directly. Harmless for the sim harness, which
-  sets process-level environment per bundle. A trap for any in-process paired
-  arm.
+- ~~**`ports.env` does not reach the five search-side flags**~~ — **CLOSED
+  20260830 by the search-layer teardown.** No flag reads `process.env` any
+  more; nothing in a decision reads it at all. An arm is a bundle plus a named
+  `BotConfig`, which is per-engine by construction, so the in-process paired arm
+  this item warned about is now the normal case rather than the trap. The
+  replacement hazard is a different one and is written into every generated
+  spec: a PRE-teardown bundle has no bot-config module, ignores the config
+  entirely and plays the shipped bot under the treatment arm's name.

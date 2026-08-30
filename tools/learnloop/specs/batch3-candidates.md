@@ -14,13 +14,23 @@ reconstruction.
 
 ---
 
-## MS1 — `CENTAUR_MULTISTART_SEED`, flag on vs off
+## MS1 — the multi-start seed, default bot vs `multistartSeed`
 
 *The owner's search-seeding redesign: a literally random safe stage-0 baseline,
 sampled multi-start hill climbing per cluster inside a slice of the decision
 budget, and a weighted-random (softmax) selection among the combos found.
-Built at `src/lobster/search/multistart-seed.ts`; per-engine override
-`TeamDecisionOptions.multistartSeed`; parses `1|on|true` only; default OFF.*
+Built at `src/lobster/search/multistart-seed.ts`.*
+
+**SELECTED BY `BotConfig.multistartSeed` (`src/lobster/bot-config.ts`), default
+`false` — 20260830.** The flag `CENTAUR_MULTISTART_SEED`, the per-engine
+override `TeamDecisionOptions.multistartSeed` and the `1|on|true` parser are
+all deleted; the search-layer teardown moved this to a config field because it
+is a genuine strategy alternative — it changes which starts the climb takes,
+never a sound bound. An arm is `bot={"multistartSeed":true}`, declared as data
+on the contender, and a bad value is a refusal from `botConfigFromJson` rather
+than the silent off the flag gave. Setting the old variable in an arm's
+environment now does **nothing at all**, which would play the shipped bot under
+this candidate's name.
 
 ### Status going in
 
@@ -60,8 +70,12 @@ same failure wearing a new name.
 
 | arm | configuration |
 |---|---|
-| `ms-off` | baseline. Every flag at its shipped default. |
-| `ms-on` | `CENTAUR_MULTISTART_SEED=1` |
+| `default` | the shipped bot, taken whole. |
+| `multistart` | `--arm 'multistart=<bundle>,bot={"multistartSeed":true}'` |
+
+**Both arms must be built from POST-TEARDOWN refs.** A pre-teardown bundle has
+no bot-config module, ignores the config and plays the shipped bot — the silent
+A/A that voided P5. `checkContenders` refuses that pairing.
 
 Two arms, and deliberately not three. The temptation is to carry a `cl-seed`
 arm for contrast; do not. The contrast already exists in P7 at the same cells

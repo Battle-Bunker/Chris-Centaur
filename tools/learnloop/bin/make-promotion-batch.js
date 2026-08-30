@@ -116,6 +116,27 @@ for (const f of L.undecided(ledger)) {
     problems.push(`${f.flag}: status ${f.status} with no nextExperiment — the ledger owes one`);
     continue;
   }
+  // A WITHDRAWN EXPERIMENT IS EMITTED WITH ITS REASON, NEVER DELETED.
+  //
+  // `blockedOn` says "not yet"; `withdrawn` says "not this question, ever, as
+  // written" — the shape a spec takes when the code it named stopped existing.
+  // The batch-2 P8/P9-joint arm is the exhibit: the cluster enumeration's off
+  // arm names a build the search-layer teardown deleted, so the pair cannot be
+  // built out of two current bundles at all. Deleting the row would leave a
+  // future reader unable to tell a question that was ANSWERED from one that
+  // became unaskable, which are different facts about the same flag.
+  if (x.withdrawn) {
+    plist.push({
+      id: x.id,
+      flag: f.flag,
+      status: f.status,
+      scheduled: false,
+      withdrawn: true,
+      reason: x.withdrawn,
+      question: x.question,
+    });
+    continue;
+  }
   if (x.blockedOn || x.priority === 'DEFERRED until the counters exist.') {
     plist.push({
       id: x.id,
@@ -143,17 +164,38 @@ for (const f of L.undecided(ledger)) {
         `QUESTION: ${x.question}`,
         '',
         `ARMS: ${(x.arms ?? []).join('  |  ')}`,
+        // WHAT TO ACTUALLY TYPE. An arm name is a label; the config is the arm.
+        // Printed here so the operator never has to reconstruct one from prose
+        // — the reconstruction is where a mistyped arm becomes a silent A/A.
+        ...(x.armConfigs
+          ? [
+              '',
+              'ARM CONFIGS (both arms from POST-TEARDOWN bundles):',
+              ...Object.entries(x.armConfigs).map(
+                ([name, cfg]) =>
+                  `    --arm '${name}=<bundle>${cfg === null ? '' : `,bot=${JSON.stringify(cfg)}`}'`
+              ),
+            ]
+          : []),
         `READS OUT: ${(x.readsOut ?? []).join(', ')}`,
         ...(x.designNote ? ['', `DESIGN NOTE: ${x.designNote}`] : []),
         ...(x.scopeNote ? ['', `SCOPE: ${x.scopeNote}`] : []),
         ...(x.gate ? ['', `GATE: ${x.gate}`] : []),
         ...(x.requires ? ['', `REQUIRES: ${x.requires}`] : []),
         '',
-        'FLAG-VALUE TRAP: every CL flag parses only `1`, `on` or `true`, with no',
-        'warning on anything else. Set the OFF arm by OMITTING the variable, and',
-        'check the manifest envAtRun block afterwards. Since the CL7 telemetry',
-        'closure the per-game rows also carry the RESOLVED flag stamp, which is',
-        'the value that actually ran — read that, not the environment.',
+        'HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The',
+        'feature flags are gone (owner ruling 20260829; the search-layer half',
+        'landed with the depth work). An arm is a BUNDLE plus a named BotConfig:',
+        '    --arm \'treat=<bundle>,bot={"territoryRefine":true}\'',
+        'or a `contenders` map in the spec. Exporting a CENTAUR_* variable now',
+        'does NOTHING — an arm that sets one plays the shipped bot under a',
+        "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+        'refuses the dead names; a bad config field is a refusal from',
+        'botConfigFromJson rather than a silent off.',
+        'THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no',
+        'bot-config module and ignores the config entirely, so BOTH arms of a',
+        "pair must be built from post-teardown refs. Read the per-game rows'",
+        'mechanism.config stamp — the bot that actually resolved — not the spec.',
         '',
         'Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;',
         're-run make-promotion-batch.js.',
@@ -457,6 +499,24 @@ if (DRY) {
 fs.mkdirSync(outDir, { recursive: true });
 for (const s of specs) {
   fs.writeFileSync(path.join(outDir, `${s.sweepId}.json`), JSON.stringify(s, null, 1) + '\n');
+}
+
+// PRUNE THE SPECS THIS BATCH NO LONGER EMITS.
+//
+// A spec file is an INSTRUCTION to the local session, and the session runs the
+// directory rather than the P-list. A withdrawn experiment whose file survives
+// a regeneration is therefore an instruction to spend a night on arms nobody
+// can build — which is exactly the failure the P8/P9-joint withdrawal exists to
+// prevent. So the directory is the batch, and nothing else in it is a spec.
+{
+  const emitted = new Set(specs.map((s) => `${s.sweepId}.json`));
+  emitted.add('P-LIST.json');
+  emitted.add('README.md');
+  for (const name of fs.readdirSync(outDir)) {
+    if (!name.endsWith('.json') || emitted.has(name)) continue;
+    fs.unlinkSync(path.join(outDir, name));
+    console.log(`pruned ${name} — no longer emitted by the ledger`);
+  }
 }
 fs.writeFileSync(
   path.join(outDir, 'P-LIST.json'),
