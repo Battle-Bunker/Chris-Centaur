@@ -132,6 +132,16 @@ Rotating the API key (calling `createCentaurApiKey` again) invalidates the
 old key for future sign-ins — update `TACTICTOES_CENTAUR_API_KEY` and
 restart.
 
+## Working on the bot — read this first
+
+**[`docs/BRANCHING.md`](docs/BRANCHING.md) is the binding policy for how a change
+reaches the bot** (owner ruling 2026-08-30). Two lanes: a strategy candidate at
+an existing decision joint is a collection member and a normal commit; anything
+that changes which joints exist, how they compose, or what the search may
+conclude gets its own `feature/<name>` branch, is validated by benchmarks plus a
+long-running paired batch, and is then merged. Decide the lane before you decide
+the file.
+
 ## Development
 
 ```bash

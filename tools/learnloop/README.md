@@ -1,8 +1,9 @@
-# learnloop — the promotion ledger and the batch that follows from it
+# learnloop — the validation record and the batch that follows from it
 
 The last stage of the cluster-lookahead ladder is not a feature. It is the loop
-that decides which of the eleven dark flags ever gets turned on, and it is built
-around one finding the program paid for in full:
+that decides which of the eleven merged-but-unselected candidates ever becomes
+what the shipped bot selects, and it is built around one finding the program paid
+for in full:
 
 > `CENTAUR_CLUSTER_SEED` passed its deterministic ship gate outright — fatal
 > stagings 41 → 0, teammate kills 25 → 4 — and then **failed live**: snake6 win
@@ -13,9 +14,29 @@ around one finding the program paid for in full:
 
 So: **a deterministic probe is necessary and never sufficient.** Only a live
 paired sweep, with a concurrent verified null and a treatment arm whose
-engagement is *shown*, may promote anything. That rule is not a convention here;
+engagement is *shown*, may move a status. That rule is not a convention here;
 it is code, in `lib/ledger.js`, and `bin/selftest.js` asserts it by trying to
 break it.
+
+## The words, and why the filenames disagree with them
+
+Owner ruling 2026-08-30 bans **"dark"** and **"promoted / promotion"** from
+owner-facing text, and prescribes the replacements: **in-collection /
+selectable**, **validated**, **merged**. `docs/BRANCHING.md` is the binding
+policy those words belong to.
+
+**The ban is on how we write to the owner, not on how the loop stores its
+state.** `lib/ledger.js`'s seven statuses are schema constants and row
+identities that every historical measurement is keyed on; `promotion-ledger.json`
+is a path named from four other files and both branches. Renaming either to
+change a word would rewrite the record and break the links. So the machinery
+keeps its spelling, `bin/render-status.js` translates on the way out — the page
+is titled *Validation status* and carries the mapping table at the top — and
+`VALIDATION-STATUS.md` is a pointer so the owner-facing name still resolves.
+
+**If you are writing to the owner**, run the draft through
+`tools/principal-glossary/check-briefing.js`: both banned words are `corrected`
+there and will block.
 
 ## The three commands
 
@@ -28,7 +49,7 @@ node tools/learnloop/bin/make-promotion-batch.js --out tools/learnloop/specs/bat
 # (`--flag` names the LEDGER ROW, which keeps its historical flag name as its
 #  identity. What SELECTS the arm today is the row's `selection` field.)
 node tools/learnloop/bin/ingest.js --batch results/<batch> \
-     --null nullA,nullB --pair default=depthless \
+     --null nullA,nullB --pair baseline=search-arch \
      --flag CENTAUR_SCOUT --engagement deepestPlies [--write]
 
 # Re-render the human view. --check fails if it has drifted from the ledger.
@@ -38,7 +59,7 @@ node tools/learnloop/bin/render-status.js
 And the gate:
 
 ```sh
-node tools/learnloop/bin/selftest.js          # 53 assertions, no dependencies
+node tools/learnloop/bin/selftest.js          # 133 assertions, no dependencies
 ```
 
 Plain node, no build step, no `node_modules` — the same discipline
@@ -48,10 +69,15 @@ on the owner's box before anything is installed.
 ## What is in here
 
 ```
-promotion-ledger.json   THE ARTIFACT. Per flag: status, every measurement with
-                        its batch id, CIs, null band and power arithmetic, and
-                        the next decisive experiment.
-PROMOTION-STATUS.md     Generated view of the above. Never edited by hand.
+promotion-ledger.json   THE ARTIFACT. Per candidate: status, every measurement
+                        with its batch id, CIs, null band and power arithmetic,
+                        the next decisive experiment, and (new, 20260830) the
+                        `branchRoles` a cross-branch arm is built from and the
+                        `vocabulary` the human view renders in.
+PROMOTION-STATUS.md     Generated view of the above, titled "Validation status".
+                        Never edited by hand.
+VALIDATION-STATUS.md    A pointer to it, so the owner-facing name resolves
+                        without breaking every link to the old path.
 lib/ledger.js           The schema and the refusals — the rules by which a
                         measurement is allowed to move a status.
 lib/extract.js          Reads a results checkout. Two directory layouts, one
@@ -71,11 +97,13 @@ specs/batch2/           The current generated proposal.
 
 Two branches need this directory and they cannot merge:
 
-- **`claude/cluster-lookahead`** is the engine branch. It is where the flags
-  live, where their promotion gates were written, and where the ledger's claims
-  can be checked against the code that makes them. It is the **home** of
-  `promotion-ledger.json`.
-- **`sim/worker-kit`** is cut from `66904d2` and carries `tools/simworker/`.
+- **`claude/cluster-lookahead`** is the engine branch, and since the branching
+  ruling of 2026-08-30 it is specifically the **search-architecture feature
+  branch** (`docs/BRANCHING.md`). It is where the candidates live, where their
+  gates were written, and where the ledger's claims can be checked against the
+  code that makes them. It is the **home** of `promotion-ledger.json`.
+- **`sim/worker-kit`** is cut from `66904d2` — the validated baseline,
+  `claude/mid-turn-collision-logic-mkxurg` — and carries `tools/simworker/`.
   It is the branch the owner's local sim session fetches, and the only branch it
   fetches. A ledger the local session cannot read is a ledger that does not do
   its job, because the local session is the consumer that decides what to run.
@@ -109,7 +137,7 @@ without the operator having to know this directory exists.
 
 | refusal | the exhibit that bought it |
 |---|---|
-| A probe may raise `dark → probe-passed` and no further. | CENTAUR_CLUSTER_SEED. |
+| A probe may raise `dark → probe-passed` (schema words: *merged-but-unselected → probe only*) and no further. | CENTAUR_CLUSTER_SEED. |
 | A live measurement with no verified concurrent null moves nothing. | An A/A pairing on a provably inert path produced d P(first) +0.167 [0.056, 0.306] — a "significant" difference between a build and itself. |
 | A live measurement on an arm whose engagement is not shown moves nothing — and the tri-state means `null` (*cannot say*) is refused exactly like `false`. | P5: `CENTAUR_WASM` is refused per partition, silently, whenever an input is not resident. Its null could equally have meant the arm never ran. Refusing only on `false` made *cannot say* mean *said yes*, and every pre-CL7 batch says *cannot say*. |
 | A delta outside the floor is scored by the metric's OWN GOOD DIRECTION, never by its sign; a metric with no good direction is recorded `outside-null-unscored` and moves nothing. | CENTAUR_CLUSTER_SEED failed live through exhaustion deaths **+36** on a `family: mechanism` gate. Scored by sign, the founding failure of this whole ledger reads `supports-promotion`. Polarity lives in `lib/polarity.js` as data, and the selftest proves the table is total. |

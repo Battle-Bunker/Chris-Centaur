@@ -141,6 +141,40 @@ ok('--code scans code spans too', r10.code !== 0, r10.out);
 const r11 = check(CLEAN, ['--principal', 'nobody']);
 ok('an unknown principal exits 2, not a false pass', r11.code === 2, r11.out);
 
+// --- the 20260830 vocabulary ban --------------------------------------------
+//
+// The owner banned two words from owner-facing text. `corrected` is the state
+// that enforces a ban, because it is the only one that blocks EVERY use and
+// will not clear without an explicit --ack. These assertions exist so a future
+// tidy-up that "promotes dark back to defined" fails the gate instead of
+// quietly re-opening the words.
+{
+  const chris = ledger.principals.find((p) => p.id === 'chris');
+  const termOf = (n) => chris.terms.find((t) => t.term === n);
+  for (const name of ['dark', 'promotion']) {
+    const t = termOf(name);
+    ok(`"${name}" is banned in owner-facing text`, t && t.state === 'corrected', JSON.stringify(t && t.state));
+    ok(`"${name}" is re-defined at every use`, t && t.redefineOnNextUse === true);
+    ok(`"${name}" carries the owner's own words`, t && /VOCABULARY BAN|never "promote"/.test(
+      (t.evidence[t.evidence.length - 1] || {}).quote || ''
+    ));
+    ok(`"${name}" prescribes what to say instead`, t && /SAY INSTEAD/.test(t.gloss || ''));
+    ok(`"${name}" says it is a ban and not an unfamiliarity`, t && /^THIS IS A BAN/.test(t.note || ''));
+  }
+  const rBan = check('The layer was promoted last night.\n');
+  ok('a banned word blocks a draft', rBan.code !== 0, rBan.out);
+  ok('and the drafter is told it is a BAN, not a confusion',
+    /BANNED IN OWNER-FACING TEXT/.test(rBan.out) && !/said they did not know/.test(rBan.out), rBan.out);
+  // The FILENAME is not prose. A longer `defined` phrase shields the shorter
+  // banned word nested inside it, which is what keeps the path writable.
+  const rPath = check('See the promotion ledger for what each candidate has earned.\n');
+  ok('naming `promotion ledger` still passes — a path is not a claim', rPath.code === 0, rPath.out);
+  // And the replacement vocabulary is seeded, so a drafter is not left guessing.
+  for (const name of ['selectable', 'feature branch', 'validated baseline', 'decision joint', 'lane (a)', 'lane (b)']) {
+    ok(`the replacement vocabulary seeds "${name}"`, termOf(name) !== undefined);
+  }
+}
+
 // --- the rendered view ------------------------------------------------------
 try {
   execFileSync(process.execPath, [RENDER, '--check'], { encoding: 'utf8' });

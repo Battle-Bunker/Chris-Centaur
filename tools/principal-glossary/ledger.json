@@ -723,16 +723,25 @@
         },
         {
           "term": "dark",
-          "state": "defined",
-          "gloss": "a feature that is built and merged but off by default, awaiting promotion.",
+          "state": "corrected",
+          "gloss": "BANNED IN OWNER-FACING TEXT by the ruling below. It used to mean \"built and merged but off by default, awaiting promotion\". SAY INSTEAD: \"merged, not selected\", or \"in the collection and selectable, nothing selects it yet\" — which is also more accurate, because a candidate at a decision joint is a member of a collection in the tree, not a hidden code path. `lib/ledger.js`'s `dark` status keeps the spelling as an internal schema constant; the rendered page translates it.",
           "evidence": [
             {
               "date": "2026-08-28",
               "to": "defined",
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "corrected",
+              "quote": "VOCABULARY BAN: \"dark\", \"promoted/promotion\" in owner-facing communication. Use: in-collection/selectable; validated; merged.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
-          ]
+          ],
+          "everCorrected": true,
+          "redefineOnNextUse": true,
+          "note": "THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused."
         },
         {
           "term": "data layout",
@@ -744,6 +753,28 @@
               "to": "native",
               "quote": "data-layout improvements",
               "where": "owner directive 0d, synthesis-pins.md:47"
+            }
+          ]
+        },
+        {
+          "term": "decision joint",
+          "state": "internal",
+          "gloss": "one of the five places in a turn where the bot picks between alternative ways of thinking — which moves to consider, which evaluators to run, the evaluators themselves, how deeper information updates a branch's weight, and how the turn's compute is divided. Each joint holds a COLLECTION of candidates and a bot's configuration says which members it uses. `SLOT_IDS` in `src/lobster/registry.ts`.",
+          "aliases": [
+            "joint",
+            "joint collection",
+            "slot"
+          ],
+          "match": [
+            "decision joint",
+            "joint collection"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
           ]
         },
@@ -1013,6 +1044,26 @@
               "quote": null,
               "where": "owner messages, cloud coordinator session 2026-08-26..28",
               "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "feature branch",
+          "state": "internal",
+          "gloss": "a branch cut from the validated baseline for ONE architecture change, tested as an arm of a paired batch against the baseline, and merged back only once the numbers say it won. The replacement for keeping unproven work switched off inside the shipped bot.",
+          "aliases": [
+            "feature branch",
+            "feature/<name>"
+          ],
+          "match": [
+            "feature branch"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
           ]
         },
@@ -1358,6 +1409,50 @@
               "to": "defined",
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "lane (a)",
+          "state": "internal",
+          "gloss": "the first of the two ways a change reaches the bot: a new STRATEGY CANDIDATE at a decision joint, added to the collection that joint already has, chosen by configuration. A normal commit on the main branch. In a briefing, prefer the plain words — \"a new candidate at an existing decision point\" — and mention the lane only if the distinction between the two lanes is itself the subject.",
+          "aliases": [
+            "lane a",
+            "collection lane"
+          ],
+          "match": [
+            "lane (a)",
+            "lane a"
+          ],
+          "note": "Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "lane (b)",
+          "state": "internal",
+          "gloss": "the second way a change reaches the bot: an ARCHITECTURE change — which decision joints exist, how they compose, what the search is allowed to conclude. It gets its own branch, is tested against the current bot in long paired runs, and is merged only if it wins. In a briefing, prefer \"a branch for an architecture change\" over the label.",
+          "aliases": [
+            "lane b",
+            "architecture lane"
+          ],
+          "match": [
+            "lane (b)",
+            "lane b"
+          ],
+          "note": "Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
           ]
         },
@@ -1905,21 +2000,35 @@
         },
         {
           "term": "promotion",
-          "state": "defined",
-          "gloss": "turning a dark flag on by default, after a live paired sweep with a verified null.",
+          "state": "corrected",
+          "gloss": "BANNED IN OWNER-FACING TEXT by the ruling below, along with \"promote\" and \"promoted\". It used to mean \"turning a dark flag on by default after a live paired sweep with a verified null\". SAY INSTEAD, and pick the one that is actually true of the thing you are describing: **validated** (the evidence cleared its verified null), **merged** (a feature branch landed on the primary branch), or **selected** (a collection member is what the shipped bot now runs). Those are three different events and \"promotion\" blurred them, which is part of why it went.",
           "evidence": [
             {
               "date": "2026-08-28",
               "to": "defined",
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "corrected",
+              "quote": "Say MERGE, never \"promote\"; never \"dark\".",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
+          ],
+          "everCorrected": true,
+          "redefineOnNextUse": true,
+          "note": "THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused.",
+          "aliases": [
+            "promote",
+            "promoted",
+            "promotes"
           ]
         },
         {
           "term": "promotion ledger",
           "state": "defined",
-          "gloss": "tools/learnloop/promotion-ledger.json — the record of what each dark flag has and has not earned.",
+          "gloss": "`tools/learnloop/promotion-ledger.json` — the record of what each candidate has and has not earned. THE FILENAME KEEPS THE OLD WORD ON PURPOSE: it is named from six other files and both branches, and renaming it to change a word would break every link. Its rendered human view is titled \"Validation status\" and `VALIDATION-STATUS.md` points at it. When you must name the file in a briefing, name it as a path; when you mean the activity, say \"the validation record\".",
           "evidence": [
             {
               "date": "2026-08-28",
@@ -1927,6 +2036,10 @@
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
             }
+          ],
+          "match": [
+            "promotion ledger",
+            "promotion-ledger.json"
           ]
         },
         {
@@ -2151,6 +2264,27 @@
               "to": "defined",
               "quote": null,
               "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "selectable",
+          "state": "internal",
+          "gloss": "of a candidate: it is merged, it sits in its joint's collection, and a bot's configuration CAN choose it — but nothing chooses it yet. The replacement for the banned word \"dark\", and it says something different: not a hidden switch, a member of a list.",
+          "aliases": [
+            "in-collection",
+            "selectable"
+          ],
+          "match": [
+            "selectable",
+            "in-collection"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
           ]
         },
@@ -2512,6 +2646,27 @@
               "to": "defined",
               "quote": null,
               "where": "owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)"
+            }
+          ]
+        },
+        {
+          "term": "validated baseline",
+          "state": "internal",
+          "gloss": "the branch the shipped bot is, and the thing every experimental branch is measured against — today `claude/mid-turn-collision-logic-mkxurg`. Every feature branch is cut from it and merges back into it.",
+          "aliases": [
+            "baseline branch",
+            "primary branch"
+          ],
+          "match": [
+            "validated baseline",
+            "baseline branch"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
             }
           ]
         },

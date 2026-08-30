@@ -14,6 +14,9 @@ time you write to the owner.
    exit 1 does not, exit 2 means the ledger is broken and you fix that first.
 3. **BLOCK = `internal` or `corrected`.** Either define it inline in the sentence
    that uses it, or say it in a `native` word instead. Do not append a glossary.
+   *A `corrected` entry whose note begins THIS IS A BAN is a word the principal
+   knows and told us to stop using — there is nothing to define, just use the
+   replacement its gloss prescribes.*
 4. **BLOCK = a jargon-shaped token the ledger has never heard of** (camelCase,
    PascalCase, UPPER_SNAKE, ALLCAPS, `CL7`-style codenames). New jargon. Same fix.
 5. **At first use of any non-native term: define it inline AND write the
@@ -41,7 +44,7 @@ node tools/principal-glossary/check-briefing.js --principal chris --file draft.m
 node tools/principal-glossary/render-view.js
 
 # The gate.
-node tools/principal-glossary/selftest.js        # 31 assertions, no dependencies
+node tools/principal-glossary/selftest.js        # 50 assertions, no dependencies
 ```
 
 Useful flags: `--ack term1,term2` (you re-defined it inline at that use — the ack
