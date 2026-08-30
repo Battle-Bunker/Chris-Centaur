@@ -45,3 +45,52 @@ non-cutting alternative **105 times in 105**; its pessimistic endpoint fired
 **20.5%** of the time; **4.34 µs** per valuation. The full write-up, including
 what the run does *not* establish, is the `slider-attack-retrodiction.md`
 findings file in the sweeps working set.
+
+## `potion-terms-retrodiction.js`
+
+Measures `src/lobster/evaluate/potion-seek.ts` and
+`src/lobster/evaluate/potion-control.ts` (and through them `attack-window.ts`)
+against the committed batch-1 replays.
+
+```
+node tools/retrodiction/potion-terms-retrodiction.js \
+  --replays <dir containing *.jsonl.gz> \
+  --out report.json \
+  [--every 4] [--limit N]
+```
+
+Only the **192 potions-on** replays are in scope, and there is no choice about
+it: a body cut needs a strictly higher tier, tier comes only from a potion, and
+the other 2,400 replays contain zero severs. The report states the potions-off
+denominator anyway, so the restriction is visible rather than assumed.
+
+Reach is read from the same arrival machinery the evaluator would use —
+`CloudSource` dilates each unit's shells and `earliestShells` stamps
+`earliest[c]` off them. The miner builds no reach of its own, so a term that
+passes here passes on the numbers the live evaluator would have seen.
+
+Four measurements:
+
+1. **what enabled each sever** — for all 282, whether a collection inside the
+   three-turn window preceded it, on the severer's team (the ally buff) or on
+   the victim's (the collector's own −1);
+2. **the timing retrodiction** — each of the 485 collections scored at the turn
+   it was decided, cross-tabbed against whether that team landed a sever inside
+   the three turns the pickup bought. The unit of account is the COLLECTION, not
+   the sever, because two severs out of one window are one decision;
+3. **the missed windows** — over a deterministic sample of team-turns, how often
+   the term found a pickup worth making and the bots did not make it;
+4. **control against outcome** — the mid-game control reading against end-game
+   weight share, reported alongside the mid-game material share it is 0.83
+   collinear with, and with that share partialled out.
+
+Deterministic: no clock enters any reported number (the cost lines aside), and
+the sample is every Nth turn row in sorted file order.
+
+Headline result on `sim-results/local-20260827` (2026-08-30): every one of the
+282 severs is accounted for by a collection inside the window; a pickup the term
+priced above zero converted **57.0%** of the time against **26.6%** for one it
+priced at zero (+30.4 points [20.7, 40.1]); the collector-exposure half is a
+near-tautology at **99.6%** and is not usable as an ordering channel yet; and
+potion control adds **0.17** over the material share it mostly restates. The
+full write-up is `potion-terms-retrodiction.md` in the sweeps working set.
