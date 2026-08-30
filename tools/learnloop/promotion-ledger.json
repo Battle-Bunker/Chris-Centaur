@@ -110,7 +110,8 @@
       "refused per partition, silently, whenever an input is not resident in linear memory.",
       "CL7's mechanism report (TeamTurnResult.mechanism) is what makes the answer readable."
     ],
-    "flagOrderIsPriority": "THE FLAG ORDER IN THIS ARRAY IS THE BATCH ORDER. make-promotion-batch.js emits one experiment,per undecided flag in array order, and the batch is designed to be cut from the bottom when the,night is short. So reordering this array is how a priority is expressed, and it is the only,way the generator can hear one.,,BATCH-1 CHANGE: CENTAUR_WASM was moved from eighth to first among the undecided flags, ahead of,CENTAUR_EDGE_EV. P5R is the only scheduled experiment in batch 2 that CLOSES a standing anomaly,rather than opening a new question, the instrumentation that makes it readable landed in CL7,,and it carries a gate that makes a broken arm impossible to misreport as a null. — REVISED after LIVE-NULL-IS-TERMINAL closed: making live-null flags schedulable put CENTAUR_UNIT_FATALITY (P7F) ahead of CENTAUR_WASM (P5R) purely because of where it already sat in the array, which nobody decided. P5R stays FIRST — it is the only scheduled experiment that CLOSES a standing anomaly rather than opening a question, its instrumentation landed in CL7, and the COORDINATION note already told the local session it runs first. CENTAUR_UNIT_FATALITY is moved to just below CENTAUR_WASM so P7F is second: newly unblocked, and worth running, but not ahead of the experiment the batch was reprioritised around."
+    "flagOrderIsPriority": "THE FLAG ORDER IN THIS ARRAY IS THE BATCH ORDER. make-promotion-batch.js emits one experiment,per undecided flag in array order, and the batch is designed to be cut from the bottom when the,night is short. So reordering this array is how a priority is expressed, and it is the only,way the generator can hear one.,,BATCH-1 CHANGE: CENTAUR_WASM was moved from eighth to first among the undecided flags, ahead of,CENTAUR_EDGE_EV. P5R is the only scheduled experiment in batch 2 that CLOSES a standing anomaly,rather than opening a new question, the instrumentation that makes it readable landed in CL7,,and it carries a gate that makes a broken arm impossible to misreport as a null. — REVISED after LIVE-NULL-IS-TERMINAL closed: making live-null flags schedulable put CENTAUR_UNIT_FATALITY (P7F) ahead of CENTAUR_WASM (P5R) purely because of where it already sat in the array, which nobody decided. P5R stays FIRST — it is the only scheduled experiment that CLOSES a standing anomaly rather than opening a question, its instrumentation landed in CL7, and the COORDINATION note already told the local session it runs first. CENTAUR_UNIT_FATALITY is moved to just below CENTAUR_WASM so P7F is second: newly unblocked, and worth running, but not ahead of the experiment the batch was reprioritised around.",
+    "selectionField": "`selection` says WHAT SELECTS THIS ARM TODAY, and the field exists because the answer stopped being \"an environment variable\" on 2026-08-29, when the owner had the feature-flag system torn out. A row keeps its FLAG NAME as its historical identity — every measurement under it was taken by that name — and `selection` is how the same arm is asked for now: a BotConfig field, a registry entry, or nothing at all where the flag turned out to be a CORRECTION and went in unconditionally. It moves no status and it is not a measurement."
   },
   "batches": [
     {
@@ -1468,6 +1469,7 @@
       "parses": "1|on|true only — anything else is off, with no warning",
       "whatItDoes": "Index-driven pairwise de-confliction seed at rung 0 (search/cluster-seed.ts).",
       "status": "live-failed",
+      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it, and its code is the deletion that teardown makes. The multi-start seed entry inherits this negative record.",
       "promotionMetrics": [
         {
           "name": "fatalStagings",
@@ -1889,6 +1891,7 @@
       "parses": "on | off only — anything else warns and falls back to off. PARSER CONCERN WITHDRAWN 20260829 (source-level, 8059b86): the `1|on|true` worry does not reach this flag — `src/lobster/wasm/policy.ts` carries its OWN parser whose two accepted literals are exactly \"off\" and \"on\", so every CENTAUR_WASM=\"on\" arm in batch 1 resolved. The worry TRANSFERS to CENTAUR_TIER_TRUTH=\"full\" (P4), which goes through a different parser — and P4's complete absence of any ✱ mechanism row is consistent with that flag never engaging.",
       "whatItDoes": "REMOVED. It ran the territory evaluator's hot kernels in WebAssembly, refused per partition and silently whenever an input was not resident in linear memory. The AssemblyScript kernels, the linear-memory arena, the residency machinery, the differential suite and the CENTAUR_WASM flag itself were deleted from claude/cluster-lookahead by the owner ruling recorded below.",
       "status": "frozen",
+      "selection": "no selection: removed before the flag teardown, and per the mandate perf work never enters the registry.",
       "promotionMetrics": [
         {
           "name": "wasmRuns",
@@ -2306,6 +2309,7 @@
       "parses": "1|on|true only",
       "whatItDoes": "Rung-0 per-unit fatality classifier (candidates.ts), with the forced-sibling collapse.",
       "status": "live-null",
+      "selection": "BotConfig.candidates.unitFatality (src/lobster/bot-config.ts, default false). Was CENTAUR_UNIT_FATALITY; the env reader is deleted. A contender names it as data, and a bad value is a refusal rather than the silent off the flag gave.",
       "promotionMetrics": [
         {
           "name": "fatalStagings",
@@ -2526,6 +2530,7 @@
       "parses": "1|on|true only",
       "whatItDoes": "Rung-1/2 edge-EV ordering pass; one composed EV in one slot, below every material-class key and above healthSpent.",
       "status": "probe-passed",
+      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it. Destined for CandidateKnobs.edgeEv, reachable as BotConfig.candidates.edgeEv.",
       "promotionMetrics": [
         {
           "name": "uncontestedMealsStaged",
@@ -2601,6 +2606,7 @@
       "parses": "1|on|true only",
       "whatItDoes": "Cluster partition of the residual interaction graph plus exact small-cluster enumeration; proposals the price adjudicates.",
       "status": "probe-passed",
+      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it.",
       "promotionMetrics": [
         {
           "name": "fatalStagings",
@@ -2693,6 +2699,7 @@
       "parses": "1|on|true only",
       "whatItDoes": "Seeded weighted candidate sampling where a cap binds: the cap becomes a sample, Gumbel-top-k returns a permutation.",
       "status": "probe-passed",
+      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it.",
       "promotionMetrics": [
         {
           "name": "selectionFar",
@@ -2779,6 +2786,7 @@
       "requires": "CENTAUR_CLUSTER_ENUM on",
       "whatItDoes": "Door C: re-sweeps the two-plane partition with held units' floods stopped at cells our enumerated units certainly occupy; publishes the MEET at the same basis.",
       "status": "probe-passed",
+      "selection": "BotConfig.territoryRefine (src/lobster/bot-config.ts, default false). Was CENTAUR_TERRITORY_REFINE; the env reader is deleted and DEFAULT_TERRITORY_REFINE carries the shipped value. A STRATEGY ALTERNATIVE, so it became config rather than a correction or a deletion.",
       "promotionMetrics": [
         {
           "name": "refineMovedLo",
@@ -2854,6 +2862,7 @@
       "requires": "CENTAUR_CLUSTER_ENUM on",
       "whatItDoes": "Door A: a real EngineSubstrate at ply n+1 built from a ply-n Resolution; thread ledger, parking, advisory ordering only.",
       "status": "probe-passed",
+      "selection": "TODO(teardown-search) — still an environment flag; the search-layer teardown owns it. Its aggregator half is already registry entry agg/legacy-clamp@1.",
       "promotionMetrics": [
         {
           "name": "scoutThreads",
@@ -2950,6 +2959,7 @@
       "parses": "off | auto | 0..8 (junk warns and resolves off)",
       "whatItDoes": "Evaluation worker pool, one worker per spare core capped at three.",
       "status": "probe-passed",
+      "selection": "BotConfig.workers and BotConfig.workersAudit (src/lobster/bot-config.ts, defaults \"off\" and false). Was CENTAUR_WORKERS / CENTAUR_WORKERS_AUDIT; both env readers are deleted. DEPLOYMENT config and not a strategy entry — it changes how fast the same decision is reached and never which decision, which is what the pool-0 identity gate asserts — so it defaults to the benchmark-winning setting and future perf work is judged by branches and benchmarks.",
       "promotionMetrics": [
         {
           "name": "workers",
@@ -3288,6 +3298,7 @@
       "parses": "off | expiry | full",
       "whatItDoes": "Whether the search is told the real tier expiry turn (`expiry`) and the real potion board (`full`), or the old permanent-tier lie (`off`).",
       "status": "live-null",
+      "selection": "NO SELECTION — a CORRECTION, not a strategy, and now unconditional. TIER_TRUTH is the constant `full` (src/lobster/tier-truth.ts); CENTAUR_TIER_TRUTH and CENTAUR_TIER_DEFENSE are both deleted. The premise moved from `expiry` to `full` on two current facts: at ply 1 the widening is a MEASURED no-op (0 argmaxes and 0 brackets moved over 160 replays on 40 potion-bearing boards) and at depth >= 2 an empty potion board makes the cloud tier ceiling too tight, which is unsound. The tier-defense policy is now a plain DEFAULT_KNOBS default (tierSafeStaging / selfDebuffOrdering), which a bot overrides by naming the knob.",
       "promotionKind": "soundness-prerequisite",
       "promotionMetrics": [
         {
@@ -3487,6 +3498,7 @@
       "branch": "arch/s2 @ 724d83f — NOT on claude/cluster-lookahead",
       "whatItDoes": "The flag-gated cohort governor: which units are admitted to a joint decision.",
       "status": "live-null",
+      "selection": "no selection: the code is already gone. Its predicates become socket-2 challengers carrying this live-null record (registry.ts, EVSEL_LEGACY_ALWAYS).",
       "promotionMetrics": [
         {
           "name": "admissionRate",
@@ -3849,6 +3861,7 @@
       "parses": null,
       "whatItDoes": "The slider evaluator profile: command and movement-budget terms, gated on piece class. Bit-identical to the baseline on a snake-only board.",
       "status": "supported",
+      "selection": "TeamDecisionOptions.evaluate, reachable from a spec as a contender field: {\"evaluator\": \"territorySliderEvaluator\"}. Unchanged by the teardown — it never had an env flag. Registry entries eval/legacy-territory-slider@1 and eval/legacy-territory-slider-royal@1.",
       "promotionMetrics": [
         {
           "name": "score",
@@ -4168,6 +4181,7 @@
       "parses": "off | auto | guard | full",
       "whatItDoes": "The staging-safety guard knobs (pruneCertainSelfFatal, pruneRoyalPath). `auto` resolves to full on a piece-bearing board and off on a snake-only one.",
       "status": "promoted",
+      "selection": "BotConfig.stagingSafety (src/lobster/bot-config.ts, default \"auto\"). Was CENTAUR_STAGING_SAFETY; the env reader is deleted and STAGING_SAFETY_DEFAULT carries the ship condition. The core redesign sentences this layer to the kernel safety floor; it stays configurable for as long as the exploration slice needs to be able to ask for the opposite branch of a promoted policy.",
       "promotedBy": "990bea8 — Wire I1's ship condition as the flag's default policy: CENTAUR_STAGING_SAFETY=auto",
       "promotionMetrics": [
         {
@@ -4234,6 +4248,7 @@
       "parses": null,
       "whatItDoes": "The shipped candidate generator orders by what a move TAKES.",
       "status": "promoted",
+      "selection": "CandidateKnobs.gainOrdering, reachable as BotConfig.candidates.gainOrdering (default true). Never had an env flag. Registry entry move/legacy-order@1.",
       "promotedBy": "dd329bf — Promote gainOrdering: the shipped generator now orders by what a move TAKES",
       "promotionMetrics": [
         {

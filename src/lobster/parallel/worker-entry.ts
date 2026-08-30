@@ -13,15 +13,22 @@
  * makes a divergent worker inert rather than wrong.
  *
  * WHAT IT NEVER DOES: stage, hold budget policy (its per-parcel deadline is set
- * by the main thread and it stops when the main thread's number says so), read
- * `CENTAUR_STAGING_SAFETY` (the resolved knobs arrive on the session spec),
- * publish a witness, or touch a pin.
+ * by the main thread and it stops when the main thread's number says so),
+ * resolve the staging-safety level (the resolved knobs arrive on the session
+ * spec), publish a witness, or touch a pin.
  *
  * ENV. `process.env` is a snapshot taken when the pool spawned, applied here
- * BEFORE the lobster modules load, because `tier-truth.ts` resolves its flag at
- * module scope. A mid-process env change is therefore NOT seen by a live pool;
- * that is documented behaviour and the reason the flags this layer cares about
- * ride on the specs instead wherever they can.
+ * BEFORE the lobster modules load. It USED to matter for correctness, because
+ * `tier-truth.ts` resolved a flag at module scope and a worker that loaded it
+ * with a different environment would have priced tier against a different
+ * premise. That flag is gone — the premise is a constant — and everything else
+ * this layer cares about already rides on the specs. The snapshot is kept
+ * because a worker is still a process and things outside this layer read the
+ * environment; a mid-process env change is NOT seen by a live pool, which is
+ * documented behaviour rather than a hazard now.
+ *
+ * TODO(teardown-search): the five remaining search-layer flags are the last
+ * readers for which this ordering is load-bearing.
  */
 
 import { parentPort, workerData } from "worker_threads"

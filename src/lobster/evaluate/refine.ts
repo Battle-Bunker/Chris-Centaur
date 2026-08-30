@@ -101,30 +101,31 @@ import { tierAtTurn } from './territory';
 import type { TerritorySubject } from './territory';
 
 // ---------------------------------------------------------------------------
-// The flag
+// Whether the refiner runs — a BOT CONFIG choice, not an environment switch
 // ---------------------------------------------------------------------------
 
-export const TERRITORY_REFINE_ENV = 'CENTAUR_TERRITORY_REFINE';
-
 /**
- * PER-ENGINE, NEVER PROCESS-WIDE — the lesson this branch has now learned five
- * times: a process-wide flag moves every lobster seat on the board at once, and
- * a paired experiment on it measures nothing. The environment is only the
- * default a caller that names nothing inherits;
- * `TeamDecisionOptions.territoryRefine` and `SearchTuning.territoryRefine`
- * override it.
+ * DOOR C IS A STRATEGY ALTERNATIVE, so it is a configured bot and not a flag.
  *
- * DEFAULT OFF. With it off no scope is registered, no shield is built, and the
- * evaluator is byte-for-byte the one that shipped.
+ * It used to be `CENTAUR_TERRITORY_REFINE`, process-wide with a per-engine
+ * override — which is a shape the branch learned five times over is unmeasurable
+ * from the environment: a process-wide switch moves every lobster seat on the
+ * board at once, so a paired experiment on it measures nothing. The answer is
+ * not a better switch. The answer is that the two arms are TWO BOTS:
+ * `DEFAULT_BOT_CONFIG` and one that names `territoryRefine: true`, each a plain
+ * data value a harness can hand to one seat (`bot-config.ts`).
+ *
+ * THE SHIPPED DEFAULT IS OFF (`DEFAULT_BOT_CONFIG.territoryRefine`). With it off
+ * no scope is registered, no shield is built, and the evaluator is byte-for-byte
+ * the one that shipped — which is what makes the default bot's identity gate a
+ * statement about this seam too.
+ *
+ * The core redesign (§1.4) sentences the refiner to an OBSERVATION TYPE consumed
+ * by socket 4; the sound tighten it publishes through is unchanged either way.
+ * Until that entry exists this stays a bot-config boolean, which is the same
+ * kind of thing one layer down.
  */
-export function territoryRefineFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[TERRITORY_REFINE_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function territoryRefineEnabled(): boolean {
-  return territoryRefineFrom(process.env);
-}
+export const DEFAULT_TERRITORY_REFINE = false;
 
 // ---------------------------------------------------------------------------
 // The scope — what the enumeration paid for

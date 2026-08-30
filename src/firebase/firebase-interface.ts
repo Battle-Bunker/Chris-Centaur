@@ -76,7 +76,8 @@ import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadl
 import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
-import { centaurEngine } from '../config/centaur-engine';
+import { DEFAULT_BOT_CONFIG, resolveBotConfig } from '../lobster/bot-config';
+import type { BotConfig, ResolvedBotConfig } from '../lobster/bot-config';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -98,6 +99,18 @@ export interface FirebaseInterfaceConfig {
   projectId: string;
   apiKey: string;
   region: string;
+  /**
+   * THE BOT THIS PROCESS PLAYS (`lobster/bot-config.ts`). Absent plays
+   * `DEFAULT_BOT_CONFIG` — the shipped bot.
+   *
+   * It is DEPLOYMENT configuration and it arrives here, not from the
+   * environment: `CENTAUR_ENGINE` used to select the substrate and was read
+   * afresh at every routing decision so it could "flip back mid-game", which
+   * meant the transport and the engine could disagree about which pass was
+   * live for the length of one turn. A bot is fixed when the interface is
+   * built, so the two branches below cannot come apart.
+   */
+  bot?: BotConfig;
   centaurId: string;
   centaurApiKey: string;
   emulators?: {
@@ -399,9 +412,9 @@ export class TacticToesFirebaseInterface {
     },
   }));
   /**
-   * The TEAM decision engine (CENTAUR_ENGINE=lobster only). Inert under the
-   * default flag: nothing constructs a substrate, subscribes an event, or
-   * enables team staging until the lobster full pass actually runs. Its ports
+   * The TEAM decision engine (`engine: 'lobster'` only). Inert otherwise:
+   * nothing constructs a substrate, subscribes an event, or enables team
+   * staging until the lobster full pass actually runs. Its ports
    * are exactly the wire layer's documented integration surface — per-unit
    * setBotRecommendation (precedence + consent gate untouched),
    * enableTeamStaging, the typed pin-event stream, and the per-game unit-id
@@ -416,13 +429,7 @@ export class TacticToesFirebaseInterface {
    * replayed exactly, by handing the recorded seed back as
    * `TeamDecisionOptions.matchSeed`. See `lobster/match-seed.ts`.
    */
-  private readonly teamEngine = new TeamDecisionEngine({
-    setBotRecommendation: (gameId, snakeId, move, turnData) =>
-      this.gameManager.setBotRecommendation(gameId, snakeId, move, turnData),
-    enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
-    onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
-    pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
-  });
+  private readonly teamEngine: TeamDecisionEngine;
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
   // listener or turn pipeline is involved until the invite flips to started.
@@ -454,10 +461,28 @@ export class TacticToesFirebaseInterface {
   // so a client that connects mid-suspend always wins (and vice versa).
   private desiredActive = true;
 
+  /** The bot this interface plays, resolved once. See the config field. */
+  private readonly bot: ResolvedBotConfig;
+
   constructor(
     private readonly strategy: VoronoiStrategy,
     private readonly config: FirebaseInterfaceConfig
-  ) {}
+  ) {
+    this.bot = resolveBotConfig(config.bot ?? DEFAULT_BOT_CONFIG);
+    // Built here rather than as a field initializer, because it has to be
+    // handed the resolved bot and a field initializer runs before the
+    // constructor body that resolves it.
+    this.teamEngine = new TeamDecisionEngine(
+      {
+        setBotRecommendation: (gameId, snakeId, move, turnData) =>
+          this.gameManager.setBotRecommendation(gameId, snakeId, move, turnData),
+        enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
+        onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
+        pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
+      },
+      { bot: this.bot }
+    );
+  }
 
   getStatus(): FirebaseStatus {
     return { state: this.connState, error: this.connError, since: this.connSince };
@@ -1384,12 +1409,14 @@ export class TacticToesFirebaseInterface {
     // after it, turn 0's last write would ride on luck instead of a timer. The
     // team engine's own enableTeamStaging call is idempotent on top of this.
     //
-    // AND THE FLAG IS READ AT CALL TIME, so it can flip back mid-game. Turning
-    // the team engine off without turning its TRANSPORT off leaves the batched
-    // submitter routing a per-snake game's staged writes (V4 H3): the switch
-    // has to be driven in both directions from the same branch, and the team
-    // engine's per-game state (its pin subscription included) goes with it.
-    if (centaurEngine() === 'lobster') {
+    // BOTH DIRECTIONS FROM THE SAME BRANCH. Turning the team engine off without
+    // turning its TRANSPORT off leaves the batched submitter routing a
+    // per-snake game's staged writes (V4 H3), so the engine's per-game state
+    // (its pin subscription included) goes with it. This was load-bearing when
+    // the selection was an environment variable re-read at call time; with a
+    // bot fixed for the interface's life the two branches cannot come apart,
+    // and the shape is kept because the transport still has to be told.
+    if (this.bot.engine === 'lobster') {
       this.gameManager.enableTeamStaging(watched.gameID);
     } else {
       this.gameManager.enableTeamStaging(watched.gameID, false);
@@ -1488,13 +1515,13 @@ export class TacticToesFirebaseInterface {
       Date.now()
     );
 
-    // CENTAUR_ENGINE=lobster: the full pass routes the TEAM decision through
-    // the LOBSTER kernel — one joint decision for every alive unit we control,
+    // engine=lobster: the full pass routes the TEAM decision through the
+    // LOBSTER kernel — one joint decision for every alive unit we control,
     // pieces included, staged through the same per-unit manager surface the
     // legacy pass uses (precedence and the consent gate run untouched) and
     // batched by the team submitter. The fast pass above already ran
-    // identically; under the default flag this branch is completely inert.
-    if (centaurEngine() === 'lobster') {
+    // identically, under either engine.
+    if (this.bot.engine === 'lobster') {
       const teamUnits: Array<{ snakeId: string; view: GameState }> = [];
       for (const snakeId of aliveOurs) {
         const view = views.get(snakeId) ?? withYou(canonical, snakeId);

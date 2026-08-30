@@ -36,9 +36,11 @@ import {
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
-  royalMarginFrom,
-  stagingSafetyFrom,
+  DEFAULT_ROYAL_REACHERS,
+  STAGING_SAFETY_DEFAULT,
 } from '../staging-safety';
+import { DEFAULT_BOT_CONFIG, botConfigFromJson, resolveBotConfig } from '../bot-config';
+import type { StagingSafety } from '../staging-safety';
 import type { Candidate, CandidateSet, JointPlan, SearchContext, UnitId } from '../contracts';
 import {
   makeEvaluator,
@@ -170,23 +172,32 @@ describe('the flag', () => {
     expect(knobsForSafety('full')).toEqual({ pruneCertainSelfFatal: true, pruneRoyalPath: true });
   });
 
-  test('parses its four values and keeps the shipped default on anything else', () => {
+  test('the shipped level is `auto`, and a bot names any of the four', () => {
     // INTEGRATION NOTE (integ/round-a): the default was 'off' on the branch and
     // is 'auto' here — the ledger's ship condition (piece boards only) wired as
     // the default policy. See the `auto` block below.
-    expect(stagingSafetyFrom({})).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: '' })).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'off' })).toBe('off');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'auto' })).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'guard' })).toBe('guard');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'full' })).toBe('full');
-    const said: string[] = [];
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'yes please' }, (m) => said.push(m))).toBe(
-      'auto'
-    );
-    expect(said).toHaveLength(1);
-    expect(royalMarginFrom({})).toBe(false);
-    expect(royalMarginFrom({ CENTAUR_ROYAL_MARGIN: '1' })).toBe(true);
+    expect(STAGING_SAFETY_DEFAULT).toBe('auto');
+    expect(DEFAULT_BOT_CONFIG.stagingSafety).toBe('auto');
+    expect(resolveBotConfig({}).stagingSafety).toBe('auto');
+    for (const level of ['off', 'auto', 'guard', 'full'] as const) {
+      expect(resolveBotConfig({ stagingSafety: level }).stagingSafety).toBe(level);
+    }
+    // And a hand-written contender file is validated rather than coerced: the
+    // whole reason this left the environment is that a typo used to become an
+    // arm wearing another arm's name, silently.
+    expect(() => botConfigFromJson({ stagingSafety: 'yes please' })).toThrow(/stagingSafety/);
+    // The royal-margin reading keeps the value that shipped — a correction
+    // still owed its own change. See DEFAULT_ROYAL_REACHERS.
+    expect(DEFAULT_ROYAL_REACHERS).toBe(false);
+  });
+
+  test('THE ENVIRONMENT IS NOT CONSULTED — the flag is gone', () => {
+    process.env.CENTAUR_STAGING_SAFETY = 'off';
+    try {
+      expect(resolveBotConfig({}).stagingSafety).toBe('auto');
+    } finally {
+      delete process.env.CENTAUR_STAGING_SAFETY;
+    }
   });
 });
 
@@ -829,11 +840,23 @@ function generatorForcing(first: ReadonlyMap<UnitId, number>, inner = makeGenera
   } as unknown as SearchContext['gen'];
 }
 
+/**
+ * Drive `SearchCore.conform` at a NAMED staging-safety level.
+ *
+ * The level used to arrive on `process.env`; it arrives as tuning now, which is
+ * exactly what `TeamDecisionEngine` does in production — it resolves the level
+ * against the board it is deciding on and passes the two answers down, because
+ * `auto` is board-conditional and a core built without a board cannot resolve
+ * it. Naming the level here rather than mutating process state is why these
+ * arms no longer need a cleanup hook.
+ */
 function conformWith(
   spec: BoardSpec,
   gen: SearchContext['gen'],
-  onEvaluate?: () => void
+  onEvaluate?: () => void,
+  level: StagingSafety = STAGING_SAFETY_DEFAULT
 ): { plan: JointPlan; ourDead: ReadonlyArray<UnitId>; close(): void } {
+  const resolved = resolveStagingSafety(level, false);
   const board = makeTestBoard(spec);
   const sub = makeTestSubstrate(board, OURS);
   const inner = makeEvaluator();
@@ -855,7 +878,10 @@ function conformWith(
     witnesses: [],
     budget: unboundedBudget(),
   };
-  const core = makeSearchCore();
+  const core = makeSearchCore({
+    rungZeroRepair: resolved === 'full',
+    seedDeconflict: resolved !== 'off',
+  });
   const plan = core.conform(ctx, new Map());
   const ours = new Set(spec.units.filter((u) => u.team === OURS).map((u) => u.id as UnitId));
   const ourDead = sub.withResolution(plan, OURS, ({ resolution }) =>
@@ -880,9 +906,8 @@ describe('rung 0 reads the verdict it already paid for', () => {
     [2, victimCell],
   ]);
 
-  test('with the flag off the seed goes out as staged, casualty and all', () => {
-    process.env.CENTAUR_STAGING_SAFETY = 'off';
-    const h = conformWith(FRATRICIDE, generatorForcing(forced));
+  test('at level `off` the seed goes out as staged, casualty and all', () => {
+    const h = conformWith(FRATRICIDE, generatorForcing(forced), undefined, 'off');
     expect(h.plan.get(1)?.to).toBe(victimCell);
     // The negative control the repair is measured against: the first staged set
     // of the turn kills one of our own units, and rung 0 emits it anyway.
@@ -890,9 +915,8 @@ describe('rung 0 reads the verdict it already paid for', () => {
     h.close();
   });
 
-  test('with the flag full the self-harm is repaired before the first emission', () => {
-    process.env.CENTAUR_STAGING_SAFETY = 'full';
-    const h = conformWith(FRATRICIDE, generatorForcing(forced));
+  test('at level `full` the self-harm is repaired before the first emission', () => {
+    const h = conformWith(FRATRICIDE, generatorForcing(forced), undefined, 'full');
     // Either the killer moved or the victim did — what the repair owes is the
     // OUTCOME, not a particular edit.
     expect(h.ourDead).toEqual([]);
@@ -909,14 +933,12 @@ describe('rung 0 reads the verdict it already paid for', () => {
       [1, shared],
       [2, shared],
     ]);
-    process.env.CENTAUR_STAGING_SAFETY = 'off';
-    const off = conformWith(FRATRICIDE, generatorForcing(both));
+    const off = conformWith(FRATRICIDE, generatorForcing(both), undefined, 'off');
     expect(off.plan.get(1)?.to).toBe(shared);
     expect(off.plan.get(2)?.to).toBe(shared);
     off.close();
 
-    process.env.CENTAUR_STAGING_SAFETY = 'guard';
-    const on = conformWith(FRATRICIDE, generatorForcing(both));
+    const on = conformWith(FRATRICIDE, generatorForcing(both), undefined, 'guard');
     expect(on.plan.get(1)?.to === shared && on.plan.get(2)?.to === shared).toBe(false);
     // Still complete, still legal, and no casualty of ours.
     expect([...on.plan.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
@@ -936,18 +958,13 @@ describe('rung 0 reads the verdict it already paid for', () => {
       ],
     };
     const counts: number[] = [];
-    for (const flag of ['off', 'full']) {
-      process.env.CENTAUR_STAGING_SAFETY = flag;
+    for (const level of ['off', 'full'] as const) {
       let n = 0;
-      const h = conformWith(clean, makeGenerator(), () => n++);
+      const h = conformWith(clean, makeGenerator(), () => n++, level);
       h.close();
       counts.push(n);
     }
     expect(counts[0]).toBe(counts[1]);
-  });
-
-  afterEach(() => {
-    delete process.env.CENTAUR_STAGING_SAFETY;
   });
 });
 
@@ -963,9 +980,11 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
       ],
       { width: 11, height: 11 }
     );
+    // The reading is a PROFILE FIELD (`CriterionProfile.royalReachers`), not an
+    // environment variable: `undefined` takes `DEFAULT_ROYAL_REACHERS`, which
+    // is what ships. Both arms are named here rather than one being the
+    // ambient default, so the test says which is which.
     const read = (on: boolean): number => {
-      if (on) process.env.CENTAUR_ROYAL_MARGIN = '1';
-      else delete process.env.CENTAUR_ROYAL_MARGIN;
       const { makeContext, kingMarginFeature } = require('../evaluate') as typeof import('../evaluate');
       const sub: EngineSubstrate = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
       const plan = new Map<UnitId, Candidate>();
@@ -974,7 +993,9 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
         plan.set(u.unitId, { unitId: u.unitId, from: u.cells[0], to: u.cells[0], path: [] });
       }
       const out = sub.withResolution(plan, sub.teamNumber('red'), ({ resolution, bounds }) => {
-        const ctx = makeContext(sub, resolution, bounds, sub.teamNumber('red'), 4);
+        const ctx = makeContext(sub, resolution, bounds, sub.teamNumber('red'), 4, {
+          royalReachers: on,
+        });
         return kingMarginFeature.evaluate(ctx).lo;
       });
       sub.release();
@@ -989,9 +1010,8 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
     expect(off).toBeGreaterThan(0);
     expect(on).toBeLessThan(off);
     expect(on).toBeLessThanOrEqual(0);
-  });
-
-  afterEach(() => {
-    delete process.env.CENTAUR_ROYAL_MARGIN;
+    // And the shipped reading is the OFF one, which is the correction this
+    // teardown deliberately did not make — see DEFAULT_ROYAL_REACHERS.
+    expect(DEFAULT_ROYAL_REACHERS).toBe(false);
   });
 });

@@ -27,15 +27,7 @@
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
-import {
-  DEAD,
-  MUTUAL_WIPE_AWARD_ENV,
-  WIN,
-  finish,
-  mutualWipeAwardFrom,
-  mutualWipeReportOf,
-  mutualWipeVerdict,
-} from '../evaluate';
+import { DEAD, WIN, finish, mutualWipeReportOf, mutualWipeVerdict } from '../evaluate';
 import type { EvalContext, Evaluation, Standing } from '../evaluate';
 
 // --------------------------------------------------------------------- fixtures
@@ -80,7 +72,6 @@ function substrateOf(
 
 afterEach(() => {
   clearGeometryCache();
-  delete process.env[MUTUAL_WIPE_AWARD_ENV];
 });
 
 /**
@@ -135,39 +126,46 @@ const OURS_MAYBE = { worstAlive: false, bestAlive: true };
 /** Theirs: alive in OUR worst reading, dead in our best — their contingent. */
 const THEIRS_MAYBE = { worstAlive: true, bestAlive: false };
 
-// ------------------------------------------------------------------------ gate
+// ------------------------------------------------------- the correction itself
 
-describe('the flag', () => {
-  test('parses like every other CL flag, and defaults OFF', () => {
-    expect(mutualWipeAwardFrom({})).toBe(false);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: '1' })).toBe(true);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: 'on' })).toBe(true);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: 'true' })).toBe(true);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: '0' })).toBe(false);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: 'yes' })).toBe(false);
-    expect(mutualWipeAwardFrom({ [MUTUAL_WIPE_AWARD_ENV]: '' })).toBe(false);
-  });
+/**
+ * THE ONE DELIBERATE BEHAVIOUR CHANGE OF THE FLAG TEARDOWN, pinned exhaustively.
+ *
+ * The award used to be dark behind `CENTAUR_MUTUAL_WIPE_AWARD`. It is a
+ * CORRECTION — the shipped clamp priced a mutual final wipe at the lattice
+ * bottom and the rules bank the previous turn's position — so it is now
+ * unconditional, and the flag is gone.
+ *
+ * This is the test that says exactly what that changed. Sixteen combinations of
+ * the two alive bits for two teams, on a board where we are comfortably ahead
+ * so the award's guards all pass. For each one it computes BOTH references:
+ *
+ *   shipped:   lo = S_w ? DEAD : O_w ? WIN : total.lo
+ *              hi = S_b ? DEAD : O_b ? WIN : total.hi
+ *   corrected: the same, with `DEAD` replaced by the banked value V in the
+ *              cell where the subject AND every rival are gone together.
+ *
+ * and asserts that the build produces the CORRECTED one everywhere, that the
+ * two disagree ONLY on the mutual-wipe cells, and that they disagree on at
+ * least one — a change that turned out to be vacuous would pass an
+ * equals-corrected assertion silently.
+ */
+describe('the correction, against the expression it replaced', () => {
+  const BITS = [
+    { worstAlive: false, bestAlive: false },
+    { worstAlive: false, bestAlive: true },
+    { worstAlive: true, bestAlive: false },
+    { worstAlive: true, bestAlive: true },
+  ];
+  // red 6, blue 3 on a fully observed board: subject-frame fold +3, x10 the
+  // default material weight. Every guard passes, so V is exactly this.
+  const V = 30;
 
-  /**
-   * THE DARK GATE, checked exhaustively rather than argued.
-   *
-   * Sixteen combinations of the two alive bits for two teams, on a board where
-   * we are comfortably ahead — so if the flag leaked at all, at least one of
-   * these would move. The reference is the expression that shipped:
-   *
-   *     lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : total.lo
-   *     hi = best.subjectGone  ? DEAD : best.othersGone  ? WIN : total.hi
-   */
-  test('OFF reproduces the shipped clamps in all sixteen terminal combinations', () => {
-    const sub = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
-    const bits = [
-      { worstAlive: false, bestAlive: false },
-      { worstAlive: false, bestAlive: true },
-      { worstAlive: true, bestAlive: false },
-      { worstAlive: true, bestAlive: true },
-    ];
-    for (const ours of bits) {
-      for (const theirs of bits) {
+  test('changes the mutual-wipe cell, and no other, in all sixteen', () => {
+    let changed = 0;
+    for (const ours of BITS) {
+      for (const theirs of BITS) {
+        const sub = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
         const ctx = contextOf(sub, 0, [
           { team: 0, ...ours },
           { team: 1, ...theirs },
@@ -176,17 +174,72 @@ describe('the flag', () => {
         const subjectGoneBest = !ours.bestAlive;
         const othersGoneWorst = !theirs.worstAlive;
         const othersGoneBest = !theirs.bestAlive;
-        const wantLo = subjectGoneWorst ? DEAD : othersGoneWorst ? WIN : -2;
-        const wantHi = subjectGoneBest ? DEAD : othersGoneBest ? WIN : 7;
+
+        const shippedLo = subjectGoneWorst ? DEAD : othersGoneWorst ? WIN : -2;
+        const shippedHi = subjectGoneBest ? DEAD : othersGoneBest ? WIN : 7;
+        // The correction touches exactly the two cells where WE are gone and
+        // EVERY RIVAL is gone in the same reading. Everywhere else the two
+        // expressions are the same expression.
+        const wantLo = subjectGoneWorst && othersGoneWorst ? V : shippedLo;
+        const wantHi = subjectGoneBest && othersGoneBest ? V : shippedHi;
+
         const got = finish(ctx, evaluationOf(-2, 7)).bound;
         expect([got.lo, got.hi]).toEqual([
           Math.min(wantLo, wantHi),
           Math.max(wantLo, wantHi),
         ]);
+        if (wantLo !== shippedLo || wantHi !== shippedHi) changed++;
+        clearGeometryCache();
       }
     }
-    // Nothing was even allocated: the module is never reached off the flag.
-    expect(mutualWipeReportOf(sub)).toBeNull();
+    // Non-vacuity: the correction actually fires somewhere in this table.
+    expect(changed).toBeGreaterThan(0);
+  });
+
+  test('every OTHER combination is byte-identical to the shipped clamp', () => {
+    for (const ours of BITS) {
+      for (const theirs of BITS) {
+        // Skip the cells the correction is FOR; this asserts the rest is
+        // untouched, which is the other half of "one deliberate change".
+        const wipeAtLo = !ours.worstAlive && !theirs.worstAlive;
+        const wipeAtHi = !ours.bestAlive && !theirs.bestAlive;
+        if (wipeAtLo || wipeAtHi) continue;
+        const sub = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
+        const ctx = contextOf(sub, 0, [
+          { team: 0, ...ours },
+          { team: 1, ...theirs },
+        ]);
+        const shippedLo = !ours.worstAlive ? DEAD : !theirs.worstAlive ? WIN : -2;
+        const shippedHi = !ours.bestAlive ? DEAD : !theirs.bestAlive ? WIN : 7;
+        const got = finish(ctx, evaluationOf(-2, 7)).bound;
+        expect([got.lo, got.hi]).toEqual([
+          Math.min(shippedLo, shippedHi),
+          Math.max(shippedLo, shippedHi),
+        ]);
+        // And nothing was even allocated: a position that never reaches a
+        // mutual-wipe world does not touch the module.
+        expect(mutualWipeReportOf(sub)).toBeNull();
+        clearGeometryCache();
+      }
+    }
+  });
+
+  test('THE ENVIRONMENT IS NOT CONSULTED — the flag is gone, not defaulted on', () => {
+    // Setting the dead variable to an "off" value must not turn the correction
+    // back off. This is the test that catches a re-introduced read.
+    const before = process.env.CENTAUR_MUTUAL_WIPE_AWARD;
+    try {
+      process.env.CENTAUR_MUTUAL_WIPE_AWARD = '0';
+      const sub = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
+      const ctx = contextOf(sub, 0, [
+        { team: 0, ...GONE },
+        { team: 1, ...GONE },
+      ]);
+      expect(finish(ctx, evaluationOf(-2, 7)).bound).toMatchObject({ lo: V, hi: V });
+    } finally {
+      if (before === undefined) delete process.env.CENTAUR_MUTUAL_WIPE_AWARD;
+      else process.env.CENTAUR_MUTUAL_WIPE_AWARD = before;
+    }
   });
 });
 
@@ -297,25 +350,17 @@ describe('what the award does to the bound', () => {
       { team: 0, ...GONE },
       { team: 1, ...GONE },
     ]);
-    expect(finish(ctx, evaluationOf(-2, 7)).bound).toMatchObject({ lo: DEAD, hi: DEAD });
-
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
-    const on = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
-    const onCtx = contextOf(on, 0, [
-      { team: 0, ...GONE },
-      { team: 1, ...GONE },
-    ]);
     // Finite and exact — the previous board is fully observed, so there is
     // nothing left to be uncertain about. NOT the lattice top: a wipe while
-    // three ahead is worth three ahead, and no more.
-    expect(finish(onCtx, evaluationOf(-2, 7)).bound).toMatchObject({
+    // three ahead is worth three ahead, and no more. The shipped clamp said
+    // DEAD here; that is the correction.
+    expect(finish(ctx, evaluationOf(-2, 7)).bound).toMatchObject({
       lo: AHEAD_VALUE,
       hi: AHEAD_VALUE,
     });
   });
 
   test('the value scales with the PROFILE\'s material weight, not with a constant', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = ahead();
     const ctx = contextOf(sub, 0, [
       { team: 0, ...GONE },
@@ -327,7 +372,6 @@ describe('what the award does to the bound', () => {
   });
 
   test('a wipe while further ahead is worth MORE — the metric is continuous', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const wipeAt = (ours: number, theirs: number) => {
       const sub = substrateOf(
         [worm('a', 'red', 1, 1, ours), worm('b', 'blue', 5, 1, theirs)],
@@ -352,8 +396,7 @@ describe('what the award does to the bound', () => {
     expect(Number.isFinite(wide)).toBe(true);
   });
 
-  test('a certain mutual wipe while BEHIND stays DEAD with the flag on', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
+  test('a certain mutual wipe while BEHIND stays DEAD — guard 1 still refuses', () => {
     const sub = behind();
     const ctx = contextOf(sub, 0, [
       { team: 0, ...GONE },
@@ -363,7 +406,6 @@ describe('what the award does to the bound', () => {
   });
 
   test('certainly gone while they only MIGHT be: a TIGHT finite ceiling', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = ahead();
     // Their unit is alive in our worst reading and dead in our best — the
     // contingent enemy. So `worst.othersGone` is false and `best.othersGone` is
@@ -381,7 +423,6 @@ describe('what the award does to the bound', () => {
   });
 
   test('certainly gone while they certainly survive is a loss at both ends', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = ahead();
     const ctx = contextOf(sub, 0, [
       { team: 0, ...GONE },
@@ -391,7 +432,6 @@ describe('what the award does to the bound', () => {
   });
 
   test('we might survive and they are certainly gone: banked value up to a win', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = ahead();
     const ctx = contextOf(sub, 0, [
       { team: 0, ...OURS_MAYBE },
@@ -406,8 +446,7 @@ describe('what the award does to the bound', () => {
     });
   });
 
-  test('a position nobody died in is untouched by the flag', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
+  test('a position nobody died in is untouched by the correction', () => {
     const sub = ahead();
     const ctx = contextOf(sub, 0, [
       { team: 0, ...ALIVE },
@@ -429,7 +468,6 @@ describe('the bounds laws under the award', () => {
    * COLLAPSE when the two readings agree.
    */
   test('never inverts, and collapses on a single world', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const bits = [GONE, ALIVE, OURS_MAYBE, THEIRS_MAYBE];
     for (const ours of bits) {
       for (const theirs of bits) {
@@ -465,7 +503,6 @@ describe('the bounds laws under the award', () => {
    * (the wipe, worth the previous turn's position), the floor holds.
    */
   test('the floor only lifts off DEAD where every rival is certainly gone', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const bits = [GONE, ALIVE, OURS_MAYBE, THEIRS_MAYBE];
     for (const ours of bits) {
       for (const theirs of bits) {
@@ -490,7 +527,6 @@ describe('the bounds laws under the award', () => {
 
 describe('engagement', () => {
   test('counts what the arm actually did, and stays null when it did nothing', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = substrateOf([worm('a', 'red', 1, 1, 6), worm('b', 'blue', 5, 1, 3)], 'red');
     expect(mutualWipeReportOf(sub)).toBeNull();
 
@@ -511,7 +547,6 @@ describe('engagement', () => {
   });
 
   test('records the refusal rather than the award when the lead is not there', () => {
-    process.env[MUTUAL_WIPE_AWARD_ENV] = '1';
     const sub = substrateOf([worm('a', 'red', 1, 1, 3), worm('b', 'blue', 5, 1, 6)], 'red');
     const wipe = contextOf(sub, 0, [
       { team: 0, ...GONE },

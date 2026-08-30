@@ -213,7 +213,7 @@ describe("worker parallelism is invisible to the answer", () => {
     for (const workers of ["off", 0] as const) {
       const forwarded: string[] = []
       const engine = new TeamDecisionEngine(portsFor(forwarded), {
-        workers,
+        bot: { workers },
         kernel: { sliceMs: 20, reserveMs: 0, minWriteIntervalMs: 0 },
       })
       try {
@@ -237,7 +237,7 @@ describe("worker parallelism is invisible to the answer", () => {
     const reference: Arm[] = []
     const forwarded0: string[] = []
     const base = new TeamDecisionEngine(portsFor(forwarded0), {
-      workers: 0,
+      bot: { workers: 0 },
       kernel: { sliceMs: 20, reserveMs: 0, minWriteIntervalMs: 0 },
     })
     try {
@@ -251,7 +251,7 @@ describe("worker parallelism is invisible to the answer", () => {
     for (const size of [1, 2, 3]) {
       const forwarded: string[] = []
       const engine = new TeamDecisionEngine(portsFor(forwarded), {
-        workers: size,
+        bot: { workers: size },
         kernel: { sliceMs: 20, reserveMs: 0, minWriteIntervalMs: 0 },
         // Audit mode: every imported evaluation is recomputed on first read
         // and a disagreement THROWS. It is the only check for the one
@@ -317,7 +317,7 @@ describe("worker parallelism is invisible to the answer", () => {
       kernel: { sliceMs: 20, reserveMs: 0, minWriteIntervalMs: 0 },
     } as const
     const forwarded0: string[] = []
-    const base = new TeamDecisionEngine(portsFor(forwarded0), { ...OPTIONS, workers: 0 })
+    const base = new TeamDecisionEngine(portsFor(forwarded0), { ...OPTIONS, bot: { workers: 0 } })
     let zero: Arm
     try {
       zero = await runArm(base, forwarded0, 40, 0)
@@ -333,7 +333,7 @@ describe("worker parallelism is invisible to the answer", () => {
       const forwarded: string[] = []
       const engine = new TeamDecisionEngine(portsFor(forwarded), {
         ...OPTIONS,
-        workers: size,
+        bot: { workers: size },
         search: { bank: { auditImports: true } },
       })
       try {

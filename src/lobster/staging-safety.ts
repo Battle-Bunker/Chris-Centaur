@@ -82,7 +82,7 @@ import type { EngineSubstrate, SubstrateUnit } from './substrate';
 import type { Candidate, CellIndex } from './contracts';
 
 // ---------------------------------------------------------------------------
-// The flag
+// The level — a bot-config choice, formerly CENTAUR_STAGING_SAFETY
 // ---------------------------------------------------------------------------
 
 /**
@@ -115,17 +115,19 @@ import type { Candidate, CellIndex } from './contracts';
  * snake-only boards; it is harmful there, for a reason that does not apply
  * where a piece is on the board.
  *
- * The flag as I1 built it is a blunt three-state and cannot express that: it
+ * The level as I1 built it is a blunt three-state and cannot express that: it
  * is the same answer on every board. `auto` is the ship condition made into
  * the DEFAULT POLICY, so the shipped build carries the verdict rather than
  * relying on an operator to know it. `guard` and `full` remain available as
  * UNCONDITIONAL levels, which is what a measurement arm needs — an arm that
- * wants the snake-only cell must be able to ask for it.
+ * wants the snake-only cell must be able to ask for it, and now asks by being
+ * a differently-configured bot rather than by setting a variable.
  *
  * `full`, not `guard`, is what `auto` resolves to, because `full` is what was
- * measured: I1's `mine` arm is "guard + rung-0 repair + royal margin".
- * (CENTAUR_ROYAL_MARGIN is a separate flag and its default is NOT changed
- * here — D2 shipped as a defect fix, not a placement claim.)
+ * measured: I1's `mine` arm is "guard + rung-0 repair + royal margin". (The
+ * royal-margin reading is separate and its default is NOT changed here — see
+ * `DEFAULT_ROYAL_REACHERS` below for the correction that is owed and why this
+ * change deliberately does not make it.)
  */
 export type StagingSafety = 'off' | 'auto' | 'guard' | 'full';
 
@@ -133,30 +135,19 @@ export type StagingSafety = 'off' | 'auto' | 'guard' | 'full';
  * that is not already an answer. */
 export type ResolvedStagingSafety = 'off' | 'guard' | 'full';
 
-export const STAGING_SAFETY_ENV = 'CENTAUR_STAGING_SAFETY';
-
-/** Absent, empty or unrecognised resolves here — the ship condition. */
+/**
+ * THE SHIP CONDITION, as a value. It was `CENTAUR_STAGING_SAFETY`, whose four
+ * levels a caller could name from the environment; the level is now a
+ * `BotConfig` field (`bot-config.ts`) whose default is this constant, so the
+ * shipped bot is the ship condition and an arm is a differently-configured bot.
+ *
+ * The core redesign (§1.4) sentences this layer to the KERNEL SAFETY FLOOR —
+ * "no longer configurable" — because a refusal that removes an option from the
+ * set is not a strategy under the seam rule. It stays configurable for exactly
+ * as long as the exploration slice needs to be able to ask for the opposite
+ * branch of a promoted policy, and no longer.
+ */
 export const STAGING_SAFETY_DEFAULT: StagingSafety = 'auto';
-
-export function stagingSafetyFrom(
-  env: NodeJS.ProcessEnv,
-  log: (message: string) => void = (m) => console.warn(m)
-): StagingSafety {
-  const raw = env[STAGING_SAFETY_ENV];
-  if (raw === undefined || raw === '') return STAGING_SAFETY_DEFAULT;
-  if (raw === 'off' || raw === 'auto' || raw === 'guard' || raw === 'full') return raw;
-  log(
-    `[staging-safety] Ignoring ${STAGING_SAFETY_ENV}="${raw}" — expected "off", "auto", ` +
-      `"guard" or "full"; keeping ${STAGING_SAFETY_DEFAULT}`
-  );
-  return STAGING_SAFETY_DEFAULT;
-}
-
-/** Read live, not cached at import: a test flips it per case, production sets
- * it once at process start. Read once per decision, never in a hot loop. */
-export function stagingSafety(): StagingSafety {
-  return stagingSafetyFrom(process.env);
-}
 
 /**
  * Does this board bear a PIECE — a unit that leaves no trail?
@@ -191,26 +182,31 @@ export function resolveStagingSafety(
 }
 
 /**
- * The royal-margin correction, flagged separately so its effect can be
- * measured apart from the staging guard.
+ * THE ROYAL-MARGIN READING, AND A CORRECTION THIS TEARDOWN DID NOT MAKE.
  *
  * `kingMarginFeature` exists to answer "what is the heaviest thing that can
- * stand on my king's square next turn", and its code skipped every unit on our
+ * stand on my king's square next turn", and its code skips every unit on our
  * own team. These rules have NO FRIENDLY-FIRE EXEMPTION and 27.0% of all king
  * deaths in the measured corpus were inflicted by the king's own team, so the
- * feature was structurally blind to the largest single source of the event it
- * was built to price.
+ * feature is structurally blind to the largest single source of the event it
+ * was built to price. By the argument in that sentence this is a CORRECTION and
+ * it is owed an unconditional flip.
+ *
+ * IT IS NOT FLIPPED HERE, DELIBERATELY. This teardown's gate is that the default
+ * bot is byte-identical except for the ONE correction the owner named
+ * (mutual-wipe pricing); flipping a second evaluator reading in the same change
+ * would put two deliberate behaviour changes behind one identity-gate
+ * regeneration and make neither of them attributable. So `CENTAUR_ROYAL_MARGIN`
+ * is deleted as a switch and the reading keeps the value that shipped: it is a
+ * `CriterionProfile.royalReachers` param (`evaluate/features.ts`), false unless
+ * a profile names it, which is a bot-config choice like every other profile
+ * weight.
+ *
+ * OWED: flip `DEFAULT_ROYAL_REACHERS` to true as its own change, with its own
+ * identity-gate regeneration and its own test. The redesign (§1.4) sentences it
+ * to a kernel safety-floor param, which is where it lands once flipped.
  */
-export const ROYAL_MARGIN_ENV = 'CENTAUR_ROYAL_MARGIN';
-
-export function royalMarginFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[ROYAL_MARGIN_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function royalMargin(): boolean {
-  return royalMarginFrom(process.env);
-}
+export const DEFAULT_ROYAL_REACHERS = false;
 
 // ---------------------------------------------------------------------------
 // The predicates

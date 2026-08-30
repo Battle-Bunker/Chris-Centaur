@@ -70,7 +70,6 @@ import { profileOf, scalarOf } from '../partial-engine/index';
 import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { TIER_DEFENSE } from './tier-truth';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import {
@@ -78,7 +77,7 @@ import {
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
-  stagingSafety,
+  STAGING_SAFETY_DEFAULT,
 } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
 import { CertainOccupancy, classifyUnit } from './fatality';
@@ -332,19 +331,24 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   pruneFatalNoGain: true,
   kingHardSafety: true,
   refusePromotion: false,
-  tierSafeStaging: TIER_DEFENSE,
-  selfDebuffOrdering: TIER_DEFENSE,
+  // The tier-defense policy, ON since Stage 3 and now a plain default: it used
+  // to read `CENTAUR_TIER_DEFENSE`, whose only job was to let one arm separate
+  // this policy from the tier-truth CORRECTION it shipped beside. A `BotConfig`
+  // that wants the corrected-beliefs-only bot names these two knobs.
+  tierSafeStaging: true,
+  selfDebuffOrdering: true,
   escortShadowOrdering: true,
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
   gainOrdering: true,
-  // Both default OFF; `flaggedKnobs()` turns them on when the staging-safety
-  // flag asks for them, so an explicit knob in a test still wins.
+  // Both default OFF; the staging-safety level turns them on (`knobsForSafety`),
+  // so an explicit knob from the bot still wins.
   pruneCertainSelfFatal: false,
   pruneRoyalPath: false,
-  // Default OFF pending its own empirical gate, and read from its own flag —
-  // never folded into the staging-safety level, because two features behind
-  // one flag is a paired experiment that measures their sum.
+  // Default OFF pending its own empirical gate, and its OWN knob — never folded
+  // into the staging-safety level, because two features behind one setting is a
+  // paired experiment that measures their sum. A bot that wants it names it
+  // (`BotConfig.candidates.unitFatality`).
   unitFatality: false,
   // Likewise: the rung-1/2 EV pass is ONE feature (one decomposition, one
   // currency) behind ONE flag, and it is not folded into either of the other
@@ -356,16 +360,15 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
 };
 
 /**
- * The knobs the CENTAUR_STAGING_SAFETY flag implies. Read once per generator —
- * that is once per team decision — and overridden by anything the caller passes
- * explicitly, so a test can exercise either polarity without touching the
- * environment.
+ * The knobs a staging-safety level implies. Read once per generator — that is
+ * once per team decision — and overridden by anything the bot names explicitly,
+ * so an arm can exercise either polarity as a configured bot.
  */
 export function knobsForSafety(level: StagingSafety): CandidateKnobs {
-  // Both polarities NAMED, never omitted. An omitted knob falls through to
-  // `flaggedKnobs()`, which reads the environment — so a caller that asked for
-  // 'off' would get whatever the process-wide flag said, and the one thing a
-  // per-engine override exists to guarantee is that it does not.
+  // Both polarities NAMED, never omitted. An omitted knob would fall through to
+  // `DEFAULT_KNOBS`, so a caller that asked for 'off' would get whatever the
+  // default said, and the one thing this seam exists to guarantee is that it
+  // does not.
   //
   // `auto` is board-conditional and this function has no board, so it resolves
   // OFF here — see `resolveStagingSafety`. A caller that HAS a board resolves
@@ -375,24 +378,23 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
   return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
 }
 
-export const UNIT_FATALITY_ENV = 'CENTAUR_UNIT_FATALITY';
-
 /**
- * The fatality classifier's own flag, kept separate from the staging-safety
- * level ON PURPOSE. Two features behind one flag is a paired experiment that
- * measures their sum, and this one has to be promotable — or refusable — on
- * its own evidence.
+ * THE BASE KNOBS a generator built with no bot behind it runs.
+ *
+ * A `TeamDecisionEngine` never reaches this: it resolves the level against the
+ * board it is deciding on and passes `knobsForSafety(resolved)` explicitly,
+ * which is the only reading that can express `auto`. This is for the harnesses
+ * and probes that build a generator with no board — and it takes the shipped
+ * level, resolved conservatively (`auto` with no board is `off`), which is what
+ * that caller used to get from an unset environment.
+ *
+ * TODO(teardown-search): `edgeEv` still reads its own environment flag; it
+ * becomes a `BotConfig.candidates` field with the search-layer teardown and
+ * this function loses its last environment read with it.
  */
-export function unitFatalityFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[UNIT_FATALITY_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-/** The knobs the process-wide flags imply, for a caller that names none. */
-export function flaggedKnobs(): CandidateKnobs {
+export function baseKnobs(): CandidateKnobs {
   return {
-    ...knobsForSafety(stagingSafety()),
-    unitFatality: unitFatalityFrom(process.env),
+    ...knobsForSafety(STAGING_SAFETY_DEFAULT),
     edgeEv: edgeEvFrom(process.env),
   };
 }
@@ -499,17 +501,15 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly economy = new WeakMap<EngineSubstrate, Map<number, DecisionEconomy>>();
 
   constructor(knobs: CandidateKnobs = {}) {
-    this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
+    this.knobs = { ...DEFAULT_KNOBS, ...baseKnobs(), ...knobs };
   }
 
   /**
    * THE KNOBS THIS GENERATOR RESOLVED — telemetry, and an ARM AUDIT.
    *
-   * Every CL flag parses only `1|on|true` and warns on nothing, so a mistyped
-   * value produces an A/A null wearing a treatment's name (the trap the sim
-   * kit's P7 comment names). The environment capture in a batch manifest says
-   * what was SET; this says what the generator actually resolved, which is the
-   * quantity a promotion verdict depends on. A copy, so no caller can reach
+   * A batch manifest says which bot a run was ASKED for; this says what the
+   * generator actually resolved, which is the quantity a promotion verdict
+   * depends on. A copy, so no caller can reach
    * the live object: nothing outside this class may write a knob mid-decision.
    */
   resolvedKnobs(): Required<CandidateKnobs> {

@@ -1,6 +1,6 @@
 /**
- * CENTAUR_ENGINE: exact flag semantics, and the proof that BOTH values are
- * whole routes rather than one route and a fallback.
+ * `BotConfig.engine`: exact config semantics, and the proof that BOTH values
+ * are whole routes rather than one route and a fallback.
  *
  *   lobster (default since 2026-08-26, and what any unrecognised value keeps):
  *   the full pass routes the TEAM decision through the new engine — the
@@ -13,8 +13,12 @@
  *   is never enabled, and staging leaves on the PER-UNIT transport.
  *
  * The fast pass is identical under both values (same code path, before the
- * branch). The legacy route is not deprecated by the flip: it is one
- * environment variable away and this file is what keeps it working.
+ * branch). The legacy route is not deprecated by the flip: it is one config
+ * field away and this file is what keeps it working.
+ *
+ * IT WAS `CENTAUR_ENGINE`, read from the environment at every routing
+ * decision. The tests below moved with it, and one of them changed SHAPE
+ * rather than syntax — see "flipping BACK to legacy mid-game".
  */
 
 import { Timestamp } from 'firebase/firestore';
@@ -23,12 +27,9 @@ import {
   TacticToesFirebaseInterface,
 } from '../firebase/firebase-interface';
 import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
-import {
-  CENTAUR_ENGINE_DEFAULT,
-  CENTAUR_ENGINE_ENV,
-  centaurEngine,
-  centaurEngineFrom,
-} from '../config/centaur-engine';
+import { CENTAUR_ENGINE_DEFAULT, centaurEngineOf } from '../config/centaur-engine';
+import type { CentaurEngineKind } from '../config/centaur-engine';
+import { DEFAULT_BOT_CONFIG, resolveBotConfig } from '../lobster/bot-config';
 import { ActiveGameManager } from '../server/active-game-manager';
 import type { CentaurMove, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { MIN_COMPUTE_MS, MIN_RESERVE_MS } from '../wire/deadline';
@@ -39,43 +40,42 @@ jest.mock('../logic/command-logger', () => {
   return { CommandLogger: { getInstance: () => ({ logEvent, logTurnState }) } };
 });
 
-// ----------------------------------------------------------- flag semantics
+// --------------------------------------------------------- config semantics
 
-describe('the flag itself', () => {
-  test('the default is lobster: absent or empty', () => {
+describe('the engine selection itself', () => {
+  test('the default is lobster: absent, null or empty', () => {
     expect(CENTAUR_ENGINE_DEFAULT).toBe('lobster');
-    expect(centaurEngineFrom({})).toBe('lobster');
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: '' })).toBe('lobster');
+    expect(DEFAULT_BOT_CONFIG.engine).toBe('lobster');
+    expect(centaurEngineOf(undefined)).toBe('lobster');
+    expect(centaurEngineOf('')).toBe('lobster');
+    expect(resolveBotConfig({}).engine).toBe('lobster');
   });
 
   test('legacy is still reachable, by name, exactly', () => {
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'legacy' })).toBe('legacy');
+    expect(centaurEngineOf('legacy')).toBe('legacy');
+    expect(resolveBotConfig({ engine: 'legacy' }).engine).toBe('legacy');
   });
 
   test('junk keeps the default and says so — a typo must not reroute production', () => {
     const warnings: string[] = [];
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'LOBSTER' }, (m) => warnings.push(m))).toBe(
-      CENTAUR_ENGINE_DEFAULT
-    );
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'on' }, (m) => warnings.push(m))).toBe(
-      CENTAUR_ENGINE_DEFAULT
-    );
-    expect(centaurEngineFrom({ [CENTAUR_ENGINE_ENV]: 'LEGACY' }, (m) => warnings.push(m))).toBe(
-      CENTAUR_ENGINE_DEFAULT
-    );
+    expect(centaurEngineOf('LOBSTER', (m) => warnings.push(m))).toBe(CENTAUR_ENGINE_DEFAULT);
+    expect(centaurEngineOf('on', (m) => warnings.push(m))).toBe(CENTAUR_ENGINE_DEFAULT);
+    expect(centaurEngineOf('LEGACY', (m) => warnings.push(m))).toBe(CENTAUR_ENGINE_DEFAULT);
     expect(warnings).toHaveLength(3);
   });
 
-  test('the live flag reads the process environment at call time', () => {
-    const before = process.env[CENTAUR_ENGINE_ENV];
+  test('THE ENVIRONMENT IS NOT CONSULTED — the whole point of the teardown', () => {
+    // The variable that used to drive this is dead. Setting it moves nothing,
+    // and this test is here so that re-introducing the read fails loudly rather
+    // than quietly restoring the paradigm the owner removed.
+    const before = process.env.CENTAUR_ENGINE;
     try {
-      delete process.env[CENTAUR_ENGINE_ENV];
-      expect(centaurEngine()).toBe('lobster');
-      process.env[CENTAUR_ENGINE_ENV] = 'legacy';
-      expect(centaurEngine()).toBe('legacy');
+      process.env.CENTAUR_ENGINE = 'legacy';
+      expect(resolveBotConfig({}).engine).toBe('lobster');
+      expect(resolveBotConfig({ engine: 'lobster' }).engine).toBe('lobster');
     } finally {
-      if (before === undefined) delete process.env[CENTAUR_ENGINE_ENV];
-      else process.env[CENTAUR_ENGINE_ENV] = before;
+      if (before === undefined) delete process.env.CENTAUR_ENGINE;
+      else process.env.CENTAUR_ENGINE = before;
     }
   });
 });
@@ -170,7 +170,12 @@ interface Drive {
  */
 async function driveTurn(
   gameID: string,
-  options: { maxTurnTime?: number; manager?: ActiveGameManager } = {}
+  options: {
+    maxTurnTime?: number;
+    manager?: ActiveGameManager;
+    /** The bot's engine. Absent plays the shipped default. */
+    engine?: CentaurEngineKind;
+  } = {}
 ): Promise<Drive> {
   let strategyCalls = 0;
   const strategy = {
@@ -181,7 +186,10 @@ async function driveTurn(
     onGameEnd: jest.fn(),
   } as never;
 
-  const fi = new TacticToesFirebaseInterface(strategy, config);
+  const fi = new TacticToesFirebaseInterface(strategy, {
+    ...config,
+    ...(options.engine === undefined ? {} : { bot: { engine: options.engine } }),
+  });
   const manager = options.manager ?? ActiveGameManager.getInstance();
   const unitPublished: Drive['unitPublished'] = [];
   const teamPublished: Drive['teamPublished'] = [];
@@ -269,12 +277,11 @@ async function driveTurn(
   };
 }
 
-describe('the full pass routes on the flag', () => {
+describe('the full pass routes on the bot', () => {
   let nowSpy: jest.SpyInstance;
   let errSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
   let logSpy: jest.SpyInstance;
-  const savedFlag = process.env[CENTAUR_ENGINE_ENV];
   const manager = ActiveGameManager.getInstance();
 
   beforeEach(() => {
@@ -291,13 +298,10 @@ describe('the full pass routes on the flag', () => {
     logSpy.mockRestore();
     manager.setMoveSubmitter(null);
     manager.setTeamMoveSubmitter(null);
-    if (savedFlag === undefined) delete process.env[CENTAUR_ENGINE_ENV];
-    else process.env[CENTAUR_ENGINE_ENV] = savedFlag;
   });
 
   test('LEGACY (opt-in): the strategy runs, and the staged move rides the PER-UNIT transport', async () => {
-    process.env[CENTAUR_ENGINE_ENV] = 'legacy';
-    const drive = await driveTurn('game-legacy');
+    const drive = await driveTurn('game-legacy', { engine: 'legacy' });
     expect(drive.strategyCalls).toBe(1);
     expect(drive.teamCalls).toHaveLength(0);
     // The real manager's own switch, read from the real manager: OFF.
@@ -312,7 +316,6 @@ describe('the full pass routes on the flag', () => {
   });
 
   test('LOBSTER (default): the team engine gets the turn, and staging is the TEAM transport', async () => {
-    delete process.env[CENTAUR_ENGINE_ENV];
     const drive = await driveTurn('game-lobster');
     expect(drive.strategyCalls).toBe(0);
     expect(drive.teamCalls).toHaveLength(1);
@@ -338,24 +341,27 @@ describe('the full pass routes on the flag', () => {
     // `max(now + MIN_COMPUTE_MS, endTime - reserve)` land on the same number,
     // so dropping the floor entirely still passes. At 300 ms they differ:
     // endTime - 150 = T + 150, and the floor is T + 200.
-    process.env[CENTAUR_ENGINE_ENV] = 'lobster';
-    const drive = await driveTurn('game-short-turn', { maxTurnTime: 0.3 });
+    const drive = await driveTurn('game-short-turn', { maxTurnTime: 0.3, engine: 'lobster' });
     expect(drive.teamCalls).toHaveLength(1);
     expect(drive.teamCalls[0]?.deadlineMs).toBe(T + MIN_COMPUTE_MS);
     expect(T + MIN_COMPUTE_MS).not.toBe(T + 300 - MIN_RESERVE_MS);
   });
 
-  test('flipping BACK to legacy mid-game turns the team transport off again (V4 H3)', async () => {
-    // The flag is read at call time, so it can flip while a game is watched.
-    // Leaving `teamStagedGames` set under the per-snake path would route a
-    // legacy game's staged writes through the batched submitter.
-    process.env[CENTAUR_ENGINE_ENV] = 'lobster';
-    const first = await driveTurn('game-flip');
+  test('a LEGACY interface turns the team transport off for a game a lobster one enabled (V4 H3)', async () => {
+    // WHAT THIS TEST USED TO BE, and why it changed shape. Under the flag the
+    // selection was re-read at every routing decision, so it could flip
+    // mid-game, and leaving `teamStagedGames` set under the per-snake path
+    // would route a legacy game's staged writes through the batched submitter.
+    // A bot cannot flip mid-game, so that exact race is gone — but the manager
+    // is a PROCESS-WIDE singleton and its team-staging bit survives the
+    // interface that set it, so the branch still has to be driven in both
+    // directions. Two interfaces on one gameID is the shape that still
+    // reaches it, and it is the shape a redeploy actually produces.
+    const first = await driveTurn('game-flip', { engine: 'lobster' });
     expect(first.teamStagingEnabled).toBe(true);
     expect(first.teamPublished.map((p) => p.snakeIds)).toEqual([['centA']]);
 
-    process.env[CENTAUR_ENGINE_ENV] = 'legacy';
-    const second = await driveTurn('game-flip');
+    const second = await driveTurn('game-flip', { engine: 'legacy' });
     expect(second.teamStagingEnabled).toBe(false);
     expect(second.teamCalls).toHaveLength(0);
     expect(second.strategyCalls).toBe(1);

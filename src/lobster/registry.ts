@@ -3,10 +3,13 @@
  *
  * ── WHAT THIS REPLACES ─────────────────────────────────────────────────────
  *
- * Today a candidate strategy is a dark code path behind a `CENTAUR_*` flag and
- * the promotion ledger judges flags. The paradigm's costs are the ones the
- * owner named: the code paths accumulate, the off-arms rot, and every strategy
- * is a fork in the source rather than a value in a table.
+ * A candidate strategy USED to be a dark code path behind a `CENTAUR_*` flag,
+ * with the promotion ledger judging flags. The paradigm's costs are the ones
+ * the owner named: the code paths accumulate, the off-arms rot, and every
+ * strategy is a fork in the source rather than a value in a table. The flag
+ * system was torn out on 2026-08-29; what a bot runs is now data all the way
+ * down — `BotConfig` (`bot-config.ts`) for the choices that have not yet earned
+ * an entry, and this table for the ones that have.
  *
  * The replacement: the kernel exposes a small set of PRIMITIVES per socket
  * (mechanisms that exist and work — the conflict index, the edge-EV surrogate,
@@ -451,8 +454,9 @@ const EVSEL_LEGACY_ALWAYS: StrategyEntry<'evaluator-selector'> = {
       'cost belongs to the socket-3 entries.'
   ),
   record: SHIPPED(
-    'the shipped invocation policy. CENTAUR_COHORT_POLICY measured LIVE-NULL ' +
-      'against it; its predicates become socket-2 challengers carrying that record.',
+    'the shipped invocation policy. The cohort-policy experiment measured ' +
+      'LIVE-NULL against it and its code is gone; its predicates become ' +
+      'socket-2 challengers carrying that record.',
     ['CENTAUR_COHORT_POLICY']
   ),
 };

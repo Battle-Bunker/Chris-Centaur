@@ -1,6 +1,6 @@
 /**
  * THE MUTUAL-WIPE AWARD — the game's own rule for a game that ends with
- * everybody dead, behind a flag, off by default.
+ * everybody dead. UNCONDITIONAL: this is a CORRECTION, not a strategy.
  *
  * ── WHAT THE RULES SAY, AND WHAT THIS EVALUATOR SAID INSTEAD ───────────────
  *
@@ -26,9 +26,21 @@
  * share we were holding a turn earlier, and it is most wrong when that share is
  * largest.
  *
- * This module is the repair, gated on `CENTAUR_MUTUAL_WIPE_AWARD` and DARK by
- * default. With the flag off `mutualWipeAwardFor` is never called and `finish`'s
- * two clamp expressions collapse, term for term, to the ones that shipped.
+ * This module is the repair, and it is ALWAYS ON. It was built behind
+ * `CENTAUR_MUTUAL_WIPE_AWARD`; the owner's ruling of 2026-08-29 removed the
+ * flag system and named this one explicitly — *"aren't you talking about a
+ * correction to previously wrong logic here?"* A correction to logic that did
+ * not match the rules is not a strategy alternative and has no off-arm to
+ * measure: the shipped clamp priced a mutual final wipe at the lattice bottom,
+ * the rules bank the previous turn's position, and one of those two is wrong.
+ *
+ * WHAT SURVIVED THE FLAG, AND WHY IT IS NOT ONE. The four guards below stay
+ * exactly where they were. They are not a gate on the correction — they are
+ * PART of it: each one is a refusal to price a world whose inputs are not
+ * exact, and each errs toward the shipped `DEAD`. The strict-lead guard and the
+ * fully-observed guard are the two that matter, and the header's own argument
+ * for them ("the direction to be wrong in") is a soundness argument, not a
+ * rollout argument.
  *
  * ── THE VALUE, AND WHY IT IS DENOMINATED THE WAY IT IS ─────────────────────
  *
@@ -131,38 +143,19 @@
  * everything. `lo = total.lo` requires not-S_w, hence not-S_b, so `hi` is
  * `WIN` or `total.hi`. `clampTo` never sees an inverted interval.
  *
- * ── WHAT THE FLAG COSTS WHEN IT IS WRONG ───────────────────────────────────
+ * ── WHAT IT COSTS WHEN IT IS WRONG ─────────────────────────────────────────
  *
  * If the weights read off the previous board are wrong, the evaluator prices a
  * loss above the bottom and may walk into it. That is why the guards above are
- * refusals rather than approximations, and why the flag is dark. The event is
- * also RARE: mutual final wipes are 0.076% of the simulation corpus (10 of
- * 13,245 games). It is a correctness repair with an audit trail, not a lever.
+ * refusals rather than approximations. The event is also RARE: mutual final
+ * wipes are 0.076% of the simulation corpus (10 of 13,245 games), so the
+ * blast radius of the correction is small and its counters
+ * (`MutualWipeReport`) are how a replay says whether it fired at all.
  */
 
 import { EngineSubstrate } from '../substrate';
 
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const MUTUAL_WIPE_AWARD_ENV = 'CENTAUR_MUTUAL_WIPE_AWARD';
-
-/**
- * DEFAULT OFF. With it off nothing in this module is called: `finish` guards
- * every use behind this predicate, and its clamp expressions reduce term for
- * term to the ones that shipped.
- */
-export function mutualWipeAwardFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[MUTUAL_WIPE_AWARD_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function mutualWipeAwardEnabled(): boolean {
-  return mutualWipeAwardFrom(process.env);
-}
-
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------
 // The reading
 // ---------------------------------------------------------------------------
 
@@ -325,17 +318,16 @@ const counters = new WeakMap<EngineSubstrate, MutualWipeCounters>();
 const awards = new WeakMap<EngineSubstrate, Map<number, MutualWipeAward>>();
 
 /**
- * THE ONE ENTRY POINT THE CLAMP CALLS, and the whole of the dark gate.
+ * THE ONE ENTRY POINT THE CLAMP CALLS.
  *
- * Returns what a mutual wipe is worth on the fold's own scale, or `null` when
- * the flag is off or a guard refused — and `null` is what makes the clamp
- * collapse to the expression that shipped.
+ * Returns what a mutual wipe is worth on the fold's own scale, or `null` when a
+ * guard refused — and `null` is what makes the clamp collapse to the expression
+ * that shipped, which is still the answer on every board the guards decline.
  *
  * Called only from a world in which we and everyone else are gone together, so
- * the environment read and the roster walk sit behind a branch an ordinary
- * evaluation never takes. With the flag off this returns null before touching
- * anything, no counters are allocated, and `mutualWipeReportOf` stays null —
- * which is what makes "flag off" byte-identical rather than merely equivalent.
+ * the roster walk sits behind a branch an ordinary evaluation never takes: on
+ * a decision that never reaches a mutual-wipe world nothing here runs, no
+ * counters are allocated, and `mutualWipeReportOf` stays null.
  *
  * The award itself is memoized per (substrate, team): the previous committed
  * turn's board is fixed for the whole decision, so the roster walk happens once
@@ -348,7 +340,6 @@ export function mutualWipeAwardFor(
   asTeam: number,
   materialWeight: number
 ): number | null {
-  if (!mutualWipeAwardEnabled()) return null;
   let byTeam = awards.get(sub);
   if (byTeam === undefined) {
     byTeam = new Map();
@@ -373,10 +364,11 @@ export function mutualWipeCountersFor(sub: EngineSubstrate): MutualWipeCounters 
 }
 
 /**
- * This decision's award telemetry, or null when the flag never reached a
- * mutual-wipe world — which, off the flag, is always. Null and not zero: a
- * counter a decision never had did not read zero, and P5 is the exhibit for
- * why that distinction has to survive to the manifest.
+ * This decision's award telemetry, or null when no evaluation ever reached a
+ * mutual-wipe world — which, at a 0.076% base rate for that end kind, is most
+ * decisions. Null and not zero: a counter a decision never had did not read
+ * zero, and P5 is the exhibit for why that distinction has to survive to the
+ * manifest.
  */
 export function mutualWipeReportOf(sub: EngineSubstrate): MutualWipeReport | null {
   const c = counters.get(sub);

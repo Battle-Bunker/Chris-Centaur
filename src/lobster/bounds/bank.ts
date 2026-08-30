@@ -129,7 +129,7 @@ export interface BankConfig {
   readonly evalMemoCapacity: number;
   /**
    * Recompute every IMPORTED evaluation on first read and throw on a
-   * disagreement — see `CENTAUR_WORKERS_AUDIT`. Roughly doubles the evaluator's
+   * disagreement — see `BotConfig.workersAudit`. Roughly doubles the evaluator's
    * work on prefetched branches, so it is a test and soak instrument.
    */
   readonly auditImports: boolean;

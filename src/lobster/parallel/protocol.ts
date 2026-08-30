@@ -178,7 +178,7 @@ export interface SessionSpec {
   readonly boardEpoch: number
   readonly asTeam: number
   /** Fully resolved on the main thread — staging-safety knobs already folded
-   * in — so a worker never reads `CENTAUR_STAGING_SAFETY` for itself. */
+   * in — so a worker never resolves the level for itself. */
   readonly knobs: CandidateKnobs
   readonly evaluator: EvaluatorSpec
   readonly basis: ReadonlyArray<Assumption>

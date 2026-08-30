@@ -20,7 +20,8 @@ import {
   encodeCandidate,
   UNENCODABLE,
 } from "./protocol"
-import { autoPoolSize, parseWorkerSetting, resolveWorkerCount, auditFrom } from "./config"
+import { autoPoolSize, parseWorkerSetting, resolveWorkerCount } from "./config"
+import { DEFAULT_BOT_CONFIG, botConfigFromJson, resolveBotConfig } from "../bot-config"
 
 function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
   return {
@@ -192,11 +193,39 @@ describe("CENTAUR_WORKERS", () => {
     expect(said).toHaveLength(4)
   })
 
-  it("reads the audit flag as off unless it is positively on", () => {
-    expect(auditFrom({})).toBe(false)
-    expect(auditFrom({ CENTAUR_WORKERS_AUDIT: "" })).toBe(false)
-    expect(auditFrom({ CENTAUR_WORKERS_AUDIT: "0" })).toBe(false)
-    expect(auditFrom({ CENTAUR_WORKERS_AUDIT: "off" })).toBe(false)
-    expect(auditFrom({ CENTAUR_WORKERS_AUDIT: "1" })).toBe(true)
+  it("ships off, in the bot and not in the environment", () => {
+    // The benchmark-winning setting IS the default, which is the whole
+    // disposition a perf variant gets: no switch, and a branch plus a bench
+    // for anyone who wants to reopen it.
+    expect(DEFAULT_BOT_CONFIG.workers).toBe("off")
+    expect(DEFAULT_BOT_CONFIG.workersAudit).toBe(false)
+    expect(resolveBotConfig({}).workers).toBe("off")
+    expect(resolveBotConfig({ workers: "auto" }).workers).toBe("auto")
+    expect(resolveBotConfig({ workers: 3 }).workers).toBe(3)
+    expect(botConfigFromJson({ workers: 2, workersAudit: true })).toMatchObject({
+      workers: 2,
+      workersAudit: true,
+    })
+    // Junk in a contender file falls back to the safe side and says so.
+    const said: string[] = []
+    expect(resolveBotConfig({ workers: "banana" as never }, (m) => said.push(m)).workers).toBe(
+      "off",
+    )
+    expect(said).toHaveLength(1)
+  })
+
+  it("THE ENVIRONMENT IS NOT CONSULTED — both worker flags are gone", () => {
+    const saved = [process.env.CENTAUR_WORKERS, process.env.CENTAUR_WORKERS_AUDIT]
+    try {
+      process.env.CENTAUR_WORKERS = "auto"
+      process.env.CENTAUR_WORKERS_AUDIT = "1"
+      expect(resolveBotConfig({}).workers).toBe("off")
+      expect(resolveBotConfig({}).workersAudit).toBe(false)
+    } finally {
+      if (saved[0] === undefined) delete process.env.CENTAUR_WORKERS
+      else process.env.CENTAUR_WORKERS = saved[0]
+      if (saved[1] === undefined) delete process.env.CENTAUR_WORKERS_AUDIT
+      else process.env.CENTAUR_WORKERS_AUDIT = saved[1]
+    }
   })
 })

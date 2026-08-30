@@ -62,7 +62,7 @@ import {
   topCandidates,
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
-import { resolveStagingSafety, stagingSafety } from "../staging-safety";
+import { resolveStagingSafety, STAGING_SAFETY_DEFAULT } from "../staging-safety";
 import {
   catalogueDigest,
   clusterPlanPartition,
@@ -85,7 +85,7 @@ import {
   type MultiStartTuning,
 } from "./multistart-seed";
 import { clusterEnumEnabled, partitionOf, type Partition } from "./cluster-partition";
-import { setRefineScope, territoryRefineEnabled } from "../evaluate/refine";
+import { DEFAULT_TERRITORY_REFINE, setRefineScope } from "../evaluate/refine";
 import {
   DEFAULT_CLUSTER_TUNING,
   enumerateProposals,
@@ -148,15 +148,17 @@ export interface SearchTuning {
   readonly rungZeroRepairVictims: number;
   /**
    * Whether rung 0 reads the verdict of the price it already pays. Left
-   * undefined it follows `CENTAUR_STAGING_SAFETY`; named by a caller it is that
-   * caller's answer, so one seat can carry the repair while the seat across the
-   * board does not.
+   * undefined it takes the shipped staging-safety level, resolved
+   * conservatively; named by a caller it is that caller's answer, so one seat
+   * can carry the repair while the seat across the board does not.
+   * `TeamDecisionEngine` always names it, from the bot and this board.
    */
   readonly rungZeroRepair: boolean | undefined;
   /**
    * Whether the seed reserves the cells it has already spent, so two of our
-   * units do not both start on the same square. Undefined follows
-   * `CENTAUR_STAGING_SAFETY`; named by a caller it is that caller's answer.
+   * units do not both start on the same square. Undefined takes the shipped
+   * staging-safety level, resolved conservatively; named by a caller it is that
+   * caller's answer.
    */
   readonly seedDeconflict: boolean | undefined;
   /**
@@ -234,7 +236,8 @@ export interface SearchTuning {
    * It runs only over units this decision's cluster enumeration already paid
    * for, so `clusterEnum` must also resolve on; a caller that asks for the
    * refiner without the enumeration gets no scope and no refinement, and the
-   * cluster report says so. Undefined follows `CENTAUR_TERRITORY_REFINE`.
+   * cluster report says so. Undefined takes `DEFAULT_TERRITORY_REFINE`;
+   * `TeamDecisionEngine` names it from the bot.
    * DEFAULT OFF, and off it registers no scope, so `makeContext` reads `null`
    * and the evaluator is byte-for-byte the one that shipped.
    */
@@ -1077,8 +1080,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
   const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
 
-  /** Is Door C's territory refiner on for THIS core? Same discipline again. */
-  const territoryRefining = (): boolean => cfg.territoryRefine ?? territoryRefineEnabled();
+  /** Is Door C's territory refiner on for THIS core? `TeamDecisionEngine`
+   * passes the BOT's answer; a core built without one takes the shipped
+   * default. (Formerly `CENTAUR_TERRITORY_REFINE`; see `evaluate/refine.ts`.) */
+  const territoryRefining = (): boolean => cfg.territoryRefine ?? DEFAULT_TERRITORY_REFINE;
 
   /** Is the seeded lottery on for THIS core? Same discipline, same reason. */
   const sampling = (): boolean => cfg.sampledCap ?? sampledCapEnabled();
@@ -1282,7 +1287,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // resolves the level against the board and passes `cfg.seedDeconflict`
     // explicitly, so the shipped path does not reach this fallback.
     const deconflict =
-      cfg.seedDeconflict ?? resolveStagingSafety(stagingSafety(), false) !== "off";
+      cfg.seedDeconflict ?? resolveStagingSafety(STAGING_SAFETY_DEFAULT, false) !== "off";
     const taken = new Set<number>();
     const claim = (c: Candidate): void => {
       taken.add(c.to);
@@ -2085,7 +2090,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           absorbedInversions++;
         }
         const repairing =
-          cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
+          cfg.rungZeroRepair ?? resolveStagingSafety(STAGING_SAFETY_DEFAULT, false) === "full";
         if (scored === null || !repairing) return seed;
         return repairSelfHarm(s, ctx, scored).plan;
       }

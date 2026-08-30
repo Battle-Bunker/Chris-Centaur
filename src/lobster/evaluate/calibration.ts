@@ -40,11 +40,12 @@
  *    rule which is exactly right everywhere except the mutual final wipe — a
  *    measured 0.076% of games — and there it prices the lattice bottom for a
  *    world worth whatever share we were holding, most wrongly when that share
- *    was largest. `CENTAUR_MUTUAL_WIPE_AWARD` (`./mutual-wipe.ts`) is the
- *    repair, DARK by default and never yet measured live: it prices that one
- *    branch at the previous board's subject-frame material fold, on this
- *    table's own scale, and leaves every other terminal a lattice element. With
- *    the flag off the clamps are the ones this fact describes, byte for byte.
+ *    was largest. `./mutual-wipe.ts` is the repair, and it is UNCONDITIONAL —
+ *    a correction to logic that did not match the rules has no off-arm to
+ *    measure. It prices that one branch at the previous board's subject-frame
+ *    material fold, on this table's own scale, and leaves every other terminal
+ *    a lattice element; on every board its four guards decline, the clamps are
+ *    the ones this fact describes, byte for byte.
  *
  * 3. DEAD IS A LATTICE BOTTOM, NEVER A SCALAR ON THE HEURISTIC SCALE. A large
  *    finite penalty inverts the cliff the moment another term outgrows it.
@@ -154,8 +155,8 @@ export const SPECIALIST_FACTS: ReadonlyArray<SpecialistFact> = [
       'ends their team while ours still stands is a win, and a mutual one is a loss — a ' +
       'conservative reading of the rules rather than the rules themselves, since TacticToes ' +
       'settles a mutual final wipe on the previous turn and the objective is continuous in ' +
-      'the weight margin. Under CENTAUR_MUTUAL_WIPE_AWARD (dark) that case is priced at the ' +
-      'position it banks rather than at the bottom of the lattice',
+      'the weight margin. That one case is now priced at the position it banks rather than ' +
+      'at the bottom of the lattice (mutual-wipe.ts, unconditional — a correction)',
   },
   {
     id: 'king-weight-margin',
@@ -189,8 +190,9 @@ export interface CriterionProfile {
   /**
    * Whether `kingMargin` counts OUR OWN units among the things that can stand
    * on our king's square next turn. These rules have no friendly-fire
-   * exemption, so the honest answer is yes; left undefined the profile defers
-   * to `CENTAUR_ROYAL_MARGIN`, which defaults to the behaviour that shipped.
+   * exemption, so the honest answer is yes; left undefined the profile takes
+   * `DEFAULT_ROYAL_REACHERS`, which is the behaviour that shipped and is a
+   * correction still owed its own change.
    */
   readonly royalReachers?: boolean;
   /**

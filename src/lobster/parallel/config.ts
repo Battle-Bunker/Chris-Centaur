@@ -1,11 +1,19 @@
 /**
- * CENTAUR_WORKERS — how many evaluation workers a team-decision engine owns.
+ * HOW MANY EVALUATION WORKERS a team-decision engine owns — `BotConfig.workers`.
  *
- *   unset / "off"    → no pool at all: today's single-threaded path, bit for
+ *   "off"            → no pool at all: today's single-threaded path, bit for
  *                      bit, with none of the plumbing constructed. THE SHIPPED
  *                      DEFAULT, and see below for why it is not "auto".
  *   "auto" / "on"    → `min(cores - 1, 3)`.
- *   "N"              → exactly N, clamped to [0, 8].
+ *   N                → exactly N, clamped to [0, 8].
+ *
+ * DEPLOYMENT CONFIG, NOT STRATEGY, and that is why it survived the flag
+ * teardown as a config field rather than as a deleted switch. It changes how
+ * fast the same decision is reached and never which decision that is (the
+ * pool-0 bit-identity gate and the pool-N determinism gate are the same
+ * statement — see below), so it is judged by BENCHMARKS on branches, which is
+ * the mandate's disposition for every perf question. `CENTAUR_WORKERS` and
+ * `CENTAUR_WORKERS_AUDIT` are gone; a bot names its worker count as data.
  *
  * `off` and `0` are the same NUMBER and deliberately different WORDS: `off`
  * says "do not build a pool", `0` says "build the plumbing and never dispatch".
@@ -35,20 +43,33 @@
  *   · The cost is not zero: at two and three workers the coordinator measured
  *     0.77-0.83x on a four-core box, entirely from contention.
  *
- * So the flag ships OFF, the machinery ships whole and gated, and the report
- * names the two things that would make it pay. Turning it on is this one
- * word, and every gate that guards it already passes at pool 1, 2 and 3.
+ * So the DEFAULT IS OFF — the benchmark-winning setting, which is the whole
+ * disposition a perf variant gets. The machinery ships whole and REACHABLE FROM
+ * DATA rather than from an environment variable: every gate that guards it
+ * passes at pool 1, 2 and 3, and a bench that wants to re-open the question
+ * hands one seat a `BotConfig` with `workers: "auto"` instead of exporting
+ * something.
  *
- * Read per ENGINE, not per process: the thing that has to be measurable is one
- * SEAT against unchanged opponents, and a process-wide flag moves every lobster
- * seat on the board at once. `TeamDecisionOptions.workers` overrides the
- * environment for one engine, exactly as `stagingSafety` does.
+ * WHY THE POOL WAS KEPT AT ALL, decided and recorded during the teardown. The
+ * measurement is a rejection of the PREMISE (perf-w1-report §8: the prototype
+ * parallelised evaluator work P0's evaluation memo had already removed; 94-99%
+ * of branch evaluations are memo hits; 3 344 entries offered, 0 new), and a
+ * rejected premise would ordinarily mean deleted code. Two things stop that
+ * here. First, this is DEPLOYMENT config and not a strategy entry — it cannot
+ * change a bound, so it is not a dark strategy path accumulating in the search.
+ * Second, the report's own cluster-partition seam (§7) is one function
+ * (`WorkPartition`) and the rest of the subsystem — spawn/reuse/shutdown, the
+ * board push, epoch keying, the fold — is provenance-agnostic and already
+ * gated. What that seam needs before it can pay is the interaction graph and
+ * two-move-and-deeper sub-plans, i.e. the depth work; the pool is the thing
+ * that would consume it, not the thing that is waiting on itself.
+ *
+ * Per ENGINE, not per process: the thing that has to be measurable is one SEAT
+ * against unchanged opponents, and a process-wide setting moves every lobster
+ * seat on the board at once.
  */
 
 import { cpus } from "os"
-
-export const WORKERS_ENV = "CENTAUR_WORKERS"
-export const WORKERS_AUDIT_ENV = "CENTAUR_WORKERS_AUDIT"
 
 /** The most workers this build will ever spawn from one engine. */
 export const MAX_POOL = 8
@@ -70,10 +91,15 @@ export function autoPoolSize(cores = cpus().length): number {
   return Math.max(0, Math.min(cores - 1, 3))
 }
 
-/** Parse the flag's raw text. Junk is refused loudly and treated as `off` —
- * the safe side is the one that changes nothing. */
+/**
+ * Normalise a config value. Junk is refused loudly and treated as `off` — the
+ * safe side is the one that changes nothing.
+ *
+ * Still text-tolerant because a `BotConfig` arrives as JSON from a contender
+ * file, where `"auto"` and `3` are both natural ways to write this.
+ */
 export function parseWorkerSetting(
-  raw: string | undefined,
+  raw: string | number | undefined,
   warn?: (message: string) => void,
 ): WorkerSetting {
   const text = String(raw ?? "").trim().toLowerCase()
@@ -83,7 +109,7 @@ export function parseWorkerSetting(
   const n = Number(text)
   if (!Number.isInteger(n) || n < 0 || n > MAX_POOL) {
     warn?.(
-      `[lobster/parallel] ${WORKERS_ENV}=${String(raw)} is not "off", "auto" or an ` +
+      `[lobster/parallel] workers=${String(raw)} is not "off", "auto" or an ` +
         `integer 0..${MAX_POOL} — using off`,
     )
     return "off"
@@ -109,9 +135,8 @@ export function resolveWorkerCount(
  * This is the only check that can catch the one divergence the memo key cannot
  * express — two substrates built from the same `BoardSpec` that do not resolve
  * or score identically. It roughly doubles the evaluator's work, so it is a
- * test and soak instrument, never a production default.
+ * test and soak instrument, never a production default: `BotConfig.workersAudit`
+ * is false, and the suites that need it pass true.
  */
-export function auditFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = String(env[WORKERS_AUDIT_ENV] ?? "").trim().toLowerCase()
-  return raw !== "" && raw !== "0" && raw !== "off" && raw !== "false"
-}
+export const DEFAULT_WORKERS: WorkerSetting = "off"
+export const DEFAULT_WORKERS_AUDIT = false

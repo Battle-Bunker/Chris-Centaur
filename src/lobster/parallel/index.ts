@@ -17,12 +17,11 @@
 
 export {
   autoPoolSize,
-  auditFrom,
+  DEFAULT_WORKERS,
+  DEFAULT_WORKERS_AUDIT,
   MAX_POOL,
   parseWorkerSetting,
   resolveWorkerCount,
-  WORKERS_AUDIT_ENV,
-  WORKERS_ENV,
 } from "./config"
 export type { WorkerSetting } from "./config"
 

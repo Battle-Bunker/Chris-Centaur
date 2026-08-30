@@ -29,22 +29,30 @@
  *
  * ── THE TIER OVERRIDE, AND WHY IT IS HERE ──────────────────────────────────
  *
- * `CENTAUR_TIER_TRUTH` defaults to `expiry` in this process (tier-truth.ts:72),
- * and that default was measured and defended AT PLY 1, where it is a no-op:
- * the tier-window round moved 0 argmaxes on the acceptance corpus at both
- * budgets. It is NOT a no-op at ply 2, and `la-outside` F-4(c) says why in one
- * sentence: **depth converts a strength-hold into a soundness-hold.**
+ * THIS SECTION DESCRIBES A GATE THAT NO LONGER FIRES, and it is kept because
+ * it is the argument that retired it. The process premise used to default to
+ * `expiry` — potion board empty — which was measured and defended AT PLY 1,
+ * where it is a no-op: the tier-window round moved 0 argmaxes on the
+ * acceptance corpus at both budgets. It is NOT a no-op at ply 2, and
+ * `la-outside` F-4(c) says why in one sentence: **depth converts a
+ * strength-hold into a soundness-hold.**
  * `CloudSource.boundsAt` prices an enemy's tier CEILING against
  * `premise.potions`; with that board empty the ceiling collapses to the
  * observed tier, which at one ply is defensible (the enemy cannot reach a
  * potion this turn) and at depth `d` is an under-statement of the enemy, which
  * over-states our contest wins, which puts a floor above the truth.
  *
- * So inside a thread world the answer must be `full`. The premise potion board
- * is baked into the `PartialEngine` at geometry-construction time and the door
- * REUSES that engine (it must — see the food-premise argument in
- * `ContinuationInit`), so the door cannot flip the switch after the fact. What
- * it does instead is the honest thing: it REFUSES. `continueFrom` returns a
+ * So inside a thread world the answer must be `full` — and `TIER_TRUTH` IS NOW
+ * `full`, unconditionally (`tier-truth.ts`), on exactly this argument plus the
+ * measurement that it costs a ply-1 decision nothing. The refusal below is
+ * therefore unreachable on the shipped premise; it survives as the gate any
+ * other premise would still have to pass, and because a door that silently
+ * assumed its premise would be a worse door.
+ *
+ * The premise potion board is baked into the `PartialEngine` at
+ * geometry-construction time and the door REUSES that engine (it must — see
+ * the food-premise argument in `ContinuationInit`), so the door cannot flip the
+ * premise after the fact. What it did instead is the honest thing: it REFUSES. `continueFrom` returns a
  * `ContinuationRefusal` with reason `tier-truth` on any board that carries
  * potions while the process premise is potion-free, and the refusal is
  * counted. That is `la-outside`'s own gate — *"deep floors must be gated on
@@ -204,9 +212,10 @@ export function tierAtRoot(
  * Does this board let a thread world be built at all, given the process's tier
  * premise? See the header — this is F-4(c)'s gate, applied to advisory depth.
  *
- * `full` always passes. Otherwise the board must carry no potions, which is
- * every snake-only board in the corpus and is the family the census's
- * confronted stratum lives in.
+ * `full` always passes, and `full` is the shipped premise — so on the shipped
+ * build this is total. Under any other premise the board must carry no
+ * potions, which is every snake-only board in the corpus and is the family the
+ * census's confronted stratum lives in.
  */
 export function tierPremiseAdmits(sub: EngineSubstrate, mode: TierTruth = TIER_TRUTH): boolean {
   if (potionBoardEnabled(mode)) return true;

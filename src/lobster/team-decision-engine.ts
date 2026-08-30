@@ -1,6 +1,6 @@
 /**
  * THE TEAM DECISION ENGINE — one decision per TEAM per turn, producing a joint
- * staged set through the LOBSTER kernel, behind CENTAUR_ENGINE=lobster.
+ * staged set through the LOBSTER kernel, under `BotConfig.engine === 'lobster'`.
  *
  * WHAT IT TOUCHES, AND WHAT IT NEVER DOES. The engine consumes the wire
  * surface exactly as the wire layer documented it: per-unit
@@ -59,25 +59,19 @@ import { EngineSubstrate, makeSubstrate, releaseGeometriesFor } from './substrat
 import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
-import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
+import { boardBearsPiece, resolveStagingSafety } from './staging-safety';
 import { clusterSeedEnabled } from './search/cluster-seed';
 import { multistartSeedEnabled, multistartSeedFrom } from './search/multistart-seed';
 import { clusterEnumEnabled } from './search/cluster-partition';
-import { territoryRefineEnabled } from './evaluate/refine';
 import { scoutMode } from './search/scout';
 import { sampledCapEnabled } from './selection';
-import { TIER_TRUTH } from './tier-truth';
+import { resolveBotConfig } from './bot-config';
+import type { BotConfig, ResolvedBotConfig } from './bot-config';
 import { mechanismReportOf } from './telemetry/mechanism';
 import type { MechanismReport } from './telemetry/mechanism';
 import { REGISTRY, slateFor, slateStampOf } from './registry';
 import type { ResolvedSlate, SlateId } from './registry';
-import type { StagingSafety } from './staging-safety';
-import {
-  defaultEvaluator,
-  earliestShells,
-  mutualWipeAwardEnabled,
-  standingOf,
-} from './evaluate';
+import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
@@ -92,7 +86,6 @@ import {
 } from './kernel';
 import { TeamPinLedger, adviseFromReport, type TeamPinAdvice } from './pins';
 import {
-  auditFrom,
   evaluatorSpecOf,
   makeEvaluationPool,
   type EvaluationPool,
@@ -179,15 +172,22 @@ export interface TeamDecisionOptions {
   /** Advice threshold passed through to pins.adviseFromReport. */
   readonly adviceThreshold?: number;
   /**
-   * How much of the staging-safety layer this ENGINE runs, overriding
-   * `CENTAUR_STAGING_SAFETY` for this instance only.
+   * THE BOT THIS ENGINE PLAYS (`bot-config.ts`) — which registry entry sits in
+   * each socket, plus the knobs and weights those entries read.
    *
-   * Per-engine and not per-process because the thing it must be possible to
-   * measure is one SEAT against unchanged opponents: a process-wide flag moves
-   * every lobster seat on the board at once, and a paired experiment on it
-   * measures nothing.
+   * ONE SOURCE OF TRUTH, and that is the point. Every strategy choice this
+   * class used to take from the environment with a per-engine override — the
+   * staging-safety level, Door C, the worker count, the fatality classifier —
+   * is a field on this value, and there is no second place to look. Absent, the
+   * engine plays `DEFAULT_BOT_CONFIG`: the bot that ships, term for term,
+   * which is what the cross-build identity gate asserts.
+   *
+   * Per-engine and never per-process, which is the reason the flags it replaced
+   * all grew overrides in the first place: what has to be measurable is ONE
+   * SEAT against unchanged opponents, and a process-wide switch moves every
+   * lobster seat on the board at once.
    */
-  readonly stagingSafety?: StagingSafety;
+  readonly bot?: BotConfig;
   /**
    * Whether this ENGINE seeds with the index-driven greedy pairwise pass,
    * overriding `CENTAUR_CLUSTER_SEED` for this instance only. Same reason as
@@ -210,12 +210,6 @@ export interface TeamDecisionOptions {
    * environment's default is OFF.
    */
   readonly multistartSeed?: boolean;
-  /**
-   * Whether this ENGINE runs the rung-0 fatality classifier, overriding
-   * `CENTAUR_UNIT_FATALITY`. Separate from `clusterSeed` on purpose: two
-   * features behind one flag is a paired experiment that measures their sum.
-   */
-  readonly unitFatality?: boolean;
   /**
    * Whether this ENGINE runs the rung-1/2 edge-EV ordering pass, overriding
    * `CENTAUR_EDGE_EV`. A third flag and not a widening of either of the other
@@ -267,16 +261,6 @@ export interface TeamDecisionOptions {
    */
   readonly scout?: 'off' | 'observe' | 'advise';
   /**
-   * Whether this ENGINE runs Door C's contested reach/room refiner (CL5),
-   * overriding `CENTAUR_TERRITORY_REFINE`. A sixth flag, by the same standing
-   * rule: what has to be measurable is one seat against unchanged opponents.
-   *
-   * It needs `clusterEnum` on — the refiner spends only on units the exact
-   * joint enumeration has already paid for — and with it off the evaluator is
-   * byte-for-byte the one that shipped. See `evaluate/refine.ts`.
-   */
-  readonly territoryRefine?: boolean;
-  /**
    * THE PRIVATE PER-MATCH SEED — PINNED, when a caller names one.
    *
    * The lottery's stream is `f(matchSeed, board, decision index)`. Naming a
@@ -305,26 +289,6 @@ export interface TeamDecisionOptions {
    * code path from the one production takes.
    */
   readonly mintMatchSeed?: () => number;
-  /**
-   * How many EVALUATION WORKERS this engine owns — `CENTAUR_WORKERS` for one
-   * instance only.
-   *
-   * `"off"` — THE DEFAULT — is today's single-threaded path, bit for bit, with
-   * no pool constructed at all. `"auto"` is `min(cores - 1, 3)`. A number is
-   * that many, and `0` is the same search as `"off"` with the plumbing present
-   * and inert — which is what makes the pool-0 identity gate and the pool-N
-   * determinism gate the same statement.
-   *
-   * The default is off against the intent this was built to, on the strength of
-   * the measurement in `parallel/config.ts`: after P0's evaluation memo there
-   * is almost no fresh evaluator work left for a worker to take, and the
-   * contention is real. The machinery ships whole and every gate passes at pool
-   * 1, 2 and 3; turning it on is one word.
-   *
-   * Per-engine and not per-process for the same reason `stagingSafety` is: the
-   * thing that has to be measurable is ONE SEAT against unchanged opponents.
-   */
-  readonly workers?: 'off' | 'auto' | number;
   /**
    * A pool the caller already owns, used instead of building one. The seam the
    * benches and the determinism gate drive; production never passes it.
@@ -524,7 +488,7 @@ export class TeamDecisionEngine {
    *
    * BUILT ON FIRST USE, not in the constructor. This engine is a field of
    * `FirebaseInterface` and is constructed unconditionally — it is inert until
-   * `CENTAUR_ENGINE=lobster` actually routes a turn through it — and spawning
+   * a lobster-engine bot actually routes a turn through it — and spawning
    * three threads in a process that will never take a lobster decision is a
    * cost with no decision to amortise it against. `shutdown()` clears the
    * handle, so an idle teardown that stops the workers gets a fresh warm pool
@@ -549,6 +513,16 @@ export class TeamDecisionEngine {
    */
   private readonly slate: ResolvedSlate;
 
+  /**
+   * THE BOT, RESOLVED ONCE. Not per decision and not per call: a bot is fixed
+   * for the life of the engine that plays it, which is the difference between a
+   * configuration and the flag it replaced — the flag was re-read at every
+   * routing decision so it could "flip back mid-game", and a value that can
+   * change under a running match is a value no measurement can be attributed
+   * to.
+   */
+  readonly bot: ResolvedBotConfig;
+
   constructor(
     private readonly ports: TeamDecisionPorts,
     private readonly options: TeamDecisionOptions = {}
@@ -557,8 +531,9 @@ export class TeamDecisionEngine {
     this.monotonic = ports.monotonic ?? defaultNow;
     this.env = ports.env ?? process.env;
     this.log = ports.log ?? ((m) => console.log(m));
+    this.bot = resolveBotConfig(this.options.bot, this.log);
     this.evaluatorSpec = evaluatorSpecOf(this.options.evaluate ?? defaultEvaluator);
-    this.slate = REGISTRY.resolve(slateFor(this.options.slate));
+    this.slate = REGISTRY.resolve(slateFor(this.options.slate ?? this.bot.slate));
     if (this.options.pool !== undefined) this.pool = this.options.pool;
   }
 
@@ -567,7 +542,7 @@ export class TeamDecisionEngine {
   private poolFor(): EvaluationPool {
     if (this.pool !== null) return this.pool;
     const made = makeEvaluationPool({
-      setting: this.options.workers,
+      setting: this.bot.workers,
       env: this.env,
       log: this.log,
     });
@@ -721,10 +696,7 @@ export class TeamDecisionEngine {
     // ship the guard for PIECE boards, do not ship it unconditionally. Every
     // consumer below reads the RESOLVED level, so the candidate knobs and the
     // search tuning cannot disagree about which board this is.
-    const safety = resolveStagingSafety(
-      this.options.stagingSafety ?? stagingSafety(),
-      boardBearsPiece(sub)
-    );
+    const safety = resolveStagingSafety(this.bot.stagingSafety, boardBearsPiece(sub));
     // INTEGRATION NOTE (integ/round-a): the staging-safety level supplies the
     // BASE knobs and the caller's explicit `candidates` override them. Both
     // seams' own docstrings ask for exactly this precedence — I1's says the
@@ -736,10 +708,11 @@ export class TeamDecisionEngine {
     // stagingSafety option inert.
     const knobs: CandidateKnobs = {
       ...knobsForSafety(safety),
-      ...(this.options.unitFatality === undefined
-        ? {}
-        : { unitFatality: this.options.unitFatality }),
+      // TODO(teardown-search): `edgeEv` is still a search-layer flag with its
+      // own environment reader; it joins `BotConfig.candidates` when that
+      // teardown lands and this clause goes with it.
       ...(this.options.edgeEv === undefined ? {} : { edgeEv: this.options.edgeEv }),
+      ...this.bot.candidates,
       ...(this.options.candidates ?? {}),
     };
     const gen = new GrammarCandidateGenerator(knobs);
@@ -754,7 +727,7 @@ export class TeamDecisionEngine {
         clusterSeed: this.options.clusterSeed,
         multistartSeed: this.options.multistartSeed,
         clusterEnum: this.options.clusterEnum,
-        territoryRefine: this.options.territoryRefine,
+        territoryRefine: this.bot.territoryRefine,
         sampledCap: this.options.sampledCap,
         scout: this.options.scout,
         // THE PRIVATE HALF OF EVERY SEEDED DRAW THIS ENGINE TAKES. Zero when
@@ -772,10 +745,10 @@ export class TeamDecisionEngine {
         // decision that only this line knows. `parallel.knobs` must be the
         // RESOLVED knobs — `knobsForSafety` is board-conditional, and a worker
         // that generated a different catalogue would answer under plan keys
-        // nobody asks for. `bank.auditImports` rides CENTAUR_WORKERS_AUDIT.
+        // nobody asks for. `bank.auditImports` is the bot's soak instrument.
         bank: {
           ...(this.options.search?.bank ?? {}),
-          auditImports: auditFrom(this.env),
+          auditImports: this.bot.workersAudit,
         },
         parallel: this.parallelTuning(boardEpoch, knobs),
       }),
@@ -874,31 +847,23 @@ export class TeamDecisionEngine {
       mechanism = mechanismReportOf({
         search,
         sub,
+        bot: this.bot,
         knobs: gen.resolvedKnobs(),
         stagingSafety: safety,
-        // READ THE SAME SOURCE THE CONSUMER READS, not `this.env`. The six
-        // search-side flags are resolved inside `makeSearchCore` as
+        workers: this.pool?.size ?? 0,
+        // TODO(teardown-search): READ THE SAME SOURCE THE CONSUMER READS, not
+        // `this.env`. These five are still resolved inside `makeSearchCore` as
         // `cfg.X ?? XEnabled()`, and every `XEnabled()` reads `process.env`
-        // directly — `ports.env` reaches the wire policy and the worker count,
-        // and does not reach these. A stamp that consulted
-        // `this.env` would be accurate about the injection and WRONG about the
-        // arm, which is the one thing a stamp may never be. (That the two
-        // sources differ at all is a pre-existing inconsistency; it is recorded
-        // in the CL7 report and not silently repaired here, because repairing
-        // it would change which arm an env-injecting caller actually runs.)
+        // directly — `ports.env` reaches the wire policy and does not reach
+        // them. A stamp that consulted `this.env` would be accurate about the
+        // injection and WRONG about the arm, which is the one thing a stamp may
+        // never be. The inconsistency dies with the search-layer teardown,
+        // when these become bot fields like everything above.
         clusterSeed: this.options.clusterSeed ?? clusterSeedEnabled(),
         multistartSeed: this.options.multistartSeed ?? multistartSeedEnabled(),
         clusterEnum: this.options.clusterEnum ?? clusterEnumEnabled(),
-        territoryRefine: this.options.territoryRefine ?? territoryRefineEnabled(),
         sampledCap: this.options.sampledCap ?? sampledCapEnabled(),
         scout: this.options.scout ?? scoutMode(),
-        workers: this.pool?.size ?? 0,
-        tierTruth: TIER_TRUTH,
-        // Env-only, exactly like the six above: `./evaluate/mutual-wipe.ts`
-        // reads `process.env` from inside the clamp and nothing in
-        // `TeamDecisionOptions` overrides it, so the stamp reads it the same
-        // way the evaluator does.
-        mutualWipeAward: mutualWipeAwardEnabled(),
         // THE REGISTRY'S RESOLUTION for this decision. Resolved from the
         // engine's own slate — per-engine and never process-wide, so one seat
         // can carry a slate while the seat across the board does not, which is

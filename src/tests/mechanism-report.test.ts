@@ -27,10 +27,8 @@ import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-deci
 import { CLUSTER_SEED_ENV } from '../lobster/search/cluster-seed';
 import { MULTISTART_SEED_ENV } from '../lobster/search/multistart-seed';
 import { CLUSTER_ENUM_ENV } from '../lobster/search/cluster-partition';
-import { UNIT_FATALITY_ENV } from '../lobster/candidates';
 import { EDGE_EV_ENV } from '../lobster/search/edge-ev';
 import { SAMPLED_CAP_ENV } from '../lobster/selection';
-import { MUTUAL_WIPE_AWARD_ENV, TERRITORY_REFINE_ENV } from '../lobster/evaluate';
 import { SCOUT_ENV } from '../lobster/search/scout';
 
 // ------------------------------------------------------------------ fixtures
@@ -92,27 +90,23 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
 }
 
 /**
- * THE FLAGS ARE SET ON `process.env`, NOT ON `ports.env`, AND THAT IS THE
- * POINT.
+ * TODO(teardown-search): WHAT IS LEFT OF THE FLAG SURFACE.
  *
- * `ports.env` reaches the wire's write interval and the worker count. It does
- * NOT reach the six search-side flags or the two candidate
- * knobs: `clusterSeedEnabled()`, `clusterEnumEnabled()`,
- * `territoryRefineEnabled()`, `sampledCapEnabled()`, `scoutMode()`,
- * `mutualWipeAwardEnabled()` and `flaggedKnobs()` all read `process.env`
- * directly. The stamp reads the same source its consumers read, so a test that
- * set `ports.env` would prove the stamp agreed with a value nothing ran on.
+ * The bot is a value now (`lobster/bot-config.ts`) and nothing this file cares
+ * about reaches the environment — except these five, which still resolve from
+ * `process.env` inside `makeSearchCore` and are the search-layer teardown's to
+ * remove. They are set on `process.env` and not on `ports.env` because that is
+ * where their readers look: `ports.env` reaches the wire's write interval and
+ * nothing else, so a test that set it would prove the stamp agreed with a
+ * value nothing ran on.
  */
 const FLAG_ENVS = [
   CLUSTER_SEED_ENV,
   MULTISTART_SEED_ENV,
-  UNIT_FATALITY_ENV,
   EDGE_EV_ENV,
   CLUSTER_ENUM_ENV,
   SAMPLED_CAP_ENV,
-  TERRITORY_REFINE_ENV,
   SCOUT_ENV,
-  MUTUAL_WIPE_AWARD_ENV,
 ];
 
 async function decide(
@@ -155,90 +149,119 @@ async function decideNow(options: ConstructorParameters<typeof TeamDecisionEngin
 // ------------------------------------------------------------------- the tests
 
 describe('CL7: the mechanism report is present and complete', () => {
-  test('every promotable flag has a row, and the row is what the ENGINE resolved', async () => {
+  test('every configurable choice has a row, and the row is what the ENGINE resolved', async () => {
     const { result } = await decide({});
     const m = result.mechanism;
     expect(m).not.toBeNull();
     if (m === null) throw new Error('unreachable');
 
-    // The twelve promotable flags plus the two already-promoted ones the
-    // exploration slice needs. Named exhaustively on purpose: a stage that
-    // adds a flag and forgets the stamp makes an unauditable arm, and this
-    // list is what fails when that happens.
-    expect(Object.keys(m.flags).sort()).toEqual(
+    // Named exhaustively on purpose: a change that adds a bot field and
+    // forgets the stamp makes an unauditable arm, and this list is what fails
+    // when that happens.
+    //
+    // NO ROW FOR A CORRECTION. `mutualWipeAward` and `tierTruth` used to be
+    // here and are not, because neither can vary any more: the mutual-wipe
+    // pricing is unconditional and the tier premise is a kernel constant. A
+    // stamp field whose value cannot differ between two bots is a field that
+    // teaches the next reader to look for a switch.
+    expect(Object.keys(m.config).sort()).toEqual(
       [
-        'clusterEnum',
-        'clusterSeed',
-        'edgeEv',
-        'multistartSeed',
-        'mutualWipeAward',
+        'name',
+        'engine',
+        'territoryRefine',
+        'stagingSafety',
+        'unitFatality',
         'gainOrdering',
+        'workers',
+        'clusterSeed',
+        'multistartSeed',
+        'edgeEv',
+        'clusterEnum',
         'sampledCap',
         'scout',
-        'stagingSafety',
-        'territoryRefine',
-        'tierTruth',
-        'unitFatality',
-        'workers',
       ].sort()
     );
 
-    // Shipped defaults, on an empty environment.
-    expect(m.flags.clusterSeed).toBe(false);
-    expect(m.flags.unitFatality).toBe(false);
-    expect(m.flags.edgeEv).toBe(false);
-    expect(m.flags.clusterEnum).toBe(false);
-    expect(m.flags.sampledCap).toBe(false);
-    expect(m.flags.territoryRefine).toBe(false);
-    expect(m.flags.scout).toBe('off');
-    // The mutual-wipe repair ships DARK: the ordered clamps are unchanged
-    // unless an arm asks for it by name.
-    expect(m.flags.mutualWipeAward).toBe(false);
+    // The shipped bot.
+    expect(m.config.name).toBe('default');
+    expect(m.config.engine).toBe('lobster');
+    expect(m.config.territoryRefine).toBe(false);
+    expect(m.config.unitFatality).toBe(false);
+    expect(m.config.workers).toBe(0);
+    expect(m.config.clusterSeed).toBe(false);
+    expect(m.config.edgeEv).toBe(false);
+    expect(m.config.clusterEnum).toBe(false);
+    expect(m.config.sampledCap).toBe(false);
+    expect(m.config.scout).toBe('off');
     // `gainOrdering` was PROMOTED at integ/round-a and ships on.
-    expect(m.flags.gainOrdering).toBe(true);
+    expect(m.config.gainOrdering).toBe(true);
     // `auto` is board-conditional; this board bears pieces, so it resolves on.
-    expect(m.flags.stagingSafety).not.toBe('auto');
+    expect(m.config.stagingSafety).not.toBe('auto');
   }, 20_000);
 
-  test('a per-engine option wins over the environment, and the stamp says so', async () => {
-    // The env says ON for both CL1 flags; the engine option says OFF for one.
-    // A batch manifest's env capture would report both as treatment. The stamp
-    // reports what actually ran, which is the quantity the verdict needs.
-    const env = { [CLUSTER_SEED_ENV]: 'on', [UNIT_FATALITY_ENV]: 'on' };
-    const { result } = await decide(env, { clusterSeed: false });
+  test('the stamp names the BOT, so two contenders are legible apart', async () => {
+    // The whole reason experiments are configured bots: an arm is a named
+    // value, and the row a sweep keys on is the name it was given.
+    const { result } = await decide(
+      {},
+      { bot: { name: 'refiner', territoryRefine: true, stagingSafety: 'guard' } }
+    );
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.flags.clusterSeed).toBe(false);
-    expect(m.flags.unitFatality).toBe(true);
+    expect(m.config.name).toBe('refiner');
+    expect(m.config.territoryRefine).toBe(true);
+    expect(m.config.stagingSafety).toBe('guard');
   }, 20_000);
 
-  test('a MISTYPED flag value reads as off — the A/A-null-wearing-a-name trap', async () => {
-    // Every CL flag parses only `1|on|true` and warns on nothing. `yes` and
-    // `ON` are off. The sim kit's P7 comment names this trap; the stamp is
-    // what makes it detectable after the fact instead of never.
+  test('THE ENVIRONMENT CANNOT MOVE THE BOT — every flag this agent removed is dead', async () => {
+    // Setting all of them at once must leave the shipped bot exactly where it
+    // was. This is the regression test for the whole teardown: a re-introduced
+    // `process.env` read anywhere in the bot's resolution fails here.
     const { result } = await decide({
-      [CLUSTER_SEED_ENV]: 'yes',
-      [UNIT_FATALITY_ENV]: 'ON',
-      [EDGE_EV_ENV]: 'enabled',
-      [CLUSTER_ENUM_ENV]: '0',
-      [SAMPLED_CAP_ENV]: 'TRUE',
-      [TERRITORY_REFINE_ENV]: 'y',
-      [SCOUT_ENV]: 'yes',
-      [MUTUAL_WIPE_AWARD_ENV]: 'Y',
+      CENTAUR_ENGINE: 'legacy',
+      CENTAUR_STAGING_SAFETY: 'off',
+      CENTAUR_TERRITORY_REFINE: '1',
+      CENTAUR_UNIT_FATALITY: '1',
+      CENTAUR_ROYAL_MARGIN: '1',
+      CENTAUR_TIER_TRUTH: 'off',
+      CENTAUR_TIER_DEFENSE: 'off',
+      CENTAUR_WORKERS: 'auto',
+      CENTAUR_WORKERS_AUDIT: '1',
+      CENTAUR_MUTUAL_WIPE_AWARD: '0',
     });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.flags.clusterSeed).toBe(false);
-    expect(m.flags.unitFatality).toBe(false);
-    expect(m.flags.edgeEv).toBe(false);
-    expect(m.flags.clusterEnum).toBe(false);
-    expect(m.flags.sampledCap).toBe(false);
-    expect(m.flags.territoryRefine).toBe(false);
-    expect(m.flags.scout).toBe('off');
-    expect(m.flags.mutualWipeAward).toBe(false);
+    expect(m.config.name).toBe('default');
+    expect(m.config.engine).toBe('lobster');
+    expect(m.config.territoryRefine).toBe(false);
+    expect(m.config.unitFatality).toBe(false);
+    expect(m.config.workers).toBe(0);
+    expect(m.config.stagingSafety).not.toBe('off');
   }, 20_000);
 
-  test('with every flag off, a layer that never ran reports NULL, not zero', async () => {
+  test('a MISTYPED search flag value reads as off — the A/A-null-wearing-a-name trap', async () => {
+    // TODO(teardown-search): these five still parse only `1|on|true` and warn
+    // on nothing, so `yes` and `ON` are off. The sim kit's P7 comment names
+    // this trap; the stamp is what makes it detectable after the fact instead
+    // of never. It stops being possible when they become bot fields, which are
+    // validated rather than coerced (`botConfigFromJson`).
+    const { result } = await decide({
+      [CLUSTER_SEED_ENV]: 'yes',
+      [EDGE_EV_ENV]: 'enabled',
+      [CLUSTER_ENUM_ENV]: '0',
+      [SAMPLED_CAP_ENV]: 'TRUE',
+      [SCOUT_ENV]: 'yes',
+    });
+    const m = result.mechanism;
+    if (m === null) throw new Error('no mechanism report');
+    expect(m.config.clusterSeed).toBe(false);
+    expect(m.config.edgeEv).toBe(false);
+    expect(m.config.clusterEnum).toBe(false);
+    expect(m.config.sampledCap).toBe(false);
+    expect(m.config.scout).toBe('off');
+  }, 20_000);
+
+  test('with every layer off, a layer that never ran reports NULL, not zero', async () => {
     const { result } = await decide({});
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
@@ -247,8 +270,9 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.cluster).toBeNull();
     expect(m.selection).toBeNull();
     expect(m.scout).toBeNull();
-    // The mutual-wipe award allocates nothing off its flag, and a mutual final
-    // wipe is a 0.076% end kind, so this stays null on almost every ON arm too.
+    // The mutual-wipe correction allocates nothing until a world with every
+    // team gone is priced, and that is a 0.076% end kind — so this stays null
+    // on almost every decision even though the correction is unconditional.
     expect(m.mutualWipe).toBeNull();
     // L17's instrument is not flag-gated: adjudication is always published.
     expect(m.adjudication).not.toBeNull();
@@ -257,7 +281,7 @@ describe('CL7: the mechanism report is present and complete', () => {
 
   test('the report moves nothing: the staged set is what it was without it', async () => {
     // Assembling the report happens after the kernel loop, off the decision
-    // path, from state the decision already produced. Two flag-off decisions
+    // path, from state the decision already produced. Two default-bot decisions
     // on the same board therefore stage the same set — the structural half of
     // the byte-identity gate every CL stage owes.
     const first = await decide({});
@@ -274,7 +298,7 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
     const { result } = await decide({}, { clusterEnum: true });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.flags.clusterEnum).toBe(true);
+    expect(m.config.clusterEnum).toBe(true);
     expect(m.cluster).not.toBeNull();
     // The coverage/cost pair CL3 §7 asks a promotion sweep to weigh.
     expect(m.cluster?.clusters).toBeGreaterThanOrEqual(0);
@@ -286,7 +310,7 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
     const { result } = await decide({}, { sampledCap: true });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.flags.sampledCap).toBe(true);
+    expect(m.config.sampledCap).toBe(true);
     expect(m.selection).not.toBeNull();
     // CL4's headline metric — options no deterministic prefix could reach —
     // and the replay key that makes the arm auditable.
@@ -317,7 +341,7 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
     const { result } = await decide({}, { scout: 'observe' });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.flags.scout).toBe('observe');
+    expect(m.config.scout).toBe('observe');
     expect(m.scout).not.toBeNull();
     // A door that refused every board must read as a refusal, not as a zero —
     // CL6a's own correction, and the reason `refusals` is on the report.

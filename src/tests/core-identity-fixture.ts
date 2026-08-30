@@ -252,23 +252,28 @@ export interface BoardCapture {
   readonly forwarded: number;
 }
 
-/** Every promotable flag, cleared before a capture so no arm leaks in. */
+/**
+ * WHAT IS LEFT OF THE SCRUB LIST.
+ *
+ * This used to name fifteen environment variables, because fifteen of them
+ * could move a decision and any one inherited from a developer's shell would
+ * have produced a golden wearing another build's name. Every variable this
+ * agent owned is gone from the code, so nothing to clear: the bot is a value
+ * (`lobster/bot-config.ts`) and `runBoard` below builds the default one, which
+ * no environment can reach.
+ *
+ * TODO(teardown-search): the five below are the search-layer flags, still read
+ * from `process.env` inside `makeSearchCore`. They are still scrubbed for the
+ * original reason, and this list — and the scrub itself — goes away when they
+ * become bot fields.
+ */
 const FLAG_ENVS = [
   'CENTAUR_CLUSTER_SEED',
   'CENTAUR_MULTISTART_SEED',
-  'CENTAUR_UNIT_FATALITY',
   'CENTAUR_EDGE_EV',
   'CENTAUR_CLUSTER_ENUM',
   'CENTAUR_SAMPLED_CAP',
-  'CENTAUR_TERRITORY_REFINE',
   'CENTAUR_SCOUT',
-  'CENTAUR_MUTUAL_WIPE_AWARD',
-  'CENTAUR_STAGING_SAFETY',
-  'CENTAUR_TIER_TRUTH',
-  'CENTAUR_TIER_DEFENSE',
-  'CENTAUR_ROYAL_MARGIN',
-  'CENTAUR_WORKERS',
-  'CENTAUR_WORKER_AUDIT',
 ];
 
 function fakePorts(): TeamDecisionPorts & { staged: string[] } {
@@ -289,10 +294,10 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
 }
 
 /**
- * Run every board in `FLAG_ENVS`-scrubbed conditions. Every promotable flag is
- * cleared first, for the reason the CL7 report gives: a mistyped or inherited
- * flag value is an arm wearing another arm's name, and here it would be a
- * golden wearing another build's name.
+ * Run every board with the remaining search-layer flags cleared. See
+ * `FLAG_ENVS`: an inherited value would be a golden wearing another build's
+ * name, and until those five are bot fields an inherited value is still
+ * possible.
  */
 export async function withScrubbedFlags<T>(fn: () => Promise<T>): Promise<T> {
   const saved = new Map(FLAG_ENVS.map((k) => [k, process.env[k]]));

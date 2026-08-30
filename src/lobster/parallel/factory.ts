@@ -16,7 +16,7 @@
 import type { Evaluator } from "../contracts"
 import { BoundEvaluator, FEATURES } from "../evaluate"
 import { InlinePool, WorkerEvaluationPool, type EvaluationPool } from "./pool"
-import { parseWorkerSetting, resolveWorkerCount, WORKERS_ENV } from "./config"
+import { DEFAULT_WORKERS, parseWorkerSetting, resolveWorkerCount } from "./config"
 import type { EvaluatorSpec } from "./protocol"
 
 /** How (or whether) a worker can rebuild this evaluator. */
@@ -40,8 +40,10 @@ export function evaluatorSpecOf(evaluate: Evaluator): EvaluatorSpec {
 }
 
 export interface PoolFactoryOptions {
-  /** `TeamDecisionOptions.workers`, when the caller named one. */
+  /** `BotConfig.workers`. Absent takes the shipped default, which is `off`. */
   readonly setting?: string | number
+  /** Passed to a spawned worker as its starting environment. NOT read for the
+   * worker count — that is config, and config does not live in the env. */
   readonly env?: NodeJS.ProcessEnv
   readonly log?: (message: string) => void
   /** Overridable for the tests that have to assert the auto sizing. */
@@ -56,8 +58,7 @@ export interface PoolFactoryOptions {
 export function makeEvaluationPool(options: PoolFactoryOptions = {}): EvaluationPool {
   const env = options.env ?? process.env
   const log = options.log ?? ((m: string) => console.log(m))
-  const raw = options.setting ?? env[WORKERS_ENV]
-  const setting = parseWorkerSetting(raw === undefined ? undefined : String(raw), log)
+  const setting = parseWorkerSetting(options.setting ?? DEFAULT_WORKERS, log)
   if (setting === "off") return new InlinePool()
   const size = resolveWorkerCount(setting, options.cores)
   if (size <= 0) return new InlinePool()

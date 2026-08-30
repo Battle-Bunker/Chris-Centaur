@@ -76,23 +76,18 @@ export { ShellTable, buildShells, earliestShells, recordOfView } from './shells'
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export type { Admission, Partition, TrailRoom } from './territory';
 export {
+  DEFAULT_TERRITORY_REFINE,
   SHIELD_TURNS_MAX,
-  TERRITORY_REFINE_ENV,
   buildShield,
   meetIntervals,
   refineReportOf,
   refineScopeOf,
   setRefineScope,
-  territoryRefineEnabled,
-  territoryRefineFrom,
 } from './refine';
 export type { RefineReport, RefineScope, Shield } from './refine';
 export {
-  MUTUAL_WIPE_AWARD_ENV,
   MutualWipeCounters,
-  mutualWipeAwardEnabled,
   mutualWipeAwardFor,
-  mutualWipeAwardFrom,
   mutualWipeCountersFor,
   mutualWipeReportOf,
   mutualWipeVerdict,
@@ -198,9 +193,10 @@ export class BoundEvaluator implements Evaluator {
  * par 1 — not a winner flag. So a mutual final wipe BANKS THE PREVIOUS TURN'S
  * POSITION, and it is worth more the further ahead we were. The ordering above
  * prices it at the lattice bottom whatever we were holding, and it is most
- * wrong when we were holding most. `CENTAUR_MUTUAL_WIPE_AWARD` is the repair,
- * DARK by default; `./mutual-wipe.ts` carries the rule, the value, the four
- * guards it refuses on, and the R1–R3 argument for the clamp shape below.
+ * wrong when we were holding most. `./mutual-wipe.ts` is the repair —
+ * UNCONDITIONAL, because it is a correction and not a strategy — and it carries
+ * the rule, the value, the four guards it refuses on, and the R1–R3 argument
+ * for the clamp shape below.
  *
  * `award` is that value — the previous board's subject-frame material fold on
  * the fold's own scale — and it is `null` whenever the flag is off or a guard

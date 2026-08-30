@@ -55,7 +55,7 @@ import type {
 } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
-import { royalMargin } from '../staging-safety';
+import { DEFAULT_ROYAL_REACHERS } from '../staging-safety';
 import { type Bound, type Feature, bound, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
@@ -286,8 +286,8 @@ export function makeContext(
   horizonTurns: number = REACH_HORIZON_TURNS,
   /**
    * The profile's optional knobs. Absent means every optional term keeps the
-   * reading it had: I2's two are off, and `royalReachers` falls back to
-   * `CENTAUR_ROYAL_MARGIN` exactly as I1's defaulted parameter did.
+   * reading it had: I2's two are off, and `royalReachers` takes
+   * `DEFAULT_ROYAL_REACHERS` — the value that shipped.
    *
    * INTEGRATION NOTE (integ/round-a): I1 added a trailing positional
    * `royalReachers: boolean = royalMargin()` here and I2 added a trailing
@@ -328,11 +328,11 @@ export function makeContext(
     horizonTurns,
     teams,
     roomScale,
-    // I1's default was a defaulted PARAMETER (`= royalMargin()`), which fires
-    // on `undefined`; reading it off the optional bag with the same fallback is
-    // the identical behaviour for a caller that passes no profile and for a
-    // profile that does not set the field.
-    royalReachers: profile?.royalReachers ?? royalMargin(),
+    // A profile that names the field wins; anything else takes the shipped
+    // reading. This used to fall through to `CENTAUR_ROYAL_MARGIN` — see
+    // `DEFAULT_ROYAL_REACHERS` for the correction that switch is owed and why
+    // this change deliberately does not make it.
+    royalReachers: profile?.royalReachers ?? DEFAULT_ROYAL_REACHERS,
     pieceScale,
     command: profile?.command ?? null,
     healthReserveRatio: profile?.healthReserveRatio ?? null,
@@ -1005,7 +1005,7 @@ function popcount32(x: number): number {
  * claim allows onto the square, `hi` only located ones. With nothing held they
  * are the same set.
  *
- * ── WHO COUNTS AS A REACHER (CENTAUR_ROYAL_MARGIN) ─────────────────────────
+ * ── WHO COUNTS AS A REACHER (`CriterionProfile.royalReachers`) ────────────
  *
  * "The heaviest THING that can stand on its square" — and the code read only
  * the units on other teams. These rules grant no friendly-fire exemption and
@@ -1014,8 +1014,10 @@ function popcount32(x: number): number {
  * the same rule behind it; and it is the larger half of it in practice —
  * 27.0% of every king death in the measured corpus was inflicted by the dying
  * king's own team, against a bot whose own material term prices its king at one
- * point. Under the flag the loop reads every unit that is not this king,
- * team-mates included, which is what the sentence above already said.
+ * point. With `royalReachers` on, the loop reads every unit that is not this
+ * king, team-mates included, which is what the sentence above already said —
+ * and it is off in the shipped profile, which `DEFAULT_ROYAL_REACHERS`
+ * (`staging-safety.ts`) records as a correction still owed its own change.
  *
  * It stays an ORDERING term. The floor does not need it: a resolution in which
  * our king dies is `subjectGone`, which the terminal clamp replaces with DEAD.
