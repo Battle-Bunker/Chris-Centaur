@@ -346,18 +346,24 @@ const METRIC_KEYS = [
 ];
 
 /**
- * THE ARM AUDIT — the resolved flag stamp, per arm.
+ * THE ARM AUDIT — the resolved BOT, per arm.
  *
  * Not a metric and not differenced: it is the answer to "was this actually the
- * treatment arm?". Every CL flag parses only `1|on|true` with no warning on a
- * typo, and several are overridable per engine, so the manifest's envAtRun
- * block (what was SET) and this (what the engine RESOLVED) can disagree — and
- * when they do, this one is the arm. Absent on bundles from before the CL7
- * telemetry closure.
+ * treatment arm?". The spec says what was ASKED for; this is what the engine
+ * RESOLVED, and when they disagree this one is the arm.
+ *
+ * TWO SHAPES, ON PURPOSE. A bundle built after the flag teardown of 2026-08-29
+ * carries `mechanism.config` — the resolved `BotConfig`, plus the five
+ * search-layer flags that had not been torn out yet. A bundle from before it
+ * carries `mechanism.flags`, the old resolved-flag stamp. Both are read,
+ * because batch 1's arms are the older shape and their rows still have to
+ * aggregate. Absent on bundles from before the CL7 telemetry closure, which is
+ * a third state and reported as one.
  */
 function flagStampOf(rows) {
   for (const r of rows) {
     for (const h of r.health ?? []) {
+      if (h.mechanism && h.mechanism.config) return h.mechanism.config;
       if (h.mechanism && h.mechanism.flags) return h.mechanism.flags;
     }
   }
@@ -580,12 +586,17 @@ md.push('`score` — about 1.6-1.8x noisier once the two ranges are put on the s
 md.push('roughly 3x the blocks buy the same power. Read a sharePar delta against a sharePar');
 md.push('floor from `verify-null.js`, never against a rank floor.');
 md.push('');
-md.push('**Read the arm audit first.** Every CL flag parses only `1`, `on` or `true`, with no');
-md.push('warning on a typo, and several are overridable per engine — so an arm can carry the');
-md.push('name of a treatment and have run the baseline. The flag-stamp table under each sweep');
-md.push('is what the engine RESOLVED; the manifest\'s `envAtRun` is what was set. When they');
-md.push('disagree, the stamp is the arm. And a mechanism counter that stayed at zero on the');
-md.push('treatment arm means the arm never engaged, which is a different finding from a null.');
+md.push('**Read the arm audit first.** An arm can carry the name of a treatment and have run');
+md.push('the baseline. The stamp table under each sweep is what the engine RESOLVED; the');
+md.push('manifest\'s `contendersAtRun` (or, on a pre-teardown bundle, `envAtRun`) is what was');
+md.push('asked for. When they disagree, the stamp is the arm. And a mechanism counter that');
+md.push('stayed at zero on the treatment arm means the arm never engaged, which is a');
+md.push('different finding from a null.');
+md.push('');
+md.push('Arms are CONFIGURED BOTS as of 2026-08-29: the engine\'s feature flags were removed,');
+md.push('so a contender is a named `BotConfig` in the spec rather than an environment');
+md.push('variable. Batch-1 rows predate that and carry the old flag stamp; both shapes are');
+md.push('read here, and a stamp\'s own keys say which one a row is.');
 md.push('');
 
 for (const s of report.sweeps) {
@@ -597,8 +608,9 @@ for (const s of report.sweeps) {
   {
     const stamped = Object.entries(s.flagStamps ?? {}).filter(([, v]) => v !== null);
     if (stamped.length === 0) {
-      md.push('*No flag stamp on this build — it predates the CL7 telemetry closure, so which');
-      md.push('arm actually ran cannot be read off these rows. Check `envAtRun` in the manifest*');
+      md.push('*No arm stamp on this build — it predates the CL7 telemetry closure, so which');
+      md.push('arm actually ran cannot be read off these rows. Check `contendersAtRun` (or,');
+      md.push('on an older bundle, `envAtRun`) in the manifest*');
       md.push('*and treat any null here as engagement-unverified.*');
       md.push('');
     } else {

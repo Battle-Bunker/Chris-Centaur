@@ -125,7 +125,16 @@ if (shaA === null || shaB === null) {
   say(shaA === shaB, `same bundle sha: ${shaA.slice(0, 12)} vs ${shaB.slice(0, 12)}`);
 }
 
-// ---- 2. the two arms must be the same ENVIRONMENT --------------------------
+// ---- 2. the two arms must be the same BOT ---------------------------------
+//
+// The contender is what an arm IS now that the engine has no feature flags, so
+// it is checked first and by value. The env comparison stays because an arm can
+// still carry process environment (`DECISION_POOL_SIZE`, a bundle's own test
+// seams) and two arms that differ in one are not an A/A pair either.
+const botA = JSON.stringify((A.meta && A.meta.botConfig) || null);
+const botB = JSON.stringify((B.meta && B.meta.botConfig) || null);
+say(botA === botB, `same bot config: ${botA} vs ${botB}`);
+
 const envA = JSON.stringify((A.meta && A.meta.envOverrides) || {});
 const envB = JSON.stringify((B.meta && B.meta.envOverrides) || {});
 say(envA === envB, `same env overrides: ${envA} vs ${envB}`);

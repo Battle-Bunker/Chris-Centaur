@@ -44,7 +44,7 @@ import * as zlib from 'zlib';
 import * as readline from 'readline';
 import { createHash } from 'crypto';
 import type { Board } from '../src/types/battlesnake';
-import type { BotName, DecisionTelemetry } from './bots';
+import type { DecisionTelemetry } from './bots';
 import type { MatchConfig } from './config';
 import type { TeamEvents, TeamStandingRow } from './match-types';
 
@@ -60,7 +60,7 @@ export interface ReplayHeader {
   /** The whole normalized config — a replay is self-describing. */
   readonly config: MatchConfig;
   /** Seat index -> team id. Seat order is `config.teams` order. */
-  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: BotName }>;
+  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: string }>;
   readonly startedAt: string;
   readonly node: string;
   readonly harness: string;
@@ -69,7 +69,7 @@ export interface ReplayHeader {
 export interface ReplayStagedMove {
   readonly move: string | number;
   readonly seat: number;
-  readonly bot: BotName;
+  readonly bot: string;
   /** False when the unit's own bot does not speak for it (legacy's pieces). */
   readonly spoken: boolean;
 }
@@ -80,7 +80,7 @@ export interface ReplayTurn {
   readonly board: Board;
   readonly tiers: Record<string, number>;
   readonly staged: Record<string, ReplayStagedMove>;
-  readonly telemetry: Record<string, DecisionTelemetry & { seat: number; bot: BotName }>;
+  readonly telemetry: Record<string, DecisionTelemetry & { seat: number; bot: string }>;
   readonly events: TeamEvents;
   readonly world: {
     readonly foodSpawned: ReadonlyArray<{ x: number; y: number }>;
@@ -99,7 +99,7 @@ export interface ReplayResult {
   readonly placements: ReadonlyArray<{
     readonly teamID: string;
     readonly seat: number;
-    readonly bot: BotName;
+    readonly bot: string;
     readonly place: number;
     /** Turn the team was eliminated on; null when it survived to the cap. */
     readonly eliminatedOnTurn: number | null;

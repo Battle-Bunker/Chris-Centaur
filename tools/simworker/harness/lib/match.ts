@@ -68,7 +68,7 @@
 import type { Board, CentaurMove } from '../src/types/battlesnake';
 import { TeamDetector } from '../src/logic/team-detector';
 import { tierAtArrival } from '../src/logic/simulator';
-import type { Bot, BotName, DecisionTelemetry } from './bots';
+import type { Bot, DecisionTelemetry } from './bots';
 import { makeBot } from './bots';
 import { buildGame } from './build-game';
 import { boardHash, configHash, hazardRegimes, resolveHazardDamage, type MatchConfig } from './config';
@@ -207,7 +207,7 @@ export interface MatchOutcome {
    */
   readonly terminal: 'decisive' | 'cap';
   readonly reason: string;
-  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: BotName }>;
+  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: string }>;
   readonly placements: ReplayResult['placements'];
   readonly counters: Record<string, SeatCounters>;
   readonly replayPath: string;
@@ -220,7 +220,7 @@ export interface MatchOutcome {
 export interface RunMatchOptions {
   readonly config: MatchConfig;
   /** One bot name per seat, in `config.teams` order. */
-  readonly bots: ReadonlyArray<BotName>;
+  readonly bots: ReadonlyArray<string>;
   readonly sweepId: string;
   readonly gameId: string;
   readonly replayDir: string;
@@ -265,7 +265,7 @@ export interface RunMatchOptions {
  * weight is zero anyway, which is exactly how the game scores them.
  */
 export function placementsOf(
-  seats: ReadonlyArray<{ seat: number; teamID: string; bot: BotName }>,
+  seats: ReadonlyArray<{ seat: number; teamID: string; bot: string }>,
   eliminatedOnTurn: ReadonlyMap<string, number>,
   finalStandings: ReadonlyArray<TeamStandingRow>,
   previousStandings: ReadonlyArray<TeamStandingRow> | null = null
@@ -421,7 +421,7 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
 
     // --- every seat decides, in seat order, on the same board ---------------
     const staged = new Map<string, CentaurMove>();
-    const stagedBy = new Map<string, { seat: number; bot: BotName; spoken: boolean }>();
+    const stagedBy = new Map<string, { seat: number; bot: string; spoken: boolean }>();
     const telemetry: ReplayTurn['telemetry'] = {};
 
     const totalUnitsNow = (board.snakes ?? []).filter((s) => s.health > 0 && s.body.length > 0).length;

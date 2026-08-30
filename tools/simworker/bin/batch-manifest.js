@@ -110,6 +110,12 @@ if (fs.existsSync(armsRoot)) {
         rotateSeats: spec && spec.resolved ? spec.resolved.rotateSeats !== false : null,
         resumedAt: spec ? spec.resumedAt || [] : [],
         hostAtRun: spec ? spec.host || null : null,
+        // THE ARM, AS THE SWEEP RESOLVED IT. `contendersAtRun` is the load-
+        // bearing one now: it is the bot each seat actually played, read off
+        // the spec the sweep wrote for itself. `envAtRun` is kept because an
+        // arm can still carry process environment, and because a batch-1
+        // manifest has one and nothing else.
+        contendersAtRun: spec && spec.resolved ? spec.resolved.contenders || null : null,
         envAtRun: spec ? spec.env || null : null,
         cells: [...cells.values()].map((c) => ({
           ...c, blocks: c.blocks.size, seeds: [...c.seeds].sort((a, b) => a - b),
@@ -128,6 +134,8 @@ if (fs.existsSync(armsRoot)) {
       buildNode: meta && meta.bundleStamp ? meta.bundleStamp.node : null,
       tscErrors: meta && meta.bundleStamp ? meta.bundleStamp.tscErrors : null,
       harnessCommit: meta && meta.bundleStamp ? meta.bundleStamp.harnessCommit : null,
+      botConfig: meta ? meta.botConfig || null : null,
+      legacyEnv: meta ? meta.legacyEnv === true : false,
       envOverrides: meta ? meta.envOverrides : null,
       workers: meta ? meta.workers : null,
       sweeps,
@@ -235,8 +243,16 @@ console.log('');
 for (const a of arms) {
   const games = a.sweeps.reduce((n, s) => n + s.games, 0);
   console.log(`arm ${a.arm.padEnd(14)} ${a.gitSha ? a.gitSha.slice(0, 12) : 'NO-SHA'} ${(a.gitRef || '?').padEnd(40)} ${games} games`);
+  if (a.botConfig) {
+    console.log(`    ${''.padEnd(14)} bot ${JSON.stringify(a.botConfig)}`);
+  }
   if (a.envOverrides && Object.keys(a.envOverrides).length) {
     console.log(`    ${''.padEnd(14)} env ${Object.entries(a.envOverrides).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  }
+  if (a.legacyEnv) {
+    console.log(`    ${''.padEnd(14)} WARNING: run with --legacy-env. Deleted CENTAUR_* flags were passed`);
+    console.log(`    ${''.padEnd(14)}          through. Only a PRE-teardown bundle reads them; against a`);
+    console.log(`    ${''.padEnd(14)}          current one this arm is the shipped bot under another name.`);
   }
   if (!a.gitSha) {
     console.log(`    ${''.padEnd(14)} WARNING: no bundle stamp — this arm's provenance is unrecorded and its`);

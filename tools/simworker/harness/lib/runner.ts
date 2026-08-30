@@ -21,7 +21,7 @@ import { fork, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { makeBot, shutdownDecisionPool, type Bot, type BotName } from './bots';
+import { makeBot, shutdownDecisionPool, type Bot, type ContenderMap } from './bots';
 import { runMatch, type MatchOutcome } from './match';
 import type { SweepJob } from './sweep';
 
@@ -46,6 +46,9 @@ export interface RunOptions {
    * Defaults to `<replayDir>/legacy-decision-telemetry.jsonl`.
    */
   readonly telemetryFile?: string;
+  /** The spec's named contenders, threaded so a forked child can build them.
+   * Absent means the sweep seats only built-ins. */
+  readonly contenders?: ContenderMap;
   readonly onDone?: (job: SweepJob, outcome: MatchOutcome) => void;
   readonly onError?: (job: SweepJob, error: string) => void;
 }
@@ -77,7 +80,7 @@ export async function runInline(jobs: ReadonlyArray<SweepJob>, opts: RunOptions)
   for (const job of jobs) {
     let bots: Bot[] | undefined;
     try {
-      bots = job.bots.map((b) => makeBot(b as BotName));
+      bots = job.bots.map((b) => makeBot(b, opts.contenders));
       const outcome = await runMatch({
         config: job.config,
         bots: job.bots,
@@ -149,7 +152,15 @@ export async function runForked(jobs: ReadonlyArray<SweepJob>, opts: RunOptions)
       }
       const job = jobs[next++]!;
       inFlight.set(child, job);
-      child.send({ type: 'job', job, sweepId: opts.sweepId, replayDir: opts.replayDir });
+      child.send({
+        type: 'job',
+        job,
+        sweepId: opts.sweepId,
+        replayDir: opts.replayDir,
+        // Sent per job rather than at spawn: a child is respawned after a
+        // death and must not be able to come back with a different arm.
+        contenders: opts.contenders,
+      });
     };
 
     const spawn = (index: number): void => {

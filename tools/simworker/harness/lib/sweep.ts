@@ -25,7 +25,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { BotName } from './bots';
+import type { ContenderMap } from './bots';
 import { configHash, normalizeConfig, type MatchConfig, type MatchConfigInput } from './config';
 import { describeConfig, type MatchOutcome } from './match';
 
@@ -33,7 +33,7 @@ export interface SweepJob {
   readonly jobIndex: number;
   readonly gameId: string;
   readonly config: MatchConfig;
-  readonly bots: ReadonlyArray<BotName>;
+  readonly bots: ReadonlyArray<string>;
   /** Which cyclic rotation of the bot list this game is. */
   readonly rotation: number;
   /** The seed block this game belongs to — the unit of resampling. */
@@ -46,8 +46,18 @@ export interface SweepSpec {
   readonly sweepId: string;
   /** One entry per sweep CELL: a named config shape. Seeds are added per cell. */
   readonly cells: ReadonlyArray<{ readonly cell: string; readonly config: MatchConfigInput }>;
-  /** The bots to seat, in the order rotation 0 seats them. */
-  readonly bots: ReadonlyArray<BotName>;
+  /** The bots to seat, in the order rotation 0 seats them. Each name is a
+   * built-in (`BOT_NAMES`) or a key of `contenders`. */
+  readonly bots: ReadonlyArray<string>;
+  /**
+   * NAMED CONTENDERS — arms as data, which is what replaced the feature flags.
+   *
+   * A key here is a bot name `bots` may seat, and its value is a `BotConfig`
+   * plus which built-in supplies the driving code. See `bots.ts` for the shape
+   * and for why an arm is a configured bot rather than an environment
+   * variable. Optional: a spec that seats only built-ins omits it.
+   */
+  readonly contenders?: ContenderMap;
   readonly seeds: ReadonlyArray<number>;
   /** Play every cyclic rotation (default) or only rotation 0. */
   readonly rotateSeats?: boolean;
@@ -123,7 +133,7 @@ export interface ManifestRow {
   readonly fertile: boolean;
   readonly potions: boolean;
   /** seat -> {teamID, bot}. */
-  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: BotName }>;
+  readonly seats: ReadonlyArray<{ seat: number; teamID: string; bot: string }>;
   readonly turns: number;
   readonly endKind: string;
   /** 'decisive' or 'cap' — whether the game ended or merely ran out. */
@@ -132,7 +142,7 @@ export interface ManifestRow {
   /** Per bot: placement, normalized score, final material. Keyed by SEAT. */
   readonly results: ReadonlyArray<{
     seat: number;
-    bot: BotName;
+    bot: string;
     teamID: string;
     place: number;
     score: number;
@@ -156,7 +166,7 @@ export interface ManifestRow {
   /** Per seat health counters — a nonzero illegal/error count invalidates a row. */
   readonly health: ReadonlyArray<{
     seat: number;
-    bot: BotName;
+    bot: string;
     decisions: number;
     illegal: number;
     unstaged: number;

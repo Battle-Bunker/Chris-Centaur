@@ -364,3 +364,26 @@ exhibit has been deleted is a rule nobody can check.
 Nothing else about batch 2 changes.
 
 **ADDENDUM (potion terms thread).** Potions are now ON by default in `tools/learnloop/lib/cells.js` per the owner's 2026-08-29 ruling — the seven cell names carrying ledger history stay pinned potions-off so their rows keep describing the games that made them, a name that disagrees with its board now throws, only the two exploratory ladders and the A/A null were re-cut (every decisive P-spec is byte-identical), and re-cutting the P-specs onto potions-on cells is a scheduling decision left to whoever owns batch 3; contender selection is untouched, so if the teardown thread moves it from env flags to configs this change does not collide with it.
+
+---
+
+# ADDENDUM — 20260829, later still: THE FEATURE FLAGS ARE GONE. CONTENDERS ARE CONFIGS.
+
+Owner ruling, verbatim: *"please rip out the entire feature flags system and
+stop using it."* Done, on `claude/cluster-lookahead`. Every `CENTAUR_*` strategy
+flag is deleted from the engine; an arm is now a **build** plus a named
+**`BotConfig`** (`src/lobster/bot-config.ts`), and the harness selects
+contenders as data — `--arm 'treat=<bundle>,bot={"territoryRefine":true}'`, or a
+`contenders` map in the spec. `run-pair.js` refuses the dead flag names and
+prints the replacement for each; `--legacy-env` overrides that for the one
+legitimate case, re-running batch 1 against its original pre-teardown bundles.
+**HANDOFF.md §3 carries the full table of what each flag became.** Two arms are
+now legible apart by NAME on every manifest row, which is what a verdict has
+always needed.
+
+Two of the flags did not become config, because they were never strategy:
+`CENTAUR_MUTUAL_WIPE_AWARD` and `CENTAUR_TIER_TRUTH` were CORRECTIONS and are
+now unconditional. **P4 is therefore closed by decision and is not schedulable
+as written** — see the spec's own comment for the argument (the widening is a
+measured no-op at ply 1, and the other arm is the unsound one past it). Nothing
+else about batch 2 changes; no status moved and no measurement row was touched.

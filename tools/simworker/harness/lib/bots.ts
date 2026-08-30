@@ -26,6 +26,37 @@
  *
  * Every variant answers the same `decide` and reports the same telemetry, so a
  * replay row means the same thing whichever bot produced it.
+ *
+ * ── CONTENDERS: THE NAMES ABOVE ARE BASES, NOT THE WHOLE VOCABULARY ────────
+ *
+ * The engine's feature flags were torn out on 2026-08-29 (owner's ruling: *"rip
+ * out the entire feature flags system"*). An arm therefore cannot be "the same
+ * bundle with a variable set" any more, and that is an improvement rather than
+ * a loss: it never really was, because a process-wide variable moved every
+ * lobster seat on the board at once and a paired experiment on it measured
+ * nothing.
+ *
+ * An arm is a CONTENDER — a named `BotConfig` (`src/lobster/bot-config.ts`),
+ * declared as data in the spec's `contenders` map and seated by name like any
+ * built-in:
+ *
+ *     "contenders": {
+ *       "refiner": { "base": "lobster-territory",
+ *                    "bot": { "territoryRefine": true } }
+ *     },
+ *     "bots": ["refiner", "lobster-territory", "reflex"]
+ *
+ * `base` picks which of the variants above supplies the driving code (default
+ * `lobster-territory`); `bot` is the `BotConfig` handed to its engine;
+ * `evaluator` names an evaluator export in the bundle's own `lobster/evaluate`,
+ * which is what `lobster-slider` and `lobster-slider-royal` are pre-declared
+ * spellings of. A contender's NAME is what the manifest rows key on, which is
+ * the property a verdict needs — it attaches to a fixed identity, not to
+ * "whatever the environment was that night".
+ *
+ * A NON-LOBSTER BASE TAKES NO CONFIG. `legacy`, `reflex` and `neutral` are not
+ * driven by `TeamDecisionOptions`, so a contender that names one of them and a
+ * `bot` is refused rather than silently ignored.
  */
 
 import type { Board, CentaurMove, Coord, Direction, GameState, Snake } from '../src/types/battlesnake';
@@ -42,6 +73,23 @@ import {
   type TeamDecisionOptions,
   type TeamDecisionPorts,
 } from '../src/lobster/team-decision-engine';
+/**
+ * A `BotConfig`, structurally — deliberately NOT imported from
+ * `../src/lobster/bot-config`.
+ *
+ * This harness is built against ARBITRARY branches (build-bot.sh), and a bundle
+ * from a branch that predates the flag teardown has no `bot-config` module at
+ * all; even a type-only import would fail that whole harness build and take
+ * every other bot down with it. The same reasoning as the slider profiles two
+ * lines up, one level stricter because this one is a type.
+ *
+ * So the shape is open and the BUNDLE validates it: `resolveBotConfig` warns
+ * and falls back on any field it does not recognise, which is the only place
+ * that knows what the branch actually has. An old bundle handed a `bot` will
+ * ignore it, and `checkBundleTakesBotConfig` below is how a spec finds that out
+ * loudly instead of by measuring an A/A pair.
+ */
+export type BotConfig = Readonly<Record<string, unknown>>;
 import { defaultEvaluator, materialEvaluator } from '../src/lobster/evaluate';
 // The slider-repair profiles are resolved at RUNTIME, not imported by name.
 // This harness is built against ARBITRARY branches (see build-bot.sh), and a
@@ -184,11 +232,18 @@ export interface DecisionTelemetry {
    * carries that distinction all the way through: it reports such a metric as
    * UNREADABLE rather than as a null result.
    *
-   * `flags` is the RESOLVED position of every promotable flag, which is the
-   * field that answers "was this actually the treatment arm?". The manifest's
-   * envAtRun block records what the environment was SET to; every CL flag
-   * parses only `1|on|true` with no warning, and several are overridable per
-   * engine, so the two can disagree and only this one is the arm.
+   * `flags` is the RESOLVED ARM, which is the field that answers "was this
+   * actually the treatment arm?". The spec records what was ASKED for; this is
+   * what the engine resolved, and when they disagree this one is the arm.
+   *
+   * TWO SOURCES, ONE FIELD, and the name is kept for the manifest's sake. A
+   * bundle built after the flag teardown of 2026-08-29 publishes
+   * `mechanism.config` — the resolved `BotConfig` — and one from before it
+   * publishes `mechanism.flags`. Both are folded here under `flags`, because a
+   * batch-1 row and a batch-3 row have to sit in one manifest schema and
+   * `aggregate.js` has to table them together. The KEYS say which shape a row
+   * is: a post-teardown stamp carries `name`, and its arm is a bot rather than
+   * an environment.
    *
    * `wasmRuns` is the specific gap that voided P5: the wasm arm is refused per
    * partition, silently, whenever an input is not resident in linear memory, so
@@ -233,7 +288,7 @@ function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
       ? null
       : Object.values(r as Record<string, number>).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
   return {
-    flags: { ...(m.flags ?? {}) },
+    flags: { ...(m.config ?? m.flags ?? {}) },
     wasmRuns: n(m.wasm?.runs),
     wasmRefused: n(m.wasm?.refused),
     clusterJoints: n(m.cluster?.jointsEnumerated),
@@ -256,7 +311,9 @@ export interface DecisionOutcome {
 }
 
 export interface Bot {
-  readonly name: BotName;
+  /** A built-in (`BOT_NAMES`) or a contender key. This is what a manifest row
+   * keys on, which is why two bots may never wear one name. */
+  readonly name: string;
   /**
    * Which of our alive units this variant SPEAKS FOR. Legacy speaks for snakes
    * only; its pieces are not "unstaged bugs" but units the path never had a bot
@@ -316,7 +373,7 @@ const IDLE: DecisionOutcome = {
 
 // ------------------------------------------------------------------- lobster
 
-function lobsterBot(name: BotName, options: TeamDecisionOptions): Bot {
+function lobsterBot(name: string, options: TeamDecisionOptions): Bot {
   let started = 0;
   let firstStageMs: number | null = null;
   let emissions = 0;
@@ -770,9 +827,158 @@ export function neutralMoves(
   return out;
 }
 
+// ----------------------------------------------------------------- contenders
+
+/**
+ * A CONTENDER, as it appears in a spec. Plain JSON, validated on the way in.
+ *
+ * `bot` is the engine's own `BotConfig` and is passed through unread: the
+ * bundle validates it (`resolveBotConfig` warns and falls back on anything it
+ * does not recognise), because the bundle is the only thing that knows which
+ * fields its branch has.
+ */
+export interface ContenderSpec {
+  /** Which built-in supplies the driving code. Default `lobster-territory`. */
+  readonly base?: BotName;
+  /** The `BotConfig` handed to the engine. Lobster bases only. */
+  readonly bot?: BotConfig;
+  /** An evaluator export name in the bundle's own `lobster/evaluate`. */
+  readonly evaluator?: string;
+}
+
+export type ContenderMap = Readonly<Record<string, ContenderSpec>>;
+
+const LOBSTER_BASES: ReadonlyArray<BotName> = [
+  'lobster-territory',
+  'lobster-slider',
+  'lobster-slider-royal',
+  'lobster-material',
+];
+
+/**
+ * Validate a contender map without building anything.
+ *
+ * Called by `run-sweep` before a single game runs, because the one thing worse
+ * than a spec that fails is a spec that fails on game 340 of 480.
+ */
+export function checkContenders(contenders: ContenderMap): void {
+  let needsBotConfig = false;
+  for (const [name, spec] of Object.entries(contenders)) {
+    if (spec.bot !== undefined) needsBotConfig = true;
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+      throw new Error(`contender name "${name}" must be alphanumeric/dash/underscore`);
+    }
+    const base = spec.base ?? 'lobster-territory';
+    // A contender MAY wear a built-in's name, on one condition: it must declare
+    // that same built-in as its base, so the name still means "this bot,
+    // configured" and cannot come to mean two different bots inside one run.
+    //
+    // It is not a loophole, it is the common case. `run-pair.js --arm
+    // name=<bundle>,bot=<...>` configures whatever lobster contender the SHARED
+    // spec already seats, and the seat has to keep its name or the two arms'
+    // manifest rows stop pairing without a --subject-map. Same seat, same name,
+    // two configurations — which is exactly the comparison the flags could
+    // never express per seat.
+    if (isBotName(name) && base !== name) {
+      throw new Error(
+        `contender "${name}" shadows the built-in bot of that name but declares base ` +
+          `"${base}". A manifest row keys on the name, so two different bots may never ` +
+          `wear one. Rename the contender, or set its base to "${name}".`
+      );
+    }
+    if (!isBotName(base)) {
+      throw new Error(`contender "${name}": unknown base "${base}"; known: ${BOT_NAMES.join(', ')}`);
+    }
+    if (spec.bot !== undefined && !LOBSTER_BASES.includes(base)) {
+      throw new Error(
+        `contender "${name}": base "${base}" is not driven by TeamDecisionOptions, so a ` +
+          `"bot" config would be silently ignored. Drop it, or pick a lobster base.`
+      );
+    }
+    if (spec.evaluator !== undefined && !LOBSTER_BASES.includes(base)) {
+      throw new Error(
+        `contender "${name}": base "${base}" has no evaluator seam, so "evaluator" would ` +
+          `be silently ignored.`
+      );
+    }
+  }
+  if (needsBotConfig) requireBundleTakesBotConfig();
+}
+
+/**
+ * REFUSE A SPEC THIS BUNDLE CANNOT ACTUALLY RUN.
+ *
+ * A bundle built from a branch older than the flag teardown has no
+ * `lobster/bot-config`, and `TeamDecisionOptions` has no `bot` field — so it
+ * would accept the option object, ignore the config, and play the default bot
+ * under the contender's name. That is an A/A pair wearing a treatment's name,
+ * which is the exact failure this whole program has been bitten by twice
+ * (CENTAUR_WASM, and every mistyped `1|on|true` flag before it).
+ *
+ * The require is guarded because a missing module here is a legitimate,
+ * expected state — an old bundle — and not a harness bug.
+ */
+function requireBundleTakesBotConfig(): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('../src/lobster/bot-config') as Record<string, unknown>;
+    if (typeof mod.resolveBotConfig === 'function') return;
+  } catch {
+    /* falls through to the throw */
+  }
+  throw new Error(
+    'this spec declares a contender with a "bot" config, but the bundle it is running ' +
+      'against has no src/lobster/bot-config — it predates the flag teardown of 2026-08-29. ' +
+      'It would ignore the config and play the DEFAULT bot under the contender\'s name, ' +
+      'which is an A/A pair wearing a treatment\'s name. Rebuild the arm from a branch that ' +
+      'carries bot-config, or express the arm as a different bundle.'
+  );
+}
+
 // ------------------------------------------------------------------ registry
 
-export function makeBot(name: BotName): Bot {
+/**
+ * Build a bot by name. A name is either a built-in or a key of `contenders`.
+ *
+ * The contender map is threaded from the spec rather than read from a module
+ * global so that two arms in one process (which the smoke runner does) cannot
+ * see each other's definitions.
+ */
+export function makeBot(name: string, contenders: ContenderMap = {}): Bot {
+  const contender = contenders[name];
+  if (contender !== undefined) {
+    const base = contender.base ?? 'lobster-territory';
+    // Cast rather than annotated: `bot` is a field an OLD bundle's
+    // `TeamDecisionOptions` does not declare, and this file has to compile
+    // against those too. `checkContenders` has already refused the case where
+    // that would silently matter.
+    const options = {
+      evaluate:
+        contender.evaluator === undefined
+          ? baseEvaluatorOf(base)
+          : (evaluatorNamed(contender.evaluator) as TeamDecisionOptions['evaluate']),
+      ...(contender.bot === undefined ? {} : { bot: { name, ...contender.bot } }),
+    } as TeamDecisionOptions;
+    return lobsterBot(name, options);
+  }
+  return makeBaseBot(name as BotName);
+}
+
+/** The evaluator a built-in lobster base runs, by name. */
+function baseEvaluatorOf(base: BotName): TeamDecisionOptions['evaluate'] {
+  switch (base) {
+    case 'lobster-slider':
+      return evaluatorNamed('territorySliderEvaluator') as TeamDecisionOptions['evaluate'];
+    case 'lobster-slider-royal':
+      return evaluatorNamed('territorySliderRoyalEvaluator') as TeamDecisionOptions['evaluate'];
+    case 'lobster-material':
+      return materialEvaluator;
+    default:
+      return defaultEvaluator;
+  }
+}
+
+function makeBaseBot(name: BotName): Bot {
   switch (name) {
     case 'lobster-territory':
       // The shipped default. Naming the evaluator explicitly rather than
@@ -787,9 +993,10 @@ export function makeBot(name: BotName): Bot {
       // snake-only cell a provably-inert NULL for this arm — see
       // src/tests/territory-slider.test.ts, and context/METHODOLOGY.md §3.
       //
-      // Nothing in production selects this profile: there is no env flag and no
-      // config field that reaches it. `TeamDecisionOptions.evaluate` is the ONLY
-      // seam, which is why the arm exists here and nowhere else.
+      // Nothing in production selects this profile: `TeamDecisionOptions.evaluate`
+      // is the ONLY seam, which is why the arm exists here and nowhere else.
+      // A spec can also reach it as `{"evaluator": "territorySliderEvaluator"}`
+      // on a contender, which is the same seam named as data.
       return lobsterBot('lobster-slider', {
         evaluate: evaluatorNamed('territorySliderEvaluator') as TeamDecisionOptions['evaluate'],
       });
@@ -808,7 +1015,10 @@ export function makeBot(name: BotName): Bot {
     case 'neutral':
       return neutralBot();
     default:
-      throw new Error(`unknown bot "${String(name)}"; known: ${BOT_NAMES.join(', ')}`);
+      throw new Error(
+        `unknown bot "${String(name)}"; known built-ins: ${BOT_NAMES.join(', ')}. ` +
+          `A name that is not one of those must be declared in the spec's "contenders".`
+      );
   }
 }
 

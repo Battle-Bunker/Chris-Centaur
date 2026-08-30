@@ -20,6 +20,18 @@
  * ...overrides }`. `seed` is supplied by the sweep and must not appear in a
  * cell.
  *
+ * CONTENDERS. A name in `bots` is either a built-in (`BOT_NAMES`) or a key of
+ * the optional `contenders` map, which is where an arm that is not a whole
+ * build lives now that the engine has no feature flags:
+ *
+ *   "contenders": {
+ *     "refiner": { "base": "lobster-territory", "bot": { "territoryRefine": true } }
+ *   },
+ *   "bots": ["refiner", "lobster-territory", "reflex"]
+ *
+ * See `lib/bots.ts` for the shape and for why an arm is a configured bot rather
+ * than an environment variable.
+ *
  * OUTPUT, under <replays>/<sweepId>/:
  *   manifest.jsonl   one row per game — everything aggregation needs
  *   <gameId>.jsonl.gz  one replay per game
@@ -32,7 +44,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { BOT_NAMES, isBotName, type BotName } from '../lib/bots';
+import { BOT_NAMES, checkContenders, isBotName, type ContenderMap } from '../lib/bots';
 import { normalizeConfig, type MatchConfigInput } from '../lib/config';
 import { describeConfig } from '../lib/match';
 import { preset, PRESET_NAMES } from '../lib/presets';
@@ -117,9 +129,21 @@ async function main(): Promise<void> {
   if (specPath === '') throw new Error('--spec <file.json> is required');
   const raw = JSON.parse(fs.readFileSync(specPath, 'utf8')) as SweepSpec & { cells: CellSpec[] };
 
+  const contenders: ContenderMap = raw.contenders ?? {};
+  // Checked BEFORE a single game runs: the one thing worse than a spec that
+  // fails is a spec that fails on game 340 of 480.
+  checkContenders(contenders);
+
   const bots = raw.bots ?? [];
   for (const b of bots) {
-    if (!isBotName(b)) throw new Error(`unknown bot "${b}"; known: ${BOT_NAMES.join(', ')}`);
+    if (isBotName(b) || Object.prototype.hasOwnProperty.call(contenders, b)) continue;
+    const declared = Object.keys(contenders);
+    throw new Error(
+      `unknown bot "${b}"; built-ins: ${BOT_NAMES.join(', ')}` +
+        (declared.length === 0
+          ? '. Declare a configured contender in spec.contenders to seat anything else.'
+          : `; declared contenders: ${declared.join(', ')}`)
+    );
   }
   if (bots.length === 0) throw new Error('spec.bots must name at least one bot');
   if (!Array.isArray(raw.seeds) || raw.seeds.length === 0) {
@@ -128,7 +152,8 @@ async function main(): Promise<void> {
 
   const spec: SweepSpec = {
     sweepId: raw.sweepId,
-    bots: bots as ReadonlyArray<BotName>,
+    bots,
+    contenders,
     seeds: raw.seeds,
     rotateSeats: raw.rotateSeats,
     cells: raw.cells.map((c) => ({ cell: c.cell, config: resolveCell(c) })),
@@ -143,6 +168,11 @@ async function main(): Promise<void> {
   console.log(`# sweep ${spec.sweepId}`);
   console.log(`# ${spec.cells.length} cells x ${spec.seeds.length} seeds x ${spec.rotateSeats === false ? 1 : bots.length} rotations = ${jobs.length} games`);
   console.log(`# bots: ${bots.join(', ')}`);
+  // Printed in full, because the arm a batch actually ran is the quantity every
+  // verdict rests on and a run log is where an operator checks it.
+  for (const [name, c] of Object.entries(contenders)) {
+    console.log(`#   contender ${name}: ${JSON.stringify(c)}`);
+  }
   console.log(`# workers=${workers} DECISION_POOL_SIZE=${poolSize} cpus=${os.cpus().length} node=${process.version}`);
   console.log(`# replays -> ${replayDir}`);
 
@@ -243,6 +273,7 @@ async function main(): Promise<void> {
   await runJobs(pending, {
     sweepId: spec.sweepId,
     replayDir,
+    contenders,
     workers,
     poolSize,
     onDone: (job: SweepJob, outcome) => {

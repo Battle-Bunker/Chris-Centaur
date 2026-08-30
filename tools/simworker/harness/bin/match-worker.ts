@@ -6,7 +6,7 @@
  * no other child can collide with (the game id is unique in the job list).
  */
 
-import { makeBot, shutdownDecisionPool, type Bot, type BotName } from '../lib/bots';
+import { makeBot, shutdownDecisionPool, type Bot, type ContenderMap } from '../lib/bots';
 import { runMatch } from '../lib/match';
 import type { SweepJob } from '../lib/sweep';
 
@@ -15,6 +15,8 @@ interface JobMsg {
   readonly job: SweepJob;
   readonly sweepId: string;
   readonly replayDir: string;
+  /** The spec's named contenders. See `lib/bots.ts`. */
+  readonly contenders?: ContenderMap;
 }
 
 const send = (msg: unknown): void => {
@@ -26,7 +28,7 @@ process.on('message', (msg: JobMsg) => {
   void (async () => {
     let bots: Bot[] | undefined;
     try {
-      bots = msg.job.bots.map((b) => makeBot(b as BotName));
+      bots = msg.job.bots.map((b) => makeBot(b, msg.contenders));
       const outcome = await runMatch({
         config: msg.job.config,
         bots: msg.job.bots,

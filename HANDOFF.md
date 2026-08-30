@@ -163,68 +163,119 @@ the hour this document was written.
 
 ### Contenders
 
+**A CONTENDER IS A BUILD PLUS A BOT CONFIG.** As of 2026-08-29 the engine has
+no feature flags — the owner had the whole system torn out — so an arm is either
+a different BUNDLE or a different `BotConfig`, and never an exported variable.
+See "How to select an arm" below for the mechanics.
+
 | name | branch | SHA when verified | how to select |
 |---|---|---|---|
 | `integrated` | `claude/mid-turn-collision-logic-mkxurg` | `66904d2` | build it; run defaults |
 | `perf-substrate` | `claude/cluster-lookahead` | `8059b86` | build it; run defaults |
-| `legacy` | any branch | — | `CENTAUR_ENGINE=legacy` |
+| `legacy` | any branch | — | `bot={"engine":"legacy"}` |
 | `lobster-territory` | any branch | — | bot name `lobster-territory` |
 | `lobster-material` | any branch | — | bot name `lobster-material` |
-| `lobster-slider` | integrated **or** perf-substrate | — | bot name `lobster-slider` |
+| `lobster-slider` | integrated **or** perf-substrate | — | bot name `lobster-slider`, or a contender with `{"evaluator":"territorySliderEvaluator"}` |
 | `admission` | `arch/s2` | `724d83f` | **UNBUILDABLE — see below** |
 
 `integrated` carries: gainOrdering on by default, staging-safety `auto`, the I4
 expiry threading, I6, the o-p3 room fix, and I2's slider repair.
 
-**Two different selection mechanisms, and the distinction matters.** Some
-contenders are chosen by an **environment variable** (a deployment-reachable
-switch); others by a **bot name in the spec**, which reaches
-`TeamDecisionOptions.evaluate` — a harness-only seam with no production path.
-A profile in the second group cannot be shipped by flipping a flag, and a
-finding about one is a finding about a capability, not about a deployable
-configuration. Say which kind you measured.
+### How to select an arm
 
-### Environment flags — verified in code
+Two mechanisms, and the distinction still matters:
 
-| flag | values | default | branch | what it does |
-|---|---|---|---|---|
-| `CENTAUR_ENGINE` | `lobster` \| `legacy` | `lobster` | both | which engine drives the full pass |
-| `CENTAUR_STAGING_SAFETY` | `off` \| `auto` \| `guard` \| `full` | `auto` | both | `auto` = `full` when the board bears a piece, else off |
-| `CENTAUR_TIER_TRUTH` | `off` \| `expiry` \| `full` | `expiry` | both | `full` re-enables the dark potion-board widening |
-| `CENTAUR_TIER_DEFENSE` | `off` disables | on | both | the tier-window filter |
-| `CENTAUR_ROYAL_MARGIN` | — | unchanged | both | separate D2 flag; default NOT moved |
-| `CENTAUR_WORKERS` | `off` \| `auto` \| `on` \| `0..8` | `off` | perf-substrate | evaluation worker pool; `auto`=`min(cores-1,3)` |
-| `CENTAUR_WORKERS_AUDIT` | `1` to enable | off | perf-substrate | recompute worker results on main thread; throws on disagreement |
-| `CENTAUR_CLUSTER_SEED` | `1` \| `on` \| `true` | off | perf-substrate (CL1) | index-driven pairwise seed |
-| `CENTAUR_UNIT_FATALITY` | `1` \| `on` \| `true` | off | perf-substrate (CL1) | rung-0 fatality classifier |
-| `CENTAUR_COHORT_POLICY` | `on` \| `off` | `off` | `arch/s2` only | cohort admission governor |
+1. **A different bundle.** `build-bot.sh <ref> <dir>`, then `--arm
+   name=<dir>`. This is how a whole branch is raced.
+2. **A different `BotConfig`.** `--arm 'name=<dir>,bot={"territoryRefine":true}'`
+   — inline JSON, or a path to a `.json` file. The runner writes that arm its
+   own spec with the config merged into every lobster contender, and leaves
+   `sweepId`, `cells`, `seeds` and `rotateSeats` byte-identical, so the pairing
+   guarantee holds: same boards, same seeds, same seat rotation, two
+   differently-configured bots. A spec can also declare contenders by name:
 
-**`CENTAUR_WASM` IS GONE — 20260829, by owner ruling.** It used to sit in the
-table above and it has been struck from it. The whole WebAssembly layer was
-removed from `claude/cluster-lookahead` (see
-`tools/simworker/COORDINATION-20260829.md`, the second addendum). A bundle built
-at or after `96c5763` ignores the variable entirely, so setting it produces an
-A/A pair wearing a treatment's name. Do not set it.
+   ```json
+   "contenders": { "refiner": { "base": "lobster-territory",
+                                "bot": { "territoryRefine": true } } },
+   "bots": ["refiner", "lobster-territory", "reflex"]
+   ```
 
-**Two corrections to what you may have been told, both verified in source:**
+Some fields reach a deployable configuration (`engine`, `stagingSafety`,
+`workers`); `evaluator` reaches `TeamDecisionOptions.evaluate`, a harness-only
+seam with no production path. A finding about the second kind is a finding
+about a capability, not about a deployable configuration. **Say which kind you
+measured.**
 
-- **`CENTAUR_CLUSTER_SEED` and `CENTAUR_UNIT_FATALITY` parse only `1`, `on`,
-  `true`.** There is **no validation warning and no `off` keyword** — every
-  other value, including `yes` or `ON`, is silently off. Set the off arm by
-  **omitting** the variable, and check `envAtRun` in the batch manifest
-  afterwards to confirm the on arm carried what you meant.
-- **`CENTAUR_STAGING_SAFETY` defaults to `auto`, not `off`.** Older notes in the
-  corpus say `off`; the integrated branch moved it, and `auto` carries the
-  measured verdict (see FINDINGS-DIGEST §4).
+### Bot config fields — verified in code
+
+`src/lobster/bot-config.ts`. Every field optional; a contender is a DIFF from
+the shipped bot, and the shipped bot is the default of every row.
+
+| field | values | default | what it does |
+|---|---|---|---|
+| `engine` | `lobster` \| `legacy` | `lobster` | which engine drives the full pass |
+| `stagingSafety` | `off` \| `auto` \| `guard` \| `full` | `auto` | `auto` = `full` when the board bears a piece, else off |
+| `territoryRefine` | `true` \| `false` | `false` | Door C's contested reach/room refiner |
+| `candidates.unitFatality` | `true` \| `false` | `false` | rung-0 fatality classifier |
+| `candidates.tierSafeStaging` | `true` \| `false` | `true` | the tier-window filter (with `selfDebuffOrdering`) |
+| `workers` | `off` \| `auto` \| `0..8` | `off` | evaluation worker pool; `auto`=`min(cores-1,3)` |
+| `workersAudit` | `true` \| `false` | `false` | recompute worker results on main thread; throws on disagreement |
+| `evaluator` (contender field, not `bot`) | an export name | — | e.g. `territorySliderEvaluator` |
+
+**A BAD FIELD IS A REFUSAL, NOT A SILENT OFF** — which is the single biggest
+practical difference from the flags. `botConfigFromJson` rejects an unknown
+field and a bad value; `run-pair.js` parses and validates the config before it
+launches anything; and `checkContenders` refuses a spec whose bundle has no
+`bot-config` module at all (i.e. one built from a pre-teardown branch, which
+would ignore the config and play the shipped bot under your arm's name).
+
+### THE FLAGS ARE GONE — 20260829, by owner ruling
+
+Every `CENTAUR_*` strategy flag has been deleted from the engine. Setting one
+now does nothing at all, so an arm that sets one plays the SHIPPED bot under a
+treatment's name and the batch reports an A/A pair as a null.
+`run-pair.js` refuses them by name and prints the replacement.
+
+| gone flag | what happened to it |
+|---|---|
+| `CENTAUR_ENGINE` | config: `bot={"engine":"legacy"}` |
+| `CENTAUR_STAGING_SAFETY` | config: `bot={"stagingSafety":"guard"}` |
+| `CENTAUR_TERRITORY_REFINE` | config: `bot={"territoryRefine":true}` |
+| `CENTAUR_UNIT_FATALITY` | config: `bot={"candidates":{"unitFatality":true}}` |
+| `CENTAUR_TIER_DEFENSE` | config: `bot={"candidates":{"tierSafeStaging":false,"selfDebuffOrdering":false}}` |
+| `CENTAUR_WORKERS` / `_AUDIT` | config: `bot={"workers":"auto"}` — deployment, judged by benchmarks |
+| `CENTAUR_TIER_TRUTH` | **deleted, premise is now `full` unconditionally.** A correction. P4 is closed by decision; see the spec's own comment |
+| `CENTAUR_MUTUAL_WIPE_AWARD` | **deleted, the award is unconditional.** A correction |
+| `CENTAUR_ROYAL_MARGIN` | deleted; the reading is a `CriterionProfile` param and the correction it is owed has NOT been made |
+| `CENTAUR_COHORT_POLICY` | code already gone; measured live-null |
+| `CENTAUR_WASM` | removed earlier, 20260829, by the same ruling |
+
+`--legacy-env` overrides the refusal for exactly one legitimate case:
+re-running batch 1 against the ORIGINAL pre-teardown bundles, which do still
+read those variables. It stamps `legacyEnv: true` on the arm and the batch
+manifest prints a warning. Say so in `--note`.
+
+**STILL FLAGS, pending the search-layer teardown:** `CENTAUR_CLUSTER_SEED`,
+`CENTAUR_MULTISTART_SEED`, `CENTAUR_EDGE_EV`, `CENTAUR_CLUSTER_ENUM`,
+`CENTAUR_SAMPLED_CAP`, `CENTAUR_SCOUT`. These are still environment variables
+and still carry the old trap: **they parse only `1`, `on`, `true`**, with no
+validation warning and no `off` keyword — every other value, including `yes` or
+`ON`, is silently off. Set their off arm by **omitting** the variable, and
+check `envAtRun` in the batch manifest afterwards.
 
 ### TERRITORY_SLIDER_PROFILE — selectable, and how
 
 **It is selectable.** Verified by construction on both bundles.
 
-There is no env flag and no config field: `TeamDecisionOptions.evaluate` is the
-only seam that reaches it, and the harness holds that seam. Select it with the
-bot name **`lobster-slider`** in a spec's `bots` array (`lobster-slider-royal`
-is the royal-exclusion ablation, meaningful only on a cell fielding a king).
+Nothing in production selects it: `TeamDecisionOptions.evaluate` is the only
+seam that reaches it, and the harness holds that seam. Select it with the bot
+name **`lobster-slider`** in a spec's `bots` array (`lobster-slider-royal` is
+the royal-exclusion ablation, meaningful only on a cell fielding a king), or
+name the same seam as data on a contender:
+
+```json
+"contenders": { "slider": { "evaluator": "territorySliderEvaluator" } }
+```
 
 Because the arms then differ by seat contents rather than by build or env,
 `aggregate.js` needs the substitution **declared**:
