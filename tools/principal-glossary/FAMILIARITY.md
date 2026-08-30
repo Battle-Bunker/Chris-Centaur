@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-169 terms tracked: **4** corrected, **52** internal, **45** defined, **68** native.
+173 terms tracked: **4** corrected, **52** internal, **49** defined, **68** native.
 
 > **Evidence quality.** 47 of the 68 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -177,7 +177,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (45)
+### DEFINED — we defined it for them, on a date, somewhere (49)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -185,6 +185,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>
 - **admission governor** — the flag-gated component that decides which cohort of features is admitted for a turn.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **AlphaZero** — the reference MCTS variant whose selection bonus is multiplied by a cheap prior so promising unexplored branches get served first.
+  <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **anytime kernel** — the evaluator that can be stopped at any moment and still return its best-so-far answer.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **AssemblyScript** — a small statically-typed language wearing TypeScript syntax that compiles to WASM; NOT TypeScript — no JS object interop, flat typed memory. What the two kernels are written in.
@@ -212,6 +214,8 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>history: 2026-08-28 → defined; 2026-08-29 → defined</sub>
 - **dark** — a feature that is built and merged but off by default, awaiting promotion.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **depth-effect rate** — the fraction of decisions where deep (2+ turn) information changed the staged move; the continuously tested depth metric.
+  <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **detector** — a cheap board test that decides whether an expensive heuristic is worth running at all (e.g. "is there a slider?").
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **Doors A/B/C** *(also: Door A, Door B, Door C)* — the three named architectural options for re-entering search from a partially resolved position; Door B is post-contact continuation.
@@ -267,10 +271,14 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **staged plan** — the multi-turn move sequence currently committed for a cluster.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **Thompson sampling** — allocation by drawing one sample from each branch's belief and spending the next slice on the argmax; randomized, with exploration carried by belief width.
+  <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **trail unit** — a snake: the body trails behind the head, blocks movement, and grows on eating. Opposite of the chess-style pieces. From the engine flag leavesTrail; counts matter (ownTrail >= 4 gates territory).
   <br><sub>2026-08-28 · owner briefing 2026-08-28, issued directly in response to the "trail" correction</sub>
   <br><sub>NOTE: Defined ONLY as the two-word phrase "trail unit". Bare "trail" remains CORRECTED. Because this term was born out of a correction, a reminder clause is owed on every use — the checker raises it as a NOTE.</sub>
   <br><sub>WAS CORRECTED ONCE — a reminder clause is owed on every use.</sub>
+- **UCB** — upper confidence bound: MCTS's selection rule — average value found + c*sqrt(ln parent-visits / branch-visits); c is the explicit exploration/exploitation exchange rate.
+  <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **V8** — the JavaScript engine inside Node (and Chrome); JIT-compiles the bot's code to native machine code at runtime.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **vendored engine** — the copy of the game engine kept inside this repo (src/partial-engine/) rather than imported, so sims run in-process.
