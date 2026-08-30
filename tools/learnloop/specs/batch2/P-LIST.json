@@ -18,8 +18,8 @@
       "scheduled": true,
       "sweepId": "p7f-unit_fatality",
       "arms": [
-        "off",
-        "fatality-on"
+        "default",
+        "unit-fatality"
       ],
       "cells": [
         "headline-mix-king",
@@ -37,8 +37,8 @@
       "scheduled": true,
       "sweepId": "p12-edge_ev",
       "arms": [
-        "off",
-        "edgeev-on"
+        "default",
+        "edge-ev"
       ],
       "cells": [
         "headline-mix-king",
@@ -53,21 +53,10 @@
       "id": "P8/P9-joint",
       "flag": "CENTAUR_CLUSTER_ENUM",
       "status": "probe-passed",
-      "scheduled": true,
-      "sweepId": "p8-p9-joint-cluster_enum",
-      "arms": [
-        "off",
-        "enum-on",
-        "enum-on+seed-graded"
-      ],
-      "cells": [
-        "headline-mix-king",
-        "snake5-knight",
-        "null-snake6"
-      ],
-      "blocks": 16,
-      "gamesPerArm": 144,
-      "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts?"
+      "scheduled": false,
+      "withdrawn": true,
+      "reason": "WITHDRAWN 20260830 BY THE TEARDOWN, NOT BY A RESULT — and withdrawn rather than replaced, because the question it asked no longer exists to be asked. Both halves are unbuildable and for different reasons. (1) The enumeration has no off arm: `off` names a build that was deleted, so an on-vs-off pair cannot be built out of two post-teardown bundles at all. It is not that the arm is hard to express — there is no configuration of the shipped engine in which the enumeration does not run. (2) The joint arm's partner is gone too: CENTAUR_CLUSTER_SEED's greedy seed, flag and tests were deleted in the same teardown, so `enum-on+seed-graded` names two things that no longer exist. Nothing here is a verdict: this row keeps `probe-passed` and keeps its deterministic evidence, which stands as measured. AND THIS DOES NOT RESOLVE THE OPEN FINDING ABOVE — if the owner rules that the two unpromoted features must ship default-OFF until a live sweep promotes them, the off arm becomes expressible as a config field and this experiment is re-specifiable close to as written. That is exactly why it is withdrawn with its reason rather than deleted.",
+      "question": "Does the enumeration's floor gain survive live, and does it interact with the graded seed as CL3's own note predicts? — UNASKABLE AS WRITTEN: neither arm can be built. See `withdrawn`."
     },
     {
       "id": "P9",
@@ -76,9 +65,8 @@
       "scheduled": true,
       "sweepId": "p9-sampled_cap",
       "arms": [
-        "off",
-        "sampledcap-on",
-        "sampledcap-on+enum-on"
+        "default",
+        "sampled-cap"
       ],
       "cells": [
         "headline-mix-king",
@@ -96,8 +84,8 @@
       "scheduled": true,
       "sweepId": "p10-territory_refine",
       "arms": [
-        "enum-on",
-        "enum-on+refine-on"
+        "default",
+        "refiner"
       ],
       "cells": [
         "headline-mix-king",
@@ -115,9 +103,8 @@
       "scheduled": true,
       "sweepId": "p11-scout",
       "arms": [
-        "enum-on",
-        "enum-on+scout-observe",
-        "enum-on+scout-advise"
+        "default",
+        "depthless"
       ],
       "cells": [
         "headline-mix-king",
@@ -126,7 +113,7 @@
       ],
       "blocks": 16,
       "gamesPerArm": 144,
-      "question": "At 2000 ms, does advisory depth buy placement, and what does 16.8 ms/decision cost the one-ply search that pays for it?"
+      "question": "At 2000 ms, does the depth ration buy placement on the owner's board, and what does it cost the one-turn search that pays for it?"
     },
     {
       "id": "P13",

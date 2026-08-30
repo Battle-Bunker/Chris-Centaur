@@ -7,6 +7,72 @@ reads out, and the design note that says why the arms are shaped that way.
 
 `P-LIST.json` is the machine-readable form of the table below.
 
+## 20260830 — THE ARMS ARE CONFIGS NOW, AND P8/P9-JOINT IS WITHDRAWN
+
+The search-layer teardown landed on `claude/cluster-lookahead` with the depth
+work. `CENTAUR_CLUSTER_ENUM` and `CENTAUR_SCOUT` were **deleted** — not moved
+to config — and `CENTAUR_EDGE_EV`, `CENTAUR_SAMPLED_CAP` and
+`CENTAUR_MULTISTART_SEED` became `BotConfig` fields defaulting off. Four specs
+in this batch named arms that no longer exist, so **four specs were
+respecified through the generator and one was withdrawn.** No status moved and
+no measurement row was touched.
+
+| spec | was | is |
+|---|---|---|
+| **P8/P9-joint** | `off` / `enum-on` / `enum-on+seed-graded` | **WITHDRAWN.** Both halves unbuildable — see below |
+| **P11** | `enum-on` / `+scout-observe` / `+scout-advise` | `default` / `depthless` = `bot={"depth":{"plyCap":0}}` |
+| **P9** | `off` / `sampledcap-on` / `+enum-on` | `default` / `sampled-cap` = `bot={"sampledCap":true}` |
+| **P10** | `enum-on` / `enum-on+refine-on` | `default` / `refiner` = `bot={"territoryRefine":true}` |
+| **P12** | `off` / `edgeev-on` | `default` / `edge-ev` = `bot={"candidates":{"edgeEv":true}}` |
+| **P7F** | `off` / `fatality-on` | `default` / `unit-fatality` (arm NAMES only; the question is unchanged) |
+
+**Why P8/P9-joint is withdrawn and not translated.** There is no faithful
+translation, because there is no question left. The cluster enumeration is now
+always-built machinery with no off switch in any configuration of the shipped
+engine, so an on-vs-off pair cannot be built from two current bundles at all;
+and the joint arm's partner, `CENTAUR_CLUSTER_SEED`'s graded seed, was deleted
+in the same teardown. The row keeps `probe-passed` and keeps its deterministic
+evidence. It is withdrawn *with its reason* rather than deleted, because a
+future reader must be able to tell a question that was **answered** from one
+that became **unaskable** — and because the owner decision below could make it
+askable again.
+
+**Why P11 is a translation and not a new experiment.** The old triple existed
+because `scout.run`'s only call site sat below the enumeration gate, so an
+off/observe/advise triple with the enumeration off was three identical builds.
+Neither half of that survives: the enumeration is unconditional, and depth is
+no longer advisory — a deepened line lands in the branch's belief. `observe`
+("run it and change nothing") is a setting the layer no longer has. What
+remains is exactly the question P11 asked, expressed as a budget: the shipped
+ration against `plyCap: 0`. **P11 is the live paired sweep the depth landing
+owes**, and the depth-effect rate is measured against precisely that arm.
+
+**AN OWNER DECISION IS PENDING, AND THIS BATCH DOES NOT TAKE IT.** The depth
+landing turned the cluster enumeration and the deep layer on **by default**;
+both are still `probe-passed`, neither has ever been raced live. The finding is
+recorded verbatim on both rows in the ledger and rendered in
+`PROMOTION-STATUS.md`. The two options as posed: the default bot keeps carrying
+them while the sweep is owed, or they become config fields defaulting off until
+a sweep promotes them. **If the second is chosen, P8/P9-joint's off arm becomes
+expressible again and the spec is re-specifiable close to as written.**
+
+**The batch is now 11 specs, 2,472 games** (was 12 / 2,760). Two things moved
+the count and they pull in opposite directions: P8/P9-joint's 288 came off, and
+P9, P10, P11 and P12 each lost a third arm — but the printed total was always
+`games/arm × 2` and three of those specs really ran three arms, so the old
+2,760 was an undercount of the real box time. **Every scheduled spec is a
+two-arm pair now, so 2,472 is exact for the first time.** Cells and seeds are
+untouched everywhere: no spec changed the board it runs on, and `n0-aa-null`
+still floors the same five cells (`snake5-knight` is carried by P7F now that
+P8/P9-joint is gone, not dropped).
+
+`p8-p9-joint-cluster_enum.json` is **deleted from this directory**, and the
+generator now prunes any spec it no longer emits. The local session runs the
+directory, not the P-list, so a withdrawn spec whose file survived a
+regeneration would be an instruction to spend a night on arms nobody can build.
+
+---
+
 ## 20260829 — P5R IS WITHDRAWN. WASM IS GONE.
 
 Owner ruling, verbatim:
@@ -96,6 +162,11 @@ as an operator instruction instead, and the vocabulary should gain a named
 long-cap snake cell before batch 3.
 
 ## The list
+
+**ARM NAMES IN THIS TABLE ARE PRE-TEARDOWN AND ARE HISTORY.** Read the
+20260830 section above for what each spec's arms are now; the rows below are
+kept for the reasoning that earned each spec its slot, which is unchanged.
+P8/P9-joint's row describes a withdrawn experiment.
 
 | id | flag | blocks | games/arm | why now |
 |---|---|---|---|---|

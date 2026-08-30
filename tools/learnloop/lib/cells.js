@@ -23,6 +23,13 @@
  * in every dimension at once, and every other cell is that shape with ONE axis
  * moved.
  *
+ * ── THE BOARD IS POTIONS-ON ────────────────────────────────────────────────
+ *
+ * Owner ruling, 2026-08-29: potions are ALWAYS ON in real games. A cell built
+ * here is potions-on unless it is an explicit off-control, and the names that
+ * already carry ledger history keep the board they were measured on. See
+ * `POTION_DEFAULT` for the guard that keeps one name meaning one board.
+ *
  * ── SEEDS AND BLOCKS ───────────────────────────────────────────────────────
  *
  * A BLOCK is one seed played through every cyclic seat rotation — 3 games on a
@@ -67,6 +74,90 @@ const POTIONS = {
   off: { enabled: false },
   on: { enabled: true, spawnRate: 0.15, initial: 2, effectTurns: 3 },
 };
+
+/**
+ * POTIONS ARE ON. THAT IS THE BOARD, AND IT IS NOT AN AXIS ANY MORE.
+ *
+ * Owner ruling, 2026-08-29: potions are ALWAYS ON in real games, at spawn rate
+ * 0.15. The library was built the other way round — potions off by default,
+ * with `potion-` cells as a treatment — and that had a consequence nobody
+ * chose: of 2,592 batch-1 replays, 2,400 were potions-off, and those 2,400
+ * games contain ZERO sever events, because a body cut requires a strictly
+ * higher tier and tier comes only from a potion. Nine tenths of the corpus was
+ * measuring a game in which the sharpest rule in the rule set cannot fire.
+ *
+ * So the default flips. A cell generated from here is potions-on unless it is
+ * an EXPLICIT off-control.
+ *
+ * ── AND THE NAMES DO NOT SILENTLY CHANGE MEANING ───────────────────────────
+ *
+ * This file's whole purpose is that a cell name denotes one board, because the
+ * promotion ledger's history is keyed on cell names. Flipping a default would
+ * break that outright: `headline-mix-king` has eighteen measurement rows behind
+ * it and every one of them was played with potions off.
+ *
+ * So the flip is guarded three ways, and all three are checks rather than
+ * comments:
+ *
+ *   1. LEGACY NAMES ARE PINNED. Every cell name that already carries ledger
+ *      history keeps the board it was measured on. Its rows stay true and it
+ *      stays schedulable as an off-control, which is what the ruling says
+ *      off-cells are for.
+ *   2. THE NAME MUST AGREE WITH THE BOARD. A name containing `nopotion` is
+ *      potions-off; a name containing `potion` is potions-on; building one
+ *      against the other throws.
+ *   3. EVERYTHING ELSE IS ON. A new name with no marker gets the default, and
+ *      the default is on.
+ */
+const POTION_DEFAULT = 'on';
+
+/**
+ * Cell names with measurement history in `promotion-ledger.json`, all of it
+ * played potions-OFF. Pinned so the ledger's rows keep describing the games
+ * that produced them. A name is retired from this set only by retiring the
+ * name.
+ *
+ * The test is HISTORY, not habit: `base-mix-king` and `sparse-mix-king` are in
+ * the committed library and have never been played, so they carry nothing that
+ * a changed board could falsify, and they take the new default like any other
+ * cell. Membership here is checkable — `grep '"<name>"' promotion-ledger.json`.
+ */
+const LEGACY_POTIONS_OFF = new Set([
+  'hazard-mix-king',
+  'headline-mix-king',
+  'null-nopotion-mix-king',
+  'null-snake6',
+  'snake5-knight',
+  'snake5-pawn',
+  'snake5-queen',
+]);
+
+const marksNoPotion = (name) => /(^|-)nopotion(-|$)/.test(name);
+const marksPotion = (name) => !marksNoPotion(name) && /(^|-)potion(-|$)/.test(name);
+
+/** The potion setting a cell name implies, before any explicit override. */
+function potionsFor(name, explicit) {
+  const implied = LEGACY_POTIONS_OFF.has(name)
+    ? 'off'
+    : marksNoPotion(name)
+      ? 'off'
+      : marksPotion(name)
+        ? 'on'
+        : POTION_DEFAULT;
+  if (explicit === undefined) return implied;
+  if (explicit !== 'on' && explicit !== 'off') {
+    throw new Error(`cell "${name}": potions must be "on" or "off", got ${JSON.stringify(explicit)}`);
+  }
+  if (explicit !== implied && (LEGACY_POTIONS_OFF.has(name) || marksNoPotion(name) || marksPotion(name))) {
+    throw new Error(
+      `cell "${name}": name says potions ${implied}, caller says ${explicit}. ` +
+        'A cell name denotes one board — rename the cell rather than re-pointing it, ' +
+        'or the ledger rows behind the old name stop describing the games that made them.'
+    );
+  }
+  return explicit;
+}
+
 const HAZARDS = {
   none: { layout: 'none' },
   // "Interior" hazards. `border` is the edge and `random` is not reproducible
@@ -101,7 +192,7 @@ function seedsFor(cellName, blocks, seedBase = DEFAULTS.seedBase) {
   return Array.from({ length: blocks }, (_, i) => base + i);
 }
 
-function cell(name, { roster, potions = 'off', hazards = 'none', food = 'normal' }, opts = {}) {
+function cell(name, { roster, potions, hazards = 'none', food = 'normal' }, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   return {
     cell: name,
@@ -114,7 +205,7 @@ function cell(name, { roster, potions = 'off', hazards = 'none', food = 'normal'
       turnCap: o.turnCap,
       food: FOOD[food],
       hazards: HAZARDS[hazards],
-      potions: POTIONS[potions],
+      potions: POTIONS[potionsFor(name, potions)],
     },
   };
 }
@@ -141,6 +232,9 @@ module.exports = {
   TEAMS,
   ROSTERS,
   POTIONS,
+  POTION_DEFAULT,
+  LEGACY_POTIONS_OFF,
+  potionsFor,
   HAZARDS,
   FOOD,
   FIELD,
