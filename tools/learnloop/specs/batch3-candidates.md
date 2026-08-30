@@ -12,6 +12,79 @@ candidate graduates by someone adding it to `promotion-ledger.json` and
 regenerating — this is the note that makes that a five-minute job instead of a
 reconstruction.
 
+**Two sources feed this file.** `MS1` was written from the search-layer
+teardown's own build evidence. `R1`–`R9` come from the 20260830 sandbox program
+— 660 live games across 7 cheap probes — and each one is here because a probe
+FIRED and could not resolve, or because a probe was impossible and said so for
+zero games. They are ranked; the ranking is the program's own and is reproduced
+below with the reason each item earned its place.
+
+---
+
+## The ranking — what earns resources first, and why
+
+From the 20260830 sandbox program. **Order is value per game, not
+alphabetical**, and the list is meant to be cut from the bottom.
+
+| # | item | games | why it is where it is |
+|---|---|---|---|
+| 1 | **R1** evaluator selection across a roster ladder, at the owner's shape | 1,152 | the only open item that changes **what ships** |
+| 2 | **R2** block-count calibration for piece cells (folds in R6) | 1,440 | infrastructure every other piece-cell experiment depends on; sandbox-priced |
+| 3 | **R3** P11 at 73 blocks | 1,314 | the branch merge decision, now with a measured power number instead of a guess |
+| 4 | **R4** a second slate, then the potion doctrine race | 768 + a build | highest leverage per line of code in the queue |
+| 5 | **R5** what the cluster enumeration buys | 384 + a branch | a fifth of the decision budget on piece boards, never priced |
+| 6 | **R7** `gainOrdering` with the confound removed | 384 | a default-on strategy defended by an effect no larger than the noise |
+| 7 | **R8** the knight anomaly | 192 + a free replay probe | small, and possibly a defect rather than a finding |
+| 8 | **R9** multi-start with opening instrumentation | 384 | see also MS1 below, which specifies the same arm in full |
+
+**R9 and MS1 are the same experiment seen from two sides** and must not be
+scheduled twice. MS1 is the fuller specification — it carries the mechanism
+metrics, the gate and the two build conditions — and R9 is the correction the
+sandbox's live reading makes to it: ablate on ONE seat, and instrument the
+OPENING claim rather than end states. Schedule MS1, with R9's two changes folded
+in.
+
+### The seating that makes most of these cheap
+
+**Seat both sides in one game wherever the spec allows it.** The sandbox's
+roster ladder resolved five rungs in 144 games because the contrast lived inside
+each game; the same question through paired arms costs several times more. The
+pattern is in `HANDOFF.md` on `sim/worker-kit` under *SEATING BOTH CONTENDERS IN
+ONE GAME*, with its pairing semantics written out. In one line, the semantics
+that matter here:
+
+- The two arms are **identical** — it is an A/A pair, and it is **self-flooring**.
+  One paired run buys the cell's A/A floor *and* the treatment reading at once.
+- The reading is **G = sharePar(A) − sharePar(B)** per game, and **the floor to
+  quote is the between-arm difference of G**, not either seat's own floor.
+- `rotateSeats` must stay on, or G becomes a statement about board position.
+- `sharePar` sums to the team count across seats, so G is mechanically
+  anti-correlated between the two seats. Read it as a contrast, never as two
+  independent effects.
+- A within-game G measures A against B **in each other's presence**. Right
+  instrument for "which should we field"; wrong one for "what would A score
+  alone".
+
+**It does not apply to R3.** A branch-versus-branch merge decision compares two
+BUNDLES, which cannot share a board, so R3 is priced as a paired-arm run and
+that is why it is the most expensive item on the list.
+
+### The standing methodological requirements for batch 3
+
+1. **Every piece-bearing cell carries its own A/A null at its own block count.**
+   The sandbox proved an 8-block piece cell fails its own null (+0.271
+   [0.037, 0.506] on identical bundles). A batch that assumes otherwise produces
+   unreadable numbers at owner-shape prices.
+2. **Prefer within-game contrasts to between-arm contrasts** wherever a spec can
+   seat both sides.
+3. **A bot config names the seat it configures.** `bot@<seat>=` on the kit
+   branch; a bare `bot=` on a spec seating two configurable contenders is now a
+   refusal. See the correction under R7 for what this did and did not cost the
+   sandbox.
+4. **Quote every delta against a floor measured on the same board, the same
+   bundle and the same block count.** The same cell floored ±0.120 on one bundle
+   and ±0.234 on the other in one night.
+
 ---
 
 ## MS1 — the multi-start seed, default bot vs `multistartSeed`
@@ -72,6 +145,13 @@ same failure wearing a new name.
 |---|---|
 | `default` | the shipped bot, taken whole. |
 | `multistart` | `--arm 'multistart=<bundle>,bot={"multistartSeed":true}'` |
+
+**AIM THE CONFIG AT A SEAT — 20260830.** If this arm is redesigned as R9 below
+requires, seating the ablation on ONE contender so the contrast is within-game,
+then the spec seats two configurable contenders and a bare `bot=` is a refusal.
+Write `--arm 'multistart=<bundle>,bot@<seat>={"multistartSeed":true}'`. The line
+above is correct only for the two-arm shape as written here, where the spec
+seats one.
 
 **Both arms must be built from POST-TEARDOWN refs.** A pre-teardown bundle has
 no bot-config module, ignores the config and plays the shipped bot — the silent
@@ -225,3 +305,359 @@ edge-EV off is the uniform-prior configuration and `ms-on` with edge-EV on is a
 different experiment. Run MS1 with edge-EV at its shipped default and leave the
 composition to a later joint arm; a feature folded into a neighbour's flag can
 only ever be measured as a sum.
+
+---
+
+# R1–R9 — the 20260830 sandbox program's roster
+
+660 live games, 7 probes, 15×15 / 3 teams × 6 / 250 ms / turnCap 60 unless a
+line says otherwise. Bundles: `baseline` = `66904d2`
+(`claude/mid-turn-collision-logic-mkxurg`, the validated baseline, which has no
+`src/lobster/bot-config.ts` — defaults-only arms there), `feature` = `c74f0a1`
+(`claude/cluster-lookahead`, the search-architecture branch, which carries it).
+Game counts are **per batch, both arms**, at the owner's shape unless stated. A
+"block" is one seed through all three seat rotations = 3 games.
+
+---
+
+## R1. Is `lobster-territory` the right default evaluator on piece-bearing rosters?
+**RANK 1 — the highest-value experiment on this list.**
+
+**Question.** The shipped default evaluator is territory. The sandbox measured
+its advantage over material at **+1.39 sharePar on all-snake boards** and
+**0.00 to −0.47 as soon as any piece is fielded**. The owner's regime is mostly
+snakes, which is to say: mostly the rosters where the advantage is present — but
+`mix-king`, the headline roster, is not, and it is untested.
+
+**Why it survived the cheap probe.** It did not merely survive; the probe fired.
+Two independent builds (`66904d2` and `c74f0a1`) agree to within 0.07 sharePar
+on both endpoints. A five-rung ladder places the transition at **one piece of
+any class**:
+
+| roster | G = sharePar(territory) − sharePar(material) | A/A floor on G |
+|---|---|---|
+| 6 snakes | **+1.392 ± 0.336** | +0.193 ± 0.335 |
+| knight + 5 snakes | −0.058 ± 0.355 | +0.121 ± 0.446 |
+| rook + 5 snakes | +0.134 ± 0.334 | +0.317 ± 0.378 |
+| queen + 5 snakes | +0.018 ± 0.526 | −0.095 ± 0.233 |
+| 2 queens + 4 snakes | **−0.465 ± 0.284** | −0.057 ± 0.558 |
+
+**The knight row is the decisive one.** A knight has no ray and no reach, and it
+kills the advantage as completely as a queen does. So the earlier mechanism
+story — "a long-range slider turns held ground into a killing field" — is
+**retracted**: reach is not the variable, and the slider-detector premise is
+invalidated as the causal axis. What remains untested is piece weight class, the
+fact that a piece is a single-tile unit with no tail to block with, and its
+eligibility as a target under the head-kill channel.
+
+**What the probe could NOT do** is resolve each rung. Every G except the
+all-snake row sits within about 1.5 floors of zero, and the two-queen reversal
+does not clear its own floor's uncertainty (directionally consistent across both
+arms, −0.493 and −0.436, which is reassuring and is not a result). What the
+ladder establishes is the CONTRAST BETWEEN ROWS — snake against
+anything-with-a-piece, 1.4 sharePar, about 4× the floor.
+
+**Two different failure modes, not one.** Reading the whole seat table rather
+than only the contrast separates them:
+
+| cell | territory | material | reflex | territory : reflex |
+|---|---|---|---|---|
+| 6 snakes | 2.14 | 0.72 | 0.12 | 18 : 1 |
+| knight + 5 snakes | 1.18 | 1.24 | 0.58 | **2 : 1** |
+| rook + 5 snakes | 1.48 | 1.35 | 0.17 | 9 : 1 |
+| queen + 5 snakes | 1.49 | 1.47 | 0.04 | 37 : 1 |
+| 2 queens + 4 snakes | 1.26 | 1.72 | 0.02 | **63 : 1** |
+
+The knight board is **not skill-expressive** — everything compresses toward par
+and reflex closes most of the gap, which is why its floor on G is the widest in
+the ladder (see R8). The queen boards are **highly skill-expressive** and
+territory is simply the wrong evaluator there — reflex is crushed 37:1 then
+63:1, so the engine is doing enormous work and it is the territory *valuation*
+specifically that loses its edge and then falls behind. The second is the
+serious finding; it cannot be dismissed as board noise.
+
+**Arm shape.** ONE arm pair of IDENTICAL bots — self-flooring — with the spec
+seating `[lobster-territory, lobster-material, reflex]` so the contrast is
+within-game. Six cells, ONE axis (roster) only, potions ON + hazard `cross`, at
+the owner's shape 25×25 / 3 teams × 6 / 2000 ms / turnCap 120: `snake6`,
+`snake5-knight`, `snake5-rook`, `snake5-queen`, `queen2-snake4`, `mix-king`.
+**32 blocks per cell** — and see R2, because four of those six are piece cells
+and 32 may not be enough for them.
+
+**Expected games.** 6 cells × 32 blocks × 3 rotations × 2 arms = **1,152 games.**
+
+**What changes as a result.** If the ladder holds at owner scale, the evaluator
+is a **per-roster selection** rather than a global default. That is a
+collection-lane question — adding or selecting a member is a normal commit — and
+it is the most consequential one open.
+
+**Caveats the sandbox states against itself.** 15×15 is small and a piece's
+influence per tile is larger there than at 25×25; that cuts against the finding
+and is the first thing to re-measure at scale. One piece count per class, no
+king, one board size, one budget, one hazard layout, one potion rate.
+
+---
+
+## R2. Block-count calibration for piece-bearing cells
+**RANK 2 — infrastructure every other piece-cell experiment depends on. Folds in R6.**
+
+**Question.** How many blocks does a piece-bearing potions-ON cell need before
+its A/A null contains zero?
+
+**Why it is here.** Not because a probe survived — because a probe **FAILED**,
+and that is the finding. On the feature bundle at 8 blocks the A/A null on a
+queen cell was **+0.271 [0.037, 0.506]: it excludes zero.** Nothing measured on
+that cell at that size is readable. Snake cells at the same size floor cleanly.
+The full measured floor set, subject `lobster-territory`, n = 8 blocks:
+
+| cell | bundle | sharePar A/A floor |
+|---|---|---|
+| potions off, no hazard, snakes | baseline | +0.041 ± 0.097 |
+| potions ON, hazard, snakes | baseline | −0.093 ± 0.159 |
+| potions ON, hazard, queen | baseline | +0.053 ± 0.120 |
+| potions ON, hazard, snakes | feature | −0.064 ± 0.099 |
+| potions ON, hazard, queen | feature | **+0.271 ± 0.234 EXCLUDES ZERO** |
+| knight + 5 snakes | baseline | −0.064 ± 0.242 |
+| rook + 5 snakes | baseline | −0.141 ± 0.224 |
+| 2 queens + 4 snakes | baseline | +0.042 ± 0.274 |
+
+Nobody knows where the crossover is, and until somebody does, every piece-cell
+block count in batch 2 and batch 3 is a guess. The extrapolation from the widest
+point — 8 × (0.234/0.10)² ≈ **44 blocks** — is the number batch 2's specs are
+annotated with, and it is an extrapolation from ONE point, which is exactly why
+this run exists.
+
+**Arm shape.** A/A pairs (same bundle, same config, two names) on ONE piece cell
+— `snake5-queen`, potions ON, hazard `cross` — at **8 / 16 / 32 / 64 blocks**,
+reporting floor half-width against block count. Run on BOTH bundles, because the
+two disagreed and the reason matters (that is R6). Seeds nest, so the four rungs
+are one nested sequence rather than four experiments.
+
+**Expected games.** (8+16+32+64) × 3 rotations × 2 arms × 2 bundles =
+**1,440 games.** Cheap per unit at sandbox shape: run it there first, then
+confirm the curve's shape at owner scale on the 32-block point only.
+
+### R6, folded in — is the feature branch NOISIER on piece boards?
+
+A variance question, not a mean question, and it costs almost nothing on top of
+R2's design. The baseline bundle floored the queen cell at ±0.120 and the
+feature bundle did not (±0.234, excluding zero). The feature branch spends a
+variable slice of an anytime budget on the deep layer and the enumeration, which
+would produce exactly that. **If true it is a merge consideration in its own
+right: a branch that scores the same but scatters more is worse.** The probe was
+underpowered by construction — a variance ratio at 8 blocks is close to
+uninformative — and on the all-snake cell the ordering REVERSED (feature ±0.099
+against baseline ±0.159). It is a hypothesis, explicitly not a verdict. Compare
+the two bundles' A/A pairs on SPREAD rather than mean, same cell, same seeds,
+32 blocks. Games: shared with R2.
+
+---
+
+## R3. P11 at real power — the branch merge decision
+**RANK 3.**
+
+**Question.** Does the search-architecture branch `claude/cluster-lookahead`
+beat the validated baseline `claude/mid-turn-collision-logic-mkxurg`?
+
+**Why the probe was underpowered BY CONSTRUCTION.** The sandbox preview returned
+**−0.01 [−0.31, +0.29] sharePar** — a null whose interval is three times the A/A
+floor, so it cannot tell "no effect" from "an effect of 0.3". Critically it is
+**not a dead arm**: the branch ran 800 scout threads, 370 scout plies and 2,873
+cluster joints per game. *Engaged and did not help* is a real reading; *engaged
+and unresolved* is what this actually is.
+
+**The power number the preview exists to give.** Cross-bundle paired spread was
+±0.303 at 8 blocks; half-width scales as 1/√blocks, so
+**8 × (0.303/0.10)² = 73 blocks per cell** to resolve to the ±0.10 the floor
+supports. That number is now in the ledger on `CENTAUR_SCOUT`'s `nextExperiment`
+as a POWER block, and batch 2's `p11-scout.json` carries it with a REQUIRES line
+saying what a 16-block run may and may not claim.
+
+**Arm shape.** `baseline` against `feature`, both shipped defaults, no bot config
+on either side, three cells (`snake6`, `snake5-queen`, `mix-king`), potions ON +
+hazard `cross`, **73 blocks**.
+
+**Expected games.** 3 × 73 × 3 × 2 = **1,314 games.** At owner shape this is the
+batch's single largest line item and it must be priced as such before it is
+scheduled. **This is the one item on the list that cannot use within-game
+seating** — two branch tips cannot share a board.
+
+**Also measured, and unpriced.** Cluster enumeration costs **2,985 ms/game on a
+queen board** against 535 ms on snakes — at 60 decisions × 250 ms that is ~20%
+of the whole decision budget on piece boards, against 3.5% on snakes — and **no
+configuration can turn it off**. That is R5.
+
+---
+
+## R4. A second slate — the unblock, then the potion doctrine race
+**RANK 4, and it is a BUILD before it is an experiment.**
+
+**Question.** Do the attack-window, potion-seek, potion-control and
+dodge-discount entries improve play?
+
+**Why it is here: the probe was IMPOSSIBLE, and it cost zero games to find out.**
+`SlateId` has exactly one member; `LEGACY_SLATE.evaluators` is
+`[EVAL_LEGACY_TERRITORY]`; the four potion entries are in **no slate** and
+nothing outside their own tests imports them. **No `BotConfig` on either branch
+can seat a bot that reads potions.** Consequences, stated plainly:
+
+- The dodge-discount lineup experiment is **unrunnable as specified**.
+- **Every potion arm in batch 2 and batch 3 is unrunnable** until a second slate
+  exists.
+- The seeded "is the territory verdict potion-blind?" hypothesis is
+  **disconfirmed as posed** — potions on plus hazards left the all-snake verdict
+  intact (+1.39 against +1.55 in the corpus regime) — and this is why: the bots
+  never read potions, so a potion is scenery.
+
+**Prerequisite.** A second `SlateId` member whose `evaluators` list includes the
+potion entries, plus its `slateFor` case. Adding a member to a collection is a
+normal commit under the collection lane. **This is the single
+highest-leverage unblock in the queue**: it converts four already-built,
+already-retrodicted modules from unmeasurable to raceable in one step.
+
+**Arm shape once unblocked.** `bot@<seat>={"slate":"<new>"}` against the shipped
+slate, on potions-ON cells at BOTH roster classes, 32 blocks, plus the dodge
+sub-arm (with and without the discount consuming `CollectorExposure`) as a
+second pair.
+
+**Expected games.** 2 cells × 32 blocks × 3 rotations × 2 arms × 2 comparisons =
+**768 games**, after the build lands.
+
+**An interim option that needs no build.** The harness-only seam
+`TeamDecisionOptions.evaluate` can seat a potion-aware evaluator directly as a
+named contender. That yields a finding about a **capability**, not about a
+deployable configuration, and **must be labelled so**. Worth ~192 games as a
+go/no-go before paying for the slate work.
+
+---
+
+## R5. What does the cluster enumeration buy for a fifth of the budget?
+**RANK 5 — a cost nobody has priced, and it cannot be turned off.**
+
+**Question.** The enumeration costs 535 ms/game on snake boards and 2,985 ms/game
+on a queen board — ~20% of the entire decision budget on piece boards, spent
+before any strategy runs. What does it return?
+
+**Why it survived.** It was measured as a side-effect of R3 and never as a
+target. `CENTAUR_CLUSTER_ENUM` was deleted with no replacement, and
+`botConfigFromJson` refuses a `clusterEnum` field by name, so **no configuration
+can ablate it**. The cost is known; the benefit has never been raced. This also
+subsumes the withdrawn `P8/P9-joint` row: there is no bundle in which the
+enumeration runs and the branch does not.
+
+**Arm shape.** A `feature/enum-ration` branch cut from the primary that bounds
+or removes the enumeration, raced against the primary. Piece cells, where the
+cost is concentrated. 32 blocks.
+
+**Expected games.** 2 cells × 32 × 3 × 2 = **384 games**, after the branch exists.
+
+---
+
+## R7. `gainOrdering`, with the confound removed
+**RANK 6.**
+
+**Question.** Is `gainOrdering` — default ON everywhere, validated on
+potions-off hazard-free mechanism evidence — worth its default?
+
+**Why the probe was underpowered.** The only clean effect was reflex sharePar
+**+0.058 [0.005, 0.111]** against a ±0.06–0.08 floor: it sits ON the floor, not
+above it. The owner's-environment cell read −0.042 [−0.131, +0.048] and the two
+intervals overlap heavily, so **no regime difference is established**. The
+mechanism story did reproduce — removing gainOrdering raises contest deaths in
+both cells, +0.29 and +0.25 — but the size does not justify the confidence the
+default implies.
+
+> **CORRECTION, and it matters for how this arm is redesigned.** The sandbox
+> recorded a second reason: "the arm's `bot` config is merged into EVERY lobster
+> contender, so both lobster seats lost the knob and the subject-seat comparison
+> largely cancels." **That is what the code comment said; it is not what
+> happened.** The per-seat `mechanism.flags` stamps in the c5 and c6 manifests
+> show `gainOrdering:false` and `multistartSeed:true` on the `lobster-territory`
+> seat ONLY, with `lobster-material` untouched in both arms — because the merge
+> loop reached `lobster-territory` and declared contenders and nothing else, and
+> those specs declared none. **So the cancellation confound did not occur, the
+> subject-seat readings above are genuine one-seat ablations, and the reason the
+> probe could not resolve is power alone.** The defect the sandbox named is
+> nonetheless real for any spec seating two or more configurable contenders —
+> which is precisely the design this entry and R9 recommend — and it is fixed on
+> `sim/worker-kit`: a config now names its seat, and a bare `bot=` on such a spec
+> is refused. Read the correction as *narrowing* the finding, not withdrawing it.
+
+**Arm shape.** Ablate on ONE seat via a named contender so the contrast is
+within-game, and aim the config at that seat by name:
+
+```json
+"contenders": { "noGain": { "base": "lobster-territory",
+                            "bot": { "candidates": { "gainOrdering": false } } } },
+"bots": ["noGain", "lobster-territory", "reflex"]
+```
+
+```sh
+--arm 'treat=<bundle>,bot@noGain={"candidates":{"gainOrdering":false}}'
+```
+
+Two cells (potions-off flat, and potions-ON + hazard), all-snake, 32 blocks.
+Within-game pairing should cut the required blocks by roughly half again.
+
+**Expected games.** 2 × 32 × 3 × 2 = **384 games.**
+
+---
+
+## R8. Why is the knight board not skill-expressive?
+**RANK 7 — small, and possibly a defect rather than a finding.**
+
+**Question.** On `snake5-knight`, reflex closes to 2:1 against both lobster bots
+(sharePar 0.58 against 1.18 and 1.24), while on every other roster it is crushed
+9:1 to 63:1. Either knight boards are genuinely chaotic, or the candidate layer
+handles knights badly.
+
+**Why it survived.** Observed once, at 8 blocks, on the widest A/A floor in the
+ladder (±0.45 on the contrast). A single suspicious cell — and the kind of cell
+that usually turns out to be a bug.
+
+**Arm shape, and NO RACE IS NEEDED FOR THE FIRST LOOK.** Take knight positions
+out of the sandbox replays, fix a plan, and inspect the generated candidate set
+for the knight unit under an unbounded budget. If the move set is wrong, that is
+a defect with an address, not a finding about boards. **Cost: zero games.** Only
+if the move set is sane does this need 16 blocks of `snake5-knight` and
+`snake5-pawn` — a second non-slider piece — to see whether the compression is a
+knight fact or a non-slider-piece fact.
+
+**Expected games.** 2 × 16 × 3 × 2 = **192 games**, plus the free replay probe.
+
+---
+
+## R9. Multi-start seed — measure the claim it actually makes
+**RANK 8. See MS1 above, which specifies this arm in full; R9 is the correction
+the live reading makes to it. SCHEDULE ONE, NOT BOTH.**
+
+**Question.** Does `multistartSeed` deliver the OPENING DIVERSITY it claims?
+
+**Its first live reading, and it is not encouraging.** It costs **113 extra
+scout threads and 63 ms of enumeration per game** and, on the one cell where
+anything was measurable, hands the weakest opponent more board: reflex sharePar
+**+0.093 [0.012, 0.174]** against a ±0.06–0.08 floor, with reflex survival and
+final units moving the same way. The second cell read a null of the opposite
+sign. So: expensive, and either neutral or harmful.
+
+**But the run measured END STATES and the feature's claim is about OPENINGS.**
+No opening-phase quantity was instrumented at all, so the claimed benefit was
+never given a chance to appear. The arm needs redesigning before it is judged.
+
+**The two changes from the sandbox design.**
+
+1. **Ablate on ONE seat** via a named contender, aimed with `bot@<seat>=`, so
+   the contrast is within-game.
+2. **Instrument the CLAIM.** Opening separation over the first ~10 turns (mean
+   pairwise distance between own units, and distinct-cell coverage), plus early
+   collision deaths, reported as the PRIMARY rows with sharePar secondary. MS1's
+   mechanism list is the fuller version of this and should be used as written.
+
+Packed-spawn snake cells, where an opening sampler has the most to offer,
+32 blocks.
+
+**Expected games.** 2 × 32 × 3 × 2 = **384 games.**
+
+**Note.** If the opening instrumentation cannot be added without touching bot
+source, take it off the replays instead — the positions are already on disk and
+no race is needed to measure separation.

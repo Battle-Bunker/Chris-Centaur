@@ -7,6 +7,77 @@ reads out, and the design note that says why the arms are shaped that way.
 
 `P-LIST.json` is the machine-readable form of the table below.
 
+## 20260830, later still — THE BATCH IS UNDERSIZED FOR TWO OF ITS QUESTIONS, AND IT IS SHIPPING ANYWAY
+
+A sandbox program ran 660 live games on 20260830 and measured two things this
+batch had been guessing. Both are now written into the ledger as `POWER` blocks
+and `REQUIRES` lines, and both are reproduced in every spec they affect. **No
+spec was resized, no status moved, no measurement row was added or edited, and
+the batch is still 11 specs / 2,472 games.** Here is the trade, stated plainly,
+because it is a trade and not an oversight.
+
+**1. P11 needs 73 blocks per cell and is emitted at 16.** The sandbox ran this
+exact pair — baseline `66904d2` against search-arch `c74f0a1`, both shipped
+defaults — and got sharePar −0.01 [−0.31, +0.29] at 8 blocks. The arm was fully
+engaged (800 scout threads, 370 scout plies, 2,873 cluster joints per game), so
+this is *engaged and unresolved*, not *engaged and did not help*. Cross-bundle
+paired spread was ±0.303 against an A/A floor of ±0.10 — three times the floor.
+Half-width scales as 1/√blocks, so **8 × (0.303/0.10)² = 73 blocks per cell**,
+219 games per arm per cell, **1,314 games for the spec**.
+
+**2. Piece-bearing cells may not floor at 16 blocks.** An A/A null on a
+piece-bearing potions-ON hazard cell — two IDENTICAL bundles, identical configs,
+identical seeds — returned **+0.271 [0.037, 0.506]** at 8 blocks. It excludes
+zero. A cell whose own null excludes zero has no floor, and a delta with no floor
+is UNREADABLE, not null. All-snake cells at the same size floored cleanly at
+±0.10. Extrapolating the widest measured piece half-width, ±0.234 at 8 blocks,
+a ±0.10 floor needs **8 × (0.234/0.10)² = 44 blocks per piece cell** — and the
+crossover has never actually been measured, which is batch 3's rank-2 item.
+
+**Why neither was applied.** Because block counts do not move alone. The
+generator enforces that **the mandatory A/A null is sized like the largest
+treatment** — a null narrower than the treatment understates the floor, in the
+direction that makes a treatment look significant when it is not — so raising
+one spec raises N0 with it, and N0 floors five cells. The prices, all four
+measured by running the generator rather than estimated:
+
+| batch | games | nights on the 24-core box | note |
+|---|---|---|---|
+| **as it ships: 16 blocks throughout** | **2,472** | ~1.4 | what this directory contains |
+| P11 → 73, null left at 16 | 3,498 | ~1.9 | **REFUSED by the generator** — `the A/A null is 16 blocks against a 73-block treatment` |
+| P11 → 73, null follows to 73 | 5,208 | ~2.9 | N0 alone becomes 2,190 games, 42% of the batch |
+| + piece specs → 44 blocks | 7,560 | ~4.1 | the full sizing correction |
+
+(Batch 1 ran 1,824 games in one overnight; the nights column is that rate.)
+
+**So the batch ships at 16 blocks with its limits written on it.** What that
+buys and what it does not:
+
+- **P11's engagement gate is a real pass/fail at any block count**, and it is the
+  most valuable thing 16 blocks buys: `deepestPlies > 0` and `deepBranches > 0`
+  on the `search-arch` arm, on at least the piece cells. Zero there is a broken
+  arm and is reported as a REFUSAL, not as a null.
+- **The mechanism rows are readable at 16 blocks** — they are per-decision
+  counts, not per-game outcomes, and most of these experiments were designed to
+  read them.
+- **THE MERGE MAY NOT BE DECIDED ON A 16-BLOCK P11, IN EITHER DIRECTION.** The
+  expected half-width there is about ±0.21 sharePar, so an effect of +0.2 would
+  sit inside the interval. A 16-block null is not evidence the branch does not
+  help, and writing it up as one would be the most expensive error available.
+  Quote the interval with its half-width and label it UNDERPOWERED.
+- **Piece-cell deltas are quoted only against N0's floor on that same cell, same
+  bundle, same block count.** If that floor does not contain zero, the cell
+  reports UNREADABLE and no verdict comes out of it. Do not borrow the snake
+  cell's floor for a piece cell, and do not borrow one bundle's floor for the
+  other: the same cell floored ±0.120 on one bundle and ±0.234 on the other in
+  one night.
+
+**If there is room for more than 2,472 games, spend it on ONE cell of P11 at 73
+blocks rather than on breadth.** One cell that can answer the question beats
+three that cannot — and N0 must be raised with it, which is what makes it
+expensive. That decision is the owner's, and it is the reason this section
+exists rather than a resized directory.
+
 ## 20260830, later — P11 IS NOW BRANCH-VERSUS-BRANCH, AND IT IS A MERGE DECISION
 
 Owner ruling of the same day (`docs/BRANCHING.md` on `claude/cluster-lookahead`

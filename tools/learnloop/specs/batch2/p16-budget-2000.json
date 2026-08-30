@@ -13,6 +13,8 @@
   "",
   "CAVEAT: CHANGED != IMPROVED, and nothing measures the difference. The 35.0%/60.1% figures count decisions whose staged move-set changed; the 8.3% counts decisions a shorter budget decides differently. Whether those ~7% are BETTER is unmeasured and is exactly what the ladder is for.",
   "",
+  "POWER: PIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.",
+  "",
   "MECHANISM-FIRST at this block count. Placement here is descriptive.",
   "",
   "Generated from tools/learnloop/promotion-ledger.json."
