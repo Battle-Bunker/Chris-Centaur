@@ -179,6 +179,51 @@ export function stagingRowOf(
 }
 
 /**
+ * DID DEPTH SPEAK ABOUT THIS BOARD? True when any row carries a value
+ * denominated over more than this turn.
+ *
+ * The whole belief rung is conditional on this, and the condition is not
+ * timidity: with nothing deeper than one turn on the board, every row's `mu`
+ * is a fixed function of its own `(lo, hi, est)` and carries no information
+ * those three do not already carry. Ordering by it would be churn dressed as
+ * evidence, and the ladder is bit-for-bit the shipped one instead.
+ */
+export function depthSpoke(rows: ReadonlyArray<StagingCandidate>): boolean {
+  for (const r of rows) if (r.horizon > 1) return true
+  return false
+}
+
+/** The belief's mean, or the honest stand-in when a row carries none. */
+function muOf(r: StagingCandidate): number {
+  return r.mu ?? r.est
+}
+
+function precOf(r: StagingCandidate): number {
+  return r.prec ?? 0
+}
+
+/**
+ * THE FLOOR-UNDOMINATED SET: rows no other admissible row soundly dominates.
+ *
+ * `p` is dominated when some `q` has `q.lo >= p.hi` — `q`'s proved floor sits
+ * at or above `p`'s ceiling, so `p` cannot be better in any world. That is
+ * alpha-beta's cutoff generalised to intervals, and it is a statement about
+ * the ONE-PLY frame value, which is exactly the quantity the interval bounds.
+ *
+ * Everything that survives is a row the floors do not separate, and that is
+ * the set the belief is allowed to resolve.
+ */
+function undominated(
+  rows: ReadonlyArray<StagingCandidate>,
+  pool: ReadonlyArray<number>,
+): number[] {
+  let bestLo = Number.NEGATIVE_INFINITY
+  for (const i of pool) if (rows[i].lo > bestLo) bestLo = rows[i].lo
+  const out = pool.filter((i) => rows[i].hi >= bestLo)
+  return out.length > 0 ? out : [...pool]
+}
+
+/**
  * Leader selection under a channel policy.
  *
  * `adjudicate` (SIGHTED / FOGGED-DISCRIMINATING): highest lo among candidates
@@ -187,6 +232,23 @@ export function stagingRowOf(
  * `veto` (FOGGED-VACUOUS): lo removes the inadmissible (certain material
  * death) and does nothing else; est orders what is left, ties by hi. est is
  * ORDERING a set lo chose — it is not adjudicating.
+ *
+ * ── THE BELIEF RUNG, WHERE DEPTH HAS SPOKEN ──────────────────────────────
+ *
+ * When any row's value carries more than this turn, the admissible set is cut
+ * to the FLOOR-UNDOMINATED rows and ordered by the belief — `mu`, then `prec`,
+ * then the shipped keys underneath. This is the first decision-relevant use of
+ * the per-branch belief and it deliberately supersedes the increment-1 claim
+ * that the belief decides nothing.
+ *
+ * Why the belief rather than `lo` where depth has spoken: `lo` is a sound floor
+ * on the ONE-PLY FRAME VALUE and not on the final score, so a move that
+ * certainly kills an enemy this turn has the higher floor even when its best
+ * continuations lose two of ours two turns later. Ordering by the floor
+ * wherever it separates makes that case unrepresentable, which is precisely
+ * the case depth exists to find. What the floors still do is ELIMINATE: a row
+ * whose ceiling is under another's floor is out before the belief is consulted,
+ * and no belief can bring it back.
  *
  * Both modes fall back, in order, to the un-vetoed candidates and then to the
  * whole set ordered by hi, so a leader always exists: staging nothing is never
@@ -202,13 +264,35 @@ export function pickLeader(
 
   if (policy.loRole === "veto") {
     const pool = admissible.length > 0 ? admissible : rows.map((_, i) => i)
+    if (depthSpoke(rows)) return bestOf(rows, undominated(rows, pool), muOf, precOf)
     return bestOf(rows, pool, (r) => r.est, (r) => r.hi)
   }
 
   const alive = admissible.filter((i) => rows[i].vacuity === "alive")
-  if (alive.length > 0) return bestOf(rows, alive, (r) => r.lo, (r) => r.est)
+  if (alive.length > 0) {
+    if (depthSpoke(rows)) return bestOf(rows, undominated(rows, alive), muOf, precOf)
+    return bestOf(rows, alive, (r) => r.lo, (r) => r.est)
+  }
   if (admissible.length > 0) return bestOf(rows, admissible, (r) => r.hi, (r) => r.est)
   return bestOf(rows, rows.map((_, i) => i), (r) => r.hi, (r) => r.est)
+}
+
+/**
+ * The leader the SHIPPED ladder would have chosen — the same function with the
+ * belief rung removed.
+ *
+ * The counterfactual half of the depth-effect measurement, and it is a real
+ * counterfactual rather than an inference from "a finding existed": it re-runs
+ * the comparator that actually decides, on the same rows, with one rung gone.
+ */
+export function pickLeaderWithoutDepth(
+  rows: ReadonlyArray<StagingCandidate>,
+  policy: ChannelPolicy,
+): number {
+  return pickLeader(
+    rows.map((r) => (r.horizon > 1 ? { ...r, horizon: 1 } : r)),
+    policy,
+  )
 }
 
 function bestOf(
@@ -292,7 +376,7 @@ export interface StagingDecision {
   readonly staged: StagingCandidate
   readonly leader: StagingCandidate
   readonly switched: boolean
-  readonly reason: "initial" | "collapse" | "improved" | "gradient" | "sticky"
+  readonly reason: "initial" | "collapse" | "improved" | "gradient" | "belief" | "sticky"
   readonly slack: number
   readonly horizon: number
 }
@@ -366,6 +450,24 @@ export class StickyStager {
     if (leader.horizon >= incumbent.horizon && leader.lo > incumbent.lo + this.margin) {
       this.stagedKey = leader.key
       return { staged: leader, leader, switched: true, reason: "improved", slack, horizon }
+    }
+    // F1-DEEP: the same rule, on the channel depth actually moves.
+    //
+    // F1 exists to stop mid-budget regret spikes from tie-flips and shallow
+    // refutations that reverse one ply later; the guard it uses is a ≥margin
+    // improvement AT AN EQUAL-OR-DEEPER HORIZON. A leader that carries a
+    // genuinely deeper reading is the case that guard was written to admit —
+    // and until this build every row's horizon was the same constant, so it
+    // had never once bound. It binds now: a shallower leader cannot dethrone a
+    // deeper incumbent, and a deeper one may, by the SAME margin, on the
+    // belief. No second constant is introduced.
+    if (
+      depthSpoke(rows) &&
+      leader.horizon >= incumbent.horizon &&
+      muOf(leader) > muOf(incumbent) + this.margin
+    ) {
+      this.stagedKey = leader.key
+      return { staged: leader, leader, switched: true, reason: "belief", slack, horizon }
     }
     return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
   }

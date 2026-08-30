@@ -46,6 +46,7 @@ import type {
   Bound,
   BudgetHandle,
   CrossfadeVerdict,
+  DepthNote,
   EmitRecord,
   JointPlan,
   Kernel,
@@ -59,7 +60,7 @@ import type {
   UnitId,
   Witness,
 } from "./contracts"
-import { beliefReportOf, posteriorOfBranch } from "./belief"
+import { beliefReportOf, foldObservation, posteriorOfBranch, precisionOfSigma } from "./belief"
 import type { BeliefReport, BranchPosterior } from "./belief"
 import {
   DEFAULT_DEAD_BELOW,
@@ -74,6 +75,9 @@ import {
   StickyStager,
   VocOrchestrator,
   asRefiner,
+  depthSpoke,
+  pickLeader,
+  pickLeaderWithoutDepth,
   planKey,
   rootSlack,
   type CandidateView,
@@ -755,6 +759,15 @@ interface PlanCandidate {
    * importing it at all.
    */
   belief: BranchPosterior
+  /**
+   * WHAT DEPTH SAID ABOUT THIS BRANCH, or null.
+   *
+   * Kept alongside the near reading rather than folded once and forgotten,
+   * because `refreshBelief` REBUILDS the posterior every time the near reading
+   * is replaced (see below) and a deep observation that was folded into a
+   * superseded posterior would silently vanish on the next re-price.
+   */
+  deep: DepthNote | null
 }
 
 /**
@@ -775,7 +788,22 @@ function refreshBelief(cand: PlanCandidate): void {
   const bounds = cand.score?.bounds
   const lo = bounds?.worst ?? cand.bound.lo
   const hi = bounds?.best ?? cand.bound.hi
-  cand.belief = posteriorOfBranch(lo, hi, cand.bound.est)
+  let post = posteriorOfBranch(lo, hi, cand.bound.est)
+  // THE DEEP HALF, folded on top and never truncated into the one-ply
+  // interval. One observation per branch, so the "accumulating precision over
+  // a repeat reading" hazard the rebuild exists to avoid cannot arise here
+  // either: a re-price re-folds the same single note onto a fresh near half.
+  const note = cand.deep
+  if (note !== null) {
+    post = foldObservation(post, {
+      kind: "deep-finding",
+      value: note.value,
+      precision: precisionOfSigma(note.sigma),
+      plies: note.plies,
+    })
+  }
+  cand.belief = post
+  cand.horizon = post.plies
 }
 
 /** Consecutive slices that charge nothing to the clock before the loop gives
@@ -877,6 +905,22 @@ interface Run {
   evaluateCalls: number
   sliceCostTotal: number
   boundViolations: number
+  /**
+   * THE DEEP OBSERVATIONS THIS DECISION HAS BEEN TOLD ABOUT, by plan key.
+   *
+   * Drained from the core's depth surface after every slice, because a slice
+   * that opens a session is the first slice that can have any. They are folded
+   * into the matching branch's belief and RE-folded whenever that branch's
+   * near reading is replaced, which is why they are kept here rather than
+   * being applied once and forgotten.
+   */
+  deep: Map<string, DepthNote>
+  /** Did the search core report that the deep channel changed the plan it
+   *  returned? The primary half of the depth-effect indicator. */
+  depthChangedPlan: boolean
+  /** Did the BELIEF rung change which row the stager led with, on any slice?
+   *  The kernel-side half of the same indicator. */
+  depthChangedLeader: boolean
   refusals: Record<EmitRefusal, number>
   crossfade: {
     independent: number
@@ -1007,6 +1051,9 @@ export class LobsterKernel implements Kernel {
       evaluateCalls: 0,
       sliceCostTotal: 0,
       boundViolations: 0,
+      deep: new Map<string, DepthNote>(),
+      depthChangedPlan: false,
+      depthChangedLeader: false,
       refusals: {
         "ratchet-floor": 0,
         "ratchet-gap": 0,
@@ -1235,6 +1282,10 @@ export class LobsterKernel implements Kernel {
       run.slices++
       this.observeSliceCost(run, entry, s1 - s0)
       entry.cursor++
+      // THE DEPTH SURFACE, CONSULTED — before the slice's score is absorbed,
+      // so a branch that arrives this slice arrives with whatever depth has
+      // already said about it rather than a slice late.
+      this.drainDepth(run)
       if (score === null) continue
       this.absorb(run, entry, score)
 
@@ -1499,7 +1550,6 @@ export class LobsterKernel implements Kernel {
     if (entry.speculative) return
     const key = planKey(score.plan)
     const bound = this.evaluateBound(run, score.plan)
-    const horizon = run.lastView?.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
       const made: PlanCandidate = {
@@ -1507,16 +1557,23 @@ export class LobsterKernel implements Kernel {
         plan: score.plan,
         score,
         bound,
-        horizon,
+        // Overwritten immediately by `refreshBelief`, which is the ONE place a
+        // horizon is decided now: it is the deepest ply any observation on
+        // this branch was denominated at, and 1 when nothing deeper spoke.
+        // The `run.lastView?.horizon ?? 1` this used to read was a constant
+        // dressed as a measurement — `lastView` is null for the life of every
+        // production decision, so the expression was literally `1`.
+        horizon: 1,
         visits: 1,
         evaluations: 1,
         belief: posteriorOfBranch(score.bounds.worst, score.bounds.best, bound.est),
+        deep: run.deep.get(key) ?? null,
       }
       run.plans.set(key, made)
+      refreshBelief(made)
     } else {
       existing.score = score
       existing.bound = bound
-      existing.horizon = horizon
       existing.visits++
       existing.evaluations++
       refreshBelief(existing)
@@ -1545,7 +1602,9 @@ export class LobsterKernel implements Kernel {
       visits: 0,
       evaluations: 0,
       belief: posteriorOfBranch(c.lo, c.hi, c.est),
+      deep: run.deep.get(c.key) ?? null,
     }
+    refreshBelief(cand)
     run.plans.set(c.key, cand)
     return cand
   }
@@ -1565,6 +1624,44 @@ export class LobsterKernel implements Kernel {
   ): number {
     if (run.lastView !== null && idx >= 0) return rootSlack(rows, idx)
     return Math.max(0, row.hi - row.lo)
+  }
+
+  /**
+   * CONSULT THE DEPTH SURFACE, and fold what it says into the branches it is
+   * about.
+   *
+   * This is the missing half of the depth machinery, and it is deliberately
+   * NOT the refinement seam. It carries no lever, no rung and no view; it
+   * carries the VALUES deepened lines produced, keyed by the ply-1 plan each
+   * line started from. Wiring the lever seam alone would have made the report
+   * say `horizon: 2` while the decision was still made on one-turn floors — a
+   * report that says the search got deeper when it did not.
+   *
+   * Idempotent and cheap: the core republishes the same notes every slice of a
+   * decision (the threads run once, at session open), so this is a map write
+   * per note and a rebuild only for branches whose note is new.
+   */
+  private drainDepth(run: Run): void {
+    const report = run.input.search.depthReport?.()
+    if (report === null || report === undefined) return
+    if (report.changedPlan) run.depthChangedPlan = true
+    for (const note of report.notes) {
+      const key = planKey(note.plan)
+      const prior = run.deep.get(key)
+      if (
+        prior !== undefined &&
+        prior.value === note.value &&
+        prior.sigma === note.sigma &&
+        prior.plies === note.plies
+      ) {
+        continue
+      }
+      run.deep.set(key, note)
+      const cand = run.plans.get(key)
+      if (cand === undefined) continue
+      cand.deep = note
+      refreshBelief(cand)
+    }
   }
 
   /** Fold in whatever the core absorbed on our behalf. A refusal it swallowed
@@ -1616,7 +1713,9 @@ export class LobsterKernel implements Kernel {
         carried?.bounds.best ?? bound.hi,
         bound.est,
       ),
+      deep: run.deep.get(key) ?? null,
     }
+    refreshBelief(cand)
     run.plans.set(key, cand)
     return cand
   }
@@ -1726,7 +1825,18 @@ export class LobsterKernel implements Kernel {
         : lo <= this.opts.deadBelow
           ? "material-dead"
           : "alive"
-      out.push({ key: cand.key, lo, est: cand.bound.est, hi, horizon: cand.horizon, vacuity })
+      out.push({
+        key: cand.key,
+        lo,
+        est: cand.bound.est,
+        hi,
+        // THE HONEST HORIZON: the deepest ply any observation on this branch
+        // was denominated at, and 1 when nothing deeper than this turn spoke.
+        horizon: cand.horizon,
+        vacuity,
+        mu: cand.belief.mu,
+        prec: cand.belief.prec,
+      })
     }
     return out
   }
@@ -1735,12 +1845,28 @@ export class LobsterKernel implements Kernel {
   private stageAndGate(run: Run, forced: boolean): EmitRecord | null {
     const rows = this.rows(run)
     if (rows.length === 0) return null
+    // THE COUNTERFACTUAL, taken before the stager runs and on the same rows:
+    // which row would have led with the belief rung removed. A difference is
+    // the kernel-side half of the depth-effect indicator.
+    if (depthSpoke(rows)) {
+      const withDepth = pickLeader(rows, run.governor.policy)
+      const without = pickLeaderWithoutDepth(rows, run.governor.policy)
+      if (withDepth >= 0 && without >= 0 && rows[withDepth].key !== rows[without].key) {
+        run.depthChangedLeader = true
+      }
+    }
     const decision = run.stager.stage(rows, run.governor.policy)
     const cand = this.candidateFor(run, decision.staged)
     if (cand === null) return null
     const idx = rows.findIndex((r) => r.key === decision.staged.key)
     const slack = this.slackFor(run, rows, idx, decision.staged)
-    return this.gate(run, cand, decision.staged, slack, decision.horizon, forced)
+    // THE STAGED ROW'S OWN HORIZON, not the barrier's minimum. `EmitRecord.
+    // horizon` is a claim about the plan on the wire — "this move's value
+    // carries N turns of play" — and the min over every row is a claim about
+    // the comparison, which is `StagingDecision.horizon` and stays where it
+    // is. Reporting the barrier here made the record read 1 whenever any
+    // branch was undeepened, which is most of them.
+    return this.gate(run, cand, decision.staged, slack, decision.staged.horizon, forced)
   }
 
   /**
@@ -2177,6 +2303,15 @@ export class LobsterKernel implements Kernel {
       belief: beliefReportOf(
         [...run.plans.values()].map((c) => c.belief),
         stagedBelief,
+        // THE DEPTH-EFFECT INDICATOR, and it is a disjunction of two honest
+        // counterfactuals rather than one. The search core's is the primary:
+        // a shadow incumbent kept under the shipped ladder over the same
+        // trial stream, so "the plan this decision would have returned with
+        // the deep channel silent" is a key comparison. The kernel's is the
+        // staging half: the row the stager would have led with, on the same
+        // rows, with the belief rung removed. Either one moving is a decision
+        // depth changed.
+        run.depthChangedPlan || run.depthChangedLeader,
       ),
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,

@@ -62,7 +62,8 @@ import type { CandidateKnobs } from '../candidates';
 import type { MutualWipeReport, RefineReport } from '../evaluate';
 import { mutualWipeReportOf, refineReportOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
-import type { ScoutMode, ScoutReport } from '../search/scout';
+import { DEFAULT_SCOUT_TUNING } from '../search/scout';
+import type { ScoutReport } from '../search/scout';
 import type { MultiStartReport } from '../search/multistart-seed';
 import type { EngineSubstrate } from '../substrate';
 import type { ResolvedStagingSafety } from '../staging-safety';
@@ -90,8 +91,7 @@ export interface BotStamp {
   readonly name: string;
   /** The substrate that played the full pass. */
   readonly engine: CentaurEngineKind;
-  /** Door C's contested reach/room refiner (additionally requires
-   * `clusterEnum`). */
+  /** Door C's contested reach/room refiner. */
   readonly territoryRefine: boolean;
   /** The staging-safety level RESOLVED against this board (`auto` is
    * board-conditional, so the configured level is not the arm). */
@@ -100,26 +100,23 @@ export interface BotStamp {
   readonly unitFatality: boolean;
   /** The shipped gain ordering (`BotConfig.candidates.gainOrdering`). */
   readonly gainOrdering: boolean;
+  /** The rung-1/2 EV ordering pass (`BotConfig.candidates.edgeEv`). */
+  readonly edgeEv: boolean;
   /** Evaluation workers, as the pool actually resolved it. 0 = no pool. */
   readonly workers: number;
-  // TODO(teardown-search): the five rows below still resolve from
-  // `process.env` inside `makeSearchCore` rather than from the bot. They move
-  // to `BotConfig` with the search-layer teardown; until then this stamp is
-  // still the only record of which arm a decision actually ran for them.
-  /** CL1 — `CENTAUR_CLUSTER_SEED`. REJECTED on measurement; carried so an arm
-   * that still sets it is legible. */
-  readonly clusterSeed: boolean;
-  /** The seeding redesign — `CENTAUR_MULTISTART_SEED`. Supersedes
-   * `clusterSeed`: where both resolve on, the multi-start is the seed. */
+  /** The multi-start seed (`BotConfig.multistartSeed`). */
   readonly multistartSeed: boolean;
-  /** CL2 — `CENTAUR_EDGE_EV`. */
-  readonly edgeEv: boolean;
-  /** CL3 — `CENTAUR_CLUSTER_ENUM`. */
-  readonly clusterEnum: boolean;
-  /** CL4 — `CENTAUR_SAMPLED_CAP`. */
+  /** The seeded weighted lottery (`BotConfig.sampledCap`). */
   readonly sampledCap: boolean;
-  /** CL6 — `CENTAUR_SCOUT`. */
-  readonly scout: ScoutMode;
+  /**
+   * DEPTH'S PLY CEILING, as this bot rationed it (`BotConfig.depth.plyCap`).
+   *
+   * Not whether depth ran — it always runs, because it is machinery and not a
+   * strategy, and there is no arm to stamp for that. What a sweep needs to
+   * know is how much of the decision it was allowed to buy, because `0` is the
+   * depthless contender the depth-effect rate is measured against.
+   */
+  readonly depthPlyCap: number;
 }
 
 /**
@@ -151,15 +148,29 @@ export interface MechanismReport {
    * THE PER-BRANCH BELIEFS this decision carried (core redesign §3.1). Null
    * only when the decision produced no kernel report at all.
    *
-   * `belief.deciding` is false here and says so on the wire of the report: the
-   * structure is computed and carried and no decision reads it.
+   * `belief.deciding` is true from the increment that gave the belief its
+   * readers, and `belief.depthChangedStaging` says whether removing every deep
+   * observation would have staged a different move on THIS decision. The mean
+   * of that indicator over a corpus is the DEPTH-EFFECT RATE.
    */
   readonly belief: BeliefReport | null;
-  /** CL3's per-decision cluster accounting; null unless `clusterEnum` ran. */
+  /** The per-decision cluster accounting; null when no partition was built. */
   readonly cluster: ClusterReport | null;
   /** CL4's lottery ledger, seed included; null unless `sampledCap` ran. */
   readonly selection: SelectionReport | null;
-  /** CL6's thread accounting; null unless the scout ran. */
+  /**
+   * THE DEPTH LAYER'S OWN ACCOUNTING; null only when this core exposes none.
+   *
+   * `scout.deepestPlies` is the decision's HONEST HORIZON: turns of play
+   * actually simulated, measured, never a configured ceiling and never the
+   * `?? 1` a missing view used to fall back to. `scout.observations` is the
+   * count of deepened lines whose VALUE reached a branch belief, which is what
+   * separates "depth ran" from "depth was consulted".
+   *
+   * Whether it CHANGED anything is a different question and is answered on the
+   * belief row: `belief.depthChangedStaging`, the per-decision indicator the
+   * depth-effect rate is the mean of.
+   */
   readonly scout: ScoutReport | null;
   /** The multi-start seed's stage-0/stage-1 accounting for the last slice that
    * ran one; null unless the layer ran. */
@@ -192,13 +203,6 @@ export interface MechanismInputs {
   readonly stagingSafety: ResolvedStagingSafety;
   /** The pool size this decision actually had. */
   readonly workers: number;
-  // TODO(teardown-search): the core's own answers for the five search-side
-  // flags, until they move to the bot.
-  readonly clusterSeed: boolean;
-  readonly multistartSeed: boolean;
-  readonly clusterEnum: boolean;
-  readonly sampledCap: boolean;
-  readonly scout: ScoutMode;
   /** The slate this decision resolved, as entry ids. */
   readonly slate: SlateStamp;
   /** The kernel's folded belief row, or null when no kernel report exists. */
@@ -220,13 +224,11 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       stagingSafety: inputs.stagingSafety,
       unitFatality: knobs.unitFatality,
       gainOrdering: knobs.gainOrdering,
-      workers: inputs.workers,
-      clusterSeed: inputs.clusterSeed,
-      multistartSeed: inputs.multistartSeed,
       edgeEv: knobs.edgeEv,
-      clusterEnum: inputs.clusterEnum,
-      sampledCap: inputs.sampledCap,
-      scout: inputs.scout,
+      workers: inputs.workers,
+      multistartSeed: bot.multistartSeed,
+      sampledCap: bot.sampledCap,
+      depthPlyCap: bot.depth.plyCap ?? DEFAULT_SCOUT_TUNING.plyCap,
     },
     slate: inputs.slate,
     belief: inputs.belief,

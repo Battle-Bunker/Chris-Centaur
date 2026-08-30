@@ -55,24 +55,32 @@ function restrictedImports(exceptKeys = [], patterns = []) {
   ];
 }
 
-// ── The per-branch belief is NON-DECIDING, structurally ─────────────────────
+// ── Who may READ the per-branch belief ──────────────────────────────────────
 // Core redesign §3.1 gives every branch a posterior alongside its sound
-// interval. In the first increment it is CARRIED, POPULATED AND READ BY
-// NOTHING: every decision still flows through the floor/est path. That is a
-// claim about the whole build, not about one file, so it is a lint error and
-// not a review note — the same shape rule 17 has for the clock and rule 20 has
-// for the RNG. The kernel (which stores one per plan, next to the equally
-// unread `visits`) and the telemetry layer are the only consumers, and neither
-// is a comparator.
+// interval. The increment that landed it made the belief non-deciding and said
+// this rule would change deliberately when it got its readers. It has, and this
+// is the changed rule.
+//
+// TWO READERS, AND THEY ARE NAMED: `src/lobster/kernel.ts` (the staging rows)
+// and `src/lobster/search/core.ts` (the acceptance comparator's depth rung).
+// Both are exempted below by file, not by pattern, so adding a third is a diff
+// against this list rather than an import somebody did not notice.
+//
+// EVERYTHING ELSE IS STILL BANNED, and the two most important bans are the
+// ones that never move: the BOUNDS layer, where a density reaching a proof
+// would be the one unsound thing in the build; and `search/scout/**`, the
+// depth layer itself, which publishes plain numbers and must not be able to
+// decide what they are worth. The evaluators and the selection lottery stay
+// out for the same reason they always were.
 const BELIEF_PATTERN = {
   group: ['**/belief', '**/belief.ts', '../belief', '../../belief'],
   message:
-    'The bounds, search, evaluate and selection layers may not import ' +
-    'src/lobster/belief.ts. The per-branch belief is carried and reported and ' +
-    'decides nothing (core redesign §3.1): the sound interval moves only by ' +
-    'proof and the density may not reach a comparator, a bound or a candidate ' +
-    'set. The increment that gives the belief its readers changes this rule ' +
-    'deliberately, and its diff is where that decision is reviewed.',
+    'This layer may not import src/lobster/belief.ts. Only the kernel and ' +
+    'search/core.ts read the per-branch belief; the bounds layer may never ' +
+    '(a density reaching a proof is the one unsound move in the build), and ' +
+    'the depth layer under search/scout/** may never (it publishes values and ' +
+    'does not decide what they are worth). Adding a reader is a change to the ' +
+    'named list in eslint.config.js, where it can be reviewed.',
 };
 
 const TIMER_MESSAGE_TAIL =
@@ -289,10 +297,11 @@ module.exports = [
     rules: { 'no-restricted-imports': restrictedImports(['ws']) },
   },
 
-  // ── Core redesign §3.1: the belief decides nothing ───────────────────────
-  // Every layer that can move a decision — the bounds bank, the search (the
-  // scout included), the evaluators and the selection lottery — may not import
-  // it. See BELIEF_PATTERN above.
+  // ── Core redesign §3.1: who may read the belief ──────────────────────────
+  // The bounds bank, the depth layer, the evaluators and the selection lottery
+  // may not import it. `search/core.ts` is exempted by name in the block after
+  // this one — flat config's LAST matching entry wins, so the exemption has to
+  // come after the ban and not before it. See BELIEF_PATTERN above.
   //
   // LAST IN THE ARRAY ON PURPOSE. Flat-config rule entries REPLACE rather than
   // merge, so a `no-restricted-imports` block placed before the keepalive base
@@ -313,5 +322,18 @@ module.exports = [
       'src/lobster/selection/**/*.ts',
     ],
     rules: { 'no-restricted-imports': restrictedImports([], [BELIEF_PATTERN]) },
+  },
+
+  // ── The one exemption inside search/, by name ────────────────────────────
+  // `search/core.ts` owns `better()`, which is where a trial is accepted or
+  // refused — so it is where a deepened line's value has to be able to speak
+  // if depth is to change a decision at all. It reads the belief algebra and
+  // nothing else from that module: it folds one observation onto the same
+  // near-half assembly the kernel builds, and compares. It still cannot reach
+  // a bound (the bounds layer's own ban is unchanged), and the depth layer
+  // that PRODUCES the observation still cannot reach the belief at all.
+  {
+    files: ['src/lobster/search/core.ts'],
+    rules: { 'no-restricted-imports': restrictedImports([]) },
   },
 ];

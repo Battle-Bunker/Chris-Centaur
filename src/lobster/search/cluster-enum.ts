@@ -88,7 +88,7 @@ import { certainlySelfFatal } from '../staging-safety';
 import { candidateKey } from '../bounds';
 import { tieKey } from './order';
 import { ConflictIndex, subStepsFor } from './conflict-index';
-import { SeedWorkspace, pairPotential, singletonPotential, type SeedFacts } from './cluster-seed';
+import { SeedWorkspace, pairPotential, singletonPotential, type SeedFacts } from './potentials';
 import { mergeAll, type Cluster, type Partition } from './cluster-partition';
 
 // ---------------------------------------------------------------------------

@@ -100,38 +100,16 @@ import type { Candidate, CellIndex, UnitId } from '../contracts';
 import type { EngineSubstrate, SubstrateUnit } from '../substrate';
 import { StampedInt32 } from '../scratch';
 
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const EDGE_EV_ENV = 'CENTAUR_EDGE_EV';
-
-/**
- * PER-ENGINE, NEVER PROCESS-WIDE — the lesson this branch has now learned three
- * times: a process-wide flag moves every lobster seat on the board at once, and
- * a paired experiment on it measures nothing. The environment is only the
- * default a caller that names nothing inherits; `CandidateKnobs.edgeEv` and
- * `TeamDecisionOptions.edgeEv` override it, so one seat can carry the terms
- * while the seat across the board does not.
+/*
+ * `CENTAUR_EDGE_EV` IS DELETED — TODO(teardown-search) row retired here.
  *
- * ONE flag for the whole rung-1/2 EV pass, and that is a deliberate departure
- * from CL1's two: these terms are not independent features, they are the terms
- * of ONE decomposition in ONE currency, and measuring "the meal magnitude
- * without the horizon gate that says whether the meal is reachable" would be
- * measuring an incoherent object. What the flag has to make possible is
- * promoting the PASS on its own evidence, which it does.
- *
- * DEFAULT OFF. With it off nothing here is constructed and every candidate set
- * is byte-identical to the one the shipped build produces.
+ * The rung-1/2 EV pass is now a CONFIGURATION of the search surface
+ * (`SearchTuning.edgeEv`, `CandidateKnobs.edgeEv`) and not an environment
+ * switch: one seat carries the terms while the seat across the board does not,
+ * and neither answer is a property of the process. Default off, by stated
+ * default rather than by a variable nobody can see — the pass is probe-passed
+ * and has not been judged on a live race.
  */
-export function edgeEvFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[EDGE_EV_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function edgeEvEnabled(): boolean {
-  return edgeEvFrom(process.env);
-}
 
 // ---------------------------------------------------------------------------
 // The currency, and the coefficients derived from it

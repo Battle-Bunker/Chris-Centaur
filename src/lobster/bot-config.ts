@@ -50,6 +50,12 @@
  * CHANGE A SOUND BOUND IT IS KERNEL, IF IT CAN ONLY CHANGE ORDER OR SPEND IT IS
  * CONFIGURABLE:
  *
+ *   · MACHINERY. The cluster-factored exact enumeration and the depth layer
+ *     that roots its threads at that enumeration's proposals. Both always run;
+ *     what a bot configures is depth's RATION (`depth`), never its existence.
+ *     A switch on the enumeration was a silent switch on depth as well, which
+ *     is the dependency class that made one experiment race three identical
+ *     contenders.
  *   · CORRECTIONS. The mutual-wipe terminal pricing, the tier-truth premise
  *     the substrate feeds the cloud, the tier-defense policy. Each is a
  *     statement about what the rules say or what the board is, and there is no
@@ -78,6 +84,7 @@ import { DEFAULT_WORKERS, DEFAULT_WORKERS_AUDIT, parseWorkerSetting } from './pa
 import type { WorkerSetting } from './parallel';
 import { STAGING_SAFETY_DEFAULT } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
+import type { ScoutTuning } from './search/scout';
 import { SLATE_LEGACY } from './registry';
 import type { SlateId } from './registry';
 
@@ -129,6 +136,34 @@ export interface BotConfig {
    */
   readonly candidates?: CandidateKnobs;
 
+  /**
+   * THE MULTI-START SEED (`search/multistart-seed.ts`) — a random safe
+   * baseline, then sampled multi-start hill climbing inside a slice of the
+   * decision budget, then a weighted-random selection among what was found.
+   * Off in the shipped bot: probe-passed, no live verdict.
+   */
+  readonly multistartSeed?: boolean;
+
+  /**
+   * THE SEEDED WEIGHTED LOTTERY (`selection/`) — the same NUMBER of options is
+   * tried and WHICH ones is a Gumbel-top-k draw over the same priors, cooling
+   * with the turn's clock. Off in the shipped bot, for the same reason.
+   */
+  readonly sampledCap?: boolean;
+
+  /**
+   * DEPTH'S RATION (`search/scout/schedule.ts`). Not whether depth runs — it
+   * always runs, because it is machinery and not a strategy — but how much of
+   * the decision it may buy: the tithe, the reserve that caps the tithe, the
+   * ply ceiling and the park hysteresis.
+   *
+   * The shipped bot takes `DEFAULT_SCOUT_TUNING` whole. A bot that wants no
+   * depth sets `{ plyCap: 0 }` and spends nothing on it, which is a budget
+   * statement rather than a dark path — and it is the arm the depth-effect
+   * rate is measured against.
+   */
+  readonly depth?: Partial<ScoutTuning>;
+
   // ------------------------------------------------------------- deployment
 
   /**
@@ -155,8 +190,9 @@ export interface BotConfig {
 }
 
 /** A bot with every field settled — what the engine actually reads. */
-export type ResolvedBotConfig = Required<Omit<BotConfig, 'candidates'>> & {
+export type ResolvedBotConfig = Required<Omit<BotConfig, 'candidates' | 'depth'>> & {
   readonly candidates: CandidateKnobs;
+  readonly depth: Partial<ScoutTuning>;
 };
 
 /**
@@ -169,6 +205,9 @@ export const DEFAULT_BOT_CONFIG: ResolvedBotConfig = {
   territoryRefine: DEFAULT_TERRITORY_REFINE,
   stagingSafety: STAGING_SAFETY_DEFAULT,
   candidates: {},
+  multistartSeed: false,
+  sampledCap: false,
+  depth: {},
   engine: CENTAUR_ENGINE_DEFAULT,
   workers: DEFAULT_WORKERS,
   workersAudit: DEFAULT_WORKERS_AUDIT,
@@ -194,6 +233,9 @@ export function resolveBotConfig(
     territoryRefine: config.territoryRefine ?? DEFAULT_BOT_CONFIG.territoryRefine,
     stagingSafety: config.stagingSafety ?? DEFAULT_BOT_CONFIG.stagingSafety,
     candidates: config.candidates ?? DEFAULT_BOT_CONFIG.candidates,
+    multistartSeed: config.multistartSeed ?? DEFAULT_BOT_CONFIG.multistartSeed,
+    sampledCap: config.sampledCap ?? DEFAULT_BOT_CONFIG.sampledCap,
+    depth: config.depth ?? DEFAULT_BOT_CONFIG.depth,
     engine:
       config.engine === undefined
         ? DEFAULT_BOT_CONFIG.engine
@@ -230,14 +272,18 @@ export function botConfigFromJson(
     'territoryRefine',
     'stagingSafety',
     'candidates',
+    'multistartSeed',
+    'sampledCap',
+    'depth',
     'engine',
     'workers',
     'workersAudit',
   ]);
-  // TODO(teardown-search): the search-layer flags (scout, clusterEnum,
-  // sampledCap, edgeEv, multistartSeed) still resolve from the environment
-  // inside `makeSearchCore`. When that teardown lands, their fields join
-  // `BotConfig` and this set, and the harness stops needing to set anything.
+  // The search-layer teardown landed: `scout` and `clusterEnum` are gone
+  // entirely (depth and the cluster enumeration are machinery and always run),
+  // `edgeEv` is a candidate knob, and the other two are fields above. Nothing
+  // in the search reads an environment variable any more, so a batch that
+  // names its bots names everything that ran.
   for (const key of Object.keys(o)) {
     if (!known.has(key)) throw new TypeError(`unknown bot config field "${key}"`);
   }
@@ -264,6 +310,12 @@ export function botConfigFromJson(
   if (o.name !== undefined && typeof o.name !== 'string') {
     throw new TypeError('bot config "name" must be a string');
   }
+  if (
+    o.depth !== undefined &&
+    (typeof o.depth !== 'object' || o.depth === null || Array.isArray(o.depth))
+  ) {
+    throw new TypeError('bot config "depth" must be an object of depth-ration knobs');
+  }
   return resolveBotConfig(
     {
       name: o.name as string | undefined,
@@ -271,6 +323,9 @@ export function botConfigFromJson(
       territoryRefine: bool('territoryRefine'),
       stagingSafety: o.stagingSafety as StagingSafety | undefined,
       candidates: o.candidates as CandidateKnobs | undefined,
+      multistartSeed: bool('multistartSeed'),
+      sampledCap: bool('sampledCap'),
+      depth: o.depth as Partial<ScoutTuning> | undefined,
       engine: o.engine as CentaurEngineKind | undefined,
       workers: o.workers as WorkerSetting | undefined,
       workersAudit: bool('workersAudit'),

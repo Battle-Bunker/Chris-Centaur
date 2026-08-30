@@ -15,27 +15,53 @@
  * (posterior sampling) the redesign asks for: not a new invention, but the two
  * machineries assigned to the two channels they are actually sound for.
  *
- * ── WHAT THIS IS *NOT*, IN THIS INCREMENT ──────────────────────────────────
+ * ── THE BELIEF NOW DECIDES, AND WHERE ──────────────────────────────────────
  *
- * NON-DECIDING. The belief is computed, carried on every branch, and reported
- * — and nothing reads it. Every decision still flows through the existing
- * floor/est path unchanged: the stager reads `StagingCandidate.lo/est/hi`, the
- * comparator reads the proved floor, and neither has ever heard of this file.
+ * SUPERSEDED, DELIBERATELY. Increment 1 landed this object non-deciding, and
+ * published `BeliefReport.deciding: false` precisely so the increment that
+ * turned it on would be legible as a build difference rather than a claim. This
+ * is that increment. The belief is now read in exactly one place —
+ * `pickLeader`'s tie resolution among FLOOR-UNDOMINATED candidates, plus the
+ * sticky stager's matching rung — and only when a deeper-than-one-turn
+ * observation has actually spoken about some branch on the board. With no deep
+ * observation anywhere the ladder is bit-for-bit the `lo`-then-`est` rule that
+ * shipped, because a `mu` assembled from nothing but `(lo, hi, est)` carries no
+ * information those three do not already carry and ordering by it would be
+ * churn rather than evidence.
  *
- * That is enforced structurally, not by review:
- *   · this module imports nothing from `bounds/`, `search/` or `evaluate/`, so
- *     it cannot participate in a comparison even by accident;
- *   · `eslint.config.js` FORBIDS `bounds/**`, `search/**`, `evaluate/**` and
- *     `selection/**` from importing it, which is the same shape rule 17's grep
- *     already has for the clock and rule 20 has for the RNG;
- *   · the only consumers are the kernel (which stores one per plan alongside
- *     `visits`/`evaluations`, both of which are likewise carried-and-unread)
- *     and the mechanism report.
+ * The LAYER BAN STANDS and is unchanged: `eslint.config.js` still forbids
+ * `bounds/**`, `search/**`, `evaluate/**` and `selection/**` from importing
+ * this module, and this module still imports nothing from them. The scout does
+ * not fold its own observations — it cannot reach this file — it publishes
+ * `(value, sigma, plies)` as plain numbers and the KERNEL folds them. So the
+ * one thing that changed is who reads the result, not who may build one.
  *
- * A later increment gives the belief its readers — the allocation weight
- * (§3.2) and staging rung 3 (§3.5). Until then the numbers exist so that the
- * increment which turns them on has a measured baseline to be judged against,
- * which is the same reason `planWork` records visits nobody reads yet.
+ * ── THE SOUND INTERVAL IS A ONE-PLY INTERVAL, AND THE DEEP CHANNEL SAYS SO ──
+ *
+ * The single most important law in this file, and the one increment 1 got
+ * wrong by omission.
+ *
+ * `[lo, hi]` is the frame's endpoints for the position AFTER ONE TURN, priced
+ * by the one-turn evaluator, bounded over WORLDS (fog, simultaneity). It is a
+ * sound bound on that quantity. It is NOT a bound on the final score: a move
+ * that certainly kills an enemy next turn has a ply-1 floor above par and may
+ * still be losing, because the two units it costs us arrive on turn three and
+ * the ply-1 evaluator has never heard of turn three.
+ *
+ * Truncating every observation into `[lo, hi]` is therefore right for readings
+ * denominated at the SAME horizon as the interval (a bank price, a computed
+ * evaluation, an un-run evaluator's shadow) and wrong for a reading denominated
+ * DEEPER. A deep reading is a statement about a quantity the one-ply interval
+ * does not bound, and clamping it back inside would annihilate exactly the
+ * information depth exists to produce — silently, and in the direction that
+ * always favours the near-term kill.
+ *
+ * So: near-horizon observations truncate; `deep-finding` and `child-backup` do
+ * not, and the posterior records `plies`, the deepest horizon any observation
+ * folded into it was denominated at. `lo`/`hi` never move — they are still the
+ * sound one-ply interval, they are still what DOMINANCE reads, and nothing here
+ * may widen or narrow them. What changed is that `mu` is allowed to leave them
+ * when, and only when, something deeper has spoken.
  *
  * ── EARNED PRECISION, AND WHY IT IS DERIVED RATHER THAN CHOSEN ─────────────
  *
@@ -70,13 +96,27 @@ export type ObservationKind =
   /** An un-run evaluator's prior output distribution (redesign §2.1). Never
    * produced on the legacy slate — no shadow machinery is built yet. */
   | 'shadow'
-  /** A thread's finding, folded at the precision its line earned (§3.3).
-   * Never produced on the legacy slate: the scout's channel is candidate
-   * ordering inside the search core, and it reaches no branch posterior. */
+  /**
+   * A DEEPENED LINE'S OWN EVALUATION, backed up into the branch it started
+   * from, at the precision that line earned (§3.3).
+   *
+   * Denominated at `plies > 1` and therefore NOT truncated into the one-ply
+   * interval — see the header. It carries the near events rather than
+   * competing with them: the value is priced on the ADVANCED board, so a first
+   * turn that kills an enemy is already inside it, and a continuation that
+   * loses two of ours nets out against it. That is why a deep observation may
+   * be positive or negative, and why neither direction is capped.
+   */
   | 'deep-finding'
-  /** A child node's posterior, backed up across a ply (§3.4). Never produced
-   * on the legacy slate: there is no second ply in the plan table. */
+  /** A child node's posterior, backed up across a ply (§3.4). Folded on the
+   * same terms as `deep-finding`: deeper denomination, no truncation. */
   | 'child-backup';
+
+/** Is this observation denominated deeper than the branch's own one-ply
+ *  interval? The two kinds that are, named once. */
+export function isDeepKind(kind: ObservationKind): boolean {
+  return kind === 'deep-finding' || kind === 'child-backup';
+}
 
 export const OBSERVATION_KINDS: ReadonlyArray<ObservationKind> = [
   'bank-price',
@@ -97,6 +137,34 @@ export interface Observation {
   readonly kind: ObservationKind;
   readonly value: number;
   readonly precision: number;
+  /**
+   * How many turns of play this reading is denominated over. 1 (the default)
+   * is the branch's own one-ply frame; 2 is "the position after this move and
+   * one more turn of play"; and so on. Only meaningful on a deep kind, where
+   * it is what the posterior's own `plies` is a max over.
+   */
+  readonly plies?: number;
+}
+
+/**
+ * THE PRECISION A DEEP READING EARNED, from the spread its own line measured.
+ *
+ * `prec = 1/sigma^2`, the same law `precisionOfInterval` applies to a bound's
+ * half-width — stated separately only because a deep line's sigma is not read
+ * off an interval. It is assembled by the producer from the discrimination
+ * state of the line that produced it (enumeration truncation, fog dilation,
+ * un-modelled interference), in the same score units the value is in, and
+ * arrives here as one number.
+ *
+ * A sigma of 0 is an exact reading and earns infinite precision; a non-finite
+ * sigma is a reading that positions a mean and claims nothing, and earns none.
+ * Neither is clamped, and there is no floor or ceiling on what a line may earn:
+ * that is the whole of the replacement for the deleted constant cap.
+ */
+export function precisionOfSigma(sigma: number): number {
+  if (sigma === 0) return Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(sigma) || sigma < 0) return 0;
+  return 1 / (sigma * sigma);
 }
 
 /**
@@ -122,13 +190,31 @@ const EMPTY_LOG: ObservationLog = Object.freeze({
 
 /** The redesign's §3.1 object: a sound interval plus a density inside it. */
 export interface BranchPosterior {
-  /** Sound frame endpoints. Moved only by proof, never by this module. */
+  /**
+   * Sound ONE-PLY frame endpoints. Moved only by proof, never by this module,
+   * and never by a deep reading. This is what dominance compares.
+   */
   readonly lo: number;
   readonly hi: number;
-  /** The density's mean, always truncated into `[lo, hi]`. */
+  /**
+   * The density's mean. Truncated into `[lo, hi]` while every reading is
+   * one-ply; free of that truncation once a deeper reading has spoken, because
+   * the interval does not bound the quantity a deeper reading is about (see
+   * the header).
+   */
   readonly mu: number;
   /** `1/sigma^2`. `0` = nothing known inside the interval; `Infinity` = exact. */
   readonly prec: number;
+  /**
+   * THE DEEPEST HORIZON ANY READING IN HERE WAS DENOMINATED AT, in turns of
+   * play. 1 = nothing but this turn has spoken.
+   *
+   * This is the branch's HONEST horizon and it is the number the staging row,
+   * the emission record and the mechanism report all carry. It is a max over
+   * observations actually folded — never a constant, never a configured
+   * ceiling, and never the `?? 1` a missing view used to fall back to.
+   */
+  readonly plies: number;
   readonly provenance: ObservationLog;
 }
 
@@ -163,7 +249,7 @@ function truncate(mu: number, lo: number, hi: number): number {
  * which is the merge formula's own limit rather than a special case bolted on.
  */
 export function emptyPosterior(lo: number, hi: number): BranchPosterior {
-  return { lo, hi, mu: truncate(0, lo, hi), prec: 0, provenance: EMPTY_LOG };
+  return { lo, hi, mu: truncate(0, lo, hi), prec: 0, plies: 1, provenance: EMPTY_LOG };
 }
 
 /**
@@ -210,11 +296,18 @@ export function foldObservation(post: BranchPosterior, obs: Observation): Branch
     mu = (p0 * post.mu + p1 * obs.value) / (p0 + p1);
     prec = p0 + p1;
   }
+  // THE TRUNCATION IS HORIZON-CONDITIONAL. A same-horizon reading lives inside
+  // the proof; a deeper one is about a quantity the proof does not bound, and
+  // clamping it back inside would delete the finding rather than discount it.
+  const deep = isDeepKind(obs.kind);
+  const plies = deep ? Math.max(post.plies, Math.max(1, obs.plies ?? 2)) : post.plies;
+  const free = deep || post.plies > 1;
   return {
     lo: post.lo,
     hi: post.hi,
-    mu: truncate(mu, post.lo, post.hi),
+    mu: free ? (Number.isNaN(mu) ? post.mu : mu) : truncate(mu, post.lo, post.hi),
     prec,
+    plies,
     provenance: { ...post.provenance, [obs.kind]: post.provenance[obs.kind] + 1 },
   };
 }
@@ -232,7 +325,17 @@ export function withSoundInterval(
   lo: number,
   hi: number
 ): BranchPosterior {
-  return { lo, hi, mu: truncate(post.mu, lo, hi), prec: post.prec, provenance: post.provenance };
+  return {
+    lo,
+    hi,
+    // A belief that has heard from a deeper horizon is not re-truncated: the
+    // new endpoints are still one-ply endpoints, and re-clamping would undo
+    // the deep reading a proof about this turn never contradicted.
+    mu: post.plies > 1 ? post.mu : truncate(post.mu, lo, hi),
+    prec: post.prec,
+    plies: post.plies,
+    provenance: post.provenance,
+  };
 }
 
 /**
@@ -249,11 +352,14 @@ export function withSoundInterval(
  *      computed `est` with residual variance from world-uncertainty only
  *      (interval width)".
  *
- * On this slate there is no third contributor: no shadow exists (increment 2)
- * and no deep finding reaches a branch posterior (the scout's only channel is
- * candidate ordering, inside the search core, and it may not import a bound).
- * Those provenance counts are therefore ZERO here, and a zero that is the
- * truth is exactly what a baseline is for.
+ * A THIRD CONTRIBUTOR IS NOW POSSIBLE and is folded by the caller, not here:
+ * every deepened line rooted at this branch arrives as a `deep-finding` at the
+ * precision its own line earned. `posteriorOfBranch` builds the near half; the
+ * kernel folds the deep half on top, in canonical order, and rebuilds both
+ * together whenever the near reading is replaced (`refreshBelief`).
+ *
+ * The shadow channel is still zero — no shadow machinery is built (increment
+ * 2) — and a zero that is the truth is exactly what a baseline is for.
  *
  * `soundLo`/`soundHi` are the bank's frame endpoints when the branch has been
  * scored, and the evaluator's own triple ends when it has not — the same
@@ -307,23 +413,43 @@ export interface BeliefReport {
    * bearing: they say which channels have not been built yet. */
   readonly provenance: ObservationLog;
   /**
-   * Whether any posterior was READ by a decision. Always false in this
-   * increment, and published rather than assumed: the increment that gives the
-   * belief its readers flips this, and a sweep can tell the two builds apart
-   * without reading the source.
+   * Whether any posterior was READ by a decision. True from the increment that
+   * gave the belief its readers, and published rather than assumed so a sweep
+   * can tell the two builds apart without reading the source.
    */
   readonly deciding: boolean;
+  /**
+   * HOW DEEP THE DECISION ACTUALLY LOOKED — the max `plies` over every branch.
+   * 1 means nothing deeper than this turn ever spoke, which is a measurement
+   * and not a fallback constant.
+   */
+  readonly deepestPlies: number;
+  /** Branches carrying at least one deep observation. */
+  readonly deepBranches: number;
+  /**
+   * DID DEPTH DECIDE THIS ONE? True when re-running the staging ladder with
+   * every deep observation removed would have staged a DIFFERENT move.
+   *
+   * This is the per-decision indicator the depth-effect rate is a mean of, and
+   * it is a counterfactual the kernel computes by re-running the same
+   * comparator over the same rows with the deep channel stripped — not an
+   * inference from "a finding existed".
+   */
+  readonly depthChangedStaging: boolean;
 }
 
 /** Fold a decision's per-branch posteriors into the mechanism row. */
 export function beliefReportOf(
   posteriors: ReadonlyArray<BranchPosterior>,
-  staged: BranchPosterior | null
+  staged: BranchPosterior | null,
+  depthChangedStaging = false
 ): BeliefReport {
   let exact = 0;
   let unbounded = 0;
   let finiteSum = 0;
   let finiteCount = 0;
+  let deepestPlies = 1;
+  let deepBranches = 0;
   const provenance: Record<ObservationKind, number> = { ...EMPTY_LOG };
   for (const p of posteriors) {
     if (p.prec === Number.POSITIVE_INFINITY) exact++;
@@ -332,6 +458,8 @@ export function beliefReportOf(
       finiteSum += p.prec;
       finiteCount++;
     }
+    if (p.plies > deepestPlies) deepestPlies = p.plies;
+    if (p.plies > 1) deepBranches++;
     for (const k of OBSERVATION_KINDS) provenance[k] += p.provenance[k];
   }
   return {
@@ -341,6 +469,9 @@ export function beliefReportOf(
     meanPrecision: finiteCount > 0 ? finiteSum / finiteCount : null,
     staged,
     provenance,
-    deciding: false,
+    deciding: true,
+    deepestPlies,
+    deepBranches,
+    depthChangedStaging,
   };
 }

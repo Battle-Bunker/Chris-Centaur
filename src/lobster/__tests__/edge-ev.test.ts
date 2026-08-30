@@ -28,12 +28,10 @@ import { unboundedBudget } from '../bounds/testkit';
 import type { AssessedCandidate } from '../candidates';
 import {
   DecisionEconomy,
-  EDGE_EV_ENV,
   EdgeEvStore,
   LAT,
   MEAL_MATERIAL_LAT,
   ZERO_PARTS,
-  edgeEvFrom,
   nonMaterialSpan,
   pairTable,
   unaryParts,
@@ -117,17 +115,7 @@ function partsFor(r: Rig, gen: GrammarCandidateGenerator, to: CellIndex): UnaryP
 
 // ---------------------------------------------------------------------------
 
-describe('the flag', () => {
-  test('is off unless something says on, and reads the same words its siblings do', () => {
-    expect(edgeEvFrom({})).toBe(false);
-    expect(edgeEvFrom({ [EDGE_EV_ENV]: '' })).toBe(false);
-    expect(edgeEvFrom({ [EDGE_EV_ENV]: 'off' })).toBe(false);
-    expect(edgeEvFrom({ [EDGE_EV_ENV]: 'nonsense' })).toBe(false);
-    for (const on of ['1', 'on', 'true']) {
-      expect(edgeEvFrom({ [EDGE_EV_ENV]: on })).toBe(true);
-    }
-  });
-
+describe('the configuration', () => {
   test('with it off no candidate carries an EV at all', () => {
     const board = foodBoard();
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
@@ -916,7 +904,6 @@ function probeRun(board: Board, edgeEv: boolean, graded: boolean): ProbeRun {
   const gen = new GrammarCandidateGenerator({ edgeEv });
   const core = makeSearchCore({
     seedDeconflict: !graded,
-    clusterSeed: graded,
     rungZeroRepair: false,
   });
   const fronts = new DecisionEconomy(sub, asTeam);

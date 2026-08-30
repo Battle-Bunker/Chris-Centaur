@@ -65,32 +65,16 @@ import type { WeightRegime } from "./prior";
 import { gumbel } from "./rng";
 import { DEFAULT_WIDEN, type WidenSchedule } from "./widen";
 
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const SAMPLED_CAP_ENV = "CENTAUR_SAMPLED_CAP";
-
-/**
- * PER-ENGINE, NEVER PROCESS-WIDE — this branch's standing rule, learned the
- * hard way: a process-wide flag moves every lobster seat on the board at once
- * and a paired experiment on it measures nothing. The environment is only the
- * default a caller that names nothing inherits; `SearchTuning.sampledCap`
- * overrides it, so one seat can carry the lottery while the seat across the
- * board does not.
+/*
+ * `CENTAUR_SAMPLED_CAP` IS DELETED — TODO(teardown-search) row retired here.
  *
- * DEFAULT OFF. With it off nothing in this directory is constructed, no draw is
- * taken, no clock is read, and the search is byte-for-byte the one that
- * shipped.
+ * The seeded lottery is now a CONFIGURATION of the search surface
+ * (`SearchTuning.sampledCap`) and not an environment switch: one seat carries
+ * it while the seat across the board does not. Default off, by stated default.
+ * The owner's weighted-random ruling is not what this switch was gating — the
+ * ruling is standing, and the machinery that serves it is the cap's own
+ * sampling, which a caller turns on by configuring a bot rather than a process.
  */
-export function sampledCapFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[SAMPLED_CAP_ENV];
-  return raw === "1" || raw === "on" || raw === "true";
-}
-
-export function sampledCapEnabled(): boolean {
-  return sampledCapFrom(process.env);
-}
 
 // ---------------------------------------------------------------------------
 // Tuning

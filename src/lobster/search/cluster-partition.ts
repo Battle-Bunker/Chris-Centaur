@@ -60,30 +60,15 @@ import { profileOf } from '../../partial-engine/index';
 import type { CellIndex, UnitId } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const CLUSTER_ENUM_ENV = 'CENTAUR_CLUSTER_ENUM';
-
-/**
- * PER-ENGINE, NEVER PROCESS-WIDE — the lesson this branch has now learned four
- * times: a process-wide flag moves every lobster seat on the board at once, and
- * a paired experiment on it measures nothing. The environment is only the
- * default a caller that names nothing inherits; `SearchTuning.clusterEnum` and
- * `TeamDecisionOptions.clusterEnum` override it.
+/*
+ * `CENTAUR_CLUSTER_ENUM` IS DELETED — TODO(teardown-search) row retired here.
  *
- * DEFAULT OFF. With it off no partition is built, no table is enumerated, and
- * the search is byte-for-byte the one that shipped.
+ * The partition and the exact enumeration are KERNEL MACHINERY, not a
+ * candidate strategy, and they always run. The switch was also a silent switch
+ * on the depth layer — whose threads are rooted at this enumeration's own
+ * proposals — which is the dependency class that made one experiment race
+ * three identical contenders and file the null against the wrong thing.
  */
-export function clusterEnumFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[CLUSTER_ENUM_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function clusterEnumEnabled(): boolean {
-  return clusterEnumFrom(process.env);
-}
 
 // ---------------------------------------------------------------------------
 // Sliders

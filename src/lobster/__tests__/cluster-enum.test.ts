@@ -30,16 +30,15 @@ import { defaultEvaluator } from '../evaluate';
 import { makeSearchCore } from '../search';
 import {
   DEFAULT_CLUSTER_TUNING,
-  clusterEnumFrom,
   enumerateProposals,
   expandCluster,
   partitionOf,
   sliderKind,
   type Partition,
 } from '../search';
-import { SeedWorkspace, pairPotential, singletonPotential } from '../search/cluster-seed';
+import { SeedWorkspace, pairPotential, singletonPotential } from '../search/potentials';
 import { ConflictIndex, subStepsFor } from '../search/conflict-index';
-import { unboundedBudget, countingBudget } from '../bounds/testkit';
+import { unboundedBudget } from '../bounds/testkit';
 import { clusterPlanPartition } from '../parallel';
 import type { Frontier, WorkPartition } from '../parallel';
 import { SweepDirty } from '../search/sweep-dirty';
@@ -47,7 +46,6 @@ import type {
   Candidate,
   CandidateSet,
   CellIndex,
-  ClusterReport,
   Evaluator,
   JointPlan,
   SearchContext,
@@ -240,46 +238,6 @@ function bench(board: Board, team = 'red'): Bench {
   const partition = partitionOf({ sub, roster, fixed: new Set<UnitId>() });
   return { sub, asTeam, sets, roster, partition, close: () => sub.release() };
 }
-
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-describe('the flag', () => {
-  test('is off unless something says on, and reads the same words the others do', () => {
-    expect(clusterEnumFrom({})).toBe(false);
-    expect(clusterEnumFrom({ CENTAUR_CLUSTER_ENUM: '0' })).toBe(false);
-    expect(clusterEnumFrom({ CENTAUR_CLUSTER_ENUM: 'off' })).toBe(false);
-    expect(clusterEnumFrom({ CENTAUR_CLUSTER_ENUM: '1' })).toBe(true);
-    expect(clusterEnumFrom({ CENTAUR_CLUSTER_ENUM: 'on' })).toBe(true);
-    expect(clusterEnumFrom({ CENTAUR_CLUSTER_ENUM: 'true' })).toBe(true);
-  });
-
-  test('with the flag off no partition is built and no report exists', () => {
-    const board = snakesBoard(3);
-    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const core = makeSearchCore({ clusterEnum: false });
-    const ctx: SearchContext = {
-      sub,
-      gen: new GrammarCandidateGenerator({}),
-      evaluate: defaultEvaluator,
-      asTeam: sub.teamNumber('red'),
-      pins: [],
-      assumptions: [],
-      incumbent: null,
-      witnesses: [],
-      budget: unboundedBudget(),
-    };
-    core.improve(ctx);
-    expect(core.clusterReport?.()).toBeNull();
-    core.release?.();
-    sub.release();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The partition
-// ---------------------------------------------------------------------------
 
 describe('the partition', () => {
   test('a slider is a kind with rays, or one that promotes into them', () => {
@@ -1083,13 +1041,16 @@ describe('the placement laws', () => {
 // ---------------------------------------------------------------------------
 
 describe('L26 — rung 0 is untouched', () => {
-  test('conform with an empty incumbent pays ONE price whether the flag is on or off', () => {
+  test('conform with an empty incumbent pays ONE price, twice over', () => {
     const board = snakesBoard(5);
     const counts: number[] = [];
-    for (const clusterEnum of [false, true]) {
+    // Twice, so the assertion is about the SECOND run too: rung 0 must cost one
+    // price on a warm core as well as a cold one.
+    for (const _run of [0, 1]) {
+      void _run;
       const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
       let prices = 0;
-      const core = makeSearchCore({ clusterEnum, rungZeroRepair: false });
+      const core = makeSearchCore({ rungZeroRepair: false });
       const counting: Evaluator = {
         scorePlan: (s, plan, team) => {
           prices++;
@@ -1122,13 +1083,14 @@ describe('L26 — rung 0 is untouched', () => {
     expect(counts[1]).toBe(counts[0]);
   });
 
-  test('the rung-0 plan itself is byte-identical with the flag on', () => {
+  test('the rung-0 plan itself is reproducible, core after core', () => {
     for (let seed = 0; seed < 15; seed++) {
       const board = snakesBoard(seed);
       const keys: string[] = [];
-      for (const clusterEnum of [false, true]) {
+      for (const _run of [0, 1]) {
+        void _run;
         const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-        const core = makeSearchCore({ clusterEnum, rungZeroRepair: false });
+        const core = makeSearchCore({ rungZeroRepair: false });
         const ctx: SearchContext = {
           sub,
           gen: new GrammarCandidateGenerator({}),
@@ -1149,224 +1111,23 @@ describe('L26 — rung 0 is untouched', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The probe — the empirical gate
-// ---------------------------------------------------------------------------
-
-interface ImproveRun {
-  readonly plan: JointPlan;
-  readonly ourDead: number;
-  readonly teammateKills: number;
-  readonly key: string;
-  readonly report: ClusterReport | null;
-  close(): void;
-}
-
-/**
- * ONE BOUNDED SEARCH, through the real seam.
+/*
+ * THE A/B PROBE THAT USED TO LIVE HERE IS DELETED, and it is deliberate.
  *
- * `countingBudget` rather than a clock: the probe has to be deterministic, and
- * a wall-clock budget makes every number a property of the box. `n` is the
- * number of `shouldStop()` questions the search may ask, which is one per
- * candidate tried, so it is a search-shaped budget rather than a time-shaped
- * one.
+ * It raced `clusterEnum: false` against `clusterEnum: true`, over four budgets
+ * and two board families, crossed with the greedy pairwise seed. Neither arm
+ * exists any more: the enumeration is kernel machinery and always runs, and the
+ * greedy seed was measured, rejected and removed. A test whose two arms are the
+ * same configuration measures the harness, and the last thing this branch needs
+ * is another experiment that races identical contenders.
+ *
+ * What the probe MEASURED is kept where a measurement belongs — the promotion
+ * ledger's CL3 row — and what it PROTECTED (that the enumeration never raises
+ * teammate-caused deaths) is now protected by the placement laws above, which
+ * assert it structurally rather than statistically.
  */
-function improveRun(
-  board: Board,
-  team: string,
-  arm: { clusterSeed: boolean; clusterEnum: boolean },
-  questions: number,
-): ImproveRun {
-  const sub = makeSubstrate({ board, turn: TURN, asTeam: team });
-  const asTeam = sub.teamNumber(team);
-  const gen = new GrammarCandidateGenerator({});
-  const core = makeSearchCore({
-    clusterSeed: arm.clusterSeed,
-    clusterEnum: arm.clusterEnum,
-    seedDeconflict: !arm.clusterSeed,
-    rungZeroRepair: false,
-  });
-  const ctx: SearchContext = {
-    sub,
-    gen,
-    evaluate: defaultEvaluator,
-    asTeam,
-    pins: [],
-    assumptions: [],
-    incumbent: null,
-    witnesses: [],
-    budget: countingBudget(questions),
-  };
-  const scored = core.improve(ctx);
-  const ours = new Set<UnitId>(sub.commandable(asTeam));
-  const { dead, mates } = sub.withResolution(scored.plan, asTeam, ({ resolution }) => {
-    const died = resolution.deaths.filter((d) => ours.has(d.unitId as UnitId));
-    let killed = 0;
-    for (const d of died) {
-      for (const clash of resolution.clashes) {
-        if (!clash.victimIDs.includes(d.unitId)) continue;
-        if (clash.playerIDs.some((id) => id !== d.unitId && ours.has(id as UnitId))) killed++;
-        break;
-      }
-    }
-    return { dead: died.length, mates: killed };
-  });
-  const report = core.clusterReport?.() ?? null;
-  return {
-    plan: scored.plan,
-    ourDead: dead,
-    teammateKills: mates,
-    key: planKey(scored.plan),
-    report,
-    close: () => {
-      core.release?.();
-      sub.release();
-    },
-  };
-}
 
-describe('the probe: does the enumeration find the joints the greedy seed missed', () => {
-  const BOARDS = 40;
-
-  /**
-   * THE BUDGET CURVE, AND WHY IT IS A CURVE.
-   *
-   * `countingBudget(q)` trips after `q` questions, and the BANK asks several per
-   * `price()` (one per B-level branch), so `q` is roughly `prices × 7` on these
-   * boards. The census's own regime — *"at 150 ms the median decision prices 5
-   * plans against the 48 one sweep of 6 units needs"* — is therefore around
-   * `q = 32`, and `q = 2` is the starved turn where the seed IS the answer.
-   * Reporting one point would hide the whole mechanism: this layer is a
-   * GENERATOR, and a generator's value is largest exactly where the verifier
-   * has least budget.
-   */
-  const BUDGETS = [2, 8, 32, 120] as const;
-
-  interface Tally {
-    dead: number;
-    mates: number;
-    differed: number;
-    proposals: number;
-    priced: number;
-    near: number;
-    flat: number;
-    noExactGain: number;
-    skipped: number;
-    swept: number;
-    enumMs: number;
-    maxComponent: number;
-    merged: number;
-  }
-
-  const zero = (): Tally => ({
-    dead: 0,
-    mates: 0,
-    differed: 0,
-    proposals: 0,
-    priced: 0,
-    near: 0,
-    flat: 0,
-    noExactGain: 0,
-    skipped: 0,
-    swept: 0,
-    enumMs: 0,
-    maxComponent: 0,
-    merged: 0,
-  });
-
-  const families: ReadonlyArray<{ name: string; make: (seed: number) => Board }> = [
-    { name: 'confronted', make: snakesBoard },
-    { name: 'scattered', make: scatteredBoard },
-  ];
-
-  for (const family of families) {
-    for (const clusterSeed of [false, true]) {
-      test(`${family.name}, CL1 seed ${clusterSeed ? 'graded' : 'blunt'}: no regression`, () => {
-        let totalOff = 0;
-        let totalOn = 0;
-        for (const questions of BUDGETS) {
-          const off = zero();
-          const on = zero();
-          for (let seed = 0; seed < BOARDS; seed++) {
-            const board = family.make(seed);
-            const a = improveRun(board, 'red', { clusterSeed, clusterEnum: false }, questions);
-            const b = improveRun(board, 'red', { clusterSeed, clusterEnum: true }, questions);
-            off.dead += a.ourDead;
-            on.dead += b.ourDead;
-            off.mates += a.teammateKills;
-            on.mates += b.teammateKills;
-            if (a.key !== b.key) on.differed++;
-            const r = b.report;
-            if (r !== null) {
-              on.proposals += r.proposals;
-              on.priced += r.proposalsPriced;
-              on.near += r.proposalsNear;
-              on.flat += r.proposalsFlat;
-              on.noExactGain += r.noExactGain;
-              on.skipped += r.sweepsSkipped;
-              on.swept += r.sweepsRun;
-              on.enumMs += r.enumMs;
-              on.maxComponent = Math.max(on.maxComponent, r.maxComponent);
-              if (r.merged) on.merged++;
-            }
-            a.close();
-            b.close();
-          }
-          console.log(
-            `  ${family.name} seed=${clusterSeed ? 'graded' : 'blunt'} q=${questions} x${BOARDS}: ` +
-              `fatal ${off.dead}->${on.dead} | teammate-caused ${off.mates}->${on.mates} | ` +
-              `plans differ ${on.differed}/${BOARDS} | ` +
-              `proposals ${on.proposals} priced ${on.priced} near ${on.near} flat ${on.flat} ` +
-              `noExactGain ${on.noExactGain} | dirty ${on.skipped}/${on.skipped + on.swept} | ` +
-              `enum ${on.enumMs} ms | maxComponent ${on.maxComponent} | merged ${on.merged}`,
-          );
-          // THE GATE, PART ONE: fatal stagings may not rise at ANY point of the
-          // curve, in either direction of CL1's knob.
-          expect(on.dead).toBeLessThanOrEqual(off.dead);
-          totalOff += off.mates;
-          totalOn += on.mates;
-        }
-        // THE GATE, PART TWO, and the asymmetry is deliberate.
-        //
-        // Teammate kills are gated IN AGGREGATE over the curve, not per point,
-        // because the two quantities are measured in different worlds:
-        // `better()` adjudicates on the PROVED FLOOR — the pessimistic reading
-        // over every enemy reply the bank enumerates — while a teammate kill is
-        // counted in the NOMINAL resolution. A plan with a strictly better
-        // guaranteed floor can carry a worse nominal outcome, and refusing that
-        // trade would be refusing the floor, which is the one thing this whole
-        // program is not allowed to do. Measured: one cell of sixteen rises
-        // (scattered / blunt seed / q=8, 0 -> 1, a single board), and every
-        // other cell falls.
-        console.log(
-          `  ${family.name} seed=${clusterSeed ? 'graded' : 'blunt'} TOTAL teammate-caused ` +
-            `${totalOff} -> ${totalOn}`,
-        );
-        expect(totalOn).toBeLessThanOrEqual(totalOff);
-      }, 180000);
-    }
-  }
-
-  test('the probe is not vacuous: the enumeration really does move plans', () => {
-    let differed = 0;
-    let priced = 0;
-    for (let seed = 0; seed < BOARDS; seed++) {
-      const board = snakesBoard(seed);
-      const a = improveRun(board, 'red', { clusterSeed: true, clusterEnum: false }, 8);
-      const b = improveRun(board, 'red', { clusterSeed: true, clusterEnum: true }, 8);
-      if (a.key !== b.key) differed++;
-      priced += b.report?.proposalsPriced ?? 0;
-      a.close();
-      b.close();
-    }
-    console.log(
-      `  enumeration moves the staged plan on ${differed}/${BOARDS} confronted boards ` +
-        `(${priced} proposals priced)`,
-    );
-    expect(differed).toBeGreaterThan(0);
-    expect(priced).toBeGreaterThan(0);
-  }, 120000);
-
+describe('the enumeration, on its own terms', () => {
   /**
    * THE MEASUREMENT THAT CORRECTS THE DESIGN. Exact enumeration is supposed to
    * beat coordinate ascent; on these component sizes it never does, and the

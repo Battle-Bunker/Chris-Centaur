@@ -156,22 +156,62 @@ describe('the precision-weighted merge', () => {
   });
 });
 
-describe('the density lives inside the proof', () => {
-  test('mu is truncated into the sound support on every operation', () => {
+describe('the density lives inside the proof, at the horizon the proof is about', () => {
+  test('a SAME-HORIZON reading is truncated into the sound support', () => {
     const p = foldObservation(emptyPosterior(2, 4), {
-      kind: 'deep-finding',
+      kind: 'evaluation',
       value: 100,
       precision: 9,
     });
-    // However confident the observation, it cannot claim a value the sound
-    // interval has excluded. This is the channel law in its smallest form.
+    // However confident the observation, a reading about THIS turn cannot
+    // claim a value this turn's sound interval has excluded. That is the
+    // channel law in its smallest form, and it is unchanged.
     expect(p.mu).toBe(4);
+    expect(p.plies).toBe(1);
     const q = foldObservation(emptyPosterior(2, 4), {
-      kind: 'deep-finding',
+      kind: 'evaluation',
       value: -100,
       precision: 9,
     });
     expect(q.mu).toBe(2);
+  });
+
+  test('a DEEPER reading is not truncated, and the posterior says how deep', () => {
+    // THE LAW THE FIRST INCREMENT GOT WRONG BY OMISSION. `[lo, hi]` bounds the
+    // ONE-PLY frame value — the position after this turn, worst case over
+    // worlds. It does not bound the final score: a move that certainly kills
+    // an enemy next turn has a floor above par and may still be losing, if the
+    // two units it costs us arrive on turn three.
+    //
+    // Clamping a two-turn reading back inside a one-turn interval therefore
+    // deletes exactly the information depth exists to produce, silently, and
+    // always in the direction that favours the near-term kill.
+    const deep = foldObservation(emptyPosterior(2, 4), {
+      kind: 'deep-finding',
+      value: -100,
+      precision: 9,
+      plies: 2,
+    });
+    expect(deep.mu).toBe(-100);
+    expect(deep.plies).toBe(2);
+    // The SOUND channel is untouched by it, which is the half that stays true.
+    expect(deep.lo).toBe(2);
+    expect(deep.hi).toBe(4);
+    // Positive findings are free in exactly the same way.
+    const raised = foldObservation(emptyPosterior(2, 4), {
+      kind: 'deep-finding',
+      value: 100,
+      precision: 9,
+      plies: 3,
+    });
+    expect(raised.mu).toBe(100);
+    expect(raised.plies).toBe(3);
+    // And a near reading folded AFTER a deep one does not re-clamp what the
+    // deep one established: the two are readings of the same quantity at
+    // different precisions, not a value and a cage.
+    const mixed = foldObservation(deep, { kind: 'evaluation', value: 3, precision: 9 });
+    expect(mixed.mu).toBeLessThan(2);
+    expect(mixed.plies).toBe(2);
   });
 
   test('a sound tighten narrows the support and does NOT add precision', () => {
@@ -188,6 +228,16 @@ describe('the density lives inside the proof', () => {
     // …and the precision is untouched: a proof that narrows the support does
     // not make a belief better informed, it makes some of it unreachable.
     near(t.prec, 3);
+    // …and a belief that has heard from a deeper horizon is NOT re-clamped:
+    // the new endpoints are still one-ply endpoints, and a proof about this
+    // turn never contradicted a statement about the next one.
+    const withDeep = foldObservation(p, {
+      kind: 'deep-finding',
+      value: 40,
+      precision: 100,
+      plies: 2,
+    });
+    expect(withSoundInterval(withDeep, 0, 5).mu).toBe(withDeep.mu);
   });
 
   test('the legacy assembly reads the interval and the computed est', () => {
@@ -233,7 +283,14 @@ describe('the report folds what the branches carried', () => {
     // Provenance sums over every branch: two observations each.
     expect(rep.provenance['bank-price']).toBe(4);
     expect(rep.provenance.evaluation).toBe(4);
-    expect(rep.deciding).toBe(false);
+    // DECIDING, and published rather than assumed: the increment that gave the
+    // belief its readers flips this, and a sweep tells the two builds apart
+    // without reading the source.
+    expect(rep.deciding).toBe(true);
+    // Nothing deeper spoke about any of these, so the horizon is a measured 1.
+    expect(rep.deepestPlies).toBe(1);
+    expect(rep.deepBranches).toBe(0);
+    expect(rep.depthChangedStaging).toBe(false);
   });
 
   test('no finite branch means NULL, not zero', () => {
@@ -242,6 +299,23 @@ describe('the report folds what the branches carried', () => {
     const rep = beliefReportOf([posteriorOfBranch(DEAD, 5, 2)], null);
     expect(rep.meanPrecision).toBeNull();
     expect(rep.staged).toBeNull();
+  });
+
+  test('the report counts how deep the decision looked, and whether it mattered', () => {
+    const near = posteriorOfBranch(0, 4, 3);
+    const deepened = foldObservation(posteriorOfBranch(0, 4, 3), {
+      kind: 'deep-finding',
+      value: -9,
+      precision: 1,
+      plies: 3,
+    });
+    const rep = beliefReportOf([near, deepened], deepened, true);
+    // MEASURED, never a constant: the max over what actually spoke.
+    expect(rep.deepestPlies).toBe(3);
+    expect(rep.deepBranches).toBe(1);
+    expect(rep.provenance['deep-finding']).toBe(1);
+    // The per-decision indicator the depth-effect rate is the mean of.
+    expect(rep.depthChangedStaging).toBe(true);
   });
 
   test('an empty decision reports nothing rather than throwing', () => {

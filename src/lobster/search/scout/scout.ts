@@ -23,16 +23,54 @@
  *
  * ── WHAT A THREAD'S NUMBERS ARE, AND ARE NOT ───────────────────────────────
  *
- * ADVISORY. `ThreadPly.advisory` is a plain `{lo, est, hi}` of numbers and is
- * deliberately NOT a `ScoreBounds`: a channel that cannot be confused at the
- * type level cannot be confused at the call site. Nothing in this directory
- * constructs, meets, tightens or publishes a bound; `index.ts` states the
- * import law and the structural test reads the files to prove it. Under L1
- * depth is provenance and never denomination, under L2 depth may move est,
- * candidate order and scheduler priors and nothing else, and under L9 every
- * staged plan is still priced once, jointly, by the unconditional one-ply bank
- * and accepted by `better()`. With L9 in place the worst case of every
- * composition subtlety in this file is a WASTED PRICE, never a wrong staging.
+ * NOT A BOUND, AND NOW VALUE-BEARING. `ThreadPly.advisory` is still a plain
+ * `{lo, est, hi}` of numbers and deliberately NOT a `ScoreBounds`: a channel
+ * that cannot be confused at the type level cannot be confused at the call
+ * site. Nothing in this directory constructs, meets, tightens or publishes a
+ * bound; `index.ts` states the import law and the structural test reads the
+ * files to prove it. Every staged plan is still priced once, jointly, by the
+ * unconditional one-ply bank, and the floors it writes are unchanged.
+ *
+ * What HAS changed is where the numbers go. They used to reach exactly one
+ * place — an additive term on the enumeration surrogate — which meant a proved
+ * two-turn refutation could change which plans were OFFERED and never which
+ * one won. They now also leave this layer as `DeepObservation`s: a value, a
+ * sigma and a ply count, all plain numbers, published per ply-1 root plan. The
+ * consumer folds them into that branch's belief at the precision the sigma
+ * earns. This module still cannot reach a belief, a bound or a comparator; it
+ * publishes measurements and somebody else decides what they are worth.
+ *
+ * ── WHAT A DEEP VALUE MEANS, AND WHY IT MAY BE WORSE THAN THE NEAR ONE ─────
+ *
+ * A deepened line's value is priced ON THE ADVANCED BOARD, through the same
+ * evaluator, in the same units. It is therefore CAUSALLY DOWNSTREAM of the
+ * first turn and CARRIES it: a first move that certainly kills an enemy has
+ * that kill already inside the ply-2 number, and a continuation that loses two
+ * of ours nets out against it. A branch that kills one and then loses two
+ * evaluates at roughly minus one unit — worse than a quiet alternative — and
+ * that is a correct reading of the same quantity, not a foreign one competing
+ * with a near fact.
+ *
+ * The backup is CONSERVATIVE: `scoreOptions` is `max_a min_b`, so the value is
+ * the security value of our best continuation against the worst reply the
+ * information set permits. Deep findings are therefore free to be POSITIVE as
+ * well as negative — a discovered reliable two-turn kill raises the branch by
+ * the same arithmetic that a discovered two-turn loss lowers it.
+ *
+ * ── THE CAP IS GONE, AND WHAT REPLACED IT ──────────────────────────────────
+ *
+ * `clampToLat` is DELETED, and so is the loser-only polarity rule. Both were
+ * proxies for one real worry — that a time-skewed, model-conditional number
+ * would outshout a solid this-turn fact — and both expressed it as a constant,
+ * which caps exactly the discoveries depth exists to make.
+ *
+ * The replacement is arithmetic that scales in both directions with the thing
+ * the constant was a crude proxy for: MODEL ERROR OF THE APPROXIMATE
+ * SIMULATION, measured on the line itself and published as a sigma. See
+ * `sigmaOfPly` for the terms and where each is read from. A finding from a
+ * cleanly enumerated, fog-free, exactly-priced line arrives nearly at full
+ * strength; a finding from a truncated enumeration under saturated clouds
+ * arrives nearly information-free. Nothing is clamped, in either direction.
  *
  * ── THE ORDERING SINK, AND ITS CREDIT ASSIGNMENT ───────────────────────────
  *
@@ -45,14 +83,15 @@
  * the wrong owner, and an ordering channel with the wrong owner is worse than
  * none.
  *
- * The sign follows the polarity rule: `Surrogate.unary` adds φ_u and HIGHER IS
- * BETTER, so a discovered next-ply danger is a NEGATIVE term. The magnitude is
- * clamped to one material lattice step, because the advice is a time-skewed
- * quantity and a time-skewed quantity may not outbid a ply-1 material fact —
- * the EV-cliff law's own reasoning, applied across the ply boundary.
+ * `Surrogate.unary` adds φ_u and HIGHER IS BETTER, so the sign is the sign of
+ * the difference: the loser of a first-difference pair is pushed down and the
+ * winner is pushed up, by the same magnitude. The old rule gave the penalty to
+ * the loser and nothing to the winner, on the ground that promotion is the
+ * direction where being wrong costs a staging — which was the right instinct
+ * for a channel nobody could discount, and is the wrong one now that the
+ * discount is a measured precision.
  */
 
-import { LAT } from '../edge-ev';
 import { continueFrom } from './door';
 import type { Continuation, RefusalReason } from './door';
 import { ShellTable } from '../../evaluate';
@@ -74,7 +113,7 @@ import {
   reportOf,
   shouldPark,
 } from './schedule';
-import type { ScoutMode, ScoutReport, ScoutTuning } from './schedule';
+import type { ScoutReport, ScoutTuning } from './schedule';
 import { expandCluster } from '../cluster-partition';
 import type { Partition } from '../cluster-partition';
 import { SubtreeCertificate } from '../../../partial-engine/index';
@@ -95,10 +134,84 @@ import type {
 export interface ScoutFinding {
   readonly unitId: UnitId;
   readonly to: CellIndex;
-  /** In lat, SIGNED so that negative is worse. Clamped to ±1 LAT. */
+  /** In score units, SIGNED so that negative is worse. NOT clamped. */
   readonly delta: number;
   /** Which ply of which thread found it — provenance for the operator. */
   readonly note: string;
+}
+
+/**
+ * WHAT A DEEPENED LINE IS WORTH, PUBLISHED FOR THE BRANCH IT STARTED FROM.
+ *
+ * One per thread that reached at least one continuation and whose root is a
+ * plan the search actually offers. It is plain data: three numbers and the
+ * plan they are about. This module folds nothing and compares nothing.
+ *
+ * The consumer's contract, stated here because this is where the numbers are
+ * made: `value` is denominated in the SAME score units as a ply-1 bank price,
+ * on a board `plies` turns of play ahead of the decision; `sigma` is one
+ * standard deviation of the MODEL ERROR of the approximate simulation that
+ * produced it, in the same units, so `1/sigma^2` is the precision the reading
+ * earned. There is no cap and no floor on either.
+ */
+export interface DeepObservation {
+  /** The ply-1 joint plan this line started from — the ORIGIN BRANCH. */
+  readonly root: JointPlan;
+  /** The line's own security value, `max_a min_b`, on the advanced board. */
+  readonly value: number;
+  /** Model-error sigma, accumulated over the plies walked. See `sigmaOfPly`. */
+  readonly sigma: number;
+  /** Turns of play the value spans. 2 = this move plus one more turn. */
+  readonly plies: number;
+  /** Provenance for the operator: thread key and the depth it reached. */
+  readonly note: string;
+}
+
+/**
+ * THE MODEL ERROR OF ONE SIMULATED PLY, in score units.
+ *
+ * The redesign's rule is that a deep reading's influence is bounded by the
+ * PRECISION IT EARNED and by nothing else, and that the precision is DERIVED
+ * from the line's own discrimination state rather than chosen. This is that
+ * derivation. Every input is a quantity the ply already measured; the only
+ * structure imposed is that independent error sources add in quadrature, and
+ * that the natural SCALE of "how much could being wrong about this node cost"
+ * is the node's own spread across the options it priced.
+ *
+ *   world       the deep node's own interval half-width. Exactly the law
+ *               `precisionOfInterval` applies to a ply-1 bound: what the
+ *               engine itself could not resolve about this position.
+ *   ourMiss     the fraction of OUR joint option space the enumeration did not
+ *               price. Truncating our own max is conservative in VALUE (we
+ *               under-state our best continuation) and is still uncertainty.
+ *   theirMiss   the fraction of the enemy reply space the min did not cover.
+ *               This one is optimistic in value, which is precisely why it has
+ *               to be paid for in precision.
+ *   fog         the share of this node's held claims whose possibility clouds
+ *               have saturated — the point past which a countdown discriminates
+ *               nothing and a dilated cloud is standing in for a fact.
+ *   interfere   the share of held claims the parent resolution refused to price
+ *               certainly-alive and that this root nonetheless prices alive
+ *               (the door's I7/I8 residue). Un-modelled interference, named.
+ *
+ * A perfectly enumerated, fog-free, exactly-priced node returns 0 and the
+ * reading is exact — which is the honest answer for a node where the model IS
+ * the game. Every real board pays something on at least one term.
+ */
+export function sigmaOfPly(o: {
+  readonly world: number;
+  readonly spread: number;
+  readonly ourMiss: number;
+  readonly theirMiss: number;
+  readonly fog: number;
+  readonly interfere: number;
+}): number {
+  const share = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
+  const world = Number.isFinite(o.world) ? Math.max(0, o.world) : Number.POSITIVE_INFINITY;
+  const spread = Number.isFinite(o.spread) ? Math.max(0, o.spread) : Number.POSITIVE_INFINITY;
+  const weight = share(o.ourMiss) + share(o.theirMiss) + share(o.fog) + share(o.interfere);
+  const variance = world * world + spread * spread * weight;
+  return Math.sqrt(variance);
 }
 
 export interface ScoutRequest {
@@ -139,6 +252,23 @@ export class Scout {
   /** The best advisory value per thread key — the ordering sink's input. */
   private readonly values = new Map<string, number>();
   /**
+   * THE VALUE-BEARING HALF, by thread key: the deepest line's own security
+   * value, the model error accumulated getting there, and how many turns of
+   * play it spans.
+   *
+   * Accumulated rather than replaced on the sigma channel: a ply-3 reading
+   * carries the model error of plies 1..3, so a deeper line is automatically
+   * less precise without anybody choosing a decay. The VALUE is the latest
+   * ply's, because that is the deepest statement the thread has made.
+   */
+  private readonly deep = new Map<
+    string,
+    { value: number; sigmaSq: number; plies: number; root: JointPlan }
+  >();
+  /** Thread keys whose root is a plan the caller actually offers — the only
+   *  ones a deep observation may name. See `run`. */
+  private readonly offered = new Set<string>();
+  /**
    * THE LINE THE THREAD PROVED, by thread key: the joint move over the
    * cluster's own units that `scoreOptions` found to be the argmax at the
    * thread's CURRENT root, i.e. at the root `roots` holds for the same key.
@@ -175,11 +305,7 @@ export class Scout {
    */
   private gate: string | null = null;
 
-  constructor(
-    readonly mode: ScoutMode,
-    tuning: Partial<ScoutTuning> = {},
-    decisionMs = 0
-  ) {
+  constructor(tuning: Partial<ScoutTuning> = {}, decisionMs = 0) {
     this.tuning = { ...DEFAULT_SCOUT_TUNING, ...tuning };
     this.ledger = new ThreadLedger(this.tuning.capacity);
     this.purse = new ScoutPurse(decisionMs, this.tuning);
@@ -228,11 +354,16 @@ export class Scout {
    * depth above `d*`, so the marginal ply is worth most where the barrier is.
    */
   run(req: ScoutRequest): void {
-    if (this.mode === 'off') return;
     // Being here IS the proof that the call site was reached. Anything that
     // stops the scout from this line down is a scout finding — `no-cluster` is
     // a refusal, not a gate — and belongs in `refusals`, not in `gatedBy`.
     this.gate = null;
+    // A DECISION'S PUBLICATIONS ARE A DECISION'S. The ledger survives — that
+    // is what a ledger is for — but findings and deep observations are about
+    // one board and must never be read on the next one.
+    this.findings.clear();
+    this.deep.clear();
+    this.offered.clear();
     if (req.partition.clusters.length === 0 || req.seeds.length === 0) {
       this.refuse('no-cluster');
       return;
@@ -243,10 +374,18 @@ export class Scout {
       return false;
     };
 
+    const offeredRoots = new Set<JointPlan>(req.seeds);
     for (const cluster of req.partition.clusters) {
       for (const seed of this.seedFamily(cluster.members, req)) {
         if (!this.purse.canSpend()) break;
         const key = `${cluster.id}:${threadKey(cluster.members, seed)}`;
+        // A PERTURBATION IS NOT AN OFFER. `seedFamily` invents one-unit
+        // variations of the anchor so the first-difference sink has pairs to
+        // attribute over; those plans are not in the caller's proposal list,
+        // so no branch exists for a deep observation about them to name. They
+        // still deepen and still feed the ordering channel — what they may not
+        // do is publish a value for a branch nobody prices.
+        if (offeredRoots.has(seed)) this.offered.add(key);
         if (this.ledger.get(key) !== undefined) continue;
         this.ledger.open({
           key,
@@ -423,6 +562,33 @@ export class Scout {
     this.ledger.counters.deepened++;
     this.purse.spend(cost);
 
+    // ---- the VALUE-BEARING publication, and the error it earned -----------
+    //
+    // Every input below is a number this ply already measured. Nothing is
+    // chosen, nothing is clamped, and the accumulation over plies is what
+    // makes a deeper reading automatically less precise than a shallower one
+    // without a decay constant existing anywhere.
+    if (this.offered.has(entry.key)) {
+      const held = cont.held.size;
+      const sigma = sigmaOfPly({
+        world: Number.isFinite(scored.best.hi) && Number.isFinite(scored.best.lo)
+          ? Math.max(0, scored.best.hi - scored.best.lo) / 2
+          : Number.POSITIVE_INFINITY,
+        spread: Math.max(discrimination.floorSpread, discrimination.estSpread),
+        ourMiss: 1 - scored.ourCoverage,
+        theirMiss: 1 - scored.theirCoverage,
+        fog: discrimination.saturation,
+        interfere: held === 0 ? 0 : cont.distrusted.size / held,
+      });
+      const prior = this.deep.get(entry.key);
+      this.deep.set(entry.key, {
+        value: scored.best.lo,
+        sigmaSq: (prior?.sigmaSq ?? 0) + sigma * sigma,
+        plies: ply.ply + 1,
+        root: entry.rootPlan,
+      });
+    }
+
     // ---- expansion, priced before it is paid (§7.2) -----------------------
     const partition = this.partitions.get(entry.key) ?? req.partition;
     const proposal = priceExpansion({
@@ -529,24 +695,50 @@ export class Scout {
     }>;
     /** Worlds actually resolved — the ply's cost, in resolution-equivalents. */
     readonly priced: number;
+    /**
+     * ENUMERATION CLEANLINESS, one fraction per quantifier: joints priced over
+     * the joint space the FULL candidate lists span. 1 means the `max` (or the
+     * `min`) ranged over everything the generator offered; less means the value
+     * is a max over a subset (conservative in value) or a min over a subset
+     * (optimistic in value). Both are model error and both are paid for in the
+     * precision, which is why they are measured here rather than assumed away.
+     */
+    readonly ourCoverage: number;
+    readonly theirCoverage: number;
   } {
     const ours: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
     const theirs: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
+    let ourSpace = 1;
+    let theirSpace = 1;
     for (const id of members) {
       const unit = cont.sub.unitOf(id);
       if (unit === undefined) continue;
       const set = req.gen.candidatesFor(cont.sub, id);
       if (set.candidates.length === 0) continue;
       const trimmed = set.candidates.slice(0, 3);
-      if (unit.team === req.asTeam) ours.push({ id, options: trimmed });
-      else theirs.push({ id, options: trimmed });
+      if (unit.team === req.asTeam) {
+        ours.push({ id, options: trimmed });
+        ourSpace *= set.candidates.length;
+      } else {
+        theirs.push({ id, options: trimmed });
+        theirSpace *= set.candidates.length;
+      }
     }
     if (ours.length === 0) {
-      return { best: { lo: 0, est: 0, hi: 0 }, perOption: [], priced: 0 };
+      return {
+        best: { lo: 0, est: 0, hi: 0 },
+        perOption: [],
+        priced: 0,
+        ourCoverage: 0,
+        theirCoverage: 0,
+      };
     }
 
     const ourJoints = enumerateJoints(ours, 6);
     const theirJoints = theirs.length === 0 ? [new Map<UnitId, Candidate>()] : enumerateJoints(theirs, 4);
+    const ourCoverage = ourSpace <= 0 ? 0 : Math.min(1, ourJoints.length / ourSpace);
+    const theirCoverage =
+      theirs.length === 0 ? 1 : theirSpace <= 0 ? 0 : Math.min(1, theirJoints.length / theirSpace);
     const perOption: Array<{ key: string; lo: number; hi: number; plan: JointPlan }> = [];
     let priced = 0;
     let bestLo = -Infinity;
@@ -576,11 +768,21 @@ export class Scout {
         bestHi = worstHi;
       }
     }
-    if (perOption.length === 0) return { best: { lo: 0, est: 0, hi: 0 }, perOption: [], priced };
+    if (perOption.length === 0) {
+      return {
+        best: { lo: 0, est: 0, hi: 0 },
+        perOption: [],
+        priced,
+        ourCoverage: 0,
+        theirCoverage: 0,
+      };
+    }
     return {
       best: { lo: bestLo, est: (bestLo + bestHi) / 2, hi: bestHi },
       perOption: perOption.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0)),
       priced,
+      ourCoverage,
+      theirCoverage,
     };
   }
 
@@ -634,7 +836,6 @@ export class Scout {
    * difference is attributable. Nothing else emits advice.
    */
   private harvest(): void {
-    if (this.mode !== 'advise') return;
     const byCluster = new Map<number, ThreadEntry[]>();
     for (const t of this.ledger.all()) {
       if (t.plies.length === 0) continue;
@@ -660,11 +861,15 @@ export class Scout {
           if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
           const delta = va - vb;
           if (delta === 0) continue;
-          // The loser takes the penalty. The winner takes nothing: a positive
-          // term would be a time-skewed number PROMOTING a candidate, and
-          // promotion is the direction where being wrong costs a staging.
-          const loser = delta < 0 ? diff.a : diff.b;
-          this.note(loser, -clampToLat(Math.abs(delta)), `ply ${depthOf(a)} first-difference`);
+          // BOTH DIRECTIONS, at the same magnitude. The first difference is
+          // symmetric — it says this candidate is worth `delta` more than that
+          // one, two turns out — and the loser-only rule threw away half of it
+          // on the ground that a promotion cannot be discounted. It can now:
+          // the value channel prices depth by earned precision, and an ordering
+          // hint that can only ever push down cannot report a discovered kill.
+          const note = `ply ${depthOf(a)} first-difference`;
+          this.note(diff.a, delta, note);
+          this.note(diff.b, -delta, note);
         }
       }
     }
@@ -673,10 +878,16 @@ export class Scout {
   private note(c: Candidate, delta: number, note: string): void {
     const key = `${c.unitId}:${c.to as number}`;
     const prior = this.findings.get(key);
-    // The WORST finding wins, not the sum: two threads finding the same danger
-    // is one danger, and summing would let the sampler's own breadth inflate a
-    // penalty.
-    if (prior !== undefined && prior.delta <= delta) return;
+    // THE LARGEST FINDING WINS, not the sum, and the sign is kept: two threads
+    // finding the same danger is one danger, and summing would let the
+    // sampler's own breadth inflate it. A magnitude tie is broken toward the
+    // more negative reading, so the rule is total and the order it is applied
+    // in cannot change the answer.
+    if (prior !== undefined) {
+      const a = Math.abs(prior.delta);
+      const b = Math.abs(delta);
+      if (a > b || (a === b && prior.delta <= delta)) return;
+    }
     this.findings.set(key, { unitId: c.unitId, to: c.to, delta, note });
   }
 
@@ -688,6 +899,28 @@ export class Scout {
     this.lines.clear();
   }
 
+  /**
+   * WHAT THE DEEPENED LINES ARE WORTH, in canonical order — one per offered
+   * root that reached a continuation.
+   *
+   * Canonical means sorted by the note, which carries the thread key: the key
+   * is a pure function of (cluster, root plan), so the order is a function of
+   * the board and never of iteration or of which thread finished first.
+   */
+  deepObservations(): ReadonlyArray<DeepObservation> {
+    const out: DeepObservation[] = [];
+    for (const [key, d] of this.deep) {
+      out.push({
+        root: d.root,
+        value: d.value,
+        sigma: Math.sqrt(d.sigmaSq),
+        plies: d.plies,
+        note: `${key}@${d.plies}`,
+      });
+    }
+    return out.sort((a, b) => (a.note < b.note ? -1 : a.note > b.note ? 1 : 0));
+  }
+
   /** Every finding, in canonical order. */
   advice(): ReadonlyArray<ScoutFinding> {
     return [...this.findings.values()].sort(
@@ -697,22 +930,26 @@ export class Scout {
 
   /**
    * The advice as CL3's `UnaryLookup` — the seam CL3 built for exactly this and
-   * left unsupplied. `undefined` in `observe`, which is what makes the mode's
-   * byte-identity claim structural rather than a promise.
+   * left unsupplied. `undefined` when nothing was found, which is the one case
+   * where re-running the enumeration under a new potential would be paying for
+   * an identical answer.
    */
   unaryAdvice(): ((unitId: UnitId, candidate: Candidate) => number) | undefined {
-    if (this.mode !== 'advise' || this.findings.size === 0) return undefined;
+    if (this.findings.size === 0) return undefined;
     const table = this.findings;
     return (unitId: UnitId, candidate: Candidate): number =>
       table.get(`${unitId}:${candidate.to as number}`)?.delta ?? 0;
   }
 
   report(): ScoutReport {
+    let deepest = 0;
+    for (const d of this.deep.values()) deepest = Math.max(deepest, d.plies);
     return reportOf(
-      this.mode,
       this.ledger,
       this.purse,
       this.findings.size,
+      this.deep.size,
+      deepest,
       { ...this.refusals },
       this.gate
     );
@@ -786,16 +1023,20 @@ export function soleDifference(
   return found;
 }
 
-/**
- * ONE MATERIAL LATTICE STEP, and no further.
+/*
+ * `clampToLat` USED TO LIVE HERE and is deleted.
  *
- * The EV-cliff law says a non-material ordering feature may not outbid one
- * unit's life, and excludes `fatal` by name because it IS the lattice. A
- * thread's finding is denominated in the lattice too — but at a DIFFERENT
- * TURN, and L1 says depth is provenance. So the clamp is the cross-ply form of
- * the same rule: a time-skewed material fact may inform an ordering, and may
- * not outweigh a ply-1 one.
+ * It capped every scout finding at one material lattice step, on the argument
+ * that a time-skewed material fact may inform an ordering and may not outbid a
+ * ply-1 one. The measurement that killed it is in the depth diagnosis: across
+ * 258 findings on three probe families it never fired once, because real
+ * findings ran three to eight score units against a cap of ten — so it was
+ * never what held depth back, and it would have bitten exactly when a thread
+ * finally proved something big.
+ *
+ * The argument it encoded was right about the WORRY and wrong about the
+ * INSTRUMENT. What a deep reading is discounted by now is the model error of
+ * the simulation that produced it, measured on the line (`sigmaOfPly`) and
+ * spent as precision. That scales in both directions and has no ceiling, which
+ * is the whole of the difference.
  */
-export function clampToLat(v: number): number {
-  return Math.min(Math.abs(v), LAT);
-}

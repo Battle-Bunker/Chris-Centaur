@@ -45,10 +45,7 @@ export {
   NODE_PROPOSALS,
   NODE_SWEEP_CANDIDATES,
   NODE_SWEEP_UNITS,
-  SAMPLED_CAP_ENV,
   SelectionSampler,
-  sampledCapEnabled,
-  sampledCapFrom,
   temperatureAt,
 } from "./sample";
 export type { SamplingTuning, SelectionReport } from "./sample";

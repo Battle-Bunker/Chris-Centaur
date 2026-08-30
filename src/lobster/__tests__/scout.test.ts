@@ -37,7 +37,6 @@ import {
   ThreadLedger,
   barrierDepth,
   buildContactMatrix,
-  clampToLat,
   depthOf,
   cleanPrefixOf,
   contactOf,
@@ -45,8 +44,8 @@ import {
   deepenNext,
   effectiveTithe,
   resumePriority,
-  scoutModeFrom,
   shouldPark,
+  sigmaOfPly,
   soleDifference,
   tierAtRoot,
   tierPremiseAdmits,
@@ -520,16 +519,6 @@ describe('threads', () => {
 // ---------------------------------------------------------------------------
 
 describe('the scheduler', () => {
-  test('the flag ships off and reads three positions', () => {
-    expect(scoutModeFrom({})).toBe('off');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: 'off' })).toBe('off');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: '0' })).toBe('off');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: '1' })).toBe('observe');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: 'observe' })).toBe('observe');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: 'advise' })).toBe('advise');
-    expect(scoutModeFrom({ CENTAUR_SCOUT: 'nonsense' })).toBe('off');
-  });
-
   test("the reserve is the tithe's CEILING, not a competitor", () => {
     // The owner's Q3 answer is "at least half for this turn's move". A
     // configuration asking for 70% gets 50%, silently in the right direction.
@@ -732,14 +721,78 @@ describe('the channels', () => {
     }
   });
 
-  test('every scout finding is a NEGATIVE ordering term, clamped to one lat', () => {
-    // The polarity rule: `Surrogate.unary` ADDS φ_u and higher is better, so a
-    // discovered next-ply danger is negative. And the clamp is the cross-ply
-    // form of the EV-cliff law — a time-skewed material fact may inform an
-    // ordering and may not outbid a ply-1 one.
-    expect(clampToLat(3)).toBe(3);
-    expect(clampToLat(-3)).toBe(3);
-    expect(clampToLat(1e9)).toBe(10);
+  test('a finding is discounted by MEASURED model error, and never by a cap', () => {
+    // `clampToLat` is deleted. What replaced it is `sigmaOfPly`, and the whole
+    // claim is that it scales with quantities the line measured rather than
+    // with a constant somebody chose.
+    const clean = {
+      world: 0,
+      spread: 8,
+      ourMiss: 0,
+      theirMiss: 0,
+      fog: 0,
+      interfere: 0,
+    };
+    // A perfectly enumerated, fog-free, exactly-priced node: the model IS the
+    // game there, so the reading is exact and earns unbounded precision.
+    expect(sigmaOfPly(clean)).toBe(0);
+    // Every error source raises sigma, monotonically, and each is scaled by
+    // the node's OWN spread — how much getting it wrong could actually cost.
+    const withFog = sigmaOfPly({ ...clean, fog: 1 });
+    expect(withFog).toBeCloseTo(8);
+    expect(sigmaOfPly({ ...clean, fog: 0.25 })).toBeLessThan(withFog);
+    expect(sigmaOfPly({ ...clean, theirMiss: 1 })).toBeCloseTo(8);
+    expect(sigmaOfPly({ ...clean, ourMiss: 1, theirMiss: 1 })).toBeGreaterThan(withFog);
+    // A flat node cannot be wrong by much however truncated its enumeration:
+    // spread is the scale, so a node whose options all agree earns precision
+    // even under fog.
+    expect(sigmaOfPly({ ...clean, spread: 0, fog: 1, ourMiss: 1 })).toBe(0);
+    // World uncertainty adds in quadrature and is NOT scaled by spread: it is
+    // what the engine itself could not resolve about this position.
+    expect(sigmaOfPly({ ...clean, world: 6 })).toBeCloseTo(6);
+    expect(sigmaOfPly({ ...clean, world: 6, fog: 1 })).toBeCloseTo(10);
+    // NO CEILING. A wide node is simply imprecise; nothing truncates it.
+    expect(sigmaOfPly({ ...clean, world: 1e6 })).toBeCloseTo(1e6);
+  });
+
+  test('a finding may be POSITIVE or negative, and neither direction is capped', () => {
+    // The loser-only polarity rule is deleted with the clamp. A first
+    // difference says one candidate is worth `delta` more than the other two
+    // turns out, and an ordering channel that could only ever push DOWN could
+    // not report a discovered kill at all.
+    const b = bench(snakesBoard(23));
+    const gen = new GrammarCandidateGenerator({});
+    const partition = partitionOf({ sub: b.sub, roster: b.roster, fixed: new Set<UnitId>() });
+    const { plans } = enumerateProposals({
+      sub: b.sub,
+      partition,
+      roster: b.roster,
+      sets: b.sets,
+      fixed: new Map(),
+      doomed: new Set(),
+      asTeam: b.asTeam,
+      tuning: DEFAULT_CLUSTER_TUNING,
+      salt: 1,
+    });
+    const scout = new Scout();
+    scout.run({
+      sub: b.sub,
+      asTeam: b.asTeam,
+      gen,
+      partition,
+      sets: b.sets,
+      seeds: plans,
+      epoch: 0,
+      posture: 'SIGHTED',
+      decisionMs: 0,
+    });
+    const advice = scout.advice();
+    expect(advice.length).toBeGreaterThan(0);
+    // Symmetric by construction: the sink notes both halves of every pair, so
+    // over a board with any finding at all both signs are representable.
+    expect(advice.some((f) => f.delta > 0)).toBe(true);
+    expect(advice.some((f) => f.delta < 0)).toBe(true);
+    b.close();
   });
 
   test('a first difference is the only attributable pair', () => {
@@ -1077,50 +1130,67 @@ async function decideWith(
 }
 
 describe('the gates', () => {
-  test('OBSERVE stages exactly what flag-off stages — the firewall, measured', () => {
-    // THE CLAIM THIS STAGE OWES. Under Door A the scout is advisory, so the one
-    // thing that must be true is that it cannot perturb staging. In `observe`
-    // every thread runs, every counter is written, and no ordering channel is
-    // touched — so the emissions must be equal, plan for plan and bound for
-    // bound, to the run without it.
+  test('DEPTH IS DETERMINISTIC PER SEED: same board, same values, same plans', () => {
+    // The `observe` byte-identity gate that used to live here is DELETED with
+    // the mode it was about. It asserted that a position of a flag computed
+    // everything and changed nothing — a claim that only means something while
+    // there is a dark path to compare against, and the ruling that removed
+    // feature flags removed the dark path.
     //
-    // What DOES move, and what the replay corpus shows moving, is
-    // clock-derived: `stepCostMs` and `postureFlips[].at`. The scout spends
-    // budget. Spending budget is a value trade and never a soundness one, and
-    // an assertion that pretended otherwise would be asserting something false.
-    return Promise.all(
-      [3, 11, 23].map(async (seed) => {
-        const board = snakesBoard(seed);
-        const off = await decideWith(board, { clusterEnum: true });
-        clearGeometryCache();
-        const on = await decideWith(board, { clusterEnum: true, scout: 'observe' });
-        clearGeometryCache();
-        expect(on).toEqual(off);
-        expect(off.length).toBeGreaterThan(0);
-      })
-    );
-  }, 120000);
-
-  test('ADVISE is deterministic: same board, same findings, same plans', () => {
-    // The advise arm's gate is NOT identity — a channel that never changed an
-    // order would not be a channel. It is REPRODUCIBILITY: the thread set, the
-    // findings and the staged plans are a pure function of the board and the
+    // What replaces it is the gate depth actually owes now that it decides:
+    // REPRODUCIBILITY. The thread set, the deepened values, the precisions they
+    // earn and the plans they stage are a pure function of the board and the
     // partition, with no clock and no iteration order anywhere in the path.
     return Promise.all(
       [3, 11, 23].map(async (seed) => {
         const board = snakesBoard(seed);
-        const first = await decideWith(board, { clusterEnum: true, scout: 'advise' });
+        const first = await decideWith(board, {});
         clearGeometryCache();
-        const second = await decideWith(board, { clusterEnum: true, scout: 'advise' });
+        const second = await decideWith(board, {});
         clearGeometryCache();
         expect(second).toEqual(first);
+        expect(first.length).toBeGreaterThan(0);
       })
     );
   }, 120000);
 
-  test('the scout report reaches telemetry and nothing else', () => {
+  test('a depth ration of zero buys no plies, and is a budget statement', () => {
+    // The one thing a caller who wants no depth does now. It is not a dark
+    // path: the layer is constructed, the door is available, the report is
+    // published — what changes is that the purse buys nothing.
     const b = bench(snakesBoard(59));
-    const core = makeSearchCore({ clusterEnum: true, scout: 'observe' });
+    const ctx = {
+      sub: b.sub,
+      gen: new GrammarCandidateGenerator({}),
+      evaluate: defaultEvaluator,
+      asTeam: b.asTeam,
+      pins: [],
+      assumptions: [],
+      incumbent: null,
+      witnesses: [],
+      budget: unboundedBudget(),
+    };
+    const rationed = makeSearchCore({ scoutTuning: { plyCap: 0 } });
+    rationed.improve(ctx);
+    const starved = rationed.scoutReport?.();
+    expect(starved).not.toBeNull();
+    expect(starved?.deepened).toBe(0);
+    expect(starved?.observations).toBe(0);
+    expect(rationed.depthReport?.()?.plies).toBe(1);
+    rationed.release?.();
+
+    const funded = makeSearchCore({});
+    funded.improve(ctx);
+    const report = funded.scoutReport?.();
+    expect(report?.threads).toBeGreaterThan(0);
+    expect(report?.deepened).toBeGreaterThan(0);
+    funded.release?.();
+    b.close();
+  }, 60000);
+
+  test('the depth surface publishes values, plies and a counterfactual', () => {
+    const b = bench(snakesBoard(59));
+    const core = makeSearchCore({});
     core.improve({
       sub: b.sub,
       gen: new GrammarCandidateGenerator({}),
@@ -1132,121 +1202,82 @@ describe('the gates', () => {
       witnesses: [],
       budget: unboundedBudget(),
     });
-    const report = core.scoutReport?.();
-    expect(report).not.toBeNull();
-    expect(report?.mode).toBe('observe');
-    expect(report?.threads).toBeGreaterThan(0);
-    // OBSERVE produces no advice, by construction. That is the whole
-    // difference between the two positions of the flag.
-    expect(report?.findings).toBe(0);
-    // And with the flag off there is no report at all — which is how a reader
-    // tells "off" from "on and found nothing".
-    const dark = makeSearchCore({ clusterEnum: true, scout: 'off' });
-    dark.improve({
-      sub: b.sub,
-      gen: new GrammarCandidateGenerator({}),
-      evaluate: defaultEvaluator,
-      asTeam: b.asTeam,
-      pins: [],
-      assumptions: [],
-      incumbent: null,
-      witnesses: [],
-      budget: unboundedBudget(),
-    });
-    expect(dark.scoutReport?.()).toBeNull();
+    const scout = core.scoutReport?.();
+    expect(scout).not.toBeNull();
+    expect(scout?.threads).toBeGreaterThan(0);
+    // Reached. `gatedBy: null` is the positive statement that a zero anywhere
+    // else in this report is depth's own answer and not the board's.
+    expect(scout?.gatedBy).toBeNull();
+    // THE HONEST HORIZON — measured turns of play, not a configured ceiling.
+    expect(scout?.deepestPlies).toBeGreaterThan(1);
+
+    const depth = core.depthReport?.();
+    expect(depth).not.toBeNull();
+    if (depth === null || depth === undefined) throw new Error('unreachable');
+    expect(depth.plies).toBe(scout?.deepestPlies);
+    expect(depth.notes.length).toBe(scout?.observations);
+    expect(depth.notes.length).toBeGreaterThan(0);
+    for (const note of depth.notes) {
+      // A value in score units on a board `plies` turns ahead, a sigma in the
+      // same units, and the ply-1 plan it is about. Nothing is capped.
+      expect(Number.isFinite(note.value)).toBe(true);
+      expect(note.sigma).toBeGreaterThanOrEqual(0);
+      expect(note.plies).toBeGreaterThan(1);
+      expect(note.plan.size).toBeGreaterThan(0);
+    }
+    expect(typeof depth.changedPlan).toBe('boolean');
     core.release?.();
-    dark.release?.();
     b.close();
   }, 60000);
 
-  test('a scout that was never reached says so, instead of reporting a null', () => {
+  test('"never reached" and "reached and found nothing" are different reports', () => {
     // THE SILENT DEPENDENCY, made loud. `scout.run` has one call site and it
-    // is inside `openCluster`, below the cluster-enumeration gate — so
-    // `CENTAUR_SCOUT=advise` on its own is a no-op that USED TO REPORT
-    // `mode=advise threads=0 findings=0`, which reads as "it ran and found
-    // nothing". It is "it never ran", and the two are opposite facts about a
-    // measurement: the first is a null about the scout, the second is a null
-    // about the harness. P11's contenders are three arms of one flag, and an
-    // experiment that cannot tell these apart files the harness's null against
-    // the flag.
-    //
-    // Nothing here auto-enables the enumeration. The defect is a dependency a
-    // report could not see, not a dependency an operator has to satisfy.
-    const ctxFor = (b: Bench) => ({
+    // sits below the partition, so a board the door cannot continue through
+    // produces no thread at all — and a report saying only `threads=0
+    // observations=0` reads as "depth ran and found nothing" when it means
+    // "depth was never reached". Those are opposite facts about a measurement:
+    // the first is a null about depth, the second a null about the harness,
+    // and an experiment that cannot tell them apart files one against the
+    // other. This asserts the two reports differ, on the field that carries it.
+    const gated = new Scout();
+    gated.gatedBy("substrate is not the engine's — no door to continue through");
+    const gatedReport = gated.report();
+    expect(gatedReport.threads).toBe(0);
+    expect(gatedReport.observations).toBe(0);
+    expect(gatedReport.deepestPlies).toBe(0);
+    expect(typeof gatedReport.gatedBy).toBe('string');
+
+    // Reached, and with nothing to open: `gatedBy` is null and the REFUSAL
+    // carries the reason instead, which is the positive statement that every
+    // other zero in the report is depth's own answer.
+    const b = bench(snakesBoard(59));
+    const reached = new Scout();
+    reached.gatedBy('a reason that must be cleared the moment run() is entered');
+    reached.run({
       sub: b.sub,
-      gen: new GrammarCandidateGenerator({}),
-      evaluate: defaultEvaluator,
       asTeam: b.asTeam,
-      pins: [],
-      assumptions: [],
-      incumbent: null,
-      witnesses: [],
-      budget: unboundedBudget(),
+      gen: new GrammarCandidateGenerator({}),
+      partition: {
+        clusters: [],
+        sliders: [],
+        variables: [],
+        fixed: new Set<UnitId>(),
+        neighboursOf: () => new Set<UnitId>(),
+        adjacent: () => false,
+      },
+      sets: b.sets,
+      seeds: [],
+      epoch: 0,
+      posture: 'SIGHTED',
+      decisionMs: 0,
     });
-
-    // BOTH WAYS, on the same board, so the only difference is the gate.
-    const gated = bench(snakesBoard(59));
-    const shut = makeSearchCore({ clusterEnum: false, scout: 'advise' });
-    shut.improve(ctxFor(gated));
-    const shutReport = shut.scoutReport?.();
-    expect(shutReport).not.toBeNull();
-    // The mode is still what the operator asked for — the report does not lie
-    // about the request, it explains the absence.
-    expect(shutReport?.mode).toBe('advise');
-    expect(shutReport?.threads).toBe(0);
-    expect(shutReport?.findings).toBe(0);
-    expect(typeof shutReport?.gatedBy).toBe('string');
-    expect(shutReport?.gatedBy).toContain('CENTAUR_CLUSTER_ENUM');
-    shut.release?.();
-    gated.close();
-    clearGeometryCache();
-
-    const open = bench(snakesBoard(59));
-    const ran = makeSearchCore({ clusterEnum: true, scout: 'advise' });
-    ran.improve(ctxFor(open));
-    const ranReport = ran.scoutReport?.();
-    expect(ranReport?.mode).toBe('advise');
-    expect(ranReport?.threads).toBeGreaterThan(0);
-    // Reached. `gatedBy: null` is the positive statement that a zero anywhere
-    // else in this report is the scout's own answer.
-    expect(ranReport?.gatedBy).toBeNull();
-    ran.release?.();
-    open.close();
+    const reachedReport = reached.report();
+    expect(reachedReport.gatedBy).toBeNull();
+    expect(reachedReport.threads).toBe(0);
+    expect(reachedReport.refusals['no-cluster']).toBe(1);
+    b.close();
   }, 60000);
-
-  test('the scout returns every slab it borrows, decision after decision', () => {
-    // The slab contract applies to a thread exactly as to a decision: a leak
-    // does not look like a leak, it looks like the engine getting slower.
-    //
-    // The assertion is a SUBTRACTION and not an absolute, because the bank's
-    // resolution memo deliberately retains slabs for the session's life — so
-    // `outstanding()` after an `improve` is a property of the search, not of
-    // the scout. What the scout owes is that it adds NOTHING to that number.
-    const run = (scout: 'off' | 'advise'): number => {
-      const b = bench(snakesBoard(61));
-      const core = makeSearchCore({ clusterEnum: true, scout });
-      const ctx = {
-        sub: b.sub,
-        gen: new GrammarCandidateGenerator({}),
-        evaluate: defaultEvaluator,
-        asTeam: b.asTeam,
-        pins: [],
-        assumptions: [],
-        incumbent: null,
-        witnesses: [],
-        budget: unboundedBudget(),
-      };
-      core.improve(ctx);
-      core.improve(ctx);
-      const outstanding = b.sub.outstanding();
-      core.release?.();
-      b.close();
-      clearGeometryCache();
-      return outstanding;
-    };
-    expect(run('advise')).toBe(run('off'));
-  }, 60000);
-});
+});;
 
 // ---------------------------------------------------------------------------
 // THE RUNNER, END TO END
@@ -1274,7 +1305,7 @@ describe('the runner', () => {
       tuning: DEFAULT_CLUSTER_TUNING,
       salt: 1,
     });
-    const scout = new Scout('advise');
+    const scout = new Scout();
     scout.run({
       sub: b.sub,
       asTeam: b.asTeam,
@@ -1324,7 +1355,7 @@ describe('the runner', () => {
       tuning: DEFAULT_CLUSTER_TUNING,
       salt: 1,
     });
-    const scout = new Scout('advise');
+    const scout = new Scout();
     scout.run({
       sub: b.sub,
       asTeam: b.asTeam,
@@ -1338,12 +1369,12 @@ describe('the runner', () => {
     });
     const advice = scout.advice();
     for (const finding of advice) {
-      // NEGATIVE, always. `Surrogate.unary` adds φ_u and higher is better, so a
-      // next-ply danger demotes. A positive term would be a time-skewed number
-      // PROMOTING a candidate, and promotion is the direction where being
-      // wrong costs a staging.
-      expect(finding.delta).toBeLessThan(0);
-      expect(Math.abs(finding.delta)).toBeLessThanOrEqual(10);
+      // SIGNED, and finite. `Surrogate.unary` adds φ_u and higher is better,
+      // so a next-ply danger demotes and a next-ply gain promotes; the loser-
+      // only rule and the one-lattice-step cap are both deleted, because both
+      // were constants standing in for a discount that is now measured.
+      expect(finding.delta).not.toBe(0);
+      expect(Number.isFinite(finding.delta)).toBe(true);
       // And it names a real option of a real unit.
       const set = b.sets.get(finding.unitId);
       expect(set).toBeDefined();
@@ -1404,7 +1435,7 @@ describe('the runner', () => {
         tuning: DEFAULT_CLUSTER_TUNING,
         salt: 1,
       });
-      const scout = new Scout('observe');
+      const scout = new Scout();
       scout.run({
         sub: b.sub,
         asTeam: b.asTeam,

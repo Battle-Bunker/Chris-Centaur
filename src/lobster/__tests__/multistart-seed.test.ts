@@ -34,7 +34,6 @@ import {
   classifyOptions,
   crowdedUnits,
   multiStartSeed,
-  multistartSeedFrom,
 } from '../search/multistart-seed';
 import { dangerOrder } from '../search/order';
 import { decisionSeed } from '../selection';
@@ -169,7 +168,6 @@ function seedRun(board: Board, arm: Arm, opts: RunOptions = {}): SeedRun {
     ...(opts.edgeEv === undefined ? {} : { edgeEv: opts.edgeEv }),
   });
   const core = makeSearchCore({
-    clusterSeed: arm === 'cluster',
     multistartSeed: arm === 'multistart',
     seedDeconflict: arm === 'shipped' ? false : undefined,
     rungZeroRepair: false,
@@ -273,17 +271,7 @@ afterEach(() => clearGeometryCache());
 
 // ---------------------------------------------------------------------------
 
-describe('the flag', () => {
-  test('is off unless something says on, and reads the same words the others do', () => {
-    expect(multistartSeedFrom({})).toBe(false);
-    expect(multistartSeedFrom({ CENTAUR_MULTISTART_SEED: '' })).toBe(false);
-    expect(multistartSeedFrom({ CENTAUR_MULTISTART_SEED: 'off' })).toBe(false);
-    expect(multistartSeedFrom({ CENTAUR_MULTISTART_SEED: 'nonsense' })).toBe(false);
-    for (const on of ['1', 'on', 'true']) {
-      expect(multistartSeedFrom({ CENTAUR_MULTISTART_SEED: on })).toBe(true);
-    }
-  });
-
+describe('the configuration', () => {
   test('THE GATE: with it off the seed is the one that shipped, plan for plan', () => {
     for (const board of [packedCornerBoard(), pocketBoard()]) {
       const off = seedRun(board, 'shipped');

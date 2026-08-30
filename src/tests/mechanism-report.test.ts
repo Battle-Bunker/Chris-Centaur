@@ -24,12 +24,7 @@
 import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
 import type { PinEvent } from '../lobster/contracts';
 import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
-import { CLUSTER_SEED_ENV } from '../lobster/search/cluster-seed';
-import { MULTISTART_SEED_ENV } from '../lobster/search/multistart-seed';
-import { CLUSTER_ENUM_ENV } from '../lobster/search/cluster-partition';
-import { EDGE_EV_ENV } from '../lobster/search/edge-ev';
-import { SAMPLED_CAP_ENV } from '../lobster/selection';
-import { SCOUT_ENV } from '../lobster/search/scout';
+import { DEFAULT_SCOUT_TUNING } from '../lobster/search/scout';
 
 // ------------------------------------------------------------------ fixtures
 
@@ -92,22 +87,16 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
 /**
  * TODO(teardown-search): WHAT IS LEFT OF THE FLAG SURFACE.
  *
- * The bot is a value now (`lobster/bot-config.ts`) and nothing this file cares
- * about reaches the environment — except these five, which still resolve from
- * `process.env` inside `makeSearchCore` and are the search-layer teardown's to
- * remove. They are set on `process.env` and not on `ports.env` because that is
- * where their readers look: `ports.env` reaches the wire's write interval and
- * nothing else, so a test that set it would prove the stamp agreed with a
- * value nothing ran on.
+ * The bot is a value now (`lobster/bot-config.ts`) and NOTHING this file cares
+ * about reaches the environment any more. The five search-layer variables that
+ * used to be listed here are gone with the search-layer teardown: two of them
+ * guarded machinery that always runs, and three became bot fields.
+ *
+ * The list stays as an EMPTY list and `decide` keeps setting whatever it is
+ * handed, because the tests below are exactly the assertions that setting a
+ * variable changes nothing — and that assertion needs a way to set one.
  */
-const FLAG_ENVS = [
-  CLUSTER_SEED_ENV,
-  MULTISTART_SEED_ENV,
-  EDGE_EV_ENV,
-  CLUSTER_ENUM_ENV,
-  SAMPLED_CAP_ENV,
-  SCOUT_ENV,
-];
+const FLAG_ENVS: ReadonlyArray<string> = [];
 
 async function decide(
   env: Record<string, string>,
@@ -173,12 +162,10 @@ describe('CL7: the mechanism report is present and complete', () => {
         'unitFatality',
         'gainOrdering',
         'workers',
-        'clusterSeed',
-        'multistartSeed',
         'edgeEv',
-        'clusterEnum',
+        'multistartSeed',
         'sampledCap',
-        'scout',
+        'depthPlyCap',
       ].sort()
     );
 
@@ -188,11 +175,12 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.config.territoryRefine).toBe(false);
     expect(m.config.unitFatality).toBe(false);
     expect(m.config.workers).toBe(0);
-    expect(m.config.clusterSeed).toBe(false);
     expect(m.config.edgeEv).toBe(false);
-    expect(m.config.clusterEnum).toBe(false);
+    expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
-    expect(m.config.scout).toBe('off');
+    // DEPTH IS NOT AN ARM. What the stamp carries is its RATION, and the
+    // shipped bot takes the default ply ceiling whole.
+    expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
     // `gainOrdering` was PROMOTED at integ/round-a and ships on.
     expect(m.config.gainOrdering).toBe(true);
     // `auto` is board-conditional; this board bears pieces, so it resolves on.
@@ -239,26 +227,29 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.config.stagingSafety).not.toBe('off');
   }, 20_000);
 
-  test('a MISTYPED search flag value reads as off — the A/A-null-wearing-a-name trap', async () => {
-    // TODO(teardown-search): these five still parse only `1|on|true` and warn
-    // on nothing, so `yes` and `ON` are off. The sim kit's P7 comment names
-    // this trap; the stamp is what makes it detectable after the fact instead
-    // of never. It stops being possible when they become bot fields, which are
-    // validated rather than coerced (`botConfigFromJson`).
+  test('THE SEARCH FLAGS ARE DEAD TOO — setting them by their old names does nothing', async () => {
+    // THE A/A-NULL-WEARING-A-NAME TRAP, closed rather than detected. These five
+    // parsed only `1|on|true` and warned on nothing, so a mistyped `yes` was a
+    // control arm wearing a treatment's name and the stamp was the only way to
+    // find out afterwards. They no longer exist: two guarded machinery that
+    // always runs, three are bot fields, and a bot field is VALIDATED rather
+    // than coerced (`botConfigFromJson` throws on an unknown key and on a
+    // non-boolean). Setting every one of them, correctly spelled, leaves the
+    // shipped bot exactly where it was.
     const { result } = await decide({
-      [CLUSTER_SEED_ENV]: 'yes',
-      [EDGE_EV_ENV]: 'enabled',
-      [CLUSTER_ENUM_ENV]: '0',
-      [SAMPLED_CAP_ENV]: 'TRUE',
-      [SCOUT_ENV]: 'yes',
+      CENTAUR_CLUSTER_SEED: 'on',
+      CENTAUR_MULTISTART_SEED: 'on',
+      CENTAUR_EDGE_EV: 'on',
+      CENTAUR_CLUSTER_ENUM: 'on',
+      CENTAUR_SAMPLED_CAP: 'on',
+      CENTAUR_SCOUT: 'advise',
     });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.config.clusterSeed).toBe(false);
     expect(m.config.edgeEv).toBe(false);
-    expect(m.config.clusterEnum).toBe(false);
+    expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
-    expect(m.config.scout).toBe('off');
+    expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
   }, 20_000);
 
   test('with every layer off, a layer that never ran reports NULL, not zero', async () => {
@@ -267,9 +258,13 @@ describe('CL7: the mechanism report is present and complete', () => {
     if (m === null) throw new Error('no mechanism report');
     // The distinction the P5 anomaly turned on: "the arm never engaged" is a
     // different finding from "the arm engaged and did nothing".
-    expect(m.cluster).toBeNull();
     expect(m.selection).toBeNull();
-    expect(m.scout).toBeNull();
+    // MACHINERY, NOT AN ARM: the cluster enumeration and the depth layer
+    // always run on a board that admits them, so their reports are present.
+    // That is the whole difference between machinery and a candidate strategy,
+    // and it is asserted rather than assumed.
+    expect(m.cluster).not.toBeNull();
+    expect(m.scout).not.toBeNull();
     // The mutual-wipe correction allocates nothing until a world with every
     // team gone is priced, and that is a 0.076% end kind — so this stays null
     // on almost every decision even though the correction is unconditional.
@@ -294,11 +289,10 @@ describe('CL7: the mechanism report is present and complete', () => {
 });
 
 describe('CL7: an engaged layer publishes its own promotion metrics', () => {
-  test('clusterEnum ON publishes the cluster report the CL3 gate names', async () => {
-    const { result } = await decide({}, { clusterEnum: true });
+  test('the enumeration publishes its coverage/cost pair unconditionally', async () => {
+    const { result } = await decide({});
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.config.clusterEnum).toBe(true);
     expect(m.cluster).not.toBeNull();
     // The coverage/cost pair CL3 §7 asks a promotion sweep to weigh.
     expect(m.cluster?.clusters).toBeGreaterThanOrEqual(0);
@@ -307,7 +301,7 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
   }, 20_000);
 
   test('sampledCap ON publishes the seed the harness replays from', async () => {
-    const { result } = await decide({}, { sampledCap: true });
+    const { result } = await decide({}, { bot: { sampledCap: true } });
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
     expect(m.config.sampledCap).toBe(true);
@@ -327,25 +321,44 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
     // from EVERY record a live decision produced, while each stage's own tests,
     // which drive a bare core, stayed green. This asserts the wrapper is
     // transparent where it has to be.
-    const { result } = await decide({}, { sampledCap: true, scout: 'observe' });
+    const { result } = await decide({}, { bot: { sampledCap: true } });
     const journal = result.report?.journal ?? [];
     expect(journal.length).toBeGreaterThan(0);
     const last = journal[journal.length - 1];
     expect(last?.selection).toBeDefined();
     expect(typeof last?.selection?.matchSeed).toBe('number');
     expect(last?.scout).toBeDefined();
-    expect(last?.scout?.mode).toBe('observe');
+    expect(last?.scout?.gatedBy).toBeDefined();
   }, 20_000);
 
-  test('scout ON publishes the thread accounting, refusals included', async () => {
-    const { result } = await decide({}, { scout: 'observe' });
+  test('the depth layer publishes its accounting, and an honest horizon', async () => {
+    const { result } = await decide({});
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
-    expect(m.config.scout).toBe('observe');
     expect(m.scout).not.toBeNull();
     // A door that refused every board must read as a refusal, not as a zero —
     // CL6a's own correction, and the reason `refusals` is on the report.
     expect(m.scout?.refusals).toBeDefined();
     expect(m.scout?.plies).toBeGreaterThanOrEqual(0);
+    // MEASURED TURNS OF PLAY, never a configured ceiling and never the `?? 1`
+    // a missing view used to fall back to.
+    expect(m.scout?.deepestPlies).toBeGreaterThanOrEqual(0);
+    // And the belief row says whether any of it was load-bearing.
+    expect(typeof m.belief?.depthChangedStaging).toBe('boolean');
+    expect(m.belief?.deciding).toBe(true);
+  }, 20_000);
+
+  test('a bot that rations depth to zero buys no plies, and says so', async () => {
+    const { result } = await decide({}, { bot: { name: 'shallow', depth: { plyCap: 0 } } });
+    const m = result.mechanism;
+    if (m === null) throw new Error('no mechanism report');
+    expect(m.config.name).toBe('shallow');
+    expect(m.config.depthPlyCap).toBe(0);
+    // Not a dark path: the layer ran, the report exists, the purse bought
+    // nothing.
+    expect(m.scout).not.toBeNull();
+    expect(m.scout?.deepened).toBe(0);
+    expect(m.scout?.observations).toBe(0);
+    expect(m.belief?.deepestPlies).toBe(1);
   }, 20_000);
 });

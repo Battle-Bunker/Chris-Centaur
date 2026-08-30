@@ -420,9 +420,27 @@ export interface StagingCandidate {
   readonly lo: number
   readonly est: number
   readonly hi: number
-  /** Horizon this candidate's value was proved at. */
+  /**
+   * TURNS OF PLAY THIS ROW'S VALUE CARRIES, measured. 1 when nothing deeper
+   * than this turn spoke about it; 2 when a deepened line rooted at this plan
+   * published a value; and so on.
+   *
+   * It used to be a constant every row shared, which made the two sticky-stager
+   * guards that read it (`leader.horizon >= incumbent.horizon`) vacuously true
+   * for the life of the build. They bind now.
+   */
   readonly horizon: number
   readonly vacuity: VacuityCause
+  /**
+   * THE BRANCH'S BELIEF — the density's mean and precision inside (or, once a
+   * deeper reading has spoken, outside) the sound interval.
+   *
+   * Optional so a caller that builds a row by hand need not assemble one; the
+   * stager reads it only where `horizon > 1` on some row, i.e. only where
+   * depth actually spoke, and orders by `lo`/`est` exactly as before elsewhere.
+   */
+  readonly mu?: number
+  readonly prec?: number
 }
 
 export interface CandidateView extends StagingCandidate {
@@ -647,6 +665,20 @@ export interface SearchCore {
    */
   scoutReport?(): import("./search/scout").ScoutReport | null
   /**
+   * Optional: WHAT DEPTH FOUND AND WHAT IT DID WITH IT — the consulted depth
+   * surface.
+   *
+   * This is the channel `KernelOptions.depthMax` and the `?? 1` horizon
+   * fallback were standing in for, and it is deliberately not the refinement
+   * seam: it carries no lever, no rung and no view. It carries the VALUES a
+   * deepened line produced, keyed by the ply-1 plan they are about, so the
+   * kernel can fold them into that branch's belief and report an honest
+   * horizon instead of a constant.
+   *
+   * Null when this core opens no depth layer at all.
+   */
+  depthReport?(): DepthReport | null
+  /**
    * Optional: what the MULTI-START SEED did on the last slice that ran one, or
    * null when the layer never ran.
    *
@@ -667,6 +699,12 @@ export interface SearchCore {
 
 /** Which slot of `better()` decided. See `SearchCore.adjudicationReport`. */
 export interface AdjudicationReport {
+  /**
+   * THE BELIEF decided, among floor-undominated rivals, because a deepened
+   * line had spoken about one of them. Zero on every board where depth
+   * published nothing, and then the ladder below is the one that shipped.
+   */
+  readonly depthDecided: number
   /** The PROVED FLOOR decided. The only slot that is a proof. */
   readonly floorDecided: number
   /** `est` broke a floor tie. Ordering, never adjudication. */
@@ -679,6 +717,47 @@ export interface AdjudicationReport {
   readonly vetoed: number
   /** A basis mismatch: two plans that are not answers to the same question. */
   readonly refused: number
+}
+
+/**
+ * WHAT A DEEPENED LINE IS WORTH, for the branch it started from.
+ *
+ * Three numbers and the plan they are about. Denominated in the same score
+ * units as a ply-1 bank price, on a board `plies` turns of play ahead; `sigma`
+ * is one standard deviation of the MODEL ERROR of the approximate simulation
+ * that produced the value, so `1/sigma^2` is the precision it earned. Not a
+ * bound, not a bound's endpoint, and not capped in either direction.
+ */
+export interface DepthNote {
+  readonly plan: JointPlan
+  readonly value: number
+  readonly sigma: number
+  readonly plies: number
+}
+
+/** The depth layer's per-decision accounting. See `SearchCore.depthReport`. */
+export interface DepthReport {
+  /**
+   * TURNS OF PLAY ACTUALLY SIMULATED, max over lines. 1 means nothing deeper
+   * than this turn ran. MEASURED — never a configured ceiling, and never the
+   * fallback constant the kernel used to report as a horizon.
+   */
+  readonly plies: number
+  /** Comparisons the belief decided that the floor ladder would not have. */
+  readonly decided: number
+  /**
+   * Would this core have returned a DIFFERENT plan with the deep channel
+   * silent? Maintained as a shadow incumbent under the legacy ladder over the
+   * same trial stream, so it costs one comparison per trial and no pricing.
+   *
+   * APPROXIMATE IN ONE STATED WAY: without depth the trial SEQUENCE itself
+   * would differ slightly, because the incumbent steers the sweep. What this
+   * is exact about is the argmax under the legacy ladder over the candidate
+   * stream this decision actually generated.
+   */
+  readonly changedPlan: boolean
+  /** The values, one per ply-1 plan a line was rooted at. */
+  readonly notes: ReadonlyArray<DepthNote>
 }
 
 /** The cluster layer's per-decision accounting. See `SearchCore.clusterReport`. */

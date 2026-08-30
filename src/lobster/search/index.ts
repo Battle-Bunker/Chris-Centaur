@@ -9,9 +9,6 @@ export type { SearchTuning } from "./core";
 export { basisOf, referenceActionsOf } from "./basis";
 
 export {
-  CLUSTER_ENUM_ENV,
-  clusterEnumEnabled,
-  clusterEnumFrom,
   expandCluster,
   mergeAll,
   partitionOf,
@@ -24,12 +21,9 @@ export type { Cluster, Expansion, Partition, PartitionRequest } from "./cluster-
 // found. `./multistart-seed.ts` states what it may and may not do.
 export {
   DEFAULT_MULTISTART,
-  MULTISTART_SEED_ENV,
   classifyOptions,
   crowdedUnits,
   multiStartSeed,
-  multistartSeedEnabled,
-  multistartSeedFrom,
 } from "./multistart-seed";
 export type {
   MultiStartReport,
@@ -53,12 +47,9 @@ export {
   ALL_CHANNELS,
   DEFAULT_SAMPLING,
   DEFAULT_WIDEN,
-  SAMPLED_CAP_ENV,
   SelectionSampler,
   clipCeilings,
   decisionSeed,
-  sampledCapEnabled,
-  sampledCapFrom,
   temperatureAt,
   widenInert,
   widenTo,
@@ -87,14 +78,11 @@ export {
 export {
   DEFAULT_EDGE_EV_TUNING,
   DecisionEconomy,
-  EDGE_EV_ENV,
   EdgeEvStore,
   LAT,
   MEAL_MATERIAL_LAT,
   RaceFronts,
   ZERO_PARTS,
-  edgeEvEnabled,
-  edgeEvFrom,
   nonMaterialSpan,
   pairKey,
   pairTable,
@@ -117,13 +105,11 @@ export type {
 // `./scout/index.ts` and is asserted by `__tests__/scout.test.ts`.
 export {
   DEFAULT_SCOUT_TUNING,
-  SCOUT_ENV,
   Scout,
   ScoutPurse,
   ThreadLedger,
   barrierDepth,
   buildContactMatrix,
-  clampToLat,
   cleanPrefixOf,
   contactOf,
   continueFrom,
@@ -131,8 +117,6 @@ export {
   effectiveTithe,
   priceExpansion,
   resumePriority,
-  scoutMode,
-  scoutModeFrom,
   shouldPark,
   soleDifference,
   tierAtRoot,
@@ -143,7 +127,6 @@ export type {
   Continuation,
   Discrimination,
   ScoutFinding,
-  ScoutMode,
   ScoutReport,
   ScoutRequest,
   ScoutTuning,

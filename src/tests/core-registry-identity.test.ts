@@ -1,37 +1,41 @@
 /**
- * THE REGISTRY'S BYTE-IDENTITY GATE — registry-on-legacy-entries against the
- * pre-registry build.
+ * THE REPLAY GOLDEN — a frozen capture of what this build decides.
  *
- * ── THE GATE ───────────────────────────────────────────────────────────────
+ * ── WHAT THIS GATES, AND WHAT IT USED TO GATE ──────────────────────────────
  *
- * The core redesign's first increment lands the entry registry and the
- * per-branch belief "with everything byte-identical to today". Every other
- * identity test in this suite compares two runs of ONE build, which proves
- * determinism and not identity. This one compares against a frozen capture
- * taken on the build BEFORE the registry existed:
- * `fixtures/core-registry-identity.golden.json`, generated on
- * `claude/cluster-lookahead` @ 049a8df by running
- * `core-identity-fixture.ts` there.
+ * It used to be a BYTE-IDENTITY gate: the registry increment promised to land
+ * "with everything byte-identical to today", so one side of the comparison was
+ * a capture taken on the build before the registry existed (`049a8df`).
  *
- * If this fails, the increment did what it promised not to do. The failure is
- * legible: the diff names the board, and within it the staged move, the
- * emission or the plan-table entry that moved.
+ * THAT PROMISE IS DELIBERATELY OVER, and this is the increment that ended it.
+ * Depth is now value-bearing: a deepened line's evaluation is backed up into
+ * the branch it started from, the belief it moves resolves the choice among
+ * floor-undominated candidates, and the cluster enumeration those lines are
+ * rooted at always runs. Every one of those changes what gets staged, on
+ * purpose. A gate asserting otherwise would be asserting that the increment
+ * did nothing.
+ *
+ * SO THE GOLDEN WAS REGENERATED, ON PURPOSE, from this build. What it gates
+ * now is REGRESSION rather than identity: the next change that moves a staged
+ * plan, an emission or a plan-table entry on these three boards has to say so
+ * in its own diff, and the failure is still legible — the diff names the
+ * board, and within it the row that moved.
  *
  * ── WHY A GOLDEN AND NOT A SECOND RUN ──────────────────────────────────────
  *
  * A self-comparison cannot fail for the thing this gate is about. The claim is
  * about two BUILDS, so one side of it has to be frozen, and freezing it is the
- * whole cost of the gate. Regenerating the golden from the current build would
- * turn a byte-identity gate into a tautology; the capture code lives in its own
- * module precisely so that regenerating it means checking out the old commit.
+ * whole cost of the gate. The capture code lives in its own module so that
+ * regenerating it is a deliberate act with a diff attached, which is exactly
+ * what this increment did.
  *
- * ── AND WHAT THE INCREMENT DID ADD ─────────────────────────────────────────
+ * ── AND WHAT THE INCREMENT ADDS ────────────────────────────────────────────
  *
  * The second and third blocks assert the two structures the increment exists
- * to add — the resolved slate and the populated belief — on the same replay
- * boards. They are on the mechanism report, which is assembled after the
- * kernel loop and read by nothing in the decision path, which is why the first
- * block can still pass.
+ * to add — the resolved slate, and the belief now that it DECIDES. The third
+ * block's claim has flipped with the build: `deciding` is true, `plies` is a
+ * measurement rather than a constant, and a `deep-finding` count is no longer
+ * required to be zero.
  */
 
 import {
@@ -45,7 +49,7 @@ import GOLDEN from './fixtures/core-registry-identity.golden.json';
 import { LEGACY_SLATE, REGISTRY, SLATE_LEGACY, SLOT_IDS } from '../lobster/registry';
 import { OBSERVATION_KINDS } from '../lobster/belief';
 
-describe('core redesign increment 1: byte-identity against the pre-registry build', () => {
+describe('the replay golden: this build decides what the capture says it decides', () => {
   test('the replay set stages the same plans and emits the same records', async () => {
     const captured = encodeCapture(await captureReplaySet());
     // One assertion over the whole set, so a divergence on any board names its
@@ -64,7 +68,7 @@ describe('core redesign increment 1: byte-identity against the pre-registry buil
   });
 });
 
-describe('core redesign increment 1: the registry resolves, and says so on the report', () => {
+describe('the registry resolves, and says so on the report', () => {
   test('every decision stamps one entry per socket, on the legacy slate', async () => {
     const stamps = await withScrubbedFlags(async () => {
       const out = [];
@@ -95,7 +99,7 @@ describe('core redesign increment 1: the registry resolves, and says so on the r
   }, 180_000);
 });
 
-describe('core redesign increment 1: the belief is populated and decides nothing', () => {
+describe('the belief is populated, and now decides', () => {
   test('every decision carries a posterior per branch, and reports it', async () => {
     const rows = await withScrubbedFlags(async () => {
       const out = [];
@@ -121,12 +125,21 @@ describe('core redesign increment 1: the belief is populated and decides nothing
       expect(belief.branches).toBeGreaterThan(0);
       expect(belief.staged).not.toBeNull();
 
-      // The two channels obey their own laws on every branch: the density's
-      // mean lives INSIDE the sound support, and precision is never negative.
+      // The two channels obey their own laws on every branch. Precision is
+      // never negative; and the density's mean lives inside the sound support
+      // EXACTLY WHILE every reading it carries is about this turn. A branch
+      // that has heard from a deeper horizon is allowed outside, because the
+      // one-ply interval does not bound the quantity a deeper reading is about
+      // — see `belief.ts`. The horizon is what says which law applies, so it is
+      // asserted alongside rather than assumed.
       for (const w of row.planWork) {
-        expect(w.belief.mu).toBeGreaterThanOrEqual(w.belief.lo);
-        expect(w.belief.mu).toBeLessThanOrEqual(w.belief.hi);
         expect(w.belief.prec).toBeGreaterThanOrEqual(0);
+        expect(w.belief.plies).toBeGreaterThanOrEqual(1);
+        expect(w.horizon).toBe(w.belief.plies);
+        if (w.belief.plies === 1) {
+          expect(w.belief.mu).toBeGreaterThanOrEqual(w.belief.lo);
+          expect(w.belief.mu).toBeLessThanOrEqual(w.belief.hi);
+        }
       }
 
       // ASSEMBLED FROM OBSERVATIONS, not conjured: every branch was spoken to
@@ -134,16 +147,25 @@ describe('core redesign increment 1: the belief is populated and decides nothing
       expect(belief.provenance['bank-price']).toBe(belief.branches);
       expect(belief.provenance.evaluation).toBe(belief.branches);
 
-      // THE CHANNELS THAT DO NOT EXIST YET READ ZERO, and that is the truth
-      // rather than a placeholder: no shadow machinery is built (increment 2),
-      // the scout reaches candidate ordering and never a branch posterior, and
-      // there is no second ply in the plan table.
+      // THE SHADOW CHANNEL DOES NOT EXIST YET and reads zero, which is the
+      // truth rather than a placeholder (increment 2 builds it). So does the
+      // child-backup channel: a thread's value is published for the branch it
+      // started from, and there is no second ply in the plan table to back up
+      // through.
       expect(belief.provenance.shadow).toBe(0);
-      expect(belief.provenance['deep-finding']).toBe(0);
       expect(belief.provenance['child-backup']).toBe(0);
+      // The DEEP channel is open, and it is a measurement: a board the door
+      // refuses reports zero and a board it opens reports what it found. Both
+      // are answers; what neither may be is a constant.
+      expect(belief.provenance['deep-finding']).toBeGreaterThanOrEqual(0);
+      expect(belief.deepestPlies).toBeGreaterThanOrEqual(1);
+      expect(belief.deepBranches).toBeLessThanOrEqual(belief.branches);
+      expect(typeof belief.depthChangedStaging).toBe('boolean');
 
-      // NON-DECIDING, published rather than assumed.
-      expect(belief.deciding).toBe(false);
+      // DECIDING, published rather than assumed. The increment-1 gate said
+      // false here; this is the increment that flips it, and a sweep can tell
+      // the two builds apart without reading the source.
+      expect(belief.deciding).toBe(true);
     }
   }, 180_000);
 

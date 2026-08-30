@@ -82,7 +82,7 @@ import {
 import type { StagingSafety } from './staging-safety';
 import { CertainOccupancy, classifyUnit } from './fatality';
 import type { CandidateFatality } from './fatality';
-import { DecisionEconomy, edgeEvFrom, unaryEv, unaryParts } from './search/edge-ev';
+import { DecisionEconomy, unaryEv, unaryParts } from './search/edge-ev';
 import type { EdgeEvTuning } from './search/edge-ev';
 import type {
   Candidate,
@@ -388,15 +388,12 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
  * level, resolved conservatively (`auto` with no board is `off`), which is what
  * that caller used to get from an unset environment.
  *
- * TODO(teardown-search): `edgeEv` still reads its own environment flag; it
- * becomes a `BotConfig.candidates` field with the search-layer teardown and
- * this function loses its last environment read with it.
+ * The search-layer teardown finished the job: `edgeEv` is configuration on the
+ * search surface now, defaulted off there, so this function has no environment
+ * read left at all.
  */
 export function baseKnobs(): CandidateKnobs {
-  return {
-    ...knobsForSafety(STAGING_SAFETY_DEFAULT),
-    edgeEv: edgeEvFrom(process.env),
-  };
+  return knobsForSafety(STAGING_SAFETY_DEFAULT);
 }
 
 // ---------------------------------------------------------------------------

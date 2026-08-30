@@ -101,7 +101,7 @@
         "ratchet-gap": 0,
         "switch-floor": 0,
         "switch-dominance": 0,
-        "rate": 51,
+        "rate": 52,
         "nonconforming": 0,
         "crossfade": 0,
         "sink": 0,
@@ -129,21 +129,30 @@
         "epoch": 0,
         "crossfade": "independent",
         "assumptions": 1
+      },
+      {
+        "lo": -31.166666666666668,
+        "est": -10.041666666666666,
+        "hi": -9.416666666666666,
+        "horizon": 1,
+        "slack": 21.75,
+        "posture": "FOGGED-DISCRIMINATING",
+        "epoch": 0,
+        "crossfade": "independent",
+        "assumptions": 1
       }
     ],
     "structure": {
-      "emits": 1,
+      "emits": 2,
       "conformCalls": 1,
       "epochs": 1,
       "boundViolations": 0,
       "stagedNothing": false,
       "leverOrderBinding": false,
       "planKeys": [
-        "0>90:|1>92:",
-        "0>90:|1>56:80.68.56"
+        "0>90:|1>92:"
       ],
       "planHorizons": [
-        1,
         1
       ],
       "refusals": {
@@ -151,7 +160,7 @@
         "ratchet-gap": 0,
         "switch-floor": 0,
         "switch-dominance": 0,
-        "rate": 0,
+        "rate": 21,
         "nonconforming": 0,
         "crossfade": 0,
         "sink": 0,

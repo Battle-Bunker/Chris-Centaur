@@ -84,31 +84,16 @@ import { CertainOccupancy } from '../fatality';
 import { gumbel, mix, uniform } from '../selection';
 import { ConflictIndex, NO_CLAIM, subStepOf, subStepsFor } from './conflict-index';
 
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const MULTISTART_SEED_ENV = 'CENTAUR_MULTISTART_SEED';
-
-/**
- * PER-ENGINE, NEVER PROCESS-WIDE — this branch's standing rule, and the one it
- * has now learned four times: a process-wide flag moves every lobster seat on
- * the board at once and a paired experiment on it measures nothing. The
- * environment is only the default a caller that names nothing inherits;
- * `SearchTuning.multistartSeed` overrides it, so one seat can carry the
- * multi-start while the seat across the board does not.
+/*
+ * `CENTAUR_MULTISTART_SEED` IS DELETED — TODO(teardown-search) row retired here.
  *
- * DEFAULT OFF. With it off nothing in this module is constructed, no draw is
- * taken, no clock is read, and the seed is byte-for-byte the one that shipped.
+ * The multi-start seed is now a CONFIGURATION of the search surface
+ * (`SearchTuning.multistartSeed`) and not an environment switch: one seat
+ * carries it while the seat across the board does not, and neither answer is a
+ * property of the process. Default off, by stated default — the entry has not
+ * been judged on a live race, and "off by config" is a decision somebody can
+ * read rather than a dark path.
  */
-export function multistartSeedFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[MULTISTART_SEED_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function multistartSeedEnabled(): boolean {
-  return multistartSeedFrom(process.env);
-}
 
 // ---------------------------------------------------------------------------
 // Tuning

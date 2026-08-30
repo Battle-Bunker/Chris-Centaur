@@ -1,40 +1,38 @@
 /**
- * THE INDEX-DRIVEN GREEDY PAIRWISE SEED.
+ * THE CONFLICT POTENTIALS — psi_u and phi_{u,v}, the microsecond surrogate the
+ * cluster enumeration maximises over.
  *
- *   ON A STARVED TURN, THE SEED IS THE ANSWER.
+ * ── WHAT USED TO BE HERE, AND WHY IT IS NOT ────────────────────────────────
  *
- * Rung 0 stages a complete legal plan before anything is searched, and returns
- * it whatever the one `price()` it pays says. The median decision manages five
- * scored plans. So the plan the seed builds is, very often, the plan that goes
- * out — and until now it was built by taking each unit's ordered-first option
- * with one blunt de-confliction pass on top.
+ * This file was `cluster-seed.ts`, and its headline export was `greedySeed`:
+ * an index-driven greedy pairwise SEED that placed each unit in danger order
+ * at the argmax of these same potentials. That policy was measured and
+ * REJECTED. It passed its deterministic gate outright — fatal stagings 41 to 0
+ * — and then lost the six-snake cell 1.00 to 0.15 on a live race, through a
+ * travel-economy channel (exhaustion) the deterministic probe never looked at.
  *
- * That pass reserves every cell an earlier unit's path names and refuses any
- * candidate that touches one. It is `φ = −∞` on same-cell, sub-step-blind, and
- * subtract-only. Sub-step-blind over-fires: two units crossing one cell at
- * different sub-steps never meet. Subtract-only is worse — it is exactly the
- * shape that took `r01-snakes6` from 1.000 to 0.500, because refusing
- * everything and falling through to the least-bad option is what a layer with
- * nothing positive to say does on a dense board.
+ * Rejected code does not stay in the tree as an off-arm, so `greedySeed`,
+ * `SeedRequest` and `CENTAUR_CLUSTER_SEED` are DELETED. The negative result is
+ * kept where a negative result belongs — on the record of the entry that
+ * superseded it (`search/multistart-seed.ts`) — because a measurement that
+ * cost a live race is the most expensive thing this programme owns and losing
+ * it would mean paying for it twice.
  *
- * This module replaces it with the graded form:
- *
- *     pick(u) = argmax_a [ ψ_u(a) + Σ_{v already placed} φ_{u,v}(a, π(v)) ]
- *
- * in danger order, committing each choice into the conflict index as it goes.
- * Measured at 0.66–2.64 µs per decision against a 200 µs `scorePlan`.
+ * WHAT SURVIVES IS THE ARITHMETIC, which was never the rejected part: the
+ * conflict index, the workspace that makes a rebuild an integer increment, and
+ * the two potentials. `search/cluster-enum.ts` maximises over exactly these to
+ * enumerate a component's joint move, and the enumeration is machinery the
+ * whole search (and all of depth, whose threads root at its proposals) stands
+ * on.
  *
  * ── WHAT MAY AND MAY NOT HAPPEN HERE ───────────────────────────────────────
  *
- * Everything below is ORDERING. The seed CHOOSES among a unit's candidates; it
- * never removes one, never writes a ledger entry, never returns a set. So:
+ * Everything below is ORDERING. A potential CHOOSES among a unit's candidates;
+ * it never removes one, never writes a ledger entry, never returns a set. So:
  *
  *   · no `prunedLedger` entry, because nothing is pruned — plan-local friendly
  *     fire is `better()`-adjacent policy and MUST NOT be a ledger entry, since
  *     the very next sweep may move the team-mate;
- *   · the joint-emptiness guard is structural rather than a repair: an argmax
- *     over a non-empty list is non-empty, so there is no branch on which the
- *     seed can hand a unit nothing;
  *   · nothing here reaches `lo`, `est`, `hi`, a `Bound`, or `better()`.
  *
  * ── THE UNITS THE POTENTIALS ARE DENOMINATED IN ────────────────────────────
@@ -47,49 +45,22 @@
  *
  * ── THE POSITIVE TERM IS THE POINT ─────────────────────────────────────────
  *
- * `φ_follow` is the only row here that makes an option MORE attractive, and it
- * is the reason the layer can be shipped at all. The tail pop is unconditional
+ * `phi_follow` is the only row here that makes an option MORE attractive, and
+ * it is the reason the layer can be used at all. The tail pop is unconditional
  * and precedes the head landing, so entering a team-mate's vacated tail cell
  * is provably collision-free — single-file motion, which is the principled
- * form of the accidental parallel-motion coherence the guard destroyed. It
+ * form of the accidental parallel-motion coherence a blunt guard destroys. It
  * cannot be unsound in the dangerous direction: it only ever raises an
  * option's rank, and the plan is still priced by the real evaluator.
  */
 
 import { bbTest, cmpLex, profileOf, scalarOf } from '../../partial-engine/index';
-import type { Candidate, CandidateSet, CellIndex, JointPlan, UnitId } from '../contracts';
+import type { Candidate, CellIndex, UnitId } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { SubstrateUnit } from '../substrate';
 import { StampedInt32 } from '../scratch';
 import { certainlySelfFatal } from '../staging-safety';
-import { candidateKey } from '../bounds';
-import { tieKey } from './order';
-import { ConflictIndex, NO_CLAIM, subStepOf, subStepsFor } from './conflict-index';
-
-// ---------------------------------------------------------------------------
-// The flag
-// ---------------------------------------------------------------------------
-
-export const CLUSTER_SEED_ENV = 'CENTAUR_CLUSTER_SEED';
-
-/**
- * PER-ENGINE, NEVER PROCESS-WIDE — the lesson learned the hard way: *"a
- * process-wide flag moves every lobster seat on the board at once and a paired
- * experiment on it measures nothing."* The environment is only the default a
- * caller that names nothing inherits; `SearchTuning.clusterSeed` overrides it,
- * so one seat can carry the seed while the seat across the board does not.
- *
- * DEFAULT OFF, pending the empirical gate. With it off this module is not
- * reached and the seed is byte-for-byte the one that shipped.
- */
-export function clusterSeedFrom(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[CLUSTER_SEED_ENV];
-  return raw === '1' || raw === 'on' || raw === 'true';
-}
-
-export function clusterSeedEnabled(): boolean {
-  return clusterSeedFrom(process.env);
-}
+import { ConflictIndex, NO_CLAIM, subStepOf } from './conflict-index';
 
 // ---------------------------------------------------------------------------
 // Scale
@@ -593,122 +564,4 @@ function nextSwap(index: ConflictIndex, claim: number, to: CellIndex, self: Unit
     if (index.fromAt(c) === to) return c;
   }
   return NO_CLAIM;
-}
-
-// ---------------------------------------------------------------------------
-// The seed
-// ---------------------------------------------------------------------------
-
-export interface SeedRequest {
-  readonly sub: EngineSubstrate;
-  readonly workspace: SeedWorkspace;
-  /**
-   * EVERY unit this decision commands, pinned ones included.
-   *
-   * The facts are read over this and not over `order`: a pinned team-mate is
-   * not swept, but it is still a unit whose claim can kill one of ours and
-   * whose tail pop can free a cell. Reading the facts over the placement order
-   * alone made a pinned unit invisible to every potential — the one case where
-   * an operator's own constraint is what the seed most needs to see.
-   */
-  readonly roster: ReadonlyArray<UnitId>;
-  /** The units the greedy pass places, in the order it places them. */
-  readonly order: ReadonlyArray<UnitId>;
-  readonly sets: ReadonlyMap<UnitId, CandidateSet>;
-  /** Units whose choice is fixed before the greedy pass runs (pins, refs). */
-  readonly fixed: JointPlan;
-  /** Units already known to die in every world — E4's input. */
-  readonly doomed: ReadonlySet<UnitId>;
-  /** How many of a unit's own options the seed considers. A max-side cap. */
-  readonly cap: number;
-  /** The per-decision salt. Exact ties are desymmetrised, never index-broken. */
-  readonly salt: number;
-}
-
-/**
- * ONE PASS, WORST SITUATION FIRST, COMMITTING AS IT GOES.
- *
- * Greedy is greedy: the first unit placed constrains the rest. Danger order is
- * the mitigation the search already computes — the unit whose situation is
- * worst chooses while it still has options — and the perturbed restarts above
- * are what actually escape a bad first placement.
- *
- * MIRROR MATCHES. The final tie-break is the salted key, never the cell index.
- * Two identical bots breaking ties identically walk into the same square, and
- * in this game a tie leaves nobody standing. The salt is the one the searcher
- * already carries; this adds no second seed.
- */
-export function greedySeed(req: SeedRequest): JointPlan {
-  const { sub, workspace, roster, order, sets, fixed, doomed, cap, salt } = req;
-  const facts = workspace.facts(sub, roster);
-  const index = workspace.index;
-
-  // The sub-step bound is the longest path the seed could stage, taken over
-  // the fixed assignments and every option it may choose. Confirmed against
-  // the real `maxPath` rather than assumed: a slider ray of 11 has been
-  // observed, and sizing this short would silently drop late-sub-step claims.
-  const paths: Array<ReadonlyArray<CellIndex>> = [];
-  for (const c of fixed.values()) paths.push(c.path);
-  for (const id of order) {
-    const set = sets.get(id);
-    if (set === undefined) continue;
-    for (let i = 0; i < set.candidates.length && i < cap; i++) {
-      paths.push((set.candidates[i] as Candidate).path);
-    }
-  }
-  index.begin(facts.cells, subStepsFor(paths));
-
-  const plan = new Map<UnitId, Candidate>();
-  for (const [unitId, candidate] of fixed) {
-    plan.set(unitId, candidate);
-    index.claim(unitId, candidate.from, candidate.path);
-  }
-
-  for (const unitId of order) {
-    if (plan.has(unitId)) continue;
-    const set = sets.get(unitId);
-    const mover = facts.units.get(unitId);
-    const first = set?.candidates[0] ?? set?.prunedLedger[0]?.candidate;
-    if (set === undefined || first === undefined) {
-      throw new Error(
-        `no candidate at all for unit ${unitId}: a hard filter emptied the option set, ` +
-          'which the completeness invariant forbids',
-      );
-    }
-    // A unit the substrate cannot name is not one this layer can reason about;
-    // it keeps the generator's own answer.
-    if (mover === undefined) {
-      plan.set(unitId, first);
-      index.claim(unitId, first.from, first.path);
-      continue;
-    }
-    let pick = first;
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let bestTie = -1;
-    const limit = Math.min(cap, set.candidates.length);
-    for (let i = 0; i < limit; i++) {
-      const candidate = set.candidates[i] as Candidate;
-      const value =
-        singletonPotential(sub, mover, candidate, i) +
-        pairPotential(facts, index, mover, candidate, doomed);
-      if (value > bestScore) {
-        pick = candidate;
-        bestScore = value;
-        bestTie = -1;
-        continue;
-      }
-      if (value < bestScore) continue;
-      // An EXACT tie in a quantity built out of frozen material weights is a
-      // position the seed genuinely cannot tell apart. Desymmetrise it.
-      if (bestTie < 0) bestTie = tieKey(candidateKey(pick), salt);
-      const tie = tieKey(candidateKey(candidate), salt);
-      if (tie > bestTie) {
-        pick = candidate;
-        bestTie = tie;
-      }
-    }
-    plan.set(unitId, pick);
-    index.claim(unitId, pick.from, pick.path);
-  }
-  return plan;
 }

@@ -32,6 +32,8 @@
 
 import type {
   AdjudicationReport,
+  DepthNote,
+  DepthReport,
   Candidate,
   CandidateSet,
   ClusterReport,
@@ -47,6 +49,7 @@ import {
   DEFAULT_BANK_CONFIG,
   compareFloors,
   hasRoster,
+  planKey,
   refutedAt,
   withMove,
   withMoves,
@@ -75,16 +78,14 @@ import {
 } from "../parallel";
 import type { CandidateKnobs } from "../candidates";
 import { EngineSubstrate } from "../substrate";
-import { SeedWorkspace, clusterSeedEnabled, greedySeed } from "./cluster-seed";
 import {
   DEFAULT_MULTISTART,
   crowdedUnits,
   multiStartSeed,
-  multistartSeedEnabled,
   type MultiStartReport,
   type MultiStartTuning,
 } from "./multistart-seed";
-import { clusterEnumEnabled, partitionOf, type Partition } from "./cluster-partition";
+import { partitionOf, type Partition } from "./cluster-partition";
 import { DEFAULT_TERRITORY_REFINE, setRefineScope } from "../evaluate/refine";
 import {
   DEFAULT_CLUSTER_TUNING,
@@ -93,8 +94,10 @@ import {
   type ClusterTuning,
 } from "./cluster-enum";
 import { SweepDirty, type DirtyStats } from "./sweep-dirty";
-import { Scout, scoutMode } from "./scout";
-import type { ScoutMode, ScoutReport, ScoutTuning } from "./scout";
+import { Scout } from "./scout";
+import type { DeepObservation, ScoutReport, ScoutTuning } from "./scout";
+import { foldObservation, posteriorOfBranch, precisionOfSigma } from "../belief";
+import type { BranchPosterior } from "../belief";
 import {
   DEFAULT_SAMPLING,
   NODE_PAIR_REPAIR,
@@ -107,7 +110,6 @@ import {
   decisionSeed,
   mix,
   proposalWeights,
-  sampledCapEnabled,
   unitCeiling,
   unitWeights,
   widenTo,
@@ -162,23 +164,15 @@ export interface SearchTuning {
    */
   readonly seedDeconflict: boolean | undefined;
   /**
-   * THE INDEX-DRIVEN GREEDY PAIRWISE SEED, in place of the reserve-a-cell
-   * de-confliction pass. Undefined follows `CENTAUR_CLUSTER_SEED`; named by a
-   * caller it is that caller's answer, so one seat can carry it while the seat
-   * across the board does not — a process-wide flag moves every seat at once
-   * and a paired experiment on it measures nothing.
-   *
-   * DEFAULT OFF pending its empirical gate. See `./cluster-seed.ts`.
-   */
-  readonly clusterSeed: boolean | undefined;
-  /**
    * THE MULTI-START SEED — a random safe baseline, then sampled multi-start
    * hill climbing, then a weighted-random selection among what was found.
    *
-   * This is the owner's redesign of search seeding, and it REPLACES the
-   * rejected `clusterSeed` rather than composing with it: where both resolve
-   * on, the multi-start runs and the greedy pairwise seed does not, because two
-   * seeds cannot both be the plan the ascent starts from.
+   * This is the owner's redesign of search seeding, and it SUPERSEDED the
+   * greedy pairwise cluster seed, which is deleted: that seed passed its
+   * deterministic gate (fatal stagings 41 to 0) and then lost the six-snake
+   * cell 1.00 to 0.15 through a travel-economy channel the probe never
+   * measured. The negative result is kept in the registry's record; the code
+   * is not.
    *
    * Stage 0 is a LITERALLY RANDOM selection of maximally safe moves — a uniform
    * draw over each unit's fatality-safe options, with the risky cells
@@ -189,40 +183,42 @@ export interface SearchTuning {
    * softmax. Nothing is pruned, no bound moves, and `better()` still
    * adjudicates on the proved floor.
    *
-   * Undefined follows `CENTAUR_MULTISTART_SEED`; named by a caller it is that
-   * caller's answer, so one seat can carry it while the seat across the board
-   * does not. DEFAULT OFF: no options are classified, no draw is taken, no
-   * clock is read, and the seed is byte-for-byte the one that shipped.
+   * CONFIG, NOT A FLAG, and per engine: one seat can carry it while the seat
+   * across the board does not. DEFAULT OFF, by stated default rather than by
+   * environment: no options are classified, no draw is taken and no clock is
+   * read, so the seed is byte-for-byte the one that shipped.
    */
   readonly multistartSeed: boolean | undefined;
   /** Budget share, sample sizing, climb depth and temperature. Only read when
    * `multistartSeed` resolves on. See `./multistart-seed.ts`. */
   readonly multistartTuning: Partial<MultiStartTuning>;
   /**
-   * CLUSTER-FACTORED EXACT ENUMERATION — the owner's core intervention.
+   * CLUSTER-FACTORED EXACT ENUMERATION — the owner's core intervention, and a
+   * KERNEL PRIMITIVE rather than a strategy.
    *
    * The board is partitioned into components of the non-slider interaction
    * graph, every live slider of ours joins every component by fiat, each
-   * component's joint move is enumerated EXACTLY on a µs-cost surrogate
+   * component's joint move is enumerated EXACTLY on a microsecond surrogate
    * conditional on the slider assignment, and the composed k-best joints are
-   * offered to this search as PROPOSALS — priced through the unconditional bank
-   * and accepted only by `better()`, exactly like every other trial.
+   * offered to this search as PROPOSALS — priced through the unconditional
+   * bank and accepted only by `better()`, exactly like every other trial.
    *
-   * Two further behaviours ride the same flag, because neither is separately
-   * measurable and both are the same idea:
+   * Two further behaviours ride the same machinery, because neither is
+   * separately measurable and both are the same idea:
    *
    *  · the WORKER CUT becomes the proposal tail rather than the sweep frontier
    *    (`parallel/partition.ts`'s `clusterPlanPartition`);
    *  · the SWEEP DIRTY SET skips re-pricing a unit whose interaction
    *    neighbourhood has not moved (`./sweep-dirty.ts`).
    *
-   * Undefined follows `CENTAUR_CLUSTER_ENUM`; named by a caller it is that
-   * caller's answer, so one seat can carry it while the seat across the board
-   * does not. DEFAULT OFF: nothing is partitioned, nothing is enumerated, and
-   * the search is byte-for-byte the one that shipped.
+   * IT ALWAYS RUNS. `CENTAUR_CLUSTER_ENUM` is deleted — TODO(teardown-search)
+   * row retired — because this is machinery and not a candidate strategy: the
+   * depth layer's threads are rooted at its proposals, so a switch here was a
+   * silent switch on depth as well, which is the class of dependency that made
+   * a whole experiment race three identical contenders. What varies is
+   * `clusterTuning`, which is where the sizes live.
    */
-  readonly clusterEnum: boolean | undefined;
-  /** Budgets for the enumeration. Only read when `clusterEnum` resolves on. */
+  /** Budgets and sizes for the enumeration. Always read. */
   readonly clusterTuning: Partial<ClusterTuning>;
   /**
    * DOOR C — THE CONTESTED REACH/ROOM REFINER (CL5), per engine.
@@ -234,10 +230,8 @@ export interface SearchTuning {
    * is a better computation of a term the one-ply frame already contains.
    *
    * It runs only over units this decision's cluster enumeration already paid
-   * for, so `clusterEnum` must also resolve on; a caller that asks for the
-   * refiner without the enumeration gets no scope and no refinement, and the
-   * cluster report says so. Undefined takes `DEFAULT_TERRITORY_REFINE`;
-   * `TeamDecisionEngine` names it from the bot.
+   * for. Undefined takes `DEFAULT_TERRITORY_REFINE`; `TeamDecisionEngine`
+   * names it from the bot.
    * DEFAULT OFF, and off it registers no scope, so `makeContext` reads `null`
    * and the evaluator is byte-for-byte the one that shipped.
    */
@@ -260,43 +254,32 @@ export interface SearchTuning {
    * did), no bound moves, and `better()` still adjudicates on the proved floor
    * alone (contract rule 17).
    *
-   * Undefined follows `CENTAUR_SAMPLED_CAP`; named by a caller it is that
-   * caller's answer, so one seat can carry the lottery while the seat across
-   * the board does not. DEFAULT OFF: no sampler is constructed, no draw is
-   * taken, no clock is read, and the search is byte-for-byte the one that
-   * shipped.
+   * CONFIG, NOT A FLAG, and per engine: one seat can carry the lottery while
+   * the seat across the board does not. DEFAULT OFF, by stated default: no
+   * sampler is constructed, no draw is taken, no clock is read, and the search
+   * is byte-for-byte the one that shipped.
    */
   readonly sampledCap: boolean | undefined;
   /** Temperature schedule, weights and the private match seed. Only read when
    * `sampledCap` resolves on. See `lobster/selection/sample.ts`. */
   readonly samplingTuning: Partial<SamplingTuning>;
   /**
-   * DOOR A — THE SCOUT (CL6), advisory depth, per engine.
+   * DEPTH — the scout, always available, per engine.
    *
-   * Cluster threads simulate one to three plies past this turn over the door
-   * (`search/scout/door.ts`) and report what they find. The findings steer
-   * everything it is LEGAL to steer and nothing else: candidate ordering
-   * through CL3's own `UnaryLookup` seam, and telemetry. No route reaches
-   * `lo`, `hi` or staging, and `search/scout/index.ts` states the import law
-   * that makes that structural rather than habitual.
+   * Cluster threads simulate one to three turns past this one over the door
+   * (`search/scout/door.ts`) and price what they find on the ADVANCED board,
+   * through the same evaluator, in the same units. Two channels leave the
+   * layer and there is no third: candidate ordering through CL3's own
+   * `UnaryLookup` seam, and a `DeepObservation` per offered root, which this
+   * file folds into that branch's belief at the precision the line earned.
+   * Neither is a bound; `search/scout/index.ts` states the import law that
+   * makes that structural rather than habitual.
    *
-   * THREE POSITIONS, and the middle one is what makes the gate mean anything:
-   *   · `off`      — shipped default. No thread, no door, no clock read, and
-   *                  the search is byte-for-byte the one that shipped.
-   *   · `observe`  — every thread runs and every counter is emitted, and NO
-   *                  ordering channel is touched. Its staged plan equals
-   *                  flag-off's on the replay corpus, and the test that says so
-   *                  is an assertion about the whole layer.
-   *   · `advise`   — the ordering sink is live. The enumeration runs twice: once
-   *                  to give the threads their seeds, once with the findings
-   *                  supplied as φ_u. Determinism is asserted separately.
-   *
-   * Undefined follows `CENTAUR_SCOUT`; named by a caller it is that caller's
-   * answer, so one seat can carry the scout while the seat across the board
-   * does not.
+   * THERE IS NO FLAG. What a caller configures is the RATION — `scoutTuning`'s
+   * tithe, reserve, depth ceiling and ply cap. A tithe of zero buys no plies,
+   * which is a budget statement rather than a dark path.
    */
-  readonly scout: ScoutMode | undefined;
-  /** Tithe, depth ceiling, park hysteresis. Only read when `scout` is on. */
+  /** Tithe, depth ceiling, park hysteresis. The whole of depth's config. */
   readonly scoutTuning: Partial<ScoutTuning>;
   /**
    * Composed joints offered per sweep round.
@@ -388,15 +371,12 @@ export const DEFAULT_TUNING: SearchTuning = {
   rungZeroRepairVictims: 4,
   rungZeroRepair: undefined,
   seedDeconflict: undefined,
-  clusterSeed: undefined,
   multistartSeed: undefined,
   multistartTuning: {},
-  clusterEnum: undefined,
   clusterTuning: {},
   territoryRefine: undefined,
   sampledCap: undefined,
   samplingTuning: {},
-  scout: undefined,
   scoutTuning: {},
   clusterOffersPerRound: 1,
   clusterOffersPerSlice: 2,
@@ -439,13 +419,6 @@ interface Session {
    * a session outlives every parcel it fires.
    */
   readonly parallel: { readonly sessionId: number; seq: number } | null;
-  /**
-   * The cluster seed's reusable buffers: the conflict index and the freed-tail
-   * map, both generation-stamped, so a rebuild per sweep step is an integer
-   * increment rather than a clear. Null when the seed is off — an unused
-   * workspace is an allocation nobody asked for.
-   */
-  readonly seedWorkspace: SeedWorkspace | null;
   /**
    * The multi-start seed's per-session state, or null when the flag is off.
    *
@@ -511,7 +484,7 @@ interface Session {
     readonly enumMs: number;
   } | null;
   /**
-   * CL6's scout, or null when the flag is off.
+   * The depth layer, or null when this board admits no door at all.
    *
    * PER SESSION, like the sampler and for the same reason: the thread ledger's
    * per-thread ply counters are what make a bigger budget's thread set an
@@ -525,6 +498,36 @@ interface Session {
    * a per-slice re-seed would rebuild every timeline it was trying to share.
    */
   readonly scout: Scout | null;
+  /**
+   * WHAT DEPTH IS WORTH, PER PLY-1 PLAN — the value channel, keyed by
+   * `planKey` so a priced trial can be looked up in one hash.
+   *
+   * Filled once, at session open, from the scout's own publications. Empty
+   * until the threads have run, and empty for ever on a board the door
+   * refuses — in which case `better()` falls through to the ladder that
+   * shipped, bit for bit.
+   */
+  readonly deep: Map<string, DeepObservation>;
+  /**
+   * THE COUNTERFACTUAL INCUMBENT — what this session would be holding if no
+   * deep observation had ever spoken.
+   *
+   * Maintained inside `better()` over exactly the trials the real search
+   * priced, with the legacy ladder and nothing else. It costs one comparison
+   * per trial and no pricing at all, and at the end of the decision the answer
+   * to "would removing depth have changed the staged move" is a key comparison
+   * rather than a second search.
+   *
+   * It is an APPROXIMATION and the report says so: the real trial SEQUENCE
+   * would differ slightly without depth, because the incumbent steers the
+   * sweep. What it is exact about is the argmax under the legacy ladder over
+   * the candidate stream this decision actually generated, which is the
+   * quantity the question is asking about.
+   */
+  shadow: BankResult | null;
+  /** The plan this session's last `improve` settled on — the real incumbent
+   *  the shadow is compared against. */
+  held: BankResult | null;
 }
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
@@ -543,6 +546,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * lottery's effect on it is a subtraction rather than an assertion.
    */
   const adjudication = {
+    depthDecided: 0,
     floorDecided: 0,
     estDecided: 0,
     ceilingDecided: 0,
@@ -673,12 +677,15 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   let lastCluster: ClusterReport | null = null;
   let lastSelection: SelectionReport | null = null;
   let lastScout: ScoutReport | null = null;
+  let lastDepth: DepthReport | null = null;
   let lastMultiStart: MultiStartReport | null = null;
 
   const release = (): void => {
     lastCluster = clusterReport();
     lastSelection = selectionReport();
     lastScout = scoutReport();
+    lastDepth = depthReport();
+    acceptingFor = null;
     for (const key of [...sessions.keys()]) closeSession(key);
   };
 
@@ -726,12 +733,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       parallel: openParallelSession(ctx, ours, sets),
       // Allocated only for a session that will use it, and then kept for the
       // session's whole life: the buffers are what make a rebuild O(1).
-      seedWorkspace: clusterSeeding() ? new SeedWorkspace() : null,
       multistart: openMultiStart(ctx, ours, sets, pins, references, decisionIndex),
       sampler: openSampler(ctx, ours, sets, decisionIndex),
       ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
       cluster: null,
-      scout: scouting() === "off" ? null : new Scout(scouting(), cfg.scoutTuning),
+      scout: new Scout(cfg.scoutTuning),
+      deep: new Map<string, DeepObservation>(),
+      shadow: null,
+      held: null,
     };
     session.cluster = openCluster(ctx, session, pins);
     return session;
@@ -839,7 +848,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * A substrate that cannot name a unit's material weight — the bounds harness,
    * the memo proxies — yields a ZERO for every unit rather than a guess, which
    * makes the material half a constant and leaves the danger ranks deciding.
-   * That is the same degradation `clusterSeed` takes on the same substrates,
+   * That is the same degradation every engine-only layer takes here,
    * and it degrades an ORDERING, which is the only thing here there is to
    * degrade.
    */
@@ -875,28 +884,24 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // substrate, or the evaluator would keep refining against a partition
     // nothing recomputed.
     if (s.sub instanceof EngineSubstrate) setRefineScope(s.sub, null);
-    // ---- CL6a'S SILENT DEPENDENCY, SAID OUT LOUD -------------------------
+    // ---- WHY DEPTH MIGHT NOT RUN, SAID OUT LOUD --------------------------
     //
-    // `scout.run` has exactly ONE call site and it is below this gate, because
-    // the threads' seeds are the enumeration's own proposals. So a scout that
-    // is switched on while the cluster enumeration is off is not a scout that
-    // ran and found nothing — it is a scout that was never called, and its
-    // report used to be indistinguishable from the first case
-    // (`mode=advise threads=0 findings=0`).
+    // `scout.run` has exactly ONE call site and it is below this point,
+    // because the threads' seeds are this enumeration's own proposals. So a
+    // decision on a board that admits no partition produces no thread, and a
+    // report saying only `threads=0 observations=0` would read as "depth ran
+    // and found nothing" when it means "depth was never reached".
     //
-    // Those two are opposite facts about a measurement: one is a null about
-    // the scout, the other is a null about the harness. The gate the report
-    // could not see is therefore handed to the scout here, in words, so a
-    // batch can never file a configuration mistake against the flag. Nothing
-    // is auto-enabled: a dependency you cannot see is the defect, not a
-    // dependency you have to satisfy.
-    const scoutGate: string | null = !clusterEnumerating()
-      ? "CENTAUR_CLUSTER_ENUM off — the scout runs inside the cluster enumeration and was never reached"
-      : !(s.sub instanceof EngineSubstrate)
-        ? "substrate is not the engine's — no door to continue through"
-        : s.ours.length === 0
-          ? "no commandable units to vary"
-          : null;
+    // Those are opposite facts about a measurement — one is a null about
+    // depth, the other a null about the board — so the reason is handed to
+    // the scout here, in words. The enumeration itself is no longer a
+    // condition anybody can get wrong: it is a kernel primitive now and it
+    // always runs.
+    const scoutGate: string | null = !(s.sub instanceof EngineSubstrate)
+      ? "substrate is not the engine's — no door to continue through"
+      : s.ours.length === 0
+        ? "no commandable units to vary"
+        : null;
     if (s.scout !== null) s.scout.gatedBy(scoutGate);
     // The substrate test is repeated in the guard itself so the narrowing the
     // rest of this function relies on survives; `scoutGate` already covers it.
@@ -949,12 +954,23 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       //
       // It matters more than it looks. The replay gate drives a `StepClock`
       // whose every read costs a tick, so a second read would be a second
-      // perturbation of the very quantity the gate measures. What moves under
-      // `observe` is then exactly the clock-derived report fields
-      // (`stepCostMs`, `postureFlips[].at`) and nothing an emission carries —
-      // which is the honest shape of the claim: the scout spends budget, and
-      // spending budget is a value trade, not a soundness one.
-      const decisionMs = ctx.budget.remainingMs();
+      // perturbation of the very quantity the gate measures.
+      //
+      // AND ONLY FROM A HANDLE THAT MODELS A DECISION-LEVEL CLOCK. `decisionFraction`
+      // is what a turn-scale budget has and a probe's counting budget does not,
+      // and the scout's own contract already says what the absence means: with
+      // `decisionMs = 0` the handle models no clock, only the ply cap binds,
+      // and the depth a probe buys is a function of the board rather than of
+      // how many questions the probe allowed.
+      //
+      // That is not a convenience, it is what keeps PREFIX DETERMINISM true
+      // where it is testable. Depth genuinely scales with a real clock — a
+      // longer turn buys more plies, which is the point of an anytime search —
+      // so under a wall clock a bigger budget does not merely EXTEND a smaller
+      // one's decision sequence, it makes better decisions earlier. Under a
+      // counting budget, which is the regime every deterministic probe runs
+      // in, the ration is fixed and the prefix property holds exactly.
+      const decisionMs = ctx.budget.decisionFraction === undefined ? 0 : ctx.budget.remainingMs();
       s.scout.beginDecision(decisionMs);
       s.scout.run({
         sub: s.sub,
@@ -979,6 +995,20 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (unary !== undefined) {
         ({ plans, stats, score } = enumerateProposals({ ...request, unary }));
       }
+      // ---- THE VALUE CHANNEL, AND THE ONE PLACE IT IS KEYED --------------
+      //
+      // A deepened line's value is published for the ply-1 plan it started
+      // from. That plan is one of the enumeration's proposals — the scout only
+      // publishes for roots the caller actually offers — so the key is the
+      // same `planKey` the bank prices under and the lookup in `better()` is
+      // one hash.
+      //
+      // LAST WRITER WINS is not reached: thread keys are `(cluster, root)`, so
+      // two threads cannot share a root within a cluster, and two clusters'
+      // threads over the same root plan describe disjoint unit sets. The
+      // canonical order the scout publishes in makes even a collision
+      // deterministic.
+      for (const obs of s.scout.deepObservations()) s.deep.set(planKey(obs.root), obs);
     }
     // DOOR C'S SCOPE — the units this decision has already paid an exact joint
     // solve for, and the only ones the territory refiner may spend on.
@@ -1068,28 +1098,24 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   /**
-   * Is the cluster seed on for THIS core? Resolved once per call rather than
-   * cached, so a test that flips the environment between decisions sees the
-   * flip — and never consulted at all when the caller named its own answer.
+   * Is the multi-start seed on for THIS core?
+   *
+   * CONFIG, NOT A FLAG: there is no environment fallback left to consult, so
+   * one seat can carry the sampler while the seat across the board does not,
+   * and neither answer is a property of the process. Default off — the
+   * redesign's seeding entry has not been judged on a live race yet, and
+   * "off by config" is a stated default rather than a dark path.
    */
-  const clusterSeeding = (): boolean => cfg.clusterSeed ?? clusterSeedEnabled();
-
-  /** Is the multi-start seed on for THIS core? Same discipline, same reason. */
-  const multistarting = (): boolean => cfg.multistartSeed ?? multistartSeedEnabled();
-
-  /** Is the cluster enumeration on for THIS core? Same discipline, same reason. */
-  const clusterEnumerating = (): boolean => cfg.clusterEnum ?? clusterEnumEnabled();
+  const multistarting = (): boolean => cfg.multistartSeed ?? false;
 
   /** Is Door C's territory refiner on for THIS core? `TeamDecisionEngine`
    * passes the BOT's answer; a core built without one takes the shipped
    * default. (Formerly `CENTAUR_TERRITORY_REFINE`; see `evaluate/refine.ts`.) */
   const territoryRefining = (): boolean => cfg.territoryRefine ?? DEFAULT_TERRITORY_REFINE;
 
-  /** Is the seeded lottery on for THIS core? Same discipline, same reason. */
-  const sampling = (): boolean => cfg.sampledCap ?? sampledCapEnabled();
+  /** Is the seeded lottery on for THIS core? Config, same discipline. */
+  const sampling = (): boolean => cfg.sampledCap ?? false;
 
-  /** Which position the scout is in for THIS core. Same discipline again. */
-  const scouting = (): ScoutMode => cfg.scout ?? scoutMode();
 
   // -------------------------------------------------------------- parallel
   //
@@ -1273,14 +1299,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     from: JointPlan | null,
     budget: SearchContext["budget"] | null,
   ): JointPlan => {
-    // THE MULTI-START COMES FIRST, and where it runs the greedy pairwise seed
-    // does not: two seeds cannot both be the plan the ascent starts from, and
-    // the multi-start is the owner's replacement for the greedy one rather than
-    // a layer on top of it.
+    // THE MULTI-START, where it is configured on. The greedy pairwise seed it
+    // replaced is DELETED — measured, rejected, and rejected code does not
+    // stay in the tree as an off-arm.
     const sampled = multiStart(s, from, budget);
     if (sampled !== null) return sampled;
-    const clustered = clusterSeed(s, from);
-    if (clustered !== null) return clustered;
     const plan = new Map<UnitId, Candidate>();
     // `auto` is board-conditional and this core may have been built without a
     // board, so an unresolved level resolves OFF here. `TeamDecisionEngine`
@@ -1338,62 +1361,6 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) plan.set(unitId, candidate);
     return plan;
-  };
-
-  /**
-   * THE CLUSTER SEED, or `null` for the shipped path.
-   *
-   * The same three things go in as the de-confliction seed's: pins first, then
-   * whatever of the incumbent still stands, then the declared reference
-   * actions. What changes is how the REMAINING units choose — an argmax over
-   * the generator's own ordering plus the pair potentials, instead of the
-   * first option that touches no reserved cell.
-   *
-   * On a later slice the incumbent has already fixed every free unit, so the
-   * greedy pass has nothing to place and the two paths agree by construction.
-   * The seed is load-bearing at rung 0, which is where it runs from a null
-   * incumbent, and that is the case this branch exists for.
-   *
-   * Returns `null` — never throws, never silently degrades — when the seed
-   * cannot run: the flag is off, or the substrate is not the engine's, which
-   * happens in the bounds harness and under the memo proxies. The shipped seed
-   * is then exactly what it was.
-   */
-  const clusterSeed = (s: Session, from: JointPlan | null): JointPlan | null => {
-    const workspace = s.seedWorkspace;
-    if (workspace === null || !(s.sub instanceof EngineSubstrate)) return null;
-    const fixed = new Map<UnitId, Candidate>();
-    for (const [unitId, candidate] of s.pins) fixed.set(unitId, candidate);
-    for (const unitId of s.ours) {
-      if (fixed.has(unitId)) continue;
-      const existing = from?.get(unitId);
-      const set = s.sets.get(unitId);
-      if (existing === undefined || set === undefined) continue;
-      if (isStillOffered(set, existing)) fixed.set(unitId, existing);
-    }
-    // E4's input, straight off the classifier: a unit that dies in every world
-    // is one no potential may contort a healthy unit into rescuing. Absent
-    // when the fatality knob is off, and then the clause is simply inert.
-    const doomed = new Set<UnitId>();
-    for (const [unitId, set] of s.sets) if (set.marks?.sealed === true) doomed.add(unitId);
-    const plan = greedySeed({
-      sub: s.sub,
-      workspace,
-      roster: s.ours,
-      // Danger order, with the pinned units out of it — they are constraints,
-      // and they are already in `fixed` with their cells claimed before any
-      // free unit picks.
-      order: dangerOrder(s.ours, null, s.pinned),
-      sets: s.sets,
-      fixed,
-      doomed,
-      cap: cfg.candidateCap,
-      salt: cfg.seed,
-    });
-    const out = new Map<UnitId, Candidate>(plan);
-    // The declared reference actions ride every plan (see Session.references).
-    for (const [unitId, candidate] of s.references) out.set(unitId, candidate);
-    return out;
   };
 
   /**
@@ -1484,7 +1451,92 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   // ------------------------------------------------------------- acceptance
 
   /**
-   * Strict improvement on (floor, est, ceiling, salted tie key).
+   * THE SESSION THE COMPARATOR IS SPEAKING FOR.
+   *
+   * `better` is called from seven places, all of them inside one synchronous
+   * `improve`/`conform` call, and none of them has a session in hand. Rather
+   * than thread one through seven signatures, the call sets it here and the
+   * comparator reads it. Nothing is asynchronous between the two points and
+   * nothing re-enters, so there is exactly one session live at a time and no
+   * ordering this can be wrong about.
+   */
+  let acceptingFor: Session | null = null;
+
+  /**
+   * A BRANCH'S BELIEF, near half plus whatever depth said about it.
+   *
+   * The near half is the same assembly the kernel uses for its plan table
+   * (`posteriorOfBranch`), so the two never disagree about what a branch is
+   * worth before depth speaks. The deep half is one observation, folded at the
+   * precision its own sigma earned, and NOT truncated into the one-ply
+   * interval — see `belief.ts` on why an interval that bounds this turn's
+   * frame value does not bound the final score.
+   */
+  const beliefOf = (r: BankResult, note: DeepObservation | undefined): BranchPosterior => {
+    const post = posteriorOfBranch(r.bounds.worst, r.bounds.best, r.est);
+    if (note === undefined) return post;
+    return foldObservation(post, {
+      kind: "deep-finding",
+      value: note.value,
+      precision: precisionOfSigma(note.sigma),
+      plies: note.plies,
+    });
+  };
+
+  /**
+   * THE DEPTH RUNG — the belief, deciding among FLOOR-UNDOMINATED rivals.
+   *
+   * ── WHY THIS SITS ABOVE THE FLOOR COMPARISON AND NOT BELOW IT ────────────
+   *
+   * The owner's semantics, binding: a branch whose next move guarantees
+   * killing one enemy but whose best continuations then lose two of ours must
+   * evaluate as net worse than a safe alternative. Its ONE-PLY floor is
+   * higher — the kill is a fact about this turn and the bank proves it — so a
+   * ladder that lets `lo` adjudicate wherever it separates can never express
+   * that, and depth stays an ordering nudge for ever.
+   *
+   * The resolution is that the two numbers are about DIFFERENT QUANTITIES.
+   * `bounds.worst` is a sound floor on the ONE-PLY FRAME VALUE: the value of
+   * the position after this turn, under the one-turn evaluator, worst case
+   * over worlds. It is not a bound on the final score, and it never was. A
+   * deep reading is an estimate of the same final score with more of the game
+   * in it — causally downstream of the near events, carrying them.
+   *
+   * ── WHAT STILL PROTECTS THE DECISION ─────────────────────────────────────
+   *
+   *   · SOUND DOMINANCE, both directions. The witness veto above already
+   *     retires a trial whose CEILING sits at or below the incumbent's floor.
+   *     This rung additionally declines to run when the incumbent is dominated
+   *     the same way, so it only ever speaks where the two intervals OVERLAP —
+   *     which is exactly "among the floor-undominated candidates".
+   *   · EARNED PRECISION. A reading from a truncated enumeration under
+   *     saturated clouds arrives with a sigma so wide it barely moves `mu`;
+   *     one from a clean line moves it most of the way. Nothing is capped in
+   *     either direction, and the arithmetic is the whole of the discount.
+   *   · SILENCE BY DEFAULT. With no deep observation on either side the rung
+   *     returns null and the ladder below is bit-for-bit the one that shipped.
+   *     A `mu` assembled from nothing but `(lo, hi, est)` carries nothing
+   *     those three do not already carry, and ordering by it would be churn.
+   */
+  const depthRung = (trial: BankResult, incumbent: BankResult): boolean | null => {
+    const table = acceptingFor?.deep;
+    if (table === undefined || table.size === 0) return null;
+    const a = table.get(planKey(trial.plan));
+    const b = table.get(planKey(incumbent.plan));
+    if (a === undefined && b === undefined) return null;
+    // The incumbent's own sound dominance. The trial's was checked by the
+    // witness veto before this rung is reached.
+    if (refutedAt(incumbent.bounds.best, trial.bounds.worst)) return null;
+    const pa = beliefOf(trial, a);
+    const pb = beliefOf(incumbent, b);
+    if (pa.mu !== pb.mu) return pa.mu > pb.mu;
+    if (pa.prec !== pb.prec) return pa.prec > pb.prec;
+    return null;
+  };
+
+  /**
+   * Strict improvement on (belief where depth spoke, then floor, est, ceiling,
+   * salted tie key).
    *
    * A BASIS MISMATCH IS A REFUSAL. Two plans priced under different assumption
    * sets are not two answers to the same question, and taking the larger
@@ -1492,24 +1544,50 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * The incumbent keeps its place.
    */
   const better = (trial: BankResult, incumbent: BankResult): boolean => {
+    trackShadow(trial);
+    return accept(trial, incumbent, /* withDepth */ true);
+  };
+
+  /**
+   * THE COUNTERFACTUAL, maintained for free.
+   *
+   * Every trial the search prices passes through `better`, so folding each one
+   * into a second incumbent under the legacy ladder gives the argmax this
+   * decision would have reached with the deep channel silent — no extra
+   * pricing, one comparison. `depthChangedPlan` is then a key comparison.
+   */
+  const trackShadow = (trial: BankResult): void => {
+    const s = acceptingFor;
+    if (s === null) return;
+    if (s.shadow === null || accept(trial, s.shadow, /* withDepth */ false)) s.shadow = trial;
+  };
+
+  const accept = (trial: BankResult, incumbent: BankResult, withDepth: boolean): boolean => {
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
     // PROVED floor cannot be an improvement, however good its own floor looks.
     if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) {
-      adjudication.vetoed++;
+      if (withDepth) adjudication.vetoed++;
       return false;
     }
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
     if (!cmp.comparable) {
-      adjudication.refused++;
+      if (withDepth) adjudication.refused++;
       return false;
     }
+    if (withDepth) {
+      const deep = depthRung(trial, incumbent);
+      if (deep !== null) {
+        adjudication.depthDecided++;
+        return deep;
+      }
+    }
     if (cmp.order !== 0) {
-      adjudication.floorDecided++;
+      if (withDepth) adjudication.floorDecided++;
       return cmp.order > 0;
     }
     if (trial.est !== incumbent.est) {
-      adjudication.estDecided++;
+      if (withDepth) adjudication.estDecided++;
       return trial.est > incumbent.est;
     }
     if (trial.bounds.best !== incumbent.bounds.best) {
@@ -1524,10 +1602,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // would be quietly widening exactly the hole O-P1 is about to close. The
       // counter is the instrument (L17's "hi read count"), and the probe
       // compares it flag-off against flag-on.
-      adjudication.ceilingDecided++;
+      if (withDepth) adjudication.ceilingDecided++;
       return trial.bounds.best > incumbent.bounds.best;
     }
-    adjudication.tieKeyDecided++;
+    if (withDepth) adjudication.tieKeyDecided++;
     return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed);
   };
 
@@ -1940,6 +2018,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
+    acceptingFor = s;
     {
       // The two parallel seams BRACKET THE SLICE. The fold comes first, because
       // an entry that arrives after the price it would have served is an entry
@@ -2013,6 +2092,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         }
       }
       speculate(s, best, sliceMs);
+      s.held = best;
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
     }
   };
@@ -2048,6 +2128,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
     const s = sessionFor(ctx);
+    acceptingFor = s;
     {
       // Fold, but never speculate. `conform` runs while an operator is waiting
       // to see their pin honoured and its cost must track the disturbance, not
@@ -2363,6 +2444,50 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const multistartReport = (): MultiStartReport | null => lastMultiStart;
 
+  /**
+   * THE CONSULTED DEPTH SURFACE — what the deepened lines are worth, and
+   * whether they changed this core's answer.
+   *
+   * Read for the LAST session opened, because that is the one the emission
+   * being stamped came from, and folded to a snapshot at `release` so a
+   * decision that has already ended can still be reported on.
+   *
+   * `changedPlan` is the counterfactual the shadow incumbent maintains: the
+   * plan this core would have returned with the deep channel silent, over the
+   * same trial stream. It is the per-decision indicator the DEPTH-EFFECT RATE
+   * is the mean of.
+   */
+  const depthReport = (): DepthReport | null => {
+    let last: DepthReport | null = null;
+    for (const session of sessions.values()) {
+      const notes: DepthNote[] = [];
+      let plies = 1;
+      for (const obs of session.deep.values()) {
+        notes.push({ plan: obs.root, value: obs.value, sigma: obs.sigma, plies: obs.plies });
+        if (obs.plies > plies) plies = obs.plies;
+      }
+      // Canonical order: by the plan key the observation is filed under, so a
+      // report is a function of the board and never of insertion order.
+      notes.sort((a, b) => {
+        const ka = planKey(a.plan);
+        const kb = planKey(b.plan);
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+      });
+      const shadow = session.shadow;
+      const held = session.held;
+      last = {
+        plies,
+        decided: adjudication.depthDecided,
+        changedPlan:
+          shadow !== null && held !== null
+            ? planKey(shadow.plan) !== planKey(held.plan)
+            : false,
+        notes,
+      };
+    }
+    return last ?? lastDepth;
+  };
+
   return {
     improve,
     conform,
@@ -2372,6 +2497,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     selectionReport,
     adjudicationReport,
     scoutReport,
+    depthReport,
     multistartReport,
   };
 }

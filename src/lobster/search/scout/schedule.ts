@@ -2,21 +2,12 @@
  * THE SCOUT'S SCHEDULER — a tithe, a barrier, and a value-per-millisecond
  * question that is not the same question as "has contact happened".
  *
- * ── THE FLAG, AND WHY IT HAS THREE POSITIONS ───────────────────────────────
+ * ── NO FLAG. A RATION. ─────────────────────────────────────────────────────
  *
- * `CENTAUR_SCOUT` is `off` (shipped default), `observe`, or `advise`.
- *
- * The split is not timidity, it is what makes the gate meaningful. Under Door
- * A the scout is advisory: the ONE thing it must prove is that it cannot
- * perturb staging. `observe` runs every thread, computes every finding and
- * emits every counter while touching NO ordering channel, so its staged plan
- * is byte-identical to flag-off on the replay corpus and the test that asserts
- * that is an assertion about the whole layer rather than about one call site.
- * `advise` then turns on the single ordering sink, and its own determinism
- * test says the same seed gives the same findings and the same plan.
- *
- * A reader who wants the one-sentence version: `observe` proves the firewall,
- * `advise` spends what the firewall protects.
+ * `CENTAUR_SCOUT` and its three positions are deleted. Depth is always
+ * available; what a caller configures is how much of the decision it may buy —
+ * `tithe`, bounded by `reserve`, spent in resolution-equivalents. Zero tithe
+ * buys zero plies, which is a budget statement and not a dark path.
  *
  * ── THE TITHE, AND THE OWNER'S RESERVE ─────────────────────────────────────
  *
@@ -88,30 +79,21 @@ import type { UnitId } from '../../contracts';
 // The flag
 // ---------------------------------------------------------------------------
 
-export const SCOUT_ENV = 'CENTAUR_SCOUT';
-
-/** `off` ships. See the header for why `observe` and `advise` are separate. */
-export type ScoutMode = 'off' | 'observe' | 'advise';
-
-const MODES: Record<string, ScoutMode> = {
-  '0': 'off',
-  off: 'off',
-  false: 'off',
-  observe: 'observe',
-  shadow: 'observe',
-  '1': 'observe',
-  on: 'observe',
-  true: 'observe',
-  advise: 'advise',
-};
-
-export function scoutModeFrom(env: NodeJS.ProcessEnv): ScoutMode {
-  return MODES[String(env[SCOUT_ENV] ?? '').trim().toLowerCase()] ?? 'off';
-}
-
-export function scoutMode(): ScoutMode {
-  return scoutModeFrom(process.env);
-}
+/*
+ * `CENTAUR_SCOUT` (off | observe | advise) IS DELETED — TODO(teardown-search)
+ * row retired here.
+ *
+ * The three positions answered a question the build no longer asks. `off` was
+ * a dark path, `observe` was `off` with counters, and `advise` was the only
+ * position where the machinery reached anything. Under the owner's ruling a
+ * strategy alternative is a configuration of one bot against another, never a
+ * switch guarding dormant code — so depth is ALWAYS AVAILABLE and what varies
+ * is the RATION it is given: `ScoutTuning.tithe`, `reserve`, `depthMax`,
+ * `plyCap`, all of them config on the search surface.
+ *
+ * A caller that wants no depth spends nothing on it: `tithe: 0` buys zero
+ * plies, and that is a budget statement rather than a hidden code path.
+ */
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -486,15 +468,15 @@ export function priceExpansion(args: {
  * `EmitRecord.selection`.
  */
 export interface ScoutReport {
-  readonly mode: ScoutMode;
   /**
    * WHY THE SCOUT NEVER RAN, or `null` when it did.
    *
    * `scout.run` has exactly one call site — inside `search/core.ts`'s
-   * `openCluster`, BELOW the cluster-enumeration gate — because the threads'
-   * seeds are the enumeration's own proposals. So `CENTAUR_SCOUT=advise` with
-   * `CENTAUR_CLUSTER_ENUM` off is a silent no-op, and a report that said only
-   * `mode=advise threads=0 findings=0` read as "it ran and found nothing".
+   * `openCluster` — because the threads' seeds are the enumeration's own
+   * proposals. A board the door refuses, a roster with nothing to vary or a
+   * substrate that is not the engine's therefore produces no thread at all,
+   * and a report that said only `threads=0 findings=0` read as "it ran and
+   * found nothing".
    *
    * Those are different facts and a measurement cannot be allowed to confuse
    * them: the first is a null about the scout, the second is a null about the
@@ -521,8 +503,20 @@ export interface ScoutReport {
   readonly postContactPlies: number;
   /** Threads that reached contact at all. */
   readonly contacted: number;
-  /** Ordering advice produced. Zero in `observe`. */
+  /** Ordering advice produced. */
   readonly findings: number;
+  /**
+   * DEEP OBSERVATIONS PUBLISHED — lines whose value reached a branch belief.
+   *
+   * The number that separates "depth ran" from "depth was consulted". Findings
+   * are the ordering channel; this is the VALUE channel, and a decision with
+   * plies and no observations is a decision whose depth changed nothing it
+   * could not have changed before.
+   */
+  readonly observations: number;
+  /** Deepest ply any thread reached, as a turn count: 0 when none ran. Never
+   *  a configured ceiling and never a fallback constant. */
+  readonly deepestPlies: number;
   /** Door refusals by reason, so a silent no-op is legible. */
   readonly refusals: Readonly<Record<string, number>>;
   /** The tithe the caller's budget bought, in ms. Telemetry. */
@@ -532,9 +526,8 @@ export interface ScoutReport {
   readonly plies: number;
 }
 
-export function emptyReport(mode: ScoutMode, gatedBy: string | null = null): ScoutReport {
+export function emptyReport(gatedBy: string | null = null): ScoutReport {
   return {
-    mode,
     gatedBy,
     threads: 0,
     deepened: 0,
@@ -551,6 +544,8 @@ export function emptyReport(mode: ScoutMode, gatedBy: string | null = null): Sco
     postContactPlies: 0,
     contacted: 0,
     findings: 0,
+    observations: 0,
+    deepestPlies: 0,
     refusals: {},
     msCap: 0,
     units: 0,
@@ -560,10 +555,11 @@ export function emptyReport(mode: ScoutMode, gatedBy: string | null = null): Sco
 
 /** Fold a ledger into a report. Pure; the caller owns the counters. */
 export function reportOf(
-  mode: ScoutMode,
   ledger: ThreadLedger,
   purse: ScoutPurse,
   findings: number,
+  observations: number,
+  deepestPlies: number,
   refusals: Readonly<Record<string, number>>,
   gatedBy: string | null = null
 ): ScoutReport {
@@ -583,7 +579,6 @@ export function reportOf(
     if (sawContact) contacted++;
   }
   return {
-    mode,
     gatedBy,
     threads: threads.length,
     deepened: ledger.counters.deepened,
@@ -600,6 +595,8 @@ export function reportOf(
     postContactPlies: post,
     contacted,
     findings,
+    observations,
+    deepestPlies,
     refusals,
     msCap: purse.msCap,
     units: purse.units,

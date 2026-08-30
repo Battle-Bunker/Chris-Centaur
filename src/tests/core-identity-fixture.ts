@@ -253,28 +253,26 @@ export interface BoardCapture {
 }
 
 /**
- * WHAT IS LEFT OF THE SCRUB LIST.
+ * THE SCRUB LIST IS EMPTY, and that is the whole result of the teardown.
  *
- * This used to name fifteen environment variables, because fifteen of them
- * could move a decision and any one inherited from a developer's shell would
- * have produced a golden wearing another build's name. Every variable this
- * agent owned is gone from the code, so nothing to clear: the bot is a value
+ * It used to name fifteen environment variables, because fifteen of them could
+ * move a decision and any one inherited from a developer's shell would have
+ * produced a golden wearing another build's name. Then the flag teardown
+ * removed everything outside the search, and the search-layer teardown removed
+ * the last five: `CENTAUR_SCOUT` and `CENTAUR_CLUSTER_ENUM` are gone with the
+ * idea that depth and the cluster enumeration are strategies rather than
+ * machinery, and `CENTAUR_EDGE_EV`, `CENTAUR_SAMPLED_CAP` and
+ * `CENTAUR_MULTISTART_SEED` are bot fields.
+ *
+ * Nothing in a decision reads the environment now. The bot is a value
  * (`lobster/bot-config.ts`) and `runBoard` below builds the default one, which
- * no environment can reach.
- *
- * TODO(teardown-search): the five below are the search-layer flags, still read
- * from `process.env` inside `makeSearchCore`. They are still scrubbed for the
- * original reason, and this list — and the scrub itself — goes away when they
- * become bot fields.
+ * no shell can reach. The list and the wrapper survive as an EMPTY list and a
+ * pass-through, because a callers-unchanged no-op is a smaller diff than
+ * removing a wrapper from every call site — and because the day something
+ * reaches for `process.env` again, this is where it gets added back and
+ * refused.
  */
-const FLAG_ENVS = [
-  'CENTAUR_CLUSTER_SEED',
-  'CENTAUR_MULTISTART_SEED',
-  'CENTAUR_EDGE_EV',
-  'CENTAUR_CLUSTER_ENUM',
-  'CENTAUR_SAMPLED_CAP',
-  'CENTAUR_SCOUT',
-];
+const FLAG_ENVS: ReadonlyArray<string> = [];
 
 function fakePorts(): TeamDecisionPorts & { staged: string[] } {
   const clock = new StepClock();
@@ -294,10 +292,8 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
 }
 
 /**
- * Run every board with the remaining search-layer flags cleared. See
- * `FLAG_ENVS`: an inherited value would be a golden wearing another build's
- * name, and until those five are bot fields an inherited value is still
- * possible.
+ * Run every board with the environment scrubbed. See `FLAG_ENVS`: the list is
+ * empty, so this is a pass-through today and a tripwire tomorrow.
  */
 export async function withScrubbedFlags<T>(fn: () => Promise<T>): Promise<T> {
   const saved = new Map(FLAG_ENVS.map((k) => [k, process.env[k]]));

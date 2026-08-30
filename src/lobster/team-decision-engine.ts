@@ -60,11 +60,6 @@ import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety } from './staging-safety';
-import { clusterSeedEnabled } from './search/cluster-seed';
-import { multistartSeedEnabled, multistartSeedFrom } from './search/multistart-seed';
-import { clusterEnumEnabled } from './search/cluster-partition';
-import { scoutMode } from './search/scout';
-import { sampledCapEnabled } from './selection';
 import { resolveBotConfig } from './bot-config';
 import type { BotConfig, ResolvedBotConfig } from './bot-config';
 import { mechanismReportOf } from './telemetry/mechanism';
@@ -75,7 +70,6 @@ import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
-import { sampledCapFrom } from './selection';
 import {
   DEFAULT_KERNEL_OPTIONS,
   LobsterKernel,
@@ -724,12 +718,10 @@ export class TeamDecisionEngine {
       buildCore({
         rungZeroRepair: safety === 'full',
         seedDeconflict: safety !== 'off',
-        clusterSeed: this.options.clusterSeed,
-        multistartSeed: this.options.multistartSeed,
-        clusterEnum: this.options.clusterEnum,
         territoryRefine: this.bot.territoryRefine,
-        sampledCap: this.options.sampledCap,
-        scout: this.options.scout,
+        multistartSeed: this.bot.multistartSeed,
+        sampledCap: this.bot.sampledCap,
+        scoutTuning: this.bot.depth,
         // THE PRIVATE HALF OF EVERY SEEDED DRAW THIS ENGINE TAKES. Zero when
         // no seeded layer is on (and then nothing reads it); the caller's
         // number when one is pinned; a per-game crypto-random word otherwise.
@@ -851,19 +843,6 @@ export class TeamDecisionEngine {
         knobs: gen.resolvedKnobs(),
         stagingSafety: safety,
         workers: this.pool?.size ?? 0,
-        // TODO(teardown-search): READ THE SAME SOURCE THE CONSUMER READS, not
-        // `this.env`. These five are still resolved inside `makeSearchCore` as
-        // `cfg.X ?? XEnabled()`, and every `XEnabled()` reads `process.env`
-        // directly — `ports.env` reaches the wire policy and does not reach
-        // them. A stamp that consulted `this.env` would be accurate about the
-        // injection and WRONG about the arm, which is the one thing a stamp may
-        // never be. The inconsistency dies with the search-layer teardown,
-        // when these become bot fields like everything above.
-        clusterSeed: this.options.clusterSeed ?? clusterSeedEnabled(),
-        multistartSeed: this.options.multistartSeed ?? multistartSeedEnabled(),
-        clusterEnum: this.options.clusterEnum ?? clusterEnumEnabled(),
-        sampledCap: this.options.sampledCap ?? sampledCapEnabled(),
-        scout: this.options.scout ?? scoutMode(),
         // THE REGISTRY'S RESOLUTION for this decision. Resolved from the
         // engine's own slate — per-engine and never process-wide, so one seat
         // can carry a slate while the seat across the board does not, which is
@@ -1009,8 +988,8 @@ export class TeamDecisionEngine {
    * be asserting the CSPRNG instead.
    */
   matchSeedFor(gameId: string): number {
-    const lottery = this.options.sampledCap ?? sampledCapFrom(this.env);
-    const multistart = this.options.multistartSeed ?? multistartSeedFrom(this.env);
+    const lottery = this.options.sampledCap ?? false;
+    const multistart = this.options.multistartSeed ?? false;
     if (!lottery && !multistart) return 0;
     if (this.options.matchSeed !== undefined) return this.options.matchSeed;
     const game = this.gameFor(gameId);

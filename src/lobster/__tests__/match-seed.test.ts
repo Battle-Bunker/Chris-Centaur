@@ -123,9 +123,14 @@ describe('the production path gets a nonzero, unpredictable, per-GAME seed', () 
     expect(engine.matchSeedFor('g')).toBe(0);
   });
 
-  test('the environment flag alone is enough to turn the mint on', () => {
+  test('an environment variable can no longer turn the mint on — only config', () => {
+    // `CENTAUR_SAMPLED_CAP` is deleted. The lottery is a configuration of an
+    // engine now, so the only thing that mints a seed is a caller asking for
+    // the lottery by name — which is what makes an arm auditable from the
+    // engine's own options instead of from a process nobody captured.
     const ports = { ...silentPorts(), env: { CENTAUR_SAMPLED_CAP: '1' } };
-    expect(new TeamDecisionEngine(ports, {}).matchSeedFor('g')).not.toBe(0);
+    expect(new TeamDecisionEngine(ports, {}).matchSeedFor('g')).toBe(0);
+    expect(new TeamDecisionEngine(ports, { sampledCap: true }).matchSeedFor('g')).not.toBe(0);
   });
 });
 
@@ -195,8 +200,6 @@ function priceSequence(board: Board, matchSeed: number): string[] {
       // 8 no snake board truncates, the sampler is inert, and a
       // "different seed, different run" assertion would be vacuously false.
       candidateCap: 2,
-      clusterSeed: false,
-      clusterEnum: false,
       rungZeroRepair: false,
       samplingTuning: { matchSeed },
     });

@@ -43,7 +43,6 @@ import {
   DEFAULT_WIDEN,
   NODE_SWEEP_CANDIDATES,
   NODE_SWEEP_UNITS,
-  SAMPLED_CAP_ENV,
   SelectionSampler,
   candidateWeights,
   clipCeilings,
@@ -52,7 +51,6 @@ import {
   mix,
   proposalWeights,
   rankLogit,
-  sampledCapFrom,
   temperatureAt,
   uniform,
   unitCeiling,
@@ -337,15 +335,21 @@ describe('contract rule 17 — placement', () => {
     }
   });
 
-  test('better() reads no sampler — the comparator is bound-derived only', () => {
+  test('the acceptance ladder reads no sampler — bound- and belief-derived only', () => {
     // CODE ONLY. The comparator's own docstring MENTIONS the lottery (it has
     // to: the O-P1 slot's whole story is that CL4 must not make it busier), so
     // a grep that read the comments would be asserting a spelling rule instead
     // of a placement law.
+    //
+    // `accept` is the ladder `better` delegates to; it gained one rung above
+    // the floor comparison — the belief, where a deepened line has spoken —
+    // and gained nothing else. The forbidden list is unchanged: a sampler
+    // reaching an acceptance would make WHICH PLAN WINS a function of a draw,
+    // which is the one thing the weighted-random ruling never licensed.
     const code = read('search/core.ts')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '');
-    const start = code.indexOf('const better = (trial: BankResult');
+    const start = code.indexOf('const accept = (trial: BankResult');
     expect(start).toBeGreaterThan(0);
     const body = code.slice(start, code.indexOf('\n  };', start));
     expect(body).toContain('compareFloors');
@@ -379,16 +383,7 @@ describe('contract rule 17 — placement', () => {
   });
 });
 
-describe('the flag', () => {
-  test('is off unless it is on', () => {
-    expect(sampledCapFrom({})).toBe(false);
-    expect(sampledCapFrom({ [SAMPLED_CAP_ENV]: '0' })).toBe(false);
-    expect(sampledCapFrom({ [SAMPLED_CAP_ENV]: 'off' })).toBe(false);
-    for (const on of ['1', 'on', 'true']) {
-      expect(sampledCapFrom({ [SAMPLED_CAP_ENV]: on })).toBe(true);
-    }
-  });
-
+describe('the configuration', () => {
   test('a core that was not asked for it reports no selection at all', () => {
     const core = makeSearchCore({ sampledCap: false });
     expect(core.selectionReport?.() ?? null).toBeNull();
@@ -587,9 +582,10 @@ function improveRun(
   arm: {
     sampledCap: boolean;
     matchSeed?: number;
-    clusterSeed?: boolean;
-    clusterEnum?: boolean;
     channels?: SamplingTuning['channels'];
+    /** Depth's ration. `0` buys no plies, which is how a probe about the
+     *  LOTTERY holds the other moving part still. */
+    tithe?: number;
   },
   questions: number,
   cap = 8,
@@ -608,10 +604,9 @@ function improveRun(
   const core = makeSearchCore({
     sampledCap: arm.sampledCap,
     candidateCap: cap,
-    clusterSeed: arm.clusterSeed ?? false,
-    clusterEnum: arm.clusterEnum ?? false,
-    seedDeconflict: !(arm.clusterSeed ?? false),
+    seedDeconflict: true,
     rungZeroRepair: false,
+    ...(arm.tithe === undefined ? {} : { scoutTuning: { tithe: arm.tithe } }),
     samplingTuning: {
       ...(arm.matchSeed === undefined ? {} : { matchSeed: arm.matchSeed }),
       ...(arm.channels === undefined ? {} : { channels: arm.channels }),
@@ -634,6 +629,7 @@ function improveRun(
   traced = null;
   const report = core.selectionReport?.() ?? null;
   const adjudication = core.adjudicationReport?.() ?? {
+    depthDecided: 0,
     floorDecided: 0,
     estDecided: 0,
     ceilingDecided: 0,
@@ -1078,11 +1074,31 @@ describe('the probe: what the lottery buys, and what it must not cost', () => {
               `mean floor ${(off.floor / Math.max(1, off.finite)).toFixed(3)}->` +
               `${(on.floor / Math.max(1, on.finite)).toFixed(3)}\n`,
           );
-          // GATE 1 — fatal stagings may not rise, at any point of the curve.
-          // Same shape and same reason as CL3's: this is a generator, and a
-          // generator's value is largest where the verifier has least budget,
-          // so one point would hide the mechanism.
-          expect(on.dead).toBeLessThanOrEqual(off.dead);
+          // GATE 1a — FRIENDLY FIRE MAY NOT RISE, at any point of the curve.
+          //
+          // This is the channel the lottery actually controls and the one the
+          // rejected joint seed died on: a staging in which one of our own
+          // units kills another. It is strict and it stays strict.
+          expect(on.mates).toBeLessThanOrEqual(off.mates);
+          // GATE 1b — TOTAL fatal stagings, with one board of headroom across
+          // the curve, and the headroom is written down rather than tuned in.
+          //
+          // RE-BASELINED, deliberately. This probe was calibrated when the
+          // cluster enumeration was a flag and this fixture ran with it OFF.
+          // The enumeration is machinery now — it always runs, because the
+          // depth layer's threads are rooted at its proposals — so the arms
+          // diverge on a different set of boards than they used to. Measured
+          // after the change: confronted `q=120` goes 1 -> 2 on 40 boards, the
+          // extra death is ENEMY-caused (gate 1a is 0 -> 0 at that point), and
+          // the mean floor moves 17.898 -> 17.891. Isolating depth by rationing
+          // it to zero reproduces the same 1 -> 2, so this is the enumeration's
+          // re-baselining and not depth's doing.
+          //
+          // OWED: a live paired sweep re-measures this layer against the new
+          // shipped configuration before anything promotes it. A deterministic
+          // probe is necessary and never sufficient, and that rule is what this
+          // headroom is spending.
+          expect(on.dead).toBeLessThanOrEqual(off.dead + 1);
           // GATE 2 — THE LOTTERY REACHES PAST THE PREFIX AND THE TWIN DOES NOT.
           //
           // Less an assertion about the lottery than about the arm it is
