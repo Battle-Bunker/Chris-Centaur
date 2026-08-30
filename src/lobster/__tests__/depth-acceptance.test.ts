@@ -41,6 +41,16 @@
  * THE RATE (third block) is the standing measurement the owner asked to be
  * kept continuously: the fraction of decisions on which removing depth would
  * have staged a different move.
+ *
+ * THE OWNER'S SHAPE (fourth block) is the same paired method carried onto the
+ * board the owner actually plays — 25x25, three teams of six, hazards on,
+ * potions on, a 2000 ms decision — because the rate above is measured on an
+ * 11x11 two-team piece board and a rate is a property of a board family, not
+ * of the engine. It also carries the FIRST QUALITY SIGNAL: for the decisions
+ * the two arms disagree on, both staged plans are replayed through the
+ * vendored engine, so "depth changed the move" gains a same-turn ledger of
+ * what each move did. See `oneTurnLedger` for exactly what that can and
+ * cannot say.
  */
 
 import type { Board, Coord, Snake } from '../../types/battlesnake';
@@ -52,7 +62,10 @@ import { LobsterKernel } from '../kernel';
 import { channelPolicyFor } from '../postures';
 import { StickyStager, pickLeader, pickLeaderWithoutDepth } from '../voc';
 import { foldObservation, posteriorOfBranch, precisionOfSigma } from '../belief';
-import type { StagingCandidate } from '../contracts';
+import type { JointPlan, StagingCandidate } from '../contracts';
+import { NO_ORDER_MOVE } from '../contracts';
+import { marshalBoard, resolvePartialTurn } from '../../logic/turn-oracle';
+import type { StagedAction } from '../../logic/turn-oracle';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -141,6 +154,29 @@ interface Decision {
   readonly plies: number;
   readonly deepBranches: number;
   readonly mu: ReadonlyMap<string, number>;
+  /** The last emitted joint plan, kept so the staged move can be REPLAYED
+   *  through the engine rather than only compared as a string. */
+  readonly plan: JointPlan | null;
+  /**
+   * THE DEPTH LAYER'S OWN ACCOUNTING for this decision, or null when the core
+   * publishes none.
+   *
+   * Kept because a horizon of 1 is TWO different findings and a rate cannot be
+   * allowed to confuse them: the door refused the board (`gatedBy` names the
+   * gate), or the layer ran, opened threads, spent its purse and never reached
+   * a second turn. The first is a null about the harness, the second is a
+   * finding about the board family.
+   */
+  readonly scout: {
+    gatedBy: string | null;
+    threads: number;
+    deepened: number;
+    observations: number;
+    deepestPlies: number;
+    units: number;
+    msCap: number;
+    refusals: Readonly<Record<string, number>>;
+  } | null;
 }
 
 /**
@@ -151,9 +187,14 @@ interface Decision {
  * purse buys no plies. That is what makes the pair a measurement of DEPTH
  * rather than of two code paths.
  */
-async function decide(board: Board, plyCap: number, budgetMs: number): Promise<Decision> {
+async function decide(
+  board: Board,
+  plyCap: number,
+  budgetMs: number,
+  asTeam = 'red'
+): Promise<Decision> {
   const clock = new StepClock();
-  const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+  const sub = makeSubstrate({ board, turn: TURN, asTeam });
   const core = makeSearchCore({ scoutTuning: { plyCap } });
   const kernel = new LobsterKernel({
     sliceMs: 2,
@@ -162,13 +203,15 @@ async function decide(board: Board, plyCap: number, budgetMs: number): Promise<D
     yieldIntervalMs: 0,
   });
   let staged = '';
+  let plan: JointPlan | null = null;
+  let scout: ReturnType<NonNullable<typeof core.scoutReport>> = null;
   try {
     for await (const rec of kernel.decide({
       sub,
       gen: new GrammarCandidateGenerator(),
       evaluate: defaultEvaluator,
       search: core,
-      asTeam: sub.teamNumber('red'),
+      asTeam: sub.teamNumber(asTeam),
       deadlineMs: clock.peek() + budgetMs,
       initialPins: [],
       now: clock.now,
@@ -177,8 +220,13 @@ async function decide(board: Board, plyCap: number, budgetMs: number): Promise<D
         .map(([u, c]) => `${u}>${c.to}`)
         .sort()
         .join(',');
+      plan = new Map(rec.plan);
     }
   } finally {
+    // READ THE DEPTH LAYER'S REPORT BEFORE THE CORE IS RELEASED. A released
+    // core owes nobody a report, and a measurement that read one after the
+    // release would be reading whatever survived, which is not a measurement.
+    scout = core.scoutReport?.() ?? null;
     core.release?.();
     sub.release();
   }
@@ -190,6 +238,20 @@ async function decide(board: Board, plyCap: number, budgetMs: number): Promise<D
     plies: report?.belief.deepestPlies ?? 1,
     deepBranches: report?.belief.deepBranches ?? 0,
     mu,
+    plan,
+    scout:
+      scout === null
+        ? null
+        : {
+            gatedBy: scout.gatedBy,
+            threads: scout.threads,
+            deepened: scout.deepened,
+            observations: scout.observations,
+            deepestPlies: scout.deepestPlies,
+            units: scout.units,
+            msCap: scout.msCap,
+            refusals: scout.refusals,
+          },
   };
 }
 
@@ -492,5 +554,298 @@ describe('the depth-effect rate', () => {
     );
     expect(changed).toBeGreaterThan(0);
     expect(deepest).toBeGreaterThan(1);
+  }, 600000);
+});
+
+// ---------------------------------------------------------------------------
+// THE OWNER'S SHAPE — the same paired method, on the board he plays
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THIS BLOCK EXISTS, AND WHAT IT IS NOT.
+ *
+ * The rate above is measured on 11x11, two teams, six pieces, no hazards, no
+ * potions, at a 1000 ms budget. That is a probe board. The owner's games are
+ * 25x25 with three teams of six, hazards on the field, potions on, and a
+ * 2000 ms decision — and a disagreement rate is a property of a BOARD FAMILY
+ * and a budget, not of the engine. Quoting the probe number for the real board
+ * is the same class of mistake as quoting a disagreement rate as an
+ * improvement, so the shape is measured rather than assumed.
+ *
+ * It is still a DISAGREEMENT rate. Nothing in this block says depth plays
+ * better; see `oneTurnLedger` for how far the quality signal goes and where it
+ * stops.
+ */
+
+const OWNER_SIZE = 25;
+const OWNER_TEAMS = ['red', 'blue', 'green'] as const;
+const OWNER_BUDGET_MS = 2000;
+/** damageRatio 0.15 of the reference kind's 100 max health — a cost, not a wall. */
+const OWNER_HAZARD_DAMAGE = 15;
+
+/**
+ * The two rosters, in the batch vocabulary's own words
+ * (`tools/learnloop/lib/cells.js`): the mixed king board that carries the
+ * sliders, and the mostly-snake board that carries one.
+ */
+const OWNER_ROSTERS: Record<string, ReadonlyArray<string>> = {
+  'owner-mix-king': ['king', 'queen', 'rook', 'knight', 'snake', 'snake'],
+  'owner-snake5-queen': ['queen', 'snake', 'snake', 'snake', 'snake', 'snake'],
+};
+
+/**
+ * ONE OWNER-SHAPE BOARD. Three teams of six on 25x25, a deterministic hazard
+ * cross, potions on the field, food scattered — built from one seed so the
+ * pair is a pair.
+ *
+ * Snakes get a real three-cell body (a one-cell snake is a piece wearing a
+ * snake's name and moves nothing like one); pieces arrive the way the wire
+ * delivers them, as a one-cell unit whose `length` IS its weight.
+ */
+function ownerShapeBoard(seed: number, cell: keyof typeof OWNER_ROSTERS | string): Board {
+  const roster = OWNER_ROSTERS[cell];
+  if (roster === undefined) throw new Error(`no owner-shape roster named "${cell}"`);
+  const r = rng(seed * 7919 + 13);
+  const used = new Set<string>();
+  const free = (x: number, y: number): boolean =>
+    x >= 1 && y >= 1 && x < OWNER_SIZE - 1 && y < OWNER_SIZE - 1 && !used.has(`${x},${y}`);
+  const claim = (x: number, y: number): void => {
+    used.add(`${x},${y}`);
+  };
+
+  // The hazard cross: two interior bands every team must cross or route
+  // around. Deterministic, so a cell name denotes one board.
+  const hazards: Coord[] = [];
+  const mid = Math.floor(OWNER_SIZE / 2);
+  for (let i = 2; i < OWNER_SIZE - 2; i++) {
+    hazards.push({ x: i, y: mid });
+    if (i !== mid) hazards.push({ x: mid, y: i });
+  }
+  for (const h of hazards) claim(h.x, h.y);
+
+  // Each team starts in its own third of the board, so the opening is not a
+  // scrum and the three teams are symmetric up to the seed.
+  const bands: Array<[number, number]> = [
+    [1, 7],
+    [9, 15],
+    [17, 23],
+  ];
+  const snakes: Snake[] = [];
+  OWNER_TEAMS.forEach((team, t) => {
+    const [lo, hi] = bands[t];
+    roster.forEach((kind, u) => {
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const x = lo + Math.floor(r() * (hi - lo + 1));
+        const y = 2 + Math.floor(r() * (OWNER_SIZE - 4));
+        if (kind === 'snake') {
+          // A three-cell body laid out along one axis, all of it free.
+          const dx = r() < 0.5 ? 1 : 0;
+          const dy = dx === 1 ? 0 : 1;
+          const body: Coord[] = [
+            { x, y },
+            { x: x - dx, y: y - dy },
+            { x: x - 2 * dx, y: y - 2 * dy },
+          ];
+          if (!body.every((c) => free(c.x, c.y))) continue;
+          body.forEach((c) => claim(c.x, c.y));
+          snakes.push(
+            makeSnake(`${team[0]}${u}`, body, {
+              teamID: team,
+              unitType: 'snake',
+              health: 40 + Math.floor(r() * 60),
+            })
+          );
+          return;
+        }
+        if (!free(x, y)) continue;
+        claim(x, y);
+        snakes.push(
+          makeSnake(`${team[0]}${u}`, [{ x, y }], {
+            teamID: team,
+            unitType: kind,
+            length: kind === 'king' ? 1 : 2 + Math.floor(r() * 3),
+            health: 40 + Math.floor(r() * 60),
+          })
+        );
+        return;
+      }
+      throw new Error(`could not place ${team}/${kind} on seed ${seed}`);
+    });
+  });
+
+  const food: Coord[] = [];
+  for (let i = 0; i < 6; i++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = 1 + Math.floor(r() * (OWNER_SIZE - 2));
+      const y = 1 + Math.floor(r() * (OWNER_SIZE - 2));
+      if (!free(x, y)) continue;
+      claim(x, y);
+      food.push({ x, y });
+      break;
+    }
+  }
+
+  // POTIONS ON. The owner's ruling is that every real game has them, and the
+  // door refused this whole family until `TIER_TRUTH` became `full`.
+  const invulnerabilityPotions: Coord[] = [];
+  for (let i = 0; i < 2; i++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = 1 + Math.floor(r() * (OWNER_SIZE - 2));
+      const y = 1 + Math.floor(r() * (OWNER_SIZE - 2));
+      if (!free(x, y)) continue;
+      claim(x, y);
+      invulnerabilityPotions.push({ x, y });
+      break;
+    }
+  }
+
+  return {
+    width: OWNER_SIZE,
+    height: OWNER_SIZE,
+    food,
+    hazards,
+    hazardDamage: OWNER_HAZARD_DAMAGE,
+    invulnerabilityPotions,
+    snakes,
+  } as Board;
+}
+
+/** What one staged plan did on the board, this turn, per the real engine. */
+interface TurnLedger {
+  ourDeaths: number;
+  ourSevered: number;
+  enemyDeaths: number;
+  ourTeamEliminated: number;
+  enemyTeamsEliminated: number;
+}
+
+/**
+ * THE FIRST QUALITY SIGNAL — and its ceiling, stated before its result.
+ *
+ * A staged plan is pushed through `resolvePartialTurn`, which is the vendored
+ * TacticToes engine resolving a real turn. So this is not a model of the
+ * rules: contests, severs, edge exchanges, exhaustion, hazard damage, regicide
+ * and food are all decided by the code the game server runs.
+ *
+ * WHAT IT CANNOT SAY. Every unit not in our plan is FROZEN — the oracle's
+ * standing baseline assumption — so this is our move against a board that
+ * stands still, for exactly one turn. Depth's whole claim is about the turn
+ * AFTER this one, which is the horizon this ledger does not have. A plan that
+ * loses a unit here to buy two next turn reads as a loss, and reads correctly
+ * only in a game. So: a same-turn ledger is evidence about immediate cost, it
+ * is NOT a verdict on which move is better, and the only instrument that can
+ * give one is a live paired sweep. That sweep is owed and this does not
+ * discharge it.
+ */
+function oneTurnLedger(board: Board, plan: JointPlan | null, ourTeam: string): TurnLedger | null {
+  if (plan === null || plan.size === 0) return null;
+  const marshalled = marshalBoard(board, TURN);
+  const staged = new Map<string, StagedAction>();
+  for (const [unitId, candidate] of plan) {
+    if (candidate.path.length > 0) staged.set(String(unitId), { path: [...candidate.path] });
+    else if (candidate.to !== NO_ORDER_MOVE) staged.set(String(unitId), { stagedMove: candidate.to });
+    // A candidate with neither is the kind's own default action, which the
+    // engine already applies to a unit nobody staged; naming it would be
+    // asserting a move the plan did not make.
+  }
+  if (staged.size === 0) return null;
+  const result = resolvePartialTurn(marshalled, staged);
+  const ledger: TurnLedger = {
+    ourDeaths: 0,
+    ourSevered: 0,
+    enemyDeaths: 0,
+    ourTeamEliminated: 0,
+    enemyTeamsEliminated: 0,
+  };
+  for (const id of Object.keys(result.deaths)) {
+    if (marshalled.teamOf.get(id) === ourTeam) ledger.ourDeaths++;
+    else ledger.enemyDeaths++;
+  }
+  for (const [id, cells] of Object.entries(result.severedCells)) {
+    if (marshalled.teamOf.get(id) === ourTeam) ledger.ourSevered += cells.length;
+  }
+  for (const teamID of result.eliminatedTeamIDs) {
+    if (teamID === ourTeam) ledger.ourTeamEliminated++;
+    else ledger.enemyTeamsEliminated++;
+  }
+  return ledger;
+}
+
+/**
+ * HOW MANY BOARDS. Small by default so the standing suite pays test-sized time
+ * for the fixture and the plumbing; the measurement run raises it.
+ * `DEPTH_OWNER_BOARDS` is read HERE, in a test, and reaches no decision — the
+ * engine's env scrub list is empty and stays empty.
+ */
+const OWNER_BOARDS = Number(process.env.DEPTH_OWNER_BOARDS ?? '2');
+
+describe("the depth-effect rate at the owner's shape", () => {
+  afterEach(() => clearGeometryCache());
+
+  test('is measured per cell at 25x25, three teams of six, hazards and potions on, 2000 ms', async () => {
+    const cells = Object.keys(OWNER_ROSTERS);
+    for (const cell of cells) {
+      let changed = 0;
+      let deepest = 1;
+      let flatDeepest = 1;
+      let quality = 0;
+      let threads = 0;
+      let observations = 0;
+      let gated = 0;
+      const gates = new Set<string>();
+      const rows: string[] = [];
+      for (let seed = 0; seed < OWNER_BOARDS; seed++) {
+        const board = ownerShapeBoard(seed, cell);
+        const deep = await decide(board, 3, OWNER_BUDGET_MS);
+        clearGeometryCache();
+        const flat = await decide(board, 0, OWNER_BUDGET_MS);
+        clearGeometryCache();
+        deepest = Math.max(deepest, deep.plies);
+        flatDeepest = Math.max(flatDeepest, flat.plies);
+        // A HORIZON OF 1 IS TWO FINDINGS, so record which one this was.
+        if (deep.scout !== null) {
+          threads += deep.scout.threads;
+          observations += deep.scout.observations;
+          if (deep.scout.gatedBy !== null) {
+            gated++;
+            gates.add(deep.scout.gatedBy);
+          }
+          for (const reason of Object.keys(deep.scout.refusals)) gates.add(`refused:${reason}`);
+        }
+        if (deep.staged === flat.staged) continue;
+        changed++;
+        const a = oneTurnLedger(board, deep.plan, 'red');
+        const b = oneTurnLedger(board, flat.plan, 'red');
+        if (a === null || b === null) continue;
+        quality++;
+        rows.push(
+          `      seed ${seed}: depth ${a.ourDeaths}/${a.ourSevered}/${a.enemyDeaths} ` +
+            `vs depthless ${b.ourDeaths}/${b.ourSevered}/${b.enemyDeaths} ` +
+            '(our deaths / our severed cells / enemy deaths, this turn, enemies frozen)'
+        );
+      }
+      process.stdout.write(
+        `  OWNER SHAPE ${cell}: depth-effect rate ${changed}/${OWNER_BOARDS} at ` +
+          `${OWNER_BUDGET_MS} ms (deepest horizon: funded ${deepest}, depthless ${flatDeepest}; ` +
+          `${quality} disagreement(s) replayed through the engine)\n` +
+          `      depth layer: ${threads} thread(s), ${observations} observation(s) published, ` +
+          `${gated}/${OWNER_BOARDS} decisions gated` +
+          `${gates.size > 0 ? ` [${[...gates].join(', ')}]` : ''}\n`
+      );
+      for (const row of rows) process.stdout.write(`${row}\n`);
+      // The depthless arm is the same layer with an empty purse, so its
+      // horizon is an honest 1 on every board of every cell.
+      expect(flatDeepest).toBe(1);
+    }
+  }, 3600000);
+
+  test('a disagreement can be replayed through the engine on the owner board', async () => {
+    // The plumbing assertion, so a broken oracle bridge fails HERE rather than
+    // as a silently empty quality column in a measurement run.
+    const board = ownerShapeBoard(0, 'owner-mix-king');
+    const deep = await decide(board, 3, OWNER_BUDGET_MS);
+    const ledger = oneTurnLedger(board, deep.plan, 'red');
+    expect(ledger).not.toBeNull();
+    expect((ledger as TurnLedger).ourDeaths).toBeGreaterThanOrEqual(0);
   }, 600000);
 });
