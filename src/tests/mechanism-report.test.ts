@@ -166,6 +166,7 @@ describe('CL7: the mechanism report is present and complete', () => {
         'multistartSeed',
         'sampledCap',
         'depthPlyCap',
+        'clusterEnum',
       ].sort()
     );
 
@@ -181,6 +182,10 @@ describe('CL7: the mechanism report is present and complete', () => {
     // DEPTH IS NOT AN ARM. What the stamp carries is its RATION, and the
     // shipped bot takes the default ply ceiling whole.
     expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
+    // THE ENUMERATION IS ON IN THE SHIPPED BOT, and the stamp says so. An arm
+    // that turns it off carries depth off with it, so the row a reader needs is
+    // this one and not a depth row.
+    expect(m.config.clusterEnum).toBe(true);
     // `gainOrdering` was PROMOTED at integ/round-a and ships on.
     expect(m.config.gainOrdering).toBe(true);
     // `auto` is board-conditional; this board bears pieces, so it resolves on.
@@ -250,6 +255,10 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
     expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
+    // THE ENUMERATION IS ON IN THE SHIPPED BOT, and the stamp says so. An arm
+    // that turns it off carries depth off with it, so the row a reader needs is
+    // this one and not a depth row.
+    expect(m.config.clusterEnum).toBe(true);
   }, 20_000);
 
   test('with every layer off, a layer that never ran reports NULL, not zero', async () => {

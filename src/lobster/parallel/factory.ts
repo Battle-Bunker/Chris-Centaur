@@ -36,6 +36,22 @@ export function evaluatorSpecOf(evaluate: Evaluator): EvaluatorSpec {
         "would share a memo namespace with it and disagree about the value",
     }
   }
+  if (evaluate.advisory.length > 0) {
+    // The same refusal, one rung out. `EvaluatorSpec` carries a PROFILE, and an
+    // advisory lineup is not in the profile — a worker handed this spec would
+    // rebuild the sound fold and none of the est terms, so its `est` would
+    // disagree while its bounds agreed. The lineup IS in `evaluationIdentity`,
+    // so the memo namespaces would at least not collide; refusing here is the
+    // stronger statement, and it costs a bot that names an advisory slate
+    // nothing it was relying on (the shipped worker setting is `off`).
+    return {
+      kind: "unsupported",
+      why:
+        "a BoundEvaluator with an advisory lineup: EvaluatorSpec carries the " +
+        "profile only, so a worker could rebuild the sound fold and not the " +
+        "est terms",
+    }
+  }
   return { kind: "profile", profile: evaluate.profile }
 }
 

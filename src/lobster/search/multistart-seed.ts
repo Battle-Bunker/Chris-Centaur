@@ -391,6 +391,62 @@ export interface MultiStartReport {
   /** Objective of the stage-0 baseline, and of the plan actually selected. */
   readonly stage0Score: number;
   readonly selectedScore: number;
+
+  // ------------------------------------------------- the opening instrument
+  //
+  // THE LAYER'S OWN CLAIM, MEASURED FOR THE FIRST TIME.
+  //
+  // The multi-start seed's stated benefit is OPENING DIVERSITY, and its first
+  // live reading measured end-state share and death causes instead: it cost
+  // 113 scout threads and 63 ms a game and, where anything was readable, gave
+  // the weakest opponent more board. That is a verdict on the downstream
+  // consequence of an upstream claim nobody instrumented, and the honest
+  // response is to instrument the claim rather than to argue about the
+  // consequence.
+  //
+  // Both rows below are read off state the sampler already holds, after the
+  // selection and before anything is returned. They are TELEMETRY: no
+  // objective, no draw and no selection reads them, so a decision with them
+  // present is the decision that would have been taken without them.
+
+  /**
+   * OWN-TEAM SEPARATION of the plan actually selected — the mean pairwise
+   * Manhattan distance, in cells, between where our units come to rest.
+   *
+   * This is the quantity the rejected seed's follow-the-tail bonus destroyed:
+   * it converted a drifting formation into single file, own-team separation
+   * FELL where it was supposed to rise, and the failure was legible only
+   * afterwards in collision deaths. Publishing the number per decision makes
+   * the mechanism claim checkable in the same run that measures the outcome.
+   *
+   * Zero when fewer than two units have a landing to compare.
+   */
+  readonly openingSeparation: number;
+  /**
+   * THE SAME QUANTITY FOR THE STAGE-0 BASELINE — the literally-random safe
+   * assignment, before any sampling.
+   *
+   * The pair is the reading, not either number: `openingSeparation` alone says
+   * how spread this decision's opening is, and only the difference says
+   * whether the SAMPLER spread it. A layer whose two rows agree on every
+   * decision has diversified nothing, however diverse the board looks.
+   */
+  readonly stage0Separation: number;
+  /**
+   * STAGED-ASSIGNMENT DIVERSITY ACROSS THE STARTS, in [0, 1].
+   *
+   * Per group, the mean over its slots of the chance that two distinct pooled
+   * starts assign that unit a different option — `(p² − Σ_v c_v²) / (p(p−1))`
+   * over the pool's per-slot choice counts — then averaged across groups
+   * weighted by how many units each varies. One means every pair of starts
+   * disagrees about every unit; zero means the pool holds one assignment
+   * wearing many labels, which is the failure mode a multi-start has (a start
+   * climbed to its local maximum has thrown away what made it different).
+   *
+   * Computed from the per-slot counts rather than pairwise, so it is one pass
+   * over the pool and not `poolCap²` comparisons.
+   */
+  readonly startDiversity: number;
 }
 
 export interface MultiStartResult {
@@ -625,6 +681,7 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
   // ---- STAGE 0 ------------------------------------------------------------
   const base = stageZero(req, units, opts, subSteps, objective);
   const stage0Plan = materialise(base.choice, units, opts, fixed);
+  const stage0Separation = separationOf(stage0Plan, sub.grid.width);
 
   if (units.length === 0 || req.budgetMs <= 0) {
     return {
@@ -639,6 +696,11 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
         truncated: 0,
         selectedScore: base.score,
         spentMs: req.now() - started,
+        // Stage 1 never ran, so the selected opening IS the stage-0 one and
+        // there is no pool to be diverse. Zero here is a measured zero.
+        openingSeparation: stage0Separation,
+        stage0Separation,
+        startDiversity: 0,
       }),
     };
   }
@@ -655,6 +717,11 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
   let evaluations = base.evaluations;
   let pooled = 0;
   let truncated = 0;
+  // The diversity reading, accumulated per group and weighted by how many
+  // units each group varies, so one nine-unit group does not weigh the same as
+  // one two-unit group in the average.
+  let diversityWeighted = 0;
+  let diversitySlots = 0;
 
   for (let g = 0; g < groups.length; g++) {
     const vars = groups[g] as Int32Array;
@@ -771,6 +838,10 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
       }
     }
     pooled += pool.length;
+    // AFTER the selection and off the pool the selection read, so the number
+    // describes the starts this decision actually chose among.
+    diversityWeighted += diversityOf(pool, vars) * vars.length;
+    diversitySlots += vars.length;
     for (let v = 0; v < vars.length; v++) {
       const slot = vars[v] as number;
       working[slot] = chosen.choice[slot] as number;
@@ -779,8 +850,9 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
 
   const selectedScore = objective.score(working);
   evaluations++;
+  const plan = materialise(working, units, opts, fixed);
   return {
-    plan: materialise(working, units, opts, fixed),
+    plan,
     stage0: stage0Plan,
     report: report(req, base, units.length, temp, {
       clusters: groups.length,
@@ -791,6 +863,9 @@ export function multiStartSeed(req: MultiStartRequest): MultiStartResult {
       truncated,
       selectedScore,
       spentMs: req.now() - started,
+      openingSeparation: separationOf(plan, sub.grid.width),
+      stage0Separation,
+      startDiversity: diversitySlots === 0 ? 0 : diversityWeighted / diversitySlots,
     }),
   };
 }
@@ -1128,6 +1203,9 @@ function report(
     truncated: number;
     selectedScore: number;
     spentMs: number;
+    openingSeparation: number;
+    stage0Separation: number;
+    startDiversity: number;
   },
 ): MultiStartReport {
   return {
@@ -1149,5 +1227,79 @@ function report(
     temperature: temp,
     stage0Score: base.score,
     selectedScore: stage1.selectedScore,
+    openingSeparation: stage1.openingSeparation,
+    stage0Separation: stage1.stage0Separation,
+    startDiversity: stage1.startDiversity,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The opening instrument
+// ---------------------------------------------------------------------------
+
+/**
+ * MEAN PAIRWISE MANHATTAN DISTANCE between our units' landings, in cells.
+ *
+ * Manhattan and not Chebyshev because it is the metric a trail unit actually
+ * travels in, and the collisions this number exists to predict are collisions
+ * between units walking toward each other one step at a time. Mean and not
+ * minimum because a minimum is a fact about one pair and the claim is about a
+ * FORMATION: a file of six units a cell apart and a pair of clumps at opposite
+ * corners have the same minimum and nothing else in common.
+ */
+function separationOf(plan: JointPlan, width: number): number {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const candidate of plan.values()) {
+    const cell = landingOf(candidate);
+    xs.push(cell % width);
+    ys.push((cell / width) | 0);
+  }
+  const n = xs.length;
+  if (n < 2) return 0;
+  let total = 0;
+  let pairs = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      total +=
+        Math.abs((xs[i] as number) - (xs[j] as number)) +
+        Math.abs((ys[i] as number) - (ys[j] as number));
+      pairs++;
+    }
+  }
+  return pairs === 0 ? 0 : total / pairs;
+}
+
+/**
+ * ONE GROUP'S STAGED-ASSIGNMENT DIVERSITY, from per-slot choice counts.
+ *
+ * For a slot whose `p` pooled starts choose options with multiplicities `c_v`,
+ * the chance that two DISTINCT starts differ there is
+ * `(p² − Σ c_v²) / (p(p − 1))`. Averaging that over the group's slots gives a
+ * number in [0, 1] with the same meaning whatever the group's shape, so groups
+ * of two units and groups of nine are comparable and can be pooled.
+ *
+ * One pass over the pool. A pairwise count would be `poolCap²` (512² per
+ * group) comparisons for the same answer.
+ */
+function diversityOf(
+  pool: ReadonlyArray<{ readonly choice: Int32Array }>,
+  vars: Int32Array,
+): number {
+  const p = pool.length;
+  if (p < 2 || vars.length === 0) return 0;
+  let sum = 0;
+  const counts = new Map<number, number>();
+  for (let v = 0; v < vars.length; v++) {
+    const slot = vars[v] as number;
+    counts.clear();
+    for (const arm of pool) {
+      const choice = arm.choice[slot] as number;
+      counts.set(choice, (counts.get(choice) ?? 0) + 1);
+    }
+    let same = 0;
+    for (const c of counts.values()) same += c * c;
+    sum += (p * p - same) / (p * (p - 1));
+  }
+  return sum / vars.length;
 }

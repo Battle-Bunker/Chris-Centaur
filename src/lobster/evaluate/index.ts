@@ -37,8 +37,8 @@ import type {
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
-import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
-import type { Evaluation, Feature, Weights } from './bound';
+import { DEAD, WIN, advisoryEst, clampEst, clampTo, fold } from './bound';
+import type { AdvisoryTerm, Evaluation, Feature, Weights } from './bound';
 import {
   CLIFF_MATERIAL_WEIGHT,
   DEFAULT_PROFILE,
@@ -113,14 +113,25 @@ export class BoundEvaluator implements Evaluator {
    * That difference is the only reason the seam exists.
    */
   readonly features: ReadonlyArray<Feature<EvalContext>>;
+  /**
+   * THE ADVISORY LINEUP — registry `evaluator` entries marked `advisory`,
+   * which may move `est` and may not touch a bound. Empty by default, and
+   * empty is a path with no arithmetic in it: `advisoryEst` returns its input
+   * identically, so a bot that names no advisory term evaluates byte for byte
+   * what shipped. See `./bound.ts` for the contract and
+   * `./potion-lineup.ts` for the lineup the `potion-aware` slate resolves to.
+   */
+  readonly advisory: ReadonlyArray<AdvisoryTerm<EvalContext>>;
   private readonly weights: Weights;
 
   constructor(
     profile: CriterionProfile = DEFAULT_PROFILE,
-    features: ReadonlyArray<Feature<EvalContext>> = FEATURES
+    features: ReadonlyArray<Feature<EvalContext>> = FEATURES,
+    advisory: ReadonlyArray<AdvisoryTerm<EvalContext>> = NO_ADVISORY
   ) {
     this.profile = profile;
     this.features = features;
+    this.advisory = advisory;
     this.weights = profile.weights;
   }
 
@@ -142,7 +153,16 @@ export class BoundEvaluator implements Evaluator {
    * be serving the previous profile's numbers.
    */
   get evaluationIdentity(): string {
-    return `BoundEvaluator(${structuralIdentity(this.profile)})`;
+    const base = `BoundEvaluator(${structuralIdentity(this.profile)})`;
+    // THE ADVISORY LINEUP IS PART OF WHAT THIS EVALUATOR IS. Two evaluators
+    // over one profile that differ in their advisory terms report different
+    // `est` on the same board, and `est` is inside the memoised `Bound` — so a
+    // shared key would serve one lineup's numbers to the other. Appended only
+    // when the lineup is non-empty, so the default evaluator's identity is the
+    // string it has always been, character for character.
+    if (this.advisory.length === 0) return base;
+    const lineup = this.advisory.map((t) => `${t.key}*${t.weight}`).join('+');
+    return `${base}+advisory(${lineup})`;
   }
 
   scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {
@@ -172,10 +192,22 @@ export class BoundEvaluator implements Evaluator {
       // mutual-wipe value has to land on the same scale — so it is the
       // PROFILE's, not the default, or a recalibrated profile would price its
       // terminals in the shipped profile's units.
-      return finish(ctx, evaluation, this.weights.material ?? CLIFF_MATERIAL_WEIGHT);
+      const sound = finish(ctx, evaluation, this.weights.material ?? CLIFF_MATERIAL_WEIGHT);
+      // THE ADVISORY OVERLAY, LAST AND ON `est` ALONE. After the terminal
+      // clamp, so a lattice end is never argued with, and clamped back inside
+      // the interval the features proved — an advisory entry may reorder the
+      // floor-tie class and may not move the floor that defines it. With no
+      // lineup this returns `sound.bound` itself and the object below is the
+      // one `finish` built.
+      const withAdvisory = advisoryEst(sound.bound, this.advisory, ctx);
+      return withAdvisory === sound.bound ? sound : { ...sound, bound: withAdvisory };
     });
   }
 }
+
+/** The empty lineup, shared, so "no advisory terms" is one identity rather
+ * than a fresh array per evaluator. */
+const NO_ADVISORY: ReadonlyArray<AdvisoryTerm<EvalContext>> = [];
 
 /**
  * The clamp step, kept separate so the law harness can exercise it directly.

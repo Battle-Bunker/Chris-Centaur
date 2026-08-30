@@ -221,6 +221,27 @@ export interface SearchTuning {
   /** Budgets and sizes for the enumeration. Always read. */
   readonly clusterTuning: Partial<ClusterTuning>;
   /**
+   * DOES THE ENUMERATION RUN — `undefined` (the shipped bot) and `true` mean
+   * yes, `false` means the pass is not paid for at all.
+   *
+   * THE PARAGRAPH ABOVE IS NOT WITHDRAWN. The enumeration is still machinery
+   * and switching it is still a silent switch on depth, because the scout's
+   * threads have exactly one seed and it is this pass's proposals. What has
+   * changed is that the machinery's PRICE was measured — ~20% of a piece
+   * board's whole decision budget against 3.5% on snakes — and no
+   * configuration could ask what that 20% buys, since `scoutTuning.plyCap = 0`
+   * stops the threads and leaves the enumeration running.
+   *
+   * So this is a BUDGET STATEMENT with a dependency attached, and the
+   * dependency is published rather than hidden: `openCluster` hands the scout
+   * the reason in words on every decision (`ScoutReport.gatedBy`), and
+   * `clusterReport()` reports ZERO rather than null, so an ingest can tell a
+   * bot that refused the pass from a board that never reached it. An arm that
+   * sets this false prices the enumeration AND depth together and owes that
+   * sentence in its own write-up.
+   */
+  readonly clusterEnum: boolean | undefined;
+  /**
    * DOOR C — THE CONTESTED REACH/ROOM REFINER (CL5), per engine.
    *
    * With it on, the evaluator gets a SECOND sound reading of the territory
@@ -374,6 +395,7 @@ export const DEFAULT_TUNING: SearchTuning = {
   multistartSeed: undefined,
   multistartTuning: {},
   clusterTuning: {},
+  clusterEnum: undefined,
   territoryRefine: undefined,
   sampledCap: undefined,
   samplingTuning: {},
@@ -541,6 +563,14 @@ interface Session {
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
+  /**
+   * THIS BOT'S REFUSAL OF THE ENUMERATION PASS, read once and never again.
+   *
+   * A constant for the core's life, like every other bot selection: a value
+   * that could change under a running decision is a value no measurement can
+   * be attributed to. `undefined` is the shipped bot and means the pass runs.
+   */
+  const enumDisabled = cfg.clusterEnum === false;
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
@@ -688,12 +718,24 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   let lastScout: ScoutReport | null = null;
   let lastDepth: DepthReport | null = null;
   let lastMultiStart: MultiStartReport | null = null;
+  /**
+   * THE MOST-VARYING MULTI-START OF THE CURRENT DECISION — see `multiStart`.
+   *
+   * NOT reset when a session opens: a decision opens a new session whenever its
+   * basis changes, and the rung-0 seed — the only call with every unit still
+   * free — happens in the first one. Cleared by `release()`, on the same
+   * snapshot-then-clear discipline as the reports beside it, so one decision's
+   * opening is never reported as the next one's.
+   */
+  let openingMultiStart: MultiStartReport | null = null;
 
   const release = (): void => {
     lastCluster = clusterReport();
     lastSelection = selectionReport();
     lastScout = scoutReport();
     lastDepth = depthReport();
+    lastMultiStart = openingMultiStart ?? lastMultiStart;
+    openingMultiStart = null;
     acceptingFor = null;
     for (const key of [...sessions.keys()]) closeSession(key);
   };
@@ -911,7 +953,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       ? "substrate is not the engine's — no door to continue through"
       : s.ours.length === 0
         ? "no commandable units to vary"
-        : null;
+        : enumDisabled
+          ? "the cluster enumeration is off for this bot (search.clusterEnum: false) — " +
+            "the threads' only seed is its proposals, so depth has no root to grow from"
+          : null;
     if (s.scout !== null) s.scout.gatedBy(scoutGate);
     // The substrate test is repeated in the guard itself so the narrowing the
     // rest of this function relies on survives; `scoutGate` already covers it.
@@ -1441,7 +1486,20 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // cheap has an opinion.
       priorOf: (unitId, optionIndex) => s.sets.get(unitId)?.edgeEv?.[optionIndex] ?? 0,
     });
-    lastMultiStart = result.report;
+    // THE DECISION'S OPENING, RETAINED — not the last call's report.
+    //
+    // The seed runs on every slice, but it is load-bearing at RUNG 0, from a
+    // null incumbent, where every free unit is still a variable. On a later
+    // slice the incumbent has already fixed them all, so `variables` is zero,
+    // no sample is drawn and no pool exists — and overwriting with that report
+    // is what made the opening instrument publish `startDiversity: 0` on every
+    // live decision no matter what the sampler had found. So the call that
+    // varied the most since this session opened is the one kept, which is the
+    // opening by construction.
+    if (openingMultiStart === null || result.report.variables > openingMultiStart.variables) {
+      openingMultiStart = result.report;
+    }
+    lastMultiStart = openingMultiStart;
     const out = new Map<UnitId, Candidate>(result.plan);
     // The declared reference actions ride every plan (see Session.references).
     for (const [unitId, candidate] of s.references) out.set(unitId, candidate);
@@ -2393,9 +2451,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   };
 
   /**
-   * The cluster accounting, summed over live sessions. Null when the layer
-   * never ran, which is the shipped default and is how a reader tells "off"
-   * from "on and found nothing".
+   * The cluster accounting, summed over live sessions.
+   *
+   * NULL when the layer never ran — a board that admitted no partition, or a
+   * substrate that is not the engine's — which is how a reader tells "never
+   * reached" from "reached and found nothing". ZERO, and not null, when this
+   * bot turned the pass off (`search.clusterEnum: false`): that is an arm
+   * exercising its own refusal, and it is a different fact about a decision
+   * from a board the layer could not run on.
    */
   const clusterReport = (): ClusterReport | null => {
     let seen = false;
@@ -2417,6 +2480,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       skipped: 0,
       swept: 0,
     };
+    // A BOT THAT REFUSED THE PASS REPORTS ZERO, NOT NULL — and the distinction
+    // is the one this whole report exists to keep. Null means "the layer never
+    // ran", which on the shipped bot means the board admitted no partition;
+    // zero here means "this bot does not enumerate", which is an arm engaging
+    // its own refusal. An ingest folding one into the other would read a
+    // configured budget arm as a board that never reached the layer.
+    if (enumDisabled) {
+      const { skipped, swept, ...rest } = out;
+      return { ...rest, sweepsSkipped: skipped, sweepsRun: swept };
+    }
     for (const session of sessions.values()) {
       const cluster = session.cluster;
       if (cluster === null) continue;
@@ -2517,7 +2590,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * TELEMETRY: nothing in the decision path reads it and none of it reaches the
    * wire.
    */
-  const multistartReport = (): MultiStartReport | null => lastMultiStart;
+  const multistartReport = (): MultiStartReport | null => openingMultiStart ?? lastMultiStart;
 
   /**
    * THE CONSULTED DEPTH SURFACE — what the deepened lines are worth, and

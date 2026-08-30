@@ -7,13 +7,16 @@
  * occupancy length, and a sever removes exactly the cells the engine cuts, so
  * the output is already denominated in the currency the game is scored in.
  *
- * ── DARK BY CONSTRUCTION ───────────────────────────────────────────────────
+ * ── SELECTABLE, AND SELECTED BY NO DEFAULT ─────────────────────────────────
  *
- * Nothing on the production path imports this module. It is not in the feature
- * list, it has no weight in the shipped calibration, and it reads no
- * environment. It exists so that its retrodiction can be run against replays
- * we already hold, which is the first bar in the portfolio's evidence ladder
- * and the only one that costs no games.
+ * This module is not in the feature list, it has no weight in the shipped
+ * calibration, and it reads no environment. The shipped bot never evaluates a
+ * line of it. Its one live consumer is `severExchangeRate` below, which
+ * `evaluate/potion-lineup.ts` calls to price enemy weight in units of our own —
+ * so it is reached only by a bot configured onto `SLATE_POTION_AWARE`. It
+ * exists so that its retrodiction can be run against replays we already hold,
+ * which is the first bar in the portfolio's evidence ladder and the only one
+ * that costs no games.
  *
  * ── THE SHAPE: A SLOT CANDIDATE, NOT A FLAG ────────────────────────────────
  *
@@ -515,7 +518,8 @@ export const SLIDER_ATTACK_VECTOR_ENTRY: SlotCandidateEntry = {
     countKills: false,
     /** The advisory half's point estimate follows the body-shift rule. */
     threatEstimate: 'body-shift',
-    /** Weight, if this entry were ever folded. Zero is what "dark" means. */
+    /** Weight, if this entry were ever folded. Zero is what "in no slate"
+     * means: the term is merged and selectable, and nothing selects it. */
     weight: 0,
   },
   soundness: {

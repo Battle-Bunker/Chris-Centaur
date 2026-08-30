@@ -117,6 +117,17 @@ export interface BotStamp {
    * depthless contender the depth-effect rate is measured against.
    */
   readonly depthPlyCap: number;
+  /**
+   * WHETHER THIS BOT PAID FOR THE CLUSTER ENUMERATION
+   * (`BotConfig.search.clusterEnum`).
+   *
+   * True is the shipped bot and the unset field. False is the budget arm, and
+   * it is stamped because it carries a dependency a reader has to see: the
+   * scout's threads are rooted at the enumeration's proposals, so a decision
+   * with this false took no deep thread either — `scout.gatedBy` says so in
+   * words on the same report, and `cluster` reads zero rather than null.
+   */
+  readonly clusterEnum: boolean;
 }
 
 /**
@@ -229,6 +240,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       multistartSeed: bot.multistartSeed,
       sampledCap: bot.sampledCap,
       depthPlyCap: bot.depth.plyCap ?? DEFAULT_SCOUT_TUNING.plyCap,
+      clusterEnum: bot.search.clusterEnum ?? true,
     },
     slate: inputs.slate,
     belief: inputs.belief,

@@ -55,7 +55,8 @@ The joints are the registry's five slots (`src/lobster/registry.ts`,
 `scheduler`. A candidate is a `StrategyEntry` — identity, priors, cost model,
 empirical record — and a bot runs the members a `Slate` names.
 
-Merged members that are in no slate today, and are lane (a) by construction:
+The potion doctrine is the worked example, and it has now been through both
+halves of the lane. Four evaluator members were merged and named by no slate:
 
 | member | file | joint |
 |---|---|---|
@@ -64,26 +65,44 @@ Merged members that are in no slate today, and are lane (a) by construction:
 | `eval/potion-control@1` | `src/lobster/evaluate/potion-control.ts` | `evaluator` |
 | `eval/attack-window@1` | `src/lobster/evaluate/attack-window.ts` | `evaluator` |
 
-The dodge-discount and the potion terms are **not** the banned pattern. They are
-merged, they are members of the evaluator collection, nothing on the production
-path imports them, and the registry throws on a name it does not hold — so a
-member becomes live by being **configured in** and in no other way. That is the
-owner's own model of lane (a), and it is why "these are dark" would be both
-banned wording and factually the wrong description. In owner-facing text they
-are **merged and selectable, not yet selected**.
+Those four were **not** the banned pattern. They were merged, they were members
+of the evaluator collection, nothing on the production path imported them, and
+the registry throws on a name it does not hold — so a member becomes live by
+being **configured in** and in no other way. That is the owner's own model of
+lane (a), and it is why "these are dark" would be both banned wording and
+factually the wrong description.
+
+**What was missing was the selection half, and its cost was measurable.** With
+`SlateId` at one member no `BotConfig` could name a slate holding them, so no
+configurable bot read a potion at all: every potions-on game the program had
+played was played by a potion-unaware bot, and every potion arm in the roster
+was unrunnable rather than merely unrun. "Merged and unselected" was, in
+practice, a synonym for unmeasurable.
+
+`SLATE_POTION_AWARE` closes that. It is the shipped evaluator lineup plus the
+four terms, seated at `eval/attack-window@2`, `eval/potion-seek@3`,
+`eval/potion-control@2` and `eval/dodge-discount@2` — new ids, because seating
+a term means a non-zero weight and the params tree is part of an entry's
+fingerprint, so under the identity law that is a new entry and never an edit of
+a measured one. Every seated term is **advisory**: it reaches `est` through
+`evaluate/bound.ts`'s `advisoryEst`, orders plans the floor ties and can move
+no bound, no ceiling and no refusal. `DEFAULT_BOT_CONFIG.slate` is still
+`legacy` and the byte-identity gates still assert it, so in owner-facing text
+the potion doctrine is now **merged and selectable, selected by no default**.
 
 `BotConfig` (`src/lobster/bot-config.ts`) is the other half of the same lane:
-`territoryRefine`, `candidates.unitFatality`, `depth.plyCap`, `sampledCap`,
-`edgeEv` are all selections among members, expressed as data, per seat. A new
-field there, or a new row in a collection, is a **normal commit on the primary
-branch**.
+`slate`, `territoryRefine`, `candidates.unitFatality`, `depth.plyCap`,
+`sampledCap`, `edgeEv` and `search.clusterEnum` are all selections among
+members, expressed as data, per seat. A new field there, or a new row in a
+collection, is a **normal commit on the primary branch**.
 
-**What lane (a) still owes, stated plainly:** config-time selection works today;
-`SlateId` has exactly one member (`SLATE_LEGACY`), so *dynamic within-bot*
-selection among entries is the registry's next increment and is not built yet.
-That gap is lane (a) work — it adds no joint — but until it lands, "available
-for dynamic selection" is a design commitment, not a shipped capability. Do not
-describe it as done.
+**What lane (a) still owes, stated plainly:** config-time selection works today
+and now has more than one thing to select. *Dynamic within-bot* selection among
+entries — the scheduler buying an evaluator invocation on value per microsecond
+rather than running a fixed lineup — is the registry's next increment and is
+not built yet. That gap is lane (a) work: it adds no joint. Until it lands,
+"available for dynamic selection" is a design commitment, not a shipped
+capability. Do not describe it as done.
 
 ### Lane (b), with this repo's example
 
@@ -108,7 +127,9 @@ validation** — not defaulted on inside an accumulating branch.
 | change | lane | why |
 |---|---|---|
 | new evaluator term, in no slate | **a** | member of an existing collection |
+| a new SLATE naming existing members | **a** | a collection member, not a joint |
 | new `BotConfig` field selecting among existing members | **a** | selection is data |
+| a field that turns an existing pass off for a configured bot | **a** | a budget statement, provided no default moves and the dependency is published |
 | retuning a member's params (mints `@2` per the identity law) | **a** | same joint, new member identity |
 | a new registry SLOT | **b** | a joint that did not exist |
 | changing what a bound may be written from | **b** | kernel semantics |

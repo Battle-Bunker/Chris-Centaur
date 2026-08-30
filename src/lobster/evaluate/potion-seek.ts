@@ -57,10 +57,15 @@
  * THE COLLECTOR'S OWN ATTACK. The collector goes to −1: it cannot cut anything
  * and it cannot win any contest. It is excluded from the gain by construction.
  *
- * ── DARK BY CONSTRUCTION ───────────────────────────────────────────────────
+ * ── SELECTABLE, AND SELECTED BY NO DEFAULT ─────────────────────────────────
  *
- * Nothing on the production path imports this module. `POTION_SEEK_ENTRY` is
- * the candidate as a registry value and is in no slate.
+ * `POTION_SEEK_ENTRY` (`@2`) is the candidate as a registry value, carrying
+ * `weight: 0` and named by no slate. `eval/potion-seek@3` is the seated
+ * successor — same primitive and evidence, a non-zero advisory weight — and it
+ * is named by `SLATE_POTION_AWARE` alone. A bot reads this module by being
+ * configured onto that slate and in no other way; `evaluate/potion-lineup.ts`
+ * is the adapter that hands it a live position, and it is where the `dodge`
+ * option below is supplied when `eval/dodge-discount@2` is in the lineup.
  */
 
 import { indexOccupancy, tierAt } from './ray-crossing';

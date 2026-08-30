@@ -59,10 +59,13 @@
  * potion — control for the ones we are not collecting this turn, seek for the
  * one we are.
  *
- * ── DARK BY CONSTRUCTION ───────────────────────────────────────────────────
+ * ── SELECTABLE, AND SELECTED BY NO DEFAULT ─────────────────────────────────
  *
- * Nothing on the production path imports this module. `POTION_CONTROL_ENTRY`
- * is the candidate as a registry value and is in no slate.
+ * `POTION_CONTROL_ENTRY` (`@1`) is the candidate as a registry value, carrying
+ * `weight: 0` and named by no slate. `eval/potion-control@2` is the seated
+ * successor, named by `SLATE_POTION_AWARE` alone, and a bot reads this module
+ * by being configured onto that slate and in no other way. See
+ * `evaluate/potion-lineup.ts`.
  */
 
 import { indexOccupancy } from './ray-crossing';

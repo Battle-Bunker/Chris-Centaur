@@ -25,10 +25,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  ALL_ENTRIES,
   LEGACY_ENTRIES,
   LEGACY_SLATE,
+  POTION_AWARE_SLATE,
+  POTION_ENTRIES,
   REGISTRY,
+  SLATE_IDS,
   SLATE_LEGACY,
+  SLATE_POTION_AWARE,
   SLOT_IDS,
   StrategyRegistry,
   UnknownEntryError,
@@ -242,12 +247,97 @@ describe('resolution is total and checked', () => {
     );
   });
 
-  test('there is exactly ONE slate, and asking for another throws', () => {
+  test('there are exactly TWO slates, and asking for a third throws', () => {
     expect(slateFor()).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_LEGACY)).toBe(LEGACY_SLATE);
-    // Selection of a non-legacy entry is the NEXT increment. Unrepresentable in
-    // the type, and refused at run time for a caller that casts around it.
+    expect(slateFor(SLATE_POTION_AWARE)).toBe(POTION_AWARE_SLATE);
+    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE]);
+    // A name the registry does not hold is refused at run time as well as in
+    // the type, for a caller that casts around it: a silent fallback to the
+    // default would attribute a measurement to a slate that never ran.
     expect(() => slateFor('greedy-voi' as typeof SLATE_LEGACY)).toThrow(/unknown slate/);
+  });
+
+  test('the potion-aware slate resolves, and every socket but one is legacy', () => {
+    const resolved = REGISTRY.resolve(POTION_AWARE_SLATE);
+    expect(resolved.slateId).toBe(SLATE_POTION_AWARE);
+    expect(resolved.moveSelectors.map((e) => e.id)).toEqual(LEGACY_SLATE.moveSelectors);
+    expect(resolved.evaluatorSelector.id).toBe(LEGACY_SLATE.evaluatorSelector);
+    expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
+    expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
+    // The frame is the slate: the sound entry first, the advisory four after.
+    expect(resolved.evaluators.map((e) => e.id)).toEqual([
+      ...LEGACY_SLATE.evaluators,
+      ...POTION_ENTRIES.map((e) => e.id),
+    ]);
+  });
+});
+
+// ------------------------------------------------------- the potion entries
+
+describe('the potion entries are members of the evaluator collection', () => {
+  test('they are ADVISORY, and the seam rule is stated per soundness class', () => {
+    // The seam rule pinned above for the legacy entries says the evaluator
+    // socket is the one that CAN write lo/hi. It does not say every entry in
+    // it does: an `advisory` evaluator entry reaches `est` through
+    // `advisoryEst` and can move no bound, which is why it owes no law-harness
+    // admission gate. That distinction is the whole of what these four are.
+    for (const e of POTION_ENTRIES) {
+      expect(e.slot).toBe('evaluator');
+      expect(e.soundness).toBe('advisory');
+      expect(e.id).toMatch(/^eval\/.*@\d+$/);
+      // Never `default`: nothing has been raced with these in a slate.
+      expect(e.record.status).toBe('candidate');
+      expect(e.record.ledgerRows).toEqual([]);
+      expect(e.priors.fitted).toBe(false);
+      expect(e.cost.fitted).toBe(false);
+    }
+  });
+
+  test('THE IDENTITY LAW: seating a term mints a new id, never edits the old', () => {
+    // The modules' own entries carry `weight: 0` — the honest params of a term
+    // in no lineup. Seating one means a non-zero weight, the params tree is
+    // part of the fingerprint, so the seated term is a NEW ENTRY. Every number
+    // ever recorded against the older id still refers to what produced it.
+    const registered = new Set(ALL_ENTRIES.map((e) => e.id));
+    for (const older of [
+      'eval/attack-window@1',
+      'eval/potion-seek@2',
+      'eval/potion-control@1',
+      'eval/dodge-discount@1',
+    ]) {
+      expect(registered.has(older)).toBe(false);
+    }
+    const params = (id: string): Record<string, unknown> =>
+      REGISTRY.get(id, 'evaluator').params as Record<string, unknown>;
+    expect(params('eval/attack-window@2').weight).toBe(0.5);
+    expect(params('eval/potion-seek@3').weight).toBe(1);
+    expect(params('eval/potion-control@2').weight).toBe(1);
+    // THE MODIFIER. Weight zero on purpose: everything dodge-discount does
+    // happens by being present, which switches potion-seek's exposure endpoint.
+    expect(params('eval/dodge-discount@2').weight).toBe(0);
+    // And the one substantive difference from `@1`, which is why it is not a
+    // reweighting: at `+1` the window IS potion-seek's prospective gain and
+    // would be counted twice, so the seated entry judges at the unit's own tier.
+    expect(params('eval/attack-window@2').tierDelta).toBe(0);
+  });
+
+  test('every potion entry is pinned, like every legacy one', () => {
+    // Same instrument, same repair: if one of these moves, mint the next
+    // version rather than updating the number here.
+    const PINNED_POTION: Readonly<Record<string, string>> = {
+      'eval/attack-window@2': 'ddefa565',
+      'eval/potion-seek@3': '36d83019',
+      'eval/potion-control@2': 'a38c1b12',
+      'eval/dodge-discount@2': '787e8db3',
+    };
+    expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
+    for (const e of POTION_ENTRIES) {
+      expect(`${e.id}=${digest(entryFingerprint(e))}`).toBe(`${e.id}=${PINNED_POTION[e.id]}`);
+    }
+    // Ids are unique across the WHOLE registry, not just within their file.
+    expect(new Set(ALL_ENTRIES.map((e) => e.id)).size).toBe(ALL_ENTRIES.length);
+    expect(ALL_ENTRIES.length).toBe(LEGACY_ENTRIES.length + POTION_ENTRIES.length);
   });
 });
 

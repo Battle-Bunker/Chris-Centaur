@@ -81,12 +81,17 @@
  * (`../registry.ts`) puts it in a slot and not in the kernel: it can only ever
  * change order or spend.
  *
- * ── DARK BY CONSTRUCTION ───────────────────────────────────────────────────
+ * ── SELECTABLE, AND SELECTED BY NO DEFAULT ─────────────────────────────────
  *
- * Nothing on the production path imports this module. `DODGE_DISCOUNT_ENTRY` is
- * the candidate as a registry value and is in no slate. Its only consumer in
- * this increment is `CollectorExposure.weightAtRiskNear` in `potion-seek.ts`,
- * and only when that module is handed a `dodge` option it does not default to.
+ * `DODGE_DISCOUNT_ENTRY` (`@1`) is the candidate as a registry value, carrying
+ * `weight: 0` and named by no slate. `eval/dodge-discount@2` is the seated
+ * successor and it is a MODIFIER rather than a summand: it carries weight zero
+ * there too, and everything it does happens by being present in
+ * `SLATE_POTION_AWARE`, which switches `eval/potion-seek@3`'s exposure from the
+ * undiscounted window endpoint to the near endpoint priced through this file.
+ * Its only consumer is still `CollectorExposure.weightAtRiskNear` in
+ * `potion-seek.ts`, and still only when that module is handed a `dodge` option
+ * it does not default to.
  *
  * Design and its arguments, including the BUILD NOTE recording where
  * compilation moved this file away from the draft:
@@ -239,7 +244,7 @@ export interface DodgeDiscountOptions {
    * the fan grows with the dimension). A caller pricing several units, or
    * several (collector, potion) pairs, on one board builds it once and hands
    * it in here. When it is absent one is built from `wallCells`/`hazardCells`,
-   * which keeps the dark path and the tests a one-liner.
+   * which keeps an unconfigured caller and the tests a one-liner.
    *
    * It must be the terrain of THIS board: same width, same height, and the
    * hazards actually standing on it.

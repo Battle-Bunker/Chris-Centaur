@@ -50,12 +50,18 @@
  * CHANGE A SOUND BOUND IT IS KERNEL, IF IT CAN ONLY CHANGE ORDER OR SPEND IT IS
  * CONFIGURABLE:
  *
- *   · MACHINERY. The cluster-factored exact enumeration and the depth layer
- *     that roots its threads at that enumeration's proposals. Both always run;
- *     what a bot configures is depth's RATION (`depth`), never its existence.
- *     A switch on the enumeration was a silent switch on depth as well, which
- *     is the dependency class that made one experiment race three identical
- *     contenders.
+ *   · MACHINERY, WITH ONE MEASURED EXCEPTION. The depth layer always runs and
+ *     has no field: what a bot rations is `depth`, never depth's existence.
+ *     The cluster-factored exact enumeration it roots its threads at is the
+ *     exception, and `search.clusterEnum` is the field — because the pass was
+ *     measured at ~20% of a piece board's whole decision budget and no
+ *     configuration could ask what that 20% buys (`depth.plyCap = 0` stops the
+ *     threads and leaves the pass running). The dependency that kept it out —
+ *     a switch on the enumeration is a silent switch on depth as well — is not
+ *     dissolved: it is PUBLISHED. The scout names the reason on every decision
+ *     and the cluster row reads zero rather than null, so an arm that sets it
+ *     prices the pair and cannot be mistaken for a depth arm that found
+ *     nothing. See `SearchSelections.clusterEnum`.
  *   · CORRECTIONS. The mutual-wipe terminal pricing, the tier-truth premise
  *     the substrate feeds the cloud, the tier-defense policy. Each is a
  *     statement about what the rules say or what the board is, and there is no
@@ -85,7 +91,7 @@ import type { WorkerSetting } from './parallel';
 import { STAGING_SAFETY_DEFAULT } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
 import type { ScoutTuning } from './search/scout';
-import { SLATE_LEGACY } from './registry';
+import { SLATE_IDS, SLATE_LEGACY } from './registry';
 import type { SlateId } from './registry';
 
 /**
@@ -104,11 +110,17 @@ export interface BotConfig {
   // ---------------------------------------------------------------- sockets
 
   /**
-   * WHICH ENTRY PER SOCKET, as a slate id (`registry.ts`). `SlateId` has one
-   * member today by construction, so this is the byte-identity bridge and not
-   * yet a choice; it is here because it is the field every future strategy
-   * alternative arrives through, and a contender file that already names it
-   * does not change shape when the second slate lands.
+   * WHICH ENTRY PER SOCKET, as a slate id (`registry.ts`).
+   *
+   * `'legacy'` is the shipped bot and the byte-identity bridge: it names the
+   * entries that describe what already runs. `'potion-aware'` is the shipped
+   * lineup plus the four merged potion terms — the first selectable
+   * alternative at the evaluator socket, and the field's whole reason for
+   * existing. Every term it adds is advisory, so selecting it changes the
+   * ORDER over plans the floor ties and moves no bound.
+   *
+   * There is no default worth guessing here either: an unnamed slate is
+   * `'legacy'`, and a contender that wants the other one says so.
    */
   readonly slate?: SlateId;
 
@@ -187,12 +199,64 @@ export interface BotConfig {
    * false in every bot that plays.
    */
   readonly workersAudit?: boolean;
+
+  /**
+   * SEARCH-LAYER SELECTIONS. A partial: what is named overrides the shipped
+   * search, what is not keeps it. See `SearchSelections`.
+   */
+  readonly search?: SearchSelections;
+}
+
+/**
+ * WHAT A BOT MAY SELECT INSIDE THE SEARCH.
+ *
+ * Kept as its own nested object rather than as more top-level fields, because
+ * these are choices about how a decision SPENDS rather than about what it
+ * believes, and a reader deciding whether a contender is a strategy arm or a
+ * budget arm should be able to see that from the shape of the file.
+ */
+export interface SearchSelections {
+  /**
+   * DOES THE CLUSTER-FACTORED EXACT ENUMERATION RUN AT ALL.
+   *
+   * Unset — and it is unset in the shipped bot — the enumeration runs, which
+   * is what has always happened and what the byte-identity gates assert. Set
+   * `false`, the partition is not built, no joint is enumerated and the pass
+   * costs nothing.
+   *
+   * ── WHY THIS IS A FIELD AND NOT MACHINERY ─────────────────────────────────
+   *
+   * The header above says machinery has no field, and the enumeration was
+   * classified as machinery on the argument that switching it was a silent
+   * switch on depth as well. That argument stands and is NOT dissolved here —
+   * it is stated (below, and in `SearchTuning.clusterEnum`) instead of being
+   * enforced by absence. What changed is that the cost was measured: on a
+   * piece board the enumeration is ~20% of the whole decision budget
+   * (2,985 ms/game against 60 × 250 ms) versus 3.5% on snakes, and no
+   * configuration could price what that 20% buys. `depth.plyCap = 0` stops the
+   * deep threads and leaves the enumeration pass running, so it does not
+   * answer the question either.
+   *
+   * ── THE DEPENDENCY, SAID OUT LOUD ─────────────────────────────────────────
+   *
+   * A bot that sets this false runs WITHOUT DEPTH TOO. The scout's threads are
+   * rooted at this enumeration's own proposals and there is no other seed, so
+   * turning the enumeration off turns depth off with it. That is one arm
+   * carrying two changes and it must be read as such: it prices the pair, not
+   * the enumeration alone, and `ScoutReport.gatedBy` names the reason on every
+   * decision so the arm cannot be mistaken for a depth arm that merely found
+   * nothing.
+   */
+  readonly clusterEnum?: boolean;
 }
 
 /** A bot with every field settled — what the engine actually reads. */
-export type ResolvedBotConfig = Required<Omit<BotConfig, 'candidates' | 'depth'>> & {
+export type ResolvedBotConfig = Required<
+  Omit<BotConfig, 'candidates' | 'depth' | 'search'>
+> & {
   readonly candidates: CandidateKnobs;
   readonly depth: Partial<ScoutTuning>;
+  readonly search: SearchSelections;
 };
 
 /**
@@ -208,6 +272,7 @@ export const DEFAULT_BOT_CONFIG: ResolvedBotConfig = {
   multistartSeed: false,
   sampledCap: false,
   depth: {},
+  search: {},
   engine: CENTAUR_ENGINE_DEFAULT,
   workers: DEFAULT_WORKERS,
   workersAudit: DEFAULT_WORKERS_AUDIT,
@@ -236,6 +301,7 @@ export function resolveBotConfig(
     multistartSeed: config.multistartSeed ?? DEFAULT_BOT_CONFIG.multistartSeed,
     sampledCap: config.sampledCap ?? DEFAULT_BOT_CONFIG.sampledCap,
     depth: config.depth ?? DEFAULT_BOT_CONFIG.depth,
+    search: config.search ?? DEFAULT_BOT_CONFIG.search,
     engine:
       config.engine === undefined
         ? DEFAULT_BOT_CONFIG.engine
@@ -275,15 +341,18 @@ export function botConfigFromJson(
     'multistartSeed',
     'sampledCap',
     'depth',
+    'search',
     'engine',
     'workers',
     'workersAudit',
   ]);
-  // The search-layer teardown landed: `scout` and `clusterEnum` are gone
-  // entirely (depth and the cluster enumeration are machinery and always run),
-  // `edgeEv` is a candidate knob, and the other two are fields above. Nothing
-  // in the search reads an environment variable any more, so a batch that
-  // names its bots names everything that ran.
+  // The search-layer teardown landed: `scout` is gone entirely (depth always
+  // runs; what a bot rations is `depth`), `edgeEv` is a candidate knob, and the
+  // rest are fields above. `clusterEnum` came BACK, as `search.clusterEnum` and
+  // as a field rather than an environment variable — see `SearchSelections`
+  // for the measurement that bought it and the depth dependency it carries.
+  // Nothing in the search reads an environment variable, so a batch that names
+  // its bots names everything that ran.
   for (const key of Object.keys(o)) {
     if (!known.has(key)) throw new TypeError(`unknown bot config field "${key}"`);
   }
@@ -298,8 +367,8 @@ export function botConfigFromJson(
       `bot config "stagingSafety" must be one of ${STAGING_LEVELS.join(', ')}`
     );
   }
-  if (o.slate !== undefined && o.slate !== SLATE_LEGACY) {
-    throw new TypeError(`bot config "slate" must be "${SLATE_LEGACY}"`);
+  if (o.slate !== undefined && !SLATE_IDS.includes(o.slate as SlateId)) {
+    throw new TypeError(`bot config "slate" must be one of ${SLATE_IDS.join(', ')}`);
   }
   if (
     o.candidates !== undefined &&
@@ -316,6 +385,22 @@ export function botConfigFromJson(
   ) {
     throw new TypeError('bot config "depth" must be an object of depth-ration knobs');
   }
+  // The nested object is checked to the same standard as the top level: an
+  // unknown key inside it is refused, so a misspelled `clusterEnumeration`
+  // cannot quietly become the default bot wearing an arm's name.
+  if (o.search !== undefined) {
+    if (typeof o.search !== 'object' || o.search === null || Array.isArray(o.search)) {
+      throw new TypeError('bot config "search" must be an object of search selections');
+    }
+    const searchKnown = new Set(['clusterEnum']);
+    const sub = o.search as Record<string, unknown>;
+    for (const key of Object.keys(sub)) {
+      if (!searchKnown.has(key)) throw new TypeError(`unknown bot config field "search.${key}"`);
+    }
+    if (sub.clusterEnum !== undefined && typeof sub.clusterEnum !== 'boolean') {
+      throw new TypeError('bot config "search.clusterEnum" must be a boolean');
+    }
+  }
   return resolveBotConfig(
     {
       name: o.name as string | undefined,
@@ -326,6 +411,7 @@ export function botConfigFromJson(
       multistartSeed: bool('multistartSeed'),
       sampledCap: bool('sampledCap'),
       depth: o.depth as Partial<ScoutTuning> | undefined,
+      search: o.search as SearchSelections | undefined,
       engine: o.engine as CentaurEngineKind | undefined,
       workers: o.workers as WorkerSetting | undefined,
       workersAudit: bool('workersAudit'),

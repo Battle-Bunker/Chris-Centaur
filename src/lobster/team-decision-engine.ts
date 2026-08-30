@@ -66,7 +66,8 @@ import { mechanismReportOf } from './telemetry/mechanism';
 import type { MechanismReport } from './telemetry/mechanism';
 import { REGISTRY, slateFor, slateStampOf } from './registry';
 import type { ResolvedSlate, SlateId } from './registry';
-import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import { earliestShells, standingOf } from './evaluate';
+import { evaluatorForSlate } from './evaluate/potion-lineup';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
@@ -493,6 +494,12 @@ export class TeamDecisionEngine {
    * be. Computed once — the evaluator is fixed for the engine's life. */
   private readonly evaluatorSpec: EvaluatorSpec;
   /**
+   * THE EVALUATOR THIS ENGINE PLAYS, resolved once from the slate for the same
+   * reason the bot is: an evaluator that could change under a running match is
+   * one no measurement can be attributed to.
+   */
+  private readonly evaluate: Evaluator;
+  /**
    * THE ENTRY REGISTRY'S SLATE FOR THIS ENGINE — resolved once, here, because
    * the registry is immutable data and the slate is fixed for the engine's
    * life. One entry per socket per decision, which is what the resolution
@@ -526,8 +533,18 @@ export class TeamDecisionEngine {
     this.env = ports.env ?? process.env;
     this.log = ports.log ?? ((m) => console.log(m));
     this.bot = resolveBotConfig(this.options.bot, this.log);
-    this.evaluatorSpec = evaluatorSpecOf(this.options.evaluate ?? defaultEvaluator);
     this.slate = REGISTRY.resolve(slateFor(this.options.slate ?? this.bot.slate));
+    // THE SLATE DECIDES THE EVALUATOR, and this is the one line where it does.
+    // `evaluatorForSlate` returns `defaultEvaluator` ITSELF for a slate whose
+    // evaluator list names only sound-writing entries, so the shipped bot
+    // evaluates through the object it always did — the byte-identity gates
+    // rest on that identity, not on an equality. A caller's own `evaluate`
+    // still wins: it is the harness seam, and a harness that seats an
+    // evaluator directly is making a statement about a capability rather than
+    // about a deployable configuration.
+    this.evaluate =
+      this.options.evaluate ?? evaluatorForSlate(this.slate.evaluators.map((e) => e.id));
+    this.evaluatorSpec = evaluatorSpecOf(this.evaluate);
     if (this.options.pool !== undefined) this.pool = this.options.pool;
   }
 
@@ -710,7 +727,7 @@ export class TeamDecisionEngine {
       ...(this.options.candidates ?? {}),
     };
     const gen = new GrammarCandidateGenerator(knobs);
-    const evaluate = this.options.evaluate ?? defaultEvaluator;
+    const evaluate = this.evaluate;
     const matchSeed = this.matchSeedFor(input.gameId);
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
@@ -722,6 +739,9 @@ export class TeamDecisionEngine {
         multistartSeed: this.bot.multistartSeed,
         sampledCap: this.bot.sampledCap,
         scoutTuning: this.bot.depth,
+        // Undefined in the shipped bot, so `DEFAULT_TUNING.clusterEnum` stands
+        // and the pass runs exactly as it always has.
+        clusterEnum: this.bot.search.clusterEnum,
         // THE PRIVATE HALF OF EVERY SEEDED DRAW THIS ENGINE TAKES. Zero when
         // no seeded layer is on (and then nothing reads it); the caller's
         // number when one is pinned; a per-game crypto-random word otherwise.
@@ -1438,5 +1458,21 @@ function tapWitnesses(core: SearchCore, into: Witness[]): SearchCore {
   if (core.scoutReport !== undefined) {
     wrapped.scoutReport = core.scoutReport.bind(core);
   }
+  // THE FIFTH, and it was missing for exactly the reason the note above gives.
+  // `mechanismReportOf` reads `multistartReport`, so with it swallowed here the
+  // `multistart` row was null on EVERY live decision — including a decision by
+  // a bot that had `multistartSeed: true` and had run the sampler. The layer's
+  // whole case then read as "the layer never ran", which is the one reading
+  // these reports exist to prevent.
+  if (core.multistartReport !== undefined) {
+    wrapped.multistartReport = core.multistartReport.bind(core);
+  }
+  // `depthReport` is NOT forwarded, and that is a statement rather than an
+  // omission. It is the only accessor on this interface that is not telemetry:
+  // `LobsterKernel.drainDepth` folds its notes into per-branch BELIEF, so
+  // forwarding it changes what gets staged. That is a search-semantics change,
+  // it owes a paired arm on its own branch, and it is not this commit's — the
+  // deep channel that DOES decide today is the core's own `depthRung` inside
+  // `better()`, which never leaves the core and is unaffected by this wrapper.
   return wrapped;
 }

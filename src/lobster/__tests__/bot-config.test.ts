@@ -33,7 +33,7 @@ import { DEFAULT_KNOBS } from '../candidates';
 import { STAGING_SAFETY_DEFAULT, DEFAULT_ROYAL_REACHERS } from '../staging-safety';
 import { DEFAULT_TERRITORY_REFINE } from '../evaluate/refine';
 import { TIER_TRUTH } from '../tier-truth';
-import { SLATE_LEGACY } from '../registry';
+import { SLATE_LEGACY, SLATE_POTION_AWARE } from '../registry';
 
 describe('the shipped bot is the default of every field', () => {
   test('every default is BY REFERENCE from the constant the shipped code reads', () => {
@@ -53,6 +53,10 @@ describe('the shipped bot is the default of every field', () => {
       // because depth is machinery — always available — and what a bot chooses
       // is how much of the decision it may buy.
       depth: {},
+      // THE SEARCH SELECTIONS, and the empty object is the same claim: the
+      // shipped bot takes the search whole. `search.clusterEnum` unset is the
+      // enumeration running, which is what the byte-identity gates assert.
+      search: {},
       engine: 'lobster',
       workers: 'off',
       workersAudit: false,
@@ -154,6 +158,7 @@ describe('a contender is named, and its fields take', () => {
       multistartSeed: true,
       sampledCap: true,
       depth: { plyCap: 0 },
+      search: { clusterEnum: false },
       engine: 'legacy',
       workers: 3,
       workersAudit: true,
@@ -167,10 +172,36 @@ describe('a contender is named, and its fields take', () => {
       multistartSeed: true,
       sampledCap: true,
       depth: { plyCap: 0 },
+      search: { clusterEnum: false },
       engine: 'legacy',
       workers: 3,
       workersAudit: true,
     });
+  });
+
+  test('the second slate is reachable from JSON, and a third is not', () => {
+    // The field widened with the slate and the validator widened with it —
+    // and no further. A name the registry does not hold is refused on the way
+    // in rather than throwing later inside `slateFor`, so a contender file
+    // that cannot be played says so at load.
+    expect(botConfigFromJson({ slate: SLATE_POTION_AWARE }).slate).toBe(SLATE_POTION_AWARE);
+    expect(botConfigFromJson({ slate: SLATE_LEGACY }).slate).toBe(SLATE_LEGACY);
+    expect(() => botConfigFromJson({ slate: 'greedy-voi' })).toThrow(/must be one of/);
+  });
+
+  test('the search selections are validated, key by key', () => {
+    expect(botConfigFromJson({ search: { clusterEnum: false } }).search).toEqual({
+      clusterEnum: false,
+    });
+    expect(botConfigFromJson({}).search).toEqual({});
+    // A misspelled sub-key is the exact failure mode this validator exists for:
+    // silently ignored, it would be an arm that never engaged, reported as a
+    // null result.
+    expect(() => botConfigFromJson({ search: { clusterEnumeration: false } })).toThrow(
+      /search\.clusterEnumeration/
+    );
+    expect(() => botConfigFromJson({ search: { clusterEnum: 'off' } })).toThrow(/boolean/);
+    expect(() => botConfigFromJson({ search: [] })).toThrow(/search/);
   });
 
   test('workers takes the three spellings the pool understands', () => {

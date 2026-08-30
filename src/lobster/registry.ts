@@ -33,15 +33,31 @@
  *     the primitive that runs it;
  *   · resolution happens once per decision and is STAMPED on the mechanism
  *     report;
- *   · nothing dispatches through it. No entry carries an implementation, so no
- *     decision can take a different path than it took before this file
- *     existed. Selection of a non-legacy entry is the NEXT increment's work,
- *     and `SlateId` has exactly one member so that a non-legacy selection is
- *     unrepresentable rather than merely unused.
+ *   · the DEFAULT bot dispatches through nothing here. `slate=legacy` names the
+ *     entries that describe what already ships, so a decision taken under the
+ *     defaults cannot take a different path than it took before this file
+ *     existed — which is what the byte-identity gates assert.
+ *
+ * ── AND WHAT THE SECOND SLATE ADDS ─────────────────────────────────────────
+ *
+ * `SlateId` used to have exactly one member, so a non-legacy selection was
+ * unrepresentable. The cost of that was measured rather than argued: four
+ * potion-doctrine evaluator entries were merged, in no slate, and therefore
+ * selectable by no `BotConfig` at all — every potions-on game the program has
+ * played was played by a potion-unaware bot, and every potion arm in the
+ * roster was unrunnable as specified.
+ *
+ * `SLATE_POTION_AWARE` is the second member, and it is the shipped evaluator
+ * lineup plus those four terms. It changes no joint and no default: a member
+ * added to a collection that already exists, selected by a config naming it
+ * and in no other way. Every entry it adds is ADVISORY, so the lineup reaches
+ * the decision through `est` (ordering and belief) and can move no bound — see
+ * `evaluate/potion-lineup.ts` and `evaluate/bound.ts`'s `advisoryEst`.
  *
  * THERE IS NO ENV FLAG HERE, and there will not be one: entries are data and
- * `SLATE_LEGACY` is a single internal constant. That is the whole point of the
- * mandate — "no more flag-gated pseudo-dead code as the testing paradigm".
+ * the slate ids are internal constants a `BotConfig` names. That is the whole
+ * point of the mandate — "no more flag-gated pseudo-dead code as the testing
+ * paradigm".
  *
  * ── THE IDENTITY LAW ───────────────────────────────────────────────────────
  *
@@ -85,6 +101,15 @@ import {
   TERRITORY_SLIDER_PROFILE,
   TERRITORY_SLIDER_ROYAL_PROFILE,
 } from './evaluate/calibration';
+// The four potion candidates, BY REFERENCE, for exactly the reason the legacy
+// entries take their params by reference: the successor rows below inherit
+// their predecessors' priors, cost models and primitives, and a retyped copy
+// would drift away from the modules that own them. Value imports and not type
+// imports, because the entries themselves are the data being inherited.
+import { ATTACK_WINDOW_ENTRY, POTION_WINDOW_TURNS } from './evaluate/attack-window';
+import { POTION_SEEK_ENTRY } from './evaluate/potion-seek';
+import { POTION_CONTROL_ENTRY } from './evaluate/potion-control';
+import { DODGE_DISCOUNT_ENTRY } from './evaluate/dodge-discount';
 
 // ------------------------------------------------------------------- slots
 
@@ -339,13 +364,46 @@ export interface Slate {
 }
 
 /**
- * THE ONE SLATE THAT EXISTS. An internal constant, not an environment flag and
- * not a knob: this increment ships the bridge, and the bridge has exactly one
- * side. A second slate arrives with the first entry that actually decides, and
- * arrives as a data row plus its paired-arm spec.
+ * THE SHIPPED SLATE. An internal constant, not an environment flag and not a
+ * knob: it is the byte-identity bridge, and every default bot resolves it.
  */
 export const SLATE_LEGACY = 'legacy' as const;
-export type SlateId = typeof SLATE_LEGACY;
+
+/**
+ * THE SECOND SLATE — the shipped evaluator lineup PLUS the four potion terms.
+ *
+ * ── WHY IT EXISTS ──────────────────────────────────────────────────────────
+ *
+ * `eval/attack-window`, `eval/potion-seek`, `eval/potion-control` and
+ * `eval/dodge-discount` were merged as members of the evaluator collection and
+ * named by no slate, so no `BotConfig` could seat a bot that reasons about
+ * potions at all: every potions-on game this program has played was played by
+ * a potion-unaware bot, and every potion arm in the roster was unrunnable as
+ * specified. This slate is the selection half of that lane — a member added to
+ * a collection that already exists, at a joint that already exists, which is a
+ * normal commit under `docs/BRANCHING.md`.
+ *
+ * ── WHAT SELECTING IT CHANGES, AND WHAT IT CANNOT ──────────────────────────
+ *
+ * Every potion entry is ADVISORY, so the whole lineup reaches the decision
+ * through `est` and nothing else: it reorders the plans a floor cannot
+ * separate and it may not move a floor, a ceiling, a refusal or a safety
+ * decision. `src/lobster/evaluate/potion-lineup.ts` is where that split is
+ * made structural rather than promised, and `evaluate/bound.ts`'s
+ * `advisoryEst` is the one function through which an advisory entry may speak.
+ *
+ * ── AND WHAT IT IS NOT ─────────────────────────────────────────────────────
+ *
+ * NOT A DEFAULT. `DEFAULT_BOT_CONFIG.slate` is `legacy` and the byte-identity
+ * gates assert it. This slate is selected by a config file naming it, in the
+ * arm that races it, and in no other way.
+ */
+export const SLATE_POTION_AWARE = 'potion-aware' as const;
+
+export type SlateId = typeof SLATE_LEGACY | typeof SLATE_POTION_AWARE;
+
+/** Every slate id, in a value a validator can iterate. */
+export const SLATE_IDS: ReadonlyArray<SlateId> = [SLATE_LEGACY, SLATE_POTION_AWARE];
 
 // ------------------------------------------------------- the legacy entries
 
@@ -670,6 +728,210 @@ export const LEGACY_SLATE: Slate = {
   scheduler: SCHED_LEGACY_SLICE.id,
 };
 
+// -------------------------------------------------- the potion-aware entries
+
+/**
+ * SOCKET 3, THE POTION ENTRIES — the four merged terms, at the weights a
+ * lineup runs them at.
+ *
+ * ── WHY THESE ARE NEW IDS AND NOT THE ONES IN THE MODULES ──────────────────
+ *
+ * `ATTACK_WINDOW_ENTRY` (`@1`), `POTION_SEEK_ENTRY` (`@2`),
+ * `POTION_CONTROL_ENTRY` (`@1`) and `DODGE_DISCOUNT_ENTRY` (`@1`) each carry
+ * `weight: 0` in their params — the honest statement of a term that is in no
+ * lineup and contributes nothing. Seating them means a non-zero weight, and
+ * the params tree is part of an entry's fingerprint, so under the identity law
+ * that is a NEW ENTRY and not an edit: every number ever recorded against the
+ * older id still refers to the strategy that produced it. The modules keep
+ * their own entries unchanged, and the retrodiction evidence attached to them
+ * stays attached to them.
+ *
+ * `eval/attack-window@2` also moves `tierDelta` from `+1` to `0`, and that is
+ * a substantive difference rather than bookkeeping: at `+1` the term prices the
+ * ally side of a pickup, which is exactly `eval/potion-seek@3`'s gain and would
+ * be counted twice in one lineup. At `0` it prices the window our team is
+ * ALREADY holding, which nothing else in the lineup reads. See
+ * `evaluate/potion-lineup.ts` for the composition argument in full.
+ *
+ * ── SOUNDNESS ──────────────────────────────────────────────────────────────
+ *
+ * All four are `advisory`, inherited from the modules' own declarations. The
+ * evaluator socket is the one socket that CAN write lo/hi, and these four do
+ * not: they reach `est` through `advisoryEst` and can move no bound. That is
+ * why they owe no law-harness admission gate and why a slate may seat them
+ * without one.
+ */
+/** The ids the `potion-aware` slate names, and the one place they are spelled.
+ * `evaluate/potion-lineup.ts` imports these rather than repeating them, so a
+ * slate and the lineup that implements it cannot drift apart. */
+export const EVAL_ATTACK_WINDOW_ID = 'eval/attack-window@2';
+export const EVAL_POTION_SEEK_ID = 'eval/potion-seek@3';
+export const EVAL_POTION_CONTROL_ID = 'eval/potion-control@2';
+export const EVAL_DODGE_DISCOUNT_ID = 'eval/dodge-discount@2';
+
+/**
+ * THE ADVISORY WEIGHTS, as entry params — the scale each term speaks at.
+ *
+ * All three non-zero weights are an order of magnitude inside `material` (10,
+ * the term the game is actually won with) and at or below `room` (3): an
+ * advisory reading able to outweigh material would be ordering the
+ * material-tie class from outside it, and the tie class is the whole of what
+ * `est` may touch.
+ *
+ * NOTHING HERE IS FITTED, and the entries' `cost`/`priors` rows say so. These
+ * are declared scales; the arm that races this slate is what earns them a
+ * number with a measurement behind it, and a retune mints `@3`/`@4` by the
+ * identity law.
+ */
+export const POTION_ADVISORY_WEIGHTS = {
+  attackWindow: 0.5,
+  potionSeek: 1,
+  potionControl: 1,
+  /** A modifier, not a summand — see `eval/dodge-discount@2` below. */
+  dodgeDiscount: 0,
+} as const;
+
+const potionEntry = (
+  id: EntryId,
+  base: StrategyEntry,
+  params: JsonValue,
+  note: string
+): StrategyEntry<'evaluator'> => ({
+  id,
+  slot: 'evaluator',
+  primitive: base.primitive,
+  // NEVER `sound-writing`. An advisory evaluator entry lands on `est` and is
+  // clamped back inside the interval the sound features proved.
+  soundness: 'advisory',
+  params,
+  priors: base.priors,
+  cost: base.cost,
+  record: {
+    status: 'candidate',
+    ledgerRows: [],
+    note: `${note} Succeeds ${base.id}, whose params carried weight 0 because it was in no slate.`,
+  },
+});
+
+const EVAL_ATTACK_WINDOW = potionEntry(
+  EVAL_ATTACK_WINDOW_ID,
+  ATTACK_WINDOW_ENTRY,
+  {
+    windowTurns: POTION_WINDOW_TURNS,
+    /**
+     * ZERO, NOT ONE — the window ALREADY OPEN rather than the ally side of a
+     * pickup. A body cut needs a tier strictly above the owner's, so at 0 the
+     * reading is identically zero unless one of our units carries a live buff.
+     */
+    tierDelta: 0,
+    decay: 'body-shift',
+    countHeads: false,
+    /** Gate: nothing is read unless some unit of ours holds a live tier. */
+    gate: 'team-has-live-window',
+    /** Enemy weight enters at the share-metric rate, off the live board. */
+    currency: 'our-weight-via-sever-exchange-rate',
+    weight: POTION_ADVISORY_WEIGHTS.attackWindow,
+  },
+  'The standing-window half of the potion doctrine, seated in the potion-aware slate.'
+);
+
+const EVAL_POTION_SEEK = potionEntry(
+  EVAL_POTION_SEEK_ID,
+  POTION_SEEK_ENTRY,
+  {
+    windowTurns: POTION_WINDOW_TURNS,
+    maxTravelTurns: POTION_WINDOW_TURNS,
+    countHeads: false,
+    countDenial: false,
+    /**
+     * DECIDED BY THE LINEUP, not by this row: with `eval/dodge-discount@2`
+     * seated the near endpoint is charged with the collector's escape fan
+     * priced, and without it the undiscounted window endpoint is — which is
+     * the worst case the module ships and the reading its retrodiction used.
+     */
+    exposure: 'window, or near dodge-discounted when eval/dodge-discount@2 is seated',
+    weight: POTION_ADVISORY_WEIGHTS.potionSeek,
+  },
+  'The prospective-pickup half of the potion doctrine, seated in the potion-aware slate.'
+);
+
+const EVAL_POTION_CONTROL = potionEntry(
+  EVAL_POTION_CONTROL_ID,
+  POTION_CONTROL_ENTRY,
+  {
+    windowTurns: POTION_WINDOW_TURNS,
+    horizonTurns: POTION_WINDOW_TURNS,
+    tieOwner: 'nobody',
+    currency: 'our-weight-via-sever-exchange-rate',
+    weight: POTION_ADVISORY_WEIGHTS.potionControl,
+  },
+  'The ground-division half of the potion doctrine, seated in the potion-aware slate.'
+);
+
+const EVAL_DODGE_DISCOUNT = potionEntry(
+  EVAL_DODGE_DISCOUNT_ID,
+  DODGE_DISCOUNT_ENTRY,
+  {
+    enemyResponse: 'cover-proportional-to-our-uniform',
+    reading: 'mean',
+    attackerJoin: 'independent',
+    windowChainTurns: 1,
+    support: 'legal-minus-rules-certain-fatal',
+    /** Terrain is the substrate's own, never rebuilt per call. */
+    terrain: 'borrowed-from-substrate',
+    /**
+     * A MODIFIER, NOT A SUMMAND. Weight zero on purpose: everything this entry
+     * does happens by being present, which switches `eval/potion-seek@3`'s
+     * exposure endpoint. A term that also summed its own multiplier would be
+     * double-charging the exposure it exists to discount.
+     */
+    role: 'exposure-modifier of eval/potion-seek@3',
+    weight: POTION_ADVISORY_WEIGHTS.dodgeDiscount,
+  },
+  'The collector-exposure discount, seated in the potion-aware slate as a modifier.'
+);
+
+/** The four potion terms, as registered entries. A losing entry is a deleted
+ * row here exactly as in `LEGACY_ENTRIES`. */
+export const POTION_ENTRIES: ReadonlyArray<StrategyEntry> = [
+  EVAL_ATTACK_WINDOW,
+  EVAL_POTION_SEEK,
+  EVAL_POTION_CONTROL,
+  EVAL_DODGE_DISCOUNT,
+];
+
+/**
+ * THE `potion-aware` SLATE — the default lineup PLUS the four potion terms.
+ *
+ * Four sockets are the legacy entries unchanged, which is deliberate: the
+ * question this slate asks is about the evaluator frame and nothing else, so a
+ * result from it attributes to the potion terms rather than to a second
+ * simultaneous change. The evaluator list leads with the production profile —
+ * the only `sound-writing` member, and the one that still proves every bound —
+ * and the advisory four follow it.
+ */
+export const POTION_AWARE_SLATE: Slate = {
+  id: SLATE_POTION_AWARE,
+  moveSelectors: [MOVE_LEGACY_ORDER.id],
+  evaluatorSelector: EVSEL_LEGACY_ALWAYS.id,
+  evaluators: [
+    EVAL_LEGACY_TERRITORY.id,
+    EVAL_ATTACK_WINDOW.id,
+    EVAL_POTION_SEEK.id,
+    EVAL_POTION_CONTROL.id,
+    EVAL_DODGE_DISCOUNT.id,
+  ],
+  aggregator: AGG_LEGACY_CLAMP.id,
+  scheduler: SCHED_LEGACY_SLICE.id,
+};
+
+/** Every entry the registry holds. `LEGACY_ENTRIES` stays the shipped bot's
+ * own set so the identity pins that name it keep naming exactly it. */
+export const ALL_ENTRIES: ReadonlyArray<StrategyEntry> = [
+  ...LEGACY_ENTRIES,
+  ...POTION_ENTRIES,
+];
+
 // ---------------------------------------------------------------- registry
 
 /** One entry per socket, materialised for one decision. */
@@ -759,12 +1021,20 @@ export class StrategyRegistry {
 
 /** The process's registry. Immutable data, so one instance is one table — not
  * per-decision state, and nothing writes to it. */
-export const REGISTRY = new StrategyRegistry();
+export const REGISTRY = new StrategyRegistry(ALL_ENTRIES);
 
-/** The slate a decision runs. One member today, by construction. */
+/**
+ * The slate a decision runs, by id.
+ *
+ * TOTAL AND LOUD, exactly as `StrategyRegistry.resolve` is: a name this
+ * function does not hold is a throw and never a fallback to the default,
+ * because a measurement attributed to a slate that never ran is the failure
+ * the identity law exists to prevent.
+ */
 export function slateFor(id: SlateId = SLATE_LEGACY): Slate {
-  if (id !== SLATE_LEGACY) throw new Error(`unknown slate ${String(id)}`);
-  return LEGACY_SLATE;
+  if (id === SLATE_LEGACY) return LEGACY_SLATE;
+  if (id === SLATE_POTION_AWARE) return POTION_AWARE_SLATE;
+  throw new Error(`unknown slate ${String(id)}`);
 }
 
 /** The resolved slate, as ids, for the mechanism report. */

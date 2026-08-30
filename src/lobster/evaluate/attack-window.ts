@@ -68,12 +68,22 @@
  * would cut if it moved now and nothing else moved. It is the boolean the
  * owner's timing signal actually turns on, and it costs one walk.
  *
- * ── DARK BY CONSTRUCTION ───────────────────────────────────────────────────
+ * ── SELECTABLE, AND SELECTED BY NO DEFAULT ─────────────────────────────────
  *
- * Nothing on the production path imports this module. `ATTACK_WINDOW_ENTRY` is
- * the candidate as a registry value (`../registry.ts`'s `StrategyEntry`), and
- * it is not in `LEGACY_ENTRIES` and not in any slate — a candidate is
- * configured in, never flagged on.
+ * `ATTACK_WINDOW_ENTRY` is the candidate as a registry value
+ * (`../registry.ts`'s `StrategyEntry`) at `@1`, in `LEGACY_ENTRIES` and in no
+ * slate — its params carry `weight: 0`, which is the honest configuration of a
+ * term nothing runs.
+ *
+ * `eval/attack-window@2` is the SEATED successor: same primitive, same priors
+ * and cost model, a non-zero advisory weight and `tierDelta: 0` rather than
+ * `+1` (at `+1` the reading is `eval/potion-seek@3`'s prospective gain and
+ * would be counted twice in one lineup). It is named by `SLATE_POTION_AWARE`
+ * and by nothing else, so a bot reads this module by being CONFIGURED onto
+ * that slate and in no other way. `evaluate/potion-lineup.ts` is where it is
+ * handed a live position; a `@2` rather than an edit of `@1` is the identity
+ * law, which is what keeps every number recorded against `@1` a statement
+ * about what produced it.
  */
 
 import {
