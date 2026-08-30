@@ -135,6 +135,9 @@ if (fs.existsSync(armsRoot)) {
       tscErrors: meta && meta.bundleStamp ? meta.bundleStamp.tscErrors : null,
       harnessCommit: meta && meta.bundleStamp ? meta.bundleStamp.harnessCommit : null,
       botConfig: meta ? meta.botConfig || null : null,
+      // The RESOLVED seat -> config map (20260830 and later). Null on an older
+      // record, which is not the same as "configured nothing".
+      seatConfigs: meta ? meta.seatConfigs || null : null,
       legacyEnv: meta ? meta.legacyEnv === true : false,
       envOverrides: meta ? meta.envOverrides : null,
       workers: meta ? meta.workers : null,
@@ -243,8 +246,14 @@ console.log('');
 for (const a of arms) {
   const games = a.sweeps.reduce((n, s) => n + s.games, 0);
   console.log(`arm ${a.arm.padEnd(14)} ${a.gitSha ? a.gitSha.slice(0, 12) : 'NO-SHA'} ${(a.gitRef || '?').padEnd(40)} ${games} games`);
-  if (a.botConfig) {
-    console.log(`    ${''.padEnd(14)} bot ${JSON.stringify(a.botConfig)}`);
+  // Print the seat a config landed on, never the config alone: an arm's
+  // identity is which bot was configured as much as how.
+  if (a.seatConfigs && Object.keys(a.seatConfigs).length) {
+    for (const [seat, cfg] of Object.entries(a.seatConfigs)) {
+      console.log(`    ${''.padEnd(14)} bot@${seat} ${JSON.stringify(cfg)}`);
+    }
+  } else if (a.botConfig) {
+    console.log(`    ${''.padEnd(14)} bot ${JSON.stringify(a.botConfig)} (unresolved — pre-20260830 record)`);
   }
   if (a.envOverrides && Object.keys(a.envOverrides).length) {
     console.log(`    ${''.padEnd(14)} env ${Object.entries(a.envOverrides).map(([k, v]) => `${k}=${v}`).join(' ')}`);

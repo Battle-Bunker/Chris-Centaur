@@ -269,6 +269,10 @@ for (const f of ledger.flags) {
     if (nx.designNote) w(`- Design: ${nx.designNote}`);
     if (nx.mergeDecision) w(`- **Merge decision:** ${nx.mergeDecision}`);
     if (nx.scopeNote) w(`- Scope: ${nx.scopeNote}`);
+    // BOLD, and above the gate. A block count decides whether the run can be
+    // read at all, so a reader who skims this page must not be able to skim
+    // past the arithmetic that says the size was chosen rather than inherited.
+    if (nx.power) w(`- **Power:** ${nx.power}`);
     if (nx.gate) w(`- **Gate:** ${nx.gate}`);
     if (nx.requires) w(`- Requires: ${nx.requires}`);
     if (nx.blockedOn) w(`- **Blocked on:** ${nx.blockedOn}`);
@@ -291,6 +295,8 @@ if ((ledger.standingExperiments ?? []).length > 0) {
     if (x.budgets) w(`- Rungs: ${x.budgets.join(' / ')} ms, ${x.blocks} blocks each`);
     if (x.designNote) w(`- Design: ${x.designNote}`);
     if (x.caveat) w(`- Caveat: ${x.caveat}`);
+    if (x.power) w(`- **Power:** ${x.power}`);
+    if (x.requires) w(`- Requires: ${x.requires}`);
     w();
   }
 }

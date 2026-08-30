@@ -277,6 +277,11 @@ for (const f of L.undecided(ledger)) {
         ...(x.designNote ? ['', `DESIGN NOTE: ${x.designNote}`] : []),
         ...(x.mergeDecision ? ['', `MERGE DECISION: ${x.mergeDecision}`] : []),
         ...(x.scopeNote ? ['', `SCOPE: ${x.scopeNote}`] : []),
+        // POWER GETS ITS OWN BLOCK, above the gate and the requirement it
+        // justifies. A block count is the one number in a spec that decides
+        // whether the run can be read at all, and burying its arithmetic in a
+        // design note is how a spec comes to be run at a size nobody chose.
+        ...(x.power ? ['', `POWER: ${x.power}`] : []),
         ...(x.gate ? ['', `GATE: ${x.gate}`] : []),
         ...(x.requires ? ['', `REQUIRES: ${x.requires}`] : []),
         '',
@@ -343,6 +348,7 @@ for (const x of ledger.standingExperiments ?? []) {
           `READS OUT: ${(x.readsOut ?? []).join(', ')}`,
           ...(x.designNote ? ['', `DESIGN NOTE: ${x.designNote}`] : []),
           ...(x.caveat ? ['', `CAVEAT: ${x.caveat}`] : []),
+          ...(x.power ? ['', `POWER: ${x.power}`] : []),
           '',
           'MECHANISM-FIRST at this block count. Placement here is descriptive.',
           '',
@@ -532,6 +538,25 @@ const nullSpec = C.spec(
     'Batch 20260827 measured this floor at +/-0.097 (mix-king) and +/-0.032',
     '(snake6) with 0 illegal and 0 errors. Those are the numbers to beat, and a',
     'wider band this time is an INSTRUMENT EVENT, not a nuisance.',
+    '',
+    // THE 20260830 SANDBOX RESULT, WRITTEN WHERE THE FLOOR IS ACTUALLY MEASURED.
+    // Every treatment spec in this batch carries the same arithmetic in its own
+    // POWER block, but this is the spec that produces the number they are all
+    // read against, so a reader who opens only one file must meet it here.
+    'PIECE-BEARING CELLS MAY NOT FLOOR AT THIS SIZE, AND THAT IS A MEASUREMENT.',
+    'A sandbox A/A on a piece-bearing potions-ON hazard cell — two IDENTICAL',
+    'bundles, identical configs, identical seeds — returned sharePar',
+    '+0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. All-snake cells at the',
+    'same size floored cleanly at +/-0.10. Extrapolating the widest measured',
+    'piece-cell half-width, +/-0.234 at 8 blocks, a +/-0.10 floor needs',
+    '8 x (0.234/0.10)^2 = 44 blocks per piece cell; the crossover itself has',
+    'never been measured and batch 3 proposes the run that measures it.',
+    'SO: REPORT THIS NULL PER CELL, NEVER POOLED. A cell whose own null does not',
+    'contain zero has NO FLOOR, and every treatment delta on that cell is',
+    'UNREADABLE rather than null — which is a finding about the instrument and',
+    'must be written as one. Do not borrow the snake cell\'s floor for a piece',
+    'cell, and do not borrow one bundle\'s floor for the other: the same cell',
+    'floored +/-0.120 on one bundle and +/-0.234 on the other in the same night.',
     '',
     'Then check it:',
     '    node tools/simworker/bin/verify-null.js --batch <dir> --null nullA,nullB',

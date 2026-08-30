@@ -13,8 +13,13 @@ build-bot.sh          <git-ref> <bundle-dir>  ->  a fully built, self-contained 
 harness/              the sweep harness (TypeScript; compiled into each bundle)
   lib/                config, board build, bots, sim, replay, sweep planning
   bin/                run-sweep, run-match, read-replay, smoke, throughput
+lib/                  plain-node modules the bin/ scripts share
+  arm-spec.js         PER-SEAT BOT ISOLATION — which seats an arm's config may
+                      reach, and the refusal when that is ambiguous
 bin/                  plain-node tooling; no build step
   run-pair.js         launch paired arms simultaneously  <- the entry point
+  selftest.js         the gate. `--bundle <dir>` adds a real two-contender game
+                      and reads the per-seat mechanism stamp out of its manifest
   aggregate.js        block-paired stats + markdown tables; reports `sharePar`
                       — THE OBJECTIVE, share of end weight x teams, par 1 —
                       beside the older rank readings (METHODOLOGY §3.0)
@@ -34,11 +39,18 @@ Quick check that everything works:
 
 ```sh
 tools/simworker/build-bot.sh HEAD /tmp/bundle
+node tools/simworker/bin/selftest.js --bundle /tmp/bundle
 node tools/simworker/bin/run-pair.js --batch /tmp/smoke \
   --spec tools/simworker/specs/smoke.json \
   --arm nullA=/tmp/bundle --arm nullB=/tmp/bundle --workers 1
 node tools/simworker/bin/verify-null.js --batch /tmp/smoke --null nullA,nullB
 ```
+
+**A bot config reaches ONE seat.** `--arm 'treat=<b>,bot={...}'` applies to the
+subject seat and is REFUSED when the spec seats more than one configurable
+contender; `--arm 'treat=<b>,bot@<seat>={...}'` names the seat and is repeatable.
+Before 20260830 a config was merged into every lobster seat, which cancels a
+within-game contrast silently — see `lib/arm-spec.js` and `../../HANDOFF.md`.
 
 ## What to run next
 

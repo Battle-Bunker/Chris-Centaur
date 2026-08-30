@@ -135,6 +135,25 @@ const botA = JSON.stringify((A.meta && A.meta.botConfig) || null);
 const botB = JSON.stringify((B.meta && B.meta.botConfig) || null);
 say(botA === botB, `same bot config: ${botA} vs ${botB}`);
 
+// AND THE SAME CONFIG ON THE SAME SEATS. Since 2026-08-30 a config names the
+// seat it lands on, so two arms can carry an identical `botConfig` and still
+// have aimed it at different seats — which is two different games, not an A/A
+// pair. `seatConfigs` is the resolved map and is absent on pre-20260830
+// records; a run written by the current runner always has one, so a missing
+// pair of them is old data rather than a failure and is reported as such.
+const seatsOf = (m) => {
+  const s = m && m.seatConfigs;
+  if (!s || typeof s !== 'object') return null;
+  return JSON.stringify(Object.keys(s).sort().map((k) => [k, s[k]]));
+};
+const seatA = seatsOf(A.meta);
+const seatB = seatsOf(B.meta);
+if (seatA === null && seatB === null) {
+  console.log('       (no seatConfigs on either arm — a record written before 20260830)');
+} else {
+  say(seatA === seatB, `same configured seats: ${seatA ?? 'absent'} vs ${seatB ?? 'absent'}`);
+}
+
 const envA = JSON.stringify((A.meta && A.meta.envOverrides) || {});
 const envB = JSON.stringify((B.meta && B.meta.envOverrides) || {});
 say(envA === envB, `same env overrides: ${envA} vs ${envB}`);

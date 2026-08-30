@@ -237,7 +237,7 @@ Two mechanisms, and the distinction still matters:
    name=<dir>`. This is how a whole branch is raced.
 2. **A different `BotConfig`.** `--arm 'name=<dir>,bot={"territoryRefine":true}'`
    — inline JSON, or a path to a `.json` file. The runner writes that arm its
-   own spec with the config merged into every lobster contender, and leaves
+   own spec with the config merged onto **the seat it names**, and leaves
    `sweepId`, `cells`, `seeds` and `rotateSeats` byte-identical, so the pairing
    guarantee holds: same boards, same seeds, same seat rotation, two
    differently-configured bots. A spec can also declare contenders by name:
@@ -247,6 +247,107 @@ Two mechanisms, and the distinction still matters:
                                 "bot": { "territoryRefine": true } } },
    "bots": ["refiner", "lobster-territory", "reflex"]
    ```
+
+### A BOT CONFIG REACHES ONE SEAT — 20260830
+
+**Until 2026-08-30 an arm's `bot=` was merged into every lobster contender the
+spec seated.** On a spec that seats one lobster that is invisible. On a spec
+that seats two it is a measurement defect and a silent one: the treatment arm
+becomes two ablated lobsters against a control arm of two intact ones, so if the
+knob is worth the same to both seats **the within-game contrast cancels exactly**
+and the arm reports a null it never had the power to tell from a real result.
+Only a seat the config did not touch — a `reflex` seat — stays unconfounded, and
+reading a lobster question off the reflex seat is a detour, not a design.
+
+Two spellings now, and the second is the one a multi-lobster spec must use:
+
+```sh
+# THE SUBJECT SEAT — allowed only when exactly one seat can be meant.
+--arm 'treat=<bundle>,bot={"sampledCap":true}'
+
+# THAT SEAT, BY NAME. Repeatable; each config lands on its own seat and no other.
+--arm 'treat=<bundle>,bot@noGain={"candidates":{"gainOrdering":false}}'
+--arm 'treat=<bundle>,bot@gainOff={...},bot@refineOn={...}'
+```
+
+- A bare `bot=` on a spec that seats **two or more** configurable contenders is
+  a **REFUSAL**, printed with both candidate seats and the `bot@` line that
+  fixes it. It fires before anything launches, so a refused pair leaves no half
+  batch on disk.
+- `bot@<seat>=` reaches **any** seated seat whose base is a lobster
+  (`lobster-material` included). A seat the spec does not seat, or one whose
+  base is `reflex`/`legacy`/`neutral`, is refused rather than silently ignored.
+- The two forms may not be mixed in one arm.
+- **Every spec in `tools/simworker/specs/` and `tools/learnloop/specs/batch2/`
+  seats exactly one reachable contender, so every batch-2 arm line is unchanged
+  and still resolves to `lobster-territory`.** Nothing you already had planned
+  needs retyping.
+- `arm.json` and the batch manifest now record `seatConfigs` — the RESOLVED
+  seat → config map — beside the older `botConfig`, and `verify-null.js` checks
+  it: two arms carrying the same config aimed at different seats are two
+  different games, not an A/A pair.
+
+The gate:
+
+```sh
+node tools/simworker/bin/selftest.js                    # the transform, 24 assertions
+node tools/simworker/bin/selftest.js --bundle <dir>     # + a real two-contender pair
+```
+
+With `--bundle` it plays two lobster contenders carrying different configs in
+one game and reads the per-seat `health[].mechanism.flags` stamp — the bot the
+engine actually resolved — asserting each seat shows its own config and neither
+shows the other's. Without a bundle that layer **skips loudly**; a transform
+that looks right and a stamp that reads right are different claims.
+
+### SEATING BOTH CONTENDERS IN ONE GAME — the cheapest design available
+
+**The roster-ladder pattern.** When the question is "does A beat B", and both A
+and B are bots you can seat, put them in the **same game** instead of in two
+arms. The 20260830 sandbox resolved a five-rung roster ladder in 144 games this
+way; the same question as paired arms costs several times more.
+
+```json
+"bots": ["lobster-territory", "lobster-material", "reflex"]
+```
+
+Then the treatment reading is **within-game**:
+
+    G = sharePar(lobster-territory) − sharePar(lobster-material)
+
+computed per game and blocked over seeds, with no arm pairing needed for it at
+all.
+
+**The pairing semantics, which are different from a treatment pair and must not
+be confused with one.**
+
+- **The two arms are IDENTICAL — it is an A/A pair, and it is self-flooring.**
+  One paired run buys two things at once: the A/A floor on this cell, at this
+  block count, on this box; and the treatment reading G, whose own run-to-run
+  floor is *the between-arm difference of G*. That is the floor to quote — not
+  the floor on either seat's sharePar separately.
+- **The contrast is between SEATS, not between arms.** `aggregate.js --subject`
+  reads one seat; the ladder needs both, so read the per-seat rows and difference
+  them yourself, pooled over both arms.
+- **Seat rotation is what makes it legal.** `rotateSeats` puts every bot in
+  every seat exactly once per block, so G is not a statement about board
+  position. Never run this pattern with `rotateSeats: false`.
+- **The seats interact, and that is the point and the limit.** A within-game G
+  measures A against B *in each other's presence*. It is the right instrument for
+  "which of these should we field" and the wrong one for "what would A score
+  alone", because the third seat's fate is part of both numbers. Say which you
+  measured.
+- **`sharePar` is share-of-end-weight × teams, par 1, so the seats SUM to the
+  team count.** A within-game G is therefore mechanically anti-correlated
+  between the two seats: one seat's gain is partly the other's loss. Read it as
+  a contrast, never as two independent effects.
+- **A config arm on top of this seating must be targeted.** This is exactly the
+  two-lobster shape, so `bot=` is refused; write `bot@<seat>=`.
+
+Where it applies, it is the recommended design. Where it does not — a
+branch-versus-branch merge decision such as P11, where the two things being
+compared are whole BUNDLES and cannot share a board — the paired-arm design is
+the only one available, and it is priced accordingly.
 
 Some fields reach a deployable configuration (`engine`, `stagingSafety`,
 `workers`); `evaluator` reaches `TeamDecisionOptions.evaluate`, a harness-only
@@ -420,6 +521,32 @@ power to interact them, and a cell that moves two cannot say which one acted.
 - Seeds nest: a 16-block run contains the 8-block run's seeds, so adding blocks
   is strictly stronger rather than a different experiment.
 - **One A/A null cell per batch, sized like the treatment cells.**
+
+**16 IS A MINIMUM, NOT A SUFFICIENT SIZE, AND TWO CELLS ARE NOW KNOWN TO NEED
+MORE — 20260830.** The 16-block rule was a convention. Two measurements from the
+20260830 sandbox program turned it into a floor that some cells sit well above:
+
+- **A piece-bearing cell may not floor at 8 blocks at all.** An A/A null on a
+  piece-bearing potions-ON hazard cell — two IDENTICAL bundles, identical
+  configs, identical seeds — returned sharePar **+0.271 [0.037, 0.506]**. It
+  excludes zero. **A cell whose own null excludes zero has no floor, and every
+  delta on it is UNREADABLE rather than null.** All-snake cells at the same size
+  floored cleanly at ±0.10. Extrapolating the widest measured piece half-width
+  (±0.234 at 8 blocks) puts a ±0.10 floor at ~44 blocks per piece cell — and the
+  crossover has never been measured, which is a batch-3 item.
+- **A cross-branch pair needs ~73 blocks per cell.** Cross-bundle paired spread
+  was ±0.303 at 8 blocks against a ±0.10 floor, so 8 × (0.303/0.10)² = 73.
+
+So: **report the A/A null per cell, never pooled**, and **never borrow a floor**
+— not the snake cell's for a piece cell, and not one bundle's for the other. The
+same cell floored ±0.120 on one bundle and ±0.234 on the other in one night. A
+piece cell whose null does not contain zero is written up as an INSTRUMENT
+EVENT, and no verdict comes out of that cell.
+
+Batch 2 ships at 16 blocks anyway, with those limits written into every spec it
+affects. `tools/simworker/COORDINATION-20260830.md` says what a 16-block run may
+and may not claim, and `tools/learnloop/specs/batch2/README.md` prices the
+alternative in nights on this box.
 
 ### Priority order
 

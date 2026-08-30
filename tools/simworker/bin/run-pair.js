@@ -37,7 +37,7 @@
  *
  * ── WHAT AN ARM IS ─────────────────────────────────────────────────────────
  *
- *   name=<bundle-dir>[,bot=<json-or-path>][,KEY=VALUE]...
+ *   name=<bundle-dir>[,bot=<json-or-path>][,bot@<seat>=<json-or-path>]...[,KEY=VALUE]...
  *
  * The bundle is a build of some branch (build-bot.sh). An A/A NULL is two arms
  * with the SAME bundle and the SAME contender and different names — which is
@@ -45,12 +45,28 @@
  *
  * ── AN ARM IS A CONFIGURED BOT, NOT AN ENVIRONMENT ─────────────────────────
  *
- * `bot=` names a `BotConfig` — inline JSON, or a path to a `.json` file — and
- * it is applied to EVERY lobster contender the spec seats. The runner writes
- * the arm its own spec: the shared spec with the contender configs merged, and
- * `sweepId`, `cells`, `seeds` and `rotateSeats` byte-identical, so the pairing
- * guarantee is untouched — same boards, same seeds, same seat rotation, two
- * differently-configured bots.
+ * `bot=` names a `BotConfig` — inline JSON, or a path to a `.json` file. The
+ * runner writes the arm its own spec: the shared spec with that config merged
+ * onto THE SEAT IT NAMES, and `sweepId`, `cells`, `seeds` and `rotateSeats`
+ * byte-identical, so the pairing guarantee is untouched — same boards, same
+ * seeds, same seat rotation, two differently-configured bots.
+ *
+ * A CONFIG REACHES ONE SEAT, NOT EVERY LOBSTER SEAT. Until 2026-08-30 it was
+ * merged into every lobster contender the spec seated, which is invisible on a
+ * one-lobster spec and a measurement defect on a two-lobster one: the treatment
+ * arm becomes two ablated lobsters against a control arm of two intact ones,
+ * the within-game contrast cancels, and the arm reports a null it never had the
+ * power to distinguish from a real one. So:
+ *
+ *   bot=<json|path>              the subject seat, and ONLY when exactly one
+ *                                seat can be meant. Otherwise a refusal that
+ *                                lists the candidates.
+ *   bot@<seat>=<json|path>       that seat, by name. Repeatable; each config
+ *                                lands on its own seat and on no other.
+ *
+ * The two forms may not be mixed in one arm. See `../lib/arm-spec.js` for the
+ * rule and `./selftest.js` for the assertion — which reads the per-seat
+ * `mechanism.flags` stamp out of a real game's manifest, not the transform.
  *
  * WHY IT IS NOT AN ENVIRONMENT VARIABLE ANY MORE. The owner's ruling of
  * 2026-08-29 tore the engine's feature-flag system out, and every `CENTAUR_*`
@@ -78,6 +94,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { specForArm, resolveArmTargets, ArmSpecError } = require('../lib/arm-spec');
 
 // ------------------------------------------------------------------- args
 
@@ -132,9 +149,45 @@ const DEAD_FLAGS = {
   CENTAUR_WASM: 'deleted before this teardown; the flag no longer exists',
 };
 
-/** `name=/path/to/bundle[,bot=<json|path>][,KEY=V]` -> {name, bundle, bot, env}. */
+/**
+ * Split an arm's fields on the commas BETWEEN them, never on the commas inside
+ * an inline JSON config.
+ *
+ * The old parser took "everything after the first `bot=`" as one config, which
+ * works for exactly one config and cannot express two. A depth-and-quote scan
+ * costs ten lines and lets an arm carry a config per seat — which is what
+ * per-seat isolation needs to be usable rather than merely enforced.
+ */
+function splitArmFields(text) {
+  const out = [];
+  let buf = '';
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (const ch of text) {
+    if (inStr) {
+      buf += ch;
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; buf += ch; continue; }
+    if (ch === '{' || ch === '[') { depth++; buf += ch; continue; }
+    if (ch === '}' || ch === ']') { depth--; buf += ch; continue; }
+    if (ch === ',' && depth === 0) { out.push(buf); buf = ''; continue; }
+    buf += ch;
+  }
+  out.push(buf);
+  return out;
+}
+
+/**
+ * `name=/path/to/bundle[,bot=<json|path>][,bot@<seat>=<json|path>][,KEY=V]`
+ * -> `{name, bundle, bot, botTargets, env}`.
+ */
 function parseArm(text, allowLegacyEnv) {
-  const parts = text.split(',');
+  const parts = splitArmFields(text);
   const head = parts.shift();
   const eq = head.indexOf('=');
   if (eq <= 0) fail(`--arm "${text}" must start with <name>=<bundle-dir>`);
@@ -143,14 +196,25 @@ function parseArm(text, allowLegacyEnv) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) fail(`arm name "${name}" must be alphanumeric/dash/underscore`);
   const env = {};
   let bot = null;
-  // An inline JSON bot config contains commas, so it is rejoined here: `bot=`
-  // takes the whole rest of the arm string.
-  const botAt = parts.findIndex((p) => p.startsWith('bot='));
-  if (botAt >= 0) {
-    const raw = parts.splice(botAt).join(',').slice('bot='.length);
-    bot = readBotConfig(raw, name);
-  }
+  const botTargets = {};
+  const rest = [];
   for (const p of parts) {
+    if (p.startsWith('bot=')) {
+      if (bot !== null) fail(`--arm "${name}": bot= given twice; aim each config with bot@<seat>=`);
+      bot = readBotConfig(p.slice('bot='.length), name);
+      continue;
+    }
+    const at = /^bot@([A-Za-z0-9][A-Za-z0-9_-]*)=/.exec(p);
+    if (at) {
+      const seat = at[1];
+      if (botTargets[seat] !== undefined) fail(`--arm "${name}": bot@${seat}= given twice`);
+      botTargets[seat] = readBotConfig(p.slice(at[0].length), name);
+      continue;
+    }
+    if (p.startsWith('bot@')) fail(`--arm "${name}": "${p}" is not bot@<seat>=<json|path>`);
+    rest.push(p);
+  }
+  for (const p of rest) {
     const j = p.indexOf('=');
     if (j <= 0) fail(`--arm "${text}": "${p}" is not KEY=VALUE`);
     const key = p.slice(0, j);
@@ -166,7 +230,7 @@ function parseArm(text, allowLegacyEnv) {
     }
     env[key] = p.slice(j + 1);
   }
-  return { name, bundle, bot, env };
+  return { name, bundle, bot, botTargets, env };
 }
 
 /** Inline JSON, or a path to a JSON file. Validated here so a typo fails at
@@ -192,33 +256,28 @@ function readBotConfig(raw, armName) {
 }
 
 /**
- * The arm's own spec: the shared one with this arm's bot config merged into
- * every LOBSTER contender, and everything that defines the boards untouched.
- *
- * The untouched half is the pairing guarantee, so it is asserted rather than
- * assumed — `sweepId`, `cells`, `seeds` and `rotateSeats` are copied by
- * reference from the shared spec and never read from the arm.
+ * The arm's own spec. The transform itself lives in `../lib/arm-spec.js`, which
+ * is where the per-seat isolation rule is written down and where `selftest.js`
+ * asserts it; this wrapper only turns its refusals into this script's `fail`
+ * shape so an operator gets one error format from one entry point.
  */
-function specForArm(spec, arm) {
-  if (arm.bot === null) return spec;
-  const contenders = { ...(spec.contenders ?? {}) };
-  const bots = spec.bots ?? [];
-  const lobsterish = bots.filter((b) => b === 'lobster-territory' || contenders[b] !== undefined);
-  if (lobsterish.length === 0) {
-    fail(
-      `--arm "${arm.name}": bot= was given but the spec seats no lobster contender for it ` +
-      `to configure (bots: ${bots.join(', ')}).`
-    );
+function armSpec(spec, arm) {
+  try {
+    return specForArm(spec, arm);
+  } catch (e) {
+    if (e instanceof ArmSpecError) fail(e.message);
+    throw e;
   }
-  for (const b of lobsterish) {
-    const existing = contenders[b] ?? {};
-    contenders[b] = {
-      ...existing,
-      base: existing.base ?? (b === 'lobster-territory' ? 'lobster-territory' : existing.base),
-      bot: { ...(existing.bot ?? {}), ...arm.bot },
-    };
+}
+
+/** Which seats this arm configures, for the launch banner. Same refusals. */
+function armTargets(spec, arm) {
+  try {
+    return resolveArmTargets(spec, arm);
+  } catch (e) {
+    if (e instanceof ArmSpecError) fail(e.message);
+    throw e;
   }
-  return { ...spec, contenders };
 }
 
 const args = parseArgs(process.argv);
@@ -248,6 +307,16 @@ if (typeof spec.sweepId !== 'string' || spec.sweepId === '') fail('spec has no s
 
 const batchDir = path.resolve(args.batch);
 
+// WHICH SEAT EACH ARM CONFIGURES — RESOLVED BEFORE ANYTHING LAUNCHES.
+//
+// An ambiguous target is a refusal (lib/arm-spec.js), and it has to fire here
+// rather than inside the per-arm spec write: a pair whose second arm refuses
+// after the first has been spawned leaves half a batch on disk that looks like
+// data. Resolved once, then reused for the banner, the arm spec and the record.
+for (const arm of arms) {
+  arm.seatConfigs = armTargets(spec, arm);
+}
+
 // Every arm must actually be built, and the check happens BEFORE anything is
 // launched — half a pair is worse than none, because the half that ran looks
 // like data.
@@ -276,7 +345,18 @@ for (const arm of arms) {
   const bundleStamp = readJson(path.join(arm.bundle, 'bundle.json'));
   const envText = Object.keys(arm.env).length === 0 ? '(inherited)' : Object.entries(arm.env).map(([k, v]) => `${k}=${v}`).join(' ');
   console.log(`#   ${arm.name.padEnd(14)} ${bundleStamp ? `${bundleStamp.sha.slice(0, 10)} ${bundleStamp.ref}` : 'UNSTAMPED BUNDLE'}`);
-  console.log(`#   ${''.padEnd(14)} bot: ${arm.bot === null ? '(spec default)' : JSON.stringify(arm.bot)}`);
+  // PER SEAT, ALWAYS — including when there is one. The banner is the last
+  // place an operator can notice that a config landed on a seat they did not
+  // mean, and "bot: {...}" without a seat name is exactly the reading that let
+  // the old every-lobster merge go unnoticed.
+  const seats = Object.keys(arm.seatConfigs);
+  if (seats.length === 0) {
+    console.log(`#   ${''.padEnd(14)} bot: (spec default — no seat configured)`);
+  } else {
+    for (const s of seats) {
+      console.log(`#   ${''.padEnd(14)} bot@${s}: ${JSON.stringify(arm.seatConfigs[s])}`);
+    }
+  }
   console.log(`#   ${''.padEnd(14)} env: ${envText}${args.legacyEnv ? '  [--legacy-env]' : ''}`);
 }
 console.log('');
@@ -293,9 +373,9 @@ const children = arms.map((arm) => {
   // Written into the arm's own directory so a finished batch carries, per arm,
   // the exact spec that arm was played under.
   let armSpecPath = specPath;
-  if (arm.bot !== null) {
+  if (Object.keys(arm.seatConfigs).length > 0) {
     armSpecPath = path.join(outRoot, 'spec.json');
-    fs.writeFileSync(armSpecPath, JSON.stringify(specForArm(spec, arm), null, 1) + '\n');
+    fs.writeFileSync(armSpecPath, JSON.stringify(armSpec(spec, arm), null, 1) + '\n');
   }
 
   const argv = [
@@ -317,7 +397,15 @@ const children = arms.map((arm) => {
     bundleStamp: readJson(path.join(arm.bundle, 'bundle.json')),
     // WHAT MAKES THIS ARM THIS ARM. `botConfig` is the contender; `envOverrides`
     // is process environment only and can no longer carry a strategy.
+    //
+    // `seatConfigs` is the RESOLVED form and is the one to read: seat -> config,
+    // after the isolation rule has decided which seat a bare `bot=` meant.
+    // `botConfig` is kept beside it, unresolved, so every reader written against
+    // the pre-20260830 record keeps working — but two arms that agree on
+    // `botConfig` and disagree on `seatConfigs` are NOT an A/A pair, which is
+    // why verify-null.js checks the resolved map.
     botConfig: arm.bot,
+    seatConfigs: arm.seatConfigs,
     envOverrides: arm.env,
     legacyEnv: args.legacyEnv,
     spec: spec.sweepId,
@@ -384,6 +472,7 @@ function finish() {
       bundle: a.bundle,
       bundleStamp: readJson(path.join(a.bundle, 'bundle.json')),
       botConfig: a.bot,
+      seatConfigs: a.seatConfigs,
       envOverrides: a.env,
       legacyEnv: args.legacyEnv,
       exit: results.find((r) => r.arm === a.name) ?? null,
