@@ -46,6 +46,13 @@ describe('the shipped bot is the default of every field', () => {
       territoryRefine: DEFAULT_TERRITORY_REFINE,
       stagingSafety: STAGING_SAFETY_DEFAULT,
       candidates: {},
+      multistartSeed: false,
+      sampledCap: false,
+      // DEPTH'S RATION, and the empty object is the claim: the shipped bot
+      // takes `DEFAULT_SCOUT_TUNING` whole. There is no `depth: false` here
+      // because depth is machinery — always available — and what a bot chooses
+      // is how much of the decision it may buy.
+      depth: {},
       engine: 'lobster',
       workers: 'off',
       workersAudit: false,
@@ -144,6 +151,9 @@ describe('a contender is named, and its fields take', () => {
       territoryRefine: true,
       stagingSafety: 'guard',
       candidates: { unitFatality: true, tierSafeStaging: false },
+      multistartSeed: true,
+      sampledCap: true,
+      depth: { plyCap: 0 },
       engine: 'legacy',
       workers: 3,
       workersAudit: true,
@@ -154,6 +164,9 @@ describe('a contender is named, and its fields take', () => {
       territoryRefine: true,
       stagingSafety: 'guard',
       candidates: { unitFatality: true, tierSafeStaging: false },
+      multistartSeed: true,
+      sampledCap: true,
+      depth: { plyCap: 0 },
       engine: 'legacy',
       workers: 3,
       workersAudit: true,
@@ -174,6 +187,20 @@ describe('a bad config is a refusal, not a silent default', () => {
     // perfectly quiet no-op, and the arm reported a null.
     expect(() => botConfigFromJson({ teritoryRefine: true })).toThrow(/teritoryRefine/);
     expect(() => botConfigFromJson({ scout: 'observe' })).toThrow(/unknown bot config field/);
+  });
+
+  test('the DEPTH RATION is a bot field, and a bad one is refused', () => {
+    // The search-layer teardown's own row. `scout` is not a field — depth is
+    // machinery and there is no arm to name — but its ration is, because a
+    // contender that buys no depth is the control arm the depth-effect rate is
+    // measured against.
+    expect(resolveBotConfig({ depth: { plyCap: 0 } }).depth).toEqual({ plyCap: 0 });
+    expect(() => botConfigFromJson({ depth: 3 })).toThrow(/depth/);
+    expect(() => botConfigFromJson({ depth: [] })).toThrow(/depth/);
+    // And the flag that used to carry it is refused BY NAME, like every other
+    // spelling the environment used to accept quietly.
+    expect(() => botConfigFromJson({ scout: 'advise' })).toThrow(/unknown bot config field/);
+    expect(() => botConfigFromJson({ clusterEnum: true })).toThrow(/unknown bot config field/);
   });
 
   test('a bad value is refused, per field', () => {

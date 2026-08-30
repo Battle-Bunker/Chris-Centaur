@@ -453,6 +453,26 @@ describe('the depth-effect rate', () => {
    * silent again, which is what it did for the whole life of the layer before
    * the partition's `variables` replaced its `members`.
    */
+  test('depth is available on a POTION-BEARING board — the family it used to refuse', async () => {
+    // The door refuses a board carrying potions while the process premise is
+    // potion-free, because with an empty premise board an enemy's tier ceiling
+    // collapses to its observed tier — defensible at one ply and an
+    // under-statement of the enemy at two. That refusal made depth unavailable
+    // on every board with a potion on it, which the owner's ruling says is
+    // every real game. `TIER_TRUTH` is `full` now, so the premise carries the
+    // real potion board and the door admits it. Asserted here rather than
+    // assumed, because it is the difference between depth working in probes
+    // and depth working in games.
+    const base = pieceBoard(ACCEPTANCE_SEED);
+    const withPotion: Board = {
+      ...base,
+      invulnerabilityPotions: [{ x: 1, y: 1 }],
+    } as Board;
+    const deep = await decide(withPotion, 3, 1000);
+    expect(deep.staged).not.toBe('');
+    expect(deep.plies).toBeGreaterThan(1);
+  }, 180000);
+
   test('is nonzero on piece-bearing boards at a one-second budget', async () => {
     const BOARDS = 20;
     let changed = 0;
