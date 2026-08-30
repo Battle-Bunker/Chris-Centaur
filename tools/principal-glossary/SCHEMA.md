@@ -24,7 +24,7 @@ that has forgotten everything — reads the same state.
 | `check-briefing.js` | reads a draft briefing on stdin, flags jargon, exits nonzero. |
 | `render-view.js` | regenerates `FAMILIARITY.md`; `--check` fails on drift; `--sort` fixes merge order. |
 | `lib/glossary.js` | load / validate / match. No dependencies. |
-| `selftest.js` | 31 assertions, incl. deliberately malformed ledgers that `validate()` must reject. |
+| `selftest.js` | 50 assertions, incl. deliberately malformed ledgers that `validate()` must reject, and the 20260830 vocabulary ban. |
 | `USAGE.md` | the operating protocol. Read that one first if you are here to write a briefing. |
 
 ---
@@ -88,6 +88,32 @@ Four states. A term sits in exactly one of them per principal.
 - **`corrected` → `native`** — only the principal can make this happen, by using
   the term correctly themselves, with a quote. Nothing we do promotes out of
   `corrected`.
+
+### The second kind of `corrected`: a BAN
+
+Added 2026-08-30. The owner banned two words — **"dark"** and
+**"promoted / promotion"** — from owner-facing text, prescribing
+*in-collection / selectable*, *validated* and *merged* instead. That is not an
+unfamiliarity: he knows exactly what they mean and used them himself. But the
+behaviour a ban needs is identical to the behaviour a correction needs — block
+every use, never auto-expire, refuse to clear without an explicit `--ack` — and
+`corrected` is the only state that has it.
+
+So a ban is filed as `corrected` with:
+
+- the ruling as the **`quote`** (it is the human's own words, which rule 4 wants);
+- a **`note` beginning `THIS IS A BAN`**, which is what tells a reader — and
+  `check-briefing.js`, which switches its message on it — that the entry is not
+  a claim that the principal was confused;
+- a **`gloss` that says `SAY INSTEAD:`** and names the replacement. A ban with no
+  replacement gets ignored, because the drafter still needs a word.
+
+`selftest.js` asserts all four of those on both banned terms, so a later tidy-up
+that moves either back to `defined` fails the gate rather than silently
+re-opening the word. The filenames those words are baked into
+(`promotion-ledger.json`, `PROMOTION-STATUS.md`) stay as they are — a path is not
+prose — and the longer `defined` phrase `promotion ledger` shields the bare word
+so naming the file in a briefing still passes.
 
 There is no `forgotten` state and no time-based decay. Decay would be an
 inference about a human's memory that we have no evidence for; the ledger only

@@ -95,6 +95,110 @@ const problems = [];
 const specs = [];
 const plist = [];
 
+/*
+ * ── CROSS-BRANCH ARMS ──────────────────────────────────────────────────────
+ *
+ * Most arms in this ledger are one bundle plus a named `BotConfig`. Some are
+ * not: under the branching paradigm (docs/BRANCHING.md, owner ruling 20260830)
+ * an architecture change lives on its own branch and is validated as a batch
+ * arm, so its experiment races TWO BUNDLES BUILT FROM TWO REFS.
+ *
+ * That is not an extension of the harness — it is what the harness was built
+ * for. `build-bot.sh` resolves any git ref to a bundle, an arm is a
+ * `name=<bundle-dir>` pair, and `run-pair.js` launches the arms at the same
+ * instant in separate processes and pairs them by gameId afterwards. Batch 1's
+ * P1 ran exactly this: `integrated` @ 66904d2 against `perf-substrate` @
+ * 8059b86, 144 games paired and 0 dropped.
+ *
+ * What the generator has to add is the thing an operator cannot reconstruct
+ * from prose: WHICH REF EACH ARM IS BUILT FROM. An experiment declares
+ * `armRefs: { <arm>: <branchRoles key> }` and this prints a BUNDLES block with
+ * the exact `build-bot.sh` lines beside the `--arm` lines. A ref named nowhere
+ * is a bundle somebody has to guess at, and a guessed bundle is the silent A/A
+ * this whole ledger is organised around refusing.
+ */
+const ROLES = ledger.branchRoles ?? {};
+
+function roleOf(key, id) {
+  const r = ROLES[key];
+  if (r === undefined || !r.ref) {
+    problems.push(`${id}: armRefs names "${key}", which is not a branch role in ledger.branchRoles`);
+    return null;
+  }
+  return r;
+}
+
+/** The `--arm` lines and the BUNDLES block, for one experiment. */
+function armLines(x, id) {
+  const cfgs = x.armConfigs;
+  if (!cfgs) return [];
+  const refs = x.armRefs ?? null;
+  const bundleOf = (name) => {
+    if (refs === null) return '<bundle>';
+    const r = roleOf(refs[name], id);
+    return r === null ? '<bundle>' : `<bundle-${r.bundleName ?? name}>`;
+  };
+  const lines = [
+    '',
+    refs === null
+      ? 'ARM CONFIGS (both arms from POST-TEARDOWN bundles):'
+      : 'ARM CONFIGS — A CROSS-BRANCH PAIR: one bundle per arm, from the refs below.',
+    ...Object.entries(cfgs).map(
+      ([name, cfg]) =>
+        `    --arm '${name}=${bundleOf(name)}${cfg === null ? '' : `,bot=${JSON.stringify(cfg)}`}'`
+    ),
+  ];
+  if (refs !== null) {
+    lines.push('');
+    lines.push('BUNDLES — build one per arm, from the ref named here, and record the');
+    lines.push('resolved SHA from each bundle.json in findings.md:');
+    for (const [name, key] of Object.entries(refs)) {
+      const r = roleOf(key, id);
+      if (r === null) continue;
+      lines.push(`    tools/simworker/build-bot.sh ${r.ref} ${bundleOf(name)} --fetch`);
+      lines.push(`        ${name}: ${r.branch} — ${r.role}`);
+    }
+    lines.push('');
+  }
+  return lines;
+}
+
+/** The arm-selection boilerplate, in the shape this experiment actually has. */
+const HOW_AN_ARM_IS_SELECTED = [
+  'HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The',
+  'feature flags are gone (owner ruling 20260829; the search-layer half',
+  'landed with the depth work). An arm is a BUNDLE plus a named BotConfig:',
+  '    --arm \'treat=<bundle>,bot={"territoryRefine":true}\'',
+  'or a `contenders` map in the spec. Exporting a CENTAUR_* variable now',
+  'does NOTHING — an arm that sets one plays the shipped bot under a',
+  "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+  'refuses the dead names; a bad config field is a refusal from',
+  'botConfigFromJson rather than a silent off.',
+  'THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no',
+  'bot-config module and ignores the config entirely, so BOTH arms of a',
+  "pair must be built from post-teardown refs. Read the per-game rows'",
+  'mechanism.config stamp — the bot that actually resolved — not the spec.',
+];
+
+const HOW_A_BRANCH_ARM_IS_SELECTED = [
+  'HOW AN ARM IS SELECTED HERE, AND WHY THIS ONE IS DIFFERENT. This is a',
+  'BRANCH-VERSUS-BRANCH pair under the branching paradigm (docs/BRANCHING.md,',
+  'owner ruling 20260830): an architecture change is built on its own branch,',
+  'validated as a batch arm, and MERGED on the result. So the arms are two',
+  'BUNDLES built from two refs, each running its own shipped default, and the',
+  'BUNDLES block above is the whole of the arm definition.',
+  'DO NOT ADD bot= TO EITHER ARM unless this spec prints one. A bundle built',
+  'from a pre-teardown ref has no src/lobster/bot-config module, and',
+  'checkContenders refuses a spec that declares a bot config against it —',
+  'correctly, because such a bundle would ignore the config and play its',
+  "shipped bot under the arm's name. With no config declared, that check does",
+  'not fire and both arms simply play what they ship, which is the comparison.',
+  'READ THE VERDICT AT THE RIGHT GRAIN. Two branch tips differ by everything',
+  'that landed on either since they forked, so a delta attributes to THE',
+  'BRANCH and to nothing finer. That is the right instrument for a merge',
+  'decision and the wrong one for a mechanism claim.',
+];
+
 function cellsFor(names, id) {
   const out = [];
   for (const n of names) {
@@ -164,38 +268,19 @@ for (const f of L.undecided(ledger)) {
         `QUESTION: ${x.question}`,
         '',
         `ARMS: ${(x.arms ?? []).join('  |  ')}`,
-        // WHAT TO ACTUALLY TYPE. An arm name is a label; the config is the arm.
-        // Printed here so the operator never has to reconstruct one from prose
-        // — the reconstruction is where a mistyped arm becomes a silent A/A.
-        ...(x.armConfigs
-          ? [
-              '',
-              'ARM CONFIGS (both arms from POST-TEARDOWN bundles):',
-              ...Object.entries(x.armConfigs).map(
-                ([name, cfg]) =>
-                  `    --arm '${name}=<bundle>${cfg === null ? '' : `,bot=${JSON.stringify(cfg)}`}'`
-              ),
-            ]
-          : []),
+        // WHAT TO ACTUALLY TYPE. An arm name is a label; the config — or, for a
+        // cross-branch pair, the REF — is the arm. Printed here so the operator
+        // never has to reconstruct one from prose; the reconstruction is where a
+        // mistyped arm becomes a silent A/A.
+        ...armLines(x, x.id),
         `READS OUT: ${(x.readsOut ?? []).join(', ')}`,
         ...(x.designNote ? ['', `DESIGN NOTE: ${x.designNote}`] : []),
+        ...(x.mergeDecision ? ['', `MERGE DECISION: ${x.mergeDecision}`] : []),
         ...(x.scopeNote ? ['', `SCOPE: ${x.scopeNote}`] : []),
         ...(x.gate ? ['', `GATE: ${x.gate}`] : []),
         ...(x.requires ? ['', `REQUIRES: ${x.requires}`] : []),
         '',
-        'HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The',
-        'feature flags are gone (owner ruling 20260829; the search-layer half',
-        'landed with the depth work). An arm is a BUNDLE plus a named BotConfig:',
-        '    --arm \'treat=<bundle>,bot={"territoryRefine":true}\'',
-        'or a `contenders` map in the spec. Exporting a CENTAUR_* variable now',
-        'does NOTHING — an arm that sets one plays the shipped bot under a',
-        "treatment's name, which is the silent A/A that voided P5. run-pair.js",
-        'refuses the dead names; a bad config field is a refusal from',
-        'botConfigFromJson rather than a silent off.',
-        'THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no',
-        'bot-config module and ignores the config entirely, so BOTH arms of a',
-        "pair must be built from post-teardown refs. Read the per-game rows'",
-        'mechanism.config stamp — the bot that actually resolved — not the spec.',
+        ...(x.armRefs ? HOW_A_BRANCH_ARM_IS_SELECTED : HOW_AN_ARM_IS_SELECTED),
         '',
         'Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;',
         're-run make-promotion-batch.js.',
@@ -375,6 +460,50 @@ for (const n of ['headline-mix-king', 'null-snake6']) {
   if (!nullCellNames.includes(n)) nullCellNames.push(n);
 }
 
+/*
+ * WHICH BUNDLE THE A/A NULL IS TWO COPIES OF.
+ *
+ * `verify-null.js` asserts an IDENTICAL bundle SHA in both arms, so an A/A null
+ * is one build seated twice. That was invisible while every arm in a batch came
+ * from one branch. It stops being invisible the moment a batch races branches,
+ * and the choice belongs in the ledger rather than in an operator's head:
+ * `branchRoles.aaNull.use` names the role, and its `why` and `caveat` are
+ * printed into the spec so the reader meets the reasoning where the instruction
+ * is.
+ */
+const aaRole = ROLES[(ROLES.aaNull ?? {}).use ?? ''] ?? null;
+const AA_BUNDLE = aaRole === null ? '<bundle>' : `<bundle-${aaRole.bundleName}>`;
+const AA_BUNDLE_NOTE =
+  aaRole === null
+    ? []
+    : [
+        `WHICH BUNDLE: both arms are ${aaRole.branch}`,
+        `(${aaRole.ref}) — the ${aaRole.role} branch.`,
+        `    tools/simworker/build-bot.sh ${aaRole.ref} ${AA_BUNDLE} --fetch`,
+        '',
+        ...wrap(ROLES.aaNull.why),
+        '',
+        ...wrap(ROLES.aaNull.caveat),
+        '',
+      ];
+
+/** Soft-wrap a long ledger string into spec-comment lines. */
+function wrap(text, width = 76) {
+  const words = String(text ?? '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    if (line === '') line = word;
+    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line !== '') lines.push(line);
+  return lines;
+}
+
 const nullSpec = C.spec(
   'n0-aa-null',
   [
@@ -387,10 +516,14 @@ const nullSpec = C.spec(
     `    ${nullCellNames.join(', ')}`,
     '',
     'Run with two arms that are the SAME bundle and the SAME env under two names:',
-    '    --arm nullA=<bundle> --arm nullB=<bundle>',
+    `    --arm nullA=${AA_BUNDLE} --arm nullB=${AA_BUNDLE}`,
     'Its paired delta measures run-to-run variance and nothing else. That number',
     'is the yardstick every treatment delta in this batch is read against.',
     '',
+    // WHICH BUNDLE, AND WHY. A null is one bundle seated twice; a batch that
+    // races whole branches therefore has to CHOOSE which one, and a choice
+    // nobody wrote down is a choice the next operator makes differently.
+    ...AA_BUNDLE_NOTE,
     `SIZED AT ${BLOCKS} BLOCKS to match the treatment cells. A null at 4 blocks`,
     'beside a treatment at 16 understates the floor, because the floor narrows',
     'with block count — the direction that makes a treatment look significant',

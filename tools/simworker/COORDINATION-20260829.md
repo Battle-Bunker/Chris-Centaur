@@ -389,3 +389,37 @@ measured no-op at ply 1, and the other arm is the unsound one past it). Nothing
 else about batch 2 changes; no status moved and no measurement row was touched.
 
 **ADDENDUM (ledger/spec repair, 20260830).** The search-layer half of the teardown has landed too, so the last six flags are gone: `CENTAUR_CLUSTER_ENUM` and `CENTAUR_SCOUT` were **DELETED outright with no off switch** (the cluster enumeration and the deep layer are unconditional machinery; what a bot configures is depth's *ration*, and the depthless arm is `bot={"depth":{"plyCap":0}}`), `CENTAUR_EDGE_EV` / `CENTAUR_SAMPLED_CAP` / `CENTAUR_MULTISTART_SEED` are `BotConfig` fields defaulting off, and `CENTAUR_CLUSTER_SEED`'s code is deleted — so **pull before you run batch 2**: it is now **11 specs / 2,472 games** with `P8/P9-joint` **WITHDRAWN** and its spec file *pruned from the directory* (neither arm is buildable from any current bundle), `P11` respecified as `default` vs `depthless` and standing as the live paired sweep the depth landing owes, `P7F`/`P9`/`P10`/`P12` on config-named arms, and every spec printing an **ARM CONFIGS** block with the exact `--arm` lines; cells and seeds are untouched, no status moved and no measurement row was touched, and **an owner decision is pending that nobody downstream may pre-empt** — the depth landing turned the enumeration and the deep layer on by default while both are still `probe-passed` and neither has been raced live, recorded verbatim on both ledger rows and rendered in `PROMOTION-STATUS.md`.
+
+**ADDENDUM (branching paradigm, 20260830).** **Batch 2's search-architecture
+question is now BRANCH-VERSUS-BRANCH — pull before you run.** Owner ruling of
+that day (`docs/BRANCHING.md` on `claude/cluster-lookahead` is the policy):
+unvalidated architecture does not accumulate on one branch behind config
+defaults — it lives on a feature branch, is validated by benchmarks plus a
+long-running paired batch, and is then **merged**. So
+`claude/mid-turn-collision-logic-mkxurg` is declared **the validated baseline**
+and `claude/cluster-lookahead` **the search-architecture feature branch**, and
+**P11 is respecified as the merge decision for it**: arm `baseline` built from
+`origin/claude/mid-turn-collision-logic-mkxurg` against arm `search-arch` built
+from `origin/claude/cluster-lookahead`, **both running their shipped defaults
+with no `bot=` on either side** — do not add one, the baseline bundle predates
+the teardown and `checkContenders` will refuse it, correctly. Every cross-branch
+spec now prints a **BUNDLES** block with the exact `build-bot.sh` line per arm;
+build both and record each resolved SHA in `findings.md`. **The A/A null is two
+builds of the `search-arch` bundle** — one bundle seated twice as always, and
+the ledger now says *which* one and why (the bundle the rest of the batch
+shares, the same convention batch 1 used when it floored on `integrated`);
+P11's `baseline` arm has no floor of its own and the null spec says so.
+Engagement for P11 is read on the `search-arch` arm only, from
+`belief.deepestPlies` / `deepBranches` — zero there is a broken arm, not a null;
+the baseline arm cannot run depth at all, so it cannot fail silently.
+**Everything else is unchanged**: 11 specs / 2,472 games, same cells, same
+seeds, same five floored boards, only `p11-scout.json`, `n0-aa-null.json` and
+`P-LIST.json` differ; no status moved, no measurement row was added or edited,
+no verdict changed. **The owner decision that was pending is taken**, and by
+neither option as posed — the branch is a feature branch, so the two never-raced
+features' fate is the branch's and P11 decides it; nothing you run pre-empts
+anything now, running P11 is what settles it. **Vocabulary:** say *merged*,
+*validated*, *selectable*; "dark" and "promoted/promotion" are banned in
+owner-facing text. The stored statuses and the `promotion-ledger.json` path keep
+their spelling as internal identities, `PROMOTION-STATUS.md` renders as
+*"Validation status"*, and `VALIDATION-STATUS.md` points at it.

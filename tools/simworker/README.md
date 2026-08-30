@@ -42,8 +42,9 @@ node tools/simworker/bin/verify-null.js --batch /tmp/smoke --null nullA,nullB
 
 ## What to run next
 
-`tools/learnloop/` holds the PROMOTION LEDGER — one machine-readable record of
-where every promotable flag stands, what its gate actually measures, and what
+`tools/learnloop/` holds the VALIDATION RECORD (`promotion-ledger.json` — the
+path keeps its old name so nothing that links to it breaks) — one
+machine-readable record of where every candidate stands, what its gate measures, and what
 the next decisive experiment for it is. It is the artifact both sessions read,
 and it answers "what should this box run next?" as a command:
 
@@ -64,7 +65,7 @@ node tools/learnloop/bin/ingest.js --batch results/<batch> \
 
 which checks the null first, prints the drift and instrument-hygiene tables,
 then proposes ledger updates — and refuses the ones the record says it must
-(a probe cannot promote; an unengaged arm moves nothing; an underpowered
+(a probe cannot move a status alone; an unengaged arm moves nothing; an underpowered
 placement cell moves nothing).
 
 `tools/learnloop/` is a VERBATIM MIRROR of the copy on

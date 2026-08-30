@@ -390,7 +390,7 @@ Block counts:
 - **16 blocks minimum for a placement claim.** Below that, placement is
   descriptive at best.
 - **4–8 blocks for mechanism-first exploration.** Enough to see a mechanism
-  separation worth promoting to a full cell; never enough for placement.
+  separation worth escalating to a full 16-block cell; never enough for placement.
 - The seed sequences this kit generates NEST: a 16-block run contains the
   8-block run's seeds, so "we added blocks" is strictly stronger rather than a
   different experiment.

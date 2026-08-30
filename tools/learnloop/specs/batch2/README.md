@@ -7,6 +7,81 @@ reads out, and the design note that says why the arms are shaped that way.
 
 `P-LIST.json` is the machine-readable form of the table below.
 
+## 20260830, later — P11 IS NOW BRANCH-VERSUS-BRANCH, AND IT IS A MERGE DECISION
+
+Owner ruling of the same day (`docs/BRANCHING.md` on `claude/cluster-lookahead`
+is the binding policy). **Unvalidated architecture does not accumulate on one
+branch behind config defaults.** Two lanes only: strategy candidates at the
+decision joints are in-tree collection members, selectable by config — adding
+one is a normal commit; everything else about the architecture is built on a
+feature branch, validated by benchmarks plus long-running paired batches, and
+then **merged**.
+
+So the branches are declared for what they are:
+
+| branch | role |
+|---|---|
+| `claude/mid-turn-collision-logic-mkxurg` | **the validated baseline**, and the primary branch |
+| `claude/cluster-lookahead` | **the search-architecture feature branch** — depth, the entry registry, the per-branch belief; the deep layer and the cluster enumeration always-built |
+
+**P11 is respecified as the merge decision for that branch.** It was `default`
+against `depthless` = `bot={"depth":{"plyCap":0}}`, one bundle and one config
+field. It is now two bundles from two refs, both running their shipped defaults:
+
+```
+--arm 'baseline=<bundle-baseline>'          origin/claude/mid-turn-collision-logic-mkxurg
+--arm 'search-arch=<bundle-search-arch>'    origin/claude/cluster-lookahead
+```
+
+Every generated spec that races branches now prints a **BUNDLES** block with the
+exact `build-bot.sh` lines beside its `--arm` lines, because the one thing an
+operator cannot reconstruct from prose is which ref an arm was built from.
+
+**This dissolves the pending owner decision.** The question — does the default
+bot keep carrying two never-raced features, or do they become config fields
+defaulting off? — had two sides only while the architecture lived on the branch
+that ships. It does not: the branch is a feature branch, and it merges on this
+evidence or it does not. Both `CENTAUR_SCOUT`'s and `CENTAUR_CLUSTER_ENUM`'s open
+findings are marked resolved-by-ruling in the ledger, and **neither status
+moved** — `probe-passed` is still what the evidence says.
+
+**The cost, stated plainly.** Two branch tips differ by everything that landed on
+either since they forked, so a P11 delta attributes to *the branch* and to
+nothing finer. That is the right instrument for a merge decision and the wrong
+one for a mechanism claim. The one-variable depth pair (`plyCap: 0` on the
+feature bundle alone) is still available and is the follow-up if the branch arm
+reads positive and somebody wants to know which part of it did the work.
+
+**No bot config on either P11 arm, deliberately.** The baseline bundle predates
+the 20260829 teardown and has no `src/lobster/bot-config` module;
+`checkContenders` would refuse a spec that declared a config against it — which
+is correct, since such a bundle would ignore the config and play its shipped bot
+under the arm's name. With no config declared, that check never fires.
+
+**Engagement is read on the `search-arch` arm only**, from
+`belief.deepestPlies` / `deepBranches`. The baseline arm is engagement-verified
+by construction: the deep layer is not in that build, so there is no counter and
+no silent-A/A risk on that side.
+
+**THE A/A NULL PAIRS LIKE WITH LIKE, AND IT IS TWO SEARCH-ARCHITECTURE BUILDS.**
+`verify-null.js` asserts an identical bundle SHA in both arms, so a null is one
+bundle seated twice and a cross-branch batch has to choose which. The kit's
+convention is the bundle the batch's arms *share*: batch 1 floored on
+`integrated` @ `66904d2` because that build was the base arm of P1, P2 and P3 —
+and then read P1, which was itself `integrated` against `perf-substrate` across
+two branches, against that floor. Batch 2's shared bundle is the
+search-architecture tip: base arm of P7F, P9, P10, P12, P13, X9 and all three
+budget rungs, and one of P11's two arms. **P11's baseline arm therefore has no
+floor of its own**, which is the same asymmetry batch 1 accepted in the other
+direction; the null spec says so in its own text, and a second null pair on the
+baseline bundle is the cheapest box time available if anyone wants it tested.
+
+**Nothing else about the batch changes.** Still 11 specs / 2,472 games, same
+cells, same seeds, same five floored boards. No status moved, no measurement row
+was added or edited, no verdict changed.
+
+---
+
 ## 20260830 — THE ARMS ARE CONFIGS NOW, AND P8/P9-JOINT IS WITHDRAWN
 
 The search-layer teardown landed on `claude/cluster-lookahead` with the depth
@@ -20,7 +95,7 @@ no measurement row was touched.
 | spec | was | is |
 |---|---|---|
 | **P8/P9-joint** | `off` / `enum-on` / `enum-on+seed-graded` | **WITHDRAWN.** Both halves unbuildable — see below |
-| **P11** | `enum-on` / `+scout-observe` / `+scout-advise` | `default` / `depthless` = `bot={"depth":{"plyCap":0}}` |
+| **P11** | `enum-on` / `+scout-observe` / `+scout-advise` | **superseded the same day** — see the branch-versus-branch section above; the intermediate shape was `default` / `depthless` = `bot={"depth":{"plyCap":0}}` |
 | **P9** | `off` / `sampledcap-on` / `+enum-on` | `default` / `sampled-cap` = `bot={"sampledCap":true}` |
 | **P10** | `enum-on` / `enum-on+refine-on` | `default` / `refiner` = `bot={"territoryRefine":true}` |
 | **P12** | `off` / `edgeev-on` | `default` / `edge-ev` = `bot={"candidates":{"edgeEv":true}}` |
@@ -47,14 +122,18 @@ remains is exactly the question P11 asked, expressed as a budget: the shipped
 ration against `plyCap: 0`. **P11 is the live paired sweep the depth landing
 owes**, and the depth-effect rate is measured against precisely that arm.
 
-**AN OWNER DECISION IS PENDING, AND THIS BATCH DOES NOT TAKE IT.** The depth
-landing turned the cluster enumeration and the deep layer on **by default**;
-both are still `probe-passed`, neither has ever been raced live. The finding is
-recorded verbatim on both rows in the ledger and rendered in
-`PROMOTION-STATUS.md`. The two options as posed: the default bot keeps carrying
-them while the sweep is owed, or they become config fields defaulting off until
-a sweep promotes them. **If the second is chosen, P8/P9-joint's off arm becomes
-expressible again and the spec is re-specifiable close to as written.**
+**AN OWNER DECISION WAS PENDING HERE — IT HAS SINCE BEEN TAKEN, AND NOT BY
+EITHER OF THE OPTIONS BELOW.** *(Superseded the same day; see the
+branch-versus-branch section at the top of this file.)* The depth landing turned
+the cluster enumeration and the deep layer on **by default**; both are still
+`probe-passed`, neither has ever been raced live. The finding is recorded
+verbatim on both rows in the ledger and rendered in `PROMOTION-STATUS.md`. The
+two options as posed were: the default bot keeps carrying them while the sweep is
+owed, or they become config fields defaulting off until a sweep validates them.
+The ruling chose neither — it declared the branch a **feature branch**, so the
+features' fate is the branch's and P11 is the merge decision. P8/P9-joint stays
+withdrawn and is now *subsumed* rather than merely blocked: there is no bundle in
+which the enumeration runs and the branch does not.
 
 **The batch is now 11 specs, 2,472 games** (was 12 / 2,760). Two things moved
 the count and they pull in opposite directions: P8/P9-joint's 288 came off, and
@@ -171,12 +250,12 @@ P8/P9-joint's row describes a withdrawn experiment.
 | id | flag | blocks | games/arm | why now |
 |---|---|---|---|---|
 | ~~**P5R**~~ | ~~`CENTAUR_WASM`~~ | — | — | **WITHDRAWN 20260829 by owner ruling.** The flag and the layer under it were deleted; there is no arm to race. |
-| **P7F** | `CENTAUR_UNIT_FATALITY` | 16 | 144 | **Newly reachable.** The flag is `live-null` and a `live-null` used to be treated as settled, so this experiment was written out in full and silently never scheduled (`LIVE-NULL-IS-TERMINAL`, now closed). Its null is 16 blocks against the 58 its own dispersion demands — not a decision. Batch 1 also sharpened the question: on the cell the seed destroyed, the classifier's exhaustion deaths *fall* 39 → 33 (×0.85), and the `cl-both` row bounds that at inside a 48-game count's noise. So it is safe alone and it is **not** a repair for the seed. Asks whether it is promotable independently of the flag that failed. |
+| **P7F** | `CENTAUR_UNIT_FATALITY` | 16 | 144 | **Newly reachable.** The flag is `live-null` and a `live-null` used to be treated as settled, so this experiment was written out in full and silently never scheduled (`LIVE-NULL-IS-TERMINAL`, now closed). Its null is 16 blocks against the 58 its own dispersion demands — not a decision. Batch 1 also sharpened the question: on the cell the seed destroyed, the classifier's exhaustion deaths *fall* 39 → 33 (×0.85), and the `cl-both` row bounds that at inside a 48-game count's noise. So it is safe alone and it is **not** a repair for the seed. Asks whether it can be validated independently of the flag that failed. |
 | **P12** | `CENTAUR_EDGE_EV` | 16 | 144 | Never raced. The probe found staged meals up (5→8) and meals *eaten* down (84→81) on piece boards — a tension only a live arm can adjudicate. |
-| **P8/P9-joint** | `CENTAUR_CLUSTER_ENUM` | 16 | 144 | The strongest deterministic case on the branch (fatal stagings fall at every point of the q-curve, mean Δfloor +1.03 at the census's own regime) and never raced. Includes the graded-seed joint arm as a **diagnostic** on the seed's failure, not as a promotion candidate. |
+| **P8/P9-joint** | `CENTAUR_CLUSTER_ENUM` | 16 | 144 | The strongest deterministic case on the branch (fatal stagings fall at every point of the q-curve, mean Δfloor +1.03 at the census's own regime) and never raced. Includes the graded-seed joint arm as a **diagnostic** on the seed's failure, not as a candidate for selection. |
 | **P9** | `CENTAUR_SAMPLED_CAP` | 16 | 144 | Far-priced options 0→22 at q=32 with zero fatal stagings. Raced **jointly with enum**: CL3's dirty set cannot mark clean under a sampled cap, so the singles arm does not describe the shipped combination. |
 | **P10** | `CENTAUR_TERRITORY_REFINE` | 16 | 144 | Sound by brute force, zero argmax flips offline, +22 µs/**evaluation**. The question is purely economic and purely live. Base arm is `enum-on`, not `off` — the refiner requires the enumeration. |
-| **P11** | `CENTAUR_SCOUT` | 16 | 144 | The scout exists and costs 16.8 ms/decision. Every arm carries `enum-on`, base included — `scout.run`'s only call site is inside the cluster enumeration, so an `off`/`observe`/`advise` triple with the enumeration off is three identical builds and files the harness's null against the flag. Same shape as P10, and for the same reason. Within that base `observe` and `advise` are **separate arms**: observe−base isolates the tithe, advise−observe isolates the advice. One arm carrying both would report their sum. |
+| **P11** | `CENTAUR_SCOUT` | 16 | 144 | **NOW THE MERGE DECISION for `claude/cluster-lookahead`** — `baseline` against `search-arch`, two bundles from two refs, both shipped defaults. Historical reasoning follows: The scout exists and costs 16.8 ms/decision. Every arm carries `enum-on`, base included — `scout.run`'s only call site is inside the cluster enumeration, so an `off`/`observe`/`advise` triple with the enumeration off is three identical builds and files the harness's null against the flag. Same shape as P10, and for the same reason. Within that base `observe` and `advise` are **separate arms**: observe−base isolates the tithe, advise−observe isolates the advice. One arm carrying both would report their sum. |
 | ~~**P5R**~~ *(was first)* | ~~`CENTAUR_WASM`~~ | — | — | **Withdrawn.** See the ruling at the top of this file. The row it replaced argued P5R was the batch's highest-value run because it closed a standing anomaly; the anomaly is not closed, the flag is. |
 | **P13** | `CENTAUR_WORKERS` | 16 | 96 | Low priority, and lower after batch 1. P1 bounds the whole substrate's strength effect at null — but its *wall-clock* rows ran the wrong way for the substrate (worstWallMs +4.02 ✱ on `snake5-queen`, +1.92 ✱ on `null-snake6`), so if this is run, read `worstWallMs` as a primary output rather than a footnote. First to cut. |
 | **P16 @ 500 / 1000 / 2000** | budget ladder | 8 each | 48 each | The owner's pre-approved follow-up, and its condition is **met**: budget-probe v2 confirmed a true 1000 ms run reproduces the 2000 ms decision 91.7% of the time (flip 8.3 ± 7.0 against an A/A floor of 1.7 ± 3.2). One trail-instrumented cell — the 35% revision wave was measured pre-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved. |
@@ -283,7 +362,7 @@ already ships as `auto`.
 
 **P4R — `CENTAUR_TIER_TRUTH=full` at ply 2.** Blocked on P11. There is no point
 measuring the ply-2 prerequisite before the ply-2 consumer has been raced. This
-flag will be promoted for a *soundness* reason and not a placement one; the
+flag will be validated on a *soundness* reason and not a placement one; the
 ledger says so, so a future reader does not go looking for a placement win that
 will never arrive.
 
@@ -322,6 +401,37 @@ budget is where a governor can act at all, and mix-king may simply not be
 crowded enough for admission to bind.
 
 ## Running it
+
+**Read each spec's own `ARM CONFIGS` block — and, on P11, its `BUNDLES` block.**
+Those lines are the arm; everything below is context.
+
+```sh
+# P11 — the cross-branch merge decision. Two bundles, two refs, no bot config.
+tools/simworker/build-bot.sh origin/claude/mid-turn-collision-logic-mkxurg \
+    ~/lobster/bundles/baseline --fetch
+tools/simworker/build-bot.sh origin/claude/cluster-lookahead \
+    ~/lobster/bundles/search-arch --fetch
+
+node tools/simworker/bin/run-pair.js --batch $BATCH \
+  --spec tools/learnloop/specs/batch2/p11-scout.json \
+  --arm  baseline=~/lobster/bundles/baseline \
+  --arm  search-arch=~/lobster/bundles/search-arch --workers 2
+
+# The mandatory null — ONE bundle, twice, and it is the search-arch one.
+node tools/simworker/bin/run-pair.js --batch $BATCH \
+  --spec tools/learnloop/specs/batch2/n0-aa-null.json \
+  --arm  nullA=~/lobster/bundles/search-arch \
+  --arm  nullB=~/lobster/bundles/search-arch --workers 2
+
+node tools/simworker/bin/verify-null.js --batch $BATCH --null nullA,nullB
+```
+
+Record the resolved SHA from each `bundle.json` in `findings.md`. A
+branch-versus-branch verdict that quotes branch names and not SHAs is a claim
+nobody can reproduce.
+
+*The paragraph below is pre-teardown and is kept for the batch-1 audit it
+describes; there are no environment flags left to mistype.*
 
 Every arm is one seat against unchanged opponents, per the standing rule. The
 off arm is set by **omitting** the variable: every CL flag parses only `1`, `on`

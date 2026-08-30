@@ -207,8 +207,21 @@ for (const e of idx.entries) {
     } else if (st === 'corrected') {
       // corrections never auto-expire and never soften to a warning; an inline
       // definition is the remedy, but it must be claimed explicitly via --ack.
+      //
+      // TWO KINDS OF CORRECTION WEAR ONE STATE. The usual one is "the principal
+      // said they did not know this word". The other, since the 20260830
+      // vocabulary ruling, is "the principal knows exactly what it means and
+      // told us to stop saying it" — a BAN. `corrected` is the state that
+      // enforces both, because it is the only one that blocks every use and
+      // will not clear without an explicit --ack. Printing the unfamiliarity
+      // wording at a banned word would tell the drafter something false about a
+      // human being, so the entry's own `note` distinguishes them and the
+      // message follows it.
       severity = 'BLOCK';
-      why = `CORRECTED: the principal said they did not know this word. Re-define it inline at this use and re-run with --ack "${e.term.term}"`;
+      const banned = /^THIS IS A BAN/.test(String(e.term.note ?? ''));
+      why = banned
+        ? `BANNED IN OWNER-FACING TEXT by the principal's own ruling — use the replacement in the gloss. If you genuinely must name the old word (quoting the ruling, or naming a file path), re-define it inline at this use and re-run with --ack "${e.term.term}"`
+        : `CORRECTED: the principal said they did not know this word. Re-define it inline at this use and re-run with --ack "${e.term.term}"`;
     } else if (inline) {
       severity = 'OWED';
       why = `internal, but this draft appears to define it in place — record the definition event in the ledger this cycle`;

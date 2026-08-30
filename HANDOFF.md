@@ -31,6 +31,35 @@ session that was not present can act on them. A batch nobody can interpret
 without you is a batch that gets thrown away. The cloud session will mine what
 you push, and it can only mine what you made self-describing.
 
+### The policy behind the batches — read it once
+
+**`docs/BRANCHING.md` on `claude/cluster-lookahead` is the binding policy for how
+a change reaches the bot** (owner ruling 2026-08-30). It is not on this branch —
+this branch carries the harness, not the engine — and it is worth one fetch,
+because it is what your batches are now deciding.
+
+Two lanes, and nothing else:
+
+- **(a) A strategy candidate at an existing decision joint** is a member of that
+  joint's collection, in the tree, chosen by bot config. Adding one is a normal
+  commit and needs no branch of its own.
+- **(b) An architecture change** — which joints exist, how they compose, what the
+  kernel/search may conclude — gets its own `feature/<name>` branch cut from the
+  validated baseline, is validated by benchmarks **plus a long-running paired
+  batch** (yours), and is then **merged**. Branches may be retained in parallel
+  as test arms while that is decided.
+
+**Your batches are the validation half of lane (b).** A branch-versus-branch
+arm here is not a curiosity — it is how an architecture change earns its merge.
+`P11` in batch 2 is the first one specified that way.
+
+**Vocabulary, since it appears in what you write back:** the words are **merged**,
+**validated**, and **selectable / in-collection**. "Dark" and
+"promoted / promotion" are banned in owner-facing text by the same ruling. The
+stored ledger statuses and the `promotion-ledger.json` path keep their old
+spelling as internal identities — a path is not prose — and the rendered page is
+now titled *Validation status*, with `VALIDATION-STATUS.md` pointing at it.
+
 You have one advantage the cloud session does not: **a quiet machine you
 control**. This whole program has been fighting wall-clock noise on a shared
 four-core box — measurements retracted because three concurrent searchers did
@@ -161,6 +190,25 @@ Verified against the actual branches on 2026-08-27. **SHAs move — always
 re-resolve and record your own.** `claude/cluster-lookahead` moved twice during
 the hour this document was written.
 
+### The branch roles, as of 2026-08-30
+
+Under the branching ruling the two engine branches are no longer peers, and the
+spec files now name them by role rather than by nickname:
+
+| branch | role | the arm name specs use |
+|---|---|---|
+| `claude/mid-turn-collision-logic-mkxurg` | **the validated baseline** — the primary branch, what the bot *is* | `baseline` (was `integrated`) |
+| `claude/cluster-lookahead` | **the search-architecture feature branch** — depth, the entry registry, the per-branch belief; the deep layer and the cluster enumeration always-built | `search-arch` (was `perf-substrate`) |
+
+`sim/worker-kit` — this branch — is the harness and carries no engine change.
+
+**A branch-versus-branch pair is the normal case here, not an exception.**
+`build-bot.sh` resolves any git ref to a bundle, `run-pair.js` launches the arms
+at the same instant in separate processes, and the pairing is by `gameId`
+afterwards. You have already run one: batch 1's **P1** raced `integrated` @
+`66904d2` against `perf-substrate` @ `8059b86` and paired 144 games with 0
+dropped and 0 pairing problems.
+
 ### Contenders
 
 **A CONTENDER IS A BUILD PLUS A BOT CONFIG.** As of 2026-08-29 the engine has
@@ -281,10 +329,17 @@ lines to type. The batch is **11 specs, 2,472 games**, and because every
 scheduled spec is a two-arm pair for the first time, that total is exact rather
 than an undercount.
 
-**AN OWNER DECISION IS PENDING AND NOTHING DOWNSTREAM SHOULD PRE-EMPT IT.** The
-depth landing turned the cluster enumeration and the deep layer on by default;
-both are still `probe-passed` and neither has ever been raced live. It is
-recorded verbatim on both ledger rows and rendered in `PROMOTION-STATUS.md`.
+**THAT PENDING OWNER DECISION HAS BEEN TAKEN — 20260830, and not by either
+option as it was posed.** The depth landing turned the cluster enumeration and
+the deep layer on by default; both are still `probe-passed` and neither has ever
+been raced live. The question was "does the default bot keep carrying them, or
+do they go config-off until a sweep validates them?" The ruling answered
+neither: it declared `claude/cluster-lookahead` a **feature branch**, so the two
+features' fate is the branch's, and **P11 is the merge decision for it** —
+`baseline` against `search-arch`, two bundles, both shipped defaults. The
+findings stay recorded verbatim on both ledger rows and are now marked
+resolved-by-ruling in `PROMOTION-STATUS.md`. **Nothing you run pre-empts
+anything; running P11 is what settles it.**
 
 ### TERRITORY_SLIDER_PROFILE — selectable, and how
 
@@ -360,7 +415,8 @@ power to interact them, and a cell that moves two cannot say which one acted.
 - **16 blocks minimum for a placement claim.** A block is one seed through all
   3 seat rotations = 3 games. 16 blocks = 48 games per arm per cell.
 - **4-8 blocks for mechanism-first exploration.** Enough to spot a mechanism
-  separation worth promoting; never enough for placement.
+  separation worth escalating to a full 16-block cell; never enough for
+  placement.
 - Seeds nest: a 16-block run contains the 8-block run's seeds, so adding blocks
   is strictly stronger rather than a different experiment.
 - **One A/A null cell per batch, sized like the treatment cells.**
@@ -380,6 +436,42 @@ null and its findings stub.
 | ~~**P5**~~ | ~~the WASM flip gate~~ | **RAN IN BATCH 1; CANNOT BE RERUN** — the flag and the layer under it were removed 20260829 by owner ruling | `p5-wasm-arena.json` |
 | **P6** | the admission governor | **BLOCKED** — arch/s2 unpublished | `p6-admission.json` |
 | **P7** | CL1's two promotion gates | perf-substrate, `CENTAUR_CLUSTER_SEED` and `CENTAUR_UNIT_FATALITY`, each alone then both | `p7-cl1-gates.json` |
+
+### Batch 2's headline, and the one spec whose shape is new
+
+**P11 is a cross-branch pair and it is the merge decision for
+`claude/cluster-lookahead`.** Two bundles from two refs, both running their
+shipped defaults, **no `bot=` on either arm**:
+
+| arm | built from | what it is |
+|---|---|---|
+| `baseline` | `origin/claude/mid-turn-collision-logic-mkxurg` | the validated baseline |
+| `search-arch` | `origin/claude/cluster-lookahead` | depth + cluster enumeration, always-built |
+
+Three things to get right, and the spec's own `ARM CONFIGS` and `BUNDLES` blocks
+carry all three:
+
+1. **Do not add a `bot=` to either arm.** The baseline bundle predates the
+   20260829 teardown and has no `src/lobster/bot-config`; `checkContenders`
+   would refuse the spec — correctly, because such a bundle would ignore the
+   config and play its shipped bot under your arm's name. With no config
+   declared, that check never fires and both arms simply play what they ship.
+2. **The A/A null is two builds of the `search-arch` bundle.** One bundle,
+   twice, as always — `verify-null.js` asserts an identical bundle SHA in both
+   arms. It is the `search-arch` one because that is the bundle the rest of the
+   batch shares, which is the same convention batch 1 used when it floored on
+   `integrated`. **P11's `baseline` arm therefore has no floor of its own**; the
+   null spec says so, and a second null pair on the baseline bundle is the
+   cheapest box time in the batch if you have room for it.
+3. **Engagement is read on the `search-arch` arm only**, from
+   `belief.deepestPlies` / `deepBranches`. `0` there is a **broken arm** and must
+   be reported as a refusal, not as a null. The `baseline` arm has no counter to
+   read because the deep layer is not in that build at all — which is why it
+   cannot fail silently.
+
+**Record the resolved SHA from each `bundle.json` in `findings.md`.** A
+branch-versus-branch verdict that quotes branch names and not SHAs is a claim
+nobody can reproduce.
 
 Each spec's `_comment` block carries the full reasoning, the traps, and what to
 look at. **Read it before running the spec.** Notably:
@@ -423,6 +515,32 @@ node tools/simworker/bin/run-pair.js \
 node tools/simworker/bin/verify-null.js    --batch $BATCH --null nullA,nullB
 node tools/simworker/bin/aggregate.js      --batch $BATCH --base integrated
 node tools/simworker/bin/batch-manifest.js --batch $BATCH
+```
+
+**A cross-branch pair — batch 2's P11, and the shape every lane-(b) merge
+decision takes:**
+
+```sh
+tools/simworker/build-bot.sh origin/claude/mid-turn-collision-logic-mkxurg \
+    ~/lobster/bundles/baseline --fetch
+tools/simworker/build-bot.sh origin/claude/cluster-lookahead \
+    ~/lobster/bundles/search-arch --fetch
+
+BATCH=~/lobster/results/20260830-batch2
+node tools/simworker/bin/run-pair.js --batch $BATCH \
+  --spec tools/learnloop/specs/batch2/p11-scout.json \
+  --arm  baseline=~/lobster/bundles/baseline \
+  --arm  search-arch=~/lobster/bundles/search-arch \
+  --workers 2 --note "P11: the merge decision for claude/cluster-lookahead"
+
+# the mandatory null — ONE bundle, twice, and it is the search-arch one
+node tools/simworker/bin/run-pair.js --batch $BATCH \
+  --spec tools/learnloop/specs/batch2/n0-aa-null.json \
+  --arm  nullA=~/lobster/bundles/search-arch \
+  --arm  nullB=~/lobster/bundles/search-arch --workers 2
+
+node tools/simworker/bin/verify-null.js --batch $BATCH --null nullA,nullB
+node tools/simworker/bin/aggregate.js   --batch $BATCH --base baseline
 ```
 
 An env-flag arm carries the flag in the arm string:

@@ -78,14 +78,14 @@ what makes `snake6` a **provably inert null cell** for this arm.
 > measurement.** The interesting outcomes are all three: it keeps growing, it
 > plateaus, or it turns over.
 
-**The profile is dark in production.** There is no env flag and no config field
+**The profile is merged but nothing in production selects it.** There is no env flag and no config field
 that selects it. `TeamDecisionOptions.evaluate` is the only seam, and the
 harness holds it (`lobster-slider`). Selecting it is a harness act, not a
 deployment act.
 
 ---
 
-## 3. gainOrdering: promoted to default
+## 3. gainOrdering: validated, and selected by default
 
 I3's verdict was "promote gainOrdering FIRST — 30 lines, guard-free,
 profile-independent, reproduces the WHOLE effect alone". It is now the default
@@ -108,7 +108,7 @@ At 1000 ms the king metrics **stop moving** (the search finds them itself) while
 the food metrics keep growing. Another budget gradient your 2000 ms cells sit
 past the end of.
 
-Only the ordering was promoted. I3's evaluator features (weights) were NOT
+Only the ordering was selected by default. I3's evaluator features (weights) were NOT
 shipped.
 
 ---

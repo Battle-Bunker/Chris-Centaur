@@ -25,7 +25,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 
 ## Chris (`chris`, owner)
 
-173 terms tracked: **4** corrected, **52** internal, **49** defined, **68** native.
+179 terms tracked: **6** corrected, **57** internal, **48** defined, **68** native.
 
 > **Evidence quality.** 47 of the 68 `native` terms rest on an
 > attestation rather than a retained verbatim fragment — seeded from a session
@@ -47,7 +47,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **2026-08-29** (correction-event) — "Potions are decisively powerful many times a game when humans are involved... we shouldn't prematurely discount the value of heuristics that we know advantages a Centaur team just because pure bots aren't smart enough to take advantage of those positional values"
   <br>→ Measured frequency/impact of a mechanism under our own dumb bots is endogenous, not a game fact. Centaur-valuable heuristics are not gated on pure-bot payoff.
 
-### CORRECTED — they told us they did not know it. NEVER use undefined. (4)
+### CORRECTED — they told us they did not know it. NEVER use undefined. (6)
 
 > Must be re-defined at EVERY use, even if it was previously defined. Corrections never auto-expire; only the principal using the term correctly themselves promotes it out of here.
 
@@ -55,6 +55,11 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-29 · gloss-defect fix: prior gloss ('initial cluster membership a turn starts with') conflated the seed with the cluster partition; verified vs cl1 report and search code</sub>
   <br><sub>evidence (quoted): "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics."</sub>
   <br><sub>history: 2026-08-28 → defined; 2026-08-29 → corrected; 2026-08-29 → corrected</sub>
+- **dark** — BANNED IN OWNER-FACING TEXT by the ruling below. It used to mean "built and merged but off by default, awaiting promotion". SAY INSTEAD: "merged, not selected", or "in the collection and selectable, nothing selects it yet" — which is also more accurate, because a candidate at a decision joint is a member of a collection in the tree, not a hidden code path. `lib/ledger.js`'s `dark` status keeps the spelling as an internal schema constant; the rendered page translates it.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (quoted): "VOCABULARY BAN: "dark", "promoted/promotion" in owner-facing communication. Use: in-collection/selectable; validated; merged."</sub>
+  <br><sub>NOTE: THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused.</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-30 → corrected</sub>
 - **lat** — one lat = 10 score units = one lightest-unit material step. Derived, never chosen: unit weights are integers and material carries CLIFF_MATERIAL_WEIGHT=10 (src/lobster/search/edge-ev.ts: LAT=10); a meal's material half is exactly one lat. Name = lattice step. DEPRECATED BY OWNER RULING 2026-08-29: owner-facing communication states heuristic outputs as expected impact on team weight; do not use 'lat' in new text.
   <br><sub>2026-08-29 · owner message 2026-08-29 (ruling: retire the unit)</sub>
   <br><sub>evidence (quoted): "Total weight equals score. It's unnecessary additional complexity to introduce a new unit which is a factor of ten multiplier on weight called Lat."</sub>
@@ -63,18 +68,21 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-27 · owner message, cloud coordinator session</sub>
   <br><sub>evidence (quoted): "I'm still completely mystified about the term 'one-translation rule'"</sub>
   <br><sub>history: 2026-08-26 → internal; 2026-08-27 → corrected</sub>
+- **promotion** *(also: promote, promoted, promotes)* — BANNED IN OWNER-FACING TEXT by the ruling below, along with "promote" and "promoted". It used to mean "turning a dark flag on by default after a live paired sweep with a verified null". SAY INSTEAD, and pick the one that is actually true of the thing you are describing: **validated** (the evidence cleared its verified null), **merged** (a feature branch landed on the primary branch), or **selected** (a collection member is what the shipped bot now runs). Those are three different events and "promotion" blurred them, which is part of why it went.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (quoted): "Say MERGE, never "promote"; never "dark"."</sub>
+  <br><sub>NOTE: THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused.</sub>
+  <br><sub>history: 2026-08-28 → defined; 2026-08-30 → corrected</sub>
 - **trail** — the codebase's bare noun for a snake body. NEVER use alone. The defined form is "trail unit"; in a briefing prefer "snake".
   <br><sub>2026-08-28 · owner message, cloud coordinator session</sub>
   <br><sub>evidence (quoted): "what does 'trail' mean? this is new terminology"</sub>
   <br><sub>history: 2026-08-27 → internal; 2026-08-28 → corrected</sub>
 
-### INTERNAL — code / agent-report jargon, NEVER briefed (52)
+### INTERNAL — code / agent-report jargon, NEVER briefed (57)
 
 > Define inline at first use — in the sentence that uses it, not in a glossary appendix — and record the definition event in the ledger in the same work cycle. Or say it in native words instead.
 
 - **arity** — how many branches a unit contributes to a joint move (a queen ~ 3 snakes of arity).
-  <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
-- **arm** — one contender in a paired comparison. The OWNER-facing word is "contender" or "version".
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **assertProfileCoherent** — the guard that a weight table and its invoked features agree.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
@@ -94,6 +102,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **commensurability** — the property that two rounds' scores can be compared at all.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
+- **decision joint** *(also: joint, joint collection, slot)* — one of the five places in a turn where the bot picks between alternative ways of thinking — which moves to consider, which evaluators to run, the evaluators themselves, how deeper information updates a branch's weight, and how the turn's compute is divided. Each joint holds a COLLECTION of candidates and a bot's configuration says which members it uses. `SLOT_IDS` in `src/lobster/registry.ts`.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
 - **dilation** — growing a cloud forward one turn to cover every position the unit could reach.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **discharge** — resolving a cloud into a definite position; a "discharged" frame is clean.
@@ -108,6 +119,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **expandCluster** — the operation that adds units to a live cluster mid-simulation. The owner's phrasing is "expanding out clusters dynamically".
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
+- **feature branch** *(also: feature branch, feature/<name>)* — a branch cut from the validated baseline for ONE architecture change, tested as an arm of a paired batch against the baseline, and merged back only once the numbers say it won. The replacement for keeping unproven work switched off inside the shipped bot.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
 - **floodfill** — the region-growing space count behind territory/survival heuristics.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **FOGGED** — posture value: the unit is only a cloud.
@@ -126,6 +140,14 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **kindSet** — a bitmask of every piece kind a clouded unit might currently be.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
+- **lane (a)** *(also: lane a, collection lane)* — the first of the two ways a change reaches the bot: a new STRATEGY CANDIDATE at a decision joint, added to the collection that joint already has, chosen by configuration. A normal commit on the main branch. In a briefing, prefer the plain words — "a new candidate at an existing decision point" — and mention the lane only if the distinction between the two lanes is itself the subject.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
+  <br><sub>NOTE: Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.</sub>
+- **lane (b)** *(also: lane b, architecture lane)* — the second way a change reaches the bot: an ARCHITECTURE change — which decision joints exist, how they compose, what the search is allowed to conclude. It gets its own branch, is tested against the current bot in long paired runs, and is merged only if it wins. In a briefing, prefer "a branch for an architecture change" over the label.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
+  <br><sub>NOTE: Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.</sub>
 - **maximin** — maximising the guaranteed floor against the worst reply.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **Mobius** — the inclusion-exclusion (Mobius) decomposition used to combine per-edge terms.
@@ -154,6 +176,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **ScoreBounds.pending** — the marker for a feature that has not been computed yet and rides along as deferred.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
+- **selectable** *(also: in-collection, selectable)* — of a candidate: it is merged, it sits in its joint's collection, and a bot's configuration CAN choose it — but nothing chooses it yet. The replacement for the banned word "dark", and it says something different: not a hidden switch, a member of a list.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
 - **SIGHTED** — posture value: the unit's position is known.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **slab** — a preallocated memory block in the substrate's allocator.
@@ -172,12 +197,15 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **tierRisk** — the risk score attached to a potion-tier assumption.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
+- **validated baseline** *(also: baseline branch, primary branch)* — the branch the shipped bot is, and the thing every experimental branch is measured against — today `claude/mid-turn-collision-logic-mkxurg`. Every feature branch is cut from it and merges back into it.
+  <br><sub>2026-08-30 · owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead</sub>
+  <br><sub>evidence (ATTESTED, no verbatim fragment): seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.</sub>
 - **VOC** — value of computation — the estimated gain from spending more time on a line.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 - **witness** — the concrete line that proves a bound; "witness-finding" = producing it.
   <br><sub>2026-08-28 · agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed</sub>
 
-### DEFINED — we defined it for them, on a date, somewhere (49)
+### DEFINED — we defined it for them, on a date, somewhere (48)
 
 > Safe to use. A one-clause reminder is still courteous on a long gap.
 
@@ -189,6 +217,9 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **anytime kernel** — the evaluator that can be stopped at any moment and still return its best-so-far answer.
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
+- **arm** — one contender in a paired comparison. The OWNER-facing word is "contender" or "version".
+  <br><sub>2026-08-30 · dof-owner-summary 2026-08-30 (defined in place; debt recorded by coordinator)</sub>
+  <br><sub>history: 2026-08-28 → internal; 2026-08-30 → defined</sub>
 - **AssemblyScript** — a small statically-typed language wearing TypeScript syntax that compiles to WASM; NOT TypeScript — no JS object interop, flat typed memory. What the two kernels are written in.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)</sub>
 - **block** — one (cell, seed) pair, run as three games with the arms rotated across seats.
@@ -212,8 +243,6 @@ node tools/principal-glossary/render-view.js                 # after you edit th
 - **coordinate ascent** — the refinement loop over a joint move assignment: hold every unit's move fixed except one, try to improve that one, repeat.
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
   <br><sub>history: 2026-08-28 → defined; 2026-08-29 → defined</sub>
-- **dark** — a feature that is built and merged but off by default, awaiting promotion.
-  <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **depth-effect rate** — the fraction of decisions where deep (2+ turn) information changed the staged move; the continuously tested depth metric.
   <br><sub>2026-08-30 · owner briefing 2026-08-30 (search-math translation)</sub>
 - **detector** — a cheap board test that decides whether an expensive heuristic is worth running at all (e.g. "is there a slider?").
@@ -253,9 +282,7 @@ node tools/principal-glossary/render-view.js                 # after you edit th
   <br><sub>2026-08-29 · owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)</sub>
 - **placement metrics** — outcome measures: mean score, probability of first place. Slow to resolve (+/-0.10 at 16 blocks).
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
-- **promotion** — turning a dark flag on by default, after a live paired sweep with a verified null.
-  <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
-- **promotion ledger** — tools/learnloop/promotion-ledger.json — the record of what each dark flag has and has not earned.
+- **promotion ledger** — `tools/learnloop/promotion-ledger.json` — the record of what each candidate has and has not earned. THE FILENAME KEEPS THE OLD WORD ON PURPOSE: it is named from six other files and both branches, and renaming it to change a word would break every link. Its rendered human view is titled "Validation status" and `VALIDATION-STATUS.md` points at it. When you must name the file in a briefing, name it as a path; when you mean the activity, say "the validation record".
   <br><sub>2026-08-28 · owner briefing (cluster-lookahead program), coordinator session</sub>
 - **rungs B0-B3** *(also: B0, B1, B2, B3, rung, rungs)* — the four escalating bound-tightness levels a candidate can be evaluated at; B0 is cheapest.
   <br><sub>2026-08-28 · owner briefing 2026-08-28</sub>

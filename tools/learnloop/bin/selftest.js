@@ -802,6 +802,101 @@ section('4. THE BATCH GENERATOR');
     specOf('n0-aa-null').seeds.length === specOf('p7f-unit_fatality').seeds.length,
     'and it is still sized like the treatment cells'
   );
+
+  // ── CROSS-BRANCH ARMS (the branching paradigm, owner ruling 20260830) ────
+  //
+  // An architecture change is validated as a batch arm built from ITS OWN REF.
+  // The one thing an operator cannot reconstruct from prose is which ref each
+  // arm is built from, so an experiment that declares `armRefs` must print the
+  // build-bot.sh line for every arm — and must NOT print a bot config against a
+  // pre-teardown bundle, which checkContenders would refuse.
+  {
+    const ledger = L.load(L.LEDGER_PATH);
+    const roles = ledger.branchRoles ?? {};
+    const withRefs = ledger.flags.filter((f) => (f.nextExperiment ?? {}).armRefs);
+    ok(withRefs.length > 0, 'at least one experiment is specified as a cross-branch pair');
+    for (const f of withRefs) {
+      const x = f.nextExperiment;
+      const sweepId = `${x.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${f.flag
+        .toLowerCase()
+        .replace(/^centaur_/, '')}`;
+      const text = specOf(sweepId)._comment.join('\n');
+      for (const [arm, key] of Object.entries(x.armRefs)) {
+        const role = roles[key];
+        ok(role !== undefined && !!role.ref, `${x.id}: arm "${arm}" names a real branch role`);
+        ok(
+          text.includes(`build-bot.sh ${role.ref} `),
+          `${x.id}: the spec prints the build-bot.sh line for "${arm}" (${role.ref})`
+        );
+        ok(
+          text.includes(`--arm '${arm}=<bundle-${role.bundleName}>'`),
+          `${x.id}: and the --arm line naming that arm's own bundle`
+        );
+      }
+      const refs = Object.values(x.armRefs).map((k) => (roles[k] ?? {}).ref);
+      ok(new Set(refs).size === refs.length, `${x.id}: the arms are built from DIFFERENT refs`);
+      ok(
+        Object.values(x.armConfigs ?? {}).every((c) => c === null),
+        `${x.id}: no bot config on either arm — a pre-teardown bundle would refuse one`
+      );
+    }
+  }
+
+  // ── AND THE A/A NULL PAIRS LIKE WITH LIKE ────────────────────────────────
+  //
+  // verify-null.js asserts an identical bundle SHA in both arms, so a batch
+  // that races branches must SAY which bundle its null is two copies of. A null
+  // spec that named `<bundle>` in a cross-branch batch is an instruction to
+  // guess, and the guess that pairs a baseline build against a feature build
+  // makes the floor read as a treatment.
+  {
+    const ledger = L.load(L.LEDGER_PATH);
+    const aa = (ledger.branchRoles ?? {}).aaNull;
+    ok(aa !== undefined && !!aa.use, 'the ledger names which branch the A/A null is built from');
+    const role = ledger.branchRoles[aa.use];
+    const text = specOf('n0-aa-null')._comment.join('\n');
+    ok(
+      text.includes(`--arm nullA=<bundle-${role.bundleName}> --arm nullB=<bundle-${role.bundleName}>`),
+      'and the null spec seats that ONE bundle twice, not two different builds'
+    );
+    ok(text.includes(`build-bot.sh ${role.ref} `), 'and prints the ref it is built from');
+    ok(text.includes('no floor of its own'), 'and names the arm this choice leaves unfloored');
+  }
+
+  // ── THE HUMAN VIEW IS CURRENT, AND ITS OWNER-FACING NAME RESOLVES ────────
+  //
+  // The page's filename still says "promotion"; its content must not. The alias
+  // is a pointer rather than a rename because the path is named from the kit
+  // branch, the batch README, the coordination notes and the ledger's own
+  // `closedIn` strings — a broken link is worse for a reader than an old name.
+  {
+    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'render-status.js'), '--check'], {
+      stdio: 'pipe',
+    });
+    ok(true, 'PROMOTION-STATUS.md is rendered from the ledger and is not stale');
+    const view = fs.readFileSync(path.join(ROOT, 'PROMOTION-STATUS.md'), 'utf8');
+    ok(view.startsWith('# Validation status'), 'and it is titled in the owner-facing vocabulary');
+    // The BADGES are the page's own voice; the schema words appear only inside
+    // backticks (the translation table) or inside a quoted owner ruling.
+    const badges = view
+      .split('\n')
+      .filter((l) => l.startsWith('### `CENTAUR_') || l.startsWith('### `gainOrdering') || l.startsWith('### `TERRITORY_'));
+    ok(badges.length === 14, 'every candidate has a heading with a badge');
+    ok(
+      badges.every((l) => !/— dark$/.test(l) && !/— PROMOTED$/.test(l)),
+      'and no badge is written in the banned vocabulary'
+    );
+    ok(
+      view.includes('— merged, not selected') || !view.includes('"dark"'),
+      'the merged-not-selected badge is the replacement actually rendered'
+    );
+    const aliasPath = path.join(ROOT, 'VALIDATION-STATUS.md');
+    ok(fs.existsSync(aliasPath), 'VALIDATION-STATUS.md exists so the owner-facing name resolves');
+    ok(
+      fs.readFileSync(aliasPath, 'utf8').includes('PROMOTION-STATUS.md'),
+      'and it points at the real page rather than duplicating it'
+    );
+  }
   fs.rmSync(outDir, { recursive: true, force: true });
 }
 {
