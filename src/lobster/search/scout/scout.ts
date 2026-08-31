@@ -117,6 +117,8 @@ import type { ScoutReport, ScoutTuning } from './schedule';
 import { expandCluster } from '../cluster-partition';
 import type { Partition } from '../cluster-partition';
 import { SubtreeCertificate } from '../../../partial-engine/index';
+import { DEFAULT_ACUTE_TUNING, NO_FOCUS } from '../acute';
+import type { AcuteFocus, AcuteTuning } from '../acute';
 import type { EngineSubstrate } from '../../substrate';
 import type {
   Candidate,
@@ -231,6 +233,17 @@ export interface ScoutRequest {
    *  deterministic. */
   readonly decisionMs: number;
   readonly kingUnits?: ReadonlySet<UnitId>;
+  /**
+   * THE ACUTE READING, or absent for the even spread.
+   *
+   * The scout does not detect it — `search/acute.ts` does, once per decision,
+   * from the board the caller already holds. What arrives here is a set of OUR
+   * units whose lines were judged to dominate the value landscape over a
+   * bounded horizon, and everything this class does with it is SPEND: which
+   * threads open, how deep each may go, how many options each node prices.
+   * No bound, no refusal and no staged move is reachable from it.
+   */
+  readonly focus?: AcuteFocus | null;
 }
 
 /**
@@ -305,10 +318,65 @@ export class Scout {
    */
   private gate: string | null = null;
 
+  /**
+   * THE FOCUS RESOLVED FOR THIS SCOUT, or null when the ration asks for the even
+   * spread. A partial in the config, whole here, so nothing below reads a
+   * `?? DEFAULT` and two call sites cannot disagree about a threshold.
+   */
+  readonly acute: AcuteTuning | null;
+  /** Thread keys inside the acute focus. Rebuilt per decision with the focus. */
+  private readonly focused = new Set<string>();
+  /** The focus this decision is narrowing on — telemetry, and the option caps. */
+  private focus: AcuteFocus = NO_FOCUS;
+  /** Plies spent inside the focus and outside it. The reserve is a ratio, and a
+   *  ratio needs both numerators. */
+  private focusPlies = 0;
+  private outsidePlies = 0;
+
   constructor(tuning: Partial<ScoutTuning> = {}, decisionMs = 0) {
     this.tuning = { ...DEFAULT_SCOUT_TUNING, ...tuning };
+    this.acute =
+      this.tuning.acute === null || this.tuning.acute === undefined
+        ? null
+        : { ...DEFAULT_ACUTE_TUNING, ...this.tuning.acute };
     this.ledger = new ThreadLedger(this.tuning.capacity);
     this.purse = new ScoutPurse(decisionMs, this.tuning);
+  }
+
+  /** What the focus reading was on this decision. Null when narrowing is off. */
+  focusReport(): {
+    readonly fired: boolean;
+    readonly units: number;
+    readonly acuteness: number;
+    readonly horizon: number;
+    readonly kinds: ReadonlyArray<string>;
+    readonly focusPlies: number;
+    readonly outsidePlies: number;
+  } | null {
+    if (this.acute === null) return null;
+    return {
+      fired: this.focus.fired,
+      units: this.focus.units.size,
+      acuteness: this.focus.acuteness,
+      horizon: this.focus.horizon,
+      kinds: this.focus.situations.map((x) => x.kind),
+      focusPlies: this.focusPlies,
+      outsidePlies: this.outsidePlies,
+    };
+  }
+
+  /**
+   * IS THIS CLUSTER IN THE FOCUS — the culling test, and the only place the
+   * narrowing decides anything.
+   *
+   * A cluster counts as focused when it carries ANY unit the reading named. It
+   * is deliberately not "every unit": the situations are about interactions, and
+   * a cluster holding one participant is holding one side of the interaction.
+   */
+  private inFocus(units: Iterable<UnitId>): boolean {
+    if (!this.focus.fired) return false;
+    for (const id of units) if (this.focus.units.has(id)) return true;
+    return false;
   }
 
   /** Rebuild the purse for a new decision. The LEDGER survives — that is the
@@ -364,6 +432,10 @@ export class Scout {
     this.findings.clear();
     this.deep.clear();
     this.offered.clear();
+    this.focused.clear();
+    this.focus = this.acute === null ? NO_FOCUS : (req.focus ?? NO_FOCUS);
+    this.focusPlies = 0;
+    this.outsidePlies = 0;
     if (req.partition.clusters.length === 0 || req.seeds.length === 0) {
       this.refuse('no-cluster');
       return;
@@ -399,6 +471,7 @@ export class Scout {
         // still deepen and still feed the ordering channel — what they may not
         // do is publish a value for a branch nobody prices.
         if (offeredRoots.has(seed)) this.offered.add(key);
+        if (this.inFocus(cluster.variables)) this.focused.add(key);
         if (this.ledger.get(key) !== undefined) continue;
         this.ledger.open({
           key,
@@ -425,9 +498,12 @@ export class Scout {
     // use. Bounded by the purse in both currencies.
     let guard = this.tuning.plyCap * 4;
     while (this.purse.canSpend() && guard-- > 0) {
-      const next = deepenNext(this.ledger.all(), isKing, this.tuning.depthMax);
+      const next = deepenNext(this.candidateThreads(), isKing, (t) => this.ceilingFor(t));
       if (next === null) break;
+      const focused = this.focused.has(next.key);
       this.deepen(next, req);
+      if (focused) this.focusPlies++;
+      else this.outsidePlies++;
       const verdict = shouldPark(next, this.tuning, this.purse);
       if (verdict.park) this.ledger.park(next, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');
     }
@@ -437,6 +513,55 @@ export class Scout {
     this.partitions.clear();
   }
 
+
+  /**
+   * THE PLY CEILING FOR ONE THREAD — the whole of what narrowing buys.
+   *
+   * Off the focus, or with narrowing switched off, this is `depthMax` and the
+   * scout behaves exactly as it always has. Inside the focus it is
+   * `focusDepthMax`, which is the point: the budget freed by not enumerating
+   * the quiet board is spent going further along the lines that decide, and it
+   * has to be spent as DEPTH or it is not spent at all — `deepenNext` deepens
+   * the shallowest thread, so raising a ceiling nobody reaches changes nothing.
+   */
+  private ceilingFor(t: ThreadEntry): number {
+    if (this.acute === null || !this.focused.has(t.key)) return this.tuning.depthMax;
+    return Math.max(this.tuning.depthMax, this.acute.focusDepthMax);
+  }
+
+  /**
+   * WHICH THREADS THE SCHEDULER MAY PICK FROM THIS ITERATION — where the
+   * breadth reserve is enforced, and it is enforced by SUBTRACTION rather than
+   * by a second budget.
+   *
+   * With no focus, every thread. With one, the focus normally has the floor —
+   * that is the narrowing — but the moment its share of the plies spent would
+   * exceed `1 − breadthReserve`, the focus is withheld for one iteration and
+   * the scheduler must pick an unfocused thread if any is live. So the reserve
+   * is a RATIO maintained over the decision rather than a purse partitioned in
+   * advance, which matters because the two are not the same when the unfocused
+   * board runs out of live threads: a partitioned purse would strand its half,
+   * and this hands it straight back to the focus.
+   *
+   * THE FEINT, SAID PLAINLY. An opponent who can manufacture something that
+   * reads acute — a heavy unit walked into range, a corridor half closed — can
+   * pull a narrowing search away from the wing it should be watching. There is
+   * no detector that cannot be fooled this way, so the answer is not a better
+   * detector: it is a floor under the attention the rest of the board keeps
+   * whatever the reading says. That floor is this function and its size is
+   * `breadthReserve`.
+   */
+  private candidateThreads(): ReadonlyArray<ThreadEntry> {
+    const all = this.ledger.all();
+    if (this.acute === null || !this.focus.fired) return all;
+    const reserve = Math.min(1, Math.max(0, this.acute.breadthReserve));
+    if (reserve <= 0) return all;
+    const spent = this.focusPlies + this.outsidePlies;
+    if (spent === 0) return all;
+    if (this.focusPlies / spent <= 1 - reserve) return all;
+    const outside = all.filter((t) => !this.focused.has(t.key));
+    return outside.length === 0 ? all : outside;
+  }
 
   /**
    * DEEPEN A PLAN THE SEARCH IS ACTUALLY HOLDING — the execution semantics of
@@ -481,6 +606,12 @@ export class Scout {
       for (const seed of req.seeds) {
         const key = `${cluster.id}:${threadKey(cluster.variables, seed)}`;
         this.offered.add(key);
+        // The focus is the DECISION's, set by `run`, and `extend` is called
+        // later in the same decision on the plan the search settled on. Marking
+        // here rather than re-detecting is what keeps one reading per decision:
+        // a second detection mid-slice could disagree with the first and leave
+        // half the ledger rationed under one focus and half under another.
+        if (this.inFocus(cluster.variables)) this.focused.add(key);
         if (this.ledger.get(key) !== undefined) continue;
         this.ledger.open({
           key,
@@ -508,11 +639,13 @@ export class Scout {
       while (
         this.purse.canSpend() &&
         entry.state === 'live' &&
-        depthOf(entry) < this.tuning.depthMax
+        depthOf(entry) < this.ceilingFor(entry)
       ) {
         const before = depthOf(entry);
         this.deepen(entry, req);
         if (depthOf(entry) === before) break;
+        if (this.focused.has(entry.key)) this.focusPlies++;
+        else this.outsidePlies++;
         const verdict = shouldPark(entry, this.tuning, this.purse);
         if (verdict.park) {
           this.ledger.park(entry, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');
@@ -619,7 +752,7 @@ export class Scout {
     const contact = contactOf(matrix, members, certificate);
 
     // ---- max_a min_b over the cluster's own options at the NEW root -------
-    const scored = this.scoreOptions(cont, req, members);
+    const scored = this.scoreOptions(cont, req, members, this.focused.has(entry.key));
     const discrimination = this.discriminationOf(entry, scored, contact, cont);
 
     // ---- the line this ply proved, for the next one to continue from ------
@@ -780,7 +913,8 @@ export class Scout {
   private scoreOptions(
     cont: Continuation,
     req: ScoutRequest,
-    members: ReadonlyArray<UnitId>
+    members: ReadonlyArray<UnitId>,
+    focused = false
   ): {
     readonly best: { readonly lo: number; readonly est: number; readonly hi: number };
     readonly perOption: ReadonlyArray<{
@@ -805,6 +939,25 @@ export class Scout {
     readonly ourCoverage: number;
     readonly theirCoverage: number;
   } {
+    // ---- THE CULL, AND WHAT IT BUYS -------------------------------------
+    //
+    // Three options per unit, six of our joints, four of theirs — that is the
+    // even ration, and on a four-unit cluster it prices a tenth of the joint
+    // space at every ply. Under a focus the shape is inverted: the units the
+    // reading did not name are FROZEN at their first option (they still move,
+    // they simply stop being variables), and the ones it did get
+    // `focusOptionCap` options each inside `focusJoints` joints. Same
+    // arithmetic, redistributed — which is the whole claim narrowing makes.
+    //
+    // The freeze is a spend decision and nothing more. A frozen unit is priced
+    // at a move it might not make, so the value is a max over a subset; that is
+    // conservative in VALUE and it is paid for in PRECISION, because
+    // `ourCoverage` divides by the full space either way and `sigmaOfPly` reads
+    // the miss. A narrowed reading is therefore automatically less trusted than
+    // a wide one of the same depth, with nobody choosing a penalty.
+    const acute = focused ? this.acute : null;
+    const ourCap = acute === null ? 3 : acute.focusOptionCap;
+    const theirCap = acute === null ? 3 : Math.max(2, Math.ceil(acute.focusOptionCap / 2));
     const ours: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
     const theirs: Array<{ id: UnitId; options: ReadonlyArray<Candidate> }> = [];
     let ourSpace = 1;
@@ -814,12 +967,12 @@ export class Scout {
       if (unit === undefined) continue;
       const set = req.gen.candidatesFor(cont.sub, id);
       if (set.candidates.length === 0) continue;
-      const trimmed = set.candidates.slice(0, 3);
       if (unit.team === req.asTeam) {
-        ours.push({ id, options: trimmed });
+        const varies = acute === null || this.focus.units.has(id);
+        ours.push({ id, options: set.candidates.slice(0, varies ? ourCap : 1) });
         ourSpace *= set.candidates.length;
       } else {
-        theirs.push({ id, options: trimmed });
+        theirs.push({ id, options: set.candidates.slice(0, theirCap) });
         theirSpace *= set.candidates.length;
       }
     }
@@ -833,8 +986,11 @@ export class Scout {
       };
     }
 
-    const ourJoints = enumerateJoints(ours, 6);
-    const theirJoints = theirs.length === 0 ? [new Map<UnitId, Candidate>()] : enumerateJoints(theirs, 4);
+    const ourJoints = enumerateJoints(ours, acute === null ? 6 : acute.focusJoints);
+    const theirJoints =
+      theirs.length === 0
+        ? [new Map<UnitId, Candidate>()]
+        : enumerateJoints(theirs, acute === null ? 4 : acute.focusReplies);
     const ourCoverage = ourSpace <= 0 ? 0 : Math.min(1, ourJoints.length / ourSpace);
     const theirCoverage =
       theirs.length === 0 ? 1 : theirSpace <= 0 ? 0 : Math.min(1, theirJoints.length / theirSpace);
@@ -1063,7 +1219,8 @@ export class Scout {
       this.deep.size,
       deepest,
       { ...this.refusals },
-      this.gate
+      this.gate,
+      this.focusReport()
     );
   }
 

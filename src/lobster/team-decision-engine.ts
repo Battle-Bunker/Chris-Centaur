@@ -543,7 +543,12 @@ export class TeamDecisionEngine {
     // evaluator directly is making a statement about a capability rather than
     // about a deployable configuration.
     this.evaluate =
-      this.options.evaluate ?? evaluatorForSlate(this.slate.evaluators.map((e) => e.id));
+      this.options.evaluate ??
+      evaluatorForSlate(
+        this.slate.evaluators.map((e) => e.id),
+        undefined,
+        this.bot.potionWeights
+      );
     this.evaluatorSpec = evaluatorSpecOf(this.evaluate);
     if (this.options.pool !== undefined) this.pool = this.options.pool;
   }

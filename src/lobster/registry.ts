@@ -110,6 +110,8 @@ import { ATTACK_WINDOW_ENTRY, POTION_WINDOW_TURNS } from './evaluate/attack-wind
 import { POTION_SEEK_ENTRY } from './evaluate/potion-seek';
 import { POTION_CONTROL_ENTRY } from './evaluate/potion-control';
 import { DODGE_DISCOUNT_ENTRY } from './evaluate/dodge-discount';
+import { POTION_PICKUP_ENTRY } from './evaluate/potion-pickup';
+import { POTION_DEFENSE_ENTRY } from './evaluate/potion-defense';
 
 // ------------------------------------------------------------------- slots
 
@@ -400,10 +402,45 @@ export const SLATE_LEGACY = 'legacy' as const;
  */
 export const SLATE_POTION_AWARE = 'potion-aware' as const;
 
-export type SlateId = typeof SLATE_LEGACY | typeof SLATE_POTION_AWARE;
+/**
+ * THE THIRD SLATE — the potion-aware lineup PLUS the two terms that make it
+ * decide something.
+ *
+ * `potion-aware` reasons about potions and, measured over 271 games on the
+ * parent branch, changed almost nothing: its lineup engaged on 31.8% of
+ * evaluations while `est` decided 1.2% of comparisons and 20% fell through to a
+ * salted tie key. The reason is structural rather than a matter of weight. Its
+ * four terms all price THE BOARD — the best pickup available, the window we
+ * hold, the ground we own — and a board-level reading is very nearly the same
+ * number on both sides of a comparison between two of our own plans, so the
+ * comparator sees a tie and reaches for the coin.
+ *
+ * This slate adds the two readings that differ between plans:
+ *
+ *   `eval/potion-pickup@1` — DOES THIS PLAN TAKE A POTION. Zero on every plan
+ *   that does not, non-zero on every plan that does, which is the one shape a
+ *   term must have if it is to settle the comparison it exists for.
+ *
+ *   `eval/potion-defense@1` — WHAT THEIR POTION DOES TO US, and the
+ *   counter-attack on their collector that collapses it. The half of the
+ *   mechanism no seated term read at all: a bot on `potion-aware` plays a
+ *   potion board as though only its own team could ever drink.
+ *
+ * Both are advisory and neither may move a bound, exactly as the other four.
+ */
+export const SLATE_POTION_INTEL = 'potion-intel' as const;
+
+export type SlateId =
+  | typeof SLATE_LEGACY
+  | typeof SLATE_POTION_AWARE
+  | typeof SLATE_POTION_INTEL;
 
 /** Every slate id, in a value a validator can iterate. */
-export const SLATE_IDS: ReadonlyArray<SlateId> = [SLATE_LEGACY, SLATE_POTION_AWARE];
+export const SLATE_IDS: ReadonlyArray<SlateId> = [
+  SLATE_LEGACY,
+  SLATE_POTION_AWARE,
+  SLATE_POTION_INTEL,
+];
 
 // ------------------------------------------------------- the legacy entries
 
@@ -768,6 +805,8 @@ export const EVAL_ATTACK_WINDOW_ID = 'eval/attack-window@2';
 export const EVAL_POTION_SEEK_ID = 'eval/potion-seek@3';
 export const EVAL_POTION_CONTROL_ID = 'eval/potion-control@2';
 export const EVAL_DODGE_DISCOUNT_ID = 'eval/dodge-discount@2';
+export const EVAL_POTION_PICKUP_ID = 'eval/potion-pickup@1';
+export const EVAL_POTION_DEFENSE_ID = 'eval/potion-defense@1';
 
 /**
  * THE ADVISORY WEIGHTS, as entry params — the scale each term speaks at.
@@ -789,7 +828,32 @@ export const POTION_ADVISORY_WEIGHTS = {
   potionControl: 1,
   /** A modifier, not a summand — see `eval/dodge-discount@2` below. */
   dodgeDiscount: 0,
+  /**
+   * THE TWO PLAN-DISCRIMINATING TERMS, at a louder scale than the four
+   * board-level ones and for a stated reason rather than a taste.
+   *
+   * A board-level reading is near-equal across the plans it is compared over,
+   * so its scale barely matters: `advisoryEst` clamps the sum back inside the
+   * proved interval, and a delta that is the same on both sides survives the
+   * clamp only to change nothing. A plan-discriminating reading is the opposite
+   * — it is zero on one side and not on the other — so its scale is exactly
+   * what decides whether the clamp leaves anything of it. These two are the
+   * terms whose weight is load-bearing, which is why they are the two the
+   * config lets an arm move (`BotConfig.potionWeights`).
+   *
+   * Still an order of magnitude inside `material` (10): a potion window is
+   * worth arranging and is never worth more than the material it is arranged
+   * to take.
+   */
+  potionPickup: 3,
+  potionDefense: 2,
 } as const;
+
+/** What a bot may retune without minting a new entry id: the scales, and
+ *  nothing else. A partial — what is named overrides, what is not keeps. */
+export type PotionAdvisoryWeights = Partial<
+  Record<keyof typeof POTION_ADVISORY_WEIGHTS, number>
+>;
 
 const potionEntry = (
   id: EntryId,
@@ -891,13 +955,47 @@ const EVAL_DODGE_DISCOUNT = potionEntry(
   'The collector-exposure discount, seated in the potion-aware slate as a modifier.'
 );
 
-/** The four potion terms, as registered entries. A losing entry is a deleted
+const EVAL_POTION_PICKUP = potionEntry(
+  EVAL_POTION_PICKUP_ID,
+  POTION_PICKUP_ENTRY,
+  {
+    windowTurns: POTION_WINDOW_TURNS,
+    subject: 'realised-pickup',
+    window: 'begins on the resolved turn',
+    countHeads: false,
+    countDenial: false,
+    exposure: 'near, dodge-discounted when eval/dodge-discount@2 is seated',
+    currency: 'gain at sever-exchange-rate, exposure in our weight',
+    weight: POTION_ADVISORY_WEIGHTS.potionPickup,
+  },
+  'The pickup THIS PLAN makes, seated in the potion-intel slate.'
+);
+
+const EVAL_POTION_DEFENSE = potionEntry(
+  EVAL_POTION_DEFENSE_ID,
+  POTION_DEFENSE_ENTRY,
+  {
+    windowTurns: POTION_WINDOW_TURNS,
+    attackerGate: 'live-tier > 0',
+    targetGate: 'live-tier < 0',
+    victims: 'subject-team only',
+    countHeads: true,
+    cancellation: 'vulnerable-collision buff expiry',
+    currency: 'kill at sever-exchange-rate, threat and cancellation in our weight',
+    weight: POTION_ADVISORY_WEIGHTS.potionDefense,
+  },
+  'The defensive half of the potion doctrine, seated in the potion-intel slate.'
+);
+
+/** The potion terms, as registered entries. A losing entry is a deleted
  * row here exactly as in `LEGACY_ENTRIES`. */
 export const POTION_ENTRIES: ReadonlyArray<StrategyEntry> = [
   EVAL_ATTACK_WINDOW,
   EVAL_POTION_SEEK,
   EVAL_POTION_CONTROL,
   EVAL_DODGE_DISCOUNT,
+  EVAL_POTION_PICKUP,
+  EVAL_POTION_DEFENSE,
 ];
 
 /**
@@ -920,6 +1018,28 @@ export const POTION_AWARE_SLATE: Slate = {
     EVAL_POTION_SEEK.id,
     EVAL_POTION_CONTROL.id,
     EVAL_DODGE_DISCOUNT.id,
+  ],
+  aggregator: AGG_LEGACY_CLAMP.id,
+  scheduler: SCHED_LEGACY_SLICE.id,
+};
+
+/**
+ * THE `potion-intel` SLATE — everything `potion-aware` names, plus the two
+ * plan-discriminating terms. Same four non-evaluator sockets, again, so a
+ * result from it attributes to the evaluator frame and to nothing else.
+ */
+export const POTION_INTEL_SLATE: Slate = {
+  id: SLATE_POTION_INTEL,
+  moveSelectors: [MOVE_LEGACY_ORDER.id],
+  evaluatorSelector: EVSEL_LEGACY_ALWAYS.id,
+  evaluators: [
+    EVAL_LEGACY_TERRITORY.id,
+    EVAL_ATTACK_WINDOW.id,
+    EVAL_POTION_SEEK.id,
+    EVAL_POTION_CONTROL.id,
+    EVAL_DODGE_DISCOUNT.id,
+    EVAL_POTION_PICKUP.id,
+    EVAL_POTION_DEFENSE.id,
   ],
   aggregator: AGG_LEGACY_CLAMP.id,
   scheduler: SCHED_LEGACY_SLICE.id,
@@ -1034,6 +1154,7 @@ export const REGISTRY = new StrategyRegistry(ALL_ENTRIES);
 export function slateFor(id: SlateId = SLATE_LEGACY): Slate {
   if (id === SLATE_LEGACY) return LEGACY_SLATE;
   if (id === SLATE_POTION_AWARE) return POTION_AWARE_SLATE;
+  if (id === SLATE_POTION_INTEL) return POTION_INTEL_SLATE;
   throw new Error(`unknown slate ${String(id)}`);
 }
 

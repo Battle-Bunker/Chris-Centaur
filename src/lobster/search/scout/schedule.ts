@@ -73,6 +73,7 @@ import { expandCluster } from '../cluster-partition';
 import type { Partition } from '../cluster-partition';
 import { advisoryRate, depthOf, heaviestOutsider, lastDiscrimination } from './threads';
 import type { ThreadEntry, ThreadLedger } from './threads';
+import type { AcuteTuning } from '../acute';
 import type { UnitId } from '../../contracts';
 
 // ---------------------------------------------------------------------------
@@ -161,6 +162,27 @@ export interface ScoutTuning {
    * direction for a layer whose whole promise is that it stays inside one.
    */
   readonly msPerResolution: number;
+  /**
+   * ACUTENESS-TRIGGERED FOCUS NARROWING, or `null` for the even spread.
+   *
+   * The tithe above says HOW MUCH depth may cost. This says WHERE it goes. Null
+   * — the shipped ration — is the even spread `deepenNext` has always made:
+   * every live cluster's marginal ply is treated as worth the same, which is
+   * right when nothing on the board is deciding anything and wrong the moment
+   * something is.
+   *
+   * Set, `search/acute.ts` reads the board for situations whose magnitude over
+   * their own horizon clears `threshold`, and when one fires the scout culls
+   * its threads to the units involved and spends the freed plies going DEEPER
+   * along them — `focusDepthMax` instead of `depthMax`, `focusOptionCap`
+   * options per unit instead of three. `breadthReserve` is the share it may
+   * never spend that way, which is the standing answer to a feint.
+   *
+   * A PARTIAL. What is named overrides `DEFAULT_ACUTE_TUNING`, what is not
+   * keeps it, so an arm that only wants a different threshold says so and
+   * nothing else.
+   */
+  readonly acute: Partial<AcuteTuning> | null;
 }
 
 export const DEFAULT_SCOUT_TUNING: ScoutTuning = {
@@ -176,6 +198,7 @@ export const DEFAULT_SCOUT_TUNING: ScoutTuning = {
   perturbationsPerCluster: 3,
   plyCap: 24,
   msPerResolution: 0.15,
+  acute: null,
 };
 
 /** The tithe the scout may actually spend. The reserve is a CEILING on it. */
@@ -286,12 +309,20 @@ export function barrierDepth(threads: ReadonlyArray<ThreadEntry>): number {
 export function deepenNext(
   threads: ReadonlyArray<ThreadEntry>,
   isKingCluster: (t: ThreadEntry) => boolean,
-  depthMax: number
+  /**
+   * The ceiling, per thread. A NUMBER is the even ration every thread has
+   * always had; a FUNCTION is what focus narrowing needs, because under a
+   * focus the ceiling is not a property of the scout but of the thread — a
+   * line through the acute set may go to `focusDepthMax` and a line through
+   * the quiet board may not.
+   */
+  depthMax: number | ((t: ThreadEntry) => number)
 ): ThreadEntry | null {
+  const ceilingOf = typeof depthMax === 'function' ? depthMax : (): number => depthMax;
   let best: ThreadEntry | null = null;
   for (const t of threads) {
     if (t.state !== 'live') continue;
-    if (depthOf(t) >= depthMax) continue;
+    if (depthOf(t) >= ceilingOf(t)) continue;
     if (best === null) {
       best = t;
       continue;
@@ -483,6 +514,27 @@ export interface ScoutReport {
    * harness. This field is the difference, in the report, in words.
    */
   readonly gatedBy: string | null;
+  /**
+   * THE ACUTE READING THIS DECISION NARROWED ON, or null when narrowing is off
+   * for this bot (`ScoutTuning.acute === null`).
+   *
+   * Null and "fired: false" are different facts and a measurement may not
+   * confuse them, exactly as `gatedBy` and `threads: 0` are: null is a bot that
+   * does not narrow, `fired: false` is a bot that does and found the board
+   * quiet. `acuteness` is reported either way — it is the peak reading on the
+   * board whether or not it cleared the threshold — so a sweep can see how far
+   * a threshold is from firing without running a second arm.
+   */
+  readonly focus: {
+    readonly fired: boolean;
+    readonly units: number;
+    readonly acuteness: number;
+    readonly horizon: number;
+    readonly kinds: ReadonlyArray<string>;
+    /** Plies spent inside the focus, and outside it — the reserve, measured. */
+    readonly focusPlies: number;
+    readonly outsidePlies: number;
+  } | null;
   readonly threads: number;
   readonly deepened: number;
   readonly parked: number;
@@ -529,6 +581,7 @@ export interface ScoutReport {
 export function emptyReport(gatedBy: string | null = null): ScoutReport {
   return {
     gatedBy,
+    focus: null,
     threads: 0,
     deepened: 0,
     parked: 0,
@@ -561,7 +614,8 @@ export function reportOf(
   observations: number,
   deepestPlies: number,
   refusals: Readonly<Record<string, number>>,
-  gatedBy: string | null = null
+  gatedBy: string | null = null,
+  focus: ScoutReport['focus'] = null
 ): ScoutReport {
   const threads = ledger.all();
   let maxDepth = 0;
@@ -580,6 +634,7 @@ export function reportOf(
   }
   return {
     gatedBy,
+    focus,
     threads: threads.length,
     deepened: ledger.counters.deepened,
     parked: ledger.counters.parked,

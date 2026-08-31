@@ -95,9 +95,14 @@ import {
   EVAL_ATTACK_WINDOW_ID,
   EVAL_DODGE_DISCOUNT_ID,
   EVAL_POTION_CONTROL_ID,
+  EVAL_POTION_DEFENSE_ID,
+  EVAL_POTION_PICKUP_ID,
   EVAL_POTION_SEEK_ID,
   POTION_ADVISORY_WEIGHTS,
 } from '../registry';
+import type { PotionAdvisoryWeights } from '../registry';
+import { potionPickup, potionPickupNet } from './potion-pickup';
+import { anyEnemyCollector, anyEnemyWindow, potionDefense, potionDefenseNet } from './potion-defense';
 
 // ---------------------------------------------------------------------------
 // The board adapter
@@ -277,12 +282,27 @@ const GATE_KEY = 'potion-lineup:gate';
 interface Gate {
   readonly potions: boolean;
   readonly liveWindow: boolean;
+  /**
+   * SOME UNIT NOT OURS CARRIES A LIVE TIER — the defensive gate, and the reason
+   * it is here rather than inside `potion-defense.ts`: `ctx.standing` answers it
+   * over the MERGED view (located units and held claims together) without
+   * building a `RayBoard`, and on a board with no enemy tier standing that is
+   * the whole cost of the defensive half.
+   *
+   * Split in two because the two halves ask different questions of the same
+   * scan: a positive enemy tier is a threat, a negative one is a target, and a
+   * board can carry either without the other.
+   */
+  readonly enemyWindow: boolean;
+  readonly enemyCollector: boolean;
 }
 
 function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
   return shared.for(GATE_KEY, () => {
     const sub = ctx.sub;
-    if (!(sub instanceof EngineSubstrate)) return { potions: false, liveWindow: false };
+    if (!(sub instanceof EngineSubstrate)) {
+      return { potions: false, liveWindow: false, enemyWindow: false, enemyCollector: false };
+    }
     const cells = potionCellsOf(sub, ctx);
     // `teamHasLiveWindow` wants a board; at the gate `EvalContext.standing`
     // answers the same question without building one, and it is the merged
@@ -290,16 +310,19 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
     // decision never simulated is not missed.
     const turn = ctx.resolution.state.turn;
     let live = false;
+    let enemyWindow = false;
+    let enemyCollector = false;
     for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || !s.bestAlive) continue;
+      if (!s.bestAlive) continue;
       const expiry = s.tierExpiresAtTurn === null ? null : s.tierExpiresAtTurn - 1;
       const tier = expiry === null || turn <= expiry ? s.tierMax : 0;
-      if (tier > 0) {
-        live = true;
-        break;
-      }
+      if (tier === 0) continue;
+      if (s.team === ctx.asTeam) {
+        if (tier > 0) live = true;
+      } else if (tier > 0) enemyWindow = true;
+      else enemyCollector = true;
     }
-    return { potions: cells.length > 0, liveWindow: live };
+    return { potions: cells.length > 0, liveWindow: live, enemyWindow, enemyCollector };
   });
 }
 
@@ -399,6 +422,77 @@ const potionControlTerm: AdvisoryTerm<EvalContext> = {
 };
 
 /**
+ * `eval/potion-pickup@1` — THE PICKUP THIS PLAN MAKES.
+ *
+ * The gate is one bitboard read and one set membership per unit of ours, and on
+ * every plan that takes no potion the term is exactly zero having built
+ * nothing. That is not an optimisation — it is the term's whole definition, and
+ * it is why seating it costs a potion-free board nothing at all.
+ */
+function potionPickupTerm(dodge: boolean, weight: number): AdvisoryTerm<EvalContext> {
+  return {
+    key: EVAL_POTION_PICKUP_ID,
+    weight,
+    estimate(ctx, shared) {
+      if (!gateOf(ctx, shared).potions) return 0;
+      const view = viewOf(ctx, shared);
+      if (view === null || !Number.isFinite(view.exchangeRate)) return 0;
+      const value = potionPickup(
+        view.board,
+        view.asTeam,
+        view.potionCells,
+        {
+          turn: view.turn,
+          reach: view.reach,
+          dodge: dodge
+            ? { turn: view.turn, reach: view.reach, terrain: view.sub.terrain }
+            : null,
+        },
+        view.index
+      );
+      if (value.pickups.length === 0) return 0;
+      return potionPickupNet(value, view.exchangeRate, dodge ? 'near' : 'window');
+    },
+  };
+}
+
+/**
+ * `eval/potion-defense@1` — their window, priced against us, and the answer.
+ *
+ * Gated on an ENEMY tier standing rather than on a potion standing: a window
+ * outlives the potion that opened it, so the cell is gone from the board for
+ * the whole three turns that matter most. A term gated on `potions` would go
+ * quiet exactly when the danger arrived.
+ */
+const potionDefenseTerm = (weight: number): AdvisoryTerm<EvalContext> => ({
+  key: EVAL_POTION_DEFENSE_ID,
+  weight,
+  estimate(ctx, shared) {
+    const gate = gateOf(ctx, shared);
+    if (!gate.enemyWindow && !gate.enemyCollector) return 0;
+    const view = viewOf(ctx, shared);
+    if (view === null || !Number.isFinite(view.exchangeRate)) return 0;
+    // The module's own predicates as well as the gate's scan, for the reason
+    // `attack-window` asserts through `teamHasLiveWindow`: the two must agree,
+    // and the module owns the rule. The gate reads bounds over the merged view
+    // and can be optimistic about a held unit; these read the board.
+    if (
+      !anyEnemyWindow(view.board, view.asTeam, view.turn) &&
+      !anyEnemyCollector(view.board, view.asTeam, view.turn)
+    ) {
+      return 0;
+    }
+    const value = potionDefense(
+      view.board,
+      view.asTeam,
+      { turn: view.turn, reach: view.reach },
+      view.index
+    );
+    return potionDefenseNet(value, view.exchangeRate);
+  },
+});
+
+/**
  * `eval/dodge-discount@2` — the modifier, seated as a member so the slate can
  * name it and a measurement can attach to it.
  *
@@ -423,18 +517,40 @@ const dodgeDiscountTerm: AdvisoryTerm<EvalContext> = {
  * potion-seek's construction rather than appending a term of its own.
  */
 export function advisoryLineupFor(
-  evaluatorIds: ReadonlyArray<string>
+  evaluatorIds: ReadonlyArray<string>,
+  /**
+   * THE SCALES, OVERRIDDEN — a partial over `POTION_ADVISORY_WEIGHTS`.
+   *
+   * A weight is the one part of a potion term a bot may move without minting a
+   * new entry id, because it is a statement about how loud the term is and not
+   * about what it computes. Everything else — what is read, over what window,
+   * against which victims — is the entry's identity and a change to it is an
+   * `@n+1`. See `POTION_ADVISORY_WEIGHTS`.
+   */
+  weights: PotionAdvisoryWeights = {}
 ): ReadonlyArray<AdvisoryTerm<EvalContext>> {
   const named = new Set(evaluatorIds);
   const dodge = named.has(EVAL_DODGE_DISCOUNT_ID);
+  const w = { ...POTION_ADVISORY_WEIGHTS, ...weights };
   const out: AdvisoryTerm<EvalContext>[] = [];
-  if (named.has(EVAL_ATTACK_WINDOW_ID)) out.push(attackWindowTerm);
+  if (named.has(EVAL_ATTACK_WINDOW_ID)) out.push(scaled(attackWindowTerm, w.attackWindow));
   if (named.has(EVAL_POTION_SEEK_ID)) {
-    out.push(potionSeekTerm(dodge ? 'near' : 'window', dodge));
+    out.push(scaled(potionSeekTerm(dodge ? 'near' : 'window', dodge), w.potionSeek));
   }
-  if (named.has(EVAL_POTION_CONTROL_ID)) out.push(potionControlTerm);
+  if (named.has(EVAL_POTION_CONTROL_ID)) out.push(scaled(potionControlTerm, w.potionControl));
+  if (named.has(EVAL_POTION_PICKUP_ID)) out.push(potionPickupTerm(dodge, w.potionPickup));
+  if (named.has(EVAL_POTION_DEFENSE_ID)) out.push(potionDefenseTerm(w.potionDefense));
   if (dodge) out.push(dodgeDiscountTerm);
   return out;
+}
+
+/** The same term at a different scale. Identity of the reading, not of the
+ *  loudness — see `advisoryLineupFor`'s `weights`. */
+function scaled(
+  term: AdvisoryTerm<EvalContext>,
+  weight: number
+): AdvisoryTerm<EvalContext> {
+  return weight === term.weight ? term : { ...term, weight };
 }
 
 // ---------------------------------------------------------------------------
@@ -464,9 +580,10 @@ export function advisoryLineupFor(
  */
 export function evaluatorForSlate(
   evaluatorIds: ReadonlyArray<string>,
-  base: BoundEvaluator = defaultEvaluator
+  base: BoundEvaluator = defaultEvaluator,
+  weights: PotionAdvisoryWeights = {}
 ): BoundEvaluator {
-  const advisory = advisoryLineupFor(evaluatorIds);
+  const advisory = advisoryLineupFor(evaluatorIds, weights);
   if (advisory.length === 0) return base;
   return new BoundEvaluator(base.profile, base.features, advisory);
 }
