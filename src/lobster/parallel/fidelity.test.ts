@@ -309,6 +309,7 @@ describe("degradation", () => {
     // is data the registry holds on both threads, so it can be, and the
     // determinism gate is what proves the rebuild is exact.
     const potion = evaluatorForSlate([...slateFor(SLATE_POTION_INTEL).evaluators])
+    if (!(potion instanceof BoundEvaluator)) throw new Error('the slate must resolve a BoundEvaluator')
     const spec = evaluatorSpecOf(potion)
     expect(spec.kind).toBe("profile")
     if (spec.kind !== "profile") throw new Error("unreachable")

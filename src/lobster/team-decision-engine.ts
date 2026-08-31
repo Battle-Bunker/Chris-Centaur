@@ -68,7 +68,7 @@ import { REGISTRY, slateFor, slateStampOf } from './registry';
 import type { ResolvedSlate, SlateId } from './registry';
 import { earliestShells, standingOf } from './evaluate';
 import { evaluatorForSlate } from './evaluate/potion-lineup';
-import { advisoryReportOf } from './evaluate';
+import { advisoryReportOf, defaultEvaluator } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
@@ -536,20 +536,42 @@ export class TeamDecisionEngine {
     this.bot = resolveBotConfig(this.options.bot, this.log);
     this.slate = REGISTRY.resolve(slateFor(this.options.slate ?? this.bot.slate));
     // THE SLATE DECIDES THE EVALUATOR, and this is the one line where it does.
-    // `evaluatorForSlate` returns `defaultEvaluator` ITSELF for a slate whose
-    // evaluator list names only sound-writing entries, so the shipped bot
-    // evaluates through the object it always did — the byte-identity gates
-    // rest on that identity, not on an equality. A caller's own `evaluate`
-    // still wins: it is the harness seam, and a harness that seats an
-    // evaluator directly is making a statement about a capability rather than
-    // about a deployable configuration.
-    this.evaluate =
-      this.options.evaluate ??
-      evaluatorForSlate(
-        this.slate.evaluators.map((e) => e.id),
-        undefined,
-        this.bot.potionWeights
-      );
+    // `evaluatorForSlate` returns ITS BASE — `defaultEvaluator` by default —
+    // for a slate whose evaluator list names only sound-writing entries, so the
+    // shipped bot evaluates through the object it always did and the
+    // byte-identity gates rest on that identity rather than on an equality.
+    //
+    // ── THE CALLER'S EVALUATOR IS THE BASE, NOT AN ALTERNATIVE ─────────────
+    //
+    // `TeamDecisionOptions.evaluate` is the harness seam: it names a FEATURE
+    // PROFILE — the material-only reading, the slider profile — and the sim
+    // harness passes one on EVERY lobster contender it seats, including the
+    // plain `lobster-territory` default, so that a replay records the profile
+    // by name instead of inheriting whatever this constructor's default
+    // happens to be that week.
+    //
+    // Until this line composed, that seam and the slate were ALTERNATIVES
+    // (`this.options.evaluate ?? evaluatorForSlate(...)`), and the seam won.
+    // The consequence was not a style problem: every live game a `potion-aware`
+    // arm ever played was played by the SHIPPED evaluator, with the potion
+    // lineup constructed by nobody, while the mechanism stamp reported the
+    // slate the config had asked for. The slate was selectable and inert, and
+    // the arm audit said the opposite.
+    //
+    // They are not alternatives. A profile says which features are folded into
+    // the sound bounds; a slate's advisory entries say what may reorder the
+    // plans those bounds tie. So the profile is the BASE and the lineup is
+    // overlaid on it, and a slate with no advisory entry still yields the base
+    // object itself — which keeps every existing arm, and production, byte for
+    // byte what it was.
+    this.evaluate = evaluatorForSlate(
+      this.slate.evaluators.map((e) => e.id),
+      this.options.evaluate ?? defaultEvaluator,
+      // AND THE SCALES ARE THE BOT'S. A weight is the one part of an advisory
+      // term a config may move without minting a new entry id, so it travels
+      // with the bot rather than with the slate — see `BotConfig.potionWeights`.
+      this.bot.potionWeights
+    );
     this.evaluatorSpec = evaluatorSpecOf(this.evaluate);
     if (this.options.pool !== undefined) this.pool = this.options.pool;
   }

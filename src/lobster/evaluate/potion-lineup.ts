@@ -87,6 +87,7 @@ import { anyPotionStanding, potionControlSummary } from './potion-control';
 import { severExchangeRate } from './slider-attack-vector';
 import { EngineSubstrate } from '../substrate';
 import { BoundEvaluator, defaultEvaluator } from './index';
+import type { Evaluator } from '../contracts';
 // The ids and the weights are the ENTRIES' — `../registry.ts` owns them, so a
 // slate and the lineup that implements it cannot drift apart. A value import
 // of the registry is safe here and not circular: the registry imports the four
@@ -606,10 +607,23 @@ function scaled(
  */
 export function evaluatorForSlate(
   evaluatorIds: ReadonlyArray<string>,
-  base: BoundEvaluator = defaultEvaluator,
+  base: Evaluator = defaultEvaluator,
   weights: PotionAdvisoryWeights = {}
-): BoundEvaluator {
+): Evaluator {
   const advisory = advisoryLineupFor(evaluatorIds, weights);
   if (advisory.length === 0) return base;
+  if (!(base instanceof BoundEvaluator)) {
+    // A REFUSAL, NEVER A SILENT DROP. Returning `base` here is exactly the
+    // defect this parameter exists to close: the caller asked for a slate with
+    // an advisory lineup and would have got the shipped bot wearing that
+    // slate's stamp, which is the single most expensive thing a measurement
+    // harness can be handed.
+    throw new TypeError(
+      `slate names ${advisory.length} advisory evaluator entr${advisory.length === 1 ? 'y' : 'ies'} ` +
+        `(${advisory.map((t) => t.key).join(', ')}) but the base evaluator supplied is not a ` +
+        'BoundEvaluator, so there is no feature fold to overlay them onto. Supply a ' +
+        'BoundEvaluator profile or select a slate with no advisory entries.'
+    );
+  }
   return new BoundEvaluator(base.profile, base.features, advisory);
 }
