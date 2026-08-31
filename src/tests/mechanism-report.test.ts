@@ -163,6 +163,7 @@ describe('CL7: the mechanism report is present and complete', () => {
         'gainOrdering',
         'workers',
         'edgeEv',
+        'potionOrdering',
         'multistartSeed',
         'sampledCap',
         'depthPlyCap',
@@ -177,6 +178,7 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.config.unitFatality).toBe(false);
     expect(m.config.workers).toBe(0);
     expect(m.config.edgeEv).toBe(false);
+    expect(m.config.potionOrdering).toBe(false);
     expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
     // DEPTH IS NOT AN ARM. What the stamp carries is its RATION, and the
@@ -252,6 +254,7 @@ describe('CL7: the mechanism report is present and complete', () => {
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
     expect(m.config.edgeEv).toBe(false);
+    expect(m.config.potionOrdering).toBe(false);
     expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
     expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
