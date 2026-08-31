@@ -37,8 +37,8 @@ import type {
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
-import { DEAD, WIN, advisoryEst, clampEst, clampTo, fold } from './bound';
-import type { AdvisoryTerm, Evaluation, Feature, Weights } from './bound';
+import { DEAD, WIN, advisoryEst, clampEst, clampTo, fold, makeAdvisoryMeter } from './bound';
+import type { AdvisoryMeter, AdvisoryTerm, Evaluation, Feature, Weights } from './bound';
 import {
   CLIFF_MATERIAL_WEIGHT,
   DEFAULT_PROFILE,
@@ -122,6 +122,13 @@ export class BoundEvaluator implements Evaluator {
    * `./potion-lineup.ts` for the lineup the `potion-aware` slate resolves to.
    */
   readonly advisory: ReadonlyArray<AdvisoryTerm<EvalContext>>;
+  /**
+   * WHERE THE ADVISORY LINEUP'S VALUE LANDED — telemetry, never read by a
+   * decision. Null for the shipped evaluator, whose lineup is empty and whose
+   * overlay path has no arithmetic in it: a counter there would be a cost the
+   * default bot pays for a number nobody can vary.
+   */
+  readonly meter: AdvisoryMeter | null;
   private readonly weights: Weights;
 
   constructor(
@@ -132,6 +139,7 @@ export class BoundEvaluator implements Evaluator {
     this.profile = profile;
     this.features = features;
     this.advisory = advisory;
+    this.meter = advisory.length === 0 ? null : makeAdvisoryMeter();
     this.weights = profile.weights;
   }
 
@@ -199,7 +207,7 @@ export class BoundEvaluator implements Evaluator {
       // floor-tie class and may not move the floor that defines it. With no
       // lineup this returns `sound.bound` itself and the object below is the
       // one `finish` built.
-      const withAdvisory = advisoryEst(sound.bound, this.advisory, ctx);
+      const withAdvisory = advisoryEst(sound.bound, this.advisory, ctx, this.meter);
       return withAdvisory === sound.bound ? sound : { ...sound, bound: withAdvisory };
     });
   }
@@ -208,6 +216,46 @@ export class BoundEvaluator implements Evaluator {
 /** The empty lineup, shared, so "no advisory terms" is one identity rather
  * than a fresh array per evaluator. */
 const NO_ADVISORY: ReadonlyArray<AdvisoryTerm<EvalContext>> = [];
+
+/**
+ * THE ADVISORY LINEUP'S OWN MECHANISM ROW.
+ *
+ * Null on the shipped bot, which is a statement and not a gap: the default
+ * evaluator has no lineup, so there is nothing for the row to be about. On a
+ * bot that names one, the three numbers a reader needs are `engagedRate` (did
+ * the terms ever read non-zero), `clampedRate` (did the sound interval have
+ * room for what they read) and `meanApplied / meanAsked` (how much of the ask
+ * survived). A lineup that is engaged and fully clamped is a lineup whose
+ * value dies at `clampEst`, and that diagnosis is not available from any
+ * outcome metric.
+ */
+export interface AdvisoryReport {
+  readonly terms: ReadonlyArray<string>;
+  readonly evaluations: number;
+  readonly engaged: number;
+  readonly clamped: number;
+  readonly meanAsked: number | null;
+  readonly meanApplied: number | null;
+  /** Mean sound-interval width over the engaged evaluations with a finite one
+   * — the room the clamp had to give. */
+  readonly meanWidth: number | null;
+}
+
+export function advisoryReportOf(evaluate: unknown): AdvisoryReport | null {
+  if (!(evaluate instanceof BoundEvaluator)) return null;
+  const m = evaluate.meter;
+  if (m === null) return null;
+  const mean = (sum: number, n: number): number | null => (n === 0 ? null : sum / n);
+  return {
+    terms: evaluate.advisory.map((t) => t.key),
+    evaluations: m.evaluations,
+    engaged: m.engaged,
+    clamped: m.clamped,
+    meanAsked: mean(m.sumAbsAsked, m.engaged),
+    meanApplied: mean(m.sumAbsApplied, m.engaged),
+    meanWidth: mean(m.sumWidth, m.finiteWidth),
+  };
+}
 
 /**
  * The clamp step, kept separate so the law harness can exercise it directly.
