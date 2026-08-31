@@ -403,6 +403,41 @@ function applyMeasurement(ledger, flagName, m) {
     );
     return { changed: false, before, after: f.status, notes };
   }
+  /*
+   * A PROMOTED DEFAULT IS NOT UNSHIPPED BY A CELL THAT COULD NOT SEE IT
+   * (`PROMOTED-DEMOTED-BY-NULL`).
+   *
+   * `promoted` means raced, shipped, and the commit that flipped the default
+   * named. `supported` is the rung BELOW it — "selection change owed" — and
+   * `live-null` is "a cell found no effect it could resolve". Neither is
+   * evidence to take a shipped default back out, and the loop was applying
+   * both: on 20260831-batch2, X9's exploration slice carried one row SUPPORTING
+   * CENTAUR_STAGING_SAFETY (`deathsSelf` +0.5 with the guard off) and four
+   * cells that could not resolve anything at four blocks, and the four nulls
+   * walked the flag from `promoted` down to `live-null` — unshipping a guard on
+   * the strength of small cells declining to reproduce its effect.
+   *
+   * This is the CONTROL-CELLS-DEMOTE lesson at the top of the ladder rather
+   * than the bottom: a rule that punishes the practice it exists to encourage.
+   * The exploration slice is REQUIRED to keep running against every promoted
+   * default forever, so a promoted flag accumulates null rows by design, and
+   * under the old rule every batch that ran the slice properly demoted it.
+   *
+   * A promotion IS revisable — that is what the slice is for — but only by the
+   * same kind of evidence that would have made it in the first place: a `failed`
+   * row that clears its own floor. `live-failed` below still applies.
+   */
+  if (f.status === 'promoted' && next !== 'live-failed') {
+    notes.push(
+      `${flagName}: ${next === 'supported' ? 'a supporting' : 'a null'} row does not move a ` +
+        'PROMOTED default. Status stays promoted — the default is already flipped and the commit ' +
+        'that flipped it is named. A promotion is revised by a demonstrated cost that clears its ' +
+        'own floor, never by a cell that could not resolve the effect. The exploration slice runs ' +
+        'against every promoted default forever and therefore accumulates null rows by design; ' +
+        'demoting on them would make keeping the slice worse than dropping it.'
+    );
+    return { changed: false, before, after: f.status, notes };
+  }
   f.status = next;
   notes.push(`${flagName}: ${before} -> ${next} on ${m.batch}/${m.cell} (${m.metric}).`);
   return { changed: true, before, after: f.status, notes };

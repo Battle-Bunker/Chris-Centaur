@@ -37,6 +37,18 @@ alphabetical**, and the list is meant to be cut from the bottom.
 | 7 | **R8** the knight anomaly | 192 + a free replay probe | small, and possibly a defect rather than a finding |
 | 8 | **R9** multi-start with opening instrumentation | 384 | see also MS1 below, which specifies the same arm in full |
 
+**RE-RANKED BY `20260831-batch2` (2,472 games), and three items are new.** The
+batch's own headline is that no placement effect cleared its control anywhere;
+what it bought instead is a set of *mechanism* facts, and they move the queue.
+
+| # | item | games | why it moved |
+|---|---|---|---|
+| **NEW 1** | **B1** the first-plan latency on piece boards | **0 — it is a build, then a re-run of P16** | The search-arch build takes **343 ms (p90 527 ms)** to produce its FIRST plan on `headline-mix-king` against the baseline's **46 ms (p90 132 ms)** — 7.5×, and BUDGET-INDEPENDENT (343 / 311 / 326 ms at the 500 / 1000 / 2000 ms rungs). That is not slow anytime behaviour, it is a fixed setup cost paid *before anytime behaviour starts*, and it is why 100 of 100 deadline misses at 500 ms are misses on the first plan rather than late or stale ones. It is the enumeration (337 ms/decision on that board at that rung — the same number). **This is the highest-leverage item in the queue because it is the one thing measured that plausibly explains the branch's whole placement record, and because it is fixable in code rather than bought with games.** |
+| **NEW 2** | **B2** the residual bank bounds inversion | **0 — replays already hold it** | Three thrown decisions, all `BoundsInversionError: inverted ScoreBounds ... bank floor=B0 ceiling=B3`, floor above ceiling by 1e-4 to 3e-4 relative. All on `snake5-queen`, ~1 in 104 games there and 0 elsewhere. The categorical fix (018d780, DEAD ceiling under a finite floor) is IN this build; this is the residual numerical case and wants a tolerance. `errors > 0`, `stagedNothing > 0` and `unstaged > 0` co-occur on exactly these three of 5,520 lobster game-seats, so the cost in play is a forfeited turn. **The `boundsInversions` counter recorded 0 on one of the games that threw** — the counter that names this failure does not count it, and it is retired. |
+| **NEW 3** | **B3** floor every budget rung, and re-floor the headline board | ~576 | The A/A ran only at 2000 ms while P16's cells are named `<board>@<ms>`, so the 500 ms and 1000 ms rungs have **no floor at all** and their placement rows are UNREADABLE, not null. Separately: `headline-mix-king`'s `score` floor widened ×1.65 batch-on-batch — **and `null-snake6`'s wall-clock floor widened ×17.76**, which is why "it is not the box" does not survive flooring every metric instead of only `score`. |
+| 3 → **2** | **R3** P11 at real power | **876** (was 1,314) | now affordable: one board, not three — see R3. |
+| 5 → **4** | **R5** what the enumeration buys | 384 + a branch | batch 2 priced it per decision and found TWO cost regimes, not one — see R5. |
+
 **R9 and MS1 are the same experiment seen from two sides** and must not be
 scheduled twice. MS1 is the fuller specification — it carries the mechanism
 metrics, the gate and the two build conditions — and R9 is the correction the
@@ -473,13 +485,53 @@ supports. That number is now in the ledger on `CENTAUR_SCOUT`'s `nextExperiment`
 as a POWER block, and batch 2's `p11-scout.json` carries it with a REQUIRES line
 saying what a 16-block run may and may not claim.
 
-**Arm shape.** `baseline` against `feature`, both shipped defaults, no bot config
-on either side, three cells (`snake6`, `snake5-queen`, `mix-king`), potions ON +
-hazard `cross`, **73 blocks**.
+**WHAT BATCH 2 ADDED, AND IT CHANGES THE PRICE.** `20260831-batch2` ran this
+exact pair for real — 144 paired games, 0 dropped, 16 blocks on three boards —
+and the reading is *engaged, and undecidable at this size*: sharePar
+−0.3945 [−0.9507, +0.1617] / −0.6343 [−1.2607, −0.0080] / −0.0684 [−0.2355,
++0.0987] on `headline-mix-king` / `hazard-mix-king` / `null-snake6`, every one
+inside its own control band, with observed half-widths of ±0.556 and ±0.626 on
+the two piece boards. The sandbox's 73-blocks-per-cell prediction is confirmed
+by measurement rather than extrapolation. **The merge is NOT decided and the
+three negative signs are not evidence against the branch** — a true +0.2 sits
+comfortably inside those intervals.
 
-**Expected games.** 3 × 73 × 3 × 2 = **1,314 games.** At owner shape this is the
-batch's single largest line item and it must be priced as such before it is
-scheduled. **This is the one item on the list that cannot use within-game
+**THE CHEAPEST DECIDABLE READ IS ONE BOARD, AND IT IS `null-snake6`.** Blocks
+scale as (spread/target)², so the whole cost is set by the board's dispersion —
+and batch 2 floored all three: `null-snake6` at ±0.1172 sharePar against
+±0.7413 and ±0.7893 for the two mix-king boards, a factor of six. Reading the
+merge on the mix-king boards is the entire reason this is a 1,314-game line
+item.
+
+| shape | games | box time | decides? |
+|---|---|---|---|
+| **`null-snake6` alone at 73 blocks + its own A/A at 73** | **876** | **~5 h** | yes, to ±0.10 on that board |
+| three boards at 73 blocks + A/A | 2,628 | ~2.9 nights | yes, on all three |
+| what batch 2 ran (16 blocks, 3 boards) | 288 | ~1.5 h | **no, in either direction** |
+
+**The cost of narrowing, stated rather than buried.** `null-snake6` is where the
+branch is engaged but least loaded — 388,220 cluster joints a game against
+14,592,634 on `headline-mix-king` — so it is the board where the branch has the
+*least* room to help. A null there does not license a null on the owner's board.
+It answers the branching policy's question (does the search architecture pay for
+itself where it can be measured) and not the owner's board's question. If the
+answer must be about `headline-mix-king` specifically, no affordable read exists
+at this class of budget and the honest move is to **fix the board first** — its
+sharePar floor is ±0.74 and two batches now agree it resolves nothing.
+
+**ALSO OWED, AND CHEAP: a second A/A on the BASELINE bundle.** The A/A null is
+two *search-arch* builds by the kit's shared-bundle convention, so P11's
+baseline arm has no floor of its own and the merge is read against the
+challenger's noise. One extra A/A pair on the same single cell closes it.
+
+**Arm shape.** `baseline` against `feature`, both shipped defaults, no bot config
+on either side, **one cell (`null-snake6`) at 73 blocks** for the affordable
+read — three cells only if 2.9 nights are being spent — potions ON + hazard
+`cross` where the cell carries them.
+
+**Expected games.** One board: 73 × 3 × 2 = 438, plus 438 for its own A/A =
+**876 games (~5 h)**. Three boards: 1,314 + 1,314 = **2,628 games (~2.9
+nights)**. **This is the one item on the list that cannot use within-game
 seating** — two branch tips cannot share a board.
 
 **Also measured, and unpriced.** Cluster enumeration costs **2,985 ms/game on a
@@ -534,9 +586,40 @@ go/no-go before paying for the slate work.
 ## R5. What does the cluster enumeration buy for a fifth of the budget?
 **RANK 5 — a cost nobody has priced, and it cannot be turned off.**
 
-**Question.** The enumeration costs 535 ms/game on snake boards and 2,985 ms/game
-on a queen board — ~20% of the entire decision budget on piece boards, spent
-before any strategy runs. What does it return?
+**Question.** The enumeration costs a fifth to a quarter of the whole decision
+budget on piece boards, spent before any strategy runs. What does it return?
+
+**BATCH 2 MEASURED THE COST PER DECISION, AND IT KILLS THE "PIECE BOARDS ARE
+EXPENSIVE" FRAMING.** From 2,472 games, `clusterEnumMs` per decision on the
+search-arch build:
+
+| board | roster | ms/decision | share of a 2000 ms budget | joints/decision | **ms per joint** |
+|---|---|---|---|---|---|
+| `null-snake6` | 6 snakes | 18.3 | 0.9% | 41.0 | 0.45 |
+| `snake5-knight` | 5 snakes + **knight** | **18.0** | **0.9%** | 42.5 | 0.42 |
+| `snake5-queen` | 5 snakes + **queen** | **223.8** | **11.2%** | 52.9 | **4.23** |
+| `hazard-mix-king` | mixed + king | 422.5 | 21.1% | 2,489.6 | 0.17 |
+| `headline-mix-king` | mixed + king | 474.5 | 23.7% | 2,471.1 | 0.19 |
+
+**A KNIGHT COSTS NOTHING. A QUEEN COSTS TWELVE TIMES A KNIGHT.** The knight
+board is indistinguishable from the all-snake board on both cost and joint
+count. The queen board costs 12× the knight board on 1.25× the joints — so its
+cost is not *more* clusters, it is *bigger* ones: a slider's reach makes each
+residual cluster large and the exact small-cluster enumeration inside it
+explodes. The mix-king boards are the opposite regime: 47× the joints at a
+twentieth of the cost each.
+
+**So there are two distinct cost regimes and they want different remedies.**
+A *slider* regime (`snake5-queen`, 4.23 ms/joint — ten times any other board)
+wants a cluster-size bound. A *crowd* regime (mix-king, 0.19 ms/joint but 2,500
+joints) wants a cluster-count bound. `BotConfig.search.clusterEnum:false` skips
+the partition wholesale and is the wrong instrument for either.
+
+**AND IT IS WHERE THE THREE DECISION ERRORS LIVE.** All three thrown decisions
+in batch 2 are `BoundsInversionError` on `snake5-queen` — the board with ten
+times the per-joint enumeration cost, i.e. the deepest accumulation chains in
+the batch — with the floor above the ceiling by 1e-4 to 3e-4 relative. The cost
+regime and the numerical-soundness defect are the same finding seen twice.
 
 **Why it survived.** It was measured as a side-effect of R3 and never as a
 target. `CENTAUR_CLUSTER_ENUM` was deleted with no replacement, and
@@ -661,3 +744,162 @@ Packed-spawn snake cells, where an opening sampler has the most to offer,
 **Note.** If the opening instrumentation cannot be added without touching bot
 source, take it off the replays instead — the positions are already on disk and
 no race is needed to measure separation.
+
+---
+
+# The three items `20260831-batch2` added
+
+Written in the same shape as R1–R9. Two of them cost **no games at all** — the
+batch already holds the evidence and what is owed is a code change — which is
+why they rank above everything that has to be bought with box time.
+
+## B1. The first-plan latency on piece boards
+**NEW RANK 1. A BUILD, then a re-run of P16 to confirm it.**
+
+**Question.** The search-architecture build takes 7.5× longer than the baseline
+to produce its *first* staged plan on the owner's board. Can that setup cost be
+made incremental, and does the branch's placement record change when it is?
+
+**The measurement, from 2,472 games.** Time to first staged plan,
+`lobster-territory`, by build and budget rung:
+
+| board | rung | baseline p50 / p90 / max | search-arch p50 / p90 / max |
+|---|---|---|---|
+| `headline-mix-king` | 500 ms | 46 / 132 / 475 | **343 / 527 / 1123** |
+| `headline-mix-king` | 1000 ms | 31 / 102 / 962 | **311 / 469 / 1080** |
+| `headline-mix-king` | 2000 ms | 38 / 111 / 590 | **326 / 492 / 1462** |
+| `null-snake6` | any | 2 / 4 / ~12 | 16–17 / 25–26 / 68–95 |
+
+**Two things make this the sharpest finding in the batch.**
+
+1. **It is budget-independent.** 343 / 311 / 326 ms across three budgets is a
+   fixed price, not a share. An anytime kernel whose first plan costs a constant
+   ~340 ms has *no anytime behaviour at all* below that, which is exactly what
+   the deadline data shows: at the 500 ms rung, **100 of 100 overrunning
+   decisions had `firstStageMs > budget`** (median 560 ms), and at 1000 ms only
+   4 of 23 did. The breach is a threshold, not a gradient.
+2. **It degrades in the one way that is not a bug.** `emissions == 0` on **0 of
+   100** overrunning decisions — the kernel never returns nothing and never
+   stages a stale plan. Every miss is *a move, late*. The baseline overran zero
+   decisions at every rung.
+
+**Where the cost is.** `clusterEnumMs` on `headline-mix-king` at the 500 ms rung
+is **337 ms per decision**, which is the first-plan latency to within rounding.
+The setup cost *is* the cluster enumeration, which is R5's subject and cannot be
+turned off by any configuration.
+
+**What is owed.** Make the first plan available before the enumeration
+completes — a cheap admissible plan staged immediately and refined, rather than a
+partition that must finish before anything is emitted. That is a change to the
+decision path and belongs to the architecture lane.
+
+**Expected games.** **Zero to specify it.** Confirming it is a re-run of the P16
+ladder on a quiet box, ~576 games with the rungs floored (B3).
+
+**Read this next to R3.** If the branch's placement record is shaped by a
+340 ms setup tax on piece boards, then buying 876 games to decide the merge
+*before* the tax is addressed may be buying a decision about the wrong build.
+**B1 should land before R3 runs.**
+
+---
+
+## B2. The residual bank bounds inversion
+**NEW RANK 2. ZERO GAMES — the replays already hold it.**
+
+**Question.** Why does one decision in ~104 games on `snake5-queen` throw
+`BoundsInversionError` and forfeit its turn?
+
+**The three instances, and they are one defect.**
+
+| arm / game | turn | thrown bounds | gap | relative |
+|---|---|---|---|---|
+| `nullA` / `snake5-queen-s54506-r1` | 105 | `[149.7698, 149.7502]` | 0.0196 | 1.3e-4 |
+| `default` / `snake5-queen-s69705-r0` | 78 | `[60.0150, 60.0000]` | 0.0150 | 2.5e-4 |
+| `sampled-cap` / `snake5-queen-s69711-r1` | 103 | `[251.3184, 251.2998]` | 0.0186 | 7.4e-5 |
+
+All three: `bank floor=B0 ceiling=B3`, tag `[bounds_inversion]`, `emissions: 0`,
+`overrunMs: 0`, wall time 89–175 ms against a 2000 ms budget. **It did not time
+out and it did not play illegally — it threw, early, and emitted nothing.**
+
+**Root cause, and it is not the one already fixed.** The floor exceeds the
+ceiling by three to four orders of magnitude less than the quantities being
+compared. That is a floating-point accumulation signature: B0 and B3 are reached
+by different accumulation paths and their rounding diverges. The *categorical*
+case — a DEAD ceiling under a finite floor — was fixed at `018d780` and that fix
+**is** in this build (`b68ce98` descends from it). This is the residual
+*numerical* case and wants an epsilon at the comparison, not a rewrite.
+
+**Why `snake5-queen` and nowhere else.** It is the board with **4.23 ms of
+enumeration per cluster joint — ten times any other board** (R5) — i.e. the
+deepest accumulation chains in the batch. Cost regime and soundness defect are
+the same fact seen twice.
+
+**Not arm-specific.** One of the three is `nullA`, an untreated build.
+
+**The instrument gap, which is the part worth fixing first.**
+`nullA/snake5-queen-s54506-r1` threw a `BoundsInversionError` and recorded
+`boundsInversions: 0`. **The counter that names this failure does not count the
+instance of it that killed a decision** — and the counter is RETIRED, so nothing
+is watching it either. Whatever increments `boundsInversions` is not the throw
+site. Fix the counter before trusting any future reading of it.
+
+**Blast radius.** Exactly one forfeited turn per occurrence: over 5,520 lobster
+game-seats, `errors > 0`, `stagedNothing > 0` and `unstaged > 0` are true on the
+same three seats and no others. All three games were still won by the affected
+bot, so this is a soundness defect rather than a strength defect — but a decision
+path that can throw is a decision path that can throw at a worse moment.
+
+**Expected games.** **Zero.** A unit test from the three recorded bound pairs.
+
+---
+
+## B3. Floor every budget rung, and re-floor the headline board
+**NEW RANK 3. ~576 games, and it is the precondition for reading P16 at all.**
+
+**Question one: what is the noise floor at 500 ms and at 1000 ms?** Nobody
+knows. The A/A null ran only at 2000 ms, and P16's cells are named
+`<board>@<ms>`, so the 500 ms and 1000 ms rungs have **no floor of their own**.
+Their placement rows are **UNREADABLE, not null** — and the 2000 ms floor may
+not be lent to them, because *that noise differs with budget is the experiment's
+own hypothesis*. The mechanism rows survive on their own margins
+(`overrunRate` +0.2176 against a ±0.0024 floor is 90× and needs no help), but
+every placement sentence about the 500 ms and 1000 ms rungs is unsupported in
+both directions.
+
+**Question two: is the widening the box, or the board?** The batch write-up says
+"it is not the box", resting on `null-snake6` reproducing batch 1's `score`
+floor to three decimals (±0.0324 vs ±0.032). It does. But once **every** metric
+is floored rather than only `score`:
+
+| cell / metric | batch 1 | batch 2 | ratio |
+|---|---|---|---|
+| `headline-mix-king` / `score` | ±0.0973 | ±0.1605 | ×1.65 |
+| `headline-mix-king` / `worstWallMs` | ±7.37 | ±21.75 | ×2.95 |
+| **`null-snake6` / `worstWallMs`** | **±0.59** | **±10.49** | **×17.76** |
+| `null-snake6` / `turns`, `decisions` | ±0.837 | ±1.772 | ×2.12 |
+
+**The snake board's timing floor widened seventeenfold.** It is not that
+`null-snake6` was unaffected; it is that a board whose games end on the 120-turn
+cap rather than on the clock is insensitive *in the placement column* to a
+timing perturbation that is plainly present *in the timing column*. Load average
+was 21–24 of 24 cores. So the widening corroborates the open `Cell-Quality` item
+**less** than the write-up claims and run conditions **more**, and the two are
+separable by the same experiment: run the A/A alone on an otherwise idle box.
+
+**Also owed here.** Six counters had **no usable floor at all** in batch 2
+because the A/A itself excluded zero on them — including
+`snake5-queen`/`ceilingDecided`, where the A/A reads **−3,407.67
+[−6,024.21, −791.13]** and P9 quotes **−2,852.02** on the same counter as a
+headline mechanism separation. *The two identical builds moved that counter more
+than the treatment did.*
+
+**Arm shape.** N0 alone, idle box, all five boards plus the three budget rungs
+as separately-named cells, 16 blocks each.
+
+**Expected games.** 8 cells × 16 blocks × 3 rotations × 2 arms ≈ **768**, or
+**~576** if the three already-floored 2000 ms boards are dropped.
+
+**Why it ranks above every treatment.** Batch 2 spent 2,472 games and its
+readable-test audit says only **26 of 79** intervals that exclude zero clear
+their own floor. A batch cannot be read better than its null, and this batch's
+null is the cheapest thing in the queue to improve.

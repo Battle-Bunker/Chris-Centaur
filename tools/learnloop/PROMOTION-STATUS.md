@@ -36,6 +36,29 @@ docs/BRANCHING.md on claude/cluster-lookahead — the two-lane branching paradig
 
 > P11's baseline arm therefore has no floor of its own, and that asymmetry is named rather than hidden. It is the same asymmetry batch 1 accepted in the other direction. What makes it tolerable is what the floor is a fact ABOUT: the arms are launched at the same instant on the same boards with the same seeds and pair by gameId, so the paired delta's floor is dominated by the board and the box rather than by which of two builds of one repository generated the moves. A reader who wants that assumption tested should schedule a second null pair on the baseline bundle; it is the cheapest box time available and nothing here forbids it.
 
+## The merge decision
+
+**P11. The branch merges into the primary branch on a validated cross-branch arm, or it does not merge.**
+
+### NOT DECIDED — as of `20260831-batch2`
+
+- Experiment: P11a — baseline @66904d2 vs search-arch @b68ce98, both shipped defaults, no bot config on either side
+- Sample: 144 paired, 0 dropped, 16 blocks per board, 3 boards
+- **Verdict: UNDECIDED — AND UNDECIDABLE FROM THIS RUN IN EITHER DIRECTION.**
+
+**What the run CAN say:**
+
+- *engagement gate* — PASSED, and this is what a 16-block run is for. On the search-arch arm: scoutPlies 136,806 / 137,647 / 101,137 and clusterJoints 14,592,634 / 15,059,929 / 388,220 on headline-mix-king / hazard-mix-king / null-snake6. Non-zero on both piece boards, so this is not the silent refusal that voided P5. The baseline arm emits no mechanism block at all, which is correct — the deep layer is not in that build.
+- *direction* — NEGATIVE ON ALL THREE BOARDS, and worth nobody's conclusion. sharePar -0.3945 [-0.9507, +0.1617] / -0.6343 [-1.2607, -0.0080] / -0.0684 [-0.2355, +0.0987] against floors of +/-0.7413 / +/-0.7893 / +/-0.1172. Every delta sits inside its board's control band. A TRUE EFFECT OF +0.2 sharePar SITS COMFORTABLY INSIDE THESE INTERVALS.
+- *search cost* — MEASURED, AND IT CLEARS ITS FLOOR. worstWallMs +38.5 [+29.34, +47.66] on null-snake6 against a +/-10.49 floor, overrunRate +0.0045 [+0.0029, +0.0061] against +/-0.0018, ratchetRate +0.0235 against +/-0.0092. The branch is measurably slower per decision and measurably more likely to miss a deadline, on the board where nothing else moves.
+- *first plan latency* — THE SHARPEST THING THE 288 GAMES BOUGHT, and it comes from P16 rather than P11a. Time to the FIRST staged plan on headline-mix-king: baseline p50 46 ms / p90 132 ms; search-arch p50 343 ms / p90 527 ms. A 7.5x setup cost, and it is BUDGET-INDEPENDENT (343 / 311 / 326 ms at the 500 / 1000 / 2000 ms rungs), so it is a fixed price paid before any anytime behaviour begins rather than a share of the budget. It is ENUMERATION: clusterEnumMs on that board is 337 ms per decision at the 500 ms rung, which is the same number.
+
+**Why it may not decide it:** THE POWER RULE, and it was written into the spec before the batch ran. The pair's own measured dispersion puts a +/-0.10 sharePar read at about 73 BLOCKS PER BOARD; it shipped at 16. The observed half-widths (+/-0.5562 and +/-0.6263 on the two piece boards) confirm the prediction. A 16-block read may not decide this merge in EITHER direction, and the expensive mistake available here is reading three negative signs as evidence against the branch. THIS IS NOT EVIDENCE THE BRANCH DOES NOT HELP.
+
+**The cheapest decidable read:** ONE BOARD, NOT THREE, AND MAKE IT null-snake6. The blocks needed scale as (spread/target)^2, so the cost is set by the board's own dispersion and the three boards differ by a factor of six: null-snake6 floors at +/-0.1172 sharePar where headline-mix-king floors at +/-0.7413 and hazard-mix-king at +/-0.7893. Reading the merge on the two mix-king boards is what makes it a 1,314-game question. On null-snake6 alone, 73 blocks x 3 rotations x 2 arms = 438 games, plus an A/A null on that one cell at the same 73 blocks = 438 more: ABOUT 876 GAMES, roughly 5 hours on the box that did 2,472 in 13h22m. That is a THIRD of a night for a decidable read, against 2.9 nights for the three-board version. THE COST OF THE NARROWING, STATED: null-snake6 is the board where the branch is engaged but least loaded (388,220 cluster joints against 14.6M on headline-mix-king), so it is the board where the branch has least room to help — a null there does not license a null on the owner's board. It decides the merge only in the sense the branching policy asks for: does the search architecture pay for itself where it can be MEASURED. If the answer wanted is specifically about headline-mix-king, no affordable read exists at 16-block-class budgets and the honest move is to fix the board (raise the turn cap, which 85-100% cap rates say is needed anyway) before spending 2.9 nights on it.
+
+**Also owed:** A SECOND BASELINE NULL. The A/A is two search-arch builds, by the kit convention that the null is the bundle the batch's arms share. So the BASELINE arm of P11a has no floor of its own, and the merge is being read against the challenger's noise. One extra A/A on the baseline bundle, on the same one cell, is the cheapest thing that closes it.
+
 ## The rule this table exists to enforce
 
 
@@ -53,19 +76,19 @@ arm, may write a live status.
 | `CENTAUR_CLUSTER_SEED` | CL1 | **LIVE FAILED** | `off` | P7R *(blocked)* |
 | `CENTAUR_WASM` | W3 | **frozen** | `removed — the flag no longer exists` | — |
 | `CENTAUR_UNIT_FATALITY` | CL1 | **live null** | `off` | P7F |
-| `CENTAUR_EDGE_EV` | CL2 | **probe only** | `off` | P12 |
+| `CENTAUR_EDGE_EV` | CL2 | **live null** | `off` | P12 |
 | `CENTAUR_CLUSTER_ENUM` | CL3 | **probe only** | `off` | P8/P9-joint *(WITHDRAWN)* |
-| `CENTAUR_SAMPLED_CAP` | CL4 | **probe only** | `off` | P9 |
-| `CENTAUR_TERRITORY_REFINE` | CL5 | **probe only** | `off` | P10 |
-| `CENTAUR_SCOUT` | CL6a | **probe only** | `off` | P11 |
-| `CENTAUR_WORKERS` | W1 | **probe only** | `off` | P13 |
+| `CENTAUR_SAMPLED_CAP` | CL4 | **live null** | `off` | P9 |
+| `CENTAUR_TERRITORY_REFINE` | CL5 | **live null** | `off` | P10 |
+| `CENTAUR_SCOUT` | CL6a | **live null** | `off` | P11 |
+| `CENTAUR_WORKERS` | W1 | **live null** | `off` | P13 |
 | `CENTAUR_TIER_TRUTH` | Stage 2.5 | **live null** | `expiry` | P4R *(blocked)* |
 | `CENTAUR_COHORT_POLICY` | arch/s2 | **live null** | `off` | P6R *(blocked)* |
 | `TERRITORY_SLIDER_PROFILE` | I2 | **supported — selection change owed** | `off (dark-shipped repair)` | P3-slice |
 | `CENTAUR_STAGING_SAFETY` | I1 | **VALIDATED** | `auto` | P14-slice |
 | `gainOrdering` | integ/round-a | **VALIDATED** | `on` | P15-slice |
 
-Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — selection change owed, 2 VALIDATED.
+Counts: 1 LIVE FAILED, 1 frozen, 8 live null, 1 probe only, 1 supported — selection change owed, 2 VALIDATED.
 
 ## What each candidate owes, and what it has
 
@@ -86,6 +109,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 | `deathsExhaustion` | mechanism | yes | replay events.exhaustions THE CHANNEL THAT FAILED IT. Not in the deterministic probe at all. |
 | `rungZeroFloor` | mechanism | yes | EmitRecord.lo of the first emission |
 | `finalFloor` | mechanism | yes | EmitRecord.lo of the last emission |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row results[].score |
 | `survived` | mechanism | yes (batch 20260827 (added when the piece-cell gradient was found)) | manifest row results[].eliminatedOnTurn Added by the batch-1 fold. On piece boards the seed IMPROVES survival, which is the opposite sign to the snake-board collapse and is the reason this flag's verdict is now density-conditional rather than flat. |
 
@@ -188,6 +212,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 | `wasmRefused` | engagement | yes (CL7) | MechanismReport.wasm.refused |
 | `worstWallMs` | cost | yes | manifest health row |
 | `capRate` | shape | yes | manifest row terminal |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -278,6 +303,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 |---|---|---|---|
 | `fatalStagings` | mechanism | yes | replay events |
 | `deathsSelf` | mechanism | yes | replay events |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -312,6 +338,33 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 - **20260827-overnight** · p7-cl1-gates::snake5-knight · `score` → **unreadable**  
   0.0313 [-0.0428, 0.1053] over 16 blocks; null half-width null  
   <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say)</sub>
+- **20260831-batch2** · p7f-unit_fatality::headline-mix-king · `sharePar` → **null**  
+  -0.4588 [-0.8861, -0.0315] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/81 blocks)</sub>
+- **20260831-batch2** · p7f-unit_fatality::headline-mix-king · `score` → **null**  
+  -0.0938 [-0.1793, -0.0082] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p7f-unit_fatality::headline-mix-king · `deathsSelf` → **null**  
+  0.0417 [-0.019, 0.1023] over 16 blocks; null half-width 0.0648  
+  <sub>live · null verified · engagement shown · lower-is-better</sub>
+- **20260831-batch2** · p7f-unit_fatality::snake5-knight · `sharePar` → **null**  
+  0.0208 [-0.0902, 0.1319] over 16 blocks; null half-width 0.1238  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p7f-unit_fatality::snake5-knight · `score` → **null**  
+  0 [-0.0648, 0.0648] over 16 blocks; null half-width 0.0638  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p7f-unit_fatality::snake5-knight · `deathsSelf` → **null**  
+  0 [-0.0917, 0.0917] over 16 blocks; null half-width 0.0786  
+  <sub>live · null verified · engagement shown · lower-is-better</sub>
+- **20260831-batch2** · p7f-unit_fatality::null-snake6 · `sharePar` → **null**  
+  0.1542 [0.0249, 0.2835] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p7f-unit_fatality::null-snake6 · `score` → **null**  
+  0.0104 [-0.0118, 0.0326] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p7f-unit_fatality::null-snake6 · `deathsSelf` → **null**  
+  -0.125 [-0.4283, 0.1783] over 16 blocks; null half-width 0.1859  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/41 blocks)</sub>
 
 **Verdict.** Alive, unpromoted, and cheaper than it looked. It costs nothing measurable in placement (16 blocks against the pooled stratum's 58, so "no cost this cell could resolve"), it demonstrably runs, and on null-snake6 exhaustion deaths FALL under it (39 -> 33). What it has still never been shown to do is buy anything on its own. Note the asymmetry the batch settled: the cl-both arm reproduces the seed's collapse almost exactly (-0.573 vs -0.594; 72 deaths vs 75), so the cost in that pair is the seed's and not the pair's — but equally, the classifier is not a repair for the seed. MACHINE INGEST, 20260829: the "16 blocks against the pooled stratum's 58" reading is now contested by the batch's own dispersion. Computed from each cell's measured block SD instead of the pooled prior, 16 blocks resolves an MDE of 0.25 on all three cells (blocksNeeded 1, 3 and 8). That is true and it is not the question: the cost being looked for is two or three points, not twenty-five. P7F stays scheduled, and the rule that keeps it scheduled is now batch-scoped rather than reading whichever row was appended last — see MDE-HARDCODED and LIVE-NULL-IS-TERMINAL. Per-game rows also confirm the classifier is a near-exact no-op on unit loss: 53 -> 52 on null-snake6, 209 -> 209 on snake5-knight, and 48 of 48 teams alive at the end on the cell the seed destroys. SOURCE AND PER-GAME, 20260829 — NULL, AND SAFE TO PROMOTE ALONE. Three things the batch already contains, stated together for the first time: placement is NULL on every cell it ran; it PROVABLY ENGAGES (plans per decision +109.9 [+28.3, +191.5] ✱ on snake5-knight — a retired counter, quoted only as a broken-arm diagnostic, but it says the arm ran); and it is PROVABLY ORDER-PRESERVING — on null-snake6 it holds paired trajectory correlation at +0.912 with 45 of 48 games identical in length, against the A/A pair's 44 of 48, exactly as cl1-report.md's candidate-order test promises. Add exhaustion deaths FALLING under it on the two cells that matter (39 -> 33 on null-snake6, 16 -> 15 on headline-mix-king) and a near-exact no-op on total unit loss, and this flag should be taken forward ON ITS OWN EVIDENCE rather than as part of the cluster seed it was only ever entangled with by the cl-both arm. THE STATUS DOES NOT MOVE ON THIS PARAGRAPH AND MAY NOT: `supported` takes a supports-promotion row from a live paired sweep with a verified null AND engagement SHOWN by a counter, and batch 1 is structurally incapable of writing one — no 20260827 bundle carries the CL7 mechanism block (ENGAGEMENT-SOURCES). live-null stands and P7F stays scheduled; what changes is what P7F is FOR — a promotion experiment for a flag with a clean standalone safety case, not a rescue attempt for the seed.
 
@@ -324,7 +377,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 - **Power:** PIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.
 - Requires: MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (headline-mix-king, snake5-knight) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.
 
-### `CENTAUR_EDGE_EV` — probe only
+### `CENTAUR_EDGE_EV` — live null
 
 *CL2. Rung-1/2 edge-EV ordering pass; one composed EV in one slot, below every material-class key and above healthSpent.*
 
@@ -338,6 +391,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 |---|---|---|---|
 | `uncontestedMealsStaged` | mechanism | **NO** | replay: staged eats — **gap:** The harness counts deaths and health, not staged eats by contest class. Mining the replay's per-turn food events supplies it; recorded as a ledger gap. |
 | `mealsEaten` | mechanism | yes | replay: weight increases |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -350,6 +404,24 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
   plans differ 8/60; uncontested meals staged 5 -> 8; contested 0 -> 0; meals EATEN 84 -> 81; fatal stagings 19 -> 19  
   <sub>probe · no null</sub>
   > Meals staged rose and meals eaten FELL. That is the tension a live arm has to adjudicate, and it is why the flag ships off.
+- **20260831-batch2** · p12-edge_ev::headline-mix-king · `sharePar` → **null**  
+  -0.1769 [-0.7615, 0.4077] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/152 blocks)</sub>
+- **20260831-batch2** · p12-edge_ev::headline-mix-king · `score` → **null**  
+  -0.0417 [-0.1362, 0.0529] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p12-edge_ev::snake5-queen · `sharePar` → **null**  
+  -0.1262 [-0.398, 0.1457] over 16 blocks; null half-width 0.3175  
+  <sub>live · null verified · engagement shown · underpowered (16/33 blocks)</sub>
+- **20260831-batch2** · p12-edge_ev::snake5-queen · `score` → **null**  
+  -0.0625 [-0.1788, 0.0538] over 16 blocks; null half-width 0.1179  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p12-edge_ev::null-snake6 · `sharePar` → **null**  
+  0.046 [-0.0339, 0.126] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p12-edge_ev::null-snake6 · `score` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
 
 **Verdict.** Mechanism exists and is confined to piece boards. Never raced live.
 
@@ -379,6 +451,7 @@ Counts: 1 LIVE FAILED, 1 frozen, 3 live null, 6 probe only, 1 supported — sele
 | `clusterJoints` | mechanism | yes (CL7) | MechanismReport.cluster.jointsEnumerated |
 | `clusterEnumMs` | mechanism | yes (CL7) | MechanismReport.cluster.enumMs |
 | `proposalsPriced` | mechanism | yes (CL7) | MechanismReport.cluster |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -408,7 +481,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 - **WITHDRAWN:** WITHDRAWN 20260830 BY THE TEARDOWN, NOT BY A RESULT — and withdrawn rather than replaced, because the question it asked no longer exists to be asked. Both halves are unbuildable and for different reasons. (1) The enumeration has no off arm: `off` names a build that was deleted, so an on-vs-off pair cannot be built out of two post-teardown bundles at all. It is not that the arm is hard to express — there is no configuration of the shipped engine in which the enumeration does not run. (2) The joint arm's partner is gone too: CENTAUR_CLUSTER_SEED's greedy seed, flag and tests were deleted in the same teardown, so `enum-on+seed-graded` names two things that no longer exist. Nothing here is a verdict: this row keeps `probe-passed` and keeps its deterministic evidence, which stands as measured. AND THIS DOES NOT RESOLVE THE OPEN FINDING ABOVE — if the owner rules that the two unpromoted features must ship default-OFF until a live sweep promotes them, the off arm becomes expressible as a config field and this experiment is re-specifiable close to as written. That is exactly why it is withdrawn with its reason rather than deleted. UPDATED 20260830: the owner ruling that dissolved the pending default decision also settles this. There is no branch of the decision on which the enumeration becomes a config field with an off arm — it is always-built machinery on the search-architecture branch, and that branch's fate is decided as a whole by P11's cross-branch arm. So this row's question is not merely blocked, it is subsumed: whatever P11 says about the branch, it says about the enumeration, because there is no bundle in which one runs and the other does not. It stays WITHDRAWN with its reason, and `probe-passed` stays, because a subsumed question is still not an answered one.
 
 
-### `CENTAUR_SAMPLED_CAP` — probe only
+### `CENTAUR_SAMPLED_CAP` — live null
 
 *CL4. Seeded weighted candidate sampling where a cap binds: the cap becomes a sample, Gumbel-top-k returns a permutation.*
 
@@ -424,6 +497,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 | `selectionDraws` | mechanism | yes (CL7) | MechanismReport.selection.draws |
 | `matchSeed` | audit | yes (CL7) | EmitRecord.selection.matchSeed Was UNREACHABLE in production before CL7 — tapWitnesses dropped selectionReport, so no live record ever carried the seed a replay needs. |
 | `ceilingDecided` | mechanism | yes (CL7) | MechanismReport.adjudication.ceilingDecided L17, optimism-never-promotes. CL4 owes a before/after on it. |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -432,6 +506,33 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
   FAR options priced 0->7 / 0->22 / 1->72; fatal stagings 0->0 and teammate deaths 0->0 at every q; plans differ 1/40, 9/40, 11/40  
   <sub>probe · no null</sub>
   > Byte-identical replay against a21db07 with the flag off, 26/26. Two probe-forced design changes landed: draws only where a cap binds, and the unit-order channel ships OFF.
+- **20260831-batch2** · p9-sampled_cap::headline-mix-king · `sharePar` → **null**  
+  -0.1256 [-0.5945, 0.3432] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/98 blocks)</sub>
+- **20260831-batch2** · p9-sampled_cap::headline-mix-king · `score` → **null**  
+  0.0104 [-0.0894, 0.1102] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p9-sampled_cap::headline-mix-king · `ceilingDecided` → **null**  
+  -266.0833 [-566.0175, 33.8508] over 16 blocks; null half-width 392.8429  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/39804530 blocks)</sub>
+- **20260831-batch2** · p9-sampled_cap::snake5-queen · `sharePar` → **null**  
+  0.0988 [-0.187, 0.3847] over 16 blocks; null half-width 0.3175  
+  <sub>live · null verified · engagement shown · underpowered (16/37 blocks)</sub>
+- **20260831-batch2** · p9-sampled_cap::snake5-queen · `score` → **null**  
+  0.0417 [-0.0683, 0.1516] over 16 blocks; null half-width 0.1179  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p9-sampled_cap::snake5-queen · `ceilingDecided` → **null**  
+  -2852.0208 [-4853.78, -850.2617] over 16 blocks; null half-width 2616.5391  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/1772981991 blocks)</sub>
+- **20260831-batch2** · p9-sampled_cap::null-snake6 · `sharePar` → **null**  
+  -0.0138 [-0.1281, 0.1005] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p9-sampled_cap::null-snake6 · `score` → **null**  
+  0 [0, 0] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p9-sampled_cap::null-snake6 · `ceilingDecided` → **null**  
+  -565.2917 [-963.8232, -166.7601] over 16 blocks; null half-width 455.4371  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/70275857 blocks)</sub>
 
 **Verdict.** The door i2's falsifier needs, open at zero cost in fatal stagings. Never raced live.
 
@@ -444,7 +545,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 - **Power:** PIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.
 - Requires: MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (headline-mix-king, snake5-queen) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.
 
-### `CENTAUR_TERRITORY_REFINE` — probe only
+### `CENTAUR_TERRITORY_REFINE` — live null
 
 *CL5. Door C: re-sweeps the two-plane partition with held units' floods stopped at cells our enumerated units certainly occupy; publishes the MEET at the same basis.*
 
@@ -460,6 +561,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 | `refineMovedLo` | mechanism | yes (CL7) | MechanismReport.refine.movedLo |
 | `refineInverted` | soundness | yes (CL7) | MechanismReport.refine.inverted MUST BE ZERO. Two sound bounds on one quantity cannot be disjoint. |
 | `worstWallMs` | cost | yes | manifest health row |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -468,6 +570,33 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
   floor rose on 14/57 emissions (24.6%) by 1-2 cells of 121 (+0.008..+0.017); zero falls; zero ceiling movement; zero argmax flips at 40 ms or 120 ms; cost +22 microseconds per EVALUATION (x1.32 territory time)  
   <sub>probe · no null</sub>
   > The brief's '<20us/decision' was MIS-DENOMINATED — the cost is per-eval and cannot be hoisted. Zero argmax flips means the deterministic probe cannot answer whether it pays.
+- **20260831-batch2** · p10-territory_refine::headline-mix-king · `sharePar` → **null**  
+  -0.0639 [-0.8329, 0.7052] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/262 blocks)</sub>
+- **20260831-batch2** · p10-territory_refine::headline-mix-king · `score` → **null**  
+  -0.0104 [-0.1708, 0.15] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p10-territory_refine::headline-mix-king · `worstWallMs` → **null**  
+  5.5417 [-14.3539, 25.4372] over 16 blocks; null half-width 21.7544  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/175143 blocks)</sub>
+- **20260831-batch2** · p10-territory_refine::hazard-mix-king · `sharePar` → **null**  
+  -0.3371 [-0.9073, 0.233] over 16 blocks; null half-width 0.7893  
+  <sub>live · null verified · engagement shown · underpowered (16/144 blocks)</sub>
+- **20260831-batch2** · p10-territory_refine::hazard-mix-king · `score` → **null**  
+  -0.0625 [-0.1591, 0.0341] over 16 blocks; null half-width 0.1551  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p10-territory_refine::hazard-mix-king · `worstWallMs` → **null**  
+  -0.1042 [-12.983, 12.7747] over 16 blocks; null half-width 4.8505  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/73390 blocks)</sub>
+- **20260831-batch2** · p10-territory_refine::null-snake6 · `sharePar` → **null**  
+  -0.0795 [-0.1663, 0.0073] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p10-territory_refine::null-snake6 · `score` → **null**  
+  -0.0104 [-0.0326, 0.0118] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p10-territory_refine::null-snake6 · `worstWallMs` → **null**  
+  5.1667 [-11.6646, 21.998] over 16 blocks; null half-width 10.4931  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/125348 blocks)</sub>
 
 **Verdict.** Sound by brute force; the question is entirely economic and entirely live.
 
@@ -480,7 +609,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 - **Power:** PIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.
 - Requires: MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (hazard-mix-king, headline-mix-king) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.
 
-### `CENTAUR_SCOUT` — probe only
+### `CENTAUR_SCOUT` — live null
 
 *CL6a. Door A: a real EngineSubstrate at ply n+1 built from a ply-n Resolution; thread ledger, parking, advisory ordering only.*
 
@@ -498,6 +627,7 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
 | `scoutRefusals` | mechanism | yes (CL7) | MechanismReport.scout.refusals A door that refused every board must read as a refusal, not as a zero — CL6a's own correction. |
 | `postContactPlies` | mechanism | yes (CL7) | MechanismReport.scout.postContactPlies |
 | `worstWallMs` | cost | yes | manifest health row |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -506,6 +636,105 @@ THE LIVE PAIRED SWEEP IS OWED EITHER WAY. Only a live paired sweep with a verifi
   6.75 threads / 19.2 plies / 16.8 ms per decision; 79.7% of ALL thread depth is post-contact (613/769 plies); flag-off moved ZERO emissions and +0.00% work counters  
   <sub>probe · no null</sub>
   > The owner's section 7.1 ruling (post-contact continuation is a primary mode) is empirically vindicated: without degraded continuation the scout delivers a fifth of its depth.
+- **20260831-batch2** · p11-scout::headline-mix-king · `sharePar` → **null**  
+  -0.3945 [-0.9507, 0.1617] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/137 blocks)</sub>
+- **20260831-batch2** · p11-scout::headline-mix-king · `score` → **null**  
+  -0.0938 [-0.2059, 0.0184] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p11-scout::headline-mix-king · `worstWallMs` → **null**  
+  26.4167 [0.1682, 52.6652] over 16 blocks; null half-width 21.7544  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/304854 blocks)</sub>
+- **20260831-batch2** · p11-scout::hazard-mix-king · `sharePar` → **null**  
+  -0.6343 [-1.2607, -0.008] over 16 blocks; null half-width 0.7893  
+  <sub>live · null verified · engagement shown · underpowered (16/174 blocks)</sub>
+- **20260831-batch2** · p11-scout::hazard-mix-king · `score` → **null**  
+  -0.125 [-0.2485, -0.0015] over 16 blocks; null half-width 0.1551  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p11-scout::hazard-mix-king · `worstWallMs` → **null**  
+  6.4375 [-4.0418, 16.9168] over 16 blocks; null half-width 4.8505  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/48590 blocks)</sub>
+- **20260831-batch2** · p11-scout::null-snake6 · `sharePar` → **null**  
+  -0.0684 [-0.2355, 0.0987] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p11-scout::null-snake6 · `score` → **null**  
+  0 [-0.0324, 0.0324] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p11-scout::null-snake6 · `worstWallMs` → **failed**  
+  38.5 [29.3381, 47.6619] over 16 blocks; null half-width 10.4931  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/37141 blocks)</sub>
+- **20260831-batch2** · p11-scout::headline-mix-king · `scoutPlies` → **outside-null-unscored**  
+  -1481.0625 [-1764.8314, -1197.2936] over 16 blocks; null half-width 327.2661  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/35629548 blocks)</sub>
+- **20260831-batch2** · p11-scout::headline-mix-king · `scoutThreads` → **outside-null-unscored**  
+  -1592.0625 [-1868.3668, -1315.7582] over 16 blocks; null half-width 371.649  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/33779711 blocks)</sub>
+- **20260831-batch2** · p11-scout::hazard-mix-king · `scoutPlies` → **outside-null-unscored**  
+  -1491.9167 [-1754.7399, -1229.0934] over 16 blocks; null half-width 302.157  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/30563866 blocks)</sub>
+- **20260831-batch2** · p11-scout::hazard-mix-king · `scoutThreads` → **outside-null-unscored**  
+  -1566.1667 [-1812.8525, -1319.4808] over 16 blocks; null half-width 311.8959  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/26925831 blocks)</sub>
+- **20260831-batch2** · p11-scout::null-snake6 · `scoutPlies` → **outside-null-unscored**  
+  -1256.4167 [-1320.9262, -1191.9071] over 16 blocks; null half-width 39.6024  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/1841317 blocks)</sub>
+- **20260831-batch2** · p11-scout::null-snake6 · `scoutThreads` → **outside-null-unscored**  
+  -1399.7917 [-1462.3431, -1337.2403] over 16 blocks; null half-width 40.8911  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/1731231 blocks)</sub>
+- **20260831-batch2** · p16-budget-1000::headline-mix-king@1000 · `sharePar` → **unreadable**  
+  -0.0313 [-1.0824, 1.0198] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/199 blocks)</sub>
+- **20260831-batch2** · p16-budget-1000::headline-mix-king@1000 · `score` → **unreadable**  
+  0.0833 [-0.1637, 0.3304] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/11 blocks)</sub>
+- **20260831-batch2** · p16-budget-1000::headline-mix-king@1000 · `worstWallMs` → **unreadable**  
+  67.5417 [24.8831, 110.2002] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/326865 blocks)</sub>
+- **20260831-batch2** · p16-budget-1000::null-snake6@1000 · `sharePar` → **unreadable**  
+  0.156 [-0.0922, 0.4043] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/12 blocks)</sub>
+- **20260831-batch2** · p16-budget-1000::null-snake6@1000 · `score` → **unreadable**  
+  0.0208 [-0.0284, 0.0701] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-1000::null-snake6@1000 · `worstWallMs` → **unreadable**  
+  16.6667 [7.7129, 25.6204] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/14401 blocks)</sub>
+- **20260831-batch2** · p16-budget-2000::headline-mix-king@2000 · `sharePar` → **unreadable**  
+  -0.4499 [-1.0087, 0.109] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/57 blocks)</sub>
+- **20260831-batch2** · p16-budget-2000::headline-mix-king@2000 · `score` → **unreadable**  
+  -0.1042 [-0.2079, -0.0005] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-2000::headline-mix-king@2000 · `worstWallMs` → **unreadable**  
+  19.5417 [-1.3385, 40.4218] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/78312 blocks)</sub>
+- **20260831-batch2** · p16-budget-2000::null-snake6@2000 · `sharePar` → **unreadable**  
+  0.1228 [-0.0251, 0.2707] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-2000::null-snake6@2000 · `score` → **unreadable**  
+  0 [0, 0] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-2000::null-snake6@2000 · `worstWallMs` → **unreadable**  
+  37.6667 [19.0315, 56.3018] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/62377 blocks)</sub>
+- **20260831-batch2** · p16-budget-500::headline-mix-king@500 · `sharePar` → **unreadable**  
+  0.3595 [-0.1589, 0.8779] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/49 blocks)</sub>
+- **20260831-batch2** · p16-budget-500::headline-mix-king@500 · `score` → **unreadable**  
+  0.0625 [-0.0853, 0.2103] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-500::headline-mix-king@500 · `worstWallMs` → **unreadable**  
+  314.75 [151.8437, 477.6563] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/4766843 blocks)</sub>
+- **20260831-batch2** · p16-budget-500::null-snake6@500 · `sharePar` → **unreadable**  
+  0.1036 [-0.1551, 0.3623] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · underpowered (8/13 blocks)</sub>
+- **20260831-batch2** · p16-budget-500::null-snake6@500 · `score` → **unreadable**  
+  0 [0, 0] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown</sub>
+- **20260831-batch2** · p16-budget-500::null-snake6@500 · `worstWallMs` → **unreadable**  
+  13.5417 [1.1593, 25.9241] over 8 blocks; null half-width null  
+  <sub>live · no null · engagement shown · lower-is-better · underpowered (8/27541 blocks)</sub>
 
 **Verdict.** The scout exists and is advisory. Its cost is real (16.8 ms/decision) and its value has never been raced.
 
@@ -539,7 +768,7 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ: 73 PER CELL. Below that this spec is a DESC
 
 MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (hazard-mix-king, headline-mix-king) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.
 
-### `CENTAUR_WORKERS` — probe only
+### `CENTAUR_WORKERS` — live null
 
 *W1. Evaluation worker pool, one worker per spare core capped at three.*
 
@@ -554,6 +783,7 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec i
 | `workers` | audit | yes (CL7) | MechanismReport.flags.workers The RESOLVED count, not the setting. `auto` on a 24-core box and `auto` on a 4-core box are different arms. |
 | `decisions` | mechanism | yes | manifest health row |
 | `worstWallMs` | cost | yes | manifest health row |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -602,6 +832,30 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec i
 - **20260827-overnight** · p1-substrate-headline::snake5-queen · `decisions` → **unreadable**  
   2.4375 [-2.3477, 7.2227] over 16 blocks; null half-width null  
   <sub>live · no null · **ENGAGEMENT NOT SHOWN** (cannot say) · contextual · underpowered (16/10132 blocks)</sub>
+- **20260831-batch2** · p13-workers::headline-mix-king · `sharePar` → **null**  
+  0.1939 [-0.3782, 0.7661] over 16 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (16/145 blocks)</sub>
+- **20260831-batch2** · p13-workers::headline-mix-king · `score` → **null**  
+  0.0417 [-0.073, 0.1563] over 16 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p13-workers::headline-mix-king · `decisions` → **null**  
+  3.5208 [-9.9148, 16.9564] over 16 blocks; null half-width 14.4205  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/79872 blocks)</sub>
+- **20260831-batch2** · p13-workers::headline-mix-king · `worstWallMs` → **null**  
+  -4.2708 [-13.1761, 4.6344] over 16 blocks; null half-width 21.7544  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/35090 blocks)</sub>
+- **20260831-batch2** · p13-workers::null-snake6 · `sharePar` → **null**  
+  -0.12 [-0.2429, 0.0029] over 16 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p13-workers::null-snake6 · `score` → **null**  
+  -0.0313 [-0.0978, 0.0353] over 16 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · p13-workers::null-snake6 · `decisions` → **null**  
+  -1.4583 [-5.0669, 2.1502] over 16 blocks; null half-width 1.7722  
+  <sub>live · null verified · engagement shown · contextual · underpowered (16/5762 blocks)</sub>
+- **20260831-batch2** · p13-workers::null-snake6 · `worstWallMs` → **null**  
+  -0.7083 [-11.1422, 9.7255] over 16 blocks; null half-width 10.4931  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (16/48170 blocks)</sub>
 
 **Verdict.** Throughput is measured and real ON A PROTOTYPE BENCH; strength is bounded and null; and the batch that bounded strength did NOT confirm the speed. P1`s placement null is solid. Its wall-clock rows run mildly against the substrate (+4.02 ✱ queen, +1.92 ✱ snake6 worst-case ms), so "speed, not strength" is a claim resting on the w1-bench probe and on prior benchmark work, NOT on batch 1 — which is worth stating plainly because it is the citation the program has been making. The pool has still never been raced as an isolated arm.
 
@@ -627,6 +881,7 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec i
 |---|---|---|---|
 | `tierTruth` | audit | yes (CL7) | MechanismReport.flags.tierTruth |
 | `boundsInversions` | soundness | yes | manifest health row RETIRED as a verdict on a live arm — budget-noise dominated. Read it only as a broken-arm diagnostic, or under a fixed-tick StepClock A/A. |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -677,6 +932,7 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec i
 |---|---|---|---|
 | `admissionRate` | mechanism | **NO** | arch/s2 governor counters — **gap:** The governor lives on a branch CL7 did not touch, so its counters are not in the mechanism report. Closing this needs the arch/s2 merge, not a CL7 change. |
 | `assumptionRate` | mechanism | yes | manifest health row |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -748,6 +1004,7 @@ MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec i
 
 | metric | family | emitted | source |
 |---|---|---|---|
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 | `finalMaterial` | mechanism | yes | manifest row |
 
@@ -828,6 +1085,7 @@ instrument and move no status in either direction.
 |---|---|---|---|
 | `stagingSafety` | audit | yes (CL7) | MechanismReport.flags.stagingSafety The RESOLVED level. `auto` is board-conditional, so the raw setting is not the arm. |
 | `deathsSelf` | mechanism | yes | replay events |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -836,6 +1094,33 @@ instrument and move no status in either direction.
   the guard HELPS on piece boards and REGRESSES on snake-only ones — which is the ship condition, not a wash  
   <sub>live · null verified · engagement shown</sub>
   > The sign flip by roster is why the promoted default is `auto` and not `full`. A treatment measured on one roster has been measured on one roster.
+- **20260831-batch2** · x9-exploration-slice::headline-mix-king · `sharePar` → **null**  
+  -0.3954 [-1.8827, 1.0919] over 4 blocks; null half-width 0.7413  
+  <sub>live · null verified · engagement shown · underpowered (4/110 blocks)</sub>
+- **20260831-batch2** · x9-exploration-slice::headline-mix-king · `score` → **null**  
+  -0.125 [-0.4587, 0.2087] over 4 blocks; null half-width 0.1605  
+  <sub>live · null verified · engagement shown · underpowered (4/6 blocks)</sub>
+- **20260831-batch2** · x9-exploration-slice::headline-mix-king · `deathsSelf` → **supports-promotion**  
+  0.5 [0.1938, 0.8062] over 4 blocks; null half-width 0.0648  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (4/5 blocks)</sub>
+- **20260831-batch2** · x9-exploration-slice::snake5-queen · `sharePar` → **null**  
+  0.3685 [-0.5795, 1.3165] over 4 blocks; null half-width 0.3175  
+  <sub>live · null verified · engagement shown · underpowered (4/45 blocks)</sub>
+- **20260831-batch2** · x9-exploration-slice::snake5-queen · `score` → **null**  
+  0.125 [-0.1289, 0.3789] over 4 blocks; null half-width 0.1179  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · x9-exploration-slice::snake5-queen · `deathsSelf` → **null**  
+  0.5833 [-0.2122, 1.3788] over 4 blocks; null half-width 0.1481  
+  <sub>live · null verified · engagement shown · lower-is-better · underpowered (4/32 blocks)</sub>
+- **20260831-batch2** · x9-exploration-slice::null-snake6 · `sharePar` → **null**  
+  -0.0196 [-0.148, 0.1087] over 4 blocks; null half-width 0.1172  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · x9-exploration-slice::null-snake6 · `score` → **null**  
+  0 [0, 0] over 4 blocks; null half-width 0.0324  
+  <sub>live · null verified · engagement shown</sub>
+- **20260831-batch2** · x9-exploration-slice::null-snake6 · `deathsSelf` → **null**  
+  -0.0833 [-0.3485, 0.1818] over 4 blocks; null half-width 0.1859  
+  <sub>live · null verified · engagement shown · lower-is-better</sub>
 
 **Verdict.** Promoted as a BOARD-CONDITIONAL default. Owes an exploration slice.
 
@@ -859,6 +1144,7 @@ instrument and move no status in either direction.
 |---|---|---|---|
 | `gainOrdering` | audit | yes (CL7) | MechanismReport.flags.gainOrdering |
 | `mealsEaten` | mechanism | yes | replay: weight increases |
+| `sharePar` | placement | yes | manifest row THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized. |
 | `score` | placement | yes | manifest row |
 
 **Measurements:**
@@ -921,6 +1207,61 @@ Owner-approved program questions that are not any one flag's promotion.
 - Still owed: P5's engagement question -- `wasmRuns` does not exist in these bundles. Only P5R answers it; no amount of mining can.
 - Still owed: death CAUSE per game -- deaths-p7.json is the only source and it is a replay product. The manifests carry only WHETHER and WHEN a team was eliminated.
 - Still owed: the DETECTOR flip rate -- unchanged, still needs detector state on the emission path.
+
+### 20260831-batch2
+
+- Games: 2472
+- Ingest: **RAN, READ-ONLY FIRST, THEN THE DELIBERATE --write PASS**
+- THE DELIVERY'S PUBLISHED NUMBERS ARE CORRECT, and that was checked rather than assumed. 816 published delta values across 11 pair files and 29 cells were recomputed from the raw manifests by an independent implementation; 0 disagreed beyond a single rounding tie. The seat bug DID NOT contaminate them: every published table declared `--subject lobster-territory`, and the A/A floors — produced by a tool with no such flag, which guessed — happened to guess the same seat.
+- Floors measured on: lobster-territory. THE FLOOR IS A PROPERTY OF ONE SEAT and this batch is the first to say which. verify-null.js chose the seat by reading the first row of the manifest, which is a race (completion order, rotating seats); it happened to land on lobster-territory, and had it landed on lobster-material this batch's tightest board would have carried a `score` floor of +/-0.0725 instead of +/-0.0324 — 2.2x wider, and every verdict in the batch read against it. Fixed on sim/worker-kit 20260831: the tool now derives or refuses.
+- Floor coverage: FIVE BOARDS FLOORED, THREE OF THEM FOR THE FIRST TIME (snake5-queen, snake5-knight, hazard-mix-king). NO BUDGET RUNG BUT 2000 ms IS FLOORED: the A/A ran only at 2000 ms, and P16's cells are named `<board>@<ms>`, so the 500 ms and 1000 ms rungs have NO floor of their own and their placement rows are UNREADABLE rather than null. Noise at 500 ms is not noise at 2000 ms — that the two differ is the experiment's own hypothesis — so the 2000 ms floor may not be lent to them. Batch 3 must floor every rung it races.
+- **Readable test:** THE WHOLE INTERVAL CLEAR OF THE BAND, not the point estimate. Of 79 deltas in this batch whose 95% interval excludes zero, only 26 clear their own A/A half-width; 50 sit inside it and 3 are on counters whose A/A itself excludes zero. The batch write-up applied this test to its PLACEMENT rows and the looser "excludes zero" to its MECHANISM rows, which is why its headline reads "the mechanism rows are where the information is". Held to one standard, the mechanism rows that survive are P11b's depth ration (10 rows, up to 5x the floor), P16's deadline breach (up to 90x), P11a's wall-clock and ratchet rows, P9 on null-snake6 only, and X9's deathsSelf. P7F has none.
+- Integrity: illegal 0, errors 3
+  > - `nullA/n0-aa-null::snake5-queen-s54506-r1, lobster-territory, turn 105`
+  > - `default/p9-sampled_cap::snake5-queen-s69705-r0, lobster-territory, turn 78`
+  > - `sampled-cap/p9-sampled_cap::snake5-queen-s69711-r1, lobster-territory, turn 103`
+  > **Root cause:** ONE DEFECT, NOT THREE, AND IT IS NAMED. All three replays carry the same thrown decision: `BoundsInversionError: inverted ScoreBounds [lo, hi]: bank floor=B0 ceiling=B3 [bounds_inversion]`, with the floor above the ceiling by 0.0150, 0.0186 and 0.0196 on scores of 60.0, 251.3 and 149.8 — a RELATIVE gap of 1e-4 to 3e-4, three to four orders of magnitude below the quantities being compared. That is a floating-point accumulation signature, not a logic error: the B0 floor and the B3 ceiling are reached by different accumulation paths and their rounding diverges. The categorical case — a DEAD ceiling under a finite floor — was fixed at 018d780 and that fix IS in this build; this is the residual NUMERICAL case, which wants a tolerance rather than a rewrite. CO-OCCURRENCE IS EXACT: over 5,520 lobster game-seats in this batch, `errors > 0`, `stagedNothing > 0` and `unstaged > 0` are true on the same three seats and on no others. A thrown decision emits nothing, so the cost in play is a FORFEITED TURN. ALL THREE ARE ON snake5-queen — the board this batch measures at 4.23 ms of enumeration per cluster joint, ten times any other board, i.e. the deepest accumulation chains in the batch. Rate ~1 in 104 games on that board (3 of 312 lobster-territory game-seats) and zero on every other board. Not arm-specific: it fired on an untreated nullA build.
+  > **Instrument gap:** THE `boundsInversions` COUNTER DID NOT SEE IT. nullA/snake5-queen-s54506-r1 threw a BoundsInversionError and recorded `boundsInversions: 0`. The counter that names this failure does not count the instance of it that killed a decision — and it is RETIRED, so nothing watches it either. Whatever increments it is not the throw site.
+  > lib/drift.js raised three `integrity` events and its rule is that a nonzero integrity counter voids the BATCH. Applied as in batch 1: the rate is ~1.5e-5 per decision, the failure is understood, its blast radius is one forfeited turn, and all three games were still won by the affected bot. The verdicts stand and the defect is carried as a named engine item rather than as a reason to discard 2,472 games.
+- Instrument events:
+  - `null-band-widened` n0-aa-null::headline-mix-king/`score`
+  - `null-band-widened` n0-aa-null::headline-mix-king/`place`
+  - `null-band-widened` n0-aa-null::headline-mix-king/`worstWallMs`
+  - `null-band-widened` n0-aa-null::null-snake6/`worstWallMs`
+  - `null-band-widened` n0-aa-null::null-snake6/`turns`
+  - `null-band-widened` n0-aa-null::null-snake6/`decisions`
+  - `null-excludes-zero` n0-aa-null::snake5-queen/`ceilingDecided`
+  - `null-excludes-zero` n0-aa-null::snake5-queen/`deathsExhaustion`
+  - `null-excludes-zero` n0-aa-null::null-snake6/`capped`
+  - `null-excludes-zero` n0-aa-null::null-snake6/`decisive`
+  - `null-excludes-zero` n0-aa-null::null-snake6/`ratchetRate`
+  - `null-excludes-zero` n0-aa-null::headline-mix-king/`deathsTeammate`
+  - `null-excludes-zero` n0-aa-null::headline-mix-king/`ratchetRate`
+  - `integrity` n0-aa-null::snake5-queen [nullA]
+  - `integrity` p9-sampled_cap::snake5-queen [default]
+  - `integrity` p9-sampled_cap::snake5-queen [sampled-cap]
+  - `overrun` p16-budget-500::headline-mix-king@500 [perf-substrate]
+  - `cap-rate-asymmetry` p11-scout::headline-mix-king
+  - `cap-rate-asymmetry` p11-scout::hazard-mix-king
+  - `cap-rate-asymmetry` x9-exploration-slice::headline-mix-king
+  - `cap-rate-asymmetry` p16-budget-1000::headline-mix-king@1000
+  - `cap-rate-asymmetry` p16-budget-2000::headline-mix-king@2000
+  - `cap-rate-asymmetry` p13-workers::headline-mix-king
+  - `cap-rate-asymmetry` n0-aa-null::hazard-mix-king
+  > widened: headline-mix-king/score +/-0.0973 -> +/-0.1605 (x1.65)
+  > widened: headline-mix-king/place +/-0.1945 -> +/-0.3210 (x1.65)
+  > widened: headline-mix-king/worstWallMs +/-7.373 -> +/-21.754 (x2.95)
+  > widened: null-snake6/worstWallMs +/-0.591 -> +/-10.493 (x17.76)
+  > widened: null-snake6/turns and /decisions +/-0.837 -> +/-1.772 (x2.12)
+  > THE WIDENING IS NOT CONFINED TO THE MIX-KING BOARDS, and the batch write-up's "it is not the box" does not survive flooring every metric rather than only `score`. That argument rests on `null-snake6` reproducing batch 1's `score` floor to three decimals (+/-0.0324 vs +/-0.032) — which it does. But the SAME cell's wall-clock floor widened SEVENTEENFOLD, 0.59 ms to 10.49 ms, and its game-length floor doubled. A snake board whose games are decided by the 120-turn cap rather than by timing is simply insensitive in the placement column to a timing perturbation that is plainly present in the timing column. Load average was 21-24 of 24 cores. So the widening corroborates the open Cell-Quality item LESS than the write-up claims, and run conditions MORE.
+  > no floor: snake5-queen/ceilingDecided: the A/A itself reads -3407.67 [-6024.21, -791.13]. NO FLOOR EXISTS for this counter on this board, and P9 quotes -2852.02 on it as a headline mechanism separation — a SMALLER move than the null's own.
+  > no floor: null-snake6/capped +0.0833 [0.0039, 0.1628] and /decisive -0.0833: two identical builds differ in how often the game reaches the turn cap.
+  > no floor: headline-mix-king/deathsTeammate +0.1458 [0.0167, 0.2750]
+  > no floor: headline-mix-king/ratchetRate, null-snake6/ratchetRate, snake5-queen/deathsExhaustion
+- Machine vs the hand fold: **816 confirmed, 4 refined, 2 contradicted, 0 not recomputable.** Confirmed = published delta values recomputed exactly. REFINED: (1) the 500 ms and 1000 ms budget rungs are UNREADABLE, not null — no A/A floor exists at those budgets; (2) of 79 rows whose interval excludes zero, only 26 clear their own A/A half-width, so most of the batch's starred mechanism rows do not survive the test its placement rows were held to; (3) the three decision errors are one named defect on one board, not a scattered rate; (4) the 500 ms deadline-miss figure is 21.8% as a per-game mean of rates and 13.2% decisions-weighted. CONTRADICTED: (1) "it is not the box" — the floor widening is not confined to the mix-king boards once every metric is floored (null-snake6 worstWallMs x17.76); (2) P9's snake5-queen `ceilingDecided` separation is smaller than the A/A's own reading on the same counter.
+- Still owed: A `fatalStagings` counter. CENTAUR_UNIT_FATALITY's own promoted claim is about fatal stagings and no build emits the count, so P7F cannot test the thing the classifier is for — on headline-mix-king NOT ONE death-by-cause row moves, while finalMaterial and survived both fall. A classifier that changes what is held and who survives without changing how anyone dies is refusing profitable stagings, not preventing fatal ones. That is a mechanism claim and it is untestable until the counter exists.
+- Still owed: An A/A floor at every budget rung P16 races.
+- Still owed: A second A/A null on the BASELINE bundle, so P11's baseline arm has a floor of its own.
 
 ## Open instrument items
 

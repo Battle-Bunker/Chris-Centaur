@@ -84,6 +84,22 @@ function rowsFor(armName, { jitterSeed, effect }) {
         const place = score > 0.75 ? 1 : score > 0.35 ? 2 : 3;
         const capped = r() < (cellEffect.capRate ?? 0.2);
         const decisions = 40 + Math.floor(r() * 10);
+        /*
+         * THE END WEIGHTS CARRY THE PLANTED ANSWER TOO.
+         *
+         * `sharePar` — the objective since the 2026-08-29 ruling — is share of
+         * total end weight x teams, so a fixture whose weights are a STEP
+         * FUNCTION OF `place` plants its effect in the rank column and not in
+         * the objective. It did until 20260831: the planted -0.30 was visible
+         * in `score` and invisible in `sharePar`, so the fixture could not have
+         * caught an extractor that read the objective wrongly. The weights now
+         * track the planted score continuously, which is also the truer model —
+         * the objective is continuous in the weight margin and that continuity
+         * is the whole reason the ruling preferred it to a rank.
+         */
+        const TOTAL_WEIGHT = 30;
+        const subjWeight = Math.max(0, Math.round(TOTAL_WEIGHT * score));
+        const otherWeight = Math.max(0, Math.round((TOTAL_WEIGHT - subjWeight) / 2));
         const results = seats.map((s) => ({
           seat: s.seat,
           bot: s.bot,
@@ -91,7 +107,7 @@ function rowsFor(armName, { jitterSeed, effect }) {
           place: s.bot === subject ? place : place === 1 ? 2 : 1,
           score: s.bot === subject ? score : Number((1 - score).toFixed(4)),
           finalUnits: s.bot === subject ? (place === 1 ? 4 : 0) : 2,
-          finalMaterial: s.bot === subject ? (place === 1 ? 10 : 0) : 5,
+          finalMaterial: s.bot === subject ? subjWeight : otherWeight,
           eliminatedOnTurn: s.bot === subject && place !== 1 ? 40 : null,
         }));
         const health = seats.map((s) => ({

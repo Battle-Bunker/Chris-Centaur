@@ -7,6 +7,11 @@
  *   node tools/learnloop/bin/ingest.js --batch <results/<batch>> \
  *        --null nullA,nullB --pair base=treat --flag CENTAUR_WASM [--write]
  *
+ *   --engagement <counter>        engagement witnessed by a mechanism counter
+ *   --engagement-config <field>   engagement witnessed by the RESOLVED per-seat
+ *                                 config stamp — the only witness a candidate
+ *                                 knob with no counter of its own has
+ *
  *   node tools/learnloop/bin/ingest.js --sweep-arm base=<dir> \
  *        --sweep-arm treat=<dir> --pair base=treat --flag X --kind historical
  *
@@ -67,6 +72,14 @@ const batchDir = arg('batch', '') ? path.resolve(arg('batch', '')) : null;
 const batchId = arg('batch-id', batchDir ? path.basename(batchDir) : 'unnamed');
 const WRITE = flag('write');
 const MDE = Number(arg('mde', '0.25'));
+/*
+ * `--opposite-branch`: THE TREATMENT ARM CARRIES THE FLAG TURNED OFF.
+ *
+ * True for an exploration slice and false for everything else. See the note at
+ * the verdict, and `armRole` on every measurement this writes — a row that does
+ * not say which arm the flag was on cannot be re-scored later by anyone.
+ */
+const OPPOSITE_BRANCH = flag('opposite-branch');
 
 const sweepArms = {};
 for (const s of args('sweep-arm')) {
@@ -208,6 +221,10 @@ const ledger = L.load(arg('ledger', L.LEDGER_PATH));
 const flagName = arg('flag', '');
 const kind = arg('kind', batchDir ? 'live' : 'historical');
 const engagementArg = arg('engagement', '');
+// `--engagement-config <field>`: engagement witnessed by the RESOLVED per-seat
+// config stamp rather than by a counter. For a candidate knob with no counter
+// of its own, this is the only honest witness there is. See engagementFromConfig.
+const engagementConfigArg = arg('engagement-config', '');
 
 for (const p of args('pair')) {
   const j = p.indexOf('=');
@@ -233,11 +250,46 @@ for (const p of args('pair')) {
       row[metric] = {
         ...ci,
         nullHalfWidth: floor,
-        // OUTSIDE THE FLOOR is the readable test, and it is stricter than
-        // "excludes zero": a delta whose interval excludes zero but whose
-        // magnitude sits inside the batch's own A/A half-width is inside the
-        // machine's mood.
-        outsideNull: floor === null ? null : ci.mean !== null && Math.abs(ci.mean) > floor,
+        /*
+         * OUTSIDE THE FLOOR — and the test is on the WHOLE INTERVAL, not on
+         * the point estimate.
+         *
+         * Three tests were available and two of them are too loose:
+         *
+         *   1. `excludes zero`             — ignores the floor entirely. This
+         *      is the one an A/A pairing on a provably inert path passed with
+         *      d P(first) +0.167 [0.056, 0.306].
+         *   2. `|mean| > halfWidth`        — compares a POINT ESTIMATE against
+         *      the band. What it says is "my best guess is bigger than noise",
+         *      which is not the same claim as "the data are incompatible with
+         *      noise", and it is satisfied by an interval that lies almost
+         *      entirely inside the band.
+         *   3. `lo > halfWidth || hi < -halfWidth`  — the whole interval clear
+         *      of the band. THE ONE USED HERE.
+         *
+         * Test 2 is what this line did until 20260831, and the batch that
+         * caught it is the reason to be precise: on 20260831-batch2,
+         * CENTAUR_UNIT_FATALITY's `null-snake6` sharePar is
+         * +0.1542 [+0.0249, +0.2835] against a floor of +/-0.1172. Its mean
+         * clears the band, so test 2 scored it `supports-promotion` and the
+         * machine moved the flag live-null -> supported — on the ALL-SNAKE
+         * inert roster, for a classifier whose question is about boards that
+         * field pieces. Its interval overlaps the band across most of its
+         * length: the data are entirely compatible with a true effect of 0.03,
+         * which is nothing. The batch's own write-up had already declined to
+         * claim it, under precisely this stricter test, and named it so nobody
+         * would rediscover it and read it as a win. The ledger should not need
+         * a human to decline on its behalf.
+         *
+         * `meanOutsideNull` keeps test 2's answer, because it is the reading
+         * every row written before this date was scored by and a record that
+         * silently re-scores its own history is not a record.
+         */
+        outsideNull:
+          floor === null
+            ? null
+            : ci.lo !== null && ci.hi !== null && (ci.lo > floor || ci.hi < -floor),
+        meanOutsideNull: floor === null ? null : ci.mean !== null && Math.abs(ci.mean) > floor,
         retired: E.RETIRED_KEYS.includes(metric),
       };
     }
@@ -257,7 +309,22 @@ for (const p of args('pair')) {
   const f = L.flagOf(ledger, flagName);
   if (f === null) fail(`--flag ${flagName} is not in the ledger`);
 
-  const engaged = engagementFor(treat, engagementArg);
+  // ENGAGEMENT, FROM WHICHEVER WITNESS THE TREATMENT ACTUALLY HAS.
+  // A counter when the layer publishes one; the resolved per-seat config stamp
+  // when it does not (see engagementFromConfig). When both are named, BOTH must
+  // say yes — two witnesses never weaken a claim.
+  const byCounter = engagementFor(treat, engagementArg);
+  const byConfig = engagementFromConfig(base, treat, engagementConfigArg, subjectMap);
+  const engaged =
+    engagementArg && engagementConfigArg
+      ? byCounter === true && byConfig === true
+        ? true
+        : byCounter === false || byConfig === false
+          ? false
+          : null
+      : engagementConfigArg
+        ? byConfig
+        : byCounter;
 
   // WHICH CELLS ARE CONTROLS? A control cell is one the DESIGN requires to
   // read zero: a provably-inert path included to prove the instrument reports
@@ -292,9 +359,46 @@ for (const p of args('pair')) {
       // rather than guessed at. See lib/polarity.js for why this is the most
       // expensive one-line bug this loop has had.
       const polarity = P.polarityOf(metric, gate);
+      /*
+       * WHICH ARM IS THE FLAG ON? — `--opposite-branch` (`EXPLORATION-SLICE-
+       * INVERTED`).
+       *
+       * Every other pair in this program is `--pair <flag off>=<flag on>`, so a
+       * delta in the metric's good direction is evidence FOR the flag. THE
+       * EXPLORATION SLICE IS THE ONE THAT IS NOT. Its whole purpose is to keep
+       * running the OPPOSITE branch of an already-promoted default, so its
+       * treatment arm carries the flag TURNED OFF and its delta points the
+       * other way by construction.
+       *
+       * Scored without knowing that, the loop reads the slice exactly
+       * backwards. On 20260831-batch2 it did: X9 ran `default` against
+       * `staging-off` and measured `deathsSelf` +0.5 [+0.1938, +0.8062] on
+       * `headline-mix-king` — the guard-OFF arm killing itself half a unit more
+       * per game, which is the clearest evidence in the batch that the guard
+       * WORKS. `deathsSelf` is lower-is-better and the delta is positive, so
+       * the scorer called it `failed` and moved CENTAUR_STAGING_SAFETY from
+       * `promoted` to `live-failed` — demoting a shipped guard on the strength
+       * of it doing its job.
+       *
+       * This is METRIC-POLARITY's mistake one level up: polarity fixed "which
+       * way is good for this METRIC", and this fixes "which way is good for
+       * this ARM". The ledger's own README says the exploration slice is never
+       * dropped for space, because today's policy selects tomorrow's corpus;
+       * a loop that mis-scores the slice makes keeping it worse than dropping
+       * it.
+       *
+       * The measured value is recorded as measured — the sign in `value` is the
+       * sign in the data — and only the VERDICT is taken from the flag's point
+       * of view.
+       */
       const verdict = !readable
         ? 'unreadable'
-        : P.scoreVerdict({ mean: r.mean, outsideNull: r.outsideNull, metric, gate });
+        : P.scoreVerdict({
+            mean: OPPOSITE_BRANCH ? -r.mean : r.mean,
+            outsideNull: r.outsideNull,
+            metric,
+            gate,
+          });
       const m = {
         batch: batchId,
         kind: controlCell(cellKey) ? 'control' : kind,
@@ -303,6 +407,12 @@ for (const p of args('pair')) {
         family,
         verdict: controlCell(cellKey) ? (r.outsideNull === true ? 'control-violated' : 'inert') : verdict,
         polarity,
+        // WHICH ARM CARRIED THE FLAG. `treatment` is the normal pair
+        // (<flag off>=<flag on>); `opposite-branch` is the exploration slice,
+        // whose treatment arm has the flag OFF and whose deltas therefore point
+        // the other way by construction. Recorded on the row so a later reader
+        // — or a re-score — never has to infer it from the arm's name.
+        armRole: OPPOSITE_BRANCH ? 'opposite-branch' : 'treatment',
         value: `${r.mean} [${r.lo}, ${r.hi}] over ${r.n} blocks; null half-width ${r.nullHalfWidth}`,
         nullVerified: readable,
         nullBandHalfWidth: r.nullHalfWidth,
@@ -347,6 +457,55 @@ function engagementFor(treat, metric) {
   }
   if (!seen) return null;
   return total > 0;
+}
+
+/**
+ * ENGAGEMENT FROM THE RESOLVED CONFIG STAMP — `--engagement-config <field>`.
+ *
+ * A COUNTER IS NOT ALWAYS THE RIGHT WITNESS, AND SOMETIMES IT IS THE WRONG ONE.
+ * `--engagement <metric>` asks "did some mechanism counter move on the
+ * treatment arm", which is the right question for a layer that has its own
+ * counter (`wasmRuns`, `refineMovedLo`, `selectionFar`). It is the WRONG
+ * question for a config-selected candidate knob that has none:
+ * `CENTAUR_UNIT_FATALITY` changes which stagings a classifier rejects and
+ * publishes no counter of its own, so the only counter available to name is one
+ * like `clusterJoints` that is equally nonzero on the BASE arm. Naming that
+ * would let an arm that never engaged write a live status while appearing to
+ * satisfy the P5 rule — the rule defeated by the shape of its own evidence.
+ *
+ * Since the 2026-08-29 teardown an arm is a bundle plus a named `BotConfig`,
+ * and every post-teardown bundle stamps what each SEAT actually RESOLVED on
+ * `health[].mechanism.config` (or `.flags` on the transitional shape). That
+ * stamp is the direct witness: it says the treated seat resolved the field to
+ * the value the arm asked for, and the base seat did not. It is strictly
+ * stronger than a shared counter, because it is specific to the treatment.
+ *
+ * Returns the tri-state the ledger's rule is written against:
+ *   true   the field is stamped on both arms' subject seats and DIFFERS.
+ *   false  it is stamped on both and is the SAME — the arm did not engage.
+ *          (This is the silent-A/A that voided P5, caught rather than assumed.)
+ *   null   CANNOT SAY — no stamp on one side, or the field is absent from it.
+ */
+function engagementFromConfig(base, treat, field, subjectMap) {
+  if (!field) return null;
+  const stampOf = (arm) => {
+    const subj = subjectMap[arm.name] ?? null;
+    for (const rows of arm.sweeps.values()) {
+      for (const r of rows) {
+        for (const h of r.health ?? []) {
+          if (subj !== null && h.bot !== subj) continue;
+          const m = h.mechanism;
+          const cfg = m && (m.config ?? m.flags);
+          if (cfg && cfg[field] !== undefined) return cfg[field];
+        }
+      }
+    }
+    return undefined;
+  };
+  const a = stampOf(base);
+  const b = stampOf(treat);
+  if (a === undefined || b === undefined) return null;
+  return JSON.stringify(a) !== JSON.stringify(b);
 }
 
 // ------------------------------------------------------------------- output

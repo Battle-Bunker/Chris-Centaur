@@ -141,7 +141,23 @@
       "ref": "origin/claude/cluster-lookahead",
       "bundleName": "search-arch",
       "what": "THE SEARCH-ARCHITECTURE FEATURE BRANCH — depth, the entry registry and the per-branch belief, accumulated before the paradigm existed and now declared what it factually is. It carries the deep layer and the cluster enumeration ALWAYS-BUILT. It is a retained parallel test arm, not a second primary: nothing is cut from it. Batch 1 raced an earlier tip of it at 8059b86 under the arm name `perf-substrate`.",
-      "mergeDecision": "P11. The branch merges into the primary branch on a validated cross-branch arm, or it does not merge."
+      "mergeDecision": "P11. The branch merges into the primary branch on a validated cross-branch arm, or it does not merge.",
+      "mergeReading": {
+        "batch": "20260831-batch2",
+        "experiment": "P11a — baseline @66904d2 vs search-arch @b68ce98, both shipped defaults, no bot config on either side",
+        "games": "144 paired, 0 dropped, 16 blocks per board, 3 boards",
+        "decided": false,
+        "verdict": "UNDECIDED — AND UNDECIDABLE FROM THIS RUN IN EITHER DIRECTION.",
+        "whatItCanSay": {
+          "engagementGate": "PASSED, and this is what a 16-block run is for. On the search-arch arm: scoutPlies 136,806 / 137,647 / 101,137 and clusterJoints 14,592,634 / 15,059,929 / 388,220 on headline-mix-king / hazard-mix-king / null-snake6. Non-zero on both piece boards, so this is not the silent refusal that voided P5. The baseline arm emits no mechanism block at all, which is correct — the deep layer is not in that build.",
+          "direction": "NEGATIVE ON ALL THREE BOARDS, and worth nobody's conclusion. sharePar -0.3945 [-0.9507, +0.1617] / -0.6343 [-1.2607, -0.0080] / -0.0684 [-0.2355, +0.0987] against floors of +/-0.7413 / +/-0.7893 / +/-0.1172. Every delta sits inside its board's control band. A TRUE EFFECT OF +0.2 sharePar SITS COMFORTABLY INSIDE THESE INTERVALS.",
+          "searchCost": "MEASURED, AND IT CLEARS ITS FLOOR. worstWallMs +38.5 [+29.34, +47.66] on null-snake6 against a +/-10.49 floor, overrunRate +0.0045 [+0.0029, +0.0061] against +/-0.0018, ratchetRate +0.0235 against +/-0.0092. The branch is measurably slower per decision and measurably more likely to miss a deadline, on the board where nothing else moves.",
+          "firstPlanLatency": "THE SHARPEST THING THE 288 GAMES BOUGHT, and it comes from P16 rather than P11a. Time to the FIRST staged plan on headline-mix-king: baseline p50 46 ms / p90 132 ms; search-arch p50 343 ms / p90 527 ms. A 7.5x setup cost, and it is BUDGET-INDEPENDENT (343 / 311 / 326 ms at the 500 / 1000 / 2000 ms rungs), so it is a fixed price paid before any anytime behaviour begins rather than a share of the budget. It is ENUMERATION: clusterEnumMs on that board is 337 ms per decision at the 500 ms rung, which is the same number."
+        },
+        "whyItMayNotDecide": "THE POWER RULE, and it was written into the spec before the batch ran. The pair's own measured dispersion puts a +/-0.10 sharePar read at about 73 BLOCKS PER BOARD; it shipped at 16. The observed half-widths (+/-0.5562 and +/-0.6263 on the two piece boards) confirm the prediction. A 16-block read may not decide this merge in EITHER direction, and the expensive mistake available here is reading three negative signs as evidence against the branch. THIS IS NOT EVIDENCE THE BRANCH DOES NOT HELP.",
+        "cheapestDecidableRead": "ONE BOARD, NOT THREE, AND MAKE IT null-snake6. The blocks needed scale as (spread/target)^2, so the cost is set by the board's own dispersion and the three boards differ by a factor of six: null-snake6 floors at +/-0.1172 sharePar where headline-mix-king floors at +/-0.7413 and hazard-mix-king at +/-0.7893. Reading the merge on the two mix-king boards is what makes it a 1,314-game question. On null-snake6 alone, 73 blocks x 3 rotations x 2 arms = 438 games, plus an A/A null on that one cell at the same 73 blocks = 438 more: ABOUT 876 GAMES, roughly 5 hours on the box that did 2,472 in 13h22m. That is a THIRD of a night for a decidable read, against 2.9 nights for the three-board version. THE COST OF THE NARROWING, STATED: null-snake6 is the board where the branch is engaged but least loaded (388,220 cluster joints against 14.6M on headline-mix-king), so it is the board where the branch has least room to help — a null there does not license a null on the owner's board. It decides the merge only in the sense the branching policy asks for: does the search architecture pay for itself where it can be MEASURED. If the answer wanted is specifically about headline-mix-king, no affordable read exists at 16-block-class budgets and the honest move is to fix the board (raise the turn cap, which 85-100% cap rates say is needed anyway) before spending 2.9 nights on it.",
+        "alsoOwed": "A SECOND BASELINE NULL. The A/A is two search-arch builds, by the kit convention that the null is the bundle the batch's arms share. So the BASELINE arm of P11a has no floor of its own, and the merge is being read against the challenger's noise. One extra A/A on the baseline bundle, on the same one cell, is the cheapest thing that closes it."
+      }
     },
     "aaNull": {
       "use": "searchArchitecture",
@@ -1494,6 +1510,212 @@
           ]
         }
       ]
+    },
+    {
+      "id": "20260831-batch2",
+      "host": "owner WSL2 Ubuntu, 24 cores / 31 GB, node v22.23.2, --workers 10 (P13 at 4)",
+      "games": 2472,
+      "wallClock": "13h22m, 2026-08-31 00:11 -> 13:33 (+10:00)",
+      "priorities": "P7F, P9, P10, P11 (twice), P12, P13, P16 x3 rungs, X9 + N0 A/A null",
+      "provenance": {
+        "baseline": "66904d256103a1d3f32d060fe742e98b092d33b6 (claude/mid-turn-collision-logic-mkxurg), bundle b2-integrated",
+        "search-arch": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa (claude/cluster-lookahead), bundle b2-perf",
+        "harness": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87 on sim/worker-kit",
+        "harnessNote": "THE HARNESS IS ONE COMMIT BEHIND THE KIT TIP THE BATCH WAS SPECIFIED AGAINST. The run checked out cee34dd; sim/worker-kit moved to 6ffb5aa mid-run (per-seat bot isolation, the P11 respecification, the POWER annotations). Two consequences, both benign and both named rather than assumed: (1) arm.json carries `botConfig` but NOT `seatConfigs`, so which SEAT a config reached is not stamped on the arm record and has to be read off the per-seat `mechanism.flags` on the game rows instead — which is what this fold's ingest does, via --engagement-config. (2) P11 was run in BOTH shapes, the checkout's config pair and the tip's branch-versus-branch pair, 144 games each under one sweepId, 288 games total. Nothing is missing; the record simply cannot be read from arm.json alone."
+      },
+      "nullVerified": true,
+      "nullSubjectSeat": "lobster-territory. THE FLOOR IS A PROPERTY OF ONE SEAT and this batch is the first to say which. verify-null.js chose the seat by reading the first row of the manifest, which is a race (completion order, rotating seats); it happened to land on lobster-territory, and had it landed on lobster-material this batch's tightest board would have carried a `score` floor of +/-0.0725 instead of +/-0.0324 — 2.2x wider, and every verdict in the batch read against it. Fixed on sim/worker-kit 20260831: the tool now derives or refuses.",
+      "nullBand": {
+        "headline-mix-king": {
+          "sharePar": 0.7413,
+          "score": 0.1605
+        },
+        "hazard-mix-king": {
+          "sharePar": 0.7893,
+          "score": 0.1551
+        },
+        "snake5-queen": {
+          "sharePar": 0.3175,
+          "score": 0.1179
+        },
+        "snake5-knight": {
+          "sharePar": 0.1238,
+          "score": 0.0638
+        },
+        "null-snake6": {
+          "sharePar": 0.1172,
+          "score": 0.0324
+        }
+      },
+      "nullBandNote": "FIVE BOARDS FLOORED, THREE OF THEM FOR THE FIRST TIME (snake5-queen, snake5-knight, hazard-mix-king). NO BUDGET RUNG BUT 2000 ms IS FLOORED: the A/A ran only at 2000 ms, and P16's cells are named `<board>@<ms>`, so the 500 ms and 1000 ms rungs have NO floor of their own and their placement rows are UNREADABLE rather than null. Noise at 500 ms is not noise at 2000 ms — that the two differ is the experiment's own hypothesis — so the 2000 ms floor may not be lent to them. Batch 3 must floor every rung it races.",
+      "instrumentEvents": {
+        "events": [
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::headline-mix-king",
+            "metric": "score"
+          },
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::headline-mix-king",
+            "metric": "place"
+          },
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::headline-mix-king",
+            "metric": "worstWallMs"
+          },
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "worstWallMs"
+          },
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "turns"
+          },
+          {
+            "kind": "null-band-widened",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "decisions"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::snake5-queen",
+            "metric": "ceilingDecided"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::snake5-queen",
+            "metric": "deathsExhaustion"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "capped"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "decisive"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::null-snake6",
+            "metric": "ratchetRate"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::headline-mix-king",
+            "metric": "deathsTeammate"
+          },
+          {
+            "kind": "null-excludes-zero",
+            "cell": "n0-aa-null::headline-mix-king",
+            "metric": "ratchetRate"
+          },
+          {
+            "kind": "integrity",
+            "cell": "n0-aa-null::snake5-queen",
+            "arm": "nullA"
+          },
+          {
+            "kind": "integrity",
+            "cell": "p9-sampled_cap::snake5-queen",
+            "arm": "default"
+          },
+          {
+            "kind": "integrity",
+            "cell": "p9-sampled_cap::snake5-queen",
+            "arm": "sampled-cap"
+          },
+          {
+            "kind": "overrun",
+            "cell": "p16-budget-500::headline-mix-king@500",
+            "arm": "perf-substrate"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "p11-scout::headline-mix-king"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "p11-scout::hazard-mix-king"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "x9-exploration-slice::headline-mix-king"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "p16-budget-1000::headline-mix-king@1000"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "p16-budget-2000::headline-mix-king@2000"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "p13-workers::headline-mix-king"
+          },
+          {
+            "kind": "cap-rate-asymmetry",
+            "cell": "n0-aa-null::hazard-mix-king"
+          }
+        ],
+        "nullBandWidened": [
+          "headline-mix-king/score +/-0.0973 -> +/-0.1605 (x1.65)",
+          "headline-mix-king/place +/-0.1945 -> +/-0.3210 (x1.65)",
+          "headline-mix-king/worstWallMs +/-7.373 -> +/-21.754 (x2.95)",
+          "null-snake6/worstWallMs +/-0.591 -> +/-10.493 (x17.76)",
+          "null-snake6/turns and /decisions +/-0.837 -> +/-1.772 (x2.12)"
+        ],
+        "widenedFinding": "THE WIDENING IS NOT CONFINED TO THE MIX-KING BOARDS, and the batch write-up's \"it is not the box\" does not survive flooring every metric rather than only `score`. That argument rests on `null-snake6` reproducing batch 1's `score` floor to three decimals (+/-0.0324 vs +/-0.032) — which it does. But the SAME cell's wall-clock floor widened SEVENTEENFOLD, 0.59 ms to 10.49 ms, and its game-length floor doubled. A snake board whose games are decided by the 120-turn cap rather than by timing is simply insensitive in the placement column to a timing perturbation that is plainly present in the timing column. Load average was 21-24 of 24 cores. So the widening corroborates the open Cell-Quality item LESS than the write-up claims, and run conditions MORE.",
+        "nullExcludesZero": [
+          "snake5-queen/ceilingDecided: the A/A itself reads -3407.67 [-6024.21, -791.13]. NO FLOOR EXISTS for this counter on this board, and P9 quotes -2852.02 on it as a headline mechanism separation — a SMALLER move than the null's own.",
+          "null-snake6/capped +0.0833 [0.0039, 0.1628] and /decisive -0.0833: two identical builds differ in how often the game reaches the turn cap.",
+          "headline-mix-king/deathsTeammate +0.1458 [0.0167, 0.2750]",
+          "headline-mix-king/ratchetRate, null-snake6/ratchetRate, snake5-queen/deathsExhaustion"
+        ],
+        "overrun": "p16-budget-500::headline-mix-king@500 [search-arch build] — see the P16 entry.",
+        "capRateAsymmetry": "7 cells, up to x4 between arms on headline-mix-king. A shape change that can be large while placement reads null; P5 (wasm 0.229 -> 0.458) is the standing exhibit."
+      },
+      "integrity": {
+        "illegal": 0,
+        "errors": 3,
+        "rows": [
+          "nullA/n0-aa-null::snake5-queen-s54506-r1, lobster-territory, turn 105",
+          "default/p9-sampled_cap::snake5-queen-s69705-r0, lobster-territory, turn 78",
+          "sampled-cap/p9-sampled_cap::snake5-queen-s69711-r1, lobster-territory, turn 103"
+        ],
+        "rootCause": "ONE DEFECT, NOT THREE, AND IT IS NAMED. All three replays carry the same thrown decision: `BoundsInversionError: inverted ScoreBounds [lo, hi]: bank floor=B0 ceiling=B3 [bounds_inversion]`, with the floor above the ceiling by 0.0150, 0.0186 and 0.0196 on scores of 60.0, 251.3 and 149.8 — a RELATIVE gap of 1e-4 to 3e-4, three to four orders of magnitude below the quantities being compared. That is a floating-point accumulation signature, not a logic error: the B0 floor and the B3 ceiling are reached by different accumulation paths and their rounding diverges. The categorical case — a DEAD ceiling under a finite floor — was fixed at 018d780 and that fix IS in this build; this is the residual NUMERICAL case, which wants a tolerance rather than a rewrite. CO-OCCURRENCE IS EXACT: over 5,520 lobster game-seats in this batch, `errors > 0`, `stagedNothing > 0` and `unstaged > 0` are true on the same three seats and on no others. A thrown decision emits nothing, so the cost in play is a FORFEITED TURN. ALL THREE ARE ON snake5-queen — the board this batch measures at 4.23 ms of enumeration per cluster joint, ten times any other board, i.e. the deepest accumulation chains in the batch. Rate ~1 in 104 games on that board (3 of 312 lobster-territory game-seats) and zero on every other board. Not arm-specific: it fired on an untreated nullA build.",
+        "instrumentGap": "THE `boundsInversions` COUNTER DID NOT SEE IT. nullA/snake5-queen-s54506-r1 threw a BoundsInversionError and recorded `boundsInversions: 0`. The counter that names this failure does not count the instance of it that killed a decision — and it is RETIRED, so nothing watches it either. Whatever increments it is not the throw site.",
+        "ruleConsequence": "lib/drift.js raised three `integrity` events and its rule is that a nonzero integrity counter voids the BATCH. Applied as in batch 1: the rate is ~1.5e-5 per decision, the failure is understood, its blast radius is one forfeited turn, and all three games were still won by the affected bot. The verdicts stand and the defect is carried as a named engine item rather than as a reason to discard 2,472 games."
+      },
+      "ingest": {
+        "tool": "tools/learnloop/bin/ingest.js",
+        "mode": "RAN, READ-ONLY FIRST, THEN THE DELIBERATE --write PASS",
+        "ranAt": "20260831",
+        "input": "results/20260831-batch2 on sim-results/local-20260831 @78c151d — the kit layout, arms/<arm>/<sweepId>/manifest.jsonl for all 15 arms plus 2,472 gzipped replays. No shim.",
+        "theHeadline": "THE DELIVERY'S PUBLISHED NUMBERS ARE CORRECT, and that was checked rather than assumed. 816 published delta values across 11 pair files and 29 cells were recomputed from the raw manifests by an independent implementation; 0 disagreed beyond a single rounding tie. The seat bug DID NOT contaminate them: every published table declared `--subject lobster-territory`, and the A/A floors — produced by a tool with no such flag, which guessed — happened to guess the same seat.",
+        "invocations": [
+          "ingest.js --batch results/20260831-batch2 --null nullA,nullB --previous <batch-1 report> --pair <base>=<treat> --flag <F> [--engagement <counter>] [--engagement-config <field>] [--opposite-branch] --subject-map <every arm>=lobster-territory [--write]"
+        ],
+        "agreementWithTheHandFold": {
+          "confirmed": 816,
+          "refined": 4,
+          "contradicted": 2,
+          "notRecomputable": 0,
+          "note": "Confirmed = published delta values recomputed exactly. REFINED: (1) the 500 ms and 1000 ms budget rungs are UNREADABLE, not null — no A/A floor exists at those budgets; (2) of 79 rows whose interval excludes zero, only 26 clear their own A/A half-width, so most of the batch's starred mechanism rows do not survive the test its placement rows were held to; (3) the three decision errors are one named defect on one board, not a scattered rate; (4) the 500 ms deadline-miss figure is 21.8% as a per-game mean of rates and 13.2% decisions-weighted. CONTRADICTED: (1) \"it is not the box\" — the floor widening is not confined to the mix-king boards once every metric is floored (null-snake6 worstWallMs x17.76); (2) P9's snake5-queen `ceilingDecided` separation is smaller than the A/A's own reading on the same counter."
+        },
+        "stillDeferred": [
+          "A `fatalStagings` counter. CENTAUR_UNIT_FATALITY's own promoted claim is about fatal stagings and no build emits the count, so P7F cannot test the thing the classifier is for — on headline-mix-king NOT ONE death-by-cause row moves, while finalMaterial and survived both fall. A classifier that changes what is held and who survives without changing how anyone dies is refusing profitable stagings, not preventing fatal ones. That is a mechanism claim and it is untestable until the counter exists.",
+          "An A/A floor at every budget rung P16 races.",
+          "A second A/A null on the BASELINE bundle, so P11's baseline arm has a floor of its own."
+        ]
+      },
+      "readableTest": "THE WHOLE INTERVAL CLEAR OF THE BAND, not the point estimate. Of 79 deltas in this batch whose 95% interval excludes zero, only 26 clear their own A/A half-width; 50 sit inside it and 3 are on counters whose A/A itself excludes zero. The batch write-up applied this test to its PLACEMENT rows and the looser \"excludes zero\" to its MECHANISM rows, which is why its headline reads \"the mechanism rows are where the information is\". Held to one standard, the mechanism rows that survive are P11b's depth ration (10 rows, up to 5x the floor), P16's deadline breach (up to 90x), P11a's wall-clock and ratchet rows, P9 on null-snake6 only, and X9's deathsSelf. P7F has none."
     }
   ],
   "flags": [
@@ -1540,6 +1762,13 @@
           "family": "mechanism",
           "source": "EmitRecord.lo of the last emission",
           "emitted": true
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",
@@ -1957,6 +2186,13 @@
           "emitted": true
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2362,6 +2598,13 @@
           "lowerIsBetter": true
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2534,6 +2777,213 @@
             "underpowered": false
           },
           "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.4588 [-0.8861, -0.0315] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.8021,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 81,
+            "mdeResolvable": 0.5618,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0938 [-0.1793, -0.0082] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1607,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1126,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::headline-mix-king",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "0.0417 [-0.019, 0.1023] over 16 blocks; null half-width 0.0648",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0648,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1139,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 2,
+            "mdeResolvable": 0.0798,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::snake5-knight",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0208 [-0.0902, 0.1319] over 16 blocks; null half-width 0.1238",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1238,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2085,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.146,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::snake5-knight",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [-0.0648, 0.0648] over 16 blocks; null half-width 0.0638",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0638,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1217,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 2,
+            "mdeResolvable": 0.0852,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::snake5-knight",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "0 [-0.0917, 0.0917] over 16 blocks; null half-width 0.0786",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0786,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1721,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1205,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.1542 [0.0249, 0.2835] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2428,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 8,
+            "mdeResolvable": 0.1701,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0104 [-0.0118, 0.0326] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.0417,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1,
+            "mdeResolvable": 0.0292,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p7f-unit_fatality::null-snake6",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "-0.125 [-0.4283, 0.1783] over 16 blocks; null half-width 0.1859",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1859,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.5693,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 41,
+            "mdeResolvable": 0.3987,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "Alive, unpromoted, and cheaper than it looked. It costs nothing measurable in placement (16 blocks against the pooled stratum's 58, so \"no cost this cell could resolve\"), it demonstrably runs, and on null-snake6 exhaustion deaths FALL under it (39 -> 33). What it has still never been shown to do is buy anything on its own. Note the asymmetry the batch settled: the cl-both arm reproduces the seed's collapse almost exactly (-0.573 vs -0.594; 72 deaths vs 75), so the cost in that pair is the seed's and not the pair's — but equally, the classifier is not a repair for the seed. MACHINE INGEST, 20260829: the \"16 blocks against the pooled stratum's 58\" reading is now contested by the batch's own dispersion. Computed from each cell's measured block SD instead of the pooled prior, 16 blocks resolves an MDE of 0.25 on all three cells (blocksNeeded 1, 3 and 8). That is true and it is not the question: the cost being looked for is two or three points, not twenty-five. P7F stays scheduled, and the rule that keeps it scheduled is now batch-scoped rather than reading whichever row was appended last — see MDE-HARDCODED and LIVE-NULL-IS-TERMINAL. Per-game rows also confirm the classifier is a near-exact no-op on unit loss: 53 -> 52 on null-snake6, 209 -> 209 on snake5-knight, and 48 of 48 teams alive at the end on the cell the seed destroys. SOURCE AND PER-GAME, 20260829 — NULL, AND SAFE TO PROMOTE ALONE. Three things the batch already contains, stated together for the first time: placement is NULL on every cell it ran; it PROVABLY ENGAGES (plans per decision +109.9 [+28.3, +191.5] ✱ on snake5-knight — a retired counter, quoted only as a broken-arm diagnostic, but it says the arm ran); and it is PROVABLY ORDER-PRESERVING — on null-snake6 it holds paired trajectory correlation at +0.912 with 45 of 48 games identical in length, against the A/A pair's 44 of 48, exactly as cl1-report.md's candidate-order test promises. Add exhaustion deaths FALLING under it on the two cells that matter (39 -> 33 on null-snake6, 16 -> 15 on headline-mix-king) and a near-exact no-op on total unit loss, and this flag should be taken forward ON ITS OWN EVIDENCE rather than as part of the cluster seed it was only ever entangled with by the cl-both arm. THE STATUS DOES NOT MOVE ON THIS PARAGRAPH AND MAY NOT: `supported` takes a supports-promotion row from a live paired sweep with a verified null AND engagement SHOWN by a counter, and batch 1 is structurally incapable of writing one — no 20260827 bundle carries the CL7 mechanism block (ENGAGEMENT-SOURCES). live-null stands and P7F stays scheduled; what changes is what P7F is FOR — a promotion experiment for a flag with a clean standalone safety case, not a rescue attempt for the seed.",
@@ -2576,7 +3026,7 @@
       "shipsDefault": "off",
       "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean candidate knob; a non-boolean throws.",
       "whatItDoes": "Rung-1/2 edge-EV ordering pass; one composed EV in one slot, below every material-class key and above healthSpent.",
-      "status": "probe-passed",
+      "status": "live-null",
       "selection": "BotConfig.candidates.edgeEv (a `CandidateKnobs` field, src/lobster/candidates.ts), default FALSE, with `candidates.edgeEvTuning` carrying the pass's own knobs. Was CENTAUR_EDGE_EV; the env reader is deleted and the search-layer teardown finished the move the old TODO promised. An arm is `bot={\"candidates\":{\"edgeEv\":true}}`. It orders candidates and never changes a bound, which is the seam rule's own test for configuration rather than kernel.",
       "promotionMetrics": [
         {
@@ -2591,6 +3041,13 @@
           "family": "mechanism",
           "source": "replay: weight increases",
           "emitted": true
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",
@@ -2621,6 +3078,144 @@
           "value": "plans differ 8/60; uncontested meals staged 5 -> 8; contested 0 -> 0; meals EATEN 84 -> 81; fatal stagings 19 -> 19",
           "nullVerified": false,
           "caveat": "Meals staged rose and meals eaten FELL. That is the tension a live arm has to adjudicate, and it is why the flag ships off."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.1769 [-0.7615, 0.4077] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.0973,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 152,
+            "mdeResolvable": 0.7685,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0417 [-0.1362, 0.0529] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1774,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1243,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::snake5-queen",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.1262 [-0.398, 0.1457] over 16 blocks; null half-width 0.3175",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.3175,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.5103,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 33,
+            "mdeResolvable": 0.3574,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::snake5-queen",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0625 [-0.1788, 0.0538] over 16 blocks; null half-width 0.1179",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1179,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2184,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.153,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.046 [-0.0339, 0.126] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1501,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 3,
+            "mdeResolvable": 0.1051,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p12-edge_ev::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [0, 0] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": null
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "Mechanism exists and is confined to piece boards. Never raced live.",
@@ -2694,6 +3289,13 @@
           "since": "CL7"
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2744,7 +3346,7 @@
       "shipsDefault": "off",
       "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean config field; a non-boolean throws.",
       "whatItDoes": "Seeded weighted candidate sampling where a cap binds: the cap becomes a sample, Gumbel-top-k returns a permutation.",
-      "status": "probe-passed",
+      "status": "live-null",
       "selection": "BotConfig.sampledCap (src/lobster/bot-config.ts), default FALSE — the shipped bot does not take the lottery. Was CENTAUR_SAMPLED_CAP; the env reader is deleted. An arm is `bot={\"sampledCap\":true}`, declared as data on the contender, and a misspelling is a refusal from `botConfigFromJson` rather than the silent off the flag gave. This is a STRATEGY ALTERNATIVE — the same NUMBER of options is tried and WHICH ones is a Gumbel-top-k draw over the same priors — so it became a config field rather than machinery or a deletion.",
       "promotionMetrics": [
         {
@@ -2779,6 +3381,13 @@
           "note": "L17, optimism-never-promotes. CL4 owes a before/after on it."
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2796,6 +3405,213 @@
           "value": "FAR options priced 0->7 / 0->22 / 1->72; fatal stagings 0->0 and teammate deaths 0->0 at every q; plans differ 1/40, 9/40, 11/40",
           "nullVerified": false,
           "note": "Byte-identical replay against a21db07 with the flag off, 26/26. Two probe-forced design changes landed: draws only where a cap binds, and the unit-order channel ships OFF."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.1256 [-0.5945, 0.3432] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.8801,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 98,
+            "mdeResolvable": 0.6164,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0104 [-0.0894, 0.1102] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1873,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 5,
+            "mdeResolvable": 0.1312,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::headline-mix-king",
+          "metric": "ceilingDecided",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-266.0833 [-566.0175, 33.8508] over 16 blocks; null half-width 392.8429",
+          "nullVerified": true,
+          "nullBandHalfWidth": 392.8429,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 562.9923,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 39804530,
+            "mdeResolvable": 394.3177,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::snake5-queen",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0988 [-0.187, 0.3847] over 16 blocks; null half-width 0.3175",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.3175,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.5366,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 37,
+            "mdeResolvable": 0.3758,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::snake5-queen",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0417 [-0.0683, 0.1516] over 16 blocks; null half-width 0.1179",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1179,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2064,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.1446,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::snake5-queen",
+          "metric": "ceilingDecided",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-2852.0208 [-4853.78, -850.2617] over 16 blocks; null half-width 2616.5391",
+          "nullVerified": true,
+          "nullBandHalfWidth": 2616.5391,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 3757.4081,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1772981991,
+            "mdeResolvable": 2631.6745,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0138 [-0.1281, 0.1005] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2146,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.1503,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [0, 0] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": null
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p9-sampled_cap::null-snake6",
+          "metric": "ceilingDecided",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-565.2917 [-963.8232, -166.7601] over 16 blocks; null half-width 455.4371",
+          "nullVerified": true,
+          "nullBandHalfWidth": 455.4371,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 748.0649,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 70275857,
+            "mdeResolvable": 523.9419,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "The door i2's falsifier needs, open at zero cost in fatal stagings. Never raced live.",
@@ -2838,7 +3654,7 @@
       "parses": "NOT PARSED ANY MORE — the reader is deleted. A boolean config field; a non-boolean throws.",
       "requires": "NOTHING TO REQUIRE ANY MORE. `Requires: CENTAUR_CLUSTER_ENUM on` named a gate that no longer exists — the enumeration the refiner needs is unconditional machinery in every bundle, so the base arm is simply the shipped bot.",
       "whatItDoes": "Door C: re-sweeps the two-plane partition with held units' floods stopped at cells our enumerated units certainly occupy; publishes the MEET at the same basis.",
-      "status": "probe-passed",
+      "status": "live-null",
       "selection": "BotConfig.territoryRefine (src/lobster/bot-config.ts, default false). Was CENTAUR_TERRITORY_REFINE; the env reader is deleted and DEFAULT_TERRITORY_REFINE carries the shipped value. A STRATEGY ALTERNATIVE, so it became config rather than a correction or a deletion.",
       "promotionMetrics": [
         {
@@ -2863,6 +3679,13 @@
           "emitted": true
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2880,6 +3703,213 @@
           "value": "floor rose on 14/57 emissions (24.6%) by 1-2 cells of 121 (+0.008..+0.017); zero falls; zero ceiling movement; zero argmax flips at 40 ms or 120 ms; cost +22 microseconds per EVALUATION (x1.32 territory time)",
           "nullVerified": false,
           "caveat": "The brief's '<20us/decision' was MIS-DENOMINATED — the cost is per-eval and cannot be hoisted. Zero argmax flips means the deterministic probe cannot answer whether it pays."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0639 [-0.8329, 0.7052] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.4435,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 262,
+            "mdeResolvable": 1.011,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0104 [-0.1708, 0.15] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.301,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 12,
+            "mdeResolvable": 0.2108,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::headline-mix-king",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "5.5417 [-14.3539, 25.4372] over 16 blocks; null half-width 21.7544",
+          "nullVerified": true,
+          "nullBandHalfWidth": 21.7544,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 37.345,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 175143,
+            "mdeResolvable": 26.1563,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::hazard-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.3371 [-0.9073, 0.233] over 16 blocks; null half-width 0.7893",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7893,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.0702,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 144,
+            "mdeResolvable": 0.7496,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::hazard-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0625 [-0.1591, 0.0341] over 16 blocks; null half-width 0.1551",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1551,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.1813,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 5,
+            "mdeResolvable": 0.127,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::hazard-mix-king",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "-0.1042 [-12.983, 12.7747] over 16 blocks; null half-width 4.8505",
+          "nullVerified": true,
+          "nullBandHalfWidth": 4.8505,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 24.1743,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 73390,
+            "mdeResolvable": 16.9316,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0795 [-0.1663, 0.0073] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.163,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1142,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0104 [-0.0326, 0.0118] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.0417,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1,
+            "mdeResolvable": 0.0292,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p10-territory_refine::null-snake6",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "5.1667 [-11.6646, 21.998] over 16 blocks; null half-width 10.4931",
+          "nullVerified": true,
+          "nullBandHalfWidth": 10.4931,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 31.5932,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 125348,
+            "mdeResolvable": 22.1278,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "Sound by brute force; the question is entirely economic and entirely live.",
@@ -2922,7 +3952,7 @@
       "parses": "NOT PARSED ANY MORE — the reader and the ScoutMode type are deleted. `BotConfig.depth` is a JSON object of ration knobs and a non-object throws.",
       "requires": "NOTHING TO REQUIRE ANY MORE. `Requires: CENTAUR_CLUSTER_ENUM on` was the dependency that would have made P11 race three identical builds; the enumeration is unconditional now, so a depth-ration arm engages by construction and there is no gate that can silently swallow it. Read engagement off the decision's own report — `belief.deepestPlies > 1` and `belief.deepBranches > 0` on the funded arm, and an honest 1 / 0 on the `plyCap: 0` arm — not off any flag stamp, of which there are none left.",
       "whatItDoes": "Door A: a real EngineSubstrate at ply n+1 built from a ply-n Resolution; thread ledger, parking, advisory ordering only.",
-      "status": "probe-passed",
+      "status": "live-null",
       "selection": "SELECTABLE ONLY AS A BUDGET, AND THE FLAG'S THREE-WAY CHOICE IS GONE. CENTAUR_SCOUT and its `ScoutMode` (`off | observe | advise`) are deleted. The deep layer is always-built machinery for the same seam reason as the enumeration its threads are rooted in, and its readings are no longer advisory-ordering-only: a deepened line is published into the branch's BELIEF at the precision it earned, and the belief resolves among floor-undominated candidates in `better()` and in the stager. So there is no observe-vs-advise contrast left to race — observe was \"run it and change nothing\", and the layer no longer has that setting. What a bot configures is DEPTH'S RATION: `BotConfig.depth`, a Partial<ScoutTuning> (tithe, reserve, plyCap, the park hysteresis), `DEFAULT_SCOUT_TUNING` when omitted. THE DEPTHLESS ARM IS `bot={\"depth\":{\"plyCap\":0}}` — the same layer with an empty purse, not a second build — and it is the arm every depth-effect rate quoted on this branch is measured against.",
       "promotionMetrics": [
         {
@@ -2961,6 +3991,13 @@
           "emitted": true
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -2978,6 +4015,765 @@
           "value": "6.75 threads / 19.2 plies / 16.8 ms per decision; 79.7% of ALL thread depth is post-contact (613/769 plies); flag-off moved ZERO emissions and +0.00% work counters",
           "nullVerified": false,
           "note": "The owner's section 7.1 ruling (post-contact continuation is a primary mode) is empirically vindicated: without degraded continuation the scout delivers a fifth of its depth."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.3945 [-0.9507, 0.1617] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.0441,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 137,
+            "mdeResolvable": 0.7313,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0938 [-0.2059, 0.0184] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2105,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.1474,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::headline-mix-king",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "26.4167 [0.1682, 52.6652] over 16 blocks; null half-width 21.7544",
+          "nullVerified": true,
+          "nullBandHalfWidth": 21.7544,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 49.2699,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 304854,
+            "mdeResolvable": 34.5085,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::hazard-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.6343 [-1.2607, -0.008] over 16 blocks; null half-width 0.7893",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7893,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.1757,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 174,
+            "mdeResolvable": 0.8235,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::hazard-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.125 [-0.2485, -0.0015] over 16 blocks; null half-width 0.1551",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1551,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2317,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 7,
+            "mdeResolvable": 0.1623,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::hazard-mix-king",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "6.4375 [-4.0418, 16.9168] over 16 blocks; null half-width 4.8505",
+          "nullVerified": true,
+          "nullBandHalfWidth": 4.8505,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 19.6701,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 48590,
+            "mdeResolvable": 13.7769,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0684 [-0.2355, 0.0987] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.3136,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 13,
+            "mdeResolvable": 0.2196,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [-0.0324, 0.0324] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.0609,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1,
+            "mdeResolvable": 0.0427,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::null-snake6",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "failed",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "38.5 [29.3381, 47.6619] over 16 blocks; null half-width 10.4931",
+          "nullVerified": true,
+          "nullBandHalfWidth": 10.4931,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 17.1973,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 37141,
+            "mdeResolvable": 12.0449,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::headline-mix-king",
+          "metric": "scoutPlies",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1481.0625 [-1764.8314, -1197.2936] over 16 blocks; null half-width 327.2661",
+          "nullVerified": true,
+          "nullBandHalfWidth": 327.2661,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 532.6493,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 35629548,
+            "mdeResolvable": 373.0656,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::headline-mix-king",
+          "metric": "scoutThreads",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1592.0625 [-1868.3668, -1315.7582] over 16 blocks; null half-width 371.649",
+          "nullVerified": true,
+          "nullBandHalfWidth": 371.649,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 518.6378,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 33779711,
+            "mdeResolvable": 363.252,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::hazard-mix-king",
+          "metric": "scoutPlies",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1491.9167 [-1754.7399, -1229.0934] over 16 blocks; null half-width 302.157",
+          "nullVerified": true,
+          "nullBandHalfWidth": 302.157,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 493.3332,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 30563866,
+            "mdeResolvable": 345.5287,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::hazard-mix-king",
+          "metric": "scoutThreads",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1566.1667 [-1812.8525, -1319.4808] over 16 blocks; null half-width 311.8959",
+          "nullVerified": true,
+          "nullBandHalfWidth": 311.8959,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 463.0424,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 26925831,
+            "mdeResolvable": 324.3132,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::null-snake6",
+          "metric": "scoutPlies",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1256.4167 [-1320.9262, -1191.9071] over 16 blocks; null half-width 39.6024",
+          "nullVerified": true,
+          "nullBandHalfWidth": 39.6024,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 121.0878,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1841317,
+            "mdeResolvable": 84.8094,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p11-scout::null-snake6",
+          "metric": "scoutThreads",
+          "family": "mechanism",
+          "verdict": "outside-null-unscored",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1399.7917 [-1462.3431, -1337.2403] over 16 blocks; null half-width 40.8911",
+          "nullVerified": true,
+          "nullBandHalfWidth": 40.8911,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 117.4123,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1731231,
+            "mdeResolvable": 82.2351,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::headline-mix-king@1000",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0313 [-1.0824, 1.0198] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 1.2571,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 199,
+            "mdeResolvable": 1.2452,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::headline-mix-king@1000",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0833 [-0.1637, 0.3304] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.2955,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 11,
+            "mdeResolvable": 0.2927,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::headline-mix-king@1000",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "67.5417 [24.8831, 110.2002] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 51.0176,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 326865,
+            "mdeResolvable": 50.5334,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::null-snake6@1000",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.156 [-0.0922, 0.4043] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.2969,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 12,
+            "mdeResolvable": 0.2941,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::null-snake6@1000",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0208 [-0.0284, 0.0701] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.0589,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1,
+            "mdeResolvable": 0.0583,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-1000::null-snake6@1000",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "16.6667 [7.7129, 25.6204] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 10.7083,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 14401,
+            "mdeResolvable": 10.6067,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::headline-mix-king@2000",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.4499 [-1.0087, 0.109] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.6684,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 57,
+            "mdeResolvable": 0.6621,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::headline-mix-king@2000",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.1042 [-0.2079, -0.0005] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.124,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 2,
+            "mdeResolvable": 0.1228,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::headline-mix-king@2000",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "19.5417 [-1.3385, 40.4218] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 24.9717,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 78312,
+            "mdeResolvable": 24.7347,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::null-snake6@2000",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.1228 [-0.0251, 0.2707] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.1769,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1752,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::null-snake6@2000",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [0, 0] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": null
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-2000::null-snake6@2000",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "37.6667 [19.0315, 56.3018] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 22.2867,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 62377,
+            "mdeResolvable": 22.0752,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::headline-mix-king@500",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.3595 [-0.1589, 0.8779] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.62,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 49,
+            "mdeResolvable": 0.6141,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::headline-mix-king@500",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0625 [-0.0853, 0.2103] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.1768,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.1751,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::headline-mix-king@500",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "314.75 [151.8437, 477.6563] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 194.8281,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4766843,
+            "mdeResolvable": 192.9792,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::null-snake6@500",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.1036 [-0.1551, 0.3623] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0.3094,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 13,
+            "mdeResolvable": 0.3065,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::null-snake6@500",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "unreadable",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0 [0, 0] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 0,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": null
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p16-budget-500::null-snake6@500",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "unreadable",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "13.5417 [1.1593, 25.9241] over 8 blocks; null half-width null",
+          "nullVerified": false,
+          "nullBandHalfWidth": null,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 8,
+            "blockSd": 14.8088,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 27541,
+            "mdeResolvable": 14.6683,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "The scout exists and is advisory. Its cost is real (16.8 ms/decision) and its value has never been raced.",
@@ -3037,7 +4833,7 @@
       "shipsDefault": "off",
       "parses": "off | auto | 0..8 (junk warns and resolves off)",
       "whatItDoes": "Evaluation worker pool, one worker per spare core capped at three.",
-      "status": "probe-passed",
+      "status": "live-null",
       "selection": "BotConfig.workers and BotConfig.workersAudit (src/lobster/bot-config.ts, defaults \"off\" and false). Was CENTAUR_WORKERS / CENTAUR_WORKERS_AUDIT; both env readers are deleted. DEPLOYMENT config and not a strategy entry — it changes how fast the same decision is reached and never which decision, which is what the pool-0 identity gate asserts — so it defaults to the benchmark-winning setting and future perf work is judged by branches and benchmarks.",
       "promotionMetrics": [
         {
@@ -3059,6 +4855,13 @@
           "family": "cost",
           "source": "manifest health row",
           "emitted": true
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",
@@ -3345,6 +5148,190 @@
             "underpowered": true
           },
           "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.1939 [-0.3782, 0.7661] over 16 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 1.074,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 145,
+            "mdeResolvable": 0.7522,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "0.0417 [-0.073, 0.1563] over 16 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2152,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.1507,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::headline-mix-king",
+          "metric": "decisions",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "3.5208 [-9.9148, 16.9564] over 16 blocks; null half-width 14.4205",
+          "nullVerified": true,
+          "nullBandHalfWidth": 14.4205,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 25.2193,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 79872,
+            "mdeResolvable": 17.6635,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::headline-mix-king",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "-4.2708 [-13.1761, 4.6344] over 16 blocks; null half-width 21.7544",
+          "nullVerified": true,
+          "nullBandHalfWidth": 21.7544,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 16.7156,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 35090,
+            "mdeResolvable": 11.7075,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.12 [-0.2429, 0.0029] over 16 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.2307,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 7,
+            "mdeResolvable": 0.1616,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "treatment",
+          "value": "-0.0313 [-0.0978, 0.0353] over 16 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 0.125,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 2,
+            "mdeResolvable": 0.0875,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::null-snake6",
+          "metric": "decisions",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "contextual",
+          "armRole": "treatment",
+          "value": "-1.4583 [-5.0669, 2.1502] over 16 blocks; null half-width 1.7722",
+          "nullVerified": true,
+          "nullBandHalfWidth": 1.7722,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 6.7735,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 5762,
+            "mdeResolvable": 4.7441,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "p13-workers::null-snake6",
+          "metric": "worstWallMs",
+          "family": "cost",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "treatment",
+          "value": "-0.7083 [-11.1422, 9.7255] over 16 blocks; null half-width 10.4931",
+          "nullVerified": true,
+          "nullBandHalfWidth": 10.4931,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 16,
+            "blockSd": 19.5849,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 48170,
+            "mdeResolvable": 13.7172,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "Throughput is measured and real ON A PROTOTYPE BENCH; strength is bounded and null; and the batch that bounded strength did NOT confirm the speed. P1`s placement null is solid. Its wall-clock rows run mildly against the substrate (+4.02 ✱ queen, +1.92 ✱ snake6 worst-case ms), so \"speed, not strength\" is a claim resting on the w1-bench probe and on prior benchmark work, NOT on batch 1 — which is worth stating plainly because it is the citation the program has been making. The pool has still never been raced as an isolated arm.",
@@ -3395,6 +5382,13 @@
           "source": "manifest health row",
           "emitted": true,
           "note": "RETIRED as a verdict on a live arm — budget-noise dominated. Read it only as a broken-arm diagnostic, or under a fixed-tick StepClock A/A."
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",
@@ -3593,6 +5587,13 @@
           "family": "mechanism",
           "source": "manifest health row",
           "emitted": true
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",
@@ -3945,6 +5946,13 @@
       "selection": "TeamDecisionOptions.evaluate, reachable from a spec as a contender field: {\"evaluator\": \"territorySliderEvaluator\"}. Unchanged by the teardown — it never had an env flag. Registry entries eval/legacy-territory-slider@1 and eval/legacy-territory-slider-royal@1.",
       "promotionMetrics": [
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -4280,6 +6288,13 @@
           "emitted": true
         },
         {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
+        },
+        {
           "name": "score",
           "family": "placement",
           "source": "manifest row",
@@ -4298,6 +6313,213 @@
           "nullVerified": true,
           "armEngagementVerified": true,
           "note": "The sign flip by roster is why the promoted default is `auto` and not `full`. A treatment measured on one roster has been measured on one roster."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::headline-mix-king",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "-0.3954 [-1.8827, 1.0919] over 4 blocks; null half-width 0.7413",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.7413,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.9348,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 110,
+            "mdeResolvable": 1.3095,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::headline-mix-king",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "-0.125 [-0.4587, 0.2087] over 4 blocks; null half-width 0.1605",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1605,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.2097,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 6,
+            "mdeResolvable": 0.2937,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::headline-mix-king",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "supports-promotion",
+          "polarity": "lower-is-better",
+          "armRole": "opposite-branch",
+          "value": "0.5 [0.1938, 0.8062] over 4 blocks; null half-width 0.0648",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0648,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.1925,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 5,
+            "mdeResolvable": 0.2697,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::snake5-queen",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "0.3685 [-0.5795, 1.3165] over 4 blocks; null half-width 0.3175",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.3175,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.5959,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 45,
+            "mdeResolvable": 0.8347,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::snake5-queen",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "0.125 [-0.1289, 0.3789] over 4 blocks; null half-width 0.1179",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1179,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.1596,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.2236,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::snake5-queen",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "opposite-branch",
+          "value": "0.5833 [-0.2122, 1.3788] over 4 blocks; null half-width 0.1481",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1481,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.5,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 32,
+            "mdeResolvable": 0.7004,
+            "underpowered": true
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::null-snake6",
+          "metric": "sharePar",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "-0.0196 [-0.148, 0.1087] over 4 blocks; null half-width 0.1172",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1172,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.0807,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 1,
+            "mdeResolvable": 0.113,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::null-snake6",
+          "metric": "score",
+          "family": "placement",
+          "verdict": "null",
+          "polarity": "higher-is-better",
+          "armRole": "opposite-branch",
+          "value": "0 [0, 0] over 4 blocks; null half-width 0.0324",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.0324,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0,
+            "mdeTarget": 0.25,
+            "blocksNeeded": null,
+            "mdeResolvable": null,
+            "underpowered": null
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
+        },
+        {
+          "batch": "20260831-batch2",
+          "kind": "live",
+          "cell": "x9-exploration-slice::null-snake6",
+          "metric": "deathsSelf",
+          "family": "mechanism",
+          "verdict": "null",
+          "polarity": "lower-is-better",
+          "armRole": "opposite-branch",
+          "value": "-0.0833 [-0.3485, 0.1818] over 4 blocks; null half-width 0.1859",
+          "nullVerified": true,
+          "nullBandHalfWidth": 0.1859,
+          "armEngagementVerified": true,
+          "power": {
+            "blocksHad": 4,
+            "blockSd": 0.1667,
+            "mdeTarget": 0.25,
+            "blocksNeeded": 4,
+            "mdeResolvable": 0.2335,
+            "underpowered": false
+          },
+          "powerNote": "power computed against MDE 0.25 (the ingest's default unless --mde was given) using this cell's OWN measured block SD, not the program's pooled-stratum prior. Adequately powered for 0.25 is not adequately powered for the two or three points a cost question is usually about."
         }
       ],
       "verdict": "Promoted as a BOARD-CONDITIONAL default. Owes an exploration slice.",
@@ -4344,6 +6566,13 @@
           "family": "mechanism",
           "source": "replay: weight increases",
           "emitted": true
+        },
+        {
+          "name": "sharePar",
+          "family": "placement",
+          "source": "manifest row",
+          "emitted": true,
+          "note": "THE OBJECTIVE (owner ruling 2026-08-29): share of the total end weight x the number of teams, par 1. Continuous in the weight margin and commensurate across team counts, which `score` is neither. Added 20260831 with the batch-2 fold, when the extractor began emitting it. `score` stays beside it because every measurement before this date is denominated in the rank and dropping it would orphan that record. When the two disagree, this is the one being optimized."
         },
         {
           "name": "score",

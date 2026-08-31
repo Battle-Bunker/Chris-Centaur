@@ -114,6 +114,32 @@ function loadArms(batchDir, extra = {}, sweepKey = 'sweep') {
  * carried through as null rather than zero, because a zero would read as "the
  * arm was measured and did nothing".
  */
+/**
+ * THE OBJECTIVE, recomputed when the harness did not stamp it.
+ *
+ * Same formula as `aggregate.js` and `verify-null.js` — one definition of the
+ * program's objective, reimplemented in three places is three definitions. A
+ * manifest written before 2026-08-29 carries no `sharePar` and no
+ * `adjudicatedMaterial`; on every end kind but a MUTUAL FINAL WIPE the final
+ * board IS the weight the share is taken over, so it is recoverable. A mutual
+ * wipe scores a flat draw at par here, which is wrong — the game adjudicates on
+ * the previous committed turn — and `aggregate.js` is the tool that names those
+ * games. There are 3 such rows in 2,592 on the whole historical corpus.
+ */
+const adjudicatedOf = (r) =>
+  r.adjudicatedMaterial === undefined || r.adjudicatedMaterial === null
+    ? r.finalMaterial
+    : r.adjudicatedMaterial;
+
+function shareParOf(row, res) {
+  if (res.sharePar !== undefined && res.sharePar !== null) return res.sharePar;
+  const results = row.results ?? [];
+  const teams = results.length;
+  if (teams === 0) return null;
+  const total = results.reduce((a, r) => a + (adjudicatedOf(r) ?? 0), 0);
+  return total > 0 ? (teams * (adjudicatedOf(res) ?? 0)) / total : 1;
+}
+
 function metricsFor(row, subjectBot) {
   const res = (row.results ?? []).find((r) => r.bot === subjectBot);
   if (res === undefined) return null;
@@ -123,6 +149,18 @@ function metricsFor(row, subjectBot) {
   const mech = h && h.mechanism ? h.mechanism : null;
   return {
     // --- outcome -------------------------------------------------------
+    // `sharePar` IS THE OBJECTIVE (owner ruling 2026-08-29): share of the
+    // total end weight x the number of teams, par 1. It was added to
+    // `aggregate.js` and `verify-null.js` when the ruling landed and NOT here,
+    // so until 20260831 every row this loop wrote — and every floor it read a
+    // row against — was denominated in `score`, the RANK reading the same
+    // ruling demoted. A rank steps at rank boundaries, is blind to margin, and
+    // its 0.5 on a three-team cell has no counterpart on a two-team one; the
+    // ledger was recording the wrong column for the program's own question.
+    // `score` stays, because every finding before the ruling is denominated in
+    // it and it is the more sensitive instrument for a small ordering change.
+    // When the two disagree, `sharePar` is the one being optimized.
+    sharePar: shareParOf(row, res),
     score: res.score,
     win: res.place === 1 ? 1 : 0,
     place: res.place,
