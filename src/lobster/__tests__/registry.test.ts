@@ -28,12 +28,14 @@ import {
   ALL_ENTRIES,
   LEGACY_ENTRIES,
   LEGACY_SLATE,
+  POTION_AWARE_BOLD_SLATE,
   POTION_AWARE_SLATE,
   POTION_ENTRIES,
   REGISTRY,
   SLATE_IDS,
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
+  SLATE_POTION_AWARE_BOLD,
   SLOT_IDS,
   StrategyRegistry,
   UnknownEntryError,
@@ -247,11 +249,12 @@ describe('resolution is total and checked', () => {
     );
   });
 
-  test('there are exactly TWO slates, and asking for a third throws', () => {
+  test('there are exactly THREE slates, and asking for a fourth throws', () => {
     expect(slateFor()).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_LEGACY)).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_POTION_AWARE)).toBe(POTION_AWARE_SLATE);
-    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE]);
+    expect(slateFor(SLATE_POTION_AWARE_BOLD)).toBe(POTION_AWARE_BOLD_SLATE);
+    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE, SLATE_POTION_AWARE_BOLD]);
     // A name the registry does not hold is refused at run time as well as in
     // the type, for a caller that casts around it: a silent fallback to the
     // default would attribute a measurement to a slate that never ran.
@@ -266,10 +269,46 @@ describe('resolution is total and checked', () => {
     expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
     expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
     // The frame is the slate: the sound entry first, the advisory four after.
+    // FOUR, not eight — the bold four are a SECOND slate at a second declared
+    // scale, and a slate that seated both would be asking one lineup to speak
+    // at two volumes at once.
     expect(resolved.evaluators.map((e) => e.id)).toEqual([
       ...LEGACY_SLATE.evaluators,
-      ...POTION_ENTRIES.map((e) => e.id),
+      'eval/attack-window@2',
+      'eval/potion-seek@3',
+      'eval/potion-control@2',
+      'eval/dodge-discount@2',
     ]);
+  });
+
+  test('the bold slate is the same slate at four times the voice', () => {
+    const bold = REGISTRY.resolve(POTION_AWARE_BOLD_SLATE);
+    expect(bold.slateId).toBe(SLATE_POTION_AWARE_BOLD);
+    // Every socket but the evaluator list is the legacy entry, exactly as in
+    // `potion-aware`: a ladder rung that also moved a second socket would be
+    // two changes wearing one name.
+    expect(bold.moveSelectors.map((e) => e.id)).toEqual(LEGACY_SLATE.moveSelectors);
+    expect(bold.evaluatorSelector.id).toBe(LEGACY_SLATE.evaluatorSelector);
+    expect(bold.aggregator.id).toBe(LEGACY_SLATE.aggregator);
+    expect(bold.scheduler.id).toBe(LEGACY_SLATE.scheduler);
+    expect(bold.evaluators.map((e) => e.id)).toEqual([
+      ...LEGACY_SLATE.evaluators,
+      'eval/attack-window@3',
+      'eval/potion-seek@4',
+      'eval/potion-control@3',
+      'eval/dodge-discount@3',
+    ]);
+    // THE ONLY DIFFERENCE IS THE WEIGHT. Compared field by field against the
+    // quiet row, so a params value that drifted between scales would make the
+    // ladder a comparison of two strategies rather than of two volumes.
+    const quiet = REGISTRY.get('eval/potion-seek@3', 'evaluator').params as Record<string, unknown>;
+    const loud = REGISTRY.get('eval/potion-seek@4', 'evaluator').params as Record<string, unknown>;
+    expect(loud.weight).toBe(4);
+    expect(quiet.weight).toBe(1);
+    for (const k of Object.keys(quiet)) {
+      if (k === 'weight' || k === 'exposure') continue;
+      expect(loud[k]).toEqual(quiet[k]);
+    }
   });
 });
 
@@ -330,6 +369,13 @@ describe('the potion entries are members of the evaluator collection', () => {
       'eval/potion-seek@3': '36d83019',
       'eval/potion-control@2': 'a38c1b12',
       'eval/dodge-discount@2': '787e8db3',
+      // The bold four. The quiet four's pins are UNCHANGED above, which is the
+      // identity law's own assertion: a second scale mints new ids and leaves
+      // every number recorded against the old ones describing what made them.
+      'eval/attack-window@3': '811107d1',
+      'eval/potion-seek@4': '03c7f172',
+      'eval/potion-control@3': '1f408678',
+      'eval/dodge-discount@3': 'f1b1c537',
     };
     expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
     for (const e of POTION_ENTRIES) {

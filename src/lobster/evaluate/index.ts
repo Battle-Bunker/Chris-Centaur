@@ -129,6 +129,8 @@ export class BoundEvaluator implements Evaluator {
    * default bot pays for a number nobody can vary.
    */
   readonly meter: AdvisoryMeter | null;
+  /** The lineup half of `evaluationIdentity`, built once. */
+  private readonly advisoryIdentity: string;
   private readonly weights: Weights;
 
   constructor(
@@ -140,6 +142,7 @@ export class BoundEvaluator implements Evaluator {
     this.features = features;
     this.advisory = advisory;
     this.meter = advisory.length === 0 ? null : makeAdvisoryMeter();
+    this.advisoryIdentity = advisory.map((t) => `${t.key}*${t.weight}`).join('+');
     this.weights = profile.weights;
   }
 
@@ -169,8 +172,13 @@ export class BoundEvaluator implements Evaluator {
     // when the lineup is non-empty, so the default evaluator's identity is the
     // string it has always been, character for character.
     if (this.advisory.length === 0) return base;
-    const lineup = this.advisory.map((t) => `${t.key}*${t.weight}`).join('+');
-    return `${base}+advisory(${lineup})`;
+    // The lineup half is BUILT ONCE. This getter is read on every plan
+    // evaluation — it is the bound bank's memo key — and the lineup is fixed
+    // for the evaluator's life, so rebuilding the join per call was pure
+    // repetition. The profile half stays a getter because a profile may be
+    // amended between decisions and a captured identity would then be serving
+    // the previous profile's numbers.
+    return `${base}+advisory(${this.advisoryIdentity})`;
   }
 
   scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {

@@ -73,7 +73,7 @@
  * no `RayBoard` is built. The lineup's cost is a cost of potion boards.
  */
 
-import { bbTest } from '../../partial-engine/index';
+import { bbForEach } from '../../partial-engine/index';
 import type { Board } from '../../partial-engine/index';
 import type { AdvisoryCache, AdvisoryTerm } from './bound';
 import type { EvalContext } from './features';
@@ -93,11 +93,15 @@ import type { Evaluator } from '../contracts';
 // of the registry is safe here and not circular: the registry imports the four
 // potion modules and this file, never the other way round.
 import {
+  EVAL_ATTACK_WINDOW_BOLD_ID,
   EVAL_ATTACK_WINDOW_ID,
+  EVAL_DODGE_DISCOUNT_BOLD_ID,
   EVAL_DODGE_DISCOUNT_ID,
+  EVAL_POTION_CONTROL_BOLD_ID,
   EVAL_POTION_CONTROL_ID,
+  EVAL_POTION_SEEK_BOLD_ID,
   EVAL_POTION_SEEK_ID,
-  POTION_ADVISORY_WEIGHTS,
+  POTION_TERM_WEIGHTS,
 } from '../registry';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +117,19 @@ import {
  */
 const potionScratch = new WeakMap<EngineSubstrate, Board>();
 
+/**
+ * THE POTION CELLS OF THE RESOLVED POSITION — read once per evaluation, over
+ * the bitboard's WORDS and not its cells.
+ *
+ * The cell-at-a-time scan this replaces cost `grid.cells` `bbTest` calls on
+ * every evaluation of every plan, whether or not a potion was standing: 441 on
+ * a 21x21, paid ~4,700 times a game by the gate and again by the view. A board
+ * bearing two potions has two set bits in fourteen words, so `bbForEach` skips
+ * the empty words and does thirteen loads instead of four hundred and forty-one
+ * tests. Identical output, by construction — same board, same ascending order.
+ */
+const CELLS_KEY = 'potion-lineup:cells';
+
 function potionCellsOf(sub: EngineSubstrate, ctx: EvalContext): ReadonlyArray<number> {
   let dst = potionScratch.get(sub);
   if (dst === undefined) {
@@ -121,8 +138,18 @@ function potionCellsOf(sub: EngineSubstrate, ctx: EvalContext): ReadonlyArray<nu
   }
   sub.engine.potionBoard(ctx.resolution.state, dst);
   const cells: number[] = [];
-  for (let c = 0; c < sub.grid.cells; c++) if (bbTest(dst, c)) cells.push(c);
+  bbForEach(dst, sub.grid.words, (c) => cells.push(c));
   return cells;
+}
+
+/** The same list, shared across the lineup's terms for one evaluation — so the
+ * gate and the view read one scan rather than two. */
+function potionCellsShared(
+  sub: EngineSubstrate,
+  ctx: EvalContext,
+  shared: AdvisoryCache
+): ReadonlyArray<number> {
+  return shared.for(CELLS_KEY, () => potionCellsOf(sub, ctx));
 }
 
 /**
@@ -260,7 +287,7 @@ function viewOf(ctx: EvalContext, shared: AdvisoryCache): PotionView | null {
       reach: reachOf(ctx),
       turn,
       asTeam: ctx.asTeam,
-      potionCells: potionCellsOf(sub, ctx),
+      potionCells: potionCellsShared(sub, ctx, shared),
       exchangeRate: rate,
     };
   });
@@ -284,7 +311,7 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
   return shared.for(GATE_KEY, () => {
     const sub = ctx.sub;
     if (!(sub instanceof EngineSubstrate)) return { potions: false, liveWindow: false };
-    const cells = potionCellsOf(sub, ctx);
+    const cells = potionCellsShared(sub, ctx, shared);
     // `teamHasLiveWindow` wants a board; at the gate `EvalContext.standing`
     // answers the same question without building one, and it is the merged
     // view — located units and held claims together — so a buffed unit the
@@ -316,9 +343,9 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
  * some unit of ours is carrying a buff. That is the exact complement of
  * potion-seek, which prices the window nobody has bought yet.
  */
-const attackWindowTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_ATTACK_WINDOW_ID,
-  weight: POTION_ADVISORY_WEIGHTS.attackWindow,
+const attackWindowTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate(ctx, shared) {
     if (!gateOf(ctx, shared).liveWindow) return 0;
     const view = viewOf(ctx, shared);
@@ -334,7 +361,7 @@ const attackWindowTerm: AdvisoryTerm<EvalContext> = {
     );
     return view.exchangeRate * window.total.est;
   },
-};
+});
 
 /**
  * `eval/potion-seek@3` — the best pickup on the board, netted.
@@ -345,10 +372,14 @@ const attackWindowTerm: AdvisoryTerm<EvalContext> = {
  * endpoint is, which is the worst case the module ships and the reading its
  * retrodiction was taken at.
  */
-function potionSeekTerm(exposure: ExposureReading, dodge: boolean): AdvisoryTerm<EvalContext> {
+function potionSeekTerm(
+  key: string,
+  exposure: ExposureReading,
+  dodge: boolean
+): AdvisoryTerm<EvalContext> {
   return {
-    key: EVAL_POTION_SEEK_ID,
-    weight: POTION_ADVISORY_WEIGHTS.potionSeek,
+    key,
+    weight: POTION_TERM_WEIGHTS[key] ?? 0,
     estimate(ctx, shared) {
       if (!gateOf(ctx, shared).potions) return 0;
       const view = viewOf(ctx, shared);
@@ -380,9 +411,9 @@ function potionSeekTerm(exposure: ExposureReading, dodge: boolean): AdvisoryTerm
 
 /** `eval/potion-control@2` — option value on the ground we reach first, minus
  * the threat value on the ground they do. */
-const potionControlTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_POTION_CONTROL_ID,
-  weight: POTION_ADVISORY_WEIGHTS.potionControl,
+const potionControlTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate(ctx, shared) {
     if (!gateOf(ctx, shared).potions) return 0;
     const view = viewOf(ctx, shared);
@@ -397,7 +428,7 @@ const potionControlTerm: AdvisoryTerm<EvalContext> = {
     );
     return view.exchangeRate * summary.net;
   },
-};
+});
 
 /**
  * `eval/dodge-discount@2` — the modifier, seated as a member so the slate can
@@ -408,11 +439,11 @@ const potionControlTerm: AdvisoryTerm<EvalContext> = {
  * summed its own multiplier into the fold would be double-charging the same
  * exposure it exists to discount.
  */
-const dodgeDiscountTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_DODGE_DISCOUNT_ID,
-  weight: POTION_ADVISORY_WEIGHTS.dodgeDiscount,
+const dodgeDiscountTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate: () => 0,
-};
+});
 
 /**
  * THE LINEUP, BUILT FROM THE ENTRY IDS A SLATE NAMES.
@@ -423,18 +454,51 @@ const dodgeDiscountTerm: AdvisoryTerm<EvalContext> = {
  * decides is only the COMPOSITION — which is why dodge-discount changes
  * potion-seek's construction rather than appending a term of its own.
  */
+/**
+ * THE TWO DECLARED SCALES, side by side — quiet and bold. One row per volume,
+ * so a slate names four ids and this table says which term each one is. The
+ * WEIGHTS are not here: they live in `POTION_TERM_WEIGHTS` beside the entries
+ * that declare them, because a weight is a params value and a lineup that
+ * carried a second copy of one could drift from the entry it implements.
+ */
+const SCALES: ReadonlyArray<{
+  readonly window: string;
+  readonly seek: string;
+  readonly control: string;
+  readonly dodge: string;
+}> = [
+  {
+    window: EVAL_ATTACK_WINDOW_ID,
+    seek: EVAL_POTION_SEEK_ID,
+    control: EVAL_POTION_CONTROL_ID,
+    dodge: EVAL_DODGE_DISCOUNT_ID,
+  },
+  {
+    window: EVAL_ATTACK_WINDOW_BOLD_ID,
+    seek: EVAL_POTION_SEEK_BOLD_ID,
+    control: EVAL_POTION_CONTROL_BOLD_ID,
+    dodge: EVAL_DODGE_DISCOUNT_BOLD_ID,
+  },
+];
+
 export function advisoryLineupFor(
   evaluatorIds: ReadonlyArray<string>
 ): ReadonlyArray<AdvisoryTerm<EvalContext>> {
   const named = new Set(evaluatorIds);
-  const dodge = named.has(EVAL_DODGE_DISCOUNT_ID);
   const out: AdvisoryTerm<EvalContext>[] = [];
-  if (named.has(EVAL_ATTACK_WINDOW_ID)) out.push(attackWindowTerm);
-  if (named.has(EVAL_POTION_SEEK_ID)) {
-    out.push(potionSeekTerm(dodge ? 'near' : 'window', dodge));
+  for (const scale of SCALES) {
+    // THE MODIFIER IS SCALE-LOCAL. `eval/dodge-discount@3` switches the bold
+    // seek's exposure endpoint and the `@2` row switches the quiet one; a
+    // slate that mixed the two would be asking one term to be discounted by
+    // another term's declaration.
+    const dodge = named.has(scale.dodge);
+    if (named.has(scale.window)) out.push(attackWindowTerm(scale.window));
+    if (named.has(scale.seek)) {
+      out.push(potionSeekTerm(scale.seek, dodge ? 'near' : 'window', dodge));
+    }
+    if (named.has(scale.control)) out.push(potionControlTerm(scale.control));
+    if (dodge) out.push(dodgeDiscountTerm(scale.dodge));
   }
-  if (named.has(EVAL_POTION_CONTROL_ID)) out.push(potionControlTerm);
-  if (dodge) out.push(dodgeDiscountTerm);
   return out;
 }
 
