@@ -68,6 +68,7 @@ import { REGISTRY, slateFor, slateStampOf } from './registry';
 import type { ResolvedSlate, SlateId } from './registry';
 import { earliestShells, standingOf } from './evaluate';
 import { evaluatorForSlate } from './evaluate/potion-lineup';
+import { advisoryReportOf } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import { mintMatchSeed } from './match-seed';
@@ -874,6 +875,9 @@ export class TeamDecisionEngine {
         // the same standing rule every per-engine option above follows.
         slate: slateStampOf(this.slate),
         belief: kernel.lastReport?.belief ?? null,
+        // The advisory lineup's own row, off the evaluator this engine holds
+        // for its life. Null for the shipped bot, whose lineup is empty.
+        advisory: advisoryReportOf(this.evaluate),
       });
       const report = kernel.lastReport;
       // Same guard on the carried slice cost: a decision that finishes late

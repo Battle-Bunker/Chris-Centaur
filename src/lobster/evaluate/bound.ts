@@ -252,7 +252,8 @@ export function makeAdvisoryCache(): AdvisoryCache {
 export function advisoryEst<C>(
   total: Bound,
   terms: ReadonlyArray<AdvisoryTerm<C>>,
-  ctx: C
+  ctx: C,
+  meter: AdvisoryMeter | null = null
 ): Bound {
   if (terms.length === 0) return total;
   const shared = makeAdvisoryCache();
@@ -263,9 +264,65 @@ export function advisoryEst<C>(
     if (!Number.isFinite(v)) continue;
     delta += t.weight * v;
   }
+  if (meter !== null) meter.evaluations++;
   if (delta === 0) return total;
-  return bound(total.lo, clampEst(total.est + delta, total.lo, total.hi), total.hi);
+  const est = clampEst(total.est + delta, total.lo, total.hi);
+  if (meter !== null) {
+    meter.engaged++;
+    meter.sumAbsAsked += Math.abs(delta);
+    meter.sumAbsApplied += Math.abs(est - total.est);
+    if (Math.abs(est - total.est) < Math.abs(delta) - 1e-9) meter.clamped++;
+    const width = total.hi - total.lo;
+    if (Number.isFinite(width)) {
+      meter.finiteWidth++;
+      meter.sumWidth += width;
+    }
+  }
+  return bound(total.lo, est, total.hi);
 }
+
+/**
+ * WHERE AN ADVISORY LINEUP'S VALUE ACTUALLY LANDS — read-only, and the one
+ * instrument that can tell "the terms said nothing" from "the terms spoke and
+ * the clamp ate it".
+ *
+ * The overlay is a weighted sum pinned back inside `[lo, hi]`, so a lineup can
+ * be fully engaged and still move no decision two separate ways: it can read
+ * zero (no potion in reach, no live window), or it can read large and be
+ * truncated because `est` was already at the ceiling the sound features proved.
+ * Those are different failures with different repairs, and without a counter on
+ * both sides of the clamp a sweep cannot tell them apart. Nothing here is read
+ * by any decision; it is drained by the mechanism report and reset never —
+ * an engine's counters are cumulative over its life, exactly like the
+ * adjudication counters they sit beside.
+ */
+export interface AdvisoryMeter {
+  /** Evaluations that ran a non-empty lineup. */
+  evaluations: number;
+  /** Of those, the ones whose weighted sum was non-zero. */
+  engaged: number;
+  /** Of the engaged, the ones the clamp truncated (in part or whole). */
+  clamped: number;
+  /** Σ |weighted sum| over the engaged — what the terms ASKED for. */
+  sumAbsAsked: number;
+  /** Σ |est moved| over the engaged — what the clamp LET THROUGH. */
+  sumAbsApplied: number;
+  /** Engaged evaluations whose sound interval was finite (a width to compare
+   * the ask against; a lattice end has none). */
+  finiteWidth: number;
+  /** Σ (hi − lo) over those. */
+  sumWidth: number;
+}
+
+export const makeAdvisoryMeter = (): AdvisoryMeter => ({
+  evaluations: 0,
+  engaged: 0,
+  clamped: 0,
+  sumAbsAsked: 0,
+  sumAbsApplied: 0,
+  finiteWidth: 0,
+  sumWidth: 0,
+});
 
 export type Weights = Readonly<Record<string, number>>;
 

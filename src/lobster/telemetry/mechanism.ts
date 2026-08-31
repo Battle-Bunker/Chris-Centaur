@@ -59,7 +59,7 @@ import type { AdjudicationReport, ClusterReport, SearchCore } from '../contracts
 import type { BeliefReport } from '../belief';
 import type { SlateStamp } from '../registry';
 import type { CandidateKnobs } from '../candidates';
-import type { MutualWipeReport, RefineReport } from '../evaluate';
+import type { AdvisoryReport, MutualWipeReport, RefineReport } from '../evaluate';
 import { mutualWipeReportOf, refineReportOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
 import { DEFAULT_SCOUT_TUNING } from '../search/scout';
@@ -165,6 +165,13 @@ export interface MechanismReport {
    * of that indicator over a corpus is the DEPTH-EFFECT RATE.
    */
   readonly belief: BeliefReport | null;
+  /**
+   * THE ADVISORY LINEUP'S ROW — null on a bot whose slate names no advisory
+   * entry, which is the shipped bot. It separates the two ways a lineup fails
+   * to matter: reading zero, and reading large into a sound interval with no
+   * room left for it (`evaluate/bound.ts`'s clamp).
+   */
+  readonly advisory: AdvisoryReport | null;
   /** The per-decision cluster accounting; null when no partition was built. */
   readonly cluster: ClusterReport | null;
   /** CL4's lottery ledger, seed included; null unless `sampledCap` ran. */
@@ -218,6 +225,13 @@ export interface MechanismInputs {
   readonly slate: SlateStamp;
   /** The kernel's folded belief row, or null when no kernel report exists. */
   readonly belief: BeliefReport | null;
+  /**
+   * WHERE THE ADVISORY LINEUP'S VALUE LANDED, or null on a bot with no
+   * lineup. `evaluate/index.ts`'s `advisoryReportOf` builds it; it is the one
+   * row that separates "the potion terms read zero" from "the potion terms
+   * read large and the clamp truncated them".
+   */
+  readonly advisory: AdvisoryReport | null;
 }
 
 /**
@@ -244,6 +258,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
     },
     slate: inputs.slate,
     belief: inputs.belief,
+    advisory: inputs.advisory,
     cluster: search.clusterReport?.() ?? null,
     selection: search.selectionReport?.() ?? null,
     scout: search.scoutReport?.() ?? null,
