@@ -15,7 +15,7 @@
  */
 
 import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
-import type { PinEvent } from '../lobster/contracts';
+import type { Evaluator, PinEvent } from '../lobster/contracts';
 import {
   TeamDecisionEngine,
   type TeamDecisionPorts,
@@ -30,7 +30,7 @@ import {
   slateFor,
 } from '../lobster/registry';
 import { botConfigFromJson } from '../lobster/bot-config';
-import { defaultEvaluator } from '../lobster/evaluate';
+import { BoundEvaluator, defaultEvaluator } from '../lobster/evaluate';
 import { evaluatorForSlate } from '../lobster/evaluate/potion-lineup';
 
 const WALL = 1_000_000;
@@ -175,13 +175,21 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
  * faked and the match seed is pinned, so the only difference between two calls
  * is the bot. */
 async function decide(
-  bot: Record<string, unknown>
+  bot: Record<string, unknown>,
+  /**
+   * THE HARNESS SEAM, EXERCISED ON PURPOSE. The sim harness passes an
+   * `evaluate` on EVERY lobster contender it seats — `defaultEvaluator` for
+   * the plain territory base — so a gate that never passes one is a gate that
+   * never plays the game the measurements are taken in.
+   */
+  evaluate?: Evaluator
 ): Promise<{ result: TeamTurnResult; staged: ReadonlyArray<string> }> {
   const ports = fakePorts();
   const engine = new TeamDecisionEngine(ports, {
     kernel: { reserveMs: 20, sliceMs: 10 },
     bot: botConfigFromJson(bot),
     matchSeed: 0x1abe1,
+    ...(evaluate === undefined ? {} : { evaluate }),
   });
   const result = await engine.decideTurn({
     gameId: `potion-${String(bot.name ?? 'x')}`,
@@ -229,8 +237,13 @@ describe('the potion-aware slate is a second member of the evaluator collection'
     const legacy = REGISTRY.resolve(slateFor(SLATE_LEGACY));
     expect(evaluatorForSlate(legacy.evaluators.map((e) => e.id))).toBe(defaultEvaluator);
     const aware = REGISTRY.resolve(slateFor(SLATE_POTION_AWARE));
+    // `evaluatorForSlate` returns `Evaluator` — the seam it composes onto is a
+    // caller's profile and need not be a `BoundEvaluator` — so the frame
+    // assertions below narrow to the one it does build.
     const potionEval = evaluatorForSlate(aware.evaluators.map((e) => e.id));
     expect(potionEval).not.toBe(defaultEvaluator);
+    expect(potionEval).toBeInstanceOf(BoundEvaluator);
+    if (!(potionEval instanceof BoundEvaluator)) throw new Error('unreachable');
     // THE FRAME IS THE SAME FRAME. An advisory lineup adds no feature to the
     // fold and changes no weight in it, so the bounds a potion-aware bot proves
     // are the bounds the default bot proves.
@@ -280,6 +293,49 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     // And the difference is ONE unit's move — the collector's — which is what
     // makes it attributable to the term that priced the collector.
     expect(aware.staged[1]).toBe(plain.staged[1]);
+  }, 60_000);
+
+  test('a caller-supplied evaluator is the BASE, and does not silence the slate', async () => {
+    /*
+     * THE DEFECT THIS GATE CLOSES, WHICH COST THE PROGRAM EVERY POTION GAME IT
+     * HAD PLAYED.
+     *
+     * `TeamDecisionOptions.evaluate` and the slate used to be ALTERNATIVES —
+     * `this.options.evaluate ?? evaluatorForSlate(...)` — and the option won.
+     * The sim harness passes one on EVERY lobster contender it seats, the plain
+     * territory base included (`baseEvaluatorOf` returns `defaultEvaluator`),
+     * so a live arm carrying `slate: 'potion-aware'` constructed no advisory
+     * lineup at all. It played the shipped bot while the mechanism stamp
+     * reported the slate the config had asked for: selectable, stamped, and
+     * inert.
+     *
+     * They are not alternatives. The option names a FEATURE PROFILE, the slate
+     * names what may reorder the plans that profile's bounds tie, and the
+     * second composes onto the first. So the gate is that a decision taken with
+     * `evaluate: defaultEvaluator` — exactly what the harness passes — reaches
+     * the same staged set as one taken with no option at all, and that its
+     * advisory row shows the terms running.
+     */
+    const seated = await decide(
+      { name: 'potion-aware', slate: SLATE_POTION_AWARE },
+      defaultEvaluator
+    );
+    const bare = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
+    expect(seated.staged).toEqual(POTION_AWARE_STAGED);
+    expect(seated.staged).toEqual(bare.staged);
+
+    // And the lineup RAN: the meter counts evaluations on both sides of the
+    // clamp, so a zero here is the inert bot the gate exists to catch.
+    const adv = seated.result.mechanism?.advisory;
+    expect(adv).not.toBeNull();
+    expect(adv?.terms).toEqual(POTION_AWARE_SLATE.evaluators.slice(1));
+    expect(adv?.evaluations ?? 0).toBeGreaterThan(0);
+
+    // The shipped bot handed the same option keeps its own path: no lineup, no
+    // meter, no row — which is what makes the row's presence a statement.
+    const plain = await decide({ name: 'default' }, defaultEvaluator);
+    expect(plain.result.mechanism?.advisory ?? null).toBeNull();
+    expect(plain.staged).toEqual(DEFAULT_STAGED);
   }, 60_000);
 
   test('the lineup reaches the comparator, and only through the est slot', async () => {
