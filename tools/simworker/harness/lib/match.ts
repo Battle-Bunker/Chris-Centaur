@@ -150,6 +150,27 @@ export interface SeatCounters {
     scoutPlies: number | null;
     scoutRefusals: number | null;
     ceilingDecided: number | null;
+    estDecided: number | null;
+    floorDecided: number | null;
+    depthDecided: number | null;
+    tieKeyDecided: number | null;
+    vetoed: number | null;
+    refused: number | null;
+    /**
+     * LAST WRITE WINS, not summed — and the distinction is not cosmetic. The
+     * search core is rebuilt per decision, so its adjudication counters are
+     * per-decision and SUM. The EVALUATOR is built once per engine, so its
+     * advisory meter is already cumulative over the game and summing it would
+     * square the count. The slate is a property of the engine and does not
+     * vary within a game at all.
+     */
+    slate: string | null;
+    advisoryEvaluations: number | null;
+    advisoryEngaged: number | null;
+    advisoryClamped: number | null;
+    advisoryMeanAsked: number | null;
+    advisoryMeanApplied: number | null;
+    advisoryMeanWidth: number | null;
   } | null;
   errors: string[];
 }
@@ -487,6 +508,20 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
                 scoutPlies: addNullable(prev.scoutPlies, mech.scoutPlies),
                 scoutRefusals: addNullable(prev.scoutRefusals, mech.scoutRefusals),
                 ceilingDecided: addNullable(prev.ceilingDecided, mech.ceilingDecided),
+                estDecided: addNullable(prev.estDecided, mech.estDecided),
+                floorDecided: addNullable(prev.floorDecided, mech.floorDecided),
+                depthDecided: addNullable(prev.depthDecided, mech.depthDecided),
+                tieKeyDecided: addNullable(prev.tieKeyDecided, mech.tieKeyDecided),
+                vetoed: addNullable(prev.vetoed, mech.vetoed),
+                refused: addNullable(prev.refused, mech.refused),
+                // Cumulative on the engine already — take the latest reading.
+                slate: mech.slate ?? prev.slate,
+                advisoryEvaluations: mech.advisoryEvaluations ?? prev.advisoryEvaluations,
+                advisoryEngaged: mech.advisoryEngaged ?? prev.advisoryEngaged,
+                advisoryClamped: mech.advisoryClamped ?? prev.advisoryClamped,
+                advisoryMeanAsked: mech.advisoryMeanAsked ?? prev.advisoryMeanAsked,
+                advisoryMeanApplied: mech.advisoryMeanApplied ?? prev.advisoryMeanApplied,
+                advisoryMeanWidth: mech.advisoryMeanWidth ?? prev.advisoryMeanWidth,
               };
       }
       if (out.telemetry.error !== null) {

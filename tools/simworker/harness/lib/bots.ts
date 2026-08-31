@@ -265,6 +265,34 @@ export interface DecisionTelemetry {
     readonly scoutPlies: number | null;
     readonly scoutRefusals: number | null;
     readonly ceilingDecided: number | null;
+    /**
+     * THE ADJUDICATION LADDER, ALL OF IT — which slot of `better()` decided.
+     * `ceilingDecided` alone answered the O-P1 question and nothing else; a
+     * bot whose only channel into the decision is `est` (every advisory
+     * lineup) is unreadable without the rest of the ladder beside it, because
+     * "the term said something" and "the comparator ever looked" are different
+     * claims and only the second is visible here.
+     */
+    readonly estDecided: number | null;
+    readonly floorDecided: number | null;
+    readonly depthDecided: number | null;
+    readonly tieKeyDecided: number | null;
+    readonly vetoed: number | null;
+    readonly refused: number | null;
+    /** The slate this seat resolved (`mechanism.slate.slate`). THE ENGAGEMENT
+     * GATE for a slate arm: a seat that asked for `potion-aware` and stamps
+     * `legacy` played the shipped bot under the treatment's name. */
+    readonly slate: string | null;
+    /** The advisory lineup's row (`mechanism.advisory`), null on a bot with no
+     * lineup. `advisoryEngaged / advisoryEvaluations` is the rate at which the
+     * terms read non-zero; `advisoryClamped / advisoryEngaged` is the rate at
+     * which the sound interval had no room for what they read. */
+    readonly advisoryEvaluations: number | null;
+    readonly advisoryEngaged: number | null;
+    readonly advisoryClamped: number | null;
+    readonly advisoryMeanAsked: number | null;
+    readonly advisoryMeanApplied: number | null;
+    readonly advisoryMeanWidth: number | null;
   } | null;
   /** The decision threw. Production logs and moves on; so does this harness. */
   readonly error: string | null;
@@ -301,6 +329,19 @@ function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
     scoutPlies: n(m.scout?.plies),
     scoutRefusals: refusalCount(m.scout?.refusals),
     ceilingDecided: n(m.adjudication?.ceilingDecided),
+    estDecided: n(m.adjudication?.estDecided),
+    floorDecided: n(m.adjudication?.floorDecided),
+    depthDecided: n(m.adjudication?.depthDecided),
+    tieKeyDecided: n(m.adjudication?.tieKeyDecided),
+    vetoed: n(m.adjudication?.vetoed),
+    refused: n(m.adjudication?.refused),
+    slate: typeof m.slate?.slate === 'string' ? m.slate.slate : null,
+    advisoryEvaluations: n(m.advisory?.evaluations),
+    advisoryEngaged: n(m.advisory?.engaged),
+    advisoryClamped: n(m.advisory?.clamped),
+    advisoryMeanAsked: n(m.advisory?.meanAsked),
+    advisoryMeanApplied: n(m.advisory?.meanApplied),
+    advisoryMeanWidth: n(m.advisory?.meanWidth),
   };
 }
 

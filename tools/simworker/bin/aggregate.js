@@ -359,6 +359,26 @@ function metricsFor(row, subjectBot) {
     scoutPlies: h && h.mechanism ? h.mechanism.scoutPlies : null,
     scoutRefusals: h && h.mechanism ? h.mechanism.scoutRefusals : null,
     ceilingDecided: h && h.mechanism ? h.mechanism.ceilingDecided : null,
+    // THE REST OF THE ADJUDICATION LADDER. `est` is the ONLY channel an
+    // advisory lineup has, and it is the fifth rung: a comparison the witness
+    // veto, an incomparable basis, the depth rung or the floor already
+    // settled never looks at it. Without these four beside `estDecided` a
+    // null from a slate arm cannot be told from a slate the comparator never
+    // consulted.
+    estDecided: h && h.mechanism ? h.mechanism.estDecided ?? null : null,
+    floorDecided: h && h.mechanism ? h.mechanism.floorDecided ?? null : null,
+    depthDecided: h && h.mechanism ? h.mechanism.depthDecided ?? null : null,
+    tieKeyDecided: h && h.mechanism ? h.mechanism.tieKeyDecided ?? null : null,
+    vetoed: h && h.mechanism ? h.mechanism.vetoed ?? null : null,
+    refused: h && h.mechanism ? h.mechanism.refused ?? null : null,
+    // THE ADVISORY LINEUP'S OWN ROWS — engagement and truncation, which are
+    // the two ways a lineup fails to matter and have different repairs.
+    advisoryEvaluations: h && h.mechanism ? h.mechanism.advisoryEvaluations ?? null : null,
+    advisoryEngaged: h && h.mechanism ? h.mechanism.advisoryEngaged ?? null : null,
+    advisoryClamped: h && h.mechanism ? h.mechanism.advisoryClamped ?? null : null,
+    advisoryMeanAsked: h && h.mechanism ? h.mechanism.advisoryMeanAsked ?? null : null,
+    advisoryMeanApplied: h && h.mechanism ? h.mechanism.advisoryMeanApplied ?? null : null,
+    advisoryMeanWidth: h && h.mechanism ? h.mechanism.advisoryMeanWidth ?? null : null,
     // --- integrity (must be zero) --------------------------------------
     illegal: h ? h.illegal : null,
     errors: h ? h.errors : null,
@@ -378,6 +398,9 @@ const METRIC_KEYS = [
   'wasmRuns', 'wasmRefused', 'clusterJoints', 'clusterEnumMs',
   'selectionFar', 'selectionDraws', 'refineMovedLo', 'refineInverted',
   'scoutThreads', 'scoutPlies', 'scoutRefusals', 'ceilingDecided',
+  'estDecided', 'floorDecided', 'depthDecided', 'tieKeyDecided', 'vetoed', 'refused',
+  'advisoryEvaluations', 'advisoryEngaged', 'advisoryClamped',
+  'advisoryMeanAsked', 'advisoryMeanApplied', 'advisoryMeanWidth',
   'illegal', 'errors',
   'plansEvaluated_RETIRED', 'boundsInversions_RETIRED',
 ];
@@ -400,8 +423,13 @@ const METRIC_KEYS = [
 function flagStampOf(rows) {
   for (const r of rows) {
     for (const h of r.health ?? []) {
-      if (h.mechanism && h.mechanism.config) return h.mechanism.config;
-      if (h.mechanism && h.mechanism.flags) return h.mechanism.flags;
+      const stamp = (h.mechanism && (h.mechanism.config || h.mechanism.flags)) || null;
+      if (stamp === null) continue;
+      // THE SLATE IS PART OF THE ARM. It is stamped beside the config rather
+      // than inside it, so a reader of the audit table would otherwise see a
+      // `potion-aware` arm and a `legacy` arm as the same bot.
+      const slate = h.mechanism.slate;
+      return typeof slate === 'string' ? { ...stamp, slate } : stamp;
     }
   }
   return null;
