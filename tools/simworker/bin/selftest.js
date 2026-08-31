@@ -359,6 +359,315 @@ if (bundle === '') {
   fs.rmSync(out, { recursive: true, force: true });
 }
 
+// ============================================================================
+// 3-4. THE AGGREGATION'S TWO SILENT WRONG ANSWERS
+//
+// Both were found by the 20260831-batch2 ingest, both are reproduced here on
+// synthetic batches with PLANTED answers, and both are the same species of
+// defect: a value the tool used to pick for itself, where picking wrong
+// produced a number rather than an error.
+// ============================================================================
+
+const AGG = path.join(__dirname, 'aggregate.js');
+const VNULL = path.join(__dirname, 'verify-null.js');
+
+/** Run a bin and return {code, out, err} without throwing. */
+function run(script, argv) {
+  try {
+    const out = execFileSync(process.execPath, [script, ...argv], {
+      stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000, encoding: 'utf8',
+    });
+    return { code: 0, out, err: '' };
+  } catch (e) {
+    return { code: e.status ?? 1, out: String(e.stdout ?? ''), err: String(e.stderr ?? '') };
+  }
+}
+
+/**
+ * ONE SYNTHETIC GAME, with the outcome PLANTED and the seats ROTATED.
+ *
+ * `subjShare` is the sharePar handed to `lobster-territory`; the other lobster
+ * gets the complement about par, so the board is zero-sum about par exactly the
+ * way the real 25x25 boards nearly are. That is what makes reading the wrong
+ * seat return the right magnitude with the wrong sign, and it is the property
+ * the regression turns on.
+ *
+ * `stamps` maps bot -> resolved config, which is what the fixed aggregate reads
+ * to work out which seat the treatment reached.
+ */
+function fixtureRow({ sweepId, cell, seed, rotation, subjShare, stamps }) {
+  const bots = ['reflex', 'lobster-territory', 'lobster-material'];
+  // The seats ROTATE between games — the property that made reading row 0 a
+  // lottery in the first place.
+  const seats = bots.map((_, i) => ({
+    seat: i, teamID: ['red', 'blue', 'green'][i], bot: bots[(i + rotation) % 3],
+  }));
+  const shares = {
+    reflex: 0,
+    'lobster-territory': subjShare,
+    'lobster-material': 3 - subjShare, // zero-sum about par on a 3-team board
+  };
+  const results = seats.map((s) => ({
+    seat: s.seat, bot: s.bot, teamID: s.teamID,
+    place: s.bot === 'lobster-territory' ? (subjShare >= 1.5 ? 1 : 2) : 2,
+    score: s.bot === 'lobster-territory' ? (subjShare >= 1.5 ? 1 : 0) : 0.5,
+    finalUnits: 3, finalMaterial: Math.round(shares[s.bot] * 10),
+    adjudicatedMaterial: Math.round(shares[s.bot] * 10),
+    sharePar: shares[s.bot], eliminatedOnTurn: null,
+  }));
+  const health = seats.map((s) => ({
+    seat: s.seat, bot: s.bot, decisions: 10, illegal: 0, unstaged: 0, stagedNothing: 0,
+    overruns: 0, worstOverrunMs: 0, worstWallMs: 100, plansEvaluated: 1, assumptions: 0,
+    boundViolations: 0, boundsInversions: 0, ratchetRefusals: 0,
+    deathsSelf: 0, deathsWall: 0, deathsExhaustion: 0, deathsBodyBlock: 0,
+    deathsContest: 0, deathsTeammate: 0, errors: 0,
+    mechanism: stamps[s.bot] ? { flags: stamps[s.bot] } : undefined,
+  }));
+  return {
+    sweepId, gameId: `${cell}-s${seed}-r${rotation}`, cell, block: `${cell}#${seed}`,
+    rotation, configHash: `hash-${cell}`, seed, configName: cell,
+    size: 11, teamCount: 3, unitsPerTeam: 6, budgetMs: 100, turnCap: 20,
+    hazardDamage: 0, hazardLayout: 'none', foodSpawnRate: 0.5, fertile: false, potions: false,
+    turns: 20, endKind: 'turn-cap', terminal: 'cap', reason: 'cap',
+    seats, results, health,
+  };
+}
+
+/** Write one arm of one sweep: `blocks` seeds x 3 rotations. */
+function writeArm(batch, arm, sweepId, { cell = 'c', blocks = 4, shareOf, stamps, armJson }) {
+  const dir = path.join(batch, 'arms', arm, sweepId);
+  fs.mkdirSync(dir, { recursive: true });
+  const rows = [];
+  for (let s = 0; s < blocks; s++) {
+    for (let r = 0; r < 3; r++) {
+      rows.push(fixtureRow({ sweepId, cell, seed: 1000 + s, rotation: r, subjShare: shareOf(s, r), stamps }));
+    }
+  }
+  // COMPLETION ORDER, not seed order — the manifest really is written by a
+  // worker pool, and the old code read row 0.
+  rows.reverse();
+  fs.writeFileSync(path.join(dir, 'manifest.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  fs.writeFileSync(
+    path.join(batch, 'arms', arm, 'arm.json'),
+    JSON.stringify(armJson ?? { arm, bundleStamp: { sha: 'deadbeef' }, envOverrides: {} }, null, 1) + '\n'
+  );
+}
+
+const FIX = fs.mkdtempSync(path.join(os.tmpdir(), 'simworker-aggfix-'));
+
+section('3. THE SUBJECT SEAT — aggregate.js may not guess which bot it is measuring');
+
+{
+  /*
+   * THE DEFECT ITSELF, WITH ITS SIGN PLANTED.
+   *
+   * A config pair: the treatment reaches `lobster-territory` only, and it makes
+   * that bot WORSE by exactly 0.4 sharePar. Because the fixture board is
+   * zero-sum about par, `lobster-material` therefore reads +0.4. The old
+   * fallback read whichever lobster happened to sit first in the first row of
+   * the manifest and could return either. The fixed tool derives the treated
+   * seat from the resolved stamps and must return the TREATED one: -0.4.
+   */
+  const b = path.join(FIX, 'config-pair');
+  const baseStamps = {
+    'lobster-territory': { name: 'lobster-territory', unitFatality: false, gainOrdering: true },
+    'lobster-material': { name: 'lobster-material', unitFatality: false, gainOrdering: true },
+  };
+  const treatStamps = {
+    'lobster-territory': { name: 'lobster-territory', unitFatality: true, gainOrdering: true },
+    'lobster-material': { name: 'lobster-material', unitFatality: false, gainOrdering: true },
+  };
+  writeArm(b, 'default', 'p-cfg', { shareOf: (s) => 1.5 + 0.01 * s, stamps: baseStamps });
+  writeArm(b, 'treat', 'p-cfg', { shareOf: (s) => 1.1 + 0.01 * s, stamps: treatStamps });
+
+  const r = run(AGG, ['--batch', b, '--base', 'default', '--out', path.join(b, 'a.json'), '--md', path.join(b, 'a.md')]);
+  ok(r.code === 0, 'a config pair aggregates without a declared subject');
+  const j = r.code === 0 ? JSON.parse(fs.readFileSync(path.join(b, 'a.json'), 'utf8')) : null;
+  const sw = j ? j.sweeps[0] : null;
+  ok(
+    sw !== null && /lobster-territory/.test(sw.subject) && !/lobster-material/.test(sw.subject),
+    'and RESOLVES the subject to the seat the config reached, not to the other lobster'
+  );
+  ok(
+    sw !== null && /RESOLVED STAMP/.test(sw.subjectHow),
+    'and says it derived that from the per-seat resolved stamps, so a reader can check it'
+  );
+  const d = sw ? sw.cells[0].deltas.treat.sharePar.mean : null;
+  ok(d !== null && Math.abs(d - -0.4) < 1e-9, 'THE SIGN: the planted -0.4 comes back as -0.4');
+  ok(
+    d !== null && d < 0,
+    'and NOT as +0.4 — the untreated seat on a near-zero-sum board reports the same ' +
+      'magnitude with the sign reversed, which is what batch 2 P7F hit'
+  );
+
+  // And declaring the other seat must give the mirror image, which proves the
+  // subject is the thing being selected and not an accident of the fixture.
+  const r2 = run(AGG, ['--batch', b, '--base', 'default', '--subject', 'lobster-material',
+    '--out', path.join(b, 'm.json'), '--md', path.join(b, 'm.md')]);
+  const dm = r2.code === 0 ? JSON.parse(fs.readFileSync(path.join(b, 'm.json'), 'utf8')).sweeps[0].cells[0].deltas.treat.sharePar.mean : null;
+  ok(dm !== null && Math.abs(dm - 0.4) < 1e-9, 'reading the UNTREATED seat gives +0.4 — the inversion, on demand and declared');
+}
+
+{
+  /*
+   * THE WHOLE-BUNDLE PAIR. No seat's stamp differs, because the two arms differ
+   * by BUILD: both lobster seats are treated and both are legitimately
+   * readable. There is no fact in the data that picks one, so the tool must
+   * REFUSE rather than pick — and must name both candidates and the spelling
+   * that resolves it.
+   */
+  const b = path.join(FIX, 'bundle-pair');
+  const same = {
+    'lobster-territory': { name: 'lobster-territory', unitFatality: false },
+    'lobster-material': { name: 'lobster-material', unitFatality: false },
+  };
+  writeArm(b, 'baseline', 'p-bundle', { shareOf: (s) => 1.5 + 0.01 * s, stamps: same });
+  writeArm(b, 'search-arch', 'p-bundle', { shareOf: (s) => 1.2 + 0.01 * s, stamps: same });
+
+  const r = run(AGG, ['--batch', b, '--base', 'baseline', '--out', path.join(b, 'a.json'), '--md', path.join(b, 'a.md')]);
+  ok(r.code === 3, 'a whole-bundle pair with no declared subject is REFUSED (exit 3), not guessed');
+  ok(/REFUSES TO GUESS/.test(r.err), 'and the refusal says so in its first line');
+  ok(
+    /lobster-territory/.test(r.err) && /lobster-material/.test(r.err),
+    'and names BOTH candidate seats rather than silently preferring one'
+  );
+  ok(/--subject lobster-territory/.test(r.err), 'and prints the exact spelling that fixes it');
+  ok(
+    !fs.existsSync(path.join(b, 'a.json')),
+    'and refuses BEFORE computing anything — no half-written analysis left behind'
+  );
+
+  const r2 = run(AGG, ['--batch', b, '--base', 'baseline', '--subject', 'lobster-territory',
+    '--out', path.join(b, 'a.json'), '--md', path.join(b, 'a.md')]);
+  ok(r2.code === 0, 'and runs once the seat is declared');
+  const sw = r2.code === 0 ? JSON.parse(fs.readFileSync(path.join(b, 'a.json'), 'utf8')).sweeps[0] : null;
+  ok(sw !== null && /DECLARED/.test(sw.subjectHow), 'recording that the seat was declared rather than derived');
+}
+
+{
+  /* One candidate seated: derivable with no stamps at all, and must stay so. */
+  const b = path.join(FIX, 'one-lobster');
+  const one = (arm, share) => {
+    const dir = path.join(b, 'arms', arm, 'p-one');
+    fs.mkdirSync(dir, { recursive: true });
+    const rows = [];
+    for (let s = 0; s < 4; s++) {
+      for (let r = 0; r < 3; r++) {
+        const row = fixtureRow({ sweepId: 'p-one', cell: 'c', seed: 1000 + s, rotation: r, subjShare: share, stamps: {} });
+        for (const list of [row.seats, row.results, row.health]) {
+          for (const x of list) if (x.bot === 'lobster-material') x.bot = 'reflex2';
+        }
+        rows.push(row);
+      }
+    }
+    fs.writeFileSync(path.join(dir, 'manifest.jsonl'), rows.map((x) => JSON.stringify(x)).join('\n') + '\n');
+    fs.writeFileSync(path.join(b, 'arms', arm, 'arm.json'), JSON.stringify({ arm, bundleStamp: { sha: 'x' }, envOverrides: {} }) + '\n');
+  };
+  one('base', 1.5);
+  one('treat', 1.2);
+  const r = run(AGG, ['--batch', b, '--base', 'base', '--out', path.join(b, 'a.json'), '--md', path.join(b, 'a.md')]);
+  ok(r.code === 0, 'a sweep seating ONE candidate contender still needs no declaration');
+  const sw = r.code === 0 ? JSON.parse(fs.readFileSync(path.join(b, 'a.json'), 'utf8')).sweeps[0] : null;
+  ok(sw !== null && /only contender/.test(sw.subjectHow), 'and says it was the only contender seated');
+}
+
+section('4. THE BASE ARM — resolved per sweep, because no arm is in every sweep');
+
+{
+  /*
+   * THE CRASH. `--base` names one arm for the BATCH. N0 floors every board and
+   * shares no arm with any treatment, so `byArm.get(baseName)` was undefined
+   * in the delta loop:
+   *   TypeError: Cannot read properties of undefined (reading 'get')
+   * The integrity gate already fell back; the delta loop did not.
+   */
+  const b = path.join(FIX, 'disjoint-sweeps');
+  const st = {
+    'lobster-territory': { name: 'lobster-territory', unitFatality: false },
+    'lobster-material': { name: 'lobster-material', unitFatality: false },
+  };
+  const treatSt = {
+    'lobster-territory': { name: 'lobster-territory', unitFatality: true },
+    'lobster-material': { name: 'lobster-material', unitFatality: false },
+  };
+  writeArm(b, 'default', 'p-treat', { shareOf: (s) => 1.5 + 0.01 * s, stamps: st });
+  writeArm(b, 'treat', 'p-treat', { shareOf: (s) => 1.3 + 0.01 * s, stamps: treatSt });
+  // The A/A null: a DIFFERENT pair of arms, in a sweep `default` never ran.
+  writeArm(b, 'nullA', 'n0-aa-null', { shareOf: (s) => 1.5 + 0.01 * s, stamps: st });
+  writeArm(b, 'nullB', 'n0-aa-null', { shareOf: (s) => 1.5 + 0.01 * s, stamps: st });
+
+  const r = run(AGG, ['--batch', b, '--base', 'default', '--subject', 'lobster-territory',
+    '--out', path.join(b, 'a.json'), '--md', path.join(b, 'a.md')]);
+  ok(r.code === 0, 'a batch whose base arm is absent from one sweep AGGREGATES instead of crashing');
+  ok(
+    !/Cannot read properties of undefined/.test(r.err),
+    'and specifically does not throw the TypeError at the delta loop that batch 2 hit'
+  );
+  const j = r.code === 0 ? JSON.parse(fs.readFileSync(path.join(b, 'a.json'), 'utf8')) : { sweeps: [] };
+  ok(j.sweeps.length === 2, 'both sweeps are reported — the null is not lost with the crash');
+  const byId = Object.fromEntries(j.sweeps.map((s) => [s.sweepId, s]));
+  ok(byId['p-treat'] && byId['p-treat'].base === 'default', 'the sweep the base arm ran uses the requested base');
+  ok(
+    byId['n0-aa-null'] && byId['n0-aa-null'].base === 'nullA',
+    'the sweep it did NOT run falls back to an arm that is actually present'
+  );
+  ok(
+    byId['n0-aa-null'] && byId['n0-aa-null'].cells[0].deltas.nullB !== undefined,
+    'and its delta is taken against that fallback base, not against nothing'
+  );
+  const mdText = fs.existsSync(path.join(b, 'a.md')) ? fs.readFileSync(path.join(b, 'a.md'), 'utf8') : '';
+  ok(
+    /not the requested `default`/.test(mdText),
+    'the markdown SAYS the base was substituted rather than letting a reader assume otherwise'
+  );
+  ok(
+    /Δ nullB−nullA/.test(mdText),
+    'and labels the delta column with the base it was actually taken against'
+  );
+  ok(
+    j.problems.some((p) => /did not run it/.test(p)),
+    'and the substitution is recorded as an integrity problem, not only in the prose'
+  );
+}
+
+section('5. THE NOISE FLOOR IS A PROPERTY OF ONE SEAT — verify-null.js');
+
+{
+  /*
+   * The A/A cell cannot invert a sign — both arms are the same build. It can
+   * publish the WRONG FLOOR, which is quieter and, for the tool whose whole job
+   * is the yardstick, worse: every treatment in the batch is read against it.
+   * On batch 2's own A/A rows the two seats' `null-snake6` score floors differ
+   * by 2.2x. So this refuses an undeclared seat too.
+   */
+  const b = path.join(FIX, 'null-seat');
+  const st = {
+    'lobster-territory': { name: 'lobster-territory' },
+    'lobster-material': { name: 'lobster-material' },
+  };
+  // Same build both sides; the two seats carry DIFFERENT dispersion, which is
+  // the whole point — their floors are not interchangeable.
+  writeArm(b, 'nullA', 'n0-aa-null', { shareOf: (s, r) => 1.5 + 0.2 * ((s + r) % 2), stamps: st });
+  writeArm(b, 'nullB', 'n0-aa-null', { shareOf: (s, r) => 1.5 + 0.2 * ((s + r + 1) % 2), stamps: st });
+
+  const r = run(VNULL, ['--batch', b, '--null', 'nullA,nullB']);
+  ok(r.code !== 0, 'verify-null REFUSES to publish a floor for an undeclared seat');
+  ok(/does not guess which bot/.test(r.out), 'and says it does not guess');
+  ok(
+    /lobster-territory/.test(r.out) && /lobster-material/.test(r.out) && /--subject /.test(r.out),
+    'and names both candidates it will not choose between, with the spelling that resolves it'
+  );
+
+  const r2 = run(VNULL, ['--batch', b, '--null', 'nullA,nullB', '--subject', 'lobster-territory']);
+  ok(r2.code === 0, 'and publishes the floor once the seat is declared');
+  ok(
+    /measured on the `lobster-territory` seat/.test(r2.out),
+    'stamping the floor with the seat it belongs to, so a treatment is read against its own'
+  );
+}
+
+fs.rmSync(FIX, { recursive: true, force: true });
+
 // ------------------------------------------------------------------ verdict
 
 console.log('');

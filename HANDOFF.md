@@ -250,12 +250,30 @@ Two mechanisms, and the distinction still matters:
 
 ### A BOT CONFIG REACHES ONE SEAT — 20260830
 
-**Until 2026-08-30 an arm's `bot=` was merged into every lobster contender the
-spec seated.** On a spec that seats one lobster that is invisible. On a spec
-that seats two it is a measurement defect and a silent one: the treatment arm
-becomes two ablated lobsters against a control arm of two intact ones, so if the
-knob is worth the same to both seats **the within-game contrast cancels exactly**
-and the arm reports a null it never had the power to tell from a real result.
+**Until 2026-08-30 an arm's `bot=` reached a lobster contender the spec seated
+without naming which one.** On a spec that seats one lobster that is invisible.
+On a spec that seats two it is a measurement defect and a silent one, in either
+of the two ways it can land: if the config reaches BOTH seats the treatment arm
+becomes two ablated lobsters against a control arm of two intact ones, so where
+the knob is worth the same to both seats **the within-game contrast cancels
+exactly**; and if it reaches only one, nothing in the arm record says which.
+
+**CORRECTED 20260831 from measurement, not from reading the code.** This passage
+used to assert the merge reached *every* lobster contender. `20260831-batch2`
+ran on `cee34dd`, one commit before the fix, and its per-seat resolved stamps say
+otherwise — the config reached the **first** configurable contender only:
+
+```
+unit-fatality arm:  lobster-territory -> unitFatality=true   x144
+                    lobster-material  -> unitFatality=false  x144
+```
+
+So batch 2's config arms are genuine one-seat ablations and their numbers are
+sound. The observed behaviour is arguably the better experiment; it is also
+exactly what makes the subject-seat defect dangerous, because a tool that then
+aggregates the *untreated* seat returns the effect with the sign reversed. Both
+are fixed on the tip: the transform refuses an unnamed seat, and `aggregate.js`
+derives the treated seat from the resolved stamps or refuses.
 Only a seat the config did not touch — a `reflex` seat — stays unconfounded, and
 reading a lobster question off the reflex seat is a detour, not a design.
 

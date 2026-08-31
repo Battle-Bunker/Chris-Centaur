@@ -161,6 +161,7 @@ say(envA === envB, `same env overrides: ${envA} vs ${envB}`);
 // ---- 3. the two arms must have played the same GAMES -----------------------
 const sweepIds = new Set([...A.sweeps.keys(), ...B.sweeps.keys()]);
 const deltas = new Map(); // metric -> block -> [diffs]
+const subjectsUsed = new Map(); // sweepId -> the seat the floor belongs to
 
 for (const sweepId of [...sweepIds].sort()) {
   const a = A.sweeps.get(sweepId);
@@ -184,10 +185,53 @@ for (const sweepId of [...sweepIds].sort()) {
   for (const p of problems.slice(0, 10)) console.log(`       ${p}`);
 
   // ---- 4. what the noise floor actually was -------------------------------
-  const subject = (() => {
-    const first = a.values().next().value;
-    return first.seats.map((s) => s.bot).find((x) => x.startsWith('lobster')) ?? first.seats[0].bot;
+  /*
+   * THE FLOOR IS A PROPERTY OF A SEAT, AND THIS MAY NOT GUESS WHICH ONE.
+   *
+   * The first version read `a.values().next().value` — the first row of the
+   * manifest — and took the first `lobster*` in its seat list. That is a race
+   * on two counts: `manifest.jsonl` is written in COMPLETION order by a worker
+   * pool, and the harness rotates seats between games.
+   *
+   * In an A/A cell both arms are the same build, so a wrong pick cannot invert
+   * a sign the way it does in `aggregate.js`. It does something quieter and,
+   * for this tool, worse: IT PUBLISHES THE WRONG FLOOR. Measured on
+   * 20260831-batch2's own A/A rows, the two seated contenders' `null-snake6`
+   * `score` floors are +/-0.0324 (`lobster-territory`) and +/-0.0725
+   * (`lobster-material`) — 2.2x apart on the batch's tightest and most-quoted
+   * board. Every treatment in the batch is read against this number, so a
+   * coin-flip here silently re-scales the whole batch's readability. That run
+   * happened to land on `lobster-territory`, which is why its published floors
+   * are right; nothing in the old code made that so.
+   *
+   * So: derived when the cell seats exactly one candidate, declared with
+   * `--subject` otherwise, and refused when neither. The floor is quoted
+   * beside the seat it belongs to.
+   */
+  const candidates = (() => {
+    const bots = new Set();
+    for (const r of a.values()) for (const s of r.seats ?? []) bots.add(s.bot);
+    const all = [...bots].sort();
+    const lob = all.filter((x) => x.startsWith('lobster'));
+    return lob.length > 0 ? lob : all;
   })();
+  const declared = arg('subject', '');
+  if (declared === '' && candidates.length !== 1) {
+    console.log('');
+    console.log(`FAIL sweep ${sweepId}: this A/A cell seats ${candidates.length} candidate contenders`);
+    console.log(`       (${candidates.join(', ')}) and the noise floor is a property of ONE seat.`);
+    console.log('       The floors these seats measure are NOT interchangeable — on 20260831-batch2');
+    console.log('       they differ by 2.2x on `null-snake6` score. Declare the seat every treatment');
+    console.log('       in this batch will be read against:');
+    console.log('');
+    console.log(`           --subject ${candidates[0]}`);
+    console.log('');
+    console.log('       This script does not guess which bot it is measuring.');
+    bad++;
+    continue;
+  }
+  const subject = declared || candidates[0];
+  subjectsUsed.set(sweepId, subject);
   for (const [gameId, ra] of a) {
     const rb = b.get(gameId);
     if (rb === undefined) continue;
@@ -218,6 +262,12 @@ console.log('(P(first)) are RANK readings kept for continuity with earlier findi
 console.log('ARE IN DIFFERENT UNITS AND DO NOT CONVERT — a share delta read against a rank floor');
 console.log('is overstated, because the objective is measurably noisier per unit of its own');
 console.log('range. Quote each delta against the floor in its own units, and say which.');
+console.log('');
+for (const [sweepId, subj] of subjectsUsed) {
+  console.log(`Floors below are measured on the \`${subj}\` seat (sweep ${sweepId}). A floor is a`);
+  console.log('property of one seat; read a treatment against the floor of the seat the treatment');
+  console.log('reached, and aggregate that treatment on the same seat.');
+}
 console.log('');
 
 const mean = (xs) => (xs.length ? xs.reduce((p, q) => p + q, 0) / xs.length : null);

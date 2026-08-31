@@ -72,6 +72,10 @@ const POLARITIES = [HIGHER, LOWER, CONTEXTUAL];
  */
 const METRIC_POLARITY = {
   // ── outcome ────────────────────────────────────────────────────────────
+  // `sharePar` is THE OBJECTIVE (owner ruling 2026-08-29) and par is 1, so up
+  // is unambiguously the good direction. It sits above `score` because when
+  // the two disagree this is the one the program optimizes.
+  sharePar: HIGHER,
   score: HIGHER,
   win: HIGHER,
   place: LOWER, // place 1 is first. Improving means going DOWN.

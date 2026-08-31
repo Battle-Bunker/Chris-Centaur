@@ -428,6 +428,7 @@ const P = require('../lib/polarity');
 {
   // An unscorable row is not a null row, and must not be laundered into one.
   const l = clone();
+  const scoutBefore = L.flagOf(l, 'CENTAUR_SCOUT').status;
   const r = L.applyMeasurement(l, 'CENTAUR_SCOUT', {
     batch: 'test-unscored',
     kind: 'live',
@@ -439,8 +440,12 @@ const P = require('../lib/polarity');
     nullVerified: true,
     armEngagementVerified: true,
   });
+  // THE ASSERTION IS "IT DID NOT MOVE", NOT "IT IS STILL probe-passed". The
+  // starting status is read from the live ledger, which legitimately advances
+  // as batches land — pinning the literal word made this gate fail every time
+  // the record it checks did its job.
   ok(
-    !r.changed && L.flagOf(l, 'CENTAUR_SCOUT').status === 'probe-passed',
+    !r.changed && L.flagOf(l, 'CENTAUR_SCOUT').status === scoutBefore,
     'an outside-the-floor row with no good direction moves nothing and is not filed as a null'
   );
 }
@@ -600,7 +605,11 @@ function blockMean(cellKey, metric) {
     ],
     { encoding: 'utf8' }
   );
-  ok(out.includes('probe-passed -> live-failed'), 'the CLI ingest proposes the failure the fixture planted');
+  // Again the DESTINATION, not the transition: the flag's starting status is
+  // whatever the live record currently says, and the claim under test is that
+  // the planted failure is proposed — not that it is proposed from one
+  // particular rung.
+  ok(/-> live-failed/.test(out), 'the CLI ingest proposes the failure the fixture planted');
   ok(out.includes('does not move a status'), 'and refuses to let a non-status-moving family move it');
   ok(!fs.readFileSync(L.LEDGER_PATH, 'utf8').includes('selftest-fixture'), 'a dry read wrote nothing');
 }
@@ -725,8 +734,238 @@ section('2b. WHAT THE FIRST REAL BATCH FOUND');
     out.includes('UNREADABLE'),
     'so the ledger records that row as UNREADABLE rather than as a null result'
   );
-  ok(out.includes('probe-passed -> live-failed'), 'while the floored cell still carries its verdict');
+  ok(/-> live-failed/.test(out), 'while the floored cell still carries its verdict');
   fs.rmSync(scratch, { recursive: true, force: true });
+}
+
+// ------------------------------ 2c. the two gaps the SECOND REAL BATCH found
+//
+// Neither is a wrong number. Both are a RIGHT number about the wrong thing —
+// the ledger recording a column the program stopped optimizing, and the ledger
+// accepting a witness that does not witness the treatment. They surfaced
+// together on 20260831-batch2, which is the first batch whose bundles carry a
+// per-seat resolved config stamp AND whose treatments are candidate knobs with
+// no counters of their own.
+
+section('2c. WHAT THE SECOND REAL BATCH FOUND');
+
+// --- OBJECTIVE-NOT-EXTRACTED -----------------------------------------------
+//
+// Owner ruling 2026-08-29 made `sharePar` the objective and demoted `score` to
+// a rank reading kept for continuity. `aggregate.js` and `verify-null.js` were
+// changed that day; this extractor was not. So every ledger row written between
+// the ruling and 20260831 — and every floor those rows were read against — was
+// denominated in the column the ruling had just demoted.
+{
+  ok(E.METRIC_KEYS.includes('sharePar'), 'the extractor emits `sharePar` — THE OBJECTIVE, not only the rank readings');
+  ok(
+    E.METRIC_KEYS.indexOf('sharePar') < E.METRIC_KEYS.indexOf('score'),
+    'and emits it FIRST, because when the two disagree it is the one being optimized'
+  );
+  ok(
+    P.polarityOf('sharePar') === P.HIGHER,
+    'and it carries a polarity — par is 1 and up is good, so it can be SCORED rather than filed unscored'
+  );
+  ok(
+    P.missingFrom(E.METRIC_KEYS).length === 0,
+    'and the polarity table is still TOTAL over everything the extractor emits'
+  );
+
+  // A stamped row is read, not recomputed.
+  const stamped = {
+    results: [
+      { bot: 'x', score: 1, place: 1, finalMaterial: 30, finalUnits: 3, sharePar: 2.5, eliminatedOnTurn: null },
+      { bot: 'y', score: 0, place: 2, finalMaterial: 10, finalUnits: 1, sharePar: 0.5, eliminatedOnTurn: null },
+    ],
+    health: [], turns: 5, terminal: 'cap',
+  };
+  ok(E.metricsFor(stamped, 'x').sharePar === 2.5, 'a harness-stamped `sharePar` is read as stamped');
+
+  // An OLD manifest carries no `sharePar` and must be recovered from the end
+  // weights it does carry, by the same formula the aggregator uses: share of
+  // total adjudicated weight x teams. 30/(30+10) x 2 = 1.5.
+  const old = {
+    results: [
+      { bot: 'x', score: 1, place: 1, finalMaterial: 30, finalUnits: 3, eliminatedOnTurn: null },
+      { bot: 'y', score: 0, place: 2, finalMaterial: 10, finalUnits: 1, eliminatedOnTurn: null },
+    ],
+    health: [], turns: 5, terminal: 'cap',
+  };
+  ok(
+    Math.abs(E.metricsFor(old, 'x').sharePar - 1.5) < 1e-9,
+    'and a manifest predating the column recovers it from the end weights — the historical corpus stays readable'
+  );
+  const wipe = {
+    results: [
+      { bot: 'x', score: 0.5, place: 1, finalMaterial: 0, finalUnits: 0, eliminatedOnTurn: 9 },
+      { bot: 'y', score: 0.5, place: 1, finalMaterial: 0, finalUnits: 0, eliminatedOnTurn: 9 },
+    ],
+    health: [], turns: 9, terminal: 'decisive',
+  };
+  ok(
+    E.metricsFor(wipe, 'x').sharePar === 1,
+    'a mutual final wipe falls back to par — the one game shape the recomputation cannot reach, and aggregate.js names those games'
+  );
+}
+
+// --- ENGAGEMENT-FROM-CONFIG ------------------------------------------------
+//
+// The P5 rule says a live status needs the treatment arm's engagement SHOWN.
+// It was written against mechanism counters, and a candidate knob has none:
+// `CENTAUR_UNIT_FATALITY` changes which stagings a classifier rejects and
+// publishes no counter of its own. The only counter available to name is one
+// like `clusterJoints` that is equally nonzero on the BASE arm — so naming it
+// satisfies the rule's letter while witnessing nothing about the treatment.
+// The resolved per-seat config stamp is the witness that is actually specific
+// to the arm, and it is strictly stronger.
+{
+  const os = require('os');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'learnloop-engcfg-'));
+  const armWith = (name, unitFatality) => {
+    const dir = path.join(scratch, 'arms', name, 'p-eng');
+    fs.mkdirSync(dir, { recursive: true });
+    const rows = [];
+    for (let s = 0; s < 4; s++) {
+      for (let r = 0; r < 3; r++) {
+        const bots = ['reflex', 'lobster-territory', 'lobster-material'];
+        const seats = bots.map((_, i) => ({ seat: i, bot: bots[(i + r) % 3] }));
+        rows.push({
+          sweepId: 'p-eng', gameId: `c-s${s}-r${r}`, cell: 'c', block: `c#${s}`,
+          configHash: 'h', seed: s, turns: 10, terminal: 'cap',
+          seats,
+          results: seats.map((x) => ({
+            bot: x.bot, seat: x.seat, score: 0.5, place: 2, finalMaterial: 10,
+            finalUnits: 1, sharePar: 1, eliminatedOnTurn: null,
+          })),
+          health: seats.map((x) => ({
+            bot: x.bot, seat: x.seat, decisions: 5, illegal: 0, errors: 0,
+            overruns: 0, unstaged: 0, stagedNothing: 0, assumptions: 0, ratchetRefusals: 0,
+            worstWallMs: 10, plansEvaluated: 0, boundsInversions: 0,
+            // The knob lands on ONE seat, which is the isolation property the
+            // kit's own gate asserts. `clusterJoints` is nonzero on BOTH arms,
+            // which is exactly why it is the wrong witness.
+            mechanism: {
+              flags: {
+                name: x.bot,
+                unitFatality: x.bot === 'lobster-territory' ? unitFatality : false,
+              },
+              clusterJoints: 1234,
+            },
+          })),
+        });
+      }
+    }
+    fs.writeFileSync(path.join(dir, 'manifest.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    fs.writeFileSync(
+      path.join(scratch, 'arms', name, 'arm.json'),
+      JSON.stringify({ arm: name, bundleStamp: { sha: 'same' }, envOverrides: {} }) + '\n'
+    );
+  };
+  armWith('base', false);
+  armWith('treat', true);
+  armWith('sham', false); // an arm named as a treatment that resolved the DEFAULT
+
+  const runIngest = (extra) =>
+    execFileSync(
+      process.execPath,
+      [
+        path.join(ROOT, 'bin', 'ingest.js'),
+        '--batch', scratch, '--batch-id', 'selftest-engcfg',
+        '--subject-map', 'base=lobster-territory,treat=lobster-territory,sham=lobster-territory',
+        '--out', path.join(scratch, 'r.json'),
+        ...extra,
+      ],
+      { encoding: 'utf8' }
+    );
+
+  runIngest(['--pair', 'base=treat', '--flag', 'CENTAUR_UNIT_FATALITY', '--engagement-config', 'unitFatality']);
+  let rep = JSON.parse(fs.readFileSync(path.join(scratch, 'r.json'), 'utf8'));
+  ok(
+    rep.ledgerUpdates.length > 0 && rep.ledgerUpdates.every((u) => u.measurement.armEngagementVerified === true),
+    'engagement is SHOWN from the resolved per-seat config stamp when the treatment has no counter of its own'
+  );
+
+  runIngest(['--pair', 'base=sham', '--flag', 'CENTAUR_UNIT_FATALITY', '--engagement-config', 'unitFatality']);
+  rep = JSON.parse(fs.readFileSync(path.join(scratch, 'r.json'), 'utf8'));
+  ok(
+    rep.ledgerUpdates.length > 0 && rep.ledgerUpdates.every((u) => u.measurement.armEngagementVerified === false),
+    'an arm that carries a treatment NAME but resolved the default is caught — false, not null: the silent A/A that voided P5'
+  );
+
+  runIngest(['--pair', 'base=treat', '--flag', 'CENTAUR_UNIT_FATALITY', '--engagement-config', 'noSuchField']);
+  rep = JSON.parse(fs.readFileSync(path.join(scratch, 'r.json'), 'utf8'));
+  ok(
+    rep.ledgerUpdates.length > 0 && rep.ledgerUpdates.every((u) => u.measurement.armEngagementVerified === null),
+    'a field absent from the stamp is CANNOT SAY (null), never a quiet yes — the tri-state the ledger rule is written against'
+  );
+
+  // TWO WITNESSES NEVER WEAKEN A CLAIM: with both named, a counter that says
+  // yes cannot rescue a config stamp that says no.
+  runIngest(['--pair', 'base=sham', '--flag', 'CENTAUR_UNIT_FATALITY',
+    '--engagement', 'clusterJoints', '--engagement-config', 'unitFatality']);
+  rep = JSON.parse(fs.readFileSync(path.join(scratch, 'r.json'), 'utf8'));
+  ok(
+    rep.ledgerUpdates.every((u) => u.measurement.armEngagementVerified === false),
+    'and a nonzero shared counter does NOT rescue an arm whose config stamp says it never engaged'
+  );
+  fs.rmSync(scratch, { recursive: true, force: true });
+}
+
+// --- EXPLORATION-SLICE-INVERTED ---------------------------------------------
+//
+// Every other pair in the program is `<flag off>=<flag on>`. THE EXPLORATION
+// SLICE IS THE ONE THAT IS NOT: it exists to keep running the OPPOSITE branch
+// of an already-promoted default, so its treatment arm has the flag OFF and its
+// deltas point the other way by construction. Scored without knowing that, the
+// loop reads the slice backwards — and on 20260831-batch2 it did, calling X9's
+// `deathsSelf +0.5 [+0.1938, +0.8062]` on the GUARD-OFF arm a failure of the
+// guard. That row is the clearest evidence in the batch that the guard works.
+{
+  const mk = (mean) => ({
+    batch: 'selftest-slice', kind: 'live', cell: 'c', metric: 'deathsSelf', family: 'mechanism',
+    nullVerified: true, armEngagementVerified: true, nullBandHalfWidth: 0.1,
+    power: { blocksHad: 8, blocksNeeded: 4, underpowered: false, mdeTarget: 0.25 },
+    value: `${mean}`,
+  });
+  // The metric's own polarity is unchanged: deathsSelf is lower-is-better.
+  ok(P.polarityOf('deathsSelf') === P.LOWER, 'deathsSelf is lower-is-better, and that does not change');
+  // Scored as an ordinary treatment, a POSITIVE deathsSelf delta is a failure.
+  ok(
+    P.scoreVerdict({ mean: 0.5, outsideNull: true, metric: 'deathsSelf' }) === 'failed',
+    'on an ordinary pair, more self-kills on the treatment arm is a FAILURE'
+  );
+  // Scored from the flag's side — which is what --opposite-branch does — the
+  // same number is support: the arm that killed itself more is the arm with the
+  // guard turned OFF.
+  ok(
+    P.scoreVerdict({ mean: -0.5, outsideNull: true, metric: 'deathsSelf' }) === 'supports-promotion',
+    'on an exploration slice the SAME number SUPPORTS the flag — the arm that died more had it off'
+  );
+
+  // --- PROMOTED-DEMOTED-BY-NULL --------------------------------------------
+  //
+  // A promoted default accumulates null rows BY DESIGN, because the slice is
+  // required to run against it forever. Demoting on them makes keeping the
+  // slice worse than dropping it — the CONTROL-CELLS-DEMOTE lesson, at the top
+  // of the ladder instead of the bottom.
+  const led = L.load(L.LEDGER_PATH);
+  const promotedFlag = led.flags.find((f) => f.status === 'promoted');
+  ok(promotedFlag !== undefined, 'the ledger carries at least one promoted default to test against');
+  if (promotedFlag) {
+    const name = promotedFlag.flag;
+    L.applyMeasurement(led, name, { ...mk(0), verdict: 'null', cell: 'slice-null-1' });
+    ok(L.flagOf(led, name).status === 'promoted', 'a NULL row does not unship a promoted default');
+    L.applyMeasurement(led, name, { ...mk(-0.5), verdict: 'supports-promotion', cell: 'slice-sup' });
+    ok(
+      L.flagOf(led, name).status === 'promoted',
+      'and a SUPPORTING row does not knock it down a rung to `supported` either'
+    );
+    L.applyMeasurement(led, name, { ...mk(0.5), verdict: 'failed', cell: 'slice-fail' });
+    ok(
+      L.flagOf(led, name).status === 'live-failed',
+      'but a demonstrated cost that cleared its own floor STILL revises it — a promotion is not a one-way door'
+    );
+  }
 }
 
 // ------------------------------------------------- 3. the historical corpus
@@ -870,10 +1109,21 @@ section('4. THE BATCH GENERATOR');
   // branch, the batch README, the coordination notes and the ledger's own
   // `closedIn` strings — a broken link is worse for a reader than an old name.
   {
-    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'render-status.js'), '--check'], {
-      stdio: 'pipe',
-    });
-    ok(true, 'PROMOTION-STATUS.md is rendered from the ledger and is not stale');
+    // A STALE PAGE IS A FAILED ASSERTION, NOT A CRASHED GATE. `--check` exits
+    // nonzero, and letting `execFileSync` throw took the whole selftest down
+    // with a hex dump instead of a one-line reason — which is how a gate that
+    // is meant to be run after every ledger edit becomes a gate nobody runs
+    // during one.
+    let staleErr = null;
+    try {
+      execFileSync(process.execPath, [path.join(ROOT, 'bin', 'render-status.js'), '--check'], { stdio: 'pipe' });
+    } catch (e) {
+      staleErr = String(e.stderr ?? e.message ?? '').trim() || 'render-status --check exited nonzero';
+    }
+    ok(
+      staleErr === null,
+      `PROMOTION-STATUS.md is rendered from the ledger and is not stale${staleErr ? ` — ${staleErr}` : ''}`
+    );
     const view = fs.readFileSync(path.join(ROOT, 'PROMOTION-STATUS.md'), 'utf8');
     ok(view.startsWith('# Validation status'), 'and it is titled in the owner-facing vocabulary');
     // The BADGES are the page's own voice; the schema words appear only inside

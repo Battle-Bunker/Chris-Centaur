@@ -61,6 +61,43 @@
  * unless the budget is long and the box is otherwise idle. They are kept
  * because they diagnose a broken arm; they are not evidence for a verdict.
  * See context/METHODOLOGY.md §5.
+ *
+ * ── IT DOES NOT GUESS WHICH BOT IT IS MEASURING ────────────────────────────
+ *
+ * Two defects fixed 20260831, both found by the batch-2 ingest and both
+ * reproduced here as regressions in `bin/selftest.js` §3-§4.
+ *
+ * A. THE SUBJECT SEAT, AND THE SIGN INVERSION. The old fallback read
+ *    `seats` off ONE game — the first gameId of the base arm — and took the
+ *    first `lobster*` in it. `manifest.jsonl` is written in COMPLETION order
+ *    by a worker pool and the harness rotates seats between games, so that is
+ *    a race, and on a spec seating two lobster contenders it can land on the
+ *    UNTREATED one. On batch 2's P7F it did: the treatment reaches
+ *    `lobster-territory` only, the fallback chose `lobster-material`, and
+ *    because these boards are near zero-sum the untreated seat reported
+ *    sharePar **+0.4588** on `headline-mix-king` where the treated bot took
+ *    **−0.4588**. Same magnitude, OPPOSITE SIGN, no error, no warning.
+ *    A silent wrong answer of that size is worse than no answer.
+ *
+ *    So the subject is now DERIVED or DECLARED, never guessed:
+ *      1. `--subject-map <arm>=<bot>` if it names the arm, else `--subject`;
+ *      2. else, if the sweep seats exactly one candidate contender, that one;
+ *      3. else, if exactly one candidate seat's RESOLVED STAMP differs between
+ *         the arms, that seat is the treated one — derived from the data, and
+ *         printed so the reader can check it;
+ *      4. else it REFUSES, names the candidates and prints the spelling that
+ *         fixes it. A whole-bundle pair treats both seats, so which one is
+ *         read is a real analysis choice and the operator makes it.
+ *
+ * B. A BASE ARM THAT NEVER RAN THIS SWEEP. `--base` names ONE arm for the
+ *    whole batch, but a batch holds several sweeps and no arm is in all of
+ *    them — N0 in particular floors every board and shares no arm with any
+ *    treatment. The integrity gate already fell back to `present[0]`; the
+ *    delta loop did not, and `byArm.get(baseName)` was undefined:
+ *    `TypeError: Cannot read properties of undefined (reading 'get')` at what
+ *    was line 531. The base is now resolved PER SWEEP, reported per sweep, and
+ *    the markdown labels each delta column with the base it was actually taken
+ *    against rather than with the one the command line asked for.
  */
 
 'use strict';
@@ -370,6 +407,64 @@ function flagStampOf(rows) {
   return null;
 }
 
+/** The resolved stamp PER SEAT — `bot -> config`, first row that carries one. */
+function stampsByBot(rows) {
+  const out = {};
+  for (const r of rows) {
+    for (const h of r.health ?? []) {
+      if (out[h.bot] !== undefined) continue;
+      const m = h.mechanism;
+      if (m && (m.config || m.flags)) out[h.bot] = m.config ?? m.flags;
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------- the subject seat, derived
+
+/**
+ * THE CANDIDATE SUBJECTS SEATED IN A SWEEP, over EVERY row of EVERY arm.
+ *
+ * Deliberately not `rows[0].seats`: the manifest is written in completion
+ * order by a pool of workers and the harness rotates seats between games, so
+ * the first row is a race and the two arms of one pair routinely begin with
+ * different bots in seat 0. See defect A in the header.
+ */
+function subjectCandidatesOf(rowsLists) {
+  const bots = new Set();
+  for (const rows of rowsLists) for (const r of rows) for (const s of r.seats ?? []) bots.add(s.bot);
+  const all = [...bots].sort();
+  const lobsters = all.filter((b) => b.startsWith('lobster'));
+  return lobsters.length > 0 ? lobsters : all;
+}
+
+/**
+ * WHICH CANDIDATE SEAT DID THE TREATMENT ACTUALLY REACH?
+ *
+ * Read off the engines' own resolved stamps rather than off the spec: for each
+ * candidate seat, compare its stamp across the arms. A config arm changes
+ * exactly one seat, and that seat is the subject — derived from the data, not
+ * assumed from a name. Returns null when zero or more than one seat differs,
+ * which is the honest answer for a WHOLE-BUNDLE pair: there both seats carry a
+ * different build, both are legitimately readable, and choosing between them is
+ * an analysis decision the operator has to make and record.
+ */
+function treatedSeatFrom(stampsPerArm, candidates) {
+  const differing = [];
+  for (const c of candidates) {
+    const seen = stampsPerArm.map((s) => s[c]).filter((x) => x !== undefined);
+    if (seen.length < 2) continue; // not stamped on both sides — cannot say
+    const keys = new Set(seen.flatMap((v) => Object.keys(v)));
+    let differs = false;
+    for (const k of keys) {
+      if (k === 'name') continue; // the contender's own label, not a setting
+      if (new Set(seen.map((v) => JSON.stringify(v[k] ?? null))).size > 1) differs = true;
+    }
+    if (differs) differing.push(c);
+  }
+  return differing.length === 1 ? differing[0] : null;
+}
+
 // ------------------------------------------------------------- pairing
 
 const report = { batch: path.basename(batchDir), base: baseName, generatedAt: new Date().toISOString(), sweeps: [] };
@@ -378,11 +473,77 @@ const problems = [];
 const allSweepIds = new Set();
 for (const { sweeps } of arms.values()) for (const id of sweeps.keys()) allSweepIds.add(id);
 
+/*
+ * PRE-PASS: the subject seat and the base arm, PER SWEEP, resolved before a
+ * single statistic is computed — because the failure mode both of these guard
+ * is a silent wrong number, and a wrong number that took ten minutes to
+ * produce is no better than one that took none. If any sweep cannot resolve
+ * its subject, the whole run refuses and prints every unresolved sweep at
+ * once, so the operator fixes them in one edit rather than one per run.
+ */
+const resolution = new Map(); // sweepId -> { base, subjectFor, subjectHow, candidates }
+const refusals = [];
+for (const sweepId of [...allSweepIds].sort()) {
+  const present = armNames.filter((a) => arms.get(a).sweeps.has(sweepId));
+  if (present.length < 2) continue;
+  // DEFECT B. `--base` names one arm for the batch; a batch holds several
+  // sweeps and no arm is in all of them. Resolve the base PER SWEEP.
+  const base = present.includes(baseName) ? baseName : present[0];
+  const rowsOf = (a) => arms.get(a).sweeps.get(sweepId);
+  const candidates = subjectCandidatesOf(present.map(rowsOf));
+  const declaredFor = (a) => SUBJECT_MAP.get(a) ?? (arg('subject', '') || null);
+  let derived = null;
+  let how = null;
+  if (candidates.length === 1) {
+    derived = candidates[0];
+    how = `the only contender seated in this sweep`;
+  } else {
+    derived = treatedSeatFrom(present.map((a) => stampsByBot(rowsOf(a))), candidates);
+    if (derived !== null) how = `the one candidate seat whose RESOLVED STAMP differs between arms`;
+  }
+  const subjectFor = (a) => declaredFor(a) ?? derived;
+  if (present.some((a) => subjectFor(a) === null)) {
+    refusals.push(
+      `sweep ${sweepId}: seats ${candidates.length} candidate contenders and NO ONE of them is ` +
+        `the treated seat — no candidate's resolved stamp differs between these arms, so they ` +
+        `differ by BUILD and every candidate seat is equally treated. Which one is read is an ` +
+        `analysis choice, not a fact in the data. Pick one and say so:\n` +
+        candidates.map((c) => `           --subject ${c}`).join('\n') +
+        `\n       or, if the arms deliberately seat different subject bots,\n` +
+        `           --subject-map ${present.map((a) => `${a}=<bot>`).join(',')}`
+    );
+    continue;
+  }
+  if (declaredFor(present[0]) !== null) how = 'DECLARED on the command line';
+  resolution.set(sweepId, { base, subjectFor, subjectHow: how, candidates });
+}
+
+if (refusals.length > 0) {
+  console.error('aggregate.js REFUSES TO GUESS WHICH BOT IT IS MEASURING.');
+  console.error('');
+  console.error('The subject seat is the contender whose rows become the numbers. Choosing it by');
+  console.error('reading one game\'s seat list is a lottery — the manifest is in completion order and');
+  console.error('the seats rotate — and on a near-zero-sum board picking the UNTREATED lobster');
+  console.error('returns the treatment\'s effect with the SIGN REVERSED and no warning. That is what');
+  console.error('happened on 20260831-batch2 P7F: +0.4588 reported where the truth was -0.4588.');
+  console.error('');
+  for (const r of refusals) console.error(`  ${r}`);
+  console.error('');
+  process.exit(3);
+}
+
 for (const sweepId of [...allSweepIds].sort()) {
   const present = armNames.filter((a) => arms.get(a).sweeps.has(sweepId));
   if (present.length < 2) {
     problems.push(`sweep ${sweepId}: only ${present.length} arm(s) ran it — not pairable, skipped`);
     continue;
+  }
+  const { base: sweepBase, subjectFor, subjectHow } = resolution.get(sweepId);
+  if (sweepBase !== baseName) {
+    problems.push(
+      `sweep ${sweepId}: the requested base arm "${baseName}" did not run it, so deltas here are ` +
+        `taken against "${sweepBase}" instead. Every column below says which base it used.`
+    );
   }
 
   const byArm = new Map(present.map((a) => [a, new Map(arms.get(a).sweeps.get(sweepId).map((r) => [r.gameId, r]))]));
@@ -408,7 +569,7 @@ for (const sweepId of [...allSweepIds].sort()) {
 
   // INTEGRITY GATE. Same gameId must mean the same board and the same seats in
   // every arm, or the pairing is a fiction.
-  const baseRows = byArm.get(baseName) ?? byArm.get(present[0]);
+  const baseRows = byArm.get(sweepBase);
   const common = [];
   let dropped = 0;
   for (const [gameId, br] of baseRows) {
@@ -417,13 +578,13 @@ for (const sweepId of [...allSweepIds].sort()) {
       const r = byArm.get(a).get(gameId);
       if (r === undefined) { ok = false; break; }
       if (r.configHash !== br.configHash) {
-        problems.push(`${sweepId}/${gameId}: configHash differs (${baseName}=${br.configHash} ${a}=${r.configHash})`);
+        problems.push(`${sweepId}/${gameId}: configHash differs (${sweepBase}=${br.configHash} ${a}=${r.configHash})`);
         ok = false; break;
       }
       const sa = seatKey(r, a);
-      const sb = seatKey(br, baseName);
+      const sb = seatKey(br, sweepBase);
       if (sa !== sb) {
-        problems.push(`${sweepId}/${gameId}: seats differ (${baseName}=${sb} ${a}=${sa})` +
+        problems.push(`${sweepId}/${gameId}: seats differ (${sweepBase}=${sb} ${a}=${sa})` +
           (SUBJECT_MAP.size === 0 ? ' — if the arms deliberately seat different subject bots, declare it with --subject-map' : ''));
         ok = false; break;
       }
@@ -439,15 +600,10 @@ for (const sweepId of [...allSweepIds].sort()) {
     continue;
   }
 
-  // Subject bot: the one whose seat we read. Default is the first lobster in
-  // the seat list, because that is the contender in every cell this kit ships.
-  // The subject bot, per arm. `--subject-map` wins, then `--subject`, then the
-  // first lobster in the seat list — which is the contender in every cell this
-  // kit ships.
-  const fallbackSubject = arg('subject', '')
-    || (baseRows.get(common[0]).seats.map((s) => s.bot).find((b) => b.startsWith('lobster'))
-        ?? baseRows.get(common[0]).seats[0].bot);
-  const subjectFor = (armName) => SUBJECT_MAP.get(armName) ?? fallbackSubject;
+  // THE SUBJECT SEAT — declared or derived in the pre-pass above, never
+  // guessed from one game's seat list. `subjectHow` says which, and it is
+  // printed beside the numbers so a reader can check the choice rather than
+  // inherit it.
   const subject = present.map((a) => `${a}:${subjectFor(a)}`).join(' ');
 
   const cells = new Map();
@@ -460,6 +616,11 @@ for (const sweepId of [...allSweepIds].sort()) {
   const sweepOut = {
     sweepId,
     subject,
+    // HOW the subject was chosen, and WHICH arm the deltas are against. Both
+    // are recorded rather than assumed, because both were silent defaults that
+    // produced silent wrong numbers before 20260831 (see the header).
+    subjectHow,
+    base: sweepBase,
     arms: present,
     gamesPaired: common.length,
     gamesDropped: dropped,
@@ -519,16 +680,17 @@ for (const sweepId of [...allSweepIds].sort()) {
       cellOut.capRate[a] = round(capped / gameIds.length, 3);
     }
 
-    // Paired DELTAS against the base arm.
+    // Paired DELTAS against THIS SWEEP's base arm (defect B: `--base` names an
+    // arm for the batch, and no arm is in every sweep).
     for (const a of present) {
-      if (a === baseName) continue;
+      if (a === sweepBase) continue;
       const perMetric = {};
       for (const k of METRIC_KEYS) {
         const blockMeans = [];
         for (const gids of blocks.values()) {
           const diffs = [];
           for (const g of gids) {
-            const mb = metricsFor(byArm.get(baseName).get(g), subjectFor(baseName));
+            const mb = metricsFor(byArm.get(sweepBase).get(g), subjectFor(sweepBase));
             const ma = metricsFor(byArm.get(a).get(g), subjectFor(a));
             if (mb && ma && mb[k] !== null && ma[k] !== null) diffs.push(ma[k] - mb[k]);
           }
@@ -558,7 +720,12 @@ fs.writeFileSync(outJson, JSON.stringify(report, null, 1) + '\n');
 const md = [];
 md.push(`# Paired aggregation — ${report.batch}`);
 md.push('');
-md.push(`Base arm: \`${baseName}\`. Generated ${report.generatedAt}.`);
+md.push(`Base arm requested: \`${baseName}\`. Generated ${report.generatedAt}.`);
+md.push('');
+md.push('Each sweep names the base it was **actually** taken against and how its **subject seat**');
+md.push('was chosen. Neither is a default any more: a batch-level base arm is absent from some of');
+md.push('its own sweeps, and a subject seat read off one game\'s seat list is a race that can');
+md.push('return a treatment\'s effect with the sign reversed. See the header of `aggregate.js`.');
 md.push('');
 md.push('Intervals are 95% t over BLOCK means; `n` is the number of seeds. A delta whose');
 md.push('interval includes zero is a NULL RESULT and must be written up as one.');
@@ -605,6 +772,10 @@ for (const s of report.sweeps) {
   md.push(`Subject: \`${s.subject}\` · arms: ${s.arms.join(', ')} · paired ${s.gamesPaired} games` +
           (s.gamesDropped > 0 ? ` · **DROPPED ${s.gamesDropped} unpaired**` : ''));
   md.push('');
+  md.push(`Base for these deltas: \`${s.base}\`` +
+          (s.base !== baseName ? ` — **not the requested \`${baseName}\`, which did not run this sweep**` : '') +
+          `. Subject seat chosen by: ${s.subjectHow}.`);
+  md.push('');
   {
     const stamped = Object.entries(s.flagStamps ?? {}).filter(([, v]) => v !== null);
     if (stamped.length === 0) {
@@ -643,7 +814,7 @@ for (const s of report.sweeps) {
     }
     md.push('');
     const treatArms = Object.keys(c.deltas);
-    md.push(`| metric | ${s.arms.map((a) => `${a} (level)`).join(' | ')} | ${treatArms.map((a) => `Δ ${a}−${baseName} [95% CI]`).join(' | ')} |`);
+    md.push(`| metric | ${s.arms.map((a) => `${a} (level)`).join(' | ')} | ${treatArms.map((a) => `Δ ${a}−${s.base} [95% CI]`).join(' | ')} |`);
     md.push(`|---|${s.arms.map(() => '---').join('|')}|${treatArms.map(() => '---').join('|')}|`);
     for (const k of METRIC_KEYS) {
       const levels = s.arms.map((a) => fmt(c.levels[a][k]));

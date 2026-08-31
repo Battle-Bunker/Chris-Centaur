@@ -49,8 +49,12 @@ node tools/simworker/bin/verify-null.js --batch /tmp/smoke --null nullA,nullB
 **A bot config reaches ONE seat.** `--arm 'treat=<b>,bot={...}'` applies to the
 subject seat and is REFUSED when the spec seats more than one configurable
 contender; `--arm 'treat=<b>,bot@<seat>={...}'` names the seat and is repeatable.
-Before 20260830 a config was merged into every lobster seat, which cancels a
-within-game contrast silently — see `lib/arm-spec.js` and `../../HANDOFF.md`.
+Before 20260830 a config reached a lobster seat without naming which, which
+loses a within-game contrast silently. Measured on `20260831-batch2` (harness
+`cee34dd`, one commit before the fix) it reached the FIRST configurable
+contender only — `lobster-territory` got it, `lobster-material` did not — so
+that batch's config arms are genuine one-seat ablations. See `lib/arm-spec.js`
+and `../../HANDOFF.md`.
 
 ## What to run next
 

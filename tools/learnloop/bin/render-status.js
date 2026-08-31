@@ -93,6 +93,44 @@ if (ledger.branchRoles) {
     w(`> ${b.aaNull.caveat}`);
     w();
   }
+  /*
+   * THE MERGE DECISION — the one question a whole batch was run to settle, and
+   * therefore the one thing a reader of this page must not have to dig for.
+   * It renders DECIDED / NOT DECIDED as a badge before anything else, because
+   * the expensive mistake available around P11 is reading an undecided negative
+   * as a decided one.
+   */
+  const mr = (b.searchArchitecture || {}).mergeReading;
+  if (mr) {
+    w('## The merge decision');
+    w();
+    w(`**${b.searchArchitecture.mergeDecision}**`);
+    w();
+    w(`### ${mr.decided ? 'DECIDED' : 'NOT DECIDED'} — as of \`${mr.batch}\``);
+    w();
+    w(`- Experiment: ${mr.experiment}`);
+    w(`- Sample: ${mr.games}`);
+    w(`- **Verdict: ${mr.verdict}**`);
+    w();
+    w('**What the run CAN say:**');
+    w();
+    for (const [k, v] of Object.entries(mr.whatItCanSay ?? {})) {
+      w(`- *${k.replace(/([A-Z])/g, ' $1').toLowerCase().trim()}* — ${v}`);
+    }
+    w();
+    if (mr.whyItMayNotDecide) {
+      w(`**Why it may not decide it:** ${mr.whyItMayNotDecide}`);
+      w();
+    }
+    if (mr.cheapestDecidableRead) {
+      w(`**The cheapest decidable read:** ${mr.cheapestDecidableRead}`);
+      w();
+    }
+    if (mr.alsoOwed) {
+      w(`**Also owed:** ${mr.alsoOwed}`);
+      w();
+    }
+  }
 }
 w('## The rule this table exists to enforce');
 w();
@@ -313,17 +351,29 @@ if ((ledger.batches ?? []).length > 0) {
     w(`- Games: ${bt.games}${bt.gamesRecorded && bt.gamesRecorded !== bt.games ? ` (delivery said ${bt.gamesRecorded})` : ''}`);
     w(`- Ingest: **${bt.ingest ? bt.ingest.mode : 'no record'}**`);
     if (bt.ingest && bt.ingest.theHeadline) w(`- ${bt.ingest.theHeadline}`);
+    // WHICH SEAT THE FLOORS BELONG TO. A floor is a property of one seat and
+    // the tools that produce it used to pick that seat by racing the manifest's
+    // write order; a batch that does not say which seat it floored cannot have
+    // its treatments read against it.
+    if (bt.nullSubjectSeat) w(`- Floors measured on: ${bt.nullSubjectSeat}`);
+    if (bt.nullBandNote) w(`- Floor coverage: ${bt.nullBandNote}`);
+    if (bt.readableTest) w(`- **Readable test:** ${bt.readableTest}`);
     if (bt.integrity) {
       w(`- Integrity: illegal ${bt.integrity.illegal}, errors ${bt.integrity.errors}`);
       if (bt.integrity.correction) w(`  > ${bt.integrity.correction}`);
       for (const r of bt.integrity.rows ?? []) w(`  > - \`${r}\``);
+      if (bt.integrity.rootCause) w(`  > **Root cause:** ${bt.integrity.rootCause}`);
+      if (bt.integrity.instrumentGap) w(`  > **Instrument gap:** ${bt.integrity.instrumentGap}`);
       if (bt.integrity.ruleConsequence) w(`  > ${bt.integrity.ruleConsequence}`);
     }
     if (bt.instrumentEvents) {
       w('- Instrument events:');
       for (const e of bt.instrumentEvents.events ?? []) {
-        w(`  - \`${e.kind}\` ${e.cell}${e.arm ? ` [${e.arm}]` : ''}`);
+        w(`  - \`${e.kind}\` ${e.cell}${e.metric ? `/\`${e.metric}\`` : ''}${e.arm ? ` [${e.arm}]` : ''}`);
       }
+      for (const r of bt.instrumentEvents.nullBandWidened ?? []) w(`  > widened: ${r}`);
+      if (bt.instrumentEvents.widenedFinding) w(`  > ${bt.instrumentEvents.widenedFinding}`);
+      for (const r of bt.instrumentEvents.nullExcludesZero ?? []) w(`  > no floor: ${r}`);
       if (bt.instrumentEvents.capRateAsymmetryFiredOnP5) {
         w(`  > *cap-rate-asymmetry on P5:* ${bt.instrumentEvents.capRateAsymmetryFiredOnP5}`);
       }
