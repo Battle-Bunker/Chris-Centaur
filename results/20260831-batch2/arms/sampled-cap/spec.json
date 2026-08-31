@@ -1,0 +1,164 @@
+{
+ "_comment": [
+  "P9 — CENTAUR_SAMPLED_CAP (CL4), status probe-passed.",
+  "",
+  "QUESTION: Do far-priced options pay on piece boards at 2000 ms, and does the same-seed replay stay byte-identical across the batch?",
+  "",
+  "ARMS: default  |  sampled-cap",
+  "",
+  "ARM CONFIGS (both arms from POST-TEARDOWN bundles):",
+  "    --arm 'default=<bundle>'",
+  "    --arm 'sampled-cap=<bundle>,bot={\"sampledCap\":true}'",
+  "READS OUT: selectionFar, selectionDraws, ceilingDecided, score, finalMaterial",
+  "",
+  "DESIGN NOTE: RESPECIFIED 20260830: THE JOINT ARM IS GONE BECAUSE ITS PARTNER IS UNCONDITIONAL. The old third arm existed because CL3's dirty set cannot mark clean under a sampled cap, so the singles arm did not describe the shipped combination. The enumeration now runs in every bundle, so `sampled-cap` against `default` already carries that interaction and a third arm would buy a duplicate. Two contenders, both post-teardown bundles, differing only by `bot={\"sampledCap\":true}`. The determinism gate is unchanged and the harness can still assert it directly: same matchSeed and same board must replay bit-identically.",
+  "",
+  "HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The",
+  "feature flags are gone (owner ruling 20260829; the search-layer half",
+  "landed with the depth work). An arm is a BUNDLE plus a named BotConfig:",
+  "    --arm 'treat=<bundle>,bot={\"territoryRefine\":true}'",
+  "or a `contenders` map in the spec. Exporting a CENTAUR_* variable now",
+  "does NOTHING — an arm that sets one plays the shipped bot under a",
+  "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+  "refuses the dead names; a bad config field is a refusal from",
+  "botConfigFromJson rather than a silent off.",
+  "THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no",
+  "bot-config module and ignores the config entirely, so BOTH arms of a",
+  "pair must be built from post-teardown refs. Read the per-game rows'",
+  "mechanism.config stamp — the bot that actually resolved — not the spec.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p9-sampled_cap",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  69701,
+  69702,
+  69703,
+  69704,
+  69705,
+  69706,
+  69707,
+  69708,
+  69709,
+  69710,
+  69711,
+  69712,
+  69713,
+  69714,
+  69715,
+  69716
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ],
+ "contenders": {
+  "lobster-territory": {
+   "base": "lobster-territory",
+   "bot": {
+    "sampledCap": true
+   }
+  }
+ }
+}

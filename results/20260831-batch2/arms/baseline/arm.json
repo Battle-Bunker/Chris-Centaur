@@ -1,0 +1,26 @@
+{
+ "arm": "baseline",
+ "bundle": "/home/chris/lobster/bundles/b2-integrated",
+ "bundleStamp": {
+  "ref": "origin/claude/mid-turn-collision-logic-mkxurg",
+  "sha": "66904d256103a1d3f32d060fe742e98b092d33b6",
+  "subject": "Merge idea/i2 into integ/round-a: the slider repair (command + movement budget)",
+  "committedAt": "2026-08-27T05:37:01+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:26.643Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": null,
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "p11-scout",
+ "specPath": "/home/chris/lobster/Chris-Centaur/tools/learnloop/specs/batch2/p11-scout.json",
+ "workers": 10,
+ "startedAt": "2026-08-31T03:43:59.670Z",
+ "note": "P11 RESPECIFIED 20260830 as branch-versus-branch: the merge decision for claude/cluster-lookahead. baseline=mid-turn-collision-logic-mkxurg@66904d2, search-arch=cluster-lookahead@b68ce98, both shipped defaults, NO bot config on either side. Same boards and seeds as the config-pair run of the same sweepId. UNDERPOWERED FOR THE MERGE DECISION at 16 blocks (spec requires ~73/cell); run for the engagement gate and the mechanism rows."
+}

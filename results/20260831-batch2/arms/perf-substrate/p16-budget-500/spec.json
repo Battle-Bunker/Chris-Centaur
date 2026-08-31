@@ -1,0 +1,234 @@
+{
+ "spec": {
+  "_comment": [
+   "P16 — The budget ladder, rung 500 ms.",
+   "",
+   "APPROVED BY: owner — pre-approved, conditional on budget-probe v2 confirming",
+   "TRIGGER: CONFIRMED, and here is the whole arithmetic. budget-probe v2, 60 recorded positions drawn from 480 integrated replays, idle box, FRESH ENGINE PER POSITION, sample seed 1, 9 skipped: a true 1000 ms run reproduces the 2000 ms decision on 55 of 60 positions. FLIPS 5/60 = 8.3% (+/-7.0). A/A FLOOR, 2000 ms against itself: 1/60 = 1.7% (+/-3.2). EXCESS ATTRIBUTABLE TO BUDGET = 6.7 points, wide at n=60 and the intervals overlap — the direction is clear and the magnitude is not. The condition on the owner's pre-approval is met.",
+   "",
+   "QUESTION: Where on the budget curve does the substrate stop being speed and start being strength? P1 found the perf substrate was speed-not-strength at 2000 ms; the bimodal revision result (65% of decisions settle by 250 ms, 34.8% revise in a wave at 1000-1500 ms, nothing between) says 1000 ms would amputate the second pass entirely. Three points draw the line.",
+   "ARMS: integrated  |  perf-substrate",
+   "READS OUT: decisions, worstWallMs, overrunRate, turns, capRate, score",
+   "",
+   "DESIGN NOTE: ONE trail-instrumented cell in the ladder. The 35% revision wave was measured PRE-CL3, and cluster enumeration front-loads coordination, so the wave's own shape may have moved — which would make the ladder's middle rung mean something different from what it meant last month. Mechanism-first at 8 blocks: placement is descriptive here, not claimable. BATCH-1 NOTE: the 500 ms rung is now the interesting one. If the deep pass lands at 1000-1500 ms and the engine reschedules it under a 1 s budget, then 1000 ms may barely differ from 2000 ms while 500 ms amputates the pass outright — so the ladder's information is concentrated at its bottom rung.",
+   "",
+   "CAVEAT: CHANGED != IMPROVED, and nothing measures the difference. The 35.0%/60.1% figures count decisions whose staged move-set changed; the 8.3% counts decisions a shorter budget decides differently. Whether those ~7% are BETTER is unmeasured and is exactly what the ladder is for.",
+   "",
+   "MECHANISM-FIRST at this block count. Placement here is descriptive.",
+   "",
+   "Generated from tools/learnloop/promotion-ledger.json."
+  ],
+  "sweepId": "p16-budget-500",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   50101,
+   50102,
+   50103,
+   50104,
+   50105,
+   50106,
+   50107,
+   50108
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king@500",
+    "config": {
+     "name": "headline-mix-king@500",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 500,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6@500",
+    "config": {
+     "name": "null-snake6@500",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 500,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p16-budget-500",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "contenders": {},
+  "seeds": [
+   50101,
+   50102,
+   50103,
+   50104,
+   50105,
+   50106,
+   50107,
+   50108
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king@500",
+    "config": {
+     "name": "headline-mix-king@500",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 500,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6@500",
+    "config": {
+     "name": "null-snake6@500",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 500,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 48,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   4.1,
+   12.3,
+   15.35
+  ]
+ },
+ "startedAt": "2026-08-31T02:38:38.896Z",
+ "resumedAt": []
+}

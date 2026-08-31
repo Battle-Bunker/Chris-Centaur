@@ -1,0 +1,141 @@
+{
+ "_comment": [
+  "THE EXPLORATION SLICE — the ratchet guard, and it is not optional.",
+  "",
+  "A3 memo section 4.2 item 6: the policy decides which games get played with",
+  "which features, so tomorrow`s corpus is selected by today`s policy. A",
+  "promoted default with no opposite-branch slice is a default that can never",
+  "be revised back, because the cell that would revise it stops generating",
+  "data the moment it is promoted.",
+  "",
+  "Each flag below runs its OPPOSITE branch on a small slice. Small on purpose:",
+  "4 blocks, mechanism-first, so there is no version of \"we did not have",
+  "room\" that is true. Do NOT read placement off these cells — at this block",
+  "count nothing here can support a placement claim, and it is not meant to.",
+  "",
+  "  P3-slice     TERRITORY_SLIDER_PROFILE: run baseline-profile against the shipped default",
+  "  P14-slice    CENTAUR_STAGING_SAFETY: run off against the shipped default",
+  "  P15-slice    gainOrdering: run gainordering-off against the shipped default",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json."
+ ],
+ "sweepId": "x9-exploration-slice",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  98801,
+  98802,
+  98803,
+  98804
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ],
+ "contenders": {
+  "lobster-territory": {
+   "base": "lobster-territory",
+   "bot": {
+    "stagingSafety": "off"
+   }
+  }
+ }
+}

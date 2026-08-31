@@ -1,0 +1,28 @@
+{
+ "arm": "workers-auto",
+ "bundle": "/home/chris/lobster/bundles/b2-perf",
+ "bundleStamp": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": {
+  "workers": "auto"
+ },
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "p13-workers",
+ "specPath": "/home/chris/lobster/results/20260831-batch2/arms/workers-auto/spec.json",
+ "workers": 4,
+ "startedAt": "2026-08-30T23:55:11.261Z",
+ "note": "P13: does the pool convert throughput into strength at 2000 ms on 24 cores? Run at --workers 4 (not 10) because the auto contender spawns a decision pool per game; 10 would oversubscribe the box asymmetrically between the two contenders."
+}

@@ -1,0 +1,348 @@
+{
+ "spec": {
+  "_comment": [
+   "P12 — CENTAUR_EDGE_EV (CL2), status probe-passed.",
+   "",
+   "QUESTION: On piece-bearing boards, does the EV's staged-eat gain survive into eaten meals and placement, or is the 84 -> 81 shortfall real?",
+   "",
+   "ARMS: default  |  edge-ev",
+   "",
+   "ARM CONFIGS (both arms from POST-TEARDOWN bundles):",
+   "    --arm 'default=<bundle>'",
+   "    --arm 'edge-ev=<bundle>,bot={\"candidates\":{\"edgeEv\":true}}'",
+   "READS OUT: mealsEaten, finalMaterial, score",
+   "",
+   "DESIGN NOTE: RESPECIFIED 20260830 for arm SELECTION only — the experiment is unchanged. Two contenders, both post-teardown bundles: `default`, and `edge-ev` = `bot={\"candidates\":{\"edgeEv\":true}}`. The old `off`/`edgeev-on` names described an environment variable that no longer exists, and an arm that exported it would play the shipped bot under a treatment's name.",
+   "",
+   "SCOPE: PIECE BOARDS ONLY for the claim; null-snake6 rides along as the provably-inert cell (CL2 section 7.5).",
+   "",
+   "HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The",
+   "feature flags are gone (owner ruling 20260829; the search-layer half",
+   "landed with the depth work). An arm is a BUNDLE plus a named BotConfig:",
+   "    --arm 'treat=<bundle>,bot={\"territoryRefine\":true}'",
+   "or a `contenders` map in the spec. Exporting a CENTAUR_* variable now",
+   "does NOTHING — an arm that sets one plays the shipped bot under a",
+   "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+   "refuses the dead names; a bad config field is a refusal from",
+   "botConfigFromJson rather than a silent off.",
+   "THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no",
+   "bot-config module and ignores the config entirely, so BOTH arms of a",
+   "pair must be built from post-teardown refs. Read the per-game rows'",
+   "mechanism.config stamp — the bot that actually resolved — not the spec.",
+   "",
+   "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+   "re-run make-promotion-batch.js."
+  ],
+  "sweepId": "p12-edge_ev",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   16701,
+   16702,
+   16703,
+   16704,
+   16705,
+   16706,
+   16707,
+   16708,
+   16709,
+   16710,
+   16711,
+   16712,
+   16713,
+   16714,
+   16715,
+   16716
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-queen",
+    "config": {
+     "name": "snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ],
+  "contenders": {
+   "lobster-territory": {
+    "base": "lobster-territory",
+    "bot": {
+     "candidates": {
+      "edgeEv": true
+     }
+    }
+   }
+  }
+ },
+ "resolved": {
+  "sweepId": "p12-edge_ev",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "contenders": {
+   "lobster-territory": {
+    "base": "lobster-territory",
+    "bot": {
+     "candidates": {
+      "edgeEv": true
+     }
+    }
+   }
+  },
+  "seeds": [
+   16701,
+   16702,
+   16703,
+   16704,
+   16705,
+   16706,
+   16707,
+   16708,
+   16709,
+   16710,
+   16711,
+   16712,
+   16713,
+   16714,
+   16715,
+   16716
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "snake5-queen",
+    "config": {
+     "name": "snake5-queen",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   2.91,
+   9.97,
+   16.51
+  ]
+ },
+ "startedAt": "2026-08-30T18:09:02.294Z",
+ "resumedAt": []
+}

@@ -1,0 +1,26 @@
+{
+ "arm": "perf-substrate",
+ "bundle": "/home/chris/lobster/bundles/b2-perf",
+ "bundleStamp": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": null,
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "p16-budget-2000",
+ "specPath": "/home/chris/lobster/Chris-Centaur/tools/learnloop/specs/batch2/p16-budget-2000.json",
+ "workers": 10,
+ "startedAt": "2026-08-31T03:00:52.658Z",
+ "note": "P16 rung 2000 ms: where does the perf substrate stop being speed and start being strength?"
+}
