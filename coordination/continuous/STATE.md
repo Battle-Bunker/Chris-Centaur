@@ -174,12 +174,39 @@ default rather than blocking on it): running the FIRST cell (`snake6`,
 the null roster — cheapest to interpret, everything nulls here by
 construction) at a REDUCED 8 blocks (24 games/arm, 48 total) instead of
 R1's 32, to get a first real reading and a real floor at this shape
-before committing more hours.** Estimated wall time ~2 hours. If this
-completes cleanly, the actual measured throughput will replace the
-smoke-test estimate above and inform whether the remaining 5 cells (or
-more blocks on this one) are worth the wall-clock at all — **this is the
-open question for the owner/coordinator, flagged here rather than
-silently spending 40+ hours on the full design.**
+before committing more hours.**
+
+**LANDED. 48 games, 0 failed, 5529s (~92 min) at `--workers 2`,
+confirmed 16 games/hour/arm** — matches the smoke test almost exactly,
+so THE THROUGHPUT ESTIMATE ABOVE IS NOW MEASURED, NOT GUESSED: ~1.5hr for
+8 blocks on one cell, ~6hr for R1's own 32.
+
+**Reading — clean and enormous, resolves at only 8 blocks:**
+
+| contrast | G, 8 blocks | 95% CI | clears own floor? |
+|---|---:|:--|---|
+| territory − material | **+1.620** | [1.467, 1.800] | yes, easily (own floor 0.428) |
+| territory − reflex | **+1.691** | [1.488, 1.916] | yes, easily |
+
+Matches the overnight preview's direction and roughly its magnitude
+(+1.39 there) on the all-snake control cell — territory dominates
+completely with no pieces on board, as expected; this cell is the
+sanity-check rung, not the open question. **8 blocks is already far more
+than this cell needs** (CI half-width 0.17-0.21 against an effect over
+1.6) — the piece cells are where the overnight preview found the
+advantage shrinking toward zero and are the ones actually worth the next
+~1.5hr chunk each.
+
+**OPEN DECISION FOR THE COORDINATOR/OWNER: continue funding ~1.5hr/cell
+x 5 remaining cells (`snake5-knight`, `snake5-rook`, `snake5-queen`,
+`queen2-snake4`, `mix-king`) at 8 blocks first (a fast, cheap first read
+on all five, ~7.5hr total), vs going straight to R1's full 32 blocks on
+just the highest-value rung, vs pausing here.** Recommend the former —
+snake6 shows 8 blocks is already generous when the effect is large, and
+the piece cells are exactly where a SMALL or NULL effect (which needs
+more blocks to resolve) is the interesting outcome, so an 8-block first
+pass on all five tells us fast which rungs need the extra 24 blocks and
+which don't.
 
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,

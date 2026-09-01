@@ -139,6 +139,15 @@
    Details: `$SP/continuous/item3-piece-floor/results.md`.
 
 4. Evaluator-selection ladder (overnight R1) at owner shape, chunked.
+   STARTED 2026-09-01. Cell 1/6 (snake6, null roster, 8 blocks) LANDED:
+   territory-material +1.620 [1.467,1.800], territory-reflex +1.691
+   [1.488,1.916], both clear their own floor easily — matches the
+   overnight preview's direction on the all-snake control. Confirmed
+   throughput at owner shape: 16 games/hour/arm, ~1.5hr per 8-block cell,
+   ~6hr for R1's full 32. 5 piece cells remain (the actual open question
+   — overnight found the advantage shrinking/reversing there). Open
+   scope decision flagged for the owner: 8-block first pass on all five
+   (~7.5hr) vs full 32 on the highest-value rung vs pause. STATE.md §11.
 
 5. gainOrdering rerun under potions (R6).
 

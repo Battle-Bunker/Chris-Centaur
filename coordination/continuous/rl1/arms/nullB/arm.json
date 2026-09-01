@@ -1,0 +1,27 @@
+{
+ "arm": "nullB",
+ "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b5",
+ "bundleStamp": {
+  "ref": "79b5f5e",
+  "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+  "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+  "committedAt": "2026-09-01T02:38:30+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-09-01T02:54:08.756Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": null,
+ "seatConfigs": {},
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "pp-roster-ladder",
+ "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/rl-snake6.json",
+ "workers": 2,
+ "startedAt": "2026-09-01T10:52:41.212Z",
+ "note": "queue item 4, cell 1/6 (snake6, null roster): evaluator-selection ladder, [lobster-territory,lobster-material,reflex] within one game, self-flooring identical arms. Reduced to 8 blocks for a first timed read at owner shape (2000ms/25x25/turnCap120) before committing to R1's full 32."
+}
