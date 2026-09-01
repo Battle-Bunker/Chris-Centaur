@@ -1,7 +1,18 @@
 # SUCCESSOR — exact resume instructions
 
-Paused 2026-09-01 ~02:20 on an owner quota directive (94% weekly limit).
-**No game runs were left going.** Cycle k4 was aborted at 90/216 per arm.
+**RESUMED 2026-09-01 ~02:52.** Cycle 5 (potion-VALUE sweep) relaunched as
+`run-cycle5b.sh`, bundle rebuilt from `claude/cluster-lookahead@79b5f5e`
+(the toll fix). See STATE.md §6 for exactly what changed on resume.
+
+If this session ended and k5 is still running or done, check:
+```
+tail -20 $SP/continuous/k5.log
+ls $SP/continuous/k5   # populated once run-pair.js starts writing
+```
+If `k5.log` ends with `[cycle5] DONE`, analyse with the commands below and
+move to "Then, in order". If it is still in the wait loop or mid-sweep,
+either wait for it or re-launch is unnecessary — it is idempotent only via
+`--resume` on run-pair.js if genuinely dead; check `ps` first.
 
 Read `STATE.md` for the full picture and `HANDOFF-NOTE.md` for the
 one-page summary. This file is only what you need to restart.

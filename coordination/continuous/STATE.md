@@ -1,8 +1,31 @@
 # CONTINUOUS RUNNER — STATE
 
-**PAUSED 2026-09-01 ~02:20 on an owner quota directive (94% weekly
-limit). No runs are in flight; cycle k4 was aborted at 90/216 per arm.
-Exact resume instructions: `$SP/continuous/SUCCESSOR.md`.**
+**RESUMED 2026-09-01 ~02:52.** Cycle 5 (k5, the potion-VALUE sweep) is
+running as cycle 5b — see §6. Exact resume instructions if paused again:
+`$SP/continuous/SUCCESSOR.md`.
+
+## 6. Resumption note (2026-09-01 ~02:52)
+
+- `origin/claude/cluster-lookahead` advanced to `79b5f5e` (the toll fix:
+  "the first-plan gate states its tail as a RATIO, so a shared box cannot
+  fail it") after this runner paused. Confirmed `79b5f5e` is a strict
+  descendant of local `tmp/potionplay` HEAD (`ecf5609`) — cluster-lookahead
+  now contains all of the potion-intel work AND the toll fix, so bundles
+  are built from `79b5f5e` directly rather than from `tmp/potionplay`.
+- New bundle **`$SP/ppruns/b5`** built from `79b5f5e` (`build-bot.sh
+  79b5f5e $SP/ppruns/b5 --force`, shared npm install, 6 pre-existing tsc
+  errors as expected). `run-cycle5b.sh` supersedes `run-cycle5.sh` (same
+  spec, `b5` instead of `b4`).
+- On resume, TWO sibling `run-sweep.js` pairs (`piruns/a3`, `piruns/l1`,
+  `--workers 1` each, 4 processes on the 4-core box) were already live —
+  another agent thread's acceptance-game work, per STATE's standing box
+  note. `run-cycle5b.sh` **waits** (`pgrep -f 'run-sweep\.js|run-pair\.js'`,
+  30s poll) for the box to clear before launching k5's `run-pair.js`, so
+  it does not stack a third pair on top. **Launched as a Bash
+  `run_in_background` job (tracked by the tool), not `nohup … &
+  disown`** — the first launch attempt used the untracked-detached-shell
+  pattern this file already flags as a hazard (PPID 1, no completion
+  notice); it was killed and relaunched tracked.
 
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,
