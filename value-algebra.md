@@ -584,9 +584,14 @@ domain for precedence-as-data, with a principled boundary:**
   buy a suicide, and §6's hard boundary on knobbing material is the same observation. So
   this slot must stay a precedence and must never become a weight.
 - **`contingencies` — *"how many held units' claims this move's outcome rests on"* — is
-  bound width, not value.** It orders by how much is unknown. That is the value-of-information
-  channel the shadow machinery owns, and it is a *search-control* quantity: it should decide
-  what to resolve next, not what is worth more.
+  bound width, not value.** It orders by how much is unknown. **Reclassified, and I agree
+  with the composition lens against my own first draft: this belongs to ECONOMY (the
+  value-of-information channel that decides what to resolve next), not to the ordering's
+  residual precedence.** It is not a tiebreak the comparator should own at all; a quantity
+  that says "this estimate is soft" is an input to *spending*, and putting it in a
+  preference order silently converts uncertainty into distaste. That leaves precedence with
+  only **two** residents — and both are type-level rather than quantitative, which is a
+  cleaner residual than I first proposed.
 - **`candidate.to` is determinism.** A tiebreak, and it should stay one.
 
 So the boundary is not a compromise between two mechanisms — it falls out of the type:
@@ -688,6 +693,57 @@ for every unit class, including snakes where the cap does not bind, because the 
 also drives the joint-enumeration order under the 512 cap. It does mean the instrument must
 report spread **by unit class**, or a snake-board null and a slider-board hit will average
 into a misleading nothing.
+
+### 4.8 The instrument, in its final form — and a third cause the shape of the curve reveals
+
+The composition lens sharpened the diagnostic twice, and both corrections are right:
+
+1. **Measure spread at the POINT OF COMPARISON** — across the plans `better()` actually
+   adjudicates between — not merely across admitted candidates. A term can be admitted and
+   still be constant over everything it is compared against (exactly what a *team-level max*
+   over units × potions produces, which is already on the potion work's record as its
+   "second cause").
+2. **Report by unit class**, per §4.7.
+
+So there are two causes of an inert weight, presenting identically, with **opposite
+remedies**: (a) ADMISSION — the option never enters the priced set, which binds only where
+options exceed the cap, i.e. sliders; (b) NO GRADIENT — the term is constant across the plans
+compared, which is a shape problem in the term itself.
+
+**I want to add a third, because the observed data does not fit either.** The reported
+signature is *"4× weights flat-to-worse"* — and **flat-then-worse is not the signature of an
+inert term.** A term with no admission and no gradient is flat at *every* multiple: scaling
+zero gives zero. A term that eventually makes things *worse* must have non-zero spread at the
+point of comparison — it is biting, just never beneficially. That is a third cause:
+
+> **(c) SCALE SEPARATION.** The term has gradient, but its spread is so small relative to
+> `material: 10` that it needs a large multiplier to influence anything — and by the time the
+> multiplier is large enough to matter, it has crossed the trade-safety inequality
+> (`w_feature × observed spread < 10 × lightest unit weight`, `calibration.ts:106`) and
+> started trading units for ground. There is no window in which it helps. Flat, then worse.
+
+This makes the weight-response *curve shape* a diagnostic, which is cheaper than any of the
+instruments above because the sweeps have already been run:
+
+| response to scaling the weight | cause | remedy |
+|---|---|---|
+| flat at every multiple | (a) admission or (b) no gradient — separate them with the point-of-comparison spread, by unit class | (a) admit by sound bound; (b) fix the term's shape (per-unit credit) |
+| **flat, then worse** | **(c) scale separation** | put the term in the same currency as material — see below |
+| monotone improvement | correctly signed and priced | nothing |
+
+**And (c) is the one the algebra dissolves outright rather than merely diagnoses.** The cliff
+inequality exists *only because* the ordering terms are denominated in cells while material is
+denominated in weight × 10 — two incommensurable units, so a hand-set inequality is needed to
+stop one outbidding the other. Denominate the safety term in weight-share, as §3.2 validated
+— coefficient `(K/W)(1−p)·w_u·k` — and **there is no separate cliff to cross**, because a
+death now costs exactly the account balance it wipes, which is precisely what material would
+have charged for it. The inequality was never a strategy convention; it was a **unit-conversion
+guard**, and it becomes unnecessary the moment the units agree.
+
+That is the strongest practical argument for the currency in this memo, and it is a
+prediction: **under the validated fold, the trade-safety inequality should be derivable rather
+than asserted, and should hold at every non-negative γ without being checked.** If it does not,
+the currency is not doing the work I claim.
 
 ---
 
