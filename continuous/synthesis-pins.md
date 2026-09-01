@@ -4002,3 +4002,15 @@ how a false crisis reads as data.
   cells). Residual precedence = tier bottom + determinism only.
   PRE-REGISTERED rook forecast, k frozen: G=+0.173 (n=12 interim: rook
   weight 24.8, 0.75 elim/game — live instrument). Check vs rl5 when done.
+- Value lens final UPDATED (head ee6080d): transfer channel added — k
+  marches 2.919 → 2.072 → 1.227 as the basis completes (R²=0.970, worst
+  residual 0.035); the march-toward-unity is the validity argument. The
+  shipped evaluator's six hand coefficients + twelve-slot precedence +
+  cliff inequality reduce to three flows with live-computed coefficients
+  + one fitted constant ≈1.2. Bug finding: potion-control.ts third-party
+  caveat SIGNED BACKWARDS (third-party damage raises our score under the
+  true metric). Honest limit recorded: channels validated, heuristics not;
+  Centaur case must rest on option-surfacing, not the fold's R².
+  FINAL registered rook forecast (3-channel, k frozen): G = +0.078
+  (supersedes the interim 2-channel +0.173); score via
+  tools/forecast-rook3.py when rl5 lands.
