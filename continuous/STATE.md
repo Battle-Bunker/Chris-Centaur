@@ -467,3 +467,17 @@ exclude anything remotely like the +1.6 all-snake effect. This confirms
 the overnight shrink-to-zero direction at owner shape (unlike the
 queen2-snake4 reversal, which did not replicate). Cell 4/6
 (snake5-queen, batch rl4, seeds 60401-60408) launched, Monitor-babysat.
+
+## 14. R1 cell 4/6 (snake5-queen) — territory HOLDS with a queen fielded
+
+24 games/arm Monitor-babysat. territory − material G = **+0.536**
+[0.267, 0.829], floor 0.463 — marginal clear, clearly positive.
+territory − reflex G = **+1.682** [1.553, 1.811], floor 0.270 — decisive.
+
+So the piece-collapse is NOT "any piece": a knight zeroes territory's
+edge (cell 3), a queen leaves most of it intact. Working hypothesis for
+the value lens: leaper mobility punches through territorial structure in
+a way slider mobility does not (a queen's rays are themselves
+territorial; a knight's jumps ignore the territory metric entirely).
+Cell 5/6 (snake5-rook, batch rl5, seeds 60501-60508) launched — the rook
+discriminates: pure slider, less coverage than queen.
