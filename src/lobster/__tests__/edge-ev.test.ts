@@ -178,6 +178,7 @@ describe('the ordering slot', () => {
       tierGrade: 'clear',
       selfDebuff: 'none',
       contingencies: 0,
+      potionGain: 0,
       shadowBonus: 0,
       foodGain: 0,
       regicideShot: 0,
@@ -194,6 +195,53 @@ describe('the ordering slot', () => {
     }
     // The meal slot exists only in the gain order, which is the shipped one.
     expect(orderingComparator(true)(rich, { ...base, foodGain: 1 })).toBeGreaterThan(0);
+  });
+
+  test('THE PICKUP SLOT: below the meal, above the quiet, inert when unset', () => {
+    /*
+     * The slot placement is the argument, so it is asserted rather than
+     * described. A collection is a GAIN — it opens a three-turn window the
+     * whole team can cut inside — but it is not a meal: food is the resource a
+     * unit dies without. So the slot sits under `foodGain` and over everything
+     * quiet, and a tier or a capture still outranks it, because ordering never
+     * licenses a move.
+     *
+     * The last assertion is the one that keeps the shipped comparator honest:
+     * `potionGain` is written zero at assessment time unless `potionOrdering`
+     * is set, so this line is inert in every bot that does not name the knob.
+     */
+    const base: AssessedCandidate = {
+      candidate: { unitId: 1 as UnitId, from: 0 as CellIndex, to: 1 as CellIndex, path: [] },
+      tier: 'safe',
+      capture: 'no',
+      healthSpent: { lo: 0, hi: 0 },
+      exhaustionFatal: 'no',
+      landing: [1 as CellIndex],
+      tierGrade: 'clear',
+      selfDebuff: 'none',
+      contingencies: 0,
+      potionGain: 0,
+      shadowBonus: 0,
+      foodGain: 0,
+      regicideShot: 0,
+      survivorsAfter: -1,
+      survivalPrior: 1,
+      edgeEv: 0,
+    };
+    const cmp = orderingComparator(true);
+    const pickup = { ...base, potionGain: 1, candidate: { ...base.candidate, to: 2 as CellIndex } };
+    // Above the quiet move it is being compared with.
+    expect(cmp(pickup, base)).toBeLessThan(0);
+    // Below a meal, and below everything the material class already ranked.
+    expect(cmp(pickup, { ...base, foodGain: 1 })).toBeGreaterThan(0);
+    expect(cmp(pickup, { ...base, capture: 'yes' })).toBeGreaterThan(0);
+    expect(cmp({ ...pickup, tier: 'atRisk' }, base)).toBeGreaterThan(0);
+    // A pickup that outranks the quiet move on the shadow slot below it still
+    // wins on the pickup slot, which is what "above the quiet" means.
+    expect(cmp(pickup, { ...base, shadowBonus: 1 })).toBeLessThan(0);
+    // INERT WHEN UNSET: two candidates that differ in nothing else sort by the
+    // keys they always did.
+    expect(cmp({ ...pickup, potionGain: 0 }, base)).toBeGreaterThan(0);
   });
 });
 

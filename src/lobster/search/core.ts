@@ -1573,7 +1573,26 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * frame value does not bound the final score.
    */
   const beliefOf = (r: BankResult, note: DeepObservation | undefined): BranchPosterior => {
-    const post = posteriorOfBranch(r.bounds.worst, r.bounds.best, r.est);
+    // THE SOUND ESTIMATE, NOT THE ADVISED ONE — and this line is the whole of
+    // the repair.
+    //
+    // `est`'s contract is that it orders the floor-tie class and adjudicates
+    // nothing (`evaluate/bound.ts`, `evaluate/potion-lineup.ts`). Reading the
+    // ADVISED estimate here broke that contract silently: the belief's near
+    // half is built from it, the depth rung that reads the belief sits ABOVE
+    // the floor comparison in `accept()`, and so a term touching only `est` was
+    // converting comparisons that would have fallen through to the PROVED FLOOR
+    // into comparisons decided by a belief it had nudged. Measured on the
+    // parent branch with a dose-response in the term's own volume: a louder
+    // lineup moved ~200 comparisons a decision off the floor and onto the
+    // belief, while `estDecided` — the slot the doctrine is supposed to speak
+    // in — went DOWN.
+    //
+    // `estSound` is `est` on every bot with no advisory lineup, so the shipped
+    // bot's belief is the number it always was. On a bot with one, the advisory
+    // reading now reaches the comparator at the `est` rung below the floor and
+    // nowhere else, which is what it was always documented to do.
+    const post = posteriorOfBranch(r.bounds.worst, r.bounds.best, r.estSound);
     if (note === undefined) return post;
     return foldObservation(post, {
       kind: "deep-finding",

@@ -219,6 +219,16 @@ export interface CandidateKnobs {
    * no candidate is ever refused for it.
    */
   readonly selfDebuffOrdering?: boolean;
+  /**
+   * ORDER A PLAIN PICKUP AS A GAIN — see `AssessedCandidate.potionGain`.
+   *
+   * Off in the shipped bot. It is the ORDERING half of the potion doctrine,
+   * and it exists because the evaluator half cannot reach a plan the candidate
+   * cap closed in front of: an advisory term can only reorder plans the search
+   * priced, and a collection that sorts among the quiet moves may never be one
+   * of them.
+   */
+  readonly potionOrdering?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
   /**
@@ -341,6 +351,9 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
   gainOrdering: true,
+  // OFF: the ordering half of the potion doctrine, selected by the arm that
+  // races it and by nothing else.
+  potionOrdering: false,
   // Both default OFF; the staging-safety level turns them on (`knobsForSafety`),
   // so an explicit knob from the bot still wins.
   pruneCertainSelfFatal: false,
@@ -440,6 +453,23 @@ export interface AssessedCandidate {
    * decides whether that world is worth anything.
    */
   readonly foodGain: number;
+  /**
+   * Could this move come to rest on a potion the mover would plainly SPEND —
+   * `selfDebuff === 'spend'`, i.e. a pickup that burns no teammate's window,
+   * exposes the collector to nothing the grader can see, and is not a king
+   * debuffing itself. Ordering hint only, and zero unless `potionOrdering` is
+   * on.
+   *
+   * WHY AN ORDERING HINT AND NOT A VALUE. The evaluator already prices a
+   * pickup — that is the whole of the potion lineup — but it can only price
+   * plans the search REACHES, and the order decides which of a unit's options
+   * the anytime path reaches before its budget runs out. `spend` ranks zero in
+   * `SELF_DEBUFF_RANK`, which is the honest reading of a pickup's COST and
+   * says nothing about its gain, so a collection currently sorts among the
+   * quiet moves and a busy unit's cap can close in front of it. This is the
+   * one slot where the doctrine can say "look at this one first".
+   */
+  readonly potionGain: number;
   /**
    * Could this move come to rest on the square of an enemy team's LAST king,
    * with a capture the engine does not rule out? Ordering hint only.
@@ -1130,6 +1160,10 @@ function assessOne(
   const selfDebuff = knobs.selfDebuffOrdering
     ? selfDebuffOf(sub, unit, exposure, landing)
     : ('none' as SelfDebuff);
+  // ZERO WHENEVER THE KNOB IS OFF, so the comparator below stays unconditional
+  // and a bot without this knob sorts byte for byte what it always did — the
+  // same discipline `edgeEv` follows in the slot beneath it.
+  const potionGain = knobs.potionOrdering && selfDebuff === 'spend' ? 1 : 0;
 
   return {
     candidate,
@@ -1143,6 +1177,7 @@ function assessOne(
     contingencies,
     shadowBonus,
     foodGain,
+    potionGain,
     regicideShot,
     // Filled in by the fatality pass when its knob is on; absent otherwise, so
     // an assessment with the classifier off costs exactly what it cost.
@@ -1527,6 +1562,13 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
   if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
+  // THE PICKUP SLOT. Below the eats, because food is the resource a unit dies
+  // without and a window is a resource it merely wins with; above everything
+  // quiet, because a collection that never enters the priced set cannot be
+  // valued by any evaluator, however loudly that evaluator prices it. Zero on
+  // every bot that does not set `potionOrdering`, so this line is inert in the
+  // shipped comparator.
+  if (a.potionGain !== b.potionGain) return b.potionGain - a.potionGain;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
   // THE EDGE-EV SLOT — and note where it is NOT. It sits BELOW `foodGain`,
   // which already separates the eats from everything else, so the EV's job here

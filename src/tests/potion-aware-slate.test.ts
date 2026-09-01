@@ -175,6 +175,23 @@ function fakePorts(): TeamDecisionPorts & { staged: string[] } {
 /** One decision by one configured bot, on the board above. Both clocks are
  * faked and the match seed is pinned, so the only difference between two calls
  * is the bot. */
+/**
+ * ORDERING OFF, ON BOTH SIDES OF EVERY ARM IN THIS FILE.
+ *
+ * `feature/potion-intel`'s default bot sets `candidates.potionOrdering`, which
+ * sorts a pickup as a GAIN in the candidate order — a different channel from
+ * the advisory lineup, and on this board a sufficient one: with it on, the
+ * control walks to the potion too and every gate below goes vacuously green.
+ *
+ * These tests are about the LINEUP, so the ordering is switched off on both
+ * sides and the one difference between the arms stays the one being measured.
+ * The ordering has its own gate in `candidates.test.ts`.
+ */
+const QUIET_ORDER = (bot: Record<string, unknown>): Record<string, unknown> => ({
+  ...bot,
+  candidates: { potionOrdering: false },
+});
+
 async function decide(
   bot: Record<string, unknown>,
   /**
@@ -278,8 +295,8 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     // THE CONTROL NAMES ITS LINEUP. `{}` is the branch's own bot now, so a
     // control that relied on the default would be racing potion-intel against
     // potion-aware and calling the first one plain.
-    const plain = await decide({ name: 'default', slate: SLATE_LEGACY });
-    const aware = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
+    const plain = await decide(QUIET_ORDER({ name: 'default', slate: SLATE_LEGACY }));
+    const aware = await decide(QUIET_ORDER({ name: 'potion-aware', slate: SLATE_POTION_AWARE }));
 
     // Both decided. A staging failure on either side would make the
     // comparison below vacuously true.
@@ -326,10 +343,10 @@ describe('the potion-aware bot decides differently on a potion board', () => {
      * advisory row shows the terms running.
      */
     const seated = await decide(
-      { name: 'potion-aware', slate: SLATE_POTION_AWARE },
+      QUIET_ORDER({ name: 'potion-aware', slate: SLATE_POTION_AWARE }),
       defaultEvaluator
     );
-    const bare = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
+    const bare = await decide(QUIET_ORDER({ name: 'potion-aware', slate: SLATE_POTION_AWARE }));
     expect(seated.staged).toEqual(POTION_AWARE_STAGED);
     expect(seated.staged).toEqual(bare.staged);
 
@@ -344,7 +361,7 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     // lineup, no meter, no row — which is what makes the row's presence a
     // statement. It names its slate, because on this branch an unnamed one is
     // `potion-intel` and would have a row of its own.
-    const plain = await decide({ name: 'default', slate: SLATE_LEGACY }, defaultEvaluator);
+    const plain = await decide(QUIET_ORDER({ name: 'default', slate: SLATE_LEGACY }), defaultEvaluator);
     expect(plain.result.mechanism?.advisory ?? null).toBeNull();
     expect(plain.staged).toEqual(DEFAULT_STAGED);
   }, 60_000);
@@ -357,8 +374,8 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     // bot's `est` slot never fires on this board (every residual comparison is
     // an exact est tie broken by the salted key), and the potion-aware bot's
     // does. That is the lineup speaking, in the one slot it is allowed to.
-    const plain = await decide({ name: 'default', slate: SLATE_LEGACY });
-    const aware = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
+    const plain = await decide(QUIET_ORDER({ name: 'default', slate: SLATE_LEGACY }));
+    const aware = await decide(QUIET_ORDER({ name: 'potion-aware', slate: SLATE_POTION_AWARE }));
     const p = plain.result.mechanism?.adjudication;
     const a = aware.result.mechanism?.adjudication;
     expect(p).not.toBeUndefined();
@@ -407,7 +424,7 @@ describe('the potion-aware bot decides differently on a potion board', () => {
       });
       return [...ports.staged];
     };
-    expect(await run({ name: 'potion-aware', slate: SLATE_POTION_AWARE })).toEqual(
+    expect(await run(QUIET_ORDER({ name: 'potion-aware', slate: SLATE_POTION_AWARE }))).toEqual(
       await run({ name: 'default' })
     );
   }, 60_000);

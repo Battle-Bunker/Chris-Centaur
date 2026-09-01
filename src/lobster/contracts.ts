@@ -115,6 +115,26 @@ export interface Bound {
   readonly lo: number
   readonly est: number
   readonly hi: number
+  /**
+   * THE POINT ESTIMATE BEFORE ANY ADVISORY OVERLAY, when one was applied, and
+   * absent when none was — so `estSound ?? est` is always the sound reading.
+   *
+   * `est`'s own contract is that it ORDERS THE FLOOR-TIE CLASS and adjudicates
+   * nothing. That is not what happens: the branch BELIEF is built from `est`
+   * (`search/core.ts`, `posteriorOfBranch`), and the depth rung that reads the
+   * belief sits ABOVE the floor comparison in `accept()`. So a term touching
+   * only `est` does not merely order ties — by perturbing the belief's near
+   * half it converts comparisons that used to fall through to the PROVED FLOOR
+   * into comparisons decided by a belief it nudged, which is the one thing an
+   * advisory entry is not entitled to do.
+   *
+   * Carrying the sound estimate beside the advised one is what lets the belief
+   * be built from the reading no advisory term touched, so an advisory entry
+   * reaches the comparator at the `est` rung its contract promises and BELOW
+   * the floor. Optional because the shipped bot has no lineup and its bound is
+   * the object `finish` built, character for character.
+   */
+  readonly estSound?: number
 }
 
 export type UnitId = number

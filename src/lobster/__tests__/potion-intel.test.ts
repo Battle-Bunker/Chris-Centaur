@@ -807,13 +807,15 @@ describe('the branch default is the potion-intelligent bot', () => {
     expect(advisoryLineupFor([...slateFor('legacy').evaluators])).toHaveLength(0);
   });
 
-  it('potionWeights is a partial and rescales without minting an entry id', () => {
+  it('potionWeights is a partial keyed by ENTRY ID, and rescales without minting one', () => {
     const slate = slateFor(SLATE_POTION_INTEL);
-    const loud = advisoryLineupFor([...slate.evaluators], { potionPickup: 9 });
-    const pickup = loud.find((t) => t.key === 'eval/potion-pickup@1');
-    expect(pickup?.weight).toBe(9);
+    const loud = advisoryLineupFor([...slate.evaluators], { 'eval/potion-pickup@1': 9 });
+    expect(loud.find((t) => t.key === 'eval/potion-pickup@1')?.weight).toBe(9);
     // Everything unnamed keeps its declared scale.
     expect(loud.find((t) => t.key === 'eval/potion-control@2')?.weight).toBe(1);
+    // And an id the lineup does not seat is simply not there — a weights map is
+    // an override, never a way to add a term a slate did not name.
+    expect(loud.find((t) => t.key === 'eval/potion-seek@4')).toBeUndefined();
   });
 
   it('refuses a malformed acute block and a non-numeric weight, loudly', () => {

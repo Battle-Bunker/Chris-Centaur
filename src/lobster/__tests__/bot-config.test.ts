@@ -57,7 +57,7 @@ describe('the shipped bot is the default of every field', () => {
       slate: SLATE_POTION_INTEL,
       territoryRefine: DEFAULT_TERRITORY_REFINE,
       stagingSafety: STAGING_SAFETY_DEFAULT,
-      candidates: {},
+      candidates: { potionOrdering: true },
       multistartSeed: false,
       sampledCap: false,
       // DEPTH'S RATION. There is no `depth: false` here because depth is

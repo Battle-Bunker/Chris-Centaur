@@ -28,6 +28,7 @@ import {
   ALL_ENTRIES,
   LEGACY_ENTRIES,
   LEGACY_SLATE,
+  POTION_AWARE_BOLD_SLATE,
   POTION_AWARE_SLATE,
   POTION_ENTRIES,
   POTION_INTEL_SLATE,
@@ -36,6 +37,7 @@ import {
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
   SLATE_POTION_INTEL,
+  SLATE_POTION_AWARE_BOLD,
   SLOT_IDS,
   StrategyRegistry,
   UnknownEntryError,
@@ -249,16 +251,24 @@ describe('resolution is total and checked', () => {
     );
   });
 
-  test('there are exactly THREE slates, and asking for a fourth throws', () => {
-    // THREE since `feature/potion-intel`. `potion-intel` is `potion-aware` plus
-    // the two plan-discriminating terms, and it is a third MEMBER of the same
-    // collection rather than an edit of the second: every number recorded
-    // against `potion-aware` still describes the lineup that produced it.
+  test('there are exactly FOUR slates, and asking for a fifth throws', () => {
+    // FOUR: the shipped lineup, the potion-aware four, THIS BRANCH's
+    // `potion-intel` (the four plus the two plan-discriminating terms) and the
+    // parent branch's `potion-aware-bold` (the four at four times the scale).
+    // Each is a MEMBER of one collection rather than an edit of another, so
+    // every number recorded against any of them still describes the lineup that
+    // produced it.
     expect(slateFor()).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_LEGACY)).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_POTION_AWARE)).toBe(POTION_AWARE_SLATE);
     expect(slateFor(SLATE_POTION_INTEL)).toBe(POTION_INTEL_SLATE);
-    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE, SLATE_POTION_INTEL]);
+    expect(slateFor(SLATE_POTION_AWARE_BOLD)).toBe(POTION_AWARE_BOLD_SLATE);
+    expect(SLATE_IDS).toEqual([
+      SLATE_LEGACY,
+      SLATE_POTION_AWARE,
+      SLATE_POTION_INTEL,
+      SLATE_POTION_AWARE_BOLD,
+    ]);
     // A name the registry does not hold is refused at run time as well as in
     // the type, for a caller that casts around it: a silent fallback to the
     // default would attribute a measurement to a slate that never ran.
@@ -273,10 +283,10 @@ describe('resolution is total and checked', () => {
     expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
     expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
     // The frame is the slate: the sound entry first, the advisory four after.
-    // FOUR, not six — `potion-aware` is unchanged by this branch, and the two
-    // plan-discriminating terms are named by `potion-intel` alone. A slate that
-    // grew members underneath a recorded measurement would be exactly the edit
-    // the identity law forbids.
+    // FOUR, and neither six nor eight. The two plan-discriminating terms are
+    // named by `potion-intel` alone and the bold four by `potion-aware-bold`
+    // alone; a slate that grew members underneath a recorded measurement would
+    // be exactly the edit the identity law forbids.
     expect(resolved.evaluators.map((e) => e.id)).toEqual([
       ...LEGACY_SLATE.evaluators,
       'eval/attack-window@2',
@@ -301,6 +311,36 @@ describe('resolution is total and checked', () => {
       'eval/potion-defense@1',
     ]);
     for (const e of resolved.evaluators.slice(1)) expect(e.soundness).toBe('advisory');
+  });
+
+  test('the bold slate is the same slate at four times the voice', () => {
+    const bold = REGISTRY.resolve(POTION_AWARE_BOLD_SLATE);
+    expect(bold.slateId).toBe(SLATE_POTION_AWARE_BOLD);
+    // Every socket but the evaluator list is the legacy entry, exactly as in
+    // `potion-aware`: a ladder rung that also moved a second socket would be
+    // two changes wearing one name.
+    expect(bold.moveSelectors.map((e) => e.id)).toEqual(LEGACY_SLATE.moveSelectors);
+    expect(bold.evaluatorSelector.id).toBe(LEGACY_SLATE.evaluatorSelector);
+    expect(bold.aggregator.id).toBe(LEGACY_SLATE.aggregator);
+    expect(bold.scheduler.id).toBe(LEGACY_SLATE.scheduler);
+    expect(bold.evaluators.map((e) => e.id)).toEqual([
+      ...LEGACY_SLATE.evaluators,
+      'eval/attack-window@3',
+      'eval/potion-seek@4',
+      'eval/potion-control@3',
+      'eval/dodge-discount@3',
+    ]);
+    // THE ONLY DIFFERENCE IS THE WEIGHT. Compared field by field against the
+    // quiet row, so a params value that drifted between scales would make the
+    // ladder a comparison of two strategies rather than of two volumes.
+    const quiet = REGISTRY.get('eval/potion-seek@3', 'evaluator').params as Record<string, unknown>;
+    const loud = REGISTRY.get('eval/potion-seek@4', 'evaluator').params as Record<string, unknown>;
+    expect(loud.weight).toBe(4);
+    expect(quiet.weight).toBe(1);
+    for (const k of Object.keys(quiet)) {
+      if (k === 'weight' || k === 'exposure') continue;
+      expect(loud[k]).toEqual(quiet[k]);
+    }
   });
 });
 
@@ -366,6 +406,13 @@ describe('the potion entries are members of the evaluator collection', () => {
       // that was already in it.
       'eval/potion-pickup@1': '61724054',
       'eval/potion-defense@1': '95ac7ba8',
+      // The bold four. The quiet four's pins are UNCHANGED above, which is the
+      // identity law's own assertion: a second scale mints new ids and leaves
+      // every number recorded against the old ones describing what made them.
+      'eval/attack-window@3': '811107d1',
+      'eval/potion-seek@4': '03c7f172',
+      'eval/potion-control@3': '1f408678',
+      'eval/dodge-discount@3': 'f1b1c537',
     };
     expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
     for (const e of POTION_ENTRIES) {

@@ -102,6 +102,11 @@ export interface BotStamp {
   readonly gainOrdering: boolean;
   /** The rung-1/2 EV ordering pass (`BotConfig.candidates.edgeEv`). */
   readonly edgeEv: boolean;
+  /** The pickup ordering slot (`BotConfig.candidates.potionOrdering`) — the
+   * ordering half of the potion doctrine, and the half an evaluator cannot
+   * substitute for: a plan the candidate cap closed in front of is a plan no
+   * advisory term ever prices. */
+  readonly potionOrdering: boolean;
   /** Evaluation workers, as the pool actually resolved it. 0 = no pool. */
   readonly workers: number;
   /** The multi-start seed (`BotConfig.multistartSeed`). */
@@ -250,6 +255,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       unitFatality: knobs.unitFatality,
       gainOrdering: knobs.gainOrdering,
       edgeEv: knobs.edgeEv,
+      potionOrdering: knobs.potionOrdering,
       workers: inputs.workers,
       multistartSeed: bot.multistartSeed,
       sampledCap: bot.sampledCap,

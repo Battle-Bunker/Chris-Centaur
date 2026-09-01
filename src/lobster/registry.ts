@@ -430,16 +430,45 @@ export const SLATE_POTION_AWARE = 'potion-aware' as const;
  */
 export const SLATE_POTION_INTEL = 'potion-intel' as const;
 
+/**
+ * THE FOURTH SLATE — the same four terms, at FOUR TIMES THE SCALE.
+ *
+ * ── WHY A WEIGHT NEEDS ITS OWN SLATE, AND ITS OWN ENTRY IDS ────────────────
+ *
+ * `potion-aware`'s weights were DECLARED and not fitted, and the entries said
+ * so. The first live measurement of them said what a declared scale usually
+ * says: the terms engage on a fifth of the evaluations they run on, they ask
+ * for about one unit of the fold, and the sound interval they are clamped
+ * inside is two hundred and forty wide — so the reading is real, it is never
+ * truncated, and it is far too quiet to reorder anything but the closest of
+ * ties. The one lever that changes that without touching a bound is the scale
+ * the terms speak at.
+ *
+ * A scale is a params value and the params tree is an entry's fingerprint, so
+ * under the identity law this is FOUR NEW ENTRIES and not four edits: every
+ * number ever recorded against `@2`/`@3` still refers to the strategy that
+ * produced it, and the two scales can be raced against each other and against
+ * the shipped bot in one game.
+ *
+ * NOT A RETUNE OF THE OTHER SLATE. `potion-aware` keeps its weights and its
+ * ids. What this slate is for is the LADDER — plain, quiet, loud, in the same
+ * game — because "louder is better" is a claim with a monotone shape and the
+ * ladder is the cheapest instrument that can refute it.
+ */
+export const SLATE_POTION_AWARE_BOLD = 'potion-aware-bold' as const;
+
 export type SlateId =
   | typeof SLATE_LEGACY
   | typeof SLATE_POTION_AWARE
-  | typeof SLATE_POTION_INTEL;
+  | typeof SLATE_POTION_INTEL
+  | typeof SLATE_POTION_AWARE_BOLD;
 
 /** Every slate id, in a value a validator can iterate. */
 export const SLATE_IDS: ReadonlyArray<SlateId> = [
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
   SLATE_POTION_INTEL,
+  SLATE_POTION_AWARE_BOLD,
 ];
 
 // ------------------------------------------------------- the legacy entries
@@ -808,6 +837,15 @@ export const EVAL_DODGE_DISCOUNT_ID = 'eval/dodge-discount@2';
 export const EVAL_POTION_PICKUP_ID = 'eval/potion-pickup@1';
 export const EVAL_POTION_DEFENSE_ID = 'eval/potion-defense@1';
 
+/** The same four terms at the BOLD scale — new ids because a weight is a
+ * params value and the params tree is the fingerprint. `evaluate/potion-
+ * lineup.ts` reads both sets off `POTION_TERM_WEIGHTS`, so a slate and the
+ * lineup that implements it cannot drift apart at either scale. */
+export const EVAL_ATTACK_WINDOW_BOLD_ID = 'eval/attack-window@3';
+export const EVAL_POTION_SEEK_BOLD_ID = 'eval/potion-seek@4';
+export const EVAL_POTION_CONTROL_BOLD_ID = 'eval/potion-control@3';
+export const EVAL_DODGE_DISCOUNT_BOLD_ID = 'eval/dodge-discount@3';
+
 /**
  * THE ADVISORY WEIGHTS, as entry params — the scale each term speaks at.
  *
@@ -851,9 +889,55 @@ export const POTION_ADVISORY_WEIGHTS = {
 
 /** What a bot may retune without minting a new entry id: the scales, and
  *  nothing else. A partial — what is named overrides, what is not keeps. */
-export type PotionAdvisoryWeights = Partial<
-  Record<keyof typeof POTION_ADVISORY_WEIGHTS, number>
->;
+/**
+ * WHAT A BOT MAY RETUNE WITHOUT MINTING A NEW ENTRY ID — the scales, keyed by
+ * ENTRY ID, and nothing else.
+ *
+ * Keyed by id rather than by knob name because that is the name that survives
+ * every trip the lineup takes: a slate names ids, `POTION_TERM_WEIGHTS` is
+ * keyed on ids, and an evaluation worker is handed ids. A second naming scheme
+ * would be a second thing to keep in step.
+ *
+ * A partial: what is named overrides, what is not keeps its declared scale.
+ */
+export type PotionAdvisoryWeights = Readonly<Record<string, number>>;
+/**
+ * THE BOLD SCALE — the same three summands at four times the voice, and the
+ * modifier still at zero.
+ *
+ * FOUR, AND NOT FORTY. `material` is 10 and it is the term the game is won
+ * with; the largest summand here reaches 4 and the lineup's total ask stays
+ * inside it. A reading able to outrank material would be ordering the
+ * material-tie class from outside it, and the tie class is the whole of what
+ * `est` may touch — that argument is unchanged by the scale, and it is what
+ * bounds the ladder's top rung.
+ */
+export const POTION_ADVISORY_WEIGHTS_BOLD = {
+  attackWindow: 2,
+  potionSeek: 4,
+  potionControl: 4,
+  dodgeDiscount: 0,
+} as const;
+
+/** Every seated potion entry's weight, by entry id — the ONE table the lineup
+ * reads, so neither scale can drift from the slate that names it. */
+export const POTION_TERM_WEIGHTS: Readonly<Record<string, number>> = {
+  [EVAL_ATTACK_WINDOW_ID]: POTION_ADVISORY_WEIGHTS.attackWindow,
+  [EVAL_POTION_SEEK_ID]: POTION_ADVISORY_WEIGHTS.potionSeek,
+  [EVAL_POTION_CONTROL_ID]: POTION_ADVISORY_WEIGHTS.potionControl,
+  [EVAL_DODGE_DISCOUNT_ID]: POTION_ADVISORY_WEIGHTS.dodgeDiscount,
+  [EVAL_ATTACK_WINDOW_BOLD_ID]: POTION_ADVISORY_WEIGHTS_BOLD.attackWindow,
+  [EVAL_POTION_SEEK_BOLD_ID]: POTION_ADVISORY_WEIGHTS_BOLD.potionSeek,
+  [EVAL_POTION_CONTROL_BOLD_ID]: POTION_ADVISORY_WEIGHTS_BOLD.potionControl,
+  [EVAL_DODGE_DISCOUNT_BOLD_ID]: POTION_ADVISORY_WEIGHTS_BOLD.dodgeDiscount,
+  // The two plan-discriminating terms this branch adds. They have one scale
+  // apiece and no bold row, because their reason for existing is that they are
+  // NOT equal across the comparison they settle — a term with that property is
+  // loud enough at one, and the parent branch's own ladder is what says volume
+  // is not the lever.
+  [EVAL_POTION_PICKUP_ID]: POTION_ADVISORY_WEIGHTS.potionPickup,
+  [EVAL_POTION_DEFENSE_ID]: POTION_ADVISORY_WEIGHTS.potionDefense,
+};
 
 const potionEntry = (
   id: EntryId,
@@ -996,6 +1080,60 @@ const EVAL_POTION_DEFENSE = potionEntry(
 
 /** The potion terms, as registered entries. A losing entry is a deleted
  * row here exactly as in `LEGACY_ENTRIES`. */
+/**
+ * THE BOLD FOUR — the same primitives, the same composition, the same gates,
+ * and one number different in each params tree.
+ *
+ * Built from the quiet entries by REPLACING the weight, so the two rows cannot
+ * differ in anything a reader did not intend: a term whose params drift
+ * between scales would make the ladder a comparison of two strategies rather
+ * than of two volumes of one.
+ */
+const boldOf = (
+  id: EntryId,
+  base: StrategyEntry<'evaluator'>,
+  weight: number,
+  extra: Record<string, JsonValue> = {}
+): StrategyEntry<'evaluator'> => ({
+  ...base,
+  id,
+  params: { ...(base.params as Record<string, JsonValue>), ...extra, weight },
+  record: {
+    status: 'candidate',
+    ledgerRows: [],
+    note:
+      `${base.id} at the bold scale. Succeeds nothing: it is the same strategy ` +
+      'at a second declared volume, and the ladder that races the two is what ' +
+      'earns either of them a number.',
+  },
+});
+
+const EVAL_ATTACK_WINDOW_BOLD = boldOf(
+  EVAL_ATTACK_WINDOW_BOLD_ID,
+  EVAL_ATTACK_WINDOW,
+  POTION_ADVISORY_WEIGHTS_BOLD.attackWindow
+);
+const EVAL_POTION_SEEK_BOLD = boldOf(
+  EVAL_POTION_SEEK_BOLD_ID,
+  EVAL_POTION_SEEK,
+  POTION_ADVISORY_WEIGHTS_BOLD.potionSeek,
+  { exposure: 'window, or near dodge-discounted when eval/dodge-discount@3 is seated' }
+);
+const EVAL_POTION_CONTROL_BOLD = boldOf(
+  EVAL_POTION_CONTROL_BOLD_ID,
+  EVAL_POTION_CONTROL,
+  POTION_ADVISORY_WEIGHTS_BOLD.potionControl
+);
+const EVAL_DODGE_DISCOUNT_BOLD = boldOf(
+  EVAL_DODGE_DISCOUNT_BOLD_ID,
+  EVAL_DODGE_DISCOUNT,
+  POTION_ADVISORY_WEIGHTS_BOLD.dodgeDiscount,
+  { role: 'exposure-modifier of eval/potion-seek@4' }
+);
+
+/** The eight potion terms, as registered entries — four at each declared
+ * scale. A losing entry is a deleted row here exactly as in
+ * `LEGACY_ENTRIES`. */
 export const POTION_ENTRIES: ReadonlyArray<StrategyEntry> = [
   EVAL_ATTACK_WINDOW,
   EVAL_POTION_SEEK,
@@ -1003,6 +1141,10 @@ export const POTION_ENTRIES: ReadonlyArray<StrategyEntry> = [
   EVAL_DODGE_DISCOUNT,
   EVAL_POTION_PICKUP,
   EVAL_POTION_DEFENSE,
+  EVAL_ATTACK_WINDOW_BOLD,
+  EVAL_POTION_SEEK_BOLD,
+  EVAL_POTION_CONTROL_BOLD,
+  EVAL_DODGE_DISCOUNT_BOLD,
 ];
 
 /**
@@ -1047,6 +1189,28 @@ export const POTION_INTEL_SLATE: Slate = {
     EVAL_DODGE_DISCOUNT.id,
     EVAL_POTION_PICKUP.id,
     EVAL_POTION_DEFENSE.id,
+  ],
+  aggregator: AGG_LEGACY_CLAMP.id,
+  scheduler: SCHED_LEGACY_SLICE.id,
+};
+
+/**
+ * THE `potion-aware-bold` SLATE — `potion-aware` with the bold four in place
+ * of the quiet four, and nothing else moved. Merged from the parent branch's
+ * own ladder, where it was measured flat to negative against the quiet four:
+ * it stays a member because a losing measurement is a result and not a reason
+ * to delete the thing it was taken on.
+ */
+export const POTION_AWARE_BOLD_SLATE: Slate = {
+  id: SLATE_POTION_AWARE_BOLD,
+  moveSelectors: [MOVE_LEGACY_ORDER.id],
+  evaluatorSelector: EVSEL_LEGACY_ALWAYS.id,
+  evaluators: [
+    EVAL_LEGACY_TERRITORY.id,
+    EVAL_ATTACK_WINDOW_BOLD.id,
+    EVAL_POTION_SEEK_BOLD.id,
+    EVAL_POTION_CONTROL_BOLD.id,
+    EVAL_DODGE_DISCOUNT_BOLD.id,
   ],
   aggregator: AGG_LEGACY_CLAMP.id,
   scheduler: SCHED_LEGACY_SLICE.id,
@@ -1162,6 +1326,7 @@ export function slateFor(id: SlateId = SLATE_LEGACY): Slate {
   if (id === SLATE_LEGACY) return LEGACY_SLATE;
   if (id === SLATE_POTION_AWARE) return POTION_AWARE_SLATE;
   if (id === SLATE_POTION_INTEL) return POTION_INTEL_SLATE;
+  if (id === SLATE_POTION_AWARE_BOLD) return POTION_AWARE_BOLD_SLATE;
   throw new Error(`unknown slate ${String(id)}`);
 }
 

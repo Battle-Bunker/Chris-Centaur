@@ -193,6 +193,18 @@ export interface BankResult extends PlanScore {
   /** The est channel — ordering only, never adjudication. */
   readonly est: number;
   /**
+   * THE SAME CHANNEL BEFORE ANY ADVISORY OVERLAY — equal to `est` on a bot with
+   * no lineup, and the reading the BELIEF is built from on a bot with one.
+   *
+   * The distinction is the whole of `Bound.estSound`: the depth rung reads the
+   * belief and sits above the floor comparison, so a belief built from the
+   * advised estimate lets an advisory term decide comparisons the proved floor
+   * would otherwise have settled. Built from the sound one, an advisory entry
+   * reaches the comparator at the `est` rung its contract names and below the
+   * floor — which is what it was always documented to do.
+   */
+  readonly estSound: number;
+  /**
    * Narrowings the bank had to DECLARE while pricing — today, an adversary
    * option list whose completeness the substrate could not corroborate. They
    * are not part of the basis (a narrowing discovered on one plan and not on
@@ -234,6 +246,8 @@ export interface BankInput {
 interface Branch {
   readonly bounds: ScoreBounds;
   readonly est: number;
+  /** The same, before any advisory overlay — see `BankResult.estSound`. */
+  readonly estSound: number;
   readonly rung: Rung;
   /** The enemy reply this branch fixed, when it fixed one. */
   readonly replies: ReadonlyMap<UnitId, Candidate> | null;
@@ -545,6 +559,7 @@ export class BoundBank {
         note: () => `${rung} branch ${pk}`,
       }),
       est: bound.est,
+      estSound: bound.estSound ?? bound.est,
       rung,
       replies,
       resolution,
@@ -647,6 +662,10 @@ export class BoundBank {
     members.push(b0Report);
 
     let est = b0.est;
+    // THE SOUND ESTIMATE TRACKS THE ADVISED ONE, branch for branch — which here
+    // is one branch: `est` is set from `b0` and never updated, so the pair is a
+    // pair for the whole price. See `BankResult.estSound`.
+    let estSound = b0.estSound;
 
     if (this.canModel) {
       const gated = this.gate(plan, b0.bounds.ledger, b0.resolution);
@@ -812,6 +831,10 @@ export class BoundBank {
     // bracket so a stale estimate can never be read as a promise.
     if (!isFinite_(est)) est = bounds.worst;
     est = Math.min(Math.max(est, bounds.worst), bounds.best);
+    // The same clamp, for the same reason: a stale estimate must never read as
+    // a promise, whether or not a lineup spoke over it.
+    if (!isFinite_(estSound)) estSound = bounds.worst;
+    estSound = Math.min(Math.max(estSound, bounds.worst), bounds.best);
 
     return {
       plan,
@@ -820,6 +843,7 @@ export class BoundBank {
       members,
       resolutions: this.memo.stats.resolutions - before,
       finished,
+      estSound,
       floorFrom: floorPick.report.rung,
       floorComplete: floorPick.report.complete,
       ceilingFrom: widened ? floorPick.report.rung : ceilPick.rung,

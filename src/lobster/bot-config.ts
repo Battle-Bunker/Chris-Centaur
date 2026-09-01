@@ -311,7 +311,14 @@ export const DEFAULT_BOT_CONFIG: ResolvedBotConfig = {
   slate: SLATE_POTION_INTEL,
   territoryRefine: DEFAULT_TERRITORY_REFINE,
   stagingSafety: STAGING_SAFETY_DEFAULT,
-  candidates: {},
+  // THE PICKUP ORDERS AS A GAIN. Merged from the parent branch's own
+  // measurement, where it bought +55% pickups and +42% window severs for no
+  // evaluator cost at all — a candidate that spends a tier sorts as a gain in
+  // `gainOrderKey` instead of as a loss. It is a different channel from the
+  // pickup term's: ordering decides which options the sweep sees, and the term
+  // decides which of the ones it saw it prefers, so a bot that wants the
+  // behaviour wants both.
+  candidates: { potionOrdering: true },
   multistartSeed: false,
   sampledCap: false,
   depth: { acute: {} },

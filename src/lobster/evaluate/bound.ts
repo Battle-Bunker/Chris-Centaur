@@ -278,7 +278,11 @@ export function advisoryEst<C>(
       meter.sumWidth += width;
     }
   }
-  return bound(total.lo, est, total.hi);
+  // THE SOUND ESTIMATE TRAVELS WITH THE ADVISED ONE. `bound(...)` builds the
+  // three-number value every consumer reads; this adds the fourth field, which
+  // is the only record of what the fold said before the lineup spoke. See
+  // `Bound.estSound` for the rung it exists to keep an advisory term below.
+  return { ...bound(total.lo, est, total.hi), estSound: total.est };
 }
 
 /**

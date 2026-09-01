@@ -93,13 +93,17 @@ import type { Evaluator } from '../contracts';
 // of the registry is safe here and not circular: the registry imports the four
 // potion modules and this file, never the other way round.
 import {
+  EVAL_ATTACK_WINDOW_BOLD_ID,
   EVAL_ATTACK_WINDOW_ID,
+  EVAL_DODGE_DISCOUNT_BOLD_ID,
   EVAL_DODGE_DISCOUNT_ID,
+  EVAL_POTION_CONTROL_BOLD_ID,
   EVAL_POTION_CONTROL_ID,
   EVAL_POTION_DEFENSE_ID,
   EVAL_POTION_PICKUP_ID,
+  EVAL_POTION_SEEK_BOLD_ID,
   EVAL_POTION_SEEK_ID,
-  POTION_ADVISORY_WEIGHTS,
+  POTION_TERM_WEIGHTS,
 } from '../registry';
 import type { PotionAdvisoryWeights } from '../registry';
 import { potionPickup, potionPickupNet } from './potion-pickup';
@@ -118,6 +122,19 @@ import { anyEnemyCollector, anyEnemyWindow, potionDefense, potionDefenseNet } fr
  */
 const potionScratch = new WeakMap<EngineSubstrate, Board>();
 
+/**
+ * THE POTION CELLS OF THE RESOLVED POSITION — read once per evaluation, over
+ * the bitboard's WORDS and not its cells.
+ *
+ * The cell-at-a-time scan this replaces cost `grid.cells` `bbTest` calls on
+ * every evaluation of every plan, whether or not a potion was standing: 441 on
+ * a 21x21, paid ~4,700 times a game by the gate and again by the view. A board
+ * bearing two potions has two set bits in fourteen words, so `bbForEach` skips
+ * the empty words and does thirteen loads instead of four hundred and forty-one
+ * tests. Identical output, by construction — same board, same ascending order.
+ */
+const CELLS_KEY = 'potion-lineup:cells';
+
 function potionCellsOf(sub: EngineSubstrate, ctx: EvalContext): ReadonlyArray<number> {
   let dst = potionScratch.get(sub);
   if (dst === undefined) {
@@ -130,22 +147,8 @@ function potionCellsOf(sub: EngineSubstrate, ctx: EvalContext): ReadonlyArray<nu
   return cells;
 }
 
-/**
- * THE POTION CELLS OF THE RESOLVED POSITION — read ONCE per evaluation, shared
- * by the gate and the view.
- *
- * The cell-at-a-time scan above used to be a `bbTest` per cell — 441 of them on
- * a 21x21, paid twice per evaluation of every plan whether or not a potion was
- * standing. A sibling thread's CPU profile put that one function at 9.6% of a
- * whole game; the word walk skips the empty words, and the cache makes the gate
- * and the view share the one scan. Identical output by construction: same
- * board, same ascending order.
- *
- * It matters more here than it did there, because this branch's lineup is SIX
- * terms rather than four and every one of them gates on this list.
- */
-const CELLS_KEY = 'potion-lineup:cells';
-
+/** The same list, shared across the lineup's terms for one evaluation — so the
+ * gate and the view read one scan rather than two. */
 function potionCellsShared(
   sub: EngineSubstrate,
   ctx: EvalContext,
@@ -153,6 +156,7 @@ function potionCellsShared(
 ): ReadonlyArray<number> {
   return shared.for(CELLS_KEY, () => potionCellsOf(sub, ctx));
 }
+
 
 /**
  * THE TIER-EXPIRY CONVENTION, CONVERTED ONCE, HERE.
@@ -363,9 +367,9 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
  * some unit of ours is carrying a buff. That is the exact complement of
  * potion-seek, which prices the window nobody has bought yet.
  */
-const attackWindowTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_ATTACK_WINDOW_ID,
-  weight: POTION_ADVISORY_WEIGHTS.attackWindow,
+const attackWindowTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate(ctx, shared) {
     if (!gateOf(ctx, shared).liveWindow) return 0;
     const view = viewOf(ctx, shared);
@@ -381,7 +385,7 @@ const attackWindowTerm: AdvisoryTerm<EvalContext> = {
     );
     return view.exchangeRate * window.total.est;
   },
-};
+});
 
 /**
  * `eval/potion-seek@3` — the best pickup on the board, netted.
@@ -392,10 +396,14 @@ const attackWindowTerm: AdvisoryTerm<EvalContext> = {
  * endpoint is, which is the worst case the module ships and the reading its
  * retrodiction was taken at.
  */
-function potionSeekTerm(exposure: ExposureReading, dodge: boolean): AdvisoryTerm<EvalContext> {
+function potionSeekTerm(
+  key: string,
+  exposure: ExposureReading,
+  dodge: boolean
+): AdvisoryTerm<EvalContext> {
   return {
-    key: EVAL_POTION_SEEK_ID,
-    weight: POTION_ADVISORY_WEIGHTS.potionSeek,
+    key,
+    weight: POTION_TERM_WEIGHTS[key] ?? 0,
     estimate(ctx, shared) {
       if (!gateOf(ctx, shared).potions) return 0;
       const view = viewOf(ctx, shared);
@@ -427,9 +435,9 @@ function potionSeekTerm(exposure: ExposureReading, dodge: boolean): AdvisoryTerm
 
 /** `eval/potion-control@2` — option value on the ground we reach first, minus
  * the threat value on the ground they do. */
-const potionControlTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_POTION_CONTROL_ID,
-  weight: POTION_ADVISORY_WEIGHTS.potionControl,
+const potionControlTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate(ctx, shared) {
     if (!gateOf(ctx, shared).potions) return 0;
     const view = viewOf(ctx, shared);
@@ -444,7 +452,7 @@ const potionControlTerm: AdvisoryTerm<EvalContext> = {
     );
     return view.exchangeRate * summary.net;
   },
-};
+});
 
 /**
  * `eval/potion-pickup@1` — THE PICKUP THIS PLAN MAKES.
@@ -454,10 +462,10 @@ const potionControlTerm: AdvisoryTerm<EvalContext> = {
  * nothing. That is not an optimisation — it is the term's whole definition, and
  * it is why seating it costs a potion-free board nothing at all.
  */
-function potionPickupTerm(dodge: boolean, weight: number): AdvisoryTerm<EvalContext> {
+function potionPickupTerm(dodge: boolean): AdvisoryTerm<EvalContext> {
   return {
     key: EVAL_POTION_PICKUP_ID,
-    weight,
+    weight: POTION_TERM_WEIGHTS[EVAL_POTION_PICKUP_ID] ?? 0,
     estimate(ctx, shared) {
       if (!gateOf(ctx, shared).potions) return 0;
       // ── THE SECOND GATE, AND IT IS THE ONE THAT MATTERS ──────────────────
@@ -516,9 +524,9 @@ function potionPickupTerm(dodge: boolean, weight: number): AdvisoryTerm<EvalCont
  * the whole three turns that matter most. A term gated on `potions` would go
  * quiet exactly when the danger arrived.
  */
-const potionDefenseTerm = (weight: number): AdvisoryTerm<EvalContext> => ({
+const potionDefenseTerm = (): AdvisoryTerm<EvalContext> => ({
   key: EVAL_POTION_DEFENSE_ID,
-  weight,
+  weight: POTION_TERM_WEIGHTS[EVAL_POTION_DEFENSE_ID] ?? 0,
   estimate(ctx, shared) {
     const gate = gateOf(ctx, shared);
     if (!gate.enemyWindow && !gate.enemyCollector) return 0;
@@ -553,11 +561,11 @@ const potionDefenseTerm = (weight: number): AdvisoryTerm<EvalContext> => ({
  * summed its own multiplier into the fold would be double-charging the same
  * exposure it exists to discount.
  */
-const dodgeDiscountTerm: AdvisoryTerm<EvalContext> = {
-  key: EVAL_DODGE_DISCOUNT_ID,
-  weight: POTION_ADVISORY_WEIGHTS.dodgeDiscount,
+const dodgeDiscountTerm = (key: string): AdvisoryTerm<EvalContext> => ({
+  key,
+  weight: POTION_TERM_WEIGHTS[key] ?? 0,
   estimate: () => 0,
-};
+});
 
 /**
  * THE LINEUP, BUILT FROM THE ENTRY IDS A SLATE NAMES.
@@ -568,6 +576,33 @@ const dodgeDiscountTerm: AdvisoryTerm<EvalContext> = {
  * decides is only the COMPOSITION — which is why dodge-discount changes
  * potion-seek's construction rather than appending a term of its own.
  */
+/**
+ * THE TWO DECLARED SCALES, side by side — quiet and bold. One row per volume,
+ * so a slate names four ids and this table says which term each one is. The
+ * WEIGHTS are not here: they live in `POTION_TERM_WEIGHTS` beside the entries
+ * that declare them, because a weight is a params value and a lineup that
+ * carried a second copy of one could drift from the entry it implements.
+ */
+const SCALES: ReadonlyArray<{
+  readonly window: string;
+  readonly seek: string;
+  readonly control: string;
+  readonly dodge: string;
+}> = [
+  {
+    window: EVAL_ATTACK_WINDOW_ID,
+    seek: EVAL_POTION_SEEK_ID,
+    control: EVAL_POTION_CONTROL_ID,
+    dodge: EVAL_DODGE_DISCOUNT_ID,
+  },
+  {
+    window: EVAL_ATTACK_WINDOW_BOLD_ID,
+    seek: EVAL_POTION_SEEK_BOLD_ID,
+    control: EVAL_POTION_CONTROL_BOLD_ID,
+    dodge: EVAL_DODGE_DISCOUNT_BOLD_ID,
+  },
+];
+
 export function advisoryLineupFor(
   evaluatorIds: ReadonlyArray<string>,
   /**
@@ -582,17 +617,41 @@ export function advisoryLineupFor(
   weights: PotionAdvisoryWeights = {}
 ): ReadonlyArray<AdvisoryTerm<EvalContext>> {
   const named = new Set(evaluatorIds);
-  const dodge = named.has(EVAL_DODGE_DISCOUNT_ID);
-  const w = { ...POTION_ADVISORY_WEIGHTS, ...weights };
   const out: AdvisoryTerm<EvalContext>[] = [];
-  if (named.has(EVAL_ATTACK_WINDOW_ID)) out.push(scaled(attackWindowTerm, w.attackWindow));
-  if (named.has(EVAL_POTION_SEEK_ID)) {
-    out.push(scaled(potionSeekTerm(dodge ? 'near' : 'window', dodge), w.potionSeek));
+  for (const scale of SCALES) {
+    // THE MODIFIER IS SCALE-LOCAL. `eval/dodge-discount@3` switches the bold
+    // seek's exposure endpoint and the `@2` row switches the quiet one; a
+    // slate that mixed the two would be asking one term to be discounted by
+    // another term's declaration.
+    const dodge = named.has(scale.dodge);
+    if (named.has(scale.window)) out.push(attackWindowTerm(scale.window));
+    if (named.has(scale.seek)) {
+      out.push(potionSeekTerm(scale.seek, dodge ? 'near' : 'window', dodge));
+    }
+    if (named.has(scale.control)) out.push(potionControlTerm(scale.control));
+    if (dodge) out.push(dodgeDiscountTerm(scale.dodge));
   }
-  if (named.has(EVAL_POTION_CONTROL_ID)) out.push(scaled(potionControlTerm, w.potionControl));
-  if (named.has(EVAL_POTION_PICKUP_ID)) out.push(potionPickupTerm(dodge, w.potionPickup));
-  if (named.has(EVAL_POTION_DEFENSE_ID)) out.push(potionDefenseTerm(w.potionDefense));
-  if (dodge) out.push(dodgeDiscountTerm);
+  // THE TWO PLAN-DISCRIMINATING TERMS, outside the scale table because they
+  // have one scale apiece: their reason for existing is that they are NOT equal
+  // across the comparison they settle, and the parent branch's own ladder is
+  // what says volume is not the lever for the four that are.
+  //
+  // The pickup term reads the QUIET dodge row, because a modifier is
+  // scale-local and this term is not on the bold ladder.
+  const dodgeQuiet = named.has(EVAL_DODGE_DISCOUNT_ID);
+  if (named.has(EVAL_POTION_PICKUP_ID)) out.push(potionPickupTerm(dodgeQuiet));
+  if (named.has(EVAL_POTION_DEFENSE_ID)) out.push(potionDefenseTerm());
+  // THE SCALES, OVERRIDDEN — applied once, at the end, keyed by entry id. A
+  // weight is the one part of an advisory term a config may move without
+  // minting a new entry id: it says how loud the reading is, not what it reads.
+  // Everything else — what is read, over what window, against which victims —
+  // is the entry's identity and a change to it is an `@n+1`.
+  if (Object.keys(weights).length === 0) return out;
+  return out.map((t) =>
+    Object.prototype.hasOwnProperty.call(weights, t.key) && weights[t.key] !== t.weight
+      ? { ...t, weight: weights[t.key] as number }
+      : t
+  );
   return out;
 }
 
