@@ -327,6 +327,26 @@ for *any* other team — so the two artifacts disagree and the module is the one
 wrong. Worth reconciling explicitly, since `theirsAgainstUs` already exists as the
 correctly-scoped half and is simply not the headline.)
 
+**Both claims are confirmed on the replays.** Regressing each team's final `sharePar` on
+(a) weight lost from its own units and (b) weight lost by *the other two teams*, per cell,
+144 team-observations each:
+
+| cell | b(own weight lost) | b(others' weight lost) | ratio |
+|---|---|---|---|
+| snake6 | **−0.0806** | **+0.0403** | **2.00** |
+| snake5-queen | −0.0946 | +0.0473 | **2.00** |
+| snake5-knight | −0.1091 | +0.0546 | **2.00** |
+
+The sign on third-party losses is **positive on every cell** — third-party damage does raise
+our score — and the magnitude ratio is exactly (1−p)/p = 2.00 at three-team par, on three
+independent rosters.
+
+The exactness is the point and should be read correctly: it is not a lucky empirical fit,
+it is the regression recovering an **identity**, because `sharePar` *is* `K·w/W`. That makes
+the claim stronger than a measurement, not weaker — **an evaluator combining the two sides
+symmetrically is definitionally wrong, not merely mis-tuned**, and no amount of weight
+sweeping can repair a 1:1 form on a three-team board.
+
 This does **not** license free-riding, and the distinction matters: the measured null on
 free-riding (0.274 against 0.333 by chance) is about *declining to fight*, which forgoes our
 own `p`-channel gains and lets a searcher prey on us. Third-party damage being mildly good
@@ -725,6 +745,61 @@ provided the bound bank retains per-flow parts rather than folded totals. That i
 precondition the portfolio memo flagged as the one open dependency on the core rebuild;
 this factorization makes it stronger, because the parts are now *named flows* with fixed
 semantics rather than an open-ended list of feature contributions.
+
+---
+
+## 6.1 WHERE CENTAUR VALUE LIVES IN THIS ALGEBRA — a structural answer, not a plea
+
+The standing ruling is that a heuristic valuable to a human+bot team must not be discounted
+because its bot-vs-bot payoff is null. That has been argued so far mostly by asserting that
+self-play cannot see it. The algebra lets it be said structurally, which is stronger,
+because it names *which* quantities a human supplies and why no sweep can supply them.
+
+Every term in the fold is one of three kinds:
+
+| kind | example | who can supply it |
+|---|---|---|
+| **computed from the live board** | `(K, W, p)`, `w_u`, arrival maps, ray crossings | the engine, for free — and today it does not (§3.4) |
+| **fitted from the archive** | capture efficiency η, box-in hazard, k ≈ 2.9 | a sweep, with no new games |
+| **a claim about the opponent's mind** | δ (deterrence), p̂ (an override on the live share), γ (how much to protect the accumulator against *this* opponent) | **only the operator** |
+
+The third row is not a residue of things we failed to measure. It is a **type**: these are
+parameters of the opponent model, and a self-play sweep estimates them against opponents
+that have no model, so it returns their value *for that opponent class* — which is genuinely
+zero, and genuinely uninformative about a human.
+
+Two of the three are newly visible because of the fold, and both are sharper than δ:
+
+- **p̂ — an override on the live share state.** The fold's coefficients are `(1−p)` and `p`,
+  and `p` is read from the board. But a human can know the board is about to lie: a third
+  party one turn from elimination changes `K` and `W` before any weight moves. An operator
+  who sets p̂ is not nudging a preference — they are supplying a *better estimate of a
+  quantity the fold already uses*, which is the cleanest possible kind of knob. §3.4 shows
+  the fold is exquisitely sensitive to it (the entire 1:1-versus-1:2 error is a `p` error).
+- **γ — risk concentration.** §2 measured that on a queen board one account holds 80–91% of
+  the score and the game is decided by whether it survives. How hard to play for that account
+  versus the periphery is a real strategic choice with no board-determined answer, and it
+  depends on whether the opponent will hunt it. γ = 0, 1 and 2 are three different, defensible
+  games.
+
+**And the algebra supplies the bar for these terms, which the portfolio memo had to argue
+for separately.** Because every contribution is denominated in expected weight-share, a term
+can be validated *without a game* by **retrodiction against the archive**: take the events
+the mechanism actually produced — the 327 tier severs, the 1,167 severed cells, every unit
+death with its balance — and ask whether the term's number matches the share change that
+actually followed. That is exactly the regression in §3.2, and it worked: it validated the
+fold on 144 games with **no new games played and no bot able to act on the result**. That is
+the existence proof that a Centaur-valuable term can be measured on this program's own data,
+and it is the answer to "how would we ever know".
+
+**One consequence to state plainly, because it cuts against my own findings.** The fold's
+residual on these cells is small (worst 0.085 sharePar). If almost all of the outcome is
+"keep valuable units alive in share-adjusted terms", then the *headroom* for the whole
+positional portfolio — attack vectors, defence lines, potion control — is that residual, in
+bot-vs-bot play. The Centaur case is not that these terms have hidden bot value; it is that
+they surface **options a human can act on** that the fold prices at near-zero for a
+horizon-1 searcher. Those are different claims and the second one should not borrow the
+first one's evidence.
 
 ---
 
