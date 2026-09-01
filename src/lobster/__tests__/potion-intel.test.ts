@@ -38,6 +38,48 @@ import {
 import { DEFAULT_BOT_CONFIG, PARENT_BOT_CONFIG, botConfigFromJson, resolveBotConfig } from '../bot-config';
 import { SLATE_POTION_INTEL, slateFor } from '../registry';
 import { advisoryLineupFor } from '../evaluate/potion-lineup';
+import { TeamDecisionEngine } from '../team-decision-engine';
+import type { TeamDecisionPorts } from '../team-decision-engine';
+import type { CentaurMove, GameState } from '../../types/battlesnake';
+
+const WALL = 1_000_000;
+
+/**
+ * A MONOTONIC CLOCK THAT COSTS A TICK PER READ. The decision's budget must not
+ * be a function of how loaded this box was, or the focus split — which is what
+ * the tests below assert — becomes a wall-clock measurement rather than a
+ * scheduler one.
+ */
+function stepClock(): () => number {
+  let t = 0;
+  return () => (t += 1);
+}
+
+/** The staging ports a decision needs, with both clocks faked. */
+function fakePorts(): TeamDecisionPorts & { staged: string[] } {
+  const clock = stepClock();
+  const staged: string[] = [];
+  return {
+    staged,
+    setBotRecommendation: (_g: string, snakeId: string, move: CentaurMove) => {
+      staged.push(`${snakeId}:${String(move)}`);
+    },
+    enableTeamStaging: () => undefined,
+    onPinEvent: () => () => undefined,
+    pinSnakeIdOf: () => null,
+    now: () => WALL,
+    monotonic: clock,
+    log: () => undefined,
+  } as unknown as TeamDecisionPorts & { staged: string[] };
+}
+
+const viewFor = (board: Board, snakeId: string): GameState =>
+  ({
+    game: { id: 'g', ruleset: { name: 'standard', version: '1' }, timeout: 500 },
+    turn: TURN,
+    board,
+    you: board.snakes.find((s) => s.id === snakeId) as Snake,
+  }) as unknown as GameState;
 
 // ---------------------------------------------------------------------------
 // Wire fixtures — a board as the marshaller reads it
@@ -270,13 +312,33 @@ describe('family 4 — sever-defence triage: their window, our two exposed snake
   });
 });
 
-describe('family 5 — mutual-annihilation brinkmanship: nobody wins the tie', () => {
+describe('family 5 — the death race: which side of the wipe we end on', () => {
   /**
-   * Two equal snakes head to head with nothing else on the board. The engine
-   * gives a contest with no strict maximum to nobody, so BOTH weights are on
-   * the table — which is why `stake` returns their sum in exactly this case and
-   * why this board reads more acute than the same board with one cell of
-   * difference between them.
+   * ── THE RULE THIS FAMILY IS ABOUT, STATED CORRECTLY ──────────────────────
+   *
+   * The previous-turn-weights adjudication applies ONLY when every remaining
+   * team dies in the SAME turn (`TeamSnekProcessor`, `endKind:
+   * all-eliminated`). Deaths on CONSECUTIVE turns are not that case at all: the
+   * game ends the moment one team is left standing, and the survivor takes
+   * everything. An earlier statement of this family had it the other way round
+   * and is rules-impossible.
+   *
+   * So a death race has two lines and they are worth entirely different
+   * amounts:
+   *
+   *   (a) FORCE THE SAME-TURN WIPE while ahead on the previous turn's weights —
+   *       a knife edge, decided by an adjudication rule rather than by
+   *       survival, and worth taking only when we are the one ahead;
+   *   (b) MAKE THEIR LAST UNITS DIE FIRST, by at least one turn — worth
+   *       everything, because the survivor takes it all.
+   *
+   * Both weights are on the table in (a) and only theirs is in (b), which is
+   * why the detector reads them differently, and it reads them from the engine's
+   * own contest ordering rather than from a rule about endings: a contest with
+   * no strict maximum is given to NOBODY (tier first, then weight — an exact tie
+   * on both is a mutual kill), so `stake` returns the SUM there and the loser's
+   * weight alone everywhere else. That is the whole of the difference, and it is
+   * one line of arithmetic rather than a fifth reading.
    */
   /** Red's head at (6, 7) looking up the file; blue's at (6, 9) looking down.
    *  Two cells apart, bodies running away from each other. */
@@ -286,13 +348,41 @@ describe('family 5 — mutual-annihilation brinkmanship: nobody wins the tie', (
       snake('blue-a', 'blue', file(6, 9, bLen)),
     ]);
 
-  it('an exact weight tie is more acute than a one-cell edge, same geometry', () => {
-    const tie = detectAcute(subOf(even(6, 6)), 0, tuned());
+  it('the same-turn wipe (a) reads heavier than the race we already win (b)', () => {
+    // (a) EXACT TIE: neither is the strict maximum, so both die on the one turn
+    //     and the ending is adjudicated on the previous turn's weights.
+    // A LOW THRESHOLD ON PURPOSE: `situations` holds what FIRED, and the point
+    // here is the arithmetic of the stake rather than whether either line
+    // cleared a trigger, so both are admitted and compared.
+    const wipe = detectAcute(subOf(even(6, 6)), 0, tuned({ threshold: 0.01 }));
     clearGeometryCache();
-    const edge = detectAcute(subOf(even(6, 5)), 0, tuned());
-    const peak = (f: typeof tie): number =>
+    // (b) ONE CELL AHEAD: we are the strict maximum, they die and we do not,
+    //     the game ends with one team standing and the survivor takes it all.
+    //     Only THEIR weight is on the table, so the stake is smaller — which is
+    //     the correct reading, because in (b) there is nothing to get wrong.
+    const race = detectAcute(subOf(even(6, 5)), 0, tuned({ threshold: 0.01 }));
+    const peak = (f: typeof wipe): number =>
       Math.max(0, ...f.situations.filter((s) => s.kind === 'contest').map((s) => s.magnitude));
-    expect(peak(tie)).toBeGreaterThan(peak(edge));
+    expect(peak(wipe)).toBeGreaterThan(peak(race));
+    // And the arithmetic is the engine's, not a fitted constant: the tie's
+    // stake is BOTH bodies, the race's is theirs alone.
+    expect(peak(wipe)).toBe(12);
+    expect(peak(race)).toBe(5);
+  });
+
+  it('being BEHIND on the tie is the same stake — the detector reads danger, not luck', () => {
+    // Symmetry is the point. Which side of (a) we are on is decided by the
+    // previous turn's weights and by the depth that finds the line; the
+    // detector's job is only to say that the line is worth finding, so a board
+    // where we are one cell light reads exactly as acute as one where we are one
+    // cell heavy. A trigger that fired only when we were winning would be a
+    // trigger that stops looking exactly when the game is about to be lost.
+    const ahead = detectAcute(subOf(even(6, 5)), 0, tuned({ threshold: 0.01 }));
+    clearGeometryCache();
+    const behind = detectAcute(subOf(even(5, 6)), 0, tuned({ threshold: 0.01 }));
+    const peak = (f: typeof ahead): number =>
+      Math.max(0, ...f.situations.filter((s) => s.kind === 'contest').map((s) => s.acuteness));
+    expect(peak(behind)).toBe(peak(ahead));
   });
 });
 
@@ -625,4 +715,97 @@ describe('the branch default is the potion-intelligent bot', () => {
       threshold: 2,
     });
   });
+});
+
+// ===========================================================================
+// The reserve, in a real decision
+// ===========================================================================
+
+describe('narrowing spends the budget it frees, and never all of it', () => {
+  /**
+   * A LIVE DECISION, because the claim is about a SCHEDULER and a scheduler's
+   * behaviour is not a property of any function it calls. The first build of
+   * this layer raised `focusDepthMax` on the focused threads and stopped there,
+   * and that reads perfectly in a unit test and does nothing in a game:
+   * `deepenNext` deepens the shallowest live thread, so a raised ceiling is
+   * only reached after every other thread has been carried to its own, and the
+   * purse is empty long before that. Measured on the first cycle of real games:
+   * the focus fired on 32% of decisions and took 13.5% of the plies.
+   *
+   * So what is asserted here is the SPLIT, on both sides:
+   *   · the focus is served — `focusPlies > 0` when the reading fires;
+   *   · the reserve is served — `outsidePlies > 0` on the same decision, which
+   *     is the whole of the answer to a feint;
+   *   · and the same board under `depth.acute: null` reports no focus at all,
+   *     so a bot that does not narrow is distinguishable from one that narrows
+   *     and finds the board quiet.
+   */
+  const contested = (): Board =>
+    boardOf(
+      [
+        // A 25-wide board with the fight in one corner. `red-a` and `red-b` are
+        // four cells from two blue snakes of the same weight — a same-turn wipe
+        // two turns out, and the acute line. `red-c` and `red-d` are twenty
+        // cells away from anything and cannot be in any situation the horizon
+        // admits, so they are exactly what the reserve exists to keep looking
+        // at: the test is only about a split if a split is possible.
+        snake('red-a', 'red', file(2, 2, 8)),
+        snake('red-b', 'red', file(4, 2, 8)),
+        snake('blue-a', 'blue', file(8, 2, 8)),
+        snake('blue-b', 'blue', file(10, 2, 8)),
+        snake('red-c', 'red', file(21, 14, 8)),
+        snake('red-d', 'red', file(23, 14, 8)),
+      ],
+      { width: 25, height: 25, invulnerabilityPotions: [{ x: 6, y: 3 }] }
+    );
+
+  const focusOf = async (
+    acute: Record<string, unknown> | null
+  ): Promise<{
+    readonly fired: boolean;
+    readonly units: number;
+    readonly focusPlies: number;
+    readonly outsidePlies: number;
+  } | null> => {
+    const board = contested();
+    const ports = fakePorts();
+    const engine = new TeamDecisionEngine(ports, {
+      kernel: { reserveMs: 20, sliceMs: 10 },
+      bot: botConfigFromJson({ name: 'focus-probe', depth: { acute } }),
+      matchSeed: 0x9a1e,
+    });
+    const result = await engine.decideTurn({
+      gameId: 'focus-probe',
+      turn: TURN,
+      board,
+      ourTeamId: 'red',
+      units: ['red-a', 'red-b', 'red-c', 'red-d'].map((snakeId) => ({
+        snakeId,
+        view: viewFor(board, snakeId),
+      })),
+      deadlineMs: WALL + 400,
+    });
+    return result.mechanism?.scout?.focus ?? null;
+  };
+
+  it('serves the focus AND the reserve on the same decision', async () => {
+    const focus = await focusOf({});
+    expect(focus).not.toBeNull();
+    if (focus === null) throw new Error('unreachable');
+    expect(focus.fired).toBe(true);
+    // A STRICT SUBSET, or there is nothing to reserve. A focus that named every
+    // unit we command would make the assertion below vacuous — and the honest
+    // behaviour in that case IS to spend everything on it, so the board has to
+    // be one where the reading can leave something out.
+    expect(focus.units).toBeGreaterThan(0);
+    expect(focus.units).toBeLessThan(4);
+    expect(focus.focusPlies).toBeGreaterThan(0);
+    // THE FEINT DEFENCE, measured. A focus that took every ply would be a bot
+    // an opponent could lead by the nose with anything that reads acute.
+    expect(focus.outsidePlies).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('reports NO focus at all under the even spread — null is not zero', async () => {
+    expect(await focusOf(null)).toBeNull();
+  }, 60_000);
 });

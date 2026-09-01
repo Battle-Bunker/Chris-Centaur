@@ -534,14 +534,22 @@ export class Scout {
    * breadth reserve is enforced, and it is enforced by SUBTRACTION rather than
    * by a second budget.
    *
-   * With no focus, every thread. With one, the focus normally has the floor —
-   * that is the narrowing — but the moment its share of the plies spent would
-   * exceed `1 − breadthReserve`, the focus is withheld for one iteration and
-   * the scheduler must pick an unfocused thread if any is live. So the reserve
-   * is a RATIO maintained over the decision rather than a purse partitioned in
-   * advance, which matters because the two are not the same when the unfocused
-   * board runs out of live threads: a partitioned purse would strand its half,
-   * and this hands it straight back to the focus.
+   * ── WHY IT IS A FILTER AND NOT A CEILING ──────────────────────────────────
+   *
+   * Raising `depthMax` on the focused threads is not enough on its own, and the
+   * first build of this layer proved it: `deepenNext` deepens the SHALLOWEST
+   * live thread, so a raised ceiling is only reached after every other thread
+   * has been carried to its own — and on a real board the purse is empty long
+   * before that. Measured on the first cycle: the focus fired on 32% of
+   * decisions and took 13.5% of the plies, which is not narrowing, it is a
+   * ceiling nobody reaches.
+   *
+   * So the focus is chosen by SUBTRACTING the alternatives. While its share of
+   * the plies spent is under `1 − breadthReserve`, the scheduler may see only
+   * focused threads and the shallowest-first rule operates inside the focus;
+   * once it is over, only unfocused threads, and the reserve gets served. Each
+   * side falls back to the whole ledger when its own is exhausted, so a purse
+   * is never stranded — which is the one thing a partitioned budget gets wrong.
    *
    * THE FEINT, SAID PLAINLY. An opponent who can manufacture something that
    * reads acute — a heavy unit walked into range, a corridor half closed — can
@@ -555,12 +563,13 @@ export class Scout {
     const all = this.ledger.all();
     if (this.acute === null || !this.focus.fired) return all;
     const reserve = Math.min(1, Math.max(0, this.acute.breadthReserve));
-    if (reserve <= 0) return all;
     const spent = this.focusPlies + this.outsidePlies;
-    if (spent === 0) return all;
-    if (this.focusPlies / spent <= 1 - reserve) return all;
-    const outside = all.filter((t) => !this.focused.has(t.key));
-    return outside.length === 0 ? all : outside;
+    // The first ply of the decision goes to the focus: with nothing spent the
+    // share is undefined, and starting on the quiet board is the one order that
+    // can leave the acute line at depth zero when the purse runs out.
+    const focusOwed = spent === 0 || this.focusPlies / spent <= 1 - reserve;
+    const side = all.filter((t) => this.focused.has(t.key) === focusOwed);
+    return side.length === 0 ? all : side;
   }
 
   /**
