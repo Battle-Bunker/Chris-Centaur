@@ -257,6 +257,47 @@ Three consequences worth stating flatly:
    territory, ordering and potions are doing beyond "keep valuable units alive in
    share-adjusted terms", it accounts for less than 0.09 sharePar on any of these cells.
 
+### 3.2b THE TWO CHANNELS FOLD WITH ONE COEFFICIENT — the unification, measured
+
+§3.2 validated the **outflow** channel alone and I flagged inflow and transfer as untested.
+Inflow is testable on the same replays: a unit whose length rises between turns has eaten,
+so per-team inflow is the sum of positive per-unit length deltas, folded by the same
+`(K/W)(1−p)` at the turn it happened. Summing folded inflow and folded outflow into **one
+predictor with one coefficient**:
+
+| predictor (one k, through origin, 144 games) | k | R² | per-cell residuals (snake6 / queen / knight) |
+|---|---|---|---|
+| folded outflow only | 2.919 | 0.866 | −0.085 / +0.064 / +0.004 |
+| folded inflow only | 3.770 | 0.607 | +0.924 / +0.162 / +0.001 |
+| **folded inflow + folded outflow, summed** | **2.072** | **0.949** | **+0.027 / −0.005 / −0.012** |
+
+**R² rises to 0.949 and the worst per-cell residual falls to 0.027 sharePar.** The two
+channels are not two terms needing two weights — they are one net weight-share flow, and a
+single coefficient prices both across three rosters spanning 27× of effect.
+
+**And k moves in exactly the way the decomposition predicts.** Outflow-only needed k = 2.92;
+adding inflow drops it to 2.07. That is not tuning drift — the outflow-only coefficient was
+*implicitly absorbing the future growth a preserved unit goes on to do*, and once that growth
+is counted explicitly by the inflow term, the premium falls toward the value of the weight
+itself. A decomposition carving at the wrong joint would not produce that.
+
+**An honesty note, and it matters for how this should be read.** Terminal weight is initial
+weight plus gains minus losses, and `sharePar` *is* `K·w/W` — so the net-flow predictor is
+partly a path-integral reconstruction of the score's own definition, and R² = 0.949 is
+partly definitional. That is a fair objection and I want to answer it rather than bury it:
+
+> The claim is **not** "we found a surprising predictor of the outcome". It is that **the
+> score decomposes exactly into share-folded per-unit flows** — so an evaluator that
+> estimates those flows is estimating the score itself, with no lossy proxy in between. The
+> 0.949 is a statement about the **completeness of the basis**: there is almost no residual
+> structure that per-unit flows fail to capture. That is precisely the architectural
+> question, and near-definitionality is a *feature* of a coordinate system, not a weakness of
+> a model.
+
+What remains genuinely empirical, and is not definitional, is exactly two things: **which
+flows dominate on which rosters** (§3.1's account structure), and **the value of k** — which
+is where the compounding of a live account lives, and which no amount of algebra supplies.
+
 ### 3.3 A negative result that matters: unit count adds nothing
 
 I expected team survival to need its own term — a team dies only when *all* units die, a

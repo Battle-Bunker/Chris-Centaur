@@ -31,9 +31,24 @@ tuning**, predicting paired within-game `sharePar(territory − material)`:
 |---|---|---|---|
 | deaths avoided | 0.523 | 0.677 | 0.395 |
 | weight saved | 0.128 | 0.638 | 0.315 |
-| **Σ (K/W)(1−p)·w_u at the moment of death** | **2.919** | **0.866** | **0.085** |
+| **Σ (K/W)(1−p)·w_u at the moment of death (outflow)** | **2.919** | **0.866** | **0.085** |
+| **folded outflow + folded INFLOW, summed as one predictor** | **2.072** | **0.949** | **0.027** |
 
-Observed vs model: snake6 +1.620/+1.705, queen +0.536/+0.472, knight +0.060/+0.056.
+Observed vs outflow-only model: snake6 +1.620/+1.705, queen +0.536/+0.472, knight
++0.060/+0.056. Adding inflow (a unit whose length rises has eaten, folded the same way)
+lifts R² to **0.949** with worst residual **0.027**: the two channels are not two terms
+needing two weights, they are one net weight-share flow priced by one coefficient. And k
+falls 2.92 → 2.07 exactly as the decomposition predicts — the outflow-only coefficient was
+implicitly absorbing the future growth a preserved unit goes on to do, and counting that
+growth explicitly removes it from the premium. A decomposition carving at the wrong joint
+would not do that.
+
+Read correctly: the net-flow predictor is *partly definitional* (`sharePar` is `K·w/W`, and
+terminal weight is initial + gains − losses). That is the point rather than a caveat — the
+claim is not that a surprising predictor was found, but that **the score decomposes exactly
+into share-folded per-unit flows**, so an evaluator estimating those flows estimates the
+score with no lossy proxy in between. R² = 0.949 measures the **completeness of the basis**.
+What stays genuinely empirical is which flows dominate on which roster, and the value of k.
 
 Each refinement is exactly one term of the share derivative, and each buys accuracy. The
 practical consequence is small to state and large to act on: **`room: 3` is wrong by a
@@ -216,10 +231,11 @@ completed cell lands far from it, §1.1 is overfitted to three points and I will
 
 1. **Nothing here is implemented.** Every number is a measurement of existing replays or a
    rule read from the engine.
-2. **The fold is validated on the OUTFLOW channel only.** Inflow and transfer are folded by
-   the same derivative in the algebra but are untested — deaths simply dominate these cells.
-   A board where growth rather than survival decides would be the honest test, and I do not
-   have one.
+2. **The fold is validated on outflow and inflow; TRANSFER is still untested.** Inflow was
+   closed after the first synthesis draft (§3.2b) and folds with the same coefficient. The
+   transfer channel (contest, sever, regicide) is not separately validated here — it is small
+   on these cells — and it is the channel the whole positional portfolio lives in, so it is
+   the honest next target.
 3. **The pooled regression is driven substantially by snake6**, which carries by far the
    largest signal; per-cell CIs on weight-saved are wide on the other two (queen [−4.2,+0.8],
    knight [−1.7,+1.1]). R² 0.866 against 0.677/0.638 is a real improvement and the residual
