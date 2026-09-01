@@ -66,13 +66,21 @@ Three consequences, all live:
    axis and did not know it was measuring it: "4× weights flat to worse"
    (additive channel, VALUE joint) versus "ordering is the lever and it costs
    nothing" (lexicographic channel, ACTION joint).
-3. **ACTION dominates VALUE, structurally.** `candidateCap: 8` closes the set
-   *after* the comparator sorts and *before* anything is priced. So a plan the
-   ordering drops is a plan no evaluator ever sees, at any weight. The
-   registry's own note says it: *"a plan the candidate cap closed in front of
-   is a plan no advisory term ever prices"*. This is the most important
-   composition fact in the bot, and it is currently a comment rather than a
-   law.
+3. **ACTION dominates VALUE where the cap binds — which is board-conditional**
+   (corrected by the VALUE lens; verified here). The closure runs *after* the
+   comparator sorts and *before* anything is priced, so a plan the ordering
+   drops is priced by no evaluator at any weight — the registry says it
+   directly: *"a plan the candidate cap closed in front of is a plan no
+   advisory term ever prices"*. But the cap is not one number and does not
+   always bind: `candidateCap: 8` in the sweep, `enumCandidateCap: 8` and
+   **`sliderCandidateCap: 4`** in the enumeration. The code's own measurement
+   settles the snake case — *"Measured on the trail-unit families, where no
+   unit has more than four options and the cap is eight"* — and the cluster
+   census says 98.9% of team-turns have every non-slider component at ≤ 3. So:
+   **on snake boards every legal move is admitted and priced; on slider boards
+   a queen's ~71 options are cut to 4 through a weight-blind comparator.** The
+   dominance is real and severe and *slider-specific*, and the mechanism report
+   must say where truncation actually occurred rather than leaving it inferred.
 
 **Proposal.** `order/candidates` becomes a joint whose members produce
 `⟨priority, logit⟩` per candidate, and whose *composition law is itself a
@@ -288,6 +296,15 @@ is declared. I accept the narrowing:
 > vector must become data, because an undeclared order is worse than a declared
 > one.
 
+**Update (VALUE lens cycle 2).** They then derived the twelve slots against the
+currency and found **9 of 11 are value flows the currency subsumes**, with a
+principled residual that the currency cannot express and precedence must:
+`tier` (the lattice bottom — death is not a marginal quantity),
+`contingencies` (bound width, which is a VOI quantity and belongs to ECONOMY),
+and the deterministic tie key. That is the right shape for this joint: **an
+additive currency with a small, named, principled precedence residual** — not a
+free law slot, and not a twelve-slot order either.
+
 **Mismatch named precisely, so nobody inherits a false equivalence.** The
 coordinator's relay had lexicographic and additive as the two limits of the
 VALUE lens's `γ`. Read against their doc, `γ` is a *risk-concentration exponent*
@@ -301,21 +318,38 @@ should read `γ` as "how much risk concentrates on heavy accounts" and the band
 as "death is not a marginal quantity", and should not expect one dial to
 reproduce today's twelve slots.
 
-**7.3 Their homogeneity diagnostic is the instrument for my structural claim.**
-§2.3 argues ACTION dominates VALUE structurally (the cap closes the set before
-anything is priced). Their diagnostic makes it measurable: **if the admitted
-candidates are homogeneous in feature `f`, then `w_f` is inert at any value** —
-ordering controls the SUPPORT, evaluation controls the CHOICE WITHIN it. That
-yields a sharp, checkable prediction which unifies two results the program
-currently files separately:
+**7.3 Their homogeneity diagnostic is the instrument, and it has to measure two
+things at once.** Their rule: **if the admitted candidates are homogeneous in
+feature `f`, then `w_f` is inert at any value** — ordering controls the SUPPORT,
+evaluation controls the CHOICE WITHIN it. Correct, and it is the instrument
+§2.3 needs. But once §2.3 is corrected to "where the cap binds", a second and
+independent cause of inertness comes into view, and the two have **opposite
+remedies**:
 
-> The potion **4× weights null** and the potion **ordering win** are the same
-> fact measured twice. Weights were inert because the admitted set was
-> homogeneous in potion-gain — the pickup was not in the set until the ordering
-> put it there. "Volume is not the lever" is therefore not a fact about potion
-> value; it is a fact about admission.
+| cause | shape | where it bites | remedy |
+|---|---|---|---|
+| **(a) admission** | the option is not in the priced set | wherever options > cap — sliders (~71 → 4), never trail units | ordering / cap |
+| **(b) no gradient** | the term is *constant across the plans being compared* | anywhere the term is a team-level scalar: `bestPotionSeek` is a max over all our units × all potions, so two plans differing in one unit's move get the **same** number unless the argmax moves | re-denominate the term per plan |
 
-The diagnostic belongs in the mechanism report as a standing column (per
-feature: the spread of `f` across the admitted set), because it converts "this
-weight did nothing" from a verdict about a heuristic into a verdict about the
-admission stage — and those two verdicts have opposite remedies.
+Both present as "the weight did nothing", and (b) is already on the record as
+the potion work's own second cause. So the instrument must be measured **at the
+point of comparison** — the spread of `f` across the plans `better()` actually
+adjudicates between, not only across the admitted candidate set — and reported
+**by unit class**, or a slider-board hit and a snake-board null average into a
+misleading nothing.
+
+**7.4 The identification, split by the evidence.** My "same fact measured twice"
+claim survives for one pair and is refuted for the other:
+
+- **CONFIRMED** for the *4× weights null vs the ordering win*: the pickup slot
+  is documented inert when `potionOrdering` is off (*"Zero on every bot that
+  does not set potionOrdering"*), and the bold ladder raced before the ordering
+  lever landed.
+- **REFUTED** for the *effectTurns value sweep*: that ran with `potionOrdering`
+  ON — admission already repaired, pickups up 30–51% — so its null is **not**
+  an admission artifact and needs its own remedy. On snake boards, where the
+  cap never binds, cause (b) is the live hypothesis and the test is a
+  fat-account board (a queen's ~30 weight is worth more to sever than an entire
+  snake board's potion supply).
+
+"Volume is not the lever" is therefore **withdrawn as untested**, not upheld.

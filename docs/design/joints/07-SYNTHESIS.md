@@ -92,12 +92,21 @@ factorization costs something measurable.
    win literally lives — no config can vary and no measurement attaches to. And
    (VALUE lens) it is **weight-blind**: `captureRank` ranks a weight-31 queen
    capture identically to a weight-2 snake.
-6. **Admission dominates valuation, structurally.** `candidateCap: 8` closes the
-   set after the comparator sorts and before anything is priced. With the VALUE
-   lens's homogeneity diagnostic this becomes measurable, and it predicts that
-   **the potion 4×-weights null and the potion ordering win are one fact
-   measured twice** — the weights were inert because the admitted set was
-   homogeneous in potion-gain until the ordering put the pickup in it.
+6. **Admission dominates valuation where the cap binds, which is
+   board-conditional.** The closure runs after the comparator sorts and before
+   anything is priced — but `sliderCandidateCap: 4` cuts a queen's ~71 options
+   to four, while on trail-unit boards no unit has more than four options
+   against a cap of eight, so nothing is closed at all. The dominance is real,
+   severe and *slider-specific*. Two independent causes make a weight inert and
+   they have **opposite remedies**: (a) admission — the option is not in the
+   priced set; (b) no gradient — the term is constant across the plans being
+   compared, which is exactly what a team-level `max` over units × potions is.
+   So the instrument must measure feature spread **at the point of comparison**
+   and report it **by unit class**. On the evidence: the 4×-weights null and the
+   ordering win *are* one fact measured twice (the pickup slot is inert with the
+   ordering off); the later value sweep's null is *not* (it ran with the
+   ordering on), so "volume is not the lever" is withdrawn as untested rather
+   than upheld.
 7. **`CandidateKnobs` is three kinds in one bag** — four orderings that compose,
    five set-closures that must not, one safety policy, one model claim; and
    `keepQuiet: 2` is a number in a knob bag that closes a set.
@@ -116,6 +125,18 @@ factorization costs something measurable.
     object.
 13. **The experiment coordinate system is half-built**: the board side is
     content-addressed, the bot side is labelled.
+14. **The bot address has no production binding site.**
+    `firebaseInterfaceConfigFromEnv` never sets `bot`, so the live process
+    always plays `DEFAULT_BOT_CONFIG` — the field exists and only tests and the
+    harness pass it. One bot per *process*, while one process serves many games
+    and many seats. Selecting a validated collection member in production
+    therefore means editing the default, and the operator knob surface has
+    nowhere to persist an excursion. The seam already exists in the right place
+    (per-game state on the decision engine, and the engine already resolves its
+    bot per engine rather than process-wide); what is missing is a per-game (or
+    per-centaur) bot lookup and its stamp. This is the smallest change that
+    makes "a bot is a value" true in the product rather than only in the
+    harness.
 
 ---
 
@@ -133,7 +154,7 @@ behaviour.
 | **B3** | bots as total addressed values; roster directory; `botDiff`; reachability + single-binding + Law-S checks in CI | — | R1 must flag `territoryRefine`, `multistartSeed`, `sampledCap`, `search.clusterEnum` on today's tree, or the closure is computed wrong |
 | **B4** | `settleTurn` with the spawner injected — effects, then potion collection, then orientation, then the pawn-to-queen rule, then adjudication; `adjudicate`/`sharePar` exported and called by all three consumers; grammar queries exported | VALUE (engine asks) | the potion-window acceptance game: the bot walks to a potion three turns early, the window opens **in the model**, the cut lands. Cannot pass today at any budget |
 | **B5** | the carried premise: pins, reference actions, commitments, roles and stances as one object with lifetimes; the `⟨board, premise⟩` attention map | TIME (advance) | instrument address recurrence under live operator play; near-zero recurrence kills the map half, and the commitment half must then stand alone |
-| **B6** | the ordering joint: additive over the weight-flow currency, one risk-concentration parameter, one derived band at the account-wipe cliff (precedence-as-data only as fallback) | VALUE | the shipped order must be reproduced exactly on generated candidate sets before any bot names a different one |
+| **B6** | the ordering joint: additive over the weight-flow currency (which subsumes 9 of the 11 slots) plus a named residual precedence — the death band, the bound-width term that is really a VOI quantity, and the deterministic tie key | VALUE | the shipped order must be reproduced exactly on generated candidate sets before any bot names a different one |
 | **B7** | the reduction joint: one `(weight-supplier, ε)` binding read by every reduction site; `ε = 1` default | EPISTEMICS §5, §7.4 | check for double-charged pessimism first: hold ε fixed, vary `plyCap`; if the depth-effect rate falls as plies rise, the blended value and `sigmaOfPly`'s width terms are discounting the same uncertainty twice |
 
 Two rules govern the whole order. **Byte-identity at every step**, proved
