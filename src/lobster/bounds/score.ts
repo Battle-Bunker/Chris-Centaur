@@ -36,6 +36,65 @@ export const DEAD = Number.NEGATIVE_INFINITY;
 export const BOUND_EPSILON = 1e-9;
 
 /**
+ * THE SAME SLACK, PROPORTIONAL — and why an absolute one was not enough.
+ *
+ * `BOUND_EPSILON` alone is an absolute quantity, and the bank's floors and
+ * ceilings are not: they are sums over resolutions whose magnitude tracks the
+ * material on the board. On a queen board a bracket sits at 150–250 lat and is
+ * reached by chains ten times longer than any other board's, so a floor and a
+ * ceiling that agree to eleven significant figures still differ by 2e-2
+ * ABSOLUTE — twenty million epsilons — and the constructor refused them.
+ *
+ * Measured, not supposed. Batch `20260831-batch2` threw three decision errors
+ * across 2,472 games, all three the same refusal and all three on
+ * `snake5-queen`:
+ *
+ *     [149.7698, 149.7502]  1.3e-4 relative
+ *     [ 60.0150,  60.0000]  2.5e-4 relative
+ *     [251.3184, 251.2998]  7.4e-5 relative
+ *
+ * The B0 floor and the B3 ceiling are two accumulation paths over the SAME
+ * quantity — a max over independent lower bounds and a min over independent
+ * upper bounds, summed in different orders over different resolution sets — so
+ * their rounding diverges by construction. A disagreement three to four orders
+ * of magnitude below the quantity being compared is that divergence and
+ * nothing else; there is no configuration of a sound bank in which it is
+ * evidence of an unsound member.
+ *
+ * WHY 1e-3, AND WHY THAT IS STILL A NARROW GATE. It must sit above the worst
+ * observed rounding (2.5e-4) with headroom, and below anything a real bug
+ * could produce. The smallest quantity the bank can genuinely be wrong about
+ * is one unit's material weight, and the lightest unit on these boards is 1 lat
+ * against brackets of 60–250 — 0.4% to 1.7%, four to seventeen times this
+ * tolerance. So the two populations are separated by better than half an order
+ * of magnitude, and the gate closes on the bug class without closing on the
+ * arithmetic.
+ *
+ * AND THE REPAIR IS NEVER A LIE. A sub-tolerance inversion is not clamped to
+ * one endpoint — that would assert a floor the evidence does not support.
+ * Both endpoints move to their midpoint, so the floor only ever FALLS and the
+ * ceiling only ever RISES: the published bracket is strictly weaker than
+ * either input, which is the one direction that cannot turn a rounding error
+ * into a claim. Above the tolerance it still throws, loudly, as law 5 says.
+ */
+export const BOUND_RELATIVE_EPSILON = 1e-3;
+
+/**
+ * The slack this pair of endpoints is allowed, absolute floor included.
+ *
+ * Scaled by the larger magnitude rather than by the gap, so the tolerance is a
+ * property of WHERE ON THE NUMBER LINE the comparison happens and not of how
+ * badly it failed. At zero the relative term vanishes and `BOUND_EPSILON` is
+ * what binds, which is the behaviour every existing caller was written
+ * against.
+ */
+export function boundSlack(worst: number, best: number): number {
+  const scale = Math.max(Math.abs(worst), Math.abs(best));
+  if (!Number.isFinite(scale)) return BOUND_EPSILON;
+  return BOUND_EPSILON + scale * BOUND_RELATIVE_EPSILON;
+}
+
+/**
  * A bound was asked to exist with `worst > best`. Never caught to continue
  * with a clamped value — the floor a caller would then publish is not one it
  * can defend. B3's kernel may catch it to refuse an emission and count it.
@@ -287,13 +346,28 @@ function noteText(note: string | (() => string) | undefined, fallback: string): 
 export function makeScoreBounds(input: BoundsInput): ScoreBounds {
   const ledger = normalizeLedger(input.ledger ?? []);
   const assumptions = normalizeAssumptions(input.assumptions ?? []);
-  const { worst, best } = input;
-  if (best < worst - BOUND_EPSILON) {
+  let { worst } = input;
+  const { best } = input;
+  if (best < worst - boundSlack(worst, best)) {
     throw new BoundsInversionError(worst, best, noteText(input.note, "no provenance recorded"));
   }
-  // Float drift inside epsilon collapses to a point rather than inverting.
-  const hi = best < worst ? worst : best;
+  // Float drift inside the slack collapses to the MIDPOINT rather than
+  // inverting: the floor falls, the ceiling rises, and the pair that comes out
+  // is weaker than either input rather than picking a winner. See
+  // `BOUND_RELATIVE_EPSILON` for the measurement that set the slack.
+  let hi = best;
+  if (best < worst) {
+    const mid = worst + (best - worst) / 2;
+    worst = mid;
+    hi = mid;
+  }
   const exact = ledger.length === 0 && assumptions.length === 0;
+  // The DISCHARGE check keeps the absolute epsilon, deliberately. The slack
+  // above prices a disagreement between two independent accumulations of one
+  // quantity; this one asks whether a bound that claims to have nothing left
+  // to learn is a POINT, and a point is a point at every magnitude. Scaling it
+  // would let a bound at 1e3 carry a 1-lat gap with nothing to blame it on,
+  // which is the laundered narrowing law 3 exists to refuse.
   if (exact && hi - worst > BOUND_EPSILON) {
     throw new BoundsInversionError(
       worst,

@@ -8,6 +8,8 @@
 
 export {
   BOUND_EPSILON,
+  BOUND_RELATIVE_EPSILON,
+  boundSlack,
   BoundsInversionError,
   DEAD,
   UNKNOWN_BOUNDS,

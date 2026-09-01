@@ -168,6 +168,92 @@ export interface ClusterTuning {
    * elimination as reachable and refuses composition.
    */
   readonly terminalRosterFloor: number;
+  /**
+   * ── THE SIZE RATION: how much reach-expansion arithmetic ONE cluster may buy.
+   *
+   * Measured in CLAIM SLOTS — the count of `pairPotential` slot visits the pair
+   * tables of a cluster will do, which is `Σ over ordered pairs of
+   * |D_u|·|D_v|·(reach_u + reach_v)` where `reach` is a domain's mean path
+   * length. See `clusterCells`.
+   *
+   * ── WHY A SIZE RATION AND NOT A COUNT ONE ─────────────────────────────────
+   *
+   * Batch `20260831-batch2` priced the enumeration per decision across 2,472
+   * games and found TWO cost regimes that want opposite remedies:
+   *
+   *     board            roster              ms/decision  joints  ms/joint
+   *     null-snake6      6 snakes                   18.3    41.0      0.45
+   *     snake5-knight    5 snakes + KNIGHT          18.0    42.5      0.42
+   *     snake5-queen     5 snakes + QUEEN          223.8    52.9      4.23
+   *     headline-mix-king mixed + king             474.5  2471.1      0.19
+   *
+   * A knight costs NOTHING — it is indistinguishable from an all-snake board on
+   * both cost and cluster count — so the driver is not piece-presence. A queen
+   * costs twelve times a knight on 1.25× the clusters, i.e. its cost is not
+   * MORE clusters, it is BIGGER ones: a slider's reach makes each residual
+   * cluster large, every pair table's cell walks the whole ray, and the
+   * arithmetic explodes while the joint count barely moves. That is a SLIDER
+   * regime and it wants a bound on the size of one cluster.
+   *
+   * The crowded king boards are the other regime — 47× the clusters at a
+   * twentieth of the cost each — and they want the count ration below.
+   * `search.clusterEnum: false` skips the partition wholesale and is the wrong
+   * instrument for either.
+   *
+   * ── HOW IT DEGRADES ───────────────────────────────────────────────────────
+   *
+   * Gracefully, and to COARSER PRICING rather than to nothing: the cluster's
+   * domains are shrunk from the bottom of the generator's own ordering until
+   * the estimate fits, and a cluster still over the ration at the floor is
+   * solved by ICM on the surrogate — rung 5, the declared floor of this design,
+   * which is today's coordinate ascent on a µs evaluator and can therefore
+   * never be worse than the status quo. Both are max-side restrictions on OUR
+   * OWN search order and need no declaration (`score.ts`'s rule).
+   *
+   * Zero disables the ration.
+   */
+  readonly maxClusterCells: number;
+  /**
+   * ── THE COUNT RATION: how many clusters one decision may SOLVE.
+   *
+   * The crowd regime's remedy. Beyond this many, a cluster keeps the seed's own
+   * assignment — the generator's ordered-first option for each of its members —
+   * and no table is built for it at all. Clusters are solved in the partition's
+   * order, so what is rationed is the tail.
+   *
+   * Zero disables the ration. This is also the ration a DEADLINE spends: an
+   * enumeration whose `shouldStop` fires leaves every remaining cluster at the
+   * seed, which is what makes the pass interruptible rather than all-or-nothing.
+   */
+  readonly maxClustersSolved: number;
+  /**
+   * The smallest domain the size ration may shrink a unit to. Two, because one
+   * is not a variable and a cluster of forced units is not a cluster.
+   */
+  readonly rationDomainFloor: number;
+  /**
+   * ── THE TIME RATION: the share of the DECISION this pass may spend.
+   *
+   * A TURN-scale fraction, not a slice-scale one, and the distinction is the
+   * whole of it. The enumeration runs inside a refinement slice, and a slice is
+   * 25 ms while the pass is 340 — so reading the SLICE's `shouldStop()` would
+   * truncate the enumeration on essentially every decision and quietly gut the
+   * layer. `BudgetHandle.decisionFraction` is the turn-scale clock, and this is
+   * how much of it the pass may consume before it stops solving and leaves the
+   * rest of the partition at the seed.
+   *
+   * 0.35 sits above what the pass costs where it is affordable — 23.7% of a
+   * 2,000 ms budget on the most expensive board batch 2 measured — and below
+   * what makes it unaffordable, which is the 500 ms rung where the same fixed
+   * cost is the whole turn. So a generous budget never truncates and reaches
+   * the identical answer, and a tight one degrades instead of overrunning.
+   *
+   * Zero disables the time ration. It is also inert whenever the handle models
+   * no turn (`decisionFraction` absent), which is every deterministic probe:
+   * depth and this pass both take their ration from a real clock or from none,
+   * and a counting budget must stay a pure function of call count.
+   */
+  readonly budgetFraction: number;
 }
 
 export const DEFAULT_CLUSTER_TUNING: ClusterTuning = {
@@ -183,6 +269,30 @@ export const DEFAULT_CLUSTER_TUNING: ClusterTuning = {
   requireExactGain: false,
   requireSurrogateGain: true,
   terminalRosterFloor: 2,
+  // THE DEFAULTS, SET FROM THE MEASURED DISTRIBUTION, NOT FROM TASTE. See
+  // `maxClusterCells` for the numbers and `search.maxClusterCells` in
+  // `bot-config.ts` for how an arm moves them.
+  // A CEILING, SIZED FROM THE MEASURED DISTRIBUTION — not a routine narrowing.
+  //
+  // Worst single-cluster estimate over the batch-2 replay corpus, 30 decisions
+  // a board: 1,753 on `headline-mix-king`, 1,407 on `hazard-mix-king`, 143 on
+  // `snake5-queen`, 39 on `snake5-knight`, 12 on `null-snake6`. 8,000 is 4.5×
+  // the worst of those, so the shipped bot never meets it on any board this
+  // program has measured and every decision it takes is the decision it took
+  // before. What it catches is the tail — a cluster several times larger than
+  // anything observed, which is exactly the shape a slider board can produce
+  // and the shape that turned one turn into a forfeited one.
+  //
+  // A ration nobody can see engage is a ration nobody can trust, so an arm
+  // names a smaller one (`search.maxClusterCells`) and the mechanism rows —
+  // `cells`, `worstClusterCells`, `rungRation` — say what it bought.
+  maxClusterCells: 8_000,
+  // Cluster counts on the same corpus run 1.0–5.5 a decision, so this is the
+  // crowd regime's ceiling on the same footing: inert on everything measured,
+  // and the thing that stops a 2,500-cluster board from solving all of them.
+  maxClustersSolved: 64,
+  rationDomainFloor: 2,
+  budgetFraction: 0.35,
 };
 
 // ---------------------------------------------------------------------------
@@ -206,6 +316,18 @@ export interface EnumRequest {
   readonly salt: number;
   /** CL2's φ_u, when the edge-EV pass ran. Absent ⇒ the geometric channel alone. */
   readonly unary?: UnaryLookup;
+  /**
+   * THE DEADLINE, AND WHAT MAKES THIS PASS INTERRUPTIBLE.
+   *
+   * Consulted once per cluster and once per slider branch — never inside a
+   * table — so it costs a handful of clock reads on a board with a handful of
+   * clusters. When it fires, every cluster not yet solved keeps the seed's own
+   * assignment and the composition proceeds over what IS solved: the pass
+   * degrades to a smaller proposal set rather than to a thrown-away decision.
+   *
+   * Absent ⇒ no deadline, which is what every deterministic probe runs under.
+   */
+  readonly shouldStop?: () => boolean;
 }
 
 export interface ClusterStats {
@@ -220,6 +342,22 @@ export interface ClusterStats {
   /** Clusters that fell past the exact regime, by rung. */
   readonly rungThreshold: number;
   readonly rungIcm: number;
+  /**
+   * PER-CLUSTER COST, EXPOSED — the row the batch-2 mining had to reconstruct
+   * from wall clock because no build published it.
+   *
+   * `cells` is the estimated reach-expansion arithmetic this decision bought,
+   * summed over every cluster and branch, and `worstClusterCells` is the single
+   * most expensive cluster's share. The two together separate the SLIDER regime
+   * (few clusters, one of them enormous) from the CROWD regime (thousands of
+   * cheap ones) on a mechanism row instead of on a stopwatch.
+   */
+  readonly cells: number;
+  readonly worstClusterCells: number;
+  /** Clusters the SIZE ration degraded — shrunk domains, or pushed to ICM. */
+  readonly rungRation: number;
+  /** Clusters left at the seed by the COUNT ration or by the deadline. */
+  readonly clustersRationed: number;
   /** Composed joints refused because exact search did not beat ICM. */
   readonly noExactGain: number;
   /** Did the terminal guard refuse independent composition? */
@@ -261,6 +399,10 @@ const EMPTY_STATS: ClusterStats = {
   jointsBeforeShrink: 0,
   rungThreshold: 0,
   rungIcm: 0,
+  cells: 0,
+  worstClusterCells: 0,
+  rungRation: 0,
+  clustersRationed: 0,
   noExactGain: 0,
   merged: false,
   proposals: 0,
@@ -336,6 +478,109 @@ function domainOf(
   // costs one branch and removes a whole class of "how did that happen".
   if (options.length === 0) return { unitId, unit, options: fatal, ranks: fatalRanks };
   return { unitId, unit, options, ranks };
+}
+
+// ---------------------------------------------------------------------------
+// The rations — what one cluster, and one decision, may spend
+// ---------------------------------------------------------------------------
+
+/**
+ * A domain's REACH: the mean number of claim slots one of its options occupies.
+ *
+ * This is the quantity that separates a queen from a knight. A knight's move
+ * claims two cells; a queen's ray claims up to the width of the board, and
+ * every pair-table cell walks the whole ray. Batch 2 measured the consequence
+ * as 4.23 ms per cluster joint on `snake5-queen` against 0.42 on
+ * `snake5-knight` — ten times, on 1.25× the clusters.
+ *
+ * Floored at 1: a domain with no path information still costs one slot.
+ */
+function reachOf(d: Domain): number {
+  let slots = 0;
+  for (const option of d.options) slots += option.path.length;
+  return Math.max(1, slots / Math.max(1, d.options.length));
+}
+
+/**
+ * THE ARITHMETIC ONE CLUSTER WILL BUY, in claim slots, before any of it is
+ * spent.
+ *
+ * `Surrogate.pair(u, v)` fills a `|D_u| × |D_v|` table and every cell is one
+ * `pairPotential` over `u`'s path against an index holding `v`'s, so a cell
+ * costs `reach_u + reach_v`. Every ordered pair inside the cluster is built,
+ * and every member is additionally paired both ways with each conditioning
+ * slider. That is the whole estimate, and it needs nothing from the board: it
+ * is domain sizes and path lengths, both already in hand.
+ *
+ * The estimate is per BRANCH — the slider tables are shared across branches by
+ * the surrogate's own cache, so charging them to each branch over-counts a
+ * little. Deliberately: the ration is a ceiling on what a cluster may commit
+ * to, and a ceiling that under-counts is not one.
+ */
+function clusterCells(members: ReadonlyArray<Domain>, sliders: ReadonlyArray<Domain>): number {
+  const reach = members.map(reachOf);
+  const sliderReach = sliders.map(reachOf);
+  let cells = 0;
+  for (let i = 0; i < members.length; i++) {
+    const u = members[i] as Domain;
+    const ru = reach[i] as number;
+    for (let j = 0; j < members.length; j++) {
+      if (i === j) continue;
+      const v = members[j] as Domain;
+      cells += u.options.length * v.options.length * (ru + (reach[j] as number));
+    }
+    for (let k = 0; k < sliders.length; k++) {
+      const s = sliders[k] as Domain;
+      cells += 2 * u.options.length * s.options.length * (ru + (sliderReach[k] as number));
+    }
+  }
+  return cells;
+}
+
+/**
+ * SHRINK A CLUSTER'S DOMAINS UNTIL ITS ESTIMATE FITS THE RATION.
+ *
+ * Options are dropped from the BOTTOM of the generator's own ordering, largest
+ * domain first, so what survives is what the candidate layer already ranked
+ * highest — the same prefix the sweep would have reached first anyway. No unit
+ * falls below `rationDomainFloor`.
+ *
+ * This is a MAX-SIDE restriction on our own search order and needs no
+ * declaration: it narrows what the proposal generator ranges over, and every
+ * option dropped here is still offered by the candidate sets, still swept and
+ * still priceable. `score.ts`'s law 4 is about MIN-side restrictions, and this
+ * is not one.
+ *
+ * Returns the domains to solve over and whether anything was given up.
+ */
+function rationDomains(
+  members: ReadonlyArray<Domain>,
+  sliders: ReadonlyArray<Domain>,
+  tuning: ClusterTuning,
+): { domains: ReadonlyArray<Domain>; rationed: boolean; cells: number } {
+  const cap = tuning.maxClusterCells;
+  let cells = clusterCells(members, sliders);
+  if (cap <= 0 || cells <= cap) return { domains: members, rationed: false, cells };
+  const floor = Math.max(1, tuning.rationDomainFloor);
+  const working = members.map((d) => ({ ...d, options: [...d.options], ranks: [...d.ranks] }));
+  for (;;) {
+    let widest = -1;
+    let width = floor;
+    for (let i = 0; i < working.length; i++) {
+      const n = (working[i] as Domain).options.length;
+      if (n > width) {
+        width = n;
+        widest = i;
+      }
+    }
+    if (widest < 0) break; // every domain is at the floor
+    const d = working[widest] as { options: Candidate[]; ranks: number[] };
+    d.options.pop();
+    d.ranks.pop();
+    cells = clusterCells(working, sliders);
+    if (cells <= cap) break;
+  }
+  return { domains: working, rationed: true, cells };
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +684,11 @@ class Surrogate {
 /** The ½ of the ordered-pair sum. See the file header. */
 const PAIR_SHARE = 0.5;
 
+/** Leaves between two deadline reads inside an exact walk, minus one — used as
+ *  a mask, so it must stay `2^k − 1`. 63 is one read per 64 leaves, which is
+ *  one read per eighth of a cluster at the shipped `maxJointsPerCluster`. */
+const STOP_STRIDE_MASK = 63;
+
 /**
  * Ṽ over an assignment, given the domains it ranges over.
  *
@@ -493,6 +743,7 @@ function enumerateExact(
   conditionedPick: ReadonlyArray<number>,
   tuning: ClusterTuning,
   salt: number,
+  stop?: () => boolean,
 ): { joints: ReadonlyArray<Joint>; enumerated: number } {
   if (domains.length === 0) return { joints: [{ pick: [], score: 0, tie: 0 }], enumerated: 1 };
 
@@ -502,8 +753,21 @@ function enumerateExact(
 
   const all: Joint[] = [];
   const pick = new Array<number>(domains.length).fill(0);
+  // THE DEADLINE, ON A STRIDE. A cluster at the exact ceiling is 512 leaves and
+  // each leaf is an O(m²) table read, so checking every leaf would spend more
+  // on the clock than on the answer; checking every `STOP_STRIDE` bounds the
+  // overshoot at a stride's worth of leaves and costs one read per stride.
+  // The joints already found are kept — a truncated exact walk is a smaller
+  // k-best list over a real subset, which is still a proposal set.
+  let leaves = 0;
+  let cut = false;
   const walk = (i: number): void => {
+    if (cut) return;
     if (i === domains.length) {
+      if ((leaves++ & STOP_STRIDE_MASK) === STOP_STRIDE_MASK && stop?.() === true) {
+        cut = true;
+        return;
+      }
       let score = surrogateScore(surrogate, domains, pick);
       // The conditioning terms: every variable of this cluster against every
       // shared slider, both directions, halved exactly as the internal pairs
@@ -904,7 +1168,15 @@ export function enumerateProposals(req: EnumRequest): ClusterProposals {
   let jointsBeforeShrink = 0;
   let rungThreshold = 0;
   let rungIcm = 0;
+  let rungRation = 0;
+  let clustersRationed = 0;
+  let cells = 0;
+  let worstClusterCells = 0;
   let maxComponent = 0;
+  // The two rations' handles, read once. `maxClustersSolved` counts clusters
+  // per BRANCH, and the deadline is the same gate spent by the clock.
+  const countCap = tuning.maxClustersSolved;
+  const stop = req.shouldStop;
   for (const cluster of effective.clusters) {
     if (cluster.members.length > maxComponent) maxComponent = cluster.members.length;
     let before = 1;
@@ -920,16 +1192,59 @@ export function enumerateProposals(req: EnumRequest): ClusterProposals {
   let noExactGain = 0;
 
   for (const branch of branches) {
+    // THE OUTER COORDINATE IS ALSO RATIONED. Every branch re-solves every
+    // cluster, so a slider board's cost is the per-branch cost times
+    // `maxSliderBranches` — and a branch begun after the deadline would solve
+    // nothing and compose the seed. The branches already scored stand; they are
+    // whole proposals and were never averaged over.
+    if (scored.length > 0 && stop?.() === true) break;
     const perCluster: Array<ReadonlyArray<Joint>> = [];
     const clusterDomains: Array<ReadonlyArray<Domain>> = [];
     let icmFloor = 0;
     let feasible = true;
+    // The COUNT ration and the deadline are per branch: every branch is a whole
+    // proposal and a branch that solved nothing is a branch that offers the
+    // seed back, which is not worth the composition it would cost.
+    let solvedHere = 0;
 
     for (const cluster of effective.clusters) {
       const members = memberDomains(cluster, domains);
       if (members.length === 0) {
         perCluster.push([{ pick: [], score: 0, tie: 0 }]);
         clusterDomains.push([]);
+        continue;
+      }
+      // ---- THE COUNT RATION, AND THE DEADLINE ------------------------------
+      //
+      // Both leave the cluster at the SEED — option 0 of every member, which is
+      // the candidate layer's own ordered-first choice and exactly what the
+      // greedy pass would have taken. No table is built, so a rationed cluster
+      // costs nothing rather than costing less. This is the crowd regime's
+      // remedy (2,500 cheap clusters a decision on the mix-king boards) and it
+      // is what makes the pass interruptible.
+      //
+      // ── THE INTERRUPTION STATE IS PER CLUSTER, DELIBERATELY ───────────────
+      //
+      // There is no global cursor and no checkpoint. Each cluster is
+      // independently either SOLVED or LEFT AT THE SEED, decided here, counted
+      // here, and composed either way — so a deadline that fires halfway
+      // through the partition keeps every cluster it had already solved
+      // instead of discarding the pass.
+      //
+      // That shape is chosen for a second reason it does not yet collect on. A
+      // mid-turn operator commit moves ONE unit from `partition.variables` to
+      // `fixed`, which changes ONE cluster; a global checkpoint would force the
+      // whole enumeration to be redone on every human intervention, while
+      // per-cluster state admits redoing only the touched cluster and reusing
+      // the rest. The reuse itself is NOT built here — a session is keyed by
+      // basis, so an epoch change still opens a new session and re-enumerates —
+      // and this is the seam it hangs on when it is.
+      const overCount = countCap > 0 && solvedHere >= countCap;
+      if (overCount || stop?.() === true) {
+        perCluster.push([{ pick: members.map(() => 0), score: 0, tie: 0 }]);
+        clusterDomains.push(members);
+        icmFloor = Number.NEGATIVE_INFINITY;
+        clustersRationed++;
         continue;
       }
       const solved = solveCluster(
@@ -939,14 +1254,19 @@ export function enumerateProposals(req: EnumRequest): ClusterProposals {
         branch,
         tuning,
         salt,
+        stop,
       );
       if (solved.joints.length === 0) {
         feasible = false;
         break;
       }
+      solvedHere++;
       jointsEnumerated += solved.enumerated;
       rungThreshold += solved.rungThreshold;
       rungIcm += solved.rungIcm;
+      rungRation += solved.rungRation;
+      cells += solved.cells;
+      if (solved.cells > worstClusterCells) worstClusterCells = solved.cells;
       icmFloor += Number.isFinite(solved.icmScore) ? solved.icmScore : -Infinity;
       perCluster.push(solved.joints);
       clusterDomains.push(solved.domains);
@@ -1050,6 +1370,10 @@ export function enumerateProposals(req: EnumRequest): ClusterProposals {
       jointsBeforeShrink,
       rungThreshold,
       rungIcm,
+      cells,
+      worstClusterCells,
+      rungRation,
+      clustersRationed,
       noExactGain,
       merged,
       proposals: plans.length,
@@ -1075,22 +1399,53 @@ function memberDomains(
  */
 function solveCluster(
   surrogate: Surrogate,
-  members: ReadonlyArray<Domain>,
+  requested: ReadonlyArray<Domain>,
   sliders: ReadonlyArray<Domain>,
   branch: ReadonlyArray<number>,
   tuning: ClusterTuning,
   salt: number,
+  stop: (() => boolean) | undefined,
 ): {
   joints: ReadonlyArray<Joint>;
   domains: ReadonlyArray<Domain>;
   enumerated: number;
   rungThreshold: number;
   rungIcm: number;
+  /** The size ration's verdict on this cluster: the arithmetic it was
+   *  estimated to want, and whether the ration had to take some away. */
+  cells: number;
+  rungRation: number;
   /** Ṽ of the ICM fixpoint — rung 5, the declared floor of the design. */
   icmScore: number;
 } {
+  // ---- RUNG 0 OF THE LADDER: the size ration, before any table is built ----
+  //
+  // It runs FIRST because everything below it — the exact walk, the threshold
+  // split, the ICM fixpoint — reads the same pair tables, so a ration applied
+  // after the tables exist would have already paid for what it is refusing.
+  const rationed = rationDomains(requested, sliders, tuning);
+  const members = rationed.domains;
+  const rungRation = rationed.rationed ? 1 : 0;
+
   let product = 1;
   for (const d of members) product *= d.options.length;
+
+  // Still over the ration with every domain at its floor: this is a cluster no
+  // amount of narrowing makes affordable, and it takes the design's declared
+  // floor — coordinate ascent on the µs surrogate, which is today's algorithm
+  // and can never be worse than the status quo.
+  if (tuning.maxClusterCells > 0 && rationed.cells > tuning.maxClusterCells) {
+    return {
+      joints: [icm(surrogate, members, sliders, branch, tuning, salt)],
+      domains: members,
+      enumerated: 0,
+      rungThreshold: 0,
+      rungIcm: 1,
+      cells: rationed.cells,
+      rungRation,
+      icmScore: Number.NEGATIVE_INFINITY,
+    };
+  }
 
   if (product <= tuning.maxJointsPerCluster) {
     const { joints, enumerated } = enumerateExact(
@@ -1100,6 +1455,7 @@ function solveCluster(
       branch,
       tuning,
       salt,
+      stop,
     );
     // THE FLOOR, MEASURED RATHER THAN ASSUMED. Coordinate ascent on the same
     // surrogate from the same start: what this stage has to beat to be worth a
@@ -1112,6 +1468,8 @@ function solveCluster(
       enumerated,
       rungThreshold: 0,
       rungIcm: 0,
+      cells: rationed.cells,
+      rungRation,
       icmScore: floor,
     };
   }
@@ -1126,8 +1484,11 @@ function solveCluster(
     for (const piece of pieces) {
       let size = 1;
       for (const d of piece) size *= d.options.length;
-      if (size <= tuning.maxJointsPerCluster) {
-        const solved = enumerateExact(surrogate, piece, sliders, branch, tuning, salt);
+      // Once the deadline has fired every remaining piece takes the ICM
+      // fixpoint rather than the exact walk: coarser pricing, on the rung the
+      // design already declares as its floor, and bounded.
+      if (size <= tuning.maxJointsPerCluster && stop?.() !== true) {
+        const solved = enumerateExact(surrogate, piece, sliders, branch, tuning, salt, stop);
         perPiece.push(solved.joints);
         enumerated += solved.enumerated;
       } else {
@@ -1150,6 +1511,8 @@ function solveCluster(
       enumerated,
       rungThreshold: 1,
       rungIcm: icmCount,
+      cells: rationed.cells,
+      rungRation,
       // A cluster that reached the ladder has already conceded the exact
       // claim; the gain test would compare it against itself.
       icmScore: Number.NEGATIVE_INFINITY,
@@ -1163,6 +1526,8 @@ function solveCluster(
     enumerated: 0,
     rungThreshold: 0,
     rungIcm: 1,
+    cells: rationed.cells,
+    rungRation,
     icmScore: Number.NEGATIVE_INFINITY,
   };
 }

@@ -248,6 +248,34 @@ export interface SearchSelections {
    * nothing.
    */
   readonly clusterEnum?: boolean;
+  /**
+   * THE SIZE RATION — how much reach-expansion arithmetic ONE cluster may buy,
+   * in pair-table claim slots. Unset keeps the shipped
+   * `DEFAULT_CLUSTER_TUNING.maxClusterCells`; `0` lifts the ration entirely,
+   * which is the arm that measures what the ration costs.
+   *
+   * A FIELD RATHER THAN MACHINERY, on the same measured argument that bought
+   * `clusterEnum`. Batch 2 priced the enumeration per decision and found two
+   * cost regimes: a SLIDER regime (`snake5-queen`, 223.8 ms a decision at 4.23
+   * ms per joint — ten times any other board — on only 1.25× the clusters) and
+   * a CROWD regime (the mix-king boards, 0.19 ms a joint on 2,500 of them).
+   * A knight costs nothing at all, so the axis is REACH, not piece-presence.
+   * `clusterEnum: false` skips the partition wholesale and is the wrong
+   * instrument for either; these two are the right ones, and until they exist
+   * no configuration can price what the enumeration buys.
+   *
+   * See `search/cluster-enum.ts`'s `maxClusterCells` for the ladder it
+   * degrades down, which is coarser pricing and never a refusal.
+   */
+  readonly maxClusterCells?: number;
+  /**
+   * THE COUNT RATION — how many clusters one decision may SOLVE per slider
+   * branch. Unset keeps the shipped default; `0` lifts the ration.
+   *
+   * The crowd regime's half. Beyond it a cluster keeps the seed's own
+   * ordered-first assignment and no table is built for it.
+   */
+  readonly maxClustersSolved?: number;
 }
 
 /** A bot with every field settled — what the engine actually reads. */
@@ -392,13 +420,25 @@ export function botConfigFromJson(
     if (typeof o.search !== 'object' || o.search === null || Array.isArray(o.search)) {
       throw new TypeError('bot config "search" must be an object of search selections');
     }
-    const searchKnown = new Set(['clusterEnum']);
+    const searchKnown = new Set(['clusterEnum', 'maxClusterCells', 'maxClustersSolved']);
     const sub = o.search as Record<string, unknown>;
     for (const key of Object.keys(sub)) {
       if (!searchKnown.has(key)) throw new TypeError(`unknown bot config field "search.${key}"`);
     }
     if (sub.clusterEnum !== undefined && typeof sub.clusterEnum !== 'boolean') {
       throw new TypeError('bot config "search.clusterEnum" must be a boolean');
+    }
+    // A ration is a COUNT, so a negative or fractional one is a typo rather
+    // than a preference — and a typo that resolved to "no ration" would be an
+    // arm silently wearing the default's behaviour.
+    for (const key of ['maxClusterCells', 'maxClustersSolved']) {
+      const v = sub[key];
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || !Number.isInteger(v)) {
+        throw new TypeError(
+          `bot config "search.${key}" must be a non-negative integer (0 lifts the ration)`
+        );
+      }
     }
   }
   return resolveBotConfig(

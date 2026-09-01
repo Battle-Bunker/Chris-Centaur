@@ -168,6 +168,14 @@ describe('CL7: the mechanism report is present and complete', () => {
         'sampledCap',
         'depthPlyCap',
         'clusterEnum',
+        // THE TWO ENUMERATION RATIONS. `clusterEnum` says whether the pass ran
+        // at all; these two say what it was allowed to SPEND, which is the
+        // question batch 2 could not ask of any configuration. They are stamped
+        // beside the `cluster.cells` / `cluster.worstClusterCells` rows that
+        // measure what the spend bought, because a cost row read without the
+        // ration it ran under is a number nobody can attribute.
+        'maxClusterCells',
+        'maxClustersSolved',
       ].sort()
     );
 
