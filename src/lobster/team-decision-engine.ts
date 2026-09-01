@@ -566,7 +566,11 @@ export class TeamDecisionEngine {
     // byte what it was.
     this.evaluate = evaluatorForSlate(
       this.slate.evaluators.map((e) => e.id),
-      this.options.evaluate ?? defaultEvaluator
+      this.options.evaluate ?? defaultEvaluator,
+      // AND THE SCALES ARE THE BOT'S. A weight is the one part of an advisory
+      // term a config may move without minting a new entry id, so it travels
+      // with the bot rather than with the slate — see `BotConfig.potionWeights`.
+      this.bot.potionWeights
     );
     this.evaluatorSpec = evaluatorSpecOf(this.evaluate);
     if (this.options.pool !== undefined) this.pool = this.options.pool;

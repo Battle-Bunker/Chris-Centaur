@@ -666,6 +666,14 @@ describe('two decisions overlap by design: the live handle is turn-keyed', () =>
     const engine = new TeamDecisionEngine(ports, {
       makeCore: () => alwaysImprovingCore(),
       evaluate: WIDE_EVALUATOR as never,
+      // THE LEGACY LINEUP, NAMED. These two probes hand in a SCRIPTED
+      // evaluator rather than a `BoundEvaluator`, and six advisory entries have
+      // no feature fold to overlay onto a script — so the composition refuses
+      // rather than silently dropping them, which is the behaviour the seam
+      // rule asks for. A probe about pin delivery and about staging refusals is
+      // asking about the KERNEL, not about the potion doctrine, so it names the
+      // slate with no advisory entries and the refusal never fires.
+      bot: { slate: 'legacy' },
       kernel: { reserveMs: 20, sliceMs: 5, minWriteIntervalMs: 0 },
     });
 
@@ -842,6 +850,14 @@ describe('a staged move the wire cannot say is a named narrowing, not a skip', (
     const engine = new TeamDecisionEngine(ports, {
       makeCore: () => scripted as never,
       evaluate: stubEvaluate as never,
+      // THE LEGACY LINEUP, NAMED. These two probes hand in a SCRIPTED
+      // evaluator rather than a `BoundEvaluator`, and six advisory entries have
+      // no feature fold to overlay onto a script — so the composition refuses
+      // rather than silently dropping them, which is the behaviour the seam
+      // rule asks for. A probe about pin delivery and about staging refusals is
+      // asking about the KERNEL, not about the potion doctrine, so it names the
+      // slate with no advisory entries and the refusal never fires.
+      bot: { slate: 'legacy' },
       kernel: { reserveMs: 20, sliceMs: 10, minWriteIntervalMs: 0 },
     });
     const result = await engine.decideTurn({

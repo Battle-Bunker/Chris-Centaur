@@ -91,8 +91,8 @@ import type { WorkerSetting } from './parallel';
 import { STAGING_SAFETY_DEFAULT } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
 import type { ScoutTuning } from './search/scout';
-import { SLATE_IDS, SLATE_LEGACY } from './registry';
-import type { SlateId } from './registry';
+import { SLATE_IDS, SLATE_LEGACY, SLATE_POTION_INTEL } from './registry';
+import type { PotionAdvisoryWeights, SlateId } from './registry';
 
 /**
  * ONE BOT. Every field optional, because a contender file is a DIFF from the
@@ -201,6 +201,19 @@ export interface BotConfig {
   readonly workersAudit?: boolean;
 
   /**
+   * THE POTION TERMS' SCALES. A partial over `POTION_ADVISORY_WEIGHTS`.
+   *
+   * A weight is the one part of an advisory term a bot may move without minting
+   * a new entry id: it says how loud the reading is, not what it reads. What it
+   * reads — the window, the victims, the currency — is the entry's identity and
+   * a change there is an `@n+1`, which is why nothing else about these terms is
+   * configurable.
+   *
+   * Read only by a bot whose slate seats potion terms. On `legacy` it is inert.
+   */
+  readonly potionWeights?: PotionAdvisoryWeights;
+
+  /**
    * SEARCH-LAYER SELECTIONS. A partial: what is named overrides the shipped
    * search, what is not keeps it. See `SearchSelections`.
    */
@@ -280,11 +293,12 @@ export interface SearchSelections {
 
 /** A bot with every field settled — what the engine actually reads. */
 export type ResolvedBotConfig = Required<
-  Omit<BotConfig, 'candidates' | 'depth' | 'search'>
+  Omit<BotConfig, 'candidates' | 'depth' | 'search' | 'potionWeights'>
 > & {
   readonly candidates: CandidateKnobs;
   readonly depth: Partial<ScoutTuning>;
   readonly search: SearchSelections;
+  readonly potionWeights: PotionAdvisoryWeights;
 };
 
 /**
@@ -292,18 +306,69 @@ export type ResolvedBotConfig = Required<
  * header for why that is a gate rather than a preference.
  */
 export const DEFAULT_BOT_CONFIG: ResolvedBotConfig = {
-  name: 'default',
-  slate: SLATE_LEGACY,
+  // ── THIS BRANCH'S DEFAULT IS THE POTION-INTELLIGENT BOT ─────────────────
+  //
+  // The header above says a field whose default is anything other than what
+  // already ran is a gate failure rather than a review question, and that rule
+  // is exactly right for a branch adding a member to a collection. This branch
+  // is not doing that. Owner ruling 41 of 2026-08-31 asks for *a branch whose
+  // bot is intelligent about collecting potions AND protecting itself from
+  // potion attacks* — so the deliverable IS a different default bot, and a
+  // branch that added the capability and left it unselected would have shipped
+  // a library rather than a bot (ruling 42: *unexecuted-in-play code is a
+  // library, not behavior*).
+  //
+  // Two fields carry the whole change, and both are already-existing config
+  // surfaces rather than new machinery:
+  //
+  //   `slate`   the `potion-intel` lineup — the four merged potion terms plus
+  //             the two plan-discriminating ones. Every member advisory, so
+  //             every bound this bot proves is the bound the shipped bot proves
+  //             and the two differ only in the ORDER over plans the floor ties.
+  //
+  //   `depth`   `acute: {}` — an EMPTY OBJECT is the whole of
+  //             `DEFAULT_ACUTE_TUNING`, i.e. focus narrowing at its default
+  //             threshold and default breadth reserve. `acute: null` is the
+  //             even spread the parent branch makes, and is what the control
+  //             arm of every measurement here sets.
+  //
+  // The parent branch's default — `slate: 'legacy'`, `depth: {}` — is still
+  // exactly reachable as a config, and it is the arm this branch is measured
+  // against.
+  name: 'potion-intel',
+  slate: SLATE_POTION_INTEL,
   territoryRefine: DEFAULT_TERRITORY_REFINE,
   stagingSafety: STAGING_SAFETY_DEFAULT,
-  candidates: {},
+  // THE PICKUP ORDERS AS A GAIN. Merged from the parent branch's own
+  // measurement, where it bought +55% pickups and +42% window severs for no
+  // evaluator cost at all — a candidate that spends a tier sorts as a gain in
+  // `gainOrderKey` instead of as a loss. It is a different channel from the
+  // pickup term's: ordering decides which options the sweep sees, and the term
+  // decides which of the ones it saw it prefers, so a bot that wants the
+  // behaviour wants both.
+  candidates: { potionOrdering: true },
   multistartSeed: false,
   sampledCap: false,
-  depth: {},
+  depth: { acute: {} },
+  potionWeights: {},
   search: {},
   engine: CENTAUR_ENGINE_DEFAULT,
   workers: DEFAULT_WORKERS,
   workersAudit: DEFAULT_WORKERS_AUDIT,
+};
+
+/**
+ * THE PARENT BRANCH'S BOT, as a config — the control arm, spelled once.
+ *
+ * Every measurement on this branch is against it, and a control that is written
+ * out by hand in each spec is a control that drifts. `slate: 'legacy'` is the
+ * shipped evaluator lineup and `depth: { acute: null }` is the even spread, so
+ * this value is the pre-branch bot term for term.
+ */
+export const PARENT_BOT_CONFIG: BotConfig = {
+  name: 'parent-default',
+  slate: SLATE_LEGACY,
+  depth: { acute: null },
 };
 
 /**
@@ -329,6 +394,7 @@ export function resolveBotConfig(
     multistartSeed: config.multistartSeed ?? DEFAULT_BOT_CONFIG.multistartSeed,
     sampledCap: config.sampledCap ?? DEFAULT_BOT_CONFIG.sampledCap,
     depth: config.depth ?? DEFAULT_BOT_CONFIG.depth,
+    potionWeights: config.potionWeights ?? DEFAULT_BOT_CONFIG.potionWeights,
     search: config.search ?? DEFAULT_BOT_CONFIG.search,
     engine:
       config.engine === undefined
@@ -369,6 +435,7 @@ export function botConfigFromJson(
     'multistartSeed',
     'sampledCap',
     'depth',
+    'potionWeights',
     'search',
     'engine',
     'workers',
@@ -413,6 +480,33 @@ export function botConfigFromJson(
   ) {
     throw new TypeError('bot config "depth" must be an object of depth-ration knobs');
   }
+  // `null` is a MEANING here and not an absence: it is the even spread, the
+  // parent branch's scheduler. So it is checked for explicitly rather than
+  // falling through the object test, which would refuse the control arm.
+  if (o.depth !== undefined) {
+    const d = o.depth as Record<string, unknown>;
+    if (
+      d.acute !== undefined &&
+      d.acute !== null &&
+      (typeof d.acute !== 'object' || Array.isArray(d.acute))
+    ) {
+      throw new TypeError('bot config "depth.acute" must be an object of focus knobs, or null');
+    }
+  }
+  if (o.potionWeights !== undefined) {
+    if (
+      typeof o.potionWeights !== 'object' ||
+      o.potionWeights === null ||
+      Array.isArray(o.potionWeights)
+    ) {
+      throw new TypeError('bot config "potionWeights" must be an object of term scales');
+    }
+    for (const [k, v] of Object.entries(o.potionWeights as Record<string, unknown>)) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new TypeError(`bot config "potionWeights.${k}" must be a finite number`);
+      }
+    }
+  }
   // The nested object is checked to the same standard as the top level: an
   // unknown key inside it is refused, so a misspelled `clusterEnumeration`
   // cannot quietly become the default bot wearing an arm's name.
@@ -451,6 +545,7 @@ export function botConfigFromJson(
       multistartSeed: bool('multistartSeed'),
       sampledCap: bool('sampledCap'),
       depth: o.depth as Partial<ScoutTuning> | undefined,
+      potionWeights: o.potionWeights as PotionAdvisoryWeights | undefined,
       search: o.search as SearchSelections | undefined,
       engine: o.engine as CentaurEngineKind | undefined,
       workers: o.workers as WorkerSetting | undefined,

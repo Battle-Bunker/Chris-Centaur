@@ -36,23 +36,26 @@ export function evaluatorSpecOf(evaluate: Evaluator): EvaluatorSpec {
         "would share a memo namespace with it and disagree about the value",
     }
   }
-  if (evaluate.advisory.length > 0) {
-    // The same refusal, one rung out. `EvaluatorSpec` carries a PROFILE, and an
-    // advisory lineup is not in the profile — a worker handed this spec would
-    // rebuild the sound fold and none of the est terms, so its `est` would
-    // disagree while its bounds agreed. The lineup IS in `evaluationIdentity`,
-    // so the memo namespaces would at least not collide; refusing here is the
-    // stronger statement, and it costs a bot that names an advisory slate
-    // nothing it was relying on (the shipped worker setting is `off`).
-    return {
-      kind: "unsupported",
-      why:
-        "a BoundEvaluator with an advisory lineup: EvaluatorSpec carries the " +
-        "profile only, so a worker could rebuild the sound fold and not the " +
-        "est terms",
-    }
+  // THE ADVISORY LINEUP TRAVELS, and this is a change of position rather than a
+  // relaxation. It used to be refused here on the argument that `EvaluatorSpec`
+  // carries a profile and an advisory lineup is not in the profile — true, and
+  // the consequence was that a bot naming an advisory slate silently lost the
+  // worker pool. That was affordable while no such bot was the default. On
+  // `feature/potion-intel` one is, so "affordable" became "the shipped bot
+  // cannot be parallel", which is not a cost to leave unstated.
+  //
+  // What makes it safe is that the lineup is DATA. `advisoryLineupFor` is a
+  // function of entry ids and a weights partial, both JSON, and the registry it
+  // resolves them against is the same module on both threads — so the worker
+  // rebuilds the identical terms rather than being handed anything to execute.
+  // A worker that cannot resolve an id throws where it is built, which is the
+  // loud failure the seam rule asks for.
+  return {
+    kind: "profile",
+    profile: evaluate.profile,
+    lineup: evaluate.advisory.map((t) => t.key),
+    potionWeights: Object.fromEntries(evaluate.advisory.map((t) => [t.key, t.weight])),
   }
-  return { kind: "profile", profile: evaluate.profile }
 }
 
 export interface PoolFactoryOptions {

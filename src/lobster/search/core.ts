@@ -95,6 +95,8 @@ import {
 } from "./cluster-enum";
 import { SweepDirty, type DirtyStats } from "./sweep-dirty";
 import { Scout } from "./scout";
+import { NO_FOCUS, detectAcute } from "./acute";
+import type { AcuteFocus } from "./acute";
 import type { DeepObservation, ScoutReport, ScoutTuning } from "./scout";
 import { foldObservation, posteriorOfBranch, precisionOfSigma } from "../belief";
 import type { BranchPosterior } from "../belief";
@@ -455,6 +457,17 @@ interface Session {
     readonly partition: Partition;
     readonly tuning: MultiStartTuning;
   } | null;
+  /**
+   * THE DECISION'S ACUTE READING — `NO_FOCUS` when narrowing is off, and when
+   * it is on but nothing on the board cleared the threshold.
+   *
+   * Mutable and per-decision rather than per-session: the board moves under a
+   * session (that is what a session across slices means), so a focus computed
+   * at the opening of the decision is the reading for that decision and the
+   * next one takes its own. `deepenHeld` reads it back so the whole decision
+   * rations under one reading — see the comment at the detection site.
+   */
+  focus: AcuteFocus;
   /**
    * CL4's lottery, or null when the flag is off.
    *
@@ -833,6 +846,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // Allocated only for a session that will use it, and then kept for the
       // session's whole life: the buffers are what make a rebuild O(1).
       multistart: openMultiStart(ctx, ours, sets, pins, references, decisionIndex),
+      focus: NO_FOCUS,
       sampler: openSampler(ctx, ours, sets, decisionIndex),
       ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
       clusterReady: false,
@@ -1170,7 +1184,24 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // an arm of its own rather than in a latency fix.
       const decisionMs = ctx.budget.decisionRemainingMs?.() ?? 0;
       s.scout.beginDecision(decisionMs);
+      // ---- THE ACUTE READING, TAKEN ONCE PER DECISION -------------------
+      //
+      // Here, and only here, because the whole point of a focus is that the
+      // ledger is rationed under ONE reading: a second detection mid-slice
+      // could disagree with the first and leave half the threads deepened
+      // under a focus the other half never had. `deepenHeld` reuses this one.
+      //
+      // It is a pure function of the board and the tuning — no clock, no
+      // sampler, no resolution — so a decision's thread set stays the
+      // reproducible-from-a-seed quantity the determinism gate asserts.
+      s.focus =
+        s.scout.acute === null
+          ? NO_FOCUS
+          : detectAcute(s.sub, ctx.asTeam, { ...s.scout.acute }, (unitId) =>
+              s.sets.get(unitId)?.candidates
+            );
       s.scout.run({
+        focus: s.focus,
         sub: s.sub,
         asTeam: ctx.asTeam,
         gen: ctx.gen,
@@ -1704,7 +1735,26 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * frame value does not bound the final score.
    */
   const beliefOf = (r: BankResult, note: DeepObservation | undefined): BranchPosterior => {
-    const post = posteriorOfBranch(r.bounds.worst, r.bounds.best, r.est);
+    // THE SOUND ESTIMATE, NOT THE ADVISED ONE — and this line is the whole of
+    // the repair.
+    //
+    // `est`'s contract is that it orders the floor-tie class and adjudicates
+    // nothing (`evaluate/bound.ts`, `evaluate/potion-lineup.ts`). Reading the
+    // ADVISED estimate here broke that contract silently: the belief's near
+    // half is built from it, the depth rung that reads the belief sits ABOVE
+    // the floor comparison in `accept()`, and so a term touching only `est` was
+    // converting comparisons that would have fallen through to the PROVED FLOOR
+    // into comparisons decided by a belief it had nudged. Measured on the
+    // parent branch with a dose-response in the term's own volume: a louder
+    // lineup moved ~200 comparisons a decision off the floor and onto the
+    // belief, while `estDecided` — the slot the doctrine is supposed to speak
+    // in — went DOWN.
+    //
+    // `estSound` is `est` on every bot with no advisory lineup, so the shipped
+    // bot's belief is the number it always was. On a bot with one, the advisory
+    // reading now reaches the comparator at the `est` rung below the floor and
+    // nowhere else, which is what it was always documented to do.
+    const post = posteriorOfBranch(r.bounds.worst, r.bounds.best, r.estSound);
     if (note === undefined) return post;
     return foldObservation(post, {
       kind: "deep-finding",
@@ -2286,6 +2336,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       posture: postureOf(ctx),
       decisionMs: 0,
       kingUnits: kingUnitsOf(s),
+      focus: s.focus,
     });
     for (const obs of scout.deepObservations()) s.deep.set(planKey(obs.root), obs);
     // The value channel moved, so a cached "this plan has no deep reading" is

@@ -99,10 +99,15 @@ import {
   EVAL_DODGE_DISCOUNT_ID,
   EVAL_POTION_CONTROL_BOLD_ID,
   EVAL_POTION_CONTROL_ID,
+  EVAL_POTION_DEFENSE_ID,
+  EVAL_POTION_PICKUP_ID,
   EVAL_POTION_SEEK_BOLD_ID,
   EVAL_POTION_SEEK_ID,
   POTION_TERM_WEIGHTS,
 } from '../registry';
+import type { PotionAdvisoryWeights } from '../registry';
+import { potionPickup, potionPickupNet } from './potion-pickup';
+import { anyEnemyCollector, anyEnemyWindow, potionDefense, potionDefenseNet } from './potion-defense';
 
 // ---------------------------------------------------------------------------
 // The board adapter
@@ -151,6 +156,7 @@ function potionCellsShared(
 ): ReadonlyArray<number> {
   return shared.for(CELLS_KEY, () => potionCellsOf(sub, ctx));
 }
+
 
 /**
  * THE TIER-EXPIRY CONVENTION, CONVERTED ONCE, HERE.
@@ -305,12 +311,27 @@ const GATE_KEY = 'potion-lineup:gate';
 interface Gate {
   readonly potions: boolean;
   readonly liveWindow: boolean;
+  /**
+   * SOME UNIT NOT OURS CARRIES A LIVE TIER — the defensive gate, and the reason
+   * it is here rather than inside `potion-defense.ts`: `ctx.standing` answers it
+   * over the MERGED view (located units and held claims together) without
+   * building a `RayBoard`, and on a board with no enemy tier standing that is
+   * the whole cost of the defensive half.
+   *
+   * Split in two because the two halves ask different questions of the same
+   * scan: a positive enemy tier is a threat, a negative one is a target, and a
+   * board can carry either without the other.
+   */
+  readonly enemyWindow: boolean;
+  readonly enemyCollector: boolean;
 }
 
 function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
   return shared.for(GATE_KEY, () => {
     const sub = ctx.sub;
-    if (!(sub instanceof EngineSubstrate)) return { potions: false, liveWindow: false };
+    if (!(sub instanceof EngineSubstrate)) {
+      return { potions: false, liveWindow: false, enemyWindow: false, enemyCollector: false };
+    }
     const cells = potionCellsShared(sub, ctx, shared);
     // `teamHasLiveWindow` wants a board; at the gate `EvalContext.standing`
     // answers the same question without building one, and it is the merged
@@ -318,16 +339,19 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
     // decision never simulated is not missed.
     const turn = ctx.resolution.state.turn;
     let live = false;
+    let enemyWindow = false;
+    let enemyCollector = false;
     for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || !s.bestAlive) continue;
+      if (!s.bestAlive) continue;
       const expiry = s.tierExpiresAtTurn === null ? null : s.tierExpiresAtTurn - 1;
       const tier = expiry === null || turn <= expiry ? s.tierMax : 0;
-      if (tier > 0) {
-        live = true;
-        break;
-      }
+      if (tier === 0) continue;
+      if (s.team === ctx.asTeam) {
+        if (tier > 0) live = true;
+      } else if (tier > 0) enemyWindow = true;
+      else enemyCollector = true;
     }
-    return { potions: cells.length > 0, liveWindow: live };
+    return { potions: cells.length > 0, liveWindow: live, enemyWindow, enemyCollector };
   });
 }
 
@@ -431,6 +455,104 @@ const potionControlTerm = (key: string): AdvisoryTerm<EvalContext> => ({
 });
 
 /**
+ * `eval/potion-pickup@1` — THE PICKUP THIS PLAN MAKES.
+ *
+ * The gate is one bitboard read and one set membership per unit of ours, and on
+ * every plan that takes no potion the term is exactly zero having built
+ * nothing. That is not an optimisation — it is the term's whole definition, and
+ * it is why seating it costs a potion-free board nothing at all.
+ */
+function potionPickupTerm(dodge: boolean): AdvisoryTerm<EvalContext> {
+  return {
+    key: EVAL_POTION_PICKUP_ID,
+    weight: POTION_TERM_WEIGHTS[EVAL_POTION_PICKUP_ID] ?? 0,
+    estimate(ctx, shared) {
+      if (!gateOf(ctx, shared).potions) return 0;
+      // ── THE SECOND GATE, AND IT IS THE ONE THAT MATTERS ──────────────────
+      //
+      // Almost every plan on a potion board takes no potion, and for those the
+      // term is zero — so the whole point is to reach that zero without
+      // building anything. `viewOf` constructs a `RayBoard` over every located
+      // unit and every held claim; asking it first would pay a board per
+      // evaluation to discover that no head of ours moved onto a cell.
+      //
+      // The substrate answers the same question directly: our units' heads
+      // after the plan, against the potion cells of the resolved position, both
+      // of which this evaluation already holds. One set and one membership test
+      // per unit of ours.
+      const sub = ctx.sub;
+      if (!(sub instanceof EngineSubstrate)) return 0;
+      const cells = potionCellsShared(sub, ctx, shared);
+      if (cells.length === 0) return 0;
+      const taken = new Set(cells);
+      let collects = false;
+      for (const u of sub.engine.units(ctx.resolution.state)) {
+        if (u.team !== ctx.asTeam) continue;
+        const head = u.cells[0];
+        if (head !== undefined && taken.has(head)) {
+          collects = true;
+          break;
+        }
+      }
+      if (!collects) return 0;
+      const view = viewOf(ctx, shared);
+      if (view === null || !Number.isFinite(view.exchangeRate)) return 0;
+      const value = potionPickup(
+        view.board,
+        view.asTeam,
+        view.potionCells,
+        {
+          turn: view.turn,
+          reach: view.reach,
+          dodge: dodge
+            ? { turn: view.turn, reach: view.reach, terrain: view.sub.terrain }
+            : null,
+        },
+        view.index
+      );
+      if (value.pickups.length === 0) return 0;
+      return potionPickupNet(value, view.exchangeRate, dodge ? 'near' : 'window');
+    },
+  };
+}
+
+/**
+ * `eval/potion-defense@1` — their window, priced against us, and the answer.
+ *
+ * Gated on an ENEMY tier standing rather than on a potion standing: a window
+ * outlives the potion that opened it, so the cell is gone from the board for
+ * the whole three turns that matter most. A term gated on `potions` would go
+ * quiet exactly when the danger arrived.
+ */
+const potionDefenseTerm = (): AdvisoryTerm<EvalContext> => ({
+  key: EVAL_POTION_DEFENSE_ID,
+  weight: POTION_TERM_WEIGHTS[EVAL_POTION_DEFENSE_ID] ?? 0,
+  estimate(ctx, shared) {
+    const gate = gateOf(ctx, shared);
+    if (!gate.enemyWindow && !gate.enemyCollector) return 0;
+    const view = viewOf(ctx, shared);
+    if (view === null || !Number.isFinite(view.exchangeRate)) return 0;
+    // The module's own predicates as well as the gate's scan, for the reason
+    // `attack-window` asserts through `teamHasLiveWindow`: the two must agree,
+    // and the module owns the rule. The gate reads bounds over the merged view
+    // and can be optimistic about a held unit; these read the board.
+    if (
+      !anyEnemyWindow(view.board, view.asTeam, view.turn) &&
+      !anyEnemyCollector(view.board, view.asTeam, view.turn)
+    ) {
+      return 0;
+    }
+    const value = potionDefense(
+      view.board,
+      view.asTeam,
+      { turn: view.turn, reach: view.reach },
+      view.index
+    );
+    return potionDefenseNet(value, view.exchangeRate);
+  },
+});
+
+/**
  * `eval/dodge-discount@2` — the modifier, seated as a member so the slate can
  * name it and a measurement can attach to it.
  *
@@ -482,7 +604,17 @@ const SCALES: ReadonlyArray<{
 ];
 
 export function advisoryLineupFor(
-  evaluatorIds: ReadonlyArray<string>
+  evaluatorIds: ReadonlyArray<string>,
+  /**
+   * THE SCALES, OVERRIDDEN — a partial over `POTION_ADVISORY_WEIGHTS`.
+   *
+   * A weight is the one part of a potion term a bot may move without minting a
+   * new entry id, because it is a statement about how loud the term is and not
+   * about what it computes. Everything else — what is read, over what window,
+   * against which victims — is the entry's identity and a change to it is an
+   * `@n+1`. See `POTION_ADVISORY_WEIGHTS`.
+   */
+  weights: PotionAdvisoryWeights = {}
 ): ReadonlyArray<AdvisoryTerm<EvalContext>> {
   const named = new Set(evaluatorIds);
   const out: AdvisoryTerm<EvalContext>[] = [];
@@ -499,7 +631,63 @@ export function advisoryLineupFor(
     if (named.has(scale.control)) out.push(potionControlTerm(scale.control));
     if (dodge) out.push(dodgeDiscountTerm(scale.dodge));
   }
+  // THE TWO PLAN-DISCRIMINATING TERMS, outside the scale table because they
+  // have one scale apiece: their reason for existing is that they are NOT equal
+  // across the comparison they settle, and the parent branch's own ladder is
+  // what says volume is not the lever for the four that are.
+  //
+  // The pickup term reads the QUIET dodge row, because a modifier is
+  // scale-local and this term is not on the bold ladder.
+  const dodgeQuiet = named.has(EVAL_DODGE_DISCOUNT_ID);
+  if (named.has(EVAL_POTION_PICKUP_ID)) out.push(potionPickupTerm(dodgeQuiet));
+  if (named.has(EVAL_POTION_DEFENSE_ID)) out.push(potionDefenseTerm());
+  // THE SCALES, OVERRIDDEN — applied once, at the end, keyed by entry id. A
+  // weight is the one part of an advisory term a config may move without
+  // minting a new entry id: it says how loud the reading is, not what it reads.
+  // Everything else — what is read, over what window, against which victims —
+  // is the entry's identity and a change to it is an `@n+1`.
+  if (Object.keys(weights).length === 0) return out;
+  return out.map((t) =>
+    Object.prototype.hasOwnProperty.call(weights, t.key) && weights[t.key] !== t.weight
+      ? { ...t, weight: weights[t.key] as number }
+      : t
+  );
   return out;
+}
+
+/**
+ * THE LINEUP REBUILT FROM A WIRE SPEC — ids and scales, both keyed by entry id.
+ *
+ * `advisoryLineupFor`'s `weights` are keyed by KNOB NAME because that is what a
+ * `BotConfig` spells. A worker is handed neither a bot config nor a slate: it is
+ * handed the lineup the main thread actually built, and the only name that
+ * survives that trip is the entry id. So this is the id-keyed door, and it is
+ * the one `parallel/` uses.
+ *
+ * Exact rather than approximate: the terms are constructed from the same ids at
+ * their declared scales and then each is set to the scale the main thread has,
+ * so a worker's `est` is the main thread's `est` for the same position. Anything
+ * less makes the two sides disagree about a value while agreeing about a bound,
+ * which is the determinism gate's own failure mode.
+ */
+export function advisoryLineupByIds(
+  evaluatorIds: ReadonlyArray<string>,
+  weightsById: Readonly<Record<string, number>> = {}
+): ReadonlyArray<AdvisoryTerm<EvalContext>> {
+  return advisoryLineupFor(evaluatorIds).map((t) =>
+    Object.prototype.hasOwnProperty.call(weightsById, t.key) && weightsById[t.key] !== t.weight
+      ? { ...t, weight: weightsById[t.key] as number }
+      : t
+  );
+}
+
+/** The same term at a different scale. Identity of the reading, not of the
+ *  loudness — see `advisoryLineupFor`'s `weights`. */
+function scaled(
+  term: AdvisoryTerm<EvalContext>,
+  weight: number
+): AdvisoryTerm<EvalContext> {
+  return weight === term.weight ? term : { ...term, weight };
 }
 
 // ---------------------------------------------------------------------------
@@ -529,9 +717,10 @@ export function advisoryLineupFor(
  */
 export function evaluatorForSlate(
   evaluatorIds: ReadonlyArray<string>,
-  base: Evaluator = defaultEvaluator
+  base: Evaluator = defaultEvaluator,
+  weights: PotionAdvisoryWeights = {}
 ): Evaluator {
-  const advisory = advisoryLineupFor(evaluatorIds);
+  const advisory = advisoryLineupFor(evaluatorIds, weights);
   if (advisory.length === 0) return base;
   if (!(base instanceof BoundEvaluator)) {
     // A REFUSAL, NEVER A SILENT DROP. Returning `base` here is exactly the

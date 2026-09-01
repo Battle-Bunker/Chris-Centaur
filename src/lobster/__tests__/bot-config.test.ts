@@ -33,26 +33,43 @@ import { DEFAULT_KNOBS } from '../candidates';
 import { STAGING_SAFETY_DEFAULT, DEFAULT_ROYAL_REACHERS } from '../staging-safety';
 import { DEFAULT_TERRITORY_REFINE } from '../evaluate/refine';
 import { TIER_TRUTH } from '../tier-truth';
-import { SLATE_LEGACY, SLATE_POTION_AWARE } from '../registry';
+import { SLATE_LEGACY, SLATE_POTION_AWARE, SLATE_POTION_INTEL } from '../registry';
 
 describe('the shipped bot is the default of every field', () => {
   test('every default is BY REFERENCE from the constant the shipped code reads', () => {
     // Not retyped values — the actual constants, so a moved default cannot
     // drift away from this file the way a copied literal would. Same
     // discipline the registry's legacy entries are held to.
+    //
+    // ── TWO FIELDS MOVED, DELIBERATELY, ON THIS BRANCH ────────────────────
+    //
+    // `bot-config.ts`'s own header says a default that is not what already ran
+    // is a gate failure rather than a review question, and that is right for a
+    // branch adding a member to a collection. `feature/potion-intel` is not
+    // doing that: owner ruling 41 asks for a BRANCH WHOSE BOT is potion
+    // intelligent, so the deliverable is a different default bot and this
+    // assertion is where that is stated once. Both moved fields are
+    // already-existing config surfaces — a slate id and a depth ration — and
+    // the parent branch's bot is still exactly reachable, which the test below
+    // pins.
     expect(DEFAULT_BOT_CONFIG).toEqual({
-      name: 'default',
-      slate: SLATE_LEGACY,
+      name: 'potion-intel',
+      slate: SLATE_POTION_INTEL,
       territoryRefine: DEFAULT_TERRITORY_REFINE,
       stagingSafety: STAGING_SAFETY_DEFAULT,
-      candidates: {},
+      candidates: { potionOrdering: true },
       multistartSeed: false,
       sampledCap: false,
-      // DEPTH'S RATION, and the empty object is the claim: the shipped bot
-      // takes `DEFAULT_SCOUT_TUNING` whole. There is no `depth: false` here
-      // because depth is machinery — always available — and what a bot chooses
-      // is how much of the decision it may buy.
-      depth: {},
+      // DEPTH'S RATION. There is no `depth: false` here because depth is
+      // machinery — always available — and what a bot chooses is how much of
+      // the decision it may buy, and now also WHERE it goes: `acute: {}` is
+      // `DEFAULT_ACUTE_TUNING` whole, i.e. focus narrowing at its default
+      // threshold and default breadth reserve. `acute: null` is the even
+      // spread, and the two must never be confusable.
+      depth: { acute: {} },
+      // THE POTION TERMS' SCALES, and the empty object is the claim that the
+      // branch ships the declared ones.
+      potionWeights: {},
       // THE SEARCH SELECTIONS, and the empty object is the same claim: the
       // shipped bot takes the search whole. `search.clusterEnum` unset is the
       // enumeration running, which is what the byte-identity gates assert.
@@ -158,6 +175,7 @@ describe('a contender is named, and its fields take', () => {
       multistartSeed: true,
       sampledCap: true,
       depth: { plyCap: 0 },
+      potionWeights: { potionPickup: 5 },
       search: { clusterEnum: false },
       engine: 'legacy',
       workers: 3,
@@ -172,6 +190,7 @@ describe('a contender is named, and its fields take', () => {
       multistartSeed: true,
       sampledCap: true,
       depth: { plyCap: 0 },
+      potionWeights: { potionPickup: 5 },
       search: { clusterEnum: false },
       engine: 'legacy',
       workers: 3,

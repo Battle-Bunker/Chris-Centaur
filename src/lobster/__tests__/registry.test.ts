@@ -31,10 +31,12 @@ import {
   POTION_AWARE_BOLD_SLATE,
   POTION_AWARE_SLATE,
   POTION_ENTRIES,
+  POTION_INTEL_SLATE,
   REGISTRY,
   SLATE_IDS,
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
+  SLATE_POTION_INTEL,
   SLATE_POTION_AWARE_BOLD,
   SLOT_IDS,
   StrategyRegistry,
@@ -249,12 +251,24 @@ describe('resolution is total and checked', () => {
     );
   });
 
-  test('there are exactly THREE slates, and asking for a fourth throws', () => {
+  test('there are exactly FOUR slates, and asking for a fifth throws', () => {
+    // FOUR: the shipped lineup, the potion-aware four, THIS BRANCH's
+    // `potion-intel` (the four plus the two plan-discriminating terms) and the
+    // parent branch's `potion-aware-bold` (the four at four times the scale).
+    // Each is a MEMBER of one collection rather than an edit of another, so
+    // every number recorded against any of them still describes the lineup that
+    // produced it.
     expect(slateFor()).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_LEGACY)).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_POTION_AWARE)).toBe(POTION_AWARE_SLATE);
+    expect(slateFor(SLATE_POTION_INTEL)).toBe(POTION_INTEL_SLATE);
     expect(slateFor(SLATE_POTION_AWARE_BOLD)).toBe(POTION_AWARE_BOLD_SLATE);
-    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE, SLATE_POTION_AWARE_BOLD]);
+    expect(SLATE_IDS).toEqual([
+      SLATE_LEGACY,
+      SLATE_POTION_AWARE,
+      SLATE_POTION_INTEL,
+      SLATE_POTION_AWARE_BOLD,
+    ]);
     // A name the registry does not hold is refused at run time as well as in
     // the type, for a caller that casts around it: a silent fallback to the
     // default would attribute a measurement to a slate that never ran.
@@ -269,9 +283,10 @@ describe('resolution is total and checked', () => {
     expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
     expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
     // The frame is the slate: the sound entry first, the advisory four after.
-    // FOUR, not eight — the bold four are a SECOND slate at a second declared
-    // scale, and a slate that seated both would be asking one lineup to speak
-    // at two volumes at once.
+    // FOUR, and neither six nor eight. The two plan-discriminating terms are
+    // named by `potion-intel` alone and the bold four by `potion-aware-bold`
+    // alone; a slate that grew members underneath a recorded measurement would
+    // be exactly the edit the identity law forbids.
     expect(resolved.evaluators.map((e) => e.id)).toEqual([
       ...LEGACY_SLATE.evaluators,
       'eval/attack-window@2',
@@ -279,6 +294,23 @@ describe('resolution is total and checked', () => {
       'eval/potion-control@2',
       'eval/dodge-discount@2',
     ]);
+  });
+
+  test('the potion-intel slate is potion-aware plus the two that discriminate plans', () => {
+    const resolved = REGISTRY.resolve(POTION_INTEL_SLATE);
+    expect(resolved.slateId).toBe(SLATE_POTION_INTEL);
+    // Four sockets untouched, again: the question this slate asks is about the
+    // evaluator frame and about nothing else.
+    expect(resolved.moveSelectors.map((e) => e.id)).toEqual(LEGACY_SLATE.moveSelectors);
+    expect(resolved.evaluatorSelector.id).toBe(LEGACY_SLATE.evaluatorSelector);
+    expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
+    expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
+    expect(resolved.evaluators.map((e) => e.id)).toEqual([
+      ...POTION_AWARE_SLATE.evaluators,
+      'eval/potion-pickup@1',
+      'eval/potion-defense@1',
+    ]);
+    for (const e of resolved.evaluators.slice(1)) expect(e.soundness).toBe('advisory');
   });
 
   test('the bold slate is the same slate at four times the voice', () => {
@@ -369,6 +401,11 @@ describe('the potion entries are members of the evaluator collection', () => {
       'eval/potion-seek@3': '36d83019',
       'eval/potion-control@2': 'a38c1b12',
       'eval/dodge-discount@2': '787e8db3',
+      // The two this branch added. The four above are unchanged, which is the
+      // claim that matters here: adding members to a collection moved nothing
+      // that was already in it.
+      'eval/potion-pickup@1': '61724054',
+      'eval/potion-defense@1': '95ac7ba8',
       // The bold four. The quiet four's pins are UNCHANGED above, which is the
       // identity law's own assertion: a second scale mints new ids and leaves
       // every number recorded against the old ones describing what made them.
@@ -499,6 +536,14 @@ describe('PRECONDITION: per-feature parts on the fold path', () => {
 
     const engine = new TeamDecisionEngine(ports, {
       evaluate: counter,
+      // THE LEGACY LINEUP, NAMED. `DoorCounter` is a wrapper and not a
+      // `BoundEvaluator`, and this branch's default slate names six advisory
+      // entries — which have no feature fold to overlay onto a wrapper, so
+      // `evaluatorForSlate` refuses rather than silently dropping them. That
+      // refusal is correct and is the point of this probe naming its slate: a
+      // caller that hands in an evaluator the lineup cannot compose with is
+      // asking about the DOOR, not about the potion doctrine.
+      bot: { slate: SLATE_LEGACY },
       kernel: { reserveMs: 20, sliceMs: 10 },
     });
     const view = (snakeId: string): GameState =>

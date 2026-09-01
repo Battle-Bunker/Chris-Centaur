@@ -59,6 +59,7 @@ const { makeSubstrate, releaseGeometriesFor } =
 const { GrammarCandidateGenerator } =
   require("../candidates") as typeof import("../candidates")
 const { BoundEvaluator } = require("../evaluate") as typeof import("../evaluate")
+const { advisoryLineupByIds } = require("../evaluate/potion-lineup") as typeof import("../evaluate/potion-lineup")
 const { BoundBank } = require("../bounds") as typeof import("../bounds")
 const { referenceActionsFrom } = require("../search/basis") as typeof import("../search/basis")
 const { decodeCandidate, catalogueDigest } =
@@ -199,7 +200,18 @@ function openSession(spec: SessionSpec): void {
   for (const unitId of spec.roster) sets.set(unitId, gen.candidatesFor(sub, unitId))
   const usable = catalogueDigest(spec.roster, sets) === spec.catalogueDigest
   if (spec.evaluator.kind !== "profile") return
-  const evaluate = new BoundEvaluator(spec.evaluator.profile)
+  // THE ADVISORY LINEUP, REBUILT FROM ITS IDS. Empty for the shipped bot, and
+  // then this is the same `new BoundEvaluator(profile)` it always was — the
+  // default third argument is the shared empty array, so a worker for a bot
+  // with no advisory term allocates nothing and evaluates byte for byte what it
+  // did before. See `parallel/factory.ts` for why the ids travel at all.
+  const evaluate = new BoundEvaluator(
+    spec.evaluator.profile,
+    undefined,
+    spec.evaluator.lineup.length === 0
+      ? undefined
+      : advisoryLineupByIds(spec.evaluator.lineup, spec.evaluator.potionWeights)
+  )
   const references = referenceActionsFrom(sub, gen, spec.basis, sets)
   const bank = new BoundBank({
     sub,
