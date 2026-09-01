@@ -22,6 +22,6 @@
  "spec": "pp-hazard-dose",
  "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/k4-hazdose.json",
  "workers": 2,
- "startedAt": "2026-09-01T08:29:31.641Z",
- "note": "continuous cycle 4 rerun (b5, cluster-lookahead@79b5f5e, toll fix): hazard dose-response. k1+k2 found potionOrder -0.145 [-0.258,-0.035] on the interior-hazard cell, null on two hazard-free cells; k5 (potion-value sweep) found the prize itself null at effectTurns 3/8/20 even with hazards off. This cell: damageRatio 0.05/0.15/0.30, everything else fixed. Monotone harm rising with damage confirms the chase-into-hazard mechanism; a flat profile kills it."
+ "startedAt": "2026-09-01T09:02:37.563Z",
+ "note": "continuous cycle 4 rerun (b5): hazard dose-response, RESUMED after container recycle killed k4b at ~20/216."
 }
