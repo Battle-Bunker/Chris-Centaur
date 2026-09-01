@@ -228,3 +228,13 @@
 - [ ] Ordering-law race (composition I4): additive member vs shipped
       lexicographic precedence at the ordering joint; shipped precedence must
       reproduce gainOrderKey exactly first (falsifier for the migration).
+- [ ] Seat lobster-territory-x (command:2) on snake5-queen + one more piece
+      cell — settles the command:0 confound (value lens).
+- [ ] k5 potion-value rerun on snake5-queen roster: potion = P(win)
+      multiplier on transfer flow, worth ~0 without a fat enemy account —
+      predicts the k5 null does NOT replicate there. One cell before
+      "potions never pay" hardens into doctrine.
+- [ ] Admitted-set feature-spread instrument: measure each feature's spread
+      across the 8 ADMITTED candidates (not all legal moves); near-zero
+      spread makes its weight inert at any value — candidate mechanism for
+      "weights do nothing".

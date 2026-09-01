@@ -481,3 +481,26 @@ a way slider mobility does not (a queen's rays are themselves
 territorial; a knight's jumps ignore the territory metric entirely).
 Cell 5/6 (snake5-rook, batch rl5, seeds 60501-60508) launched — the rook
 discriminates: pure slider, less coverage than queen.
+
+## 15. CORRECTION to §13-14 (value-lens replay mining, design push)
+
+My knight-vs-queen reading is refuted by direct replay mining (rl1/rl3/rl4):
+
+- **The snake5-knight cell is a DEAD INSTRUMENT, not a verdict.** A knight
+  jump crosses no edge (moveGrammar.ts:27) → unblockable, near-immortal
+  (1-3 deaths per 48 games) → team elimination impossible → 48/48 games
+  hit the turn cap → the contrast is structurally pinned at zero for ANY
+  evaluator. §13's "the collapse is decided" is WITHDRAWN; no leaper term
+  may be built on that cell.
+- The slider-vs-leaper mobility hypothesis in §14 is dead. Paired
+  within-game, territory's behavioural edge over material is statistically
+  IDENTICAL on both piece boards; only score conversion differs.
+- The queen-cell effect is ~88% explained by queen-survival rate (96% vs
+  84%): value is per-unit weight ACCOUNTS and death wipes an account; the
+  shipped evaluator prices safety flat per cell (room:3), a ~15x
+  mispricing on a unit holding up to 91% of team weight.
+- Confound: cells.js seats lobster-territory (command:0) everywhere, so
+  pieces get NO territory signal by construction; lobster-territory-x
+  (command:2) ships and was never seated.
+- Pre-registered before rl5 lands: rook falls between queen and knight
+  and orders by final piece WEIGHT, not mobility class.
