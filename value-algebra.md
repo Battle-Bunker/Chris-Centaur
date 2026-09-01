@@ -460,6 +460,98 @@ measure spread across all legal candidates, which is a different and much larger
 This is the cheapest decisive measurement I have found anywhere in the program: it needs no
 games, no new evaluator, and one counter in the existing candidate pipeline.
 
+### 4.5 Conceding the γ overreach, and deriving the twelve slots
+
+**The composition lens is right and I withdraw the strong form of §4.3's claim.** γ is a
+risk-concentration *exponent inside the currency* (`balanceFactor = w_u^γ` on outflows). It
+is not a general lexicographic-versus-additive interpolation. A lexicographic band emerges
+as the γ→∞ limit only where a band boundary is an *unbounded balance ratio*, and this game
+supplies exactly one such boundary — the account wipe. **One dial does not reproduce twelve
+slots, and I should not have implied it does.** What the currency does buy is narrower and
+still worth having: the law is additive over a weight-flow currency, with one
+risk-concentration parameter and one derived band.
+
+That leaves the question the lens actually asked. Walking `gainOrderKey`'s slots against the
+currency, with the code checked rather than inferred:
+
+| # | slot | is it a value flow? | where it belongs |
+|---|---|---|---|
+| 1 | `tier` (`'safe'\|'atRisk'\|'doomed'`) | **no** | soundness floor — see below |
+| 2 | `tierRisk` (`tierGrade` + `selfDebuff`) | yes — outflow: P(death) × `w_u` | priced fold |
+| 3 | `regicideShot` | yes — transfer of a whole *team's* weight (the elimination step) | priced fold |
+| 4 | `capture` (`yes\|maybe\|no`) | yes — transfer, and it must carry `w_v` | priced fold |
+| 5 | `foodGain` (0/1) | yes — inflow, exactly +1 weight | priced fold, or ordering (exactly known, 1 bit) |
+| 6 | `potionGain` | yes — a *multiplier* on the transfer flow, not an addend | priced fold, as a coefficient |
+| 7 | `shadowBonus` | yes — outflow reduction, and it must carry `w_u` | priced fold |
+| 8 | `edgeEv` | yes — inflow rate over a horizon | priced fold |
+| 9 | `healthSpent.hi` | yes — outflow: exhaustion hazard × `w_u` | priced fold |
+| 10 | `contingencies` | **no** | value of information — see below |
+| 11 | `candidate.to` | **no** | determinism |
+
+**Nine of eleven are value flows the currency subsumes.** Their precedence ordering is
+exactly the frozen magnitude relation §4.3 objects to, and each becomes a term with a
+computed coefficient rather than a slot position.
+
+**The three survivors are not value at all, and that is the concession — a real residual
+domain for precedence-as-data, with a principled boundary:**
+
+- **`tier` is a lattice bottom, not a low number.** `SafetyTier` is documented as *"the
+  safety tier a set-level filter keeps whole"*, and `calibration.ts` states the rule
+  independently: *"DEAD is a lattice bottom applied by replacement and never by addition."*
+  A doomed move is not badly-valued, it is **outside the domain of the value function**.
+  Encoding it as a large negative number is precisely the error that makes a dial able to
+  buy a suicide, and §6's hard boundary on knobbing material is the same observation. So
+  this slot must stay a precedence and must never become a weight.
+- **`contingencies` — *"how many held units' claims this move's outcome rests on"* — is
+  bound width, not value.** It orders by how much is unknown. That is the value-of-information
+  channel the shadow machinery owns, and it is a *search-control* quantity: it should decide
+  what to resolve next, not what is worth more.
+- **`candidate.to` is determinism.** A tiebreak, and it should stay one.
+
+So the boundary is not a compromise between two mechanisms — it falls out of the type:
+**the currency governs everything denominated in weight; precedence governs the three things
+that are not (the soundness bottom, information, and determinism), and none of the three can
+be given a coefficient without a category error.** That is a cleaner statement than either
+memo started with, and it is what I would ask the socket's declared law to say.
+
+### 4.6 The potion identification: CONFIRMED for two facts, and it does NOT extend to k5
+
+The lens proposes that the potion 4×-weights null and the potionOrdering win are the same
+fact measured twice. **Confirmed, and the code says so in as many words.** The pickup slot
+carries its own note (`candidates.ts:1565-1571`):
+
+> *"Zero on every bot that does not set `potionOrdering`, so this line is inert in the
+> shipped comparator."* … *"a collection that never enters the priced set cannot be valued by
+> any evaluator, however loudly that evaluator prices it."*
+
+With `potionOrdering` off, `potionGain` is identically zero across every candidate, so the
+admitted eight are selected without reference to potions and are **homogeneous in
+potion-gain**. A homogeneous feature has zero spread over the admitted set, so its weight is
+inert at any value — hence "4× weights, flat to worse". Turning the slot on makes the set
+heterogeneous, pickups get admitted, and pickups rise 55%. One mechanism, two observations,
+and the remedy for the first verdict follows: **"volume is not the lever" was a statement
+about ADMISSION, not about potion value, and should be withdrawn as untested rather than
+carried as a finding about potions.**
+
+**But the identification stops there, and this matters because the two verdicts need
+different remedies.** k5 was run with `potionOrdering` **on** — admission already fixed,
+pickups up 30–51% and monotone — and still returned a clean null at every `effectTurns`. So
+k5 is *not* an admission artifact; it is a measurement of potion value taken after the
+admission defect was repaired. It cannot be dissolved by the homogeneity argument, and
+attempting to would be the mirror of the error we are correcting.
+
+What §4.1 says about it instead: a potion is a coefficient on the transfer flow, worth
+`Σ_v [P(win | tier+1) − P(win | tier 0)] · w_v`, which is identically zero when no fat enemy
+account is reachable in the window. k5 ran on `potion-snake6` and `potion-snake5-knight`
+shapes — **boards on which §2 measured that no account exceeds ~3.** So the null is correct
+*for those boards* and says nothing about boards where `w_v ≈ 30`.
+
+| standing verdict | is it an admission artifact? | remedy |
+|---|---|---|
+| "4× potion weights do nothing" | **yes** | withdraw; measure admitted-set spread (P1b) |
+| "potionOrdering wins +55% pickups, free" | **yes — same fact** | keep, but state it as a support change, not a value finding |
+| "potions never pay at any `effectTurns`" (k5) | **no — measured post-fix** | re-test on a fat-account board (P4); do not generalise from thin-account boards |
+
 ---
 
 ## 5. WHAT THE ENGINE API MUST EXPOSE
