@@ -460,6 +460,33 @@ function potionPickupTerm(dodge: boolean, weight: number): AdvisoryTerm<EvalCont
     weight,
     estimate(ctx, shared) {
       if (!gateOf(ctx, shared).potions) return 0;
+      // ── THE SECOND GATE, AND IT IS THE ONE THAT MATTERS ──────────────────
+      //
+      // Almost every plan on a potion board takes no potion, and for those the
+      // term is zero — so the whole point is to reach that zero without
+      // building anything. `viewOf` constructs a `RayBoard` over every located
+      // unit and every held claim; asking it first would pay a board per
+      // evaluation to discover that no head of ours moved onto a cell.
+      //
+      // The substrate answers the same question directly: our units' heads
+      // after the plan, against the potion cells of the resolved position, both
+      // of which this evaluation already holds. One set and one membership test
+      // per unit of ours.
+      const sub = ctx.sub;
+      if (!(sub instanceof EngineSubstrate)) return 0;
+      const cells = potionCellsShared(sub, ctx, shared);
+      if (cells.length === 0) return 0;
+      const taken = new Set(cells);
+      let collects = false;
+      for (const u of sub.engine.units(ctx.resolution.state)) {
+        if (u.team !== ctx.asTeam) continue;
+        const head = u.cells[0];
+        if (head !== undefined && taken.has(head)) {
+          collects = true;
+          break;
+        }
+      }
+      if (!collects) return 0;
       const view = viewOf(ctx, shared);
       if (view === null || !Number.isFinite(view.exchangeRate)) return 0;
       const value = potionPickup(
