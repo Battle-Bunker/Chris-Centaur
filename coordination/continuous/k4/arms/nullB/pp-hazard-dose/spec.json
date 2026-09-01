@@ -1,0 +1,393 @@
+{
+ "spec": {
+  "_comment": [
+   "THE HAZARD DOSE-RESPONSE for the potion-ordering harm found in k1+k2.",
+   "Same cell, three damage ratios, everything else fixed."
+  ],
+  "sweepId": "pp-hazard-dose",
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "seeds": [
+   49301,
+   49302,
+   49303,
+   49304,
+   49305,
+   49306,
+   49307,
+   49308,
+   49309,
+   49310,
+   49311,
+   49312,
+   49313,
+   49314,
+   49315,
+   49316,
+   49317,
+   49318,
+   49319,
+   49320,
+   49321,
+   49322,
+   49323,
+   49324
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-hazdose05-snake6",
+    "config": {
+     "name": "potion-hazdose05-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.05
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazdose15-snake6",
+    "config": {
+     "name": "potion-hazdose15-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazdose30-snake6",
+    "config": {
+     "name": "potion-hazdose30-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.3
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "pp-hazard-dose",
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "seeds": [
+   49301,
+   49302,
+   49303,
+   49304,
+   49305,
+   49306,
+   49307,
+   49308,
+   49309,
+   49310,
+   49311,
+   49312,
+   49313,
+   49314,
+   49315,
+   49316,
+   49317,
+   49318,
+   49319,
+   49320,
+   49321,
+   49322,
+   49323,
+   49324
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-hazdose05-snake6",
+    "config": {
+     "name": "potion-hazdose05-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.05
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazdose15-snake6",
+    "config": {
+     "name": "potion-hazdose15-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazdose30-snake6",
+    "config": {
+     "name": "potion-hazdose30-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.3
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "games": 216,
+ "workers": 2,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "7f89a74",
+  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
+  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
+  "committedAt": "2026-08-31T23:17:15+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-08-31T23:40:24.204Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.22.2",
+  "platform": "linux",
+  "cpus": 4,
+  "totalmemGb": 15.7,
+  "loadavgAtStart": [
+   10.87,
+   14.59,
+   15.55
+  ]
+ },
+ "startedAt": "2026-09-01T01:53:10.943Z",
+ "resumedAt": []
+}

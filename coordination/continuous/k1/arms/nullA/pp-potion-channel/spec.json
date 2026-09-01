@@ -1,0 +1,321 @@
+{
+ "spec": {
+  "_comment": [
+   "THE CHANNEL LADDER — the potion doctrine split into its advice and its price.",
+   "Both-sides-one-game: three contenders in ONE game with rotateSeats, so G is a",
+   "within-game contrast; two identical arms, so the between-arm difference of G is",
+   "this cell’s own A/A floor, bought by the same games."
+  ],
+  "sweepId": "pp-potion-channel",
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "seeds": [
+   98201,
+   98202,
+   98203,
+   98204,
+   98205,
+   98206,
+   98207,
+   98208,
+   98209,
+   98210,
+   98211,
+   98212,
+   98213,
+   98214,
+   98215,
+   98216,
+   98217,
+   98218,
+   98219,
+   98220,
+   98221,
+   98222,
+   98223,
+   98224
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-snake6",
+    "config": {
+     "name": "potion-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazard-snake6",
+    "config": {
+     "name": "potion-hazard-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "pp-potion-channel",
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "seeds": [
+   98201,
+   98202,
+   98203,
+   98204,
+   98205,
+   98206,
+   98207,
+   98208,
+   98209,
+   98210,
+   98211,
+   98212,
+   98213,
+   98214,
+   98215,
+   98216,
+   98217,
+   98218,
+   98219,
+   98220,
+   98221,
+   98222,
+   98223,
+   98224
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-snake6",
+    "config": {
+     "name": "potion-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   },
+   {
+    "cell": "potion-hazard-snake6",
+    "config": {
+     "name": "potion-hazard-snake6",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 2,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "7f89a74",
+  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
+  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
+  "committedAt": "2026-08-31T23:17:15+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-08-31T23:40:24.204Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.22.2",
+  "platform": "linux",
+  "cpus": 4,
+  "totalmemGb": 15.7,
+  "loadavgAtStart": [
+   3.86,
+   8.2,
+   7.34
+  ]
+ },
+ "startedAt": "2026-08-31T23:40:31.466Z",
+ "resumedAt": []
+}

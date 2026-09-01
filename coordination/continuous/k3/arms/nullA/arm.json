@@ -1,0 +1,27 @@
+{
+ "arm": "nullA",
+ "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b4",
+ "bundleStamp": {
+  "ref": "7f89a74",
+  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
+  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
+  "committedAt": "2026-08-31T23:17:15+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-08-31T23:40:24.204Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": null,
+ "seatConfigs": {},
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "pp-piece-floor",
+ "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/k3-piecefloor.json",
+ "workers": 2,
+ "startedAt": "2026-09-01T01:07:02.108Z",
+ "note": "continuous cycle 3: the piece-cell floor. 48 blocks on one knight cell, two identical arms, so floorscale.js can plot the A/A floor against block count and armservice.js can test the CPU-service explanation. Three runs have produced piece cells whose A/A interval excludes zero; this separates board width from a heavy tail from unequal service."
+}

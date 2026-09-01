@@ -1,0 +1,127 @@
+{
+ "_comment": [
+  "THE PIECE-CELL FLOOR — one cell, many blocks, so the floor can be plotted",
+  "against block count instead of assumed. Two identical arms."
+ ],
+ "sweepId": "pp-piece-floor",
+ "contenders": {
+  "potionBoth": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "potionBoth",
+    "slate": "potion-aware",
+    "candidates": {
+     "potionOrdering": true
+    }
+   }
+  },
+  "potionOrder": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "potionOrder",
+    "candidates": {
+     "potionOrdering": true
+    }
+   }
+  },
+  "plain": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "plain"
+   }
+  }
+ },
+ "bots": [
+  "potionBoth",
+  "potionOrder",
+  "plain"
+ ],
+ "seeds": [
+  84101,
+  84102,
+  84103,
+  84104,
+  84105,
+  84106,
+  84107,
+  84108,
+  84109,
+  84110,
+  84111,
+  84112,
+  84113,
+  84114,
+  84115,
+  84116,
+  84117,
+  84118,
+  84119,
+  84120,
+  84121,
+  84122,
+  84123,
+  84124,
+  84125,
+  84126,
+  84127,
+  84128,
+  84129,
+  84130,
+  84131,
+  84132,
+  84133,
+  84134,
+  84135,
+  84136,
+  84137,
+  84138,
+  84139,
+  84140,
+  84141,
+  84142,
+  84143,
+  84144,
+  84145,
+  84146,
+  84147,
+  84148
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "potion-snake5-knight",
+   "config": {
+    "name": "potion-snake5-knight",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "knight",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,141 @@
+{
+ "_comment": [
+  "THE CHANNEL LADDER — the potion doctrine split into its advice and its price.",
+  "Both-sides-one-game: three contenders in ONE game with rotateSeats, so G is a",
+  "within-game contrast; two identical arms, so the between-arm difference of G is",
+  "this cell’s own A/A floor, bought by the same games."
+ ],
+ "sweepId": "pp-potion-channel",
+ "contenders": {
+  "potionBoth": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "potionBoth",
+    "slate": "potion-aware",
+    "candidates": {
+     "potionOrdering": true
+    }
+   }
+  },
+  "potionOrder": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "potionOrder",
+    "candidates": {
+     "potionOrdering": true
+    }
+   }
+  },
+  "plain": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "plain"
+   }
+  }
+ },
+ "bots": [
+  "potionBoth",
+  "potionOrder",
+  "plain"
+ ],
+ "seeds": [
+  98201,
+  98202,
+  98203,
+  98204,
+  98205,
+  98206,
+  98207,
+  98208,
+  98209,
+  98210,
+  98211,
+  98212,
+  98213,
+  98214,
+  98215,
+  98216,
+  98217,
+  98218,
+  98219,
+  98220,
+  98221,
+  98222,
+  98223,
+  98224
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "potion-snake6",
+   "config": {
+    "name": "potion-snake6",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  },
+  {
+   "cell": "potion-hazard-snake6",
+   "config": {
+    "name": "potion-hazard-snake6",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  }
+ ]
+}

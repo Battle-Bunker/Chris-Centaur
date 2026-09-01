@@ -1,0 +1,295 @@
+{
+ "spec": {
+  "_comment": [
+   "THE PIECE-CELL FLOOR — one cell, many blocks, so the floor can be plotted",
+   "against block count instead of assumed. Two identical arms."
+  ],
+  "sweepId": "pp-piece-floor",
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "seeds": [
+   84101,
+   84102,
+   84103,
+   84104,
+   84105,
+   84106,
+   84107,
+   84108,
+   84109,
+   84110,
+   84111,
+   84112,
+   84113,
+   84114,
+   84115,
+   84116,
+   84117,
+   84118,
+   84119,
+   84120,
+   84121,
+   84122,
+   84123,
+   84124,
+   84125,
+   84126,
+   84127,
+   84128,
+   84129,
+   84130,
+   84131,
+   84132,
+   84133,
+   84134,
+   84135,
+   84136,
+   84137,
+   84138,
+   84139,
+   84140,
+   84141,
+   84142,
+   84143,
+   84144,
+   84145,
+   84146,
+   84147,
+   84148
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-snake5-knight",
+    "config": {
+     "name": "potion-snake5-knight",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "pp-piece-floor",
+  "bots": [
+   "potionBoth",
+   "potionOrder",
+   "plain"
+  ],
+  "contenders": {
+   "potionBoth": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionBoth",
+     "slate": "potion-aware",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "potionOrder": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "potionOrder",
+     "candidates": {
+      "potionOrdering": true
+     }
+    }
+   },
+   "plain": {
+    "base": "lobster-territory",
+    "bot": {
+     "name": "plain"
+    }
+   }
+  },
+  "seeds": [
+   84101,
+   84102,
+   84103,
+   84104,
+   84105,
+   84106,
+   84107,
+   84108,
+   84109,
+   84110,
+   84111,
+   84112,
+   84113,
+   84114,
+   84115,
+   84116,
+   84117,
+   84118,
+   84119,
+   84120,
+   84121,
+   84122,
+   84123,
+   84124,
+   84125,
+   84126,
+   84127,
+   84128,
+   84129,
+   84130,
+   84131,
+   84132,
+   84133,
+   84134,
+   84135,
+   84136,
+   84137,
+   84138,
+   84139,
+   84140,
+   84141,
+   84142,
+   84143,
+   84144,
+   84145,
+   84146,
+   84147,
+   84148
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-snake5-knight",
+    "config": {
+     "name": "potion-snake5-knight",
+     "size": 21,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "knight",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 200,
+     "turnCap": 80,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 2,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "7f89a74",
+  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
+  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
+  "committedAt": "2026-08-31T23:17:15+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-08-31T23:40:24.204Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.22.2",
+  "platform": "linux",
+  "cpus": 4,
+  "totalmemGb": 15.7,
+  "loadavgAtStart": [
+   8.56,
+   11.98,
+   12.95
+  ]
+ },
+ "startedAt": "2026-09-01T01:07:02.802Z",
+ "resumedAt": []
+}

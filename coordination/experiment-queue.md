@@ -1,7 +1,3 @@
-<!-- SNAPSHOT: source scratchpad/experiment-queue.md — synced 2026-09-01T01:13:23Z by the branch-topology housekeeping task.
-     This is a point-in-time copy, not the live document. The working copy is the coordinator's
-     scratchpad; this branch exists so the owner can reach it if that box is unreachable. -->
-
 # DYNAMIC EXPERIMENT QUEUE (ruling 40)
 # This sandbox runs continuously from the top; PC batches = 9h packages
 # cut from here on owner request. Keep prioritized; runner updates.
@@ -52,15 +48,34 @@
    And `potionBoth − potionOrder` pools to +0.001: the expensive advisory
    adds NOTHING on top of the free ordering; the ordering half does all
    the work, and on hazard boards the work it does is harmful.
-   VERDICT ON THE SMASH QUESTION: NO. Four configurations — quiet
-   advisory, bold advisory, free ordering, ordering plus advisory — have
-   now been played in 1,152 live games and none beats the shipped bot.
-   NEXT, cheapest first: (a) open k1/k2's replays and check the obvious
-   mechanism — that sorting a pickup as a gain walks units into hazard
-   cells to reach potions; (b) the one untried architectural route, which
-   is letting potion value into the PROVED BOUNDS rather than arriving as
-   a clamped advisory nudge inside them. (b) is a builder change, not a
-   configuration, and (a) should inform it.
+   THE REPLAY READ (item 8, done, ZERO new games) CHANGES THE STORY.
+   `replaymech.js` over k1's 288 replays, all three bots in every game:
+   **`potionOrdering` makes the bot collect 22% more potions on the hazard
+   cell and 45% more on the plain one**, for no search cost. THE
+   COLLECTING CAPABILITY THE OWNER ASKED FOR EXISTS AND IS DEMONSTRATED
+   IN PLAY — the first potion configuration in this programme shown to
+   change play in the intended direction with a number attached.
+   IT STILL DOES NOT SMASH, AND NOW WE KNOW WHY: on the hazard-free cell
+   it collects 45% more potions and scores +0.021 [-0.143, 0.213]. **The
+   prize is too small.** At effectTurns 3 an invulnerability potion is
+   worth less than the tempo spent reaching it. That is a finding about
+   the GAME, not about our bot.
+   And the full causal chain of the hazard harm is measured: potions
+   +22% -> hazard occupancy +5% -> head entries into hazard +4% ->
+   deaths/game +13% (2.75 -> 3.10) -> sharePar -0.145. Control holds: on
+   the hazard-free cell the same bot dies slightly LESS.
+   The expensive half does nothing: `potionBoth` collects only 0.05-0.15
+   more potions/game than `potionOrder`, and scores +0.001 against it.
+   **SO THE TOP OF THIS ITEM IS NOW A BOARD-SETTINGS SWEEP, NOT A BOT
+   CHANGE: at what potion settings does collecting them pay?** Vary
+   `effectTurns` (3 -> 8 -> 20) and potion scarcity, with the
+   already-working `potionOrdering` flag on, and find where the curve
+   crosses zero. If no reachable setting makes it pay, say so to the
+   owner plainly and leave the flag selectable, default OFF on hazard
+   boards. This is queued as cycle k5.
+   The proved-bounds architecture route is DEPRIORITIZED by this: it
+   would make the bot value potions more precisely, and the measurement
+   says the problem is that potions are not worth much.
 
    READING RULE CORRECTED — THIS APPLIES TO EVERY ITEM. "An effect must
    exceed the A/A floor" compares two different quantities. The floor is
@@ -95,16 +110,29 @@
    only when item 1 is blocked on the builder; the two do not pool.
    BLOCKS: 16/cell at owner shape (batch 2); 0 at sandbox scale.
 
-3. Piece-cell floor calibration (was item 4) — PROMOTED above the
-   evaluator ladder. Two independent runs now show a piece-bearing cell
-   whose A/A floor EXCLUDES ZERO between identical arms: batch 2's
-   mix-king widened to ±0.53, and sandbox c1's knight cell came back
-   -0.490 [-0.689, -0.267]. Until this is characterized, every
-   piece-cell reading in the programme is uninterpretable — including
-   the knight rung of item 1's own ladder. Packaged as the PC fallback
-   Slot A2 (floors at 16/32/64 blocks, to test whether the half-width
-   even falls as 1/sqrt(n); if it does not, the cell is heavy-tailed and
-   needs a different estimator).
+3. Piece-cell floor calibration — **DONE, cycle k3, 288 games. VERDICT:
+   the piece cell's floor is SOUND and the programme-wide claim "piece
+   cells have no usable floor" should be WITHDRAWN.**
+   `potion-snake5-knight` at 48 blocks: A/A floor -0.176 [-0.364, 0.018]
+   — CONTAINS ZERO — and it falls as 1/sqrt(blocks) to within 9% at every
+   count from 12 blocks up (ratios 1.09, 1.02, 1.00, 1.03, 0.97, 1.00,
+   1.00). It is the best-behaved cell measured in this programme, better
+   than either snake cell.
+   What the three earlier "broken floor" observations share is not a
+   piece board, it is 8 blocks — a count at which a bootstrap interval
+   cannot be trusted, and at which a WIDE cell will exclude zero often
+   enough to look like a finding. c1's -0.490 [-0.688, -0.270] did not
+   survive the count.
+   Second-order contributor confirmed: `armservice.js` on k3 shows the
+   first arm buying more search in 3 of 3 bot pairs, mean +3.89% and
+   +9.5% on the hungriest bot — which is why the mean ΔG sits at -0.176
+   rather than 0 and why the floor is wider than pure sampling predicts.
+   THIS UNBLOCKS piece-cell readings across the programme — batch 2's
+   `hazard-mix-king` and `headline-mix-king` rows, the overnight
+   roster-ladder table, and the knight rung of item 1's ladder — provided
+   they are run at enough blocks and read against the reading's own
+   interval. The cell is still expensive: ±0.10 needs ~190 blocks.
+   Details: `$SP/continuous/item3-piece-floor/results.md`.
 
 4. Evaluator-selection ladder (overnight R1) at owner shape, chunked.
 
@@ -114,3 +142,41 @@
    lands them): scenario-suite win rates + generic-cell non-regression.
    Still unbuilt — ruling 41 names it as part of the highest-priority
    branch, so this rises to the top the moment a prototype exists.
+
+7. NEW, AND RUNNING NOW as cycle k4 — THE HAZARD DOSE-RESPONSE. k1+k2
+   found the free potion-ordering slot harming play on the
+   interior-hazard cell (-0.145 [-0.258, -0.035], replicated across two
+   independent runs) and doing nothing on two hazard-FREE cells (+0.021
+   snake, +0.069 knight). The only cell with hazards is the only cell
+   with harm, which is what the mechanism "sorting a pickup as a gain
+   walks units across hazard cells to reach potions" predicts. Two cells
+   is not a dose-response curve, so k4 runs the SAME cell at damageRatio
+   0.05 / 0.15 / 0.30 with everything else fixed. Monotone harm rising
+   with damage confirms the mechanism; a flat profile kills it. 24 blocks
+   x 3 rotations x 3 cells = 216 games per arm, ~68 min.
+   (The kit REFUSES damageRatio 0 with layout 'cross' — "hazard cells
+   that do nothing" — so the low rung is 0.05, not 0. Correct guard.)
+   Either way it is cheap, and it decides whether anyone should touch the
+   ordering code.
+
+8. REPLAY INSPECTION — **DONE, zero games.** `$SP/continuous/replaymech.js`
+   over k1's 288 replays. It produced the strongest result of the run:
+   the collecting capability is real (+22-45% potions), the prize is
+   small (45% more potions buys +0.021 sharePar), and the hazard harm's
+   causal chain is fully measured. Folded into item 1 above. The tool
+   generalises — point it at any batch to get per-bot potions collected,
+   hazard occupancy, head entries into hazard, health per unit and deaths
+   per game, all paired within game.
+
+9. NEW, TOP OF THE POTION WORK — THE POTION-VALUE SWEEP (cycle k5).
+   With `potionOrdering` ON (it demonstrably collects), sweep what a
+   potion is WORTH and find where collecting starts to pay:
+   `effectTurns` 3 (current) / 8 / 20, on the hazard-free cell so the
+   hazard interaction does not confound it. Contenders `potionOrder` vs
+   `plain` in one game. If the curve crosses zero at a reachable setting,
+   the owner has his answer and the flag ships for those boards. If it
+   never crosses, the honest report is that invulnerability potions are
+   not worth chasing in this game at any setting the harness offers —
+   which is a finding about the GAME and should stop the potion effort
+   rather than deepen it.
+   Cheap: 24 blocks x 3 rotations x 3 cells = 216 games/arm, ~68 min.
