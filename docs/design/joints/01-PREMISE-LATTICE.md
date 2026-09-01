@@ -62,6 +62,12 @@ MEASURE-INDEX     weight     the quantifier (⊥ = "no weight chosen") | a weigh
 CONFIG-INDEX      bot        botId (§00-CORE §4.3) | codeRef | seat | budget & box regime
 ```
 
+There are **three** operations, not two: join and meet move within one turn's
+lattice; `advance` transports every fiber to the next turn's lattice when the
+turn resolves (values never cross it; identity, incumbency and attention do).
+`advance` is the TIME lens's contribution and is developed in
+`05-ADVANCE-AND-COMMITMENTS.md` §2.
+
 Order: `p ≤ q` iff `p` is **weaker** (assumes less, admits more worlds, computes
 fewer terms, commits to less measure). Then:
 
@@ -91,6 +97,20 @@ held width as purchasable will burn budget buying width compute cannot buy, the
 day the first invisibility potion lands — and it does so without a special case:
 an unpurchasable meet has no price row, so its VOI is undefined rather than
 optimistic, and the economy simply never offers that work item.
+
+> **CORRECTED by the TIME lens, and the correction is load-bearing.** Read as
+> stated, the paragraph above forbids ponder entirely: every ponder target sits
+> under a simultaneity narrowing nothing can buy before resolution. A meet
+> supports **two distinct purchases** — (a) buying the narrowing itself, which is
+> what the paragraph prices and which really is impossible for `observation` and
+> `none` rows; and (b) the **anticipatory meet**: computing *under* the un-bought
+> narrowing at ordinary compute price, held conditional in the stronger premise's
+> fiber until reality supplies the meet for free. (b) is sound with no new
+> machinery precisely because it is *conditioning without evidence* — the case
+> §1 identifies as the reason the index must be distinct from the support — so
+> the cross-fiber refusal keeps it out of unconditional comparisons until
+> `advance` discharges the label. **The VOI table needs both columns or ponder
+> is undefined.** See `05-ADVANCE-AND-COMMITMENTS.md` §3.
 
 It also settles a question `00-CORE.md` left open about the ECONOMY kind's
 composition law. ECONOMY members do not compose by summing policies; they

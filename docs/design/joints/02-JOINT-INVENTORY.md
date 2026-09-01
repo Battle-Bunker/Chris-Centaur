@@ -251,4 +251,71 @@ generated candidate sets, exactly; and an additive-law member must be
 representable and raceable, or the "law is a param" claim is empty.
 
 Only I4 changes behaviour, and only when a bot names something other than the
-shipped precedence.
+shipped precedence. **I4 is amended by §7** — the precedence vector is probably
+a symptom rather than a joint.
+
+---
+
+## 7. The VALUE lens narrows §2, and it is right to
+
+`design/value-evaluation`'s `value-algebra.md` reaches the ordering joint from
+the other side, and three of its findings change what §2 should propose.
+
+**7.1 The two channels' bugs are one bug — accepted.** `captureRank` maps
+yes/maybe/no to 2/1/0, so capturing a weight-31 queen ranks identically to
+capturing a weight-2 snake, and nothing in the twelve slots scales with weight
+at all. The additive channel freezes the same relation in a coefficient. So the
+comparator is not merely *unversioned* (my §2 finding) — it is **weight-blind**,
+which is a content defect that no amount of making the precedence configurable
+would fix. Both findings point at the same repair: the slots should be
+arithmetic over a common currency, not a fixed order over incommensurable
+booleans.
+
+**7.2 My "the composition law is a free member param" is over-general.** By my
+own rule (`00-CORE.md` §5: a joint earns its row when two members exist that a
+real bot seats differently), a *law slot* earns its freedom only when two laws
+are both justified by the domain. The VALUE lens's position is that they are
+not: once every heuristic emits a commensurable flow, **addition is the law**,
+and the only legitimate discontinuity is the one the game supplies — the
+account-wipe cliff, where a death zeroes a unit's whole weight balance. A band
+is legitimate when it is *derived from a wipe boundary* and illegitimate when it
+is declared. I accept the narrowing:
+
+> **Amended proposal.** `order/candidates` composes **additively over the
+> weight-flow currency**, with (i) one risk-concentration parameter and (ii) one
+> derived band at the wipe boundary. Precedence-as-data survives only as the
+> FALLBACK if the currency does not materialise — in which case the precedence
+> vector must become data, because an undeclared order is worse than a declared
+> one.
+
+**Mismatch named precisely, so nobody inherits a false equivalence.** The
+coordinator's relay had lexicographic and additive as the two limits of the
+VALUE lens's `γ`. Read against their doc, `γ` is a *risk-concentration exponent*
+inside the currency (`balanceFactor = w_u^γ` on outflows), not an
+ordering-versus-summation interpolation. The two are related but not the same
+object: a lexicographic band is a `γ → ∞` limit only where the band boundary
+corresponds to an unbounded ratio of balances, and the game supplies exactly one
+such boundary (the wipe). That is enough to justify §7.2's narrowing and not
+enough to claim `γ` spans the comparator's law family. Anyone building this
+should read `γ` as "how much risk concentrates on heavy accounts" and the band
+as "death is not a marginal quantity", and should not expect one dial to
+reproduce today's twelve slots.
+
+**7.3 Their homogeneity diagnostic is the instrument for my structural claim.**
+§2.3 argues ACTION dominates VALUE structurally (the cap closes the set before
+anything is priced). Their diagnostic makes it measurable: **if the admitted
+candidates are homogeneous in feature `f`, then `w_f` is inert at any value** —
+ordering controls the SUPPORT, evaluation controls the CHOICE WITHIN it. That
+yields a sharp, checkable prediction which unifies two results the program
+currently files separately:
+
+> The potion **4× weights null** and the potion **ordering win** are the same
+> fact measured twice. Weights were inert because the admitted set was
+> homogeneous in potion-gain — the pickup was not in the set until the ordering
+> put it there. "Volume is not the lever" is therefore not a fact about potion
+> value; it is a fact about admission.
+
+The diagnostic belongs in the mechanism report as a standing column (per
+feature: the spread of `f` across the admitted set), because it converts "this
+weight did nothing" from a verdict about a heuristic into a verdict about the
+admission stage — and those two verdicts have opposite remedies.
