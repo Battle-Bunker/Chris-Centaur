@@ -451,3 +451,19 @@ the one contrast.
 Cell 3/6 (snake5-knight, rank 2, "the decisive row") launched at 8 blocks,
 seeds 60301-60308, batch `rl3`, Monitor-babysat. Remaining after it:
 snake5-queen, snake5-rook, mix-king.
+
+## 13. R1 cell 3/6 (snake5-knight, "the decisive row") — LANDED, and it decides
+
+24 games/arm, 0 failed, ~1.6h Monitor-babysat. **Territory's snake-only
+dominance collapses to zero the moment one knight is fielded:**
+
+| contrast | G, 8 blocks | 95% CI | floor | clears? |
+|---|---:|:--|---:|---|
+| territory − material | +0.060 | [-0.209, 0.336] | 0.232 | no |
+| territory − reflex | -0.074 | [-0.297, 0.133] | 0.309 | no |
+
+The residual sign is undecided, but the COLLAPSE is decided: both CIs
+exclude anything remotely like the +1.6 all-snake effect. This confirms
+the overnight shrink-to-zero direction at owner shape (unlike the
+queen2-snake4 reversal, which did not replicate). Cell 4/6
+(snake5-queen, batch rl4, seeds 60401-60408) launched, Monitor-babysat.
