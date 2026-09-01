@@ -3957,3 +3957,13 @@ how a false crisis reads as data.
   readers (comparison refusal, invalidation, transport, dial demotion,
   miner refuse-unknown); three operations spend/observe/ADVANCE; economy
   with two purchase columns (buy-the-meet vs anticipatory meet).
+- Value lens cycle 2 (design/value-evaluation, ade853b): folded-weight model
+  empirically validated — ONE parameter k=2.919, R²=0.866 across snake6/
+  queen/knight (27x effect span); room:3 should be the DERIVED coefficient
+  (K/W)(1-p)*w_u, computed live, not a knob. Candidate verdict amendment,
+  PENDING OWNER: "volume is not the lever" WITHDRAWN AS UNTESTED (k5 ran
+  with potionOrdering ON — not an admission artifact; needs fat-account
+  board re-test, already queued). candidateCap truth: never fires on
+  non-sliders (98.9% components ≤3); sliderCandidateCap:4 cuts ~71→4
+  weight-blind — the balance-blindness converges 3 ways on the queen.
+  Rook cell = pre-registered out-of-sample test of k=2.919.
