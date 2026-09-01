@@ -552,6 +552,62 @@ shapes — **boards on which §2 measured that no account exceeds ~3.** So the n
 | "potionOrdering wins +55% pickups, free" | **yes — same fact** | keep, but state it as a support change, not a value finding |
 | "potions never pay at any `effectTurns`" (k5) | **no — measured post-fix** | re-test on a fat-account board (P4); do not generalise from thin-account boards |
 
+### 4.7 CORRECTION: the cap does not bind where we both assumed it did
+
+Before the homogeneity instrument is built, one structural fact changes where to point it.
+`candidateCap: 8` is not one cap, and on the units it is usually discussed about it **never
+fires**. From `cluster-enum.ts:259-263` and its own census comment:
+
+```
+maxJointsPerCluster: 512,     // "three units at the shipped candidateCap: 8"
+enumCandidateCap:      8,     // non-sliders
+sliderCandidateCap:    4,     // sliders
+```
+> *"The census says **98.9% of team-turns have every non-slider component at ≤3**."*
+
+And `topCandidates` (`order.ts:166`) is `cap >= candidates.length ? candidates : slice`.
+
+| unit | legal options | cap that applies | binds? |
+|---|---|---|---|
+| snake | ≤3, in 98.9% of team-turns | `enumCandidateCap: 8` | **essentially never** — every legal move is admitted and priced |
+| slider (queen, rook) | tens (the portfolio memo counted 71 for a queen) | **`sliderCandidateCap: 4`** | **always, and brutally — ~94% of a queen's options are discarded** |
+| the joint | product over units | `maxJointsPerCluster: 512` | binds on a six-snake roster (3⁶ = 729 > 512) |
+
+Three consequences, and they cut in different directions for the two lenses:
+
+1. **On snake boards, "weights do nothing" cannot be a per-unit admission artifact.** The
+   ordering truncates nothing there. Whatever suppressed the weight sweeps on snake rosters
+   is either the *joint* cap or — more likely — a **gradient** problem: three adjacent
+   destinations barely move a whole-board aggregate. That is a different diagnosis with a
+   different remedy (per-unit credit assignment, which `TrailRoom.owned` already computes and
+   nothing consumes) and it should not be folded into the admission story.
+
+2. **On slider boards the admission defect is real and severe** — four candidates kept out of
+   ~71, chosen by a comparator in which *nothing scales with weight* (§4.3).
+
+3. **And the two defects land on the same unit.** The queen is simultaneously the unit whose
+   safety flat `room: 3` under-prices ~15× (§3) *and* the unit whose option set is cut by 94%
+   by a balance-blind comparator — while holding **80–91% of its team's entire score** (§2).
+   That is one blind spot, balance-insensitivity, expressed once in each channel, converging
+   on the single unit that decides the game. It is the most concentrated defect I have found,
+   and it explains why territory keeps only a third of its edge on the queen board while
+   being exactly the right *kind* of heuristic there.
+
+**So the homogeneity instrument should be split by unit class, and its prediction is
+different for each:**
+
+| unit class | predicted admitted-set spread | diagnosis if confirmed | remedy |
+|---|---|---|---|
+| snakes | ≈ spread over *all* legal moves (no truncation) | gradient, not admission | per-unit credit assignment |
+| sliders | ≪ spread over all legal moves (4 of ~71) | admission | choose the 4 by a balance-aware sound bound, not a weight-blind comparator |
+
+This does not refute the composition lens's identification in §4.6 — potion pickups are a
+*membership* change (does a pickup destination appear at all), which the ordering controls
+for every unit class, including snakes where the cap does not bind, because the pickup slot
+also drives the joint-enumeration order under the 512 cap. It does mean the instrument must
+report spread **by unit class**, or a snake-board null and a slider-board hit will average
+into a misleading nothing.
+
 ---
 
 ## 5. WHAT THE ENGINE API MUST EXPOSE
