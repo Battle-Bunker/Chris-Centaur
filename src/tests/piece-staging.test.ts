@@ -467,10 +467,13 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
     const evals = cs.latestTurnData!.moveEvaluations;
     const byMove = new Map(evals.map((e) => [e.move, e]));
     const onPath = byMove.get(fullIdx({ x: 1, y: 2 }))!;
-    expect(onPath.breakdown.weights.gotoProgress).toBe(DEFAULT_CONFIG.gotoProgress);
-    expect(onPath.breakdown.weighted.gotoProgressScore).toBeCloseTo(DEFAULT_CONFIG.gotoProgress, 9);
-    expect(onPath.breakdown.healthLoss).toBe(1); // one square traversed
-    expect(onPath.breakdown.weighted.healthLossScore).toBeCloseTo(DEFAULT_CONFIG.healthLoss, 9);
+    const onPathCandidate = mgr
+      .computePieceCandidates(gameId, 'N')
+      .find((c) => c.move === fullIdx({ x: 1, y: 2 }))!;
+    expect(onPathCandidate.kind).toBe('goto');
+    expect(onPathCandidate.weight).toBe(DEFAULT_CONFIG.gotoProgress);
+    expect(onPathCandidate.stat).toBeCloseTo(1, 9);
+    expect(onPathCandidate.healthCost).toBe(1); // one square traversed
     expect(onPath.score).toBeCloseTo(DEFAULT_CONFIG.gotoProgress + DEFAULT_CONFIG.healthLoss, 9);
     // Staying is strictly worse than the hop that shortens the path.
     expect(byMove.get(fullIdx({ x: 0, y: 0 }))!.score).toBeLessThan(onPath.score);
@@ -590,35 +593,29 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     // 11x11 interior rook at (5,5): 10 file + 10 rank + stay.
     expect(evals).toHaveLength(21);
     const stay = fullIdx({ x: 5, y: 5 });
+    const byCandidate = new Map(
+      mgr.computePieceCandidates(gameId, 'R').map((c) => [c.move, c]),
+    );
     for (const e of evals) {
       expect(typeof e.move).toBe('number');
-      expect(e.numStates).toBe(0);
       expect(e.dest).toBeDefined();
       expect(e.kind).toBe(e.move === stay ? 'stay' : 'move');
       // No waypoint is active, so the projected health cost — squares
       // traversed to reach `dest`, negatively weighted — is the ONLY
       // signal: stay costs nothing (empty path), a ray move costs its own
       // length (no food or hazard on this board). Nothing on this board is
-      // fatal, so the deaths term reports zero on every row — and the rook is
-      // alone, so it kills nobody and every casualty term reports zero too.
+      // fatal, and the rook is alone, so it kills nobody and every casualty
+      // term reports zero too.
       const dist = e.dest!.x === 5 ? Math.abs(e.dest!.y - 5) : Math.abs(e.dest!.x - 5);
-      expect(e.breakdown.healthLoss).toBe(dist);
-      expect(e.breakdown.deaths).toBe(0);
-      expect(e.breakdown.kills).toBe(0);
-      expect(e.breakdown.allyCasualty).toBe(0);
-      expect(e.breakdown.regicide).toBe(0);
-      expect(e.breakdown.enemyRegicide).toBe(0);
-      expect(e.breakdown.weights).toEqual({
-        healthLoss: DEFAULT_CONFIG.healthLoss,
-        deaths: DEFAULT_CONFIG.deaths,
-        kills: DEFAULT_CONFIG.kills,
-        allyCasualty: DEFAULT_CONFIG.allyCasualty,
-        regicide: DEFAULT_CONFIG.regicide,
-        enemyRegicide: DEFAULT_CONFIG.enemyRegicide,
-      });
-      expect(e.breakdown.weighted.healthLossScore).toBeCloseTo(dist * DEFAULT_CONFIG.healthLoss, 9);
-      expect(e.breakdown.weighted.deathsScore).toBe(0);
-      expect(e.score).toBeCloseTo(e.breakdown.weighted.healthLossScore, 9);
+      const c = byCandidate.get(e.move as number)!;
+      expect(c.healthCost).toBe(dist);
+      expect(c.fatal).toBe(false);
+      expect(c.kind).toBeNull();
+      expect(c.casualties.kills).toBe(0);
+      expect(c.casualties.allyCasualty).toBe(0);
+      expect(c.casualties.regicide).toBe(0);
+      expect(c.casualties.enemyRegicide).toBe(0);
+      expect(e.score).toBeCloseTo(dist * DEFAULT_CONFIG.healthLoss, 9);
     }
     // The stay candidate maps back to the piece's own api square.
     const stayEval = evals.find((e) => e.move === stay)!;

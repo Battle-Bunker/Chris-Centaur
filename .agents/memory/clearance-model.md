@@ -47,11 +47,11 @@ Current state:
 `spacePlentyMultiplier`, and the tanh helpers.
 
 **How to apply:** `selfSpace` and `trapped` must stay synced across every surface:
-board-evaluator interfaces/defaults/dead-state, decision-engine `averageEvaluations`, the
-shared `moveEvaluations` breakdown builder in `voronoi-strategy-new.ts` (feeds BOTH DB
-logging via `logDecision` AND `getBestMoveWithDebug` — one object, two consumers), the
-console breakdown table, `config.html` slider + configKeys, and `board-renderer.js` (shared
-by history.html and play-game.html). Use `?? "—"` fallback for older logs missing the field.
+board-evaluator interfaces/defaults/dead-state, decision-engine `averageEvaluations`, and
+`config.html` slider + configKeys. (The per-candidate breakdown builder, the console
+breakdown table and the UI's Decision Breakdown panel were DELETED 2026-09-01 — see
+`docs/REFACTORING.md`; `trapped` now reaches staging only through the
+`MoveEvaluation.waypointBias` veto.)
 
 ## Per-segment eat accounting (disappear turns)
 Rule: an eat at turn t only delays body segments whose vacate turn comes AFTER the eat lands — grow-next-turn: vacate > t; grow-same-turn: vacate >= t. Turn-0 justAte (head on food) delays everything.

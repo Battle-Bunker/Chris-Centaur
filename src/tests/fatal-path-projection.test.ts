@@ -512,34 +512,38 @@ describe('valuing it: chess-piece candidate rows and staging', () => {
     const gs = { ...bishopVsBody('ally', WALL_BODY), game: { ...bishopVsBody('ally', WALL_BODY).game, id: gameId } };
     const cs = feed(gameId, gs);
 
-    const evals = cs.latestTurnData!.moveEvaluations;
-    const byMove = new Map(evals.map(e => [e.move, e]));
+    const candidates = mgr.computePieceCandidates(gameId, 'B');
+    const byMove = new Map(candidates.map(e => [e.move, e]));
 
-    // ANNOTATED, NOT HIDDEN: the board-legal ray is still enumerated, so a
-    // human commander can still choose the sacrifice.
+    // ANNOTATED, NOT HIDDEN: the board-legal ray is still enumerated for the
+    // board, so a human commander can still choose the sacrifice.
+    expect(
+      cs.latestTurnData!.moveEvaluations.some(e => e.move === fullIdx({ x: 6, y: 6 }))
+    ).toBe(true);
+
     const fatalRow = byMove.get(fullIdx({ x: 6, y: 6 }))!;
     expect(fatalRow).toBeDefined();
-    expect(fatalRow.breakdown.healthLoss).toBe(100); // projected health 0, not a free meal
-    expect(fatalRow.breakdown.deaths).toBe(1);
+    expect(fatalRow.healthCost).toBe(100); // projected health 0, not a free meal
+    expect(fatalRow.fatal).toBe(true);
     expect(fatalRow.score).toBe(
       DEFAULT_CONFIG.healthLoss * 100 + DEFAULT_CONFIG.deaths
     );
 
     // The first square of the same ray is survivable and costs one step.
     const safeRow = byMove.get(fullIdx({ x: 3, y: 3 }))!;
-    expect(safeRow.breakdown.healthLoss).toBe(1);
-    expect(safeRow.breakdown.deaths).toBe(0);
+    expect(safeRow.healthCost).toBe(1);
+    expect(safeRow.fatal).toBe(false);
     expect(fatalRow.score).toBeLessThan(safeRow.score);
 
     // And below EVERY candidate that is not itself fatal.
-    for (const e of evals) {
-      if (e.breakdown.deaths === 1) continue;
+    for (const e of candidates) {
+      if (e.fatal) continue;
       expect(fatalRow.score).toBeLessThan(e.score);
     }
     // The squares BEYOND the body are fatal too — the ray dies before them.
-    expect(byMove.get(fullIdx({ x: 5, y: 5 }))!.breakdown.deaths).toBe(1);
+    expect(byMove.get(fullIdx({ x: 5, y: 5 }))!.fatal).toBe(true);
     // The squares before it are not.
-    expect(byMove.get(fullIdx({ x: 4, y: 4 }))!.breakdown.deaths).toBe(1); // the body square itself
+    expect(byMove.get(fullIdx({ x: 4, y: 4 }))!.fatal).toBe(true); // the body square itself
   });
 
   test('a goto on the far side of the body never stages the fatal ray; with the body gone it stages it again', () => {

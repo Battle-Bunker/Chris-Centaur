@@ -48,11 +48,12 @@ function makeEvaluations(best: Direction): MoveEvaluation[] {
   return (['up', 'down', 'left', 'right'] as Direction[]).map((move) => ({
     move,
     score: move === best ? 500 : 10,
-    numStates: 1,
-    breakdown: {
+    waypointBias: {
+      gotoWeight: 300,
+      nearWeight: 250,
+      recorded: 0,
       trapped: 0,
-      weights: { gotoProgress: 300, nearProgress: 250 },
-      weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
+      regicide: 0,
     },
   }));
 }

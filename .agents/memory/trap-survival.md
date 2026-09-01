@@ -15,7 +15,7 @@ to be a sealed pocket). Two layers enforce this:
    constructor default, dead-state (set to 0 — death is already captured by
    `deaths:1`, avoid double-penalizing), calculateWeightedScores,
    calculateTotalScore, decision-engine averageEvaluations, and all surfacing
-   layers (game-config, voronoi-strategy extractWeights + breakdown log,
+   layers (game-config, voronoi-strategy extractWeights,
    decision-logger type, config.html UI/configKeys/range, board-renderer
    weightedSums + metric row).
 2. **Candidate-level veto** (DecisionEngine.decide): after scoring, filter out

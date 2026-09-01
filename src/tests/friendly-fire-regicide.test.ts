@@ -450,17 +450,18 @@ describe('the piece candidate path obeys exactly the same rules', () => {
     // (4,4) is segment index 1 of a 3-cell ally: 2 segments are cut away.
     const ally = makeSnake('ally', OURS, [{ x: 4, y: 5 }, { x: 4, y: 4 }, { x: 4, y: 3 }]);
     const gs = makeState([bishop, ally], 'B', { id: gameId });
-    const cs = feed(gameId, gs, 'B');
+    feed(gameId, gs, 'B');
 
-    const row = cs.latestTurnData!.moveEvaluations.find(e => e.move === fullIdx({ x: 4, y: 4 }))!;
+    const candidates = mgr.computePieceCandidates(gameId, 'B');
+    const row = candidates.find(e => e.move === fullIdx({ x: 4, y: 4 }))!;
     expect(row).toBeDefined();
-    expect(row.breakdown.allyCasualty).toBe(2);
-    expect(row.breakdown.regicide).toBe(0);
-    expect(row.breakdown.weighted.allyCasualtyScore).toBe(2 * DEFAULT_CONFIG.allyCasualty);
+    expect(row.casualties.allyCasualty).toBe(2);
+    expect(row.casualties.regicide).toBe(0);
     // Ranked below the harmless squares of the very same ray.
-    const clean = cs.latestTurnData!.moveEvaluations.find(e => e.move === fullIdx({ x: 3, y: 3 }))!;
-    expect(clean.breakdown.allyCasualty).toBe(0);
+    const clean = candidates.find(e => e.move === fullIdx({ x: 3, y: 3 }))!;
+    expect(clean.casualties.allyCasualty).toBe(0);
     expect(row.score).toBeLessThan(clean.score);
+    expect(row.score - clean.score).toBeLessThanOrEqual(2 * DEFAULT_CONFIG.allyCasualty);
   });
 
   test('a ray onto our own LAST king is annotated regicide and never staged', () => {
@@ -470,14 +471,15 @@ describe('the piece candidate path obeys exactly the same rules', () => {
     const gs = makeState([bishop, king], 'B', { id: gameId });
     const cs = feed(gameId, gs, 'B');
 
-    const rows = cs.latestTurnData!.moveEvaluations;
+    const rows = mgr.computePieceCandidates(gameId, 'B');
     const regicidal = rows.find(e => e.move === fullIdx({ x: 4, y: 4 }))!;
-    expect(regicidal.breakdown.regicide).toBe(1);
-    expect(regicidal.breakdown.allyCasualty).toBe(1);
-    expect(regicidal.breakdown.weighted.regicideScore).toBe(DEFAULT_CONFIG.regicide);
-    // ANNOTATED, NOT HIDDEN — a human commander can still spend the king.
+    expect(regicidal.casualties.regicide).toBe(1);
+    expect(regicidal.casualties.allyCasualty).toBe(1);
+    // ANNOTATED, NOT HIDDEN — a human commander can still spend the king, and
+    // the candidate is still enumerated for the board.
+    expect(cs.latestTurnData!.moveEvaluations.some(e => e.move === fullIdx({ x: 4, y: 4 }))).toBe(true);
     for (const other of rows) {
-      if (other.breakdown.regicide === 1) continue;
+      if (other.casualties.regicide === 1) continue;
       expect(regicidal.score).toBeLessThan(other.score);
     }
 
@@ -493,19 +495,19 @@ describe('the piece candidate path obeys exactly the same rules', () => {
     const bishop = makePiece('B', OURS, { x: 2, y: 2 }, 'bishop', 3);
     const king = makePiece('EK', THEIRS, { x: 4, y: 4 }, 'king');
     const gs = makeState([bishop, king], 'B', { id: gameId });
-    const cs = feed(gameId, gs, 'B');
+    feed(gameId, gs, 'B');
 
-    const row = cs.latestTurnData!.moveEvaluations.find(e => e.move === fullIdx({ x: 4, y: 4 }))!;
-    expect(row.breakdown.allyCasualty).toBe(0);
-    expect(row.breakdown.regicide).toBe(0);
-    expect(row.breakdown.kills).toBe(1);
-    expect(row.breakdown.enemyRegicide).toBe(1);
-    expect(row.breakdown.weighted.enemyRegicideScore).toBe(DEFAULT_CONFIG.enemyRegicide);
+    const rows = mgr.computePieceCandidates(gameId, 'B');
+    const row = rows.find(e => e.move === fullIdx({ x: 4, y: 4 }))!;
+    expect(row.casualties.allyCasualty).toBe(0);
+    expect(row.casualties.regicide).toBe(0);
+    expect(row.casualties.kills).toBe(1);
+    expect(row.casualties.enemyRegicide).toBe(1);
     // The winning capture now outranks every candidate that does NOT take the
     // king. (The squares BEYOND it on the same ray tie with it: the ray
     // capture-stops on the king, so they are the same move by another name.)
-    for (const other of cs.latestTurnData!.moveEvaluations) {
-      if (other.breakdown.enemyRegicide === 1) continue;
+    for (const other of rows) {
+      if (other.casualties.enemyRegicide === 1) continue;
       expect(other.score).toBeLessThan(row.score);
     }
   });

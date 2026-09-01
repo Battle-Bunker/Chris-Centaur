@@ -37,6 +37,33 @@ working exactly as designed.
 
 ---
 
+## 0.1. The refactoring licence — read `docs/REFACTORING.md`
+
+A second owner ruling, **2026-09-01**, sits alongside the lane ruling and is
+equally binding:
+
+> **Radical refactoring of architecture is entirely allowed and encouraged and
+> legacy structures can and should be thrown away to make room for the new more
+> powerful approaches to be implemented more elegantly without being encumbered
+> by the need to do awkward backwards compatibility to interfaces and
+> dependencies that no longer make sense.**
+
+Deletion is preferred over compatibility: no deprecated-but-kept fields, no
+shims, no dual writes. The per-unit candidate-move heuristic analytics table was
+deleted under it, and **the human-legibility / signalling framework that
+replaces it will be designed later**, once the new architecture settles — until
+then, prefer deletion over accumulating mess rather than preserving the old
+surface through a refactor.
+
+The licence changes **what you may throw away**. It does not change **which lane
+you are in** or what evidence you owe: everything below still applies, and a
+refactor that moves joints, composition or kernel semantics is lane (b).
+
+Full text, the refusals that bound it, and the 2026-09-01 worked example:
+**`docs/REFACTORING.md`**.
+
+---
+
 ## 1. The boundary rule
 
 > **Lane (a) if the change adds or edits a MEMBER of a collection that already
@@ -252,3 +279,4 @@ merges on the evidence or it does not.
 | bundles, arms, paired sweeps, the null | `tools/simworker/` on `sim/worker-kit` |
 | the local session's mandate | `HANDOFF.md` on `sim/worker-kit` |
 | owner-facing vocabulary enforcement | `tools/principal-glossary/` |
+| the licence to delete legacy structures | `docs/REFACTORING.md` |
