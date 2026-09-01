@@ -3967,3 +3967,24 @@ how a false crisis reads as data.
   non-sliders (98.9% components ≤3); sliderCandidateCap:4 cuts ~71→4
   weight-blind — the balance-blindness converges 3 ways on the queen.
   Rook cell = pre-registered out-of-sample test of k=2.919.
+- Composition lens FINAL (design/joints-composition, ef75551; START AT
+  docs/design/joints/07-SYNTHESIS.md, owner summary glossary-clean).
+  Synthesis in four moves: premise-fibered values w/ join+meet+ADVANCE;
+  joints as data manifest (5 kinds, law per kind); bot = total map
+  normalising to addressed botId; reachability law (seat it or delete it).
+  Eight-step build order, B0 = botId field on MechanismReport (no behaviour
+  change, answers "did both arms play the manifest's bot" — the question
+  that invalidated every prior potion measurement). Chief refusal: no
+  joint with one member.
+- NEW PRODUCT GAP FOUND: production has NO bot binding site —
+  firebaseInterfaceConfigFromEnv never sets `bot`, live process always
+  plays DEFAULT_BOT_CONFIG (one bot per PROCESS serving many games/seats).
+  Selecting a validated member in production = editing the default;
+  different Centaur teams cannot play different bots; operator dial
+  excursions have nowhere to persist. Smallest fix: per-game/per-centaur
+  bot lookup + stamp at the decision-engine seam (already per-game).
+  Prerequisite for the Centaur direction.
+- Inert-weight taxonomy (composition+value converged): cause (a) admission
+  (slider-only; cap 4 of ~71) vs cause (b) no-gradient (term constant at
+  the point of comparison); opposite remedies; instrument must measure
+  spread at better()'s comparisons, by unit class.
