@@ -46,7 +46,13 @@ import {
   withScrubbedFlags,
 } from './core-identity-fixture';
 import GOLDEN from './fixtures/core-registry-identity.golden.json';
-import { LEGACY_SLATE, REGISTRY, SLATE_LEGACY, SLOT_IDS } from '../lobster/registry';
+import {
+  LEGACY_SLATE,
+  POTION_INTEL_SLATE,
+  REGISTRY,
+  SLATE_POTION_INTEL,
+  SLOT_IDS,
+} from '../lobster/registry';
 import { OBSERVATION_KINDS } from '../lobster/belief';
 
 describe('the replay golden: this build decides what the capture says it decides', () => {
@@ -69,7 +75,7 @@ describe('the replay golden: this build decides what the capture says it decides
 });
 
 describe('the registry resolves, and says so on the report', () => {
-  test('every decision stamps one entry per socket, on the legacy slate', async () => {
+  test('every decision stamps one entry per socket, on THIS BRANCH\'s slate', async () => {
     const stamps = await withScrubbedFlags(async () => {
       const out = [];
       for (const entry of REPLAY_SET) {
@@ -82,13 +88,24 @@ describe('the registry resolves, and says so on the report', () => {
     for (const stamp of stamps) {
       expect(stamp).not.toBeNull();
       if (stamp === null) throw new Error('unreachable');
-      expect(stamp.slate).toBe(SLATE_LEGACY);
-      // ONE ENTRY PER SOCKET PER DECISION — the five sockets, all named.
+      // `potion-intel` since owner ruling 41: the branch's deliverable is a bot
+      // and not a library, so the shipped slate is the one that reasons about
+      // potions. The golden above is the claim that matters and it is UNMOVED —
+      // every plan, emission, table, assumption and refusal on the replay set
+      // reproduces — because the added terms are advisory and read zero on a
+      // board with no potion standing.
+      expect(stamp.slate).toBe(SLATE_POTION_INTEL);
+      // ONE ENTRY PER SOCKET PER DECISION — the five sockets, all named. FOUR
+      // OF THEM ARE STILL THE LEGACY ENTRIES, which is the statement that this
+      // branch changed the evaluator frame and nothing else.
       expect(stamp.moveSelectors).toEqual(LEGACY_SLATE.moveSelectors);
       expect(stamp.evaluatorSelector).toBe(LEGACY_SLATE.evaluatorSelector);
-      expect(stamp.evaluators).toEqual(LEGACY_SLATE.evaluators);
       expect(stamp.aggregator).toBe(LEGACY_SLATE.aggregator);
       expect(stamp.scheduler).toBe(LEGACY_SLATE.scheduler);
+      // The evaluator frame LEADS with the production profile — the one entry
+      // that proves every bound — and the six advisory terms follow it.
+      expect(stamp.evaluators[0]).toBe(LEGACY_SLATE.evaluators[0]);
+      expect(stamp.evaluators).toEqual(POTION_INTEL_SLATE.evaluators);
       // Every id the stamp names is an entry that actually exists, in the
       // socket it was read for. A stamp naming an entry the registry does not
       // hold would attribute a measurement to something that never ran.

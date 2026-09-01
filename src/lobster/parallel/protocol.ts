@@ -165,7 +165,27 @@ export interface BoardSpec {
  * catch. An unsupported evaluator degrades the pool to inline, loudly.
  */
 export type EvaluatorSpec =
-  | { readonly kind: "profile"; readonly profile: CriterionProfile }
+  | {
+      readonly kind: "profile"
+      readonly profile: CriterionProfile
+      /**
+       * THE ADVISORY LINEUP, BY ENTRY ID — empty for the shipped bot.
+       *
+       * `est` is a channel a worker's answer travels down like any other, so a
+       * worker that rebuilt the sound fold and none of the advisory terms would
+       * return a bound that agreed and an `est` that did not, and the search
+       * would stage a different plan depending on which side priced it. That is
+       * the determinism gate's exact failure mode, and it is why the lineup is
+       * part of the spec rather than a main-thread-only fact.
+       *
+       * IDS AND SCALES, NOT FUNCTIONS. The registry is data on both threads, so
+       * `advisoryLineupFor(ids, weights)` rebuilds the identical lineup from a
+       * pair of JSON values — nothing here is serialised as code, and a worker
+       * cannot be handed a term the registry does not hold.
+       */
+      readonly lineup: ReadonlyArray<string>
+      readonly potionWeights: Readonly<Record<string, number>>
+    }
   | { readonly kind: "unsupported"; readonly why: string }
 
 /**

@@ -34,6 +34,8 @@ import { clearGeometryCache, makeSubstrate, type EngineSubstrate } from "../subs
 import { WorkerEvaluationPool, InlinePool } from "./pool"
 import { evaluatorSpecOf, makeEvaluationPool } from "./factory"
 import { encodeCandidate } from "./protocol"
+import { advisoryLineupByIds, evaluatorForSlate } from "../evaluate/potion-lineup"
+import { SLATE_POTION_INTEL, slateFor } from "../registry"
 
 function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
   return {
@@ -294,8 +296,26 @@ describe("degradation", () => {
     expect(evaluatorSpecOf(defaultEvaluator)).toEqual({
       kind: "profile",
       profile: defaultEvaluator.profile,
+      // EMPTY, and empty is the shipped bot: no advisory term, so the worker's
+      // `BoundEvaluator` takes its default third argument and evaluates byte for
+      // byte what it always did.
+      lineup: [],
+      potionWeights: {},
     })
     expect(evaluatorSpecOf(materialEvaluator).kind).toBe("profile")
+
+    // AN ADVISORY LINEUP IS NO LONGER A REFUSAL — it is a spec with ids on it.
+    // The refusals below are about evaluators a worker cannot REBUILD; a lineup
+    // is data the registry holds on both threads, so it can be, and the
+    // determinism gate is what proves the rebuild is exact.
+    const potion = evaluatorForSlate([...slateFor(SLATE_POTION_INTEL).evaluators])
+    const spec = evaluatorSpecOf(potion)
+    expect(spec.kind).toBe("profile")
+    if (spec.kind !== "profile") throw new Error("unreachable")
+    expect(spec.lineup).toEqual(potion.advisory.map((t) => t.key))
+    expect(advisoryLineupByIds(spec.lineup, spec.potionWeights).map((t) => [t.key, t.weight])).toEqual(
+      potion.advisory.map((t) => [t.key, t.weight])
+    )
 
     const foreign = { scorePlan: () => ({ lo: 0, est: 0, hi: 0 }), evaluatePlan: () => ({}) }
     expect(evaluatorSpecOf(foreign as never).kind).toBe("unsupported")

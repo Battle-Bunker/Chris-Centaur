@@ -544,6 +544,32 @@ export function advisoryLineupFor(
   return out;
 }
 
+/**
+ * THE LINEUP REBUILT FROM A WIRE SPEC — ids and scales, both keyed by entry id.
+ *
+ * `advisoryLineupFor`'s `weights` are keyed by KNOB NAME because that is what a
+ * `BotConfig` spells. A worker is handed neither a bot config nor a slate: it is
+ * handed the lineup the main thread actually built, and the only name that
+ * survives that trip is the entry id. So this is the id-keyed door, and it is
+ * the one `parallel/` uses.
+ *
+ * Exact rather than approximate: the terms are constructed from the same ids at
+ * their declared scales and then each is set to the scale the main thread has,
+ * so a worker's `est` is the main thread's `est` for the same position. Anything
+ * less makes the two sides disagree about a value while agreeing about a bound,
+ * which is the determinism gate's own failure mode.
+ */
+export function advisoryLineupByIds(
+  evaluatorIds: ReadonlyArray<string>,
+  weightsById: Readonly<Record<string, number>> = {}
+): ReadonlyArray<AdvisoryTerm<EvalContext>> {
+  return advisoryLineupFor(evaluatorIds).map((t) =>
+    Object.prototype.hasOwnProperty.call(weightsById, t.key) && weightsById[t.key] !== t.weight
+      ? { ...t, weight: weightsById[t.key] as number }
+      : t
+  );
+}
+
 /** The same term at a different scale. Identity of the reading, not of the
  *  loudness — see `advisoryLineupFor`'s `weights`. */
 function scaled(

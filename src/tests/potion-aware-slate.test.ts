@@ -27,6 +27,7 @@ import {
   REGISTRY,
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
+  SLATE_POTION_INTEL,
   slateFor,
 } from '../lobster/registry';
 import { botConfigFromJson } from '../lobster/bot-config';
@@ -246,8 +247,13 @@ describe('the potion-aware slate is a second member of the evaluator collection'
 
   test('a slate is selected by configuration and in no other way', () => {
     expect(botConfigFromJson({ slate: SLATE_POTION_AWARE }).slate).toBe(SLATE_POTION_AWARE);
-    // Unnamed is the shipped bot, which is what the byte-identity gates assert.
-    expect(botConfigFromJson({}).slate).toBe(SLATE_LEGACY);
+    // UNNAMED IS THIS BRANCH'S BOT, and on `feature/potion-intel` that is
+    // `potion-intel` rather than `legacy` (owner ruling 41 — the deliverable is
+    // a branch whose BOT is potion intelligent). The legacy lineup is still
+    // exactly reachable by naming it, which is what the arm below does and what
+    // every measurement on this branch is against.
+    expect(botConfigFromJson({}).slate).toBe(SLATE_POTION_INTEL);
+    expect(botConfigFromJson({ slate: SLATE_LEGACY }).slate).toBe(SLATE_LEGACY);
     expect(() => slateFor('greedy-voi' as typeof SLATE_LEGACY)).toThrow(/unknown slate/);
   });
 });
@@ -256,7 +262,10 @@ describe('the potion-aware slate is a second member of the evaluator collection'
 
 describe('the potion-aware bot decides differently on a potion board', () => {
   test('two bots, one board, one seed: the staged move differs', async () => {
-    const plain = await decide({ name: 'default' });
+    // THE CONTROL NAMES ITS LINEUP. `{}` is the branch's own bot now, so a
+    // control that relied on the default would be racing potion-intel against
+    // potion-aware and calling the first one plain.
+    const plain = await decide({ name: 'default', slate: SLATE_LEGACY });
     const aware = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
 
     // Both decided. A staging failure on either side would make the
@@ -290,7 +299,7 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     // bot's `est` slot never fires on this board (every residual comparison is
     // an exact est tie broken by the salted key), and the potion-aware bot's
     // does. That is the lineup speaking, in the one slot it is allowed to.
-    const plain = await decide({ name: 'default' });
+    const plain = await decide({ name: 'default', slate: SLATE_LEGACY });
     const aware = await decide({ name: 'potion-aware', slate: SLATE_POTION_AWARE });
     const p = plain.result.mechanism?.adjudication;
     const a = aware.result.mechanism?.adjudication;

@@ -30,10 +30,12 @@ import {
   LEGACY_SLATE,
   POTION_AWARE_SLATE,
   POTION_ENTRIES,
+  POTION_INTEL_SLATE,
   REGISTRY,
   SLATE_IDS,
   SLATE_LEGACY,
   SLATE_POTION_AWARE,
+  SLATE_POTION_INTEL,
   SLOT_IDS,
   StrategyRegistry,
   UnknownEntryError,
@@ -247,11 +249,16 @@ describe('resolution is total and checked', () => {
     );
   });
 
-  test('there are exactly TWO slates, and asking for a third throws', () => {
+  test('there are exactly THREE slates, and asking for a fourth throws', () => {
+    // THREE since `feature/potion-intel`. `potion-intel` is `potion-aware` plus
+    // the two plan-discriminating terms, and it is a third MEMBER of the same
+    // collection rather than an edit of the second: every number recorded
+    // against `potion-aware` still describes the lineup that produced it.
     expect(slateFor()).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_LEGACY)).toBe(LEGACY_SLATE);
     expect(slateFor(SLATE_POTION_AWARE)).toBe(POTION_AWARE_SLATE);
-    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE]);
+    expect(slateFor(SLATE_POTION_INTEL)).toBe(POTION_INTEL_SLATE);
+    expect(SLATE_IDS).toEqual([SLATE_LEGACY, SLATE_POTION_AWARE, SLATE_POTION_INTEL]);
     // A name the registry does not hold is refused at run time as well as in
     // the type, for a caller that casts around it: a silent fallback to the
     // default would attribute a measurement to a slate that never ran.
@@ -266,10 +273,34 @@ describe('resolution is total and checked', () => {
     expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
     expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
     // The frame is the slate: the sound entry first, the advisory four after.
+    // FOUR, not six — `potion-aware` is unchanged by this branch, and the two
+    // plan-discriminating terms are named by `potion-intel` alone. A slate that
+    // grew members underneath a recorded measurement would be exactly the edit
+    // the identity law forbids.
     expect(resolved.evaluators.map((e) => e.id)).toEqual([
       ...LEGACY_SLATE.evaluators,
-      ...POTION_ENTRIES.map((e) => e.id),
+      'eval/attack-window@2',
+      'eval/potion-seek@3',
+      'eval/potion-control@2',
+      'eval/dodge-discount@2',
     ]);
+  });
+
+  test('the potion-intel slate is potion-aware plus the two that discriminate plans', () => {
+    const resolved = REGISTRY.resolve(POTION_INTEL_SLATE);
+    expect(resolved.slateId).toBe(SLATE_POTION_INTEL);
+    // Four sockets untouched, again: the question this slate asks is about the
+    // evaluator frame and about nothing else.
+    expect(resolved.moveSelectors.map((e) => e.id)).toEqual(LEGACY_SLATE.moveSelectors);
+    expect(resolved.evaluatorSelector.id).toBe(LEGACY_SLATE.evaluatorSelector);
+    expect(resolved.aggregator.id).toBe(LEGACY_SLATE.aggregator);
+    expect(resolved.scheduler.id).toBe(LEGACY_SLATE.scheduler);
+    expect(resolved.evaluators.map((e) => e.id)).toEqual([
+      ...POTION_AWARE_SLATE.evaluators,
+      'eval/potion-pickup@1',
+      'eval/potion-defense@1',
+    ]);
+    for (const e of resolved.evaluators.slice(1)) expect(e.soundness).toBe('advisory');
   });
 });
 
@@ -330,6 +361,11 @@ describe('the potion entries are members of the evaluator collection', () => {
       'eval/potion-seek@3': '36d83019',
       'eval/potion-control@2': 'a38c1b12',
       'eval/dodge-discount@2': '787e8db3',
+      // The two this branch added. The four above are unchanged, which is the
+      // claim that matters here: adding members to a collection moved nothing
+      // that was already in it.
+      'eval/potion-pickup@1': 'df4c500b',
+      'eval/potion-defense@1': '142a2449',
     };
     expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
     for (const e of POTION_ENTRIES) {
