@@ -795,6 +795,26 @@ export interface ClusterReport {
   /** Clusters that fell to rung 2 (threshold) and rung 5 (ICM). */
   readonly rungThreshold: number
   readonly rungIcm: number
+  /**
+   * WHAT THE ENUMERATION'S ARITHMETIC ACTUALLY COST, PER CLUSTER.
+   *
+   * `cells` is the reach-expansion work this decision bought, in pair-table
+   * claim slots, summed over every cluster and branch; `worstClusterCells` is
+   * the single most expensive cluster's share. Estimated before the work is
+   * spent (see `search/cluster-enum.ts`'s `clusterCells`), so it is the same
+   * number the rations are read against.
+   *
+   * The pair separates the two cost regimes batch 2 found on ONE row each,
+   * where the previous instruments needed a stopwatch and a per-board table: a
+   * SLIDER board is few clusters with a huge `worstClusterCells`, a CROWD board
+   * is thousands of clusters with a small one.
+   */
+  readonly cells: number
+  readonly worstClusterCells: number
+  /** Clusters the SIZE ration degraded — shrunk domains, or pushed to ICM. */
+  readonly rungRation: number
+  /** Clusters the COUNT ration or the deadline left at the seed assignment. */
+  readonly clustersRationed: number
   /** Did the terminal guard refuse independent composition? */
   readonly merged: boolean
   /** Composed joints produced, and how many the coordinator priced. */
@@ -865,6 +885,23 @@ export interface BudgetHandle {
    * temperature for every round: the lottery is on and does not cool.
    */
   decisionFraction?(): number
+  /**
+   * THE SAME TURN-SCALE CLOCK, IN MILLISECONDS — what a layer that rations
+   * itself against the DECISION rather than against the slice must read.
+   *
+   * `remainingMs()` is the SLICE's, and a layer that opens once per decision
+   * but is CONSTRUCTED inside a slice will read a slice's worth and size itself
+   * to it. That is not a hypothetical: the depth scout converts a millisecond
+   * budget to a counting purse exactly once, and treats `0` as "this handle
+   * models no clock, so only the ply cap binds" — so a slice-scoped read that
+   * happened to land on an exhausted slice handed the scout an UNBOUNDED purse.
+   * The value it wants is this one, and it always was.
+   *
+   * Optional for the same reason `decisionFraction` is: a harness or probe
+   * budget models no turn, and then both are absent and every layer that reads
+   * them falls back to counting rather than to a fabricated number.
+   */
+  decisionRemainingMs?(): number
 }
 
 /** B3 owns: the kernel loop. Ratchet is PER (epoch, posture) basis: an emitted

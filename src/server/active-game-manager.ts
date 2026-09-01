@@ -37,8 +37,6 @@ export interface MoveEvaluation {
   // CentaurMove value staging puts on the wire.
   move: CentaurMove;
   score: number;
-  numStates: number;
-  breakdown: any;
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
   // The candidate's destination cell (api coords). Always present on piece
   // rows (the enumerator computes it); present on snake rows when the engine's
@@ -48,12 +46,39 @@ export interface MoveEvaluation {
   // candidates and route pawn arrow keys to the side-square rotations. Absent
   // on snake rows.
   kind?: 'stay' | 'move' | 'rotate';
+  // THE OPERATOR WAYPOINT RE-BIAS'S OWN SIGNAL — not analytics, and not a
+  // decomposition of `score`. getWaypointBiasedMove has to undo the waypoint
+  // contribution the engine already folded into `score` and re-apply it for
+  // the target as it stands NOW, and it must honour the same two vetoes the
+  // engine's own argmax honours. These five numbers are exactly what that
+  // arithmetic reads and nothing else. Absent on piece rows (pieces take a
+  // destination command, never a matrix vote) and on engines that publish no
+  // per-candidate score, where the re-bias declines and staging falls through
+  // to the bot recommendation.
+  waypointBias?: {
+    // Weights the engine scored this candidate with, so a re-bias uses the
+    // bot's own goto/near weight rather than a guess.
+    gotoWeight: number;
+    nearWeight: number;
+    // Waypoint contribution ALREADY inside `score`, to be subtracted before
+    // the current target's contribution is added.
+    recorded: number;
+    // The two vetoes that travel with the row: a waypoint must never re-bias
+    // us into a fatal pocket or onto a move that ends our own team.
+    trapped: number;
+    regicide: number;
+  };
 }
 
 // One legal chess-piece candidate with the waypoint bias applied: the staged
 // destination it would put on the wire, the action that destination plans, and
 // the score ordering it against the piece's other candidates.
-interface PieceCandidateScore {
+//
+// PUBLIC because it is the projection's own record — what a candidate costs,
+// what it kills, and whether it is survivable. It is read by the staging
+// ladder and asserted directly by the tests that pin the projection. It is
+// NOT a display shape: nothing decomposes a score for a reader here.
+export interface PieceCandidateScore {
   move: number;
   action: PieceAction;
   destCoord: Coord;
@@ -1806,20 +1831,18 @@ export class ActiveGameManager {
       );
 
       return pickBestMove(rows.map((evaluation, i) => {
-        const breakdown: any = evaluation.breakdown || {};
-        const weighted = breakdown.weighted || {};
-        const weights = breakdown.weights || {};
+        const bias = evaluation.waypointBias;
         const weight = wp.kind === 'goto'
-          ? (weights.gotoProgress ?? DEFAULT_CONFIG.gotoProgress)
-          : (weights.nearProgress ?? DEFAULT_CONFIG.nearProgress);
-        const recorded = (weighted.gotoProgressScore ?? 0) + (weighted.nearProgressScore ?? 0);
+          ? (bias?.gotoWeight ?? DEFAULT_CONFIG.gotoProgress)
+          : (bias?.nearWeight ?? DEFAULT_CONFIG.nearProgress);
+        const recorded = bias?.recorded ?? 0;
         return {
           move: evaluation.move,
           score: evaluation.score - recorded + weight * progress[i].stat,
-          trapped: breakdown.trapped ?? 0,
+          trapped: bias?.trapped ?? 0,
           // The regicide veto travels with the row: a waypoint must never
           // re-bias us onto a move that ends our own team.
-          regicide: breakdown.regicide ?? 0,
+          regicide: bias?.regicide ?? 0,
         };
       }));
     } catch (e) {
@@ -2392,7 +2415,7 @@ export class ActiveGameManager {
    * rays — there is nothing type-aware in this layer, and the piece's own
    * shortest path is what the goto route draws.
    */
-  private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
+  public computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     const snapshot = game?.boardState;
@@ -2558,57 +2581,16 @@ export class ActiveGameManager {
 
   // The piece candidate rows for the UI, from the SAME scored candidates
   // staging picks from — so the shading, the arrows and the move that commits
-  // all read one computation. The bot has no piece evaluator yet, so a piece
-  // with no waypoint scores only its health cost (the goto/near contribution
-  // is the only POSITIVE signal); an active waypoint adds its contribution on
-  // top. Both fill the weights/weighted tables the breakdown component
-  // renders, keyed exactly like the registry (healthLoss/healthLossScore) so
-  // a stay/rotate candidate (cost 0) still reports it, just at zero.
-  // A real piece evaluator adds its base weight in computePieceCandidates —
-  // the row shape (move id + dest + kind) is already the full UI contract.
+  // all read one computation. A row is an ENUMERATION of what this piece may
+  // do this turn (destination id, cell, kind) plus the score staging ordered
+  // them by; it carries no decomposition of that score.
   private computePieceMoveEvaluations(gameId: string, snakeId: string): MoveEvaluation[] {
-    return this.computePieceCandidates(gameId, snakeId).map(candidate => {
-      const progressScore = candidate.weight * candidate.stat;
-      const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
-      const deaths = candidate.fatal ? 1 : 0;
-      const { allyCasualty, regicide, kills, enemyRegicide } = candidate.casualties;
-      return {
-        move: candidate.move,
-        score: candidate.score,
-        numStates: 0,
-        breakdown: {
-          healthLoss: candidate.healthCost,
-          deaths,
-          // The casualty terms report on EVERY candidate, zero included, so a
-          // ray that kills nothing is visibly a ray that kills nothing.
-          kills,
-          allyCasualty,
-          regicide,
-          enemyRegicide,
-          weights: {
-            healthLoss: DEFAULT_CONFIG.healthLoss,
-            deaths: DEFAULT_CONFIG.deaths,
-            kills: DEFAULT_CONFIG.kills,
-            allyCasualty: DEFAULT_CONFIG.allyCasualty,
-            regicide: DEFAULT_CONFIG.regicide,
-            enemyRegicide: DEFAULT_CONFIG.enemyRegicide,
-            ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
-          },
-          weighted: {
-            healthLossScore,
-            deathsScore: deaths === 1 ? DEFAULT_CONFIG.deaths : 0,
-            killsScore: DEFAULT_CONFIG.kills * kills,
-            allyCasualtyScore: DEFAULT_CONFIG.allyCasualty * allyCasualty,
-            regicideScore: DEFAULT_CONFIG.regicide * regicide,
-            enemyRegicideScore: DEFAULT_CONFIG.enemyRegicide * enemyRegicide,
-            ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
-          },
-          ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),
-        },
-        dest: candidate.destCoord,
-        kind: candidate.action.kind,
-      };
-    });
+    return this.computePieceCandidates(gameId, snakeId).map(candidate => ({
+      move: candidate.move,
+      score: candidate.score,
+      dest: candidate.destCoord,
+      kind: candidate.action.kind,
+    }));
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of

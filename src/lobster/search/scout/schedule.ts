@@ -156,10 +156,37 @@ export interface ScoutTuning {
    * against the injected `BudgetHandle` and never against `performance.now()`.
    *
    * So the tithe is converted ONCE, at the decision boundary, from the budget
-   * the caller already read. The constant is a conservative estimate to be
-   * re-fit (CL6a measured ~0.11 ms per priced resolution on an 11×11 six-unit
-   * board); over-estimating it spends less than the tithe, which is the safe
-   * direction for a layer whose whole promise is that it stays inside one.
+   * the caller already read. Over-estimating it spends less than the tithe,
+   * which is the safe direction for a layer whose whole promise is that it
+   * stays inside one.
+   *
+   * ── THE RE-FIT IS OWED, AND IT IS NOT TAKEN HERE. THE MEASUREMENT IS. ─────
+   *
+   * 0.15 carries CL6a's ~0.11 ms per priced resolution on an 11×11 six-unit
+   * board. Re-measured on the boards the bot actually plays — the batch-2
+   * replay corpus, mean over 12 decisions a board, the pass's own wall time
+   * against the purse's own `units`:
+   *
+   *     null-snake6       1.4 ms / resolution-equivalent
+   *     snake5-knight     1.1
+   *     snake5-queen      4.2
+   *     headline-mix-king 4.2
+   *
+   * Seven to twenty-eight times this constant, on every board. So THE MS PURSE
+   * HAS NEVER BOUND ANYTHING: `plies` comes back at exactly `plyCap` (24) on
+   * all four boards while `units` sits at a fifth of `advisoryCap`, and the
+   * tithe this layer reports is a label rather than a constraint. It is the
+   * whole of why the pass can cost 700 ms inside a 500 ms turn and report a
+   * 71 ms tithe while doing it.
+   *
+   * FIXING IT IS A BEHAVIOUR CHANGE AND IT DOES NOT BELONG IN A LATENCY FIX.
+   * At the fitted value the scout takes 3 plies instead of 24 at 500 ms and
+   * 15 instead of 24 at 2,000 ms on the king board — which is a change to what
+   * a GENEROUS budget concludes, and the first-plan work this constant was
+   * measured during is gated on not changing exactly that. So the number stays,
+   * the measurement is recorded here, and the re-fit is a priced item with its
+   * own arm: it is a `BotConfig.depth` field, so `depth: { msPerResolution: 1.5 }`
+   * runs it against an unchanged opponent whenever someone wants the answer.
    */
   readonly msPerResolution: number;
   /**

@@ -19,7 +19,7 @@
 - [Server activity timeline](server-activity-timeline.md) — /activity audits autoscale; viewer must never poll, event writes fire-and-forget, missing shutdown = end-unknown closed by next boot.
 - [Activity liveness heartbeat](activity-liveness-heartbeat.md) — autoscale kill is signal-less by design; single-row heartbeat bounds death, boot forensics classify silent-kill vs crash, period logic lives in one shared JS module.
 - [Authoritative games table](games-metadata-table.md) — `games` table is the game-metadata source of truth; /end winner parsing is dual-path (custom engine sends `winners`, no board).
-- [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations, territoryCells}`; pre-2025-12-17 rows are a bare array — readers must handle both.
+- [move_evaluations format](move-evaluations-format.md) — JSONB is `{evaluations}`, a candidate ENUMERATION (move/score/dest); the per-heuristic `breakdown` is deleted; pre-2025-12-17 rows are a bare array — readers must handle both.
 - [Fatal-move consent + neck guards](fatal-consent-and-neck-guards.md) — human-AUTHORED (manual only) certain-death moves need a branded consent minted only at dialog-confirm/kill-all; bot + waypoint exempt; adjacency ≠ valid move (historical lesson — the reversal tripwire is the living backstop).
 - [Player-name enrolment](player-name-enrolment.md) — active games gate on a per-game-unique name; enrolments + arrival-ordered palette colours are game-lifetime, never released; server enrol is the only race-safe check.
 - [Firebase-only transport + status banner](firebase-transport-status.md) — no HTTP webhooks anymore; Firebase conn status must be loud (red banner, no polling), connect paths serialized, invite listener needs own error→rebuild.

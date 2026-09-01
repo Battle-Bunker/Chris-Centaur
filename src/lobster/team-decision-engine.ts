@@ -790,6 +790,23 @@ export class TeamDecisionEngine {
           ...(this.options.search?.bank ?? {}),
           auditImports: this.bot.workersAudit,
         },
+        // THE TWO ENUMERATION RATIONS, on the same footing as `bank` above and
+        // for the same reason: a caller's whole-object `clusterTuning` must not
+        // silently drop the ration this bot declared, and this bot's ration
+        // must not silently drop the caller's other sizes.
+        //
+        // Only the fields an arm actually NAMED are spread, so an unset ration
+        // keeps `DEFAULT_CLUSTER_TUNING`'s and a `0` — a real setting, meaning
+        // "lift the ration" — survives instead of being lost to a falsy test.
+        clusterTuning: {
+          ...(this.options.search?.clusterTuning ?? {}),
+          ...(this.bot.search.maxClusterCells === undefined
+            ? {}
+            : { maxClusterCells: this.bot.search.maxClusterCells }),
+          ...(this.bot.search.maxClustersSolved === undefined
+            ? {}
+            : { maxClustersSolved: this.bot.search.maxClustersSolved }),
+        },
         parallel: this.parallelTuning(boardEpoch, knobs),
       }),
       witnesses

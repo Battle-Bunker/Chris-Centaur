@@ -224,19 +224,6 @@
       box-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
       opacity: 0; transition: opacity 0.25s ease-out;
     }
-    .decision-stats {
-      background: #2a2a2a; border-radius: 8px; padding: 15px; overflow-x: auto;
-    }
-    .decision-stats h3 { font-size: 15px; margin-bottom: 10px; color: #4CAF50; }
-    .stats-table {
-      width: 100%; border-collapse: collapse; font-size: 13px;
-    }
-    .stats-table th, .stats-table td {
-      padding: 6px 8px; text-align: left; border-bottom: 1px solid #444;
-    }
-    .stats-table th { background: #333; font-weight: 600; }
-    .stats-table tr:last-child td { border-bottom: none; }
-    .stats-table .total-row { font-weight: 600; background: #333; }
     .connection-status {
       position: fixed; bottom: 10px; right: 10px;
       padding: 6px 12px; border-radius: 4px; font-size: 12px;
@@ -494,26 +481,6 @@
                board (click) or with the keyboard, and staged with Space. See
                the shortcuts pane (Ctrl+/) for the whole schema. -->
           <div class="unit-status-line" id="unitStatusLine"></div>
-
-          <div class="decision-stats">
-            <h3>Decision Breakdown</h3>
-            <table class="stats-table">
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Value</th>
-                  <th>Weight</th>
-                  <th>Weighted</th>
-                  <th>Impact</th>
-                </tr>
-              </thead>
-              <tbody id="statsTableBody">
-                <tr>
-                  <td colspan="5" style="text-align: center; color: #888;">Waiting for turn data...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
     </div>
@@ -1107,7 +1074,6 @@
     let connectedUsers = [];
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
-    let analyticsFrozen = false;
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
@@ -1198,7 +1164,7 @@
     let historicTurnToIndex = {};     // turn number → index into historicDecisions
     let historicIndex = 0;            // current decision index being viewed
     let historicTurnNumber = 0;       // current turn number being viewed
-    let historicMoveState = null;     // moveState for the historic board/breakdown
+    let historicMoveState = null;     // moveState for the historic board's candidates
     // What renderHistoricAtTurn resolved for the currently displayed turn:
     // boardRow drives the board (may come from ANY cached team log), prevRow is
     // the row before it in the SAME log (for death-marker detection), ownRow is
@@ -1241,9 +1207,9 @@
     // Selection vs. staging vs. commit (three distinct concepts):
     //   - SELECTION (the purple box) is a purely local inspection cursor.
     //     Clicking a candidate cell or pressing arrows/WASD moves the box and
-    //     updates the breakdown table + projected-territory overlay ONLY. It
-    //     sends nothing to the server, stages nothing, and never clears the
-    //     queue. See `selectMove`.
+    //     updates the projected-territory overlay ONLY. It sends nothing to
+    //     the server, stages nothing, and never clears the queue.
+    //     See `selectMove`.
     //   - STAGING is a three-stage pipeline, all broadcast via the
     //     stagedMoves map (grey = bot-seeded, user color = human):
     //       requestedMove — the last move the user/bot asked for. Painted
@@ -1455,7 +1421,6 @@
           }
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
 
           liveMaxTurn = Math.max(liveMaxTurn, msg.turn);
           if (viewMode === 'live') {
@@ -1536,7 +1501,6 @@
             // Candidate keys are strings; a piece's staged move arrives as a
             // numeric destination index, so normalize to the key space.
             userSelectedMove = msg.stagedMove != null ? String(msg.stagedMove) : null;
-            analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
             scheduleRender();
@@ -1585,7 +1549,6 @@
               moveState = null;
               moveSubmitted = false;
               userSelectedMove = null;
-              analyticsFrozen = false;
               hideSelectionUI();
             }
           }
@@ -1604,7 +1567,6 @@
             moveState = null;
             moveSubmitted = false;
             userSelectedMove = null;
-            analyticsFrozen = false;
             hideSelectionUI();
           }
           break;
@@ -1644,7 +1606,6 @@
             }
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
-              analyticsFrozen = true;
               // Re-root the candidate set at the projected head.
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
@@ -1834,10 +1795,8 @@
           moveState.selectedMove = String(csData.committedMove);
         }
         moveSubmitted = true;
-        analyticsFrozen = true;
       } else {
         moveSubmitted = false;
-        analyticsFrozen = false;
         if (userSelectedMove) {
           moveState.selectedMove = userSelectedMove;
         } else {
@@ -2148,19 +2107,12 @@
           ' <kbd>Del</kbd> clears every command. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
         );
       }
-
-      if (!analyticsFrozen) {
-        const autoSelectedMove = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
-        BoardRenderer.updateStatsTable(
-          document.getElementById('statsTableBody'), autoSelectedMove || null, moveState
-        );
-      }
     }
 
     // SELECTION = local inspection cursor only (the purple box). Moving it
-    // (candidate-cell click, arrows, WASD) updates the breakdown table +
-    // projected-territory overlay and nothing else: no server message, no
-    // staged-move write, no queue clear. Staging is a separate explicit
+    // (candidate-cell click, arrows, WASD) updates the projected-territory
+    // overlay and nothing else: no server message, no staged-move write, no
+    // queue clear. Staging is a separate explicit
     // action (Space / Stage button -> stageSelectedMove).
     function selectMove(moveKey, nav) {
       if (moveSubmitted || !selectedSnakeId) return;
@@ -2178,28 +2130,16 @@
       moveState.keyNav = nav
         || deriveKeyNavFromSelection(moveState.moves[moveKey], moveState.keyNav);
 
-      // Schedule the repaint BEFORE any of the panel updates below. They
-      // render third-party-shaped data (score breakdowns) and must not be
-      // able to skip the repaint by throwing partway through — the board is
-      // the primary feedback for this action, so it cannot depend on the
-      // panels rendering cleanly.
+      // Schedule the repaint BEFORE the panel update below. It renders
+      // third-party-shaped data and must not be able to skip the repaint by
+      // throwing partway through — the board is the primary feedback for this
+      // action, so it cannot depend on the panel rendering cleanly.
       scheduleRender();
 
       try {
         updateMoveControls();
       } catch (e) {
         console.error('updateMoveControls failed:', e);
-      }
-
-      try {
-        const move = moveState.moves[moveKey];
-        if (move) {
-          BoardRenderer.updateStatsTable(
-            document.getElementById('statsTableBody'), move, moveState
-          );
-        }
-      } catch (e) {
-        console.error('updateStatsTable failed:', e);
       }
     }
 
@@ -3313,7 +3253,6 @@
           moveState = null;
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
           hideSelectionUI();
           scheduleRender();
         }
@@ -3373,8 +3312,8 @@
     // rendered turn is inspectable, full stop. Having a decision log is NOT a
     // precondition — chess pieces never produce one (they get no engine pass)
     // and a snake's log stops at its death, yet both remain perfectly
-    // inspectable; the logged breakdown is an EXTRA panel that degrades to
-    // "no data" on its own. Neither is being controlled live: a reloaded
+    // inspectable; the logged candidates are an EXTRA that degrades to
+    // "no decision data" on its own. Neither is being controlled live: a reloaded
     // finished game has no live state at all.
     //
     // The roster and logged/controlled ids are folded in on top so units
@@ -3429,9 +3368,9 @@
 
     // The unit being inspected in history mode. Prefer the one the user
     // explicitly picked, else the live selection, else a bot-logged unit (the
-    // default perspective actually has a breakdown to show). The user's own
+    // default perspective actually has candidates to show). The user's own
     // pick is honoured whether or not it has logs — inspection is a read of
-    // the board; the breakdown panel is what degrades.
+    // the board; the candidate cells are what degrade.
     function getHistoricSnakeId() {
       const selectable = historicSelectableIds();
       if (historicSnakeId && selectable.has(historicSnakeId)) {
@@ -3441,7 +3380,7 @@
         return selectedSnakeId;
       }
       // Prefer a unit the database actually logged, so the default
-      // perspective arrives with a breakdown rather than an empty one.
+      // perspective arrives with candidates rather than an empty one.
       for (const id of historyLoggedSnakeIds) return id;
       for (const id of historicLoggedIds()) return id;
       const first = selectable.values().next();
@@ -3656,7 +3595,7 @@
 
     // Point the loaded-decisions view at one unit's cached log, synchronously.
     // An un-logged unit (every chess piece) simply gets an empty log, which the
-    // breakdown panel renders as "no data" — never a blocked inspection.
+    // status line reports as "no decision data" — never a blocked inspection.
     function adoptHistoricDecisions(snakeId) {
       const entry = historicCache.get(snakeId);
       historicDecisions = entry ? entry.decisions : [];
@@ -3914,7 +3853,7 @@
     // and the board repaints immediately, so inspecting a unit works for chess
     // pieces (which have no decision logs at all), for turns after a snake's
     // death, and while the fetch is still in flight. Logged decisions, when
-    // this unit has any, only fill in the breakdown panel — and the render
+    // this unit has any, only fill in its candidate cells — and the render
     // repeats when they land.
     async function switchHistoricSnake(snakeId) {
       if (!snakeId) return;
@@ -3925,7 +3864,7 @@
       if (snakeId === getHistoricSnakeId()) return;
       historicSnakeId = snakeId;
       // The loaded decisions belong to the PREVIOUS perspective — swap in the
-      // new unit's cached log (or nothing) before painting, or the breakdown
+      // new unit's cached log (or nothing) before painting, or the candidates
       // would briefly describe the unit the user just navigated away from.
       adoptHistoricDecisions(snakeId);
       const turnToShow = historicTurnNumber;
@@ -4042,7 +3981,7 @@
     // Turn the page into a pure read-only replay for a game that is not live.
     // Discovers our team's logged snakes from /api/logs/games, loads the default
     // snake's decisions, and opens on the final logged turn. Perspective
-    // switching, turn scrubbing and the heuristic breakdown all work through the
+    // switching and turn scrubbing all work through the
     // same historic code path the live view uses when scrubbed back.
     //
     // Ordering contract: ALL live-chrome hiding, mode flips, and the loading
@@ -4384,9 +4323,9 @@
     // entry points, just with interactivity off. The BOARD comes from the
     // per-game timeline (with the legacy any-team-log resolution as fallback),
     // so neither the inspected snake's death nor its log format can freeze or
-    // cap scrubbing; the inspected snake's own log drives only its evaluation
-    // breakdown, which degrades to an explicit "no data" panel for turns it
-    // doesn't cover.
+    // cap scrubbing; the inspected snake's own log drives only its candidate
+    // cells, which degrade to an explicit "no decision data" status line for
+    // turns it doesn't cover.
     function renderHistoricAtTurn(turnNumber, opts) {
       // During a continuous drag we render the board (canvas + overlay) every
       // frame but skip the heavier side-panel DOM rebuild; the full render runs
@@ -4706,7 +4645,7 @@
     }
 
     // Read-only candidate selection: clicking a candidate cell / move button —
-    // or steering with the keyboard — shows that move's heuristic breakdown.
+    // or steering with the keyboard — moves the replay's inspection cursor.
     // The replay's counterpart of selectMove, down to keeping the keyboard
     // cursor ({axis, distance}) in step with every selection source.
     function historicSelectMove(moveKey, nav) {
@@ -4716,9 +4655,6 @@
       ms.selectedMove = moveKey;
       ms.keyNav = nav || deriveKeyNavFromSelection(ms.moves[moveKey], ms.keyNav);
       renderHistoricBoard();
-      BoardRenderer.updateStatsTable(
-        document.getElementById('statsTableBody'), ms.moves[moveKey], ms
-      );
     }
 
     function handleHistoricCanvasClick(event) {
@@ -4762,10 +4698,10 @@
       }
     }
 
-    // In history mode the selection panel becomes a read-only breakdown viewer:
-    // the snake-perspective name is shown, control buttons (Stage) and the
-    // intent badge are hidden, and the move buttons + stats reflect the logged
-    // turn. restoreLiveSelectionPanel() undoes this on return to live.
+    // In history mode the selection panel becomes a read-only viewer: the
+    // snake-perspective name is shown, control buttons (Stage) and the intent
+    // badge are hidden, and the candidate cells reflect the logged turn.
+    // restoreLiveSelectionPanel() undoes this on return to live.
     function showHistoricSelectionPanel(turn) {
       document.getElementById('noSelectionMsg').style.display = 'none';
       document.getElementById('selectionUI').style.display = 'block';
@@ -4804,11 +4740,8 @@
 
       renderUnitStatus(
         'Read-only replay \u2014 click a candidate square, or steer with the ' +
-        'arrow pad / numpad, to read that move\u2019s breakdown. ' +
+        'arrow pad / numpad, to inspect this turn\u2019s candidates. ' +
         '<kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
-      );
-      BoardRenderer.updateStatsTable(
-        document.getElementById('statsTableBody'), null, historicMoveState
       );
     }
 
@@ -4863,7 +4796,7 @@
       note.style.display = '';
     }
 
-    // Shown instead of the breakdown when the viewed turn has no decision data
+    // Shown when the viewed turn has no decision data
     // for the inspected snake. Distinguishes WHY: the snake is dead on this
     // board (its usual meaning), or this is the game's final board (no
     // decision is ever made on it \u2014 the game ended here), or the decisions
@@ -4902,9 +4835,6 @@
       renderUnitStatus(
         `No decision data for this unit \u2014 ${escapeHtml(reason)}`
       );
-      document.getElementById('statsTableBody').innerHTML =
-        '<tr><td colspan="5" style="text-align: center; color: #888;">' +
-        `No decision data \u2014 ${escapeHtml(reason)}</td></tr>`;
     }
 
     function restoreLiveSelectionPanel() {

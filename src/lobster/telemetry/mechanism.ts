@@ -63,6 +63,7 @@ import type { AdvisoryReport, MutualWipeReport, RefineReport } from '../evaluate
 import { mutualWipeReportOf, refineReportOf } from '../evaluate';
 import type { SelectionReport } from '../selection';
 import { DEFAULT_SCOUT_TUNING } from '../search/scout';
+import { DEFAULT_CLUSTER_TUNING } from '../search/cluster-enum';
 import type { ScoutReport } from '../search/scout';
 import type { MultiStartReport } from '../search/multistart-seed';
 import type { EngineSubstrate } from '../substrate';
@@ -133,6 +134,18 @@ export interface BotStamp {
    * words on the same report, and `cluster` reads zero rather than null.
    */
   readonly clusterEnum: boolean;
+  /**
+   * THE TWO ENUMERATION RATIONS THIS BOT RAN UNDER
+   * (`BotConfig.search.maxClusterCells` / `maxClustersSolved`).
+   *
+   * Stamped, and not merely defaulted, because they are the knobs the
+   * enumeration's two cost regimes are priced with: `0` is the arm that lifts
+   * a ration, and an arm that lifts one has to be legible as such beside the
+   * `cluster.cells` and `cluster.worstClusterCells` rows that measure what it
+   * bought. See `SearchSelections.maxClusterCells`.
+   */
+  readonly maxClusterCells: number;
+  readonly maxClustersSolved: number;
 }
 
 /**
@@ -261,6 +274,9 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
       sampledCap: bot.sampledCap,
       depthPlyCap: bot.depth.plyCap ?? DEFAULT_SCOUT_TUNING.plyCap,
       clusterEnum: bot.search.clusterEnum ?? true,
+      maxClusterCells: bot.search.maxClusterCells ?? DEFAULT_CLUSTER_TUNING.maxClusterCells,
+      maxClustersSolved:
+        bot.search.maxClustersSolved ?? DEFAULT_CLUSTER_TUNING.maxClustersSolved,
     },
     slate: inputs.slate,
     belief: inputs.belief,

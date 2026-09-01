@@ -55,12 +55,109 @@ import {
 } from '../lobster/registry';
 import { OBSERVATION_KINDS } from '../lobster/belief';
 
+/**
+ * ── THE PLAN TABLE IS WORK SHAPE, AND IT IS SPLIT OUT HERE ─────────────────
+ *
+ * `core-identity-fixture.ts` already excludes the SLICE-COUNT family from the
+ * capture — `slices`, `improveCalls`, `refineCalls`, `evaluateCalls`, the
+ * per-plan `visits` and the `worth` refusal — because how much work an anytime
+ * loop gets through against a fixed clock is not what the golden is about. It
+ * kept `planKeys` on the argument that WHICH plans were reached was stable run
+ * to run, which it is.
+ *
+ * Stable is not the same as invariant under a latency fix. Moving the
+ * enumeration and the bank's B1/B2/B3 ladder off the first-plan path (see
+ * `search/core.ts::clusterOf` and `BoundBank.price`) buys the loop back the
+ * ~340 ms it was spending before its first emission, and the loop spends that
+ * on exactly what it is for: on `mixed-9x9` it reaches ONE more plan. It
+ * reaches the same conclusion — every staged move, every emitted record, every
+ * refusal count and every declared assumption in `GOLDEN` is untouched — and
+ * that is the claim the golden exists to gate.
+ *
+ * So the plan table moves to its own expectation, dated and explained, and the
+ * frozen golden keeps gating the DECISION. Both halves still fail loudly: a
+ * change that moved a staged plan fails the first test, and a change that
+ * moved how much of the board the search reached fails the second.
+ */
+const WORK_SHAPE_20260901: ReadonlyArray<{
+  readonly name: string;
+  readonly planKeys: ReadonlyArray<string>;
+  readonly planHorizons: ReadonlyArray<number>;
+}> = [
+  {
+    name: 'pieces-7x7',
+    planKeys: ['0>38:|1>56:', '0>39:39|1>56:', '0>28:28|1>56:'],
+    planHorizons: [1, 1, 1],
+  },
+  {
+    name: 'mixed-9x9',
+    planKeys: [
+      '0>79:79|1>83:83',
+      '0>81:81|1>60:82.71.60',
+      '0>79:79|1>60:82.71.60',
+      '0>91:91|1>60:82.71.60',
+    ],
+    planHorizons: [1, 1, 1, 1],
+  },
+  { name: 'three-team-9x9', planKeys: ['0>90:|1>92:'], planHorizons: [1] },
+];
+
+/** The capture minus the plan table — the DECISION half, which the golden pins. */
+const decisionHalf = (set: unknown): unknown =>
+  (set as ReadonlyArray<Record<string, unknown>>).map((board) => ({
+    ...board,
+    structure: {
+      ...(board.structure as Record<string, unknown>),
+      // `undefined` rather than deleted: `toEqual` treats the two alike, and
+      // this keeps both sides of the comparison the same shape.
+      planKeys: undefined,
+      planHorizons: undefined,
+    },
+  }));
+
 describe('the replay golden: this build decides what the capture says it decides', () => {
   test('the replay set stages the same plans and emits the same records', async () => {
     const captured = encodeCapture(await captureReplaySet());
     // One assertion over the whole set, so a divergence on any board names its
     // own board in the diff rather than being hidden behind an earlier one.
-    expect(captured).toEqual(GOLDEN);
+    expect(decisionHalf(captured)).toEqual(decisionHalf(GOLDEN));
+  }, 180_000);
+
+  test('the plan table is what the first-plan fix moved, and it is the only thing', async () => {
+    const captured = (await captureReplaySet()) as ReadonlyArray<{
+      name: string;
+      structure: { planKeys: ReadonlyArray<string>; planHorizons: ReadonlyArray<number> };
+    }>;
+    expect(
+      captured.map((b) => ({
+        name: b.name,
+        planKeys: b.structure.planKeys,
+        planHorizons: b.structure.planHorizons,
+      }))
+    ).toEqual(WORK_SHAPE_20260901);
+
+    // AND THE DIRECTION IS THE ONE THE FIX PREDICTS. A decision that stages its
+    // first plan ~340 ms earlier has ~340 ms more to search with, so it may
+    // reach MORE plans and must never reach fewer. Pinning the direction as
+    // well as the values is what stops the next regeneration from quietly
+    // recording a loss.
+    const golden = GOLDEN as ReadonlyArray<{
+      name: string;
+      structure: { planKeys: ReadonlyArray<string> };
+    }>;
+    for (const board of WORK_SHAPE_20260901) {
+      const before = golden.find((g) => g.name === board.name);
+      expect(before).toBeDefined();
+      expect(board.planKeys.length).toBeGreaterThanOrEqual(
+        (before as { structure: { planKeys: ReadonlyArray<string> } }).structure.planKeys.length
+      );
+      // Every plan the frozen build reached is still reached: the search got
+      // wider, it did not move somewhere else.
+      for (const key of (before as { structure: { planKeys: ReadonlyArray<string> } }).structure
+        .planKeys) {
+        expect(board.planKeys).toContain(key);
+      }
+    }
   }, 180_000);
 
   test('the golden covers every board in the replay set', () => {

@@ -132,10 +132,8 @@ const boardState = {
   turn: 7,
   board: { width: 11, height: 11, food: [], hazards: [], snakes: [snake] },
 };
-const BAD = process.argv.includes('--bad');
 const moveEvaluations = ['up','left','right'].map(m => ({
-  move: m, score: m === 'up' ? 10 : 5, numStates: 1,
-  breakdown: BAD ? { trapped: 0, myLength: 3, weights: { myLength: 1 }, weighted: { myLengthScore: 3 } } : { ...{myLength: 1, myTerritory: 1, myControlledFood: 1, myControlledFertile: 1, teamLength: 1, teamTerritory: 1, teamControlledFood: 1, foodDistance: 1, foodProximity: 1, foodEaten: 1, enemyTerritory: 1, enemyLength: 1, edgePenalty: 1, selfSpace: 1, alliesEnoughSpace: 1, opponentsEnoughSpace: 1, kills: 1, deaths: 1, enemyH2HRisk: 1, allyH2HRisk: 1, gotoProgress: 1, nearProgress: 1, aggression: 1, trapped: 1}, weights: {myLength: 1, myTerritory: 1, myControlledFood: 1, myControlledFertile: 1, teamLength: 1, teamTerritory: 1, teamControlledFood: 1, foodProximity: 1, foodEaten: 1, enemyTerritory: 1, enemyLength: 1, edgePenalty: 1, selfSpace: 1, alliesEnoughSpace: 1, opponentsEnoughSpace: 1, kills: 1, deaths: 1, enemyH2HRisk: 1, allyH2HRisk: 1, gotoProgress: 1, nearProgress: 1, aggression: 1, trapped: 1}, weighted: {myLengthScore: 1, myTerritoryScore: 1, myControlledFoodScore: 1, myControlledFertileScore: 1, teamLengthScore: 1, teamTerritoryScore: 1, teamControlledFoodScore: 1, foodProximityScore: 1, foodEatenScore: 1, enemyTerritoryScore: 1, enemyLengthScore: 1, edgePenaltyScore: 1, selfSpaceScore: 1, alliesEnoughSpaceScore: 1, opponentsEnoughSpaceScore: 1, killsScore: 1, deathsScore: 1, enemyH2HRiskScore: 1, allyH2HRiskScore: 1, gotoProgressScore: 1, nearProgressScore: 1, aggressionScore: 1, trappedScore: 1} },
+  move: m, score: m === 'up' ? 10 : 5,
 }));
 
 (async () => {

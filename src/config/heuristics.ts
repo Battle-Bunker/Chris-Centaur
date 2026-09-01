@@ -9,7 +9,7 @@
  *  - the BoardEvaluator default weights and its weighted-sum loops,
  *  - `DEFAULT_CONFIG`'s heuristic half (config/game-config.ts),
  *  - the decision-engine `DecisionConfig['weights']` shape,
- *  - the strategy's config→weights extraction and per-move breakdown,
+ *  - the strategy's config→weights extraction,
  *  - the /api/config UI metadata that config.html renders its sliders from.
  *
  * Adding a heuristic = adding ONE entry here (plus computing its stat in
@@ -349,7 +349,7 @@ export const HEURISTICS = {
   // guarantee is the veto in pickBestMove (snakes) and bestPieceCandidate
   // (pieces), exactly as trapped/fatal are vetoed; this weight makes the
   // scoring agree with the veto wherever a veto cannot apply (every candidate
-  // commits regicide, or a human is reading the breakdown). ──────────────────
+  // commits regicide). ──────────────────────────────────────────────────────
   regicide: {
     default: -100000,
     uiRange: { min: -1000000, max: 0, step: 1000 },

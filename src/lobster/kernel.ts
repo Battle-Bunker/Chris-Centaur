@@ -170,6 +170,11 @@ class SliceBudget implements BudgetHandle {
     const left = (this.decisionEnd - this.clock()) / span
     return left > 1 ? 1 : left > 0 ? left : 0
   }
+  /** The same quantity in milliseconds — see `BudgetHandle.decisionRemainingMs`
+   *  for why a per-decision layer must read this and not `remainingMs`. */
+  decisionRemainingMs(): number {
+    return Math.max(0, this.decisionEnd - this.clock())
+  }
 }
 
 // ---------------------------------------------------------- pin canonicalisation
@@ -422,6 +427,34 @@ export interface KernelOptions {
    * expensive one has been measured to be.
    */
   readonly maxSliceFraction: number
+  /**
+   * THE SHARE OF THE TURN RUNG 0 MAY SPEND ON ITS ONE PRICE.
+   *
+   * Rung 0's contract is *"a conforming, legal joint plan on the wire before
+   * any refinement runs"*, and `SearchCore.conform` implements it as one
+   * `price()` to prove the seed resolves plus a repair of whatever that price
+   * says we killed ourselves. Both are bounded by the budget handle they are
+   * given, and `conformNow` used to give them the WHOLE DECISION — so the
+   * bank's ladder had nothing to stop it and neither did the repair.
+   *
+   * Measured on the batch-2 replay corpus: 210 ms mean and 415 ms worst for
+   * that single price on a 25×25 mixed king board, and a time-to-first-staged-
+   * plan of 907 ms p50 / 2,462 ms max against a 500 ms turn. Every one of that
+   * cell's missed deadlines was a decision still waiting for its first plan.
+   *
+   * A REAL SLICE, THEN — and 0.1 is the same share `maxSliceFraction` already
+   * gives every other slice, for the same reason: no single stretch of work
+   * may own more of the turn than that, however expensive it has been measured
+   * to be. Where the ladder fits inside it (small boards, generous turns) rung
+   * 0 completes and stages exactly what it staged before; where it does not,
+   * it degrades the way every other truncated sweep does — `finished: false`,
+   * a lower ceiling, never a raised floor — and the refinement slices that
+   * follow re-price the same plan from the same bank at full depth.
+   *
+   * The floor is `sliceMs`, so a turn too short to have a tenth still gets a
+   * price rather than an empty budget.
+   */
+  readonly rungZeroFraction: number
   /** Minimum wall gap between writes. The wire has no server-side rate limit; this is it. */
   readonly minWriteIntervalMs: number
   /** Fraction of the standing gap a re-emission of the SAME plan must remove. */
@@ -477,6 +510,7 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   sliceMs: 0.5,
   sliceCostFactor: 5,
   maxSliceFraction: 0.1,
+  rungZeroFraction: 0.1,
   minWriteIntervalMs: 2,
   gapImprovementFraction: 0.15,
   switchRule: "floor",
@@ -1680,7 +1714,15 @@ export class LobsterKernel implements Kernel {
   }
 
   private conformNow(run: Run, from: JointPlan): PlanCandidate {
-    const budget = new SliceBudget(run.now, run.t0, run.searchDeadline)
+    // A BOUNDED HANDLE, NOT THE WHOLE TURN — see `rungZeroFraction`. The
+    // decision's own stop time is still carried as the fourth argument, so
+    // `decisionFraction` and `decisionRemainingMs` stay turn-scale for the
+    // layers that ration themselves against the turn; only `shouldStop` and
+    // `remainingMs`, which is what the bank's ladder and the repair loops
+    // read, are bounded here.
+    const span = Math.max(this.opts.sliceMs, run.budgetMs * this.opts.rungZeroFraction)
+    const end = Math.min(run.searchDeadline, run.now() + span)
+    const budget = new SliceBudget(run.now, run.t0, end, run.searchDeadline)
     const ctx = this.searchContext(run, run.active, budget)
     run.conformCalls++
     const plan = run.input.search.conform(ctx, from)

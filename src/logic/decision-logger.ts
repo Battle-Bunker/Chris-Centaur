@@ -3,7 +3,6 @@ import { db, dbConfigured } from '../database/db';
 import { transientDelay } from '../server/activity-controller';
 import { decisionLogs } from '../database/schema';
 import { BoardSnapshot, Direction } from '../types/battlesnake';
-import { HeuristicKey } from '../config/heuristics';
 import { TeamDetector } from './team-detector';
 import {
   mergeTimelineRows,
@@ -22,28 +21,27 @@ export interface DecisionLogEntry {
   health: number;
   safeMoves: Direction[];
   botRecommendation: Direction;
+  // One row per candidate move this unit could make: the move id, the score
+  // the engine resolved it to, and where it lands. A candidate ENUMERATION for
+  // the viewer's board — never a decomposition of how the score was reached.
   moveEvaluations: {
     move: Direction;
     score: number;
-    numStates: number;
     // The candidate's destination cell (api coords), when the engine's
     // projection pass computed it. Optional: legacy rows lack it and readers
     // must tolerate absence.
     dest?: { x: number; y: number };
     projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
-    // One stat per heuristic registry key, plus the raw foodDistance and the
-    // legacy wire aliases (a UI/DB contract — see VoronoiStrategy.buildBreakdown).
-    breakdown?: { [K in HeuristicKey]?: number } & {
-      foodDistance?: number;
-
-      fertileTerritory?: number;
-      foodDistanceInverse?: number;
-      myFoodCount?: number;
-      teamFoodCount?: number;
-      teamFertileScore?: number;
-
-      weights: any;
-      weighted: any;
+    // Rides along because the live rows and the logged rows are ONE array:
+    // the operator waypoint re-bias's signal (see
+    // ActiveGameManager.MoveEvaluation.waypointBias). No read path here wants
+    // it — declared so the stored blob has no undeclared keys.
+    waypointBias?: {
+      gotoWeight: number;
+      nearWeight: number;
+      recorded: number;
+      trapped: number;
+      regicide: number;
     };
   }[];
   gameState: any;
@@ -254,7 +252,7 @@ export class DecisionLogger {
   // full, prefer dropping the oldest per-snake item: turn-state rows are the
   // canonical board (one per turn, never re-delivered once the game moves
   // on), so losing one punches a permanent hole in the replay timeline while
-  // a dropped decision row costs one snake's breakdown for one turn.
+  // a dropped decision row costs one snake's candidate list for one turn.
   private enqueue(item: QueueItem): void {
     // No database configured: skip persistence entirely (announced once at
     // boot by db.ts) instead of queueing rows destined for per-row retry spam

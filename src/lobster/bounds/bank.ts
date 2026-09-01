@@ -632,7 +632,24 @@ export class BoundBank {
 
   // ------------------------------------------------------------------ price
 
+  /**
+   * Price a plan, over the whole ladder the config allows and the clock buys.
+   *
+   * THE CLOCK IS WHAT BOUNDS THIS, and it is worth saying where. B0 is one
+   * resolution; B1, B2 and B3 are the ladder, and on a board with sliders the
+   * ladder is the whole cost — B3 alone may enumerate up to `productCap`
+   * leaves, each a full evaluation. Every one of those loops consults
+   * `this.budget.shouldStop()`, so a price inside a refinement slice truncates
+   * gracefully (`finished: false`, a lower ceiling, never a raised floor).
+   *
+   * A CALLER THAT HANDS THIS A BUDGET SPANNING THE WHOLE DECISION HAS DISABLED
+   * THAT. Rung 0 did exactly that until batch 2 measured it: one call, 210 ms
+   * mean and 415 ms worst on a 25×25 mixed king board, paid before the first
+   * plan reached the wire. The fix is on the caller's side — the handle, not
+   * the ladder — because the ladder's own degradation is already correct.
+   */
   price(plan: JointPlan): BankResult {
+    const cfg = this.cfg;
     const before = this.memo.stats.resolutions;
     const base = this.withReferences(plan);
     // THE EVALUATION MEMO'S NAMESPACE, rebuilt every call. Everything that
@@ -672,7 +689,7 @@ export class BoundBank {
 
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;
-      if (this.cfg.b3 && gated.length > 0) {
+      if (cfg.b3 && gated.length > 0) {
         const held = this.uncontrolled();
         const coversEverything = held.every((id) => gated.includes(id));
         const view = this.viewFor(gated);
@@ -681,7 +698,7 @@ export class BoundBank {
         if (
           coversEverything &&
           lists.every((l) => l.complete && l.options.length > 0) &&
-          product <= this.cfg.productCap
+          product <= cfg.productCap
         ) {
           const leaves: Branch[] = [];
           let swept = true;
@@ -713,8 +730,8 @@ export class BoundBank {
       }
 
       // ---- B1: one enemy at a time, additive -----------------------------
-      if (this.cfg.b1 && !b3Covered) {
-        for (const enemy of gated.slice(0, this.cfg.enemyCap)) {
+      if (cfg.b1 && !b3Covered) {
+        for (const enemy of gated.slice(0, cfg.enemyCap)) {
           if (this.budget.shouldStop()) {
             finished = false;
             break;
@@ -743,7 +760,7 @@ export class BoundBank {
       }
 
       // ---- B2: the witness matrix ----------------------------------------
-      if (this.cfg.b2 && this.witnessList.length > 0) {
+      if (cfg.b2 && this.witnessList.length > 0) {
         for (const witness of this.witnessList) {
           if (this.budget.shouldStop()) {
             finished = false;
@@ -810,6 +827,18 @@ export class BoundBank {
     //
     // This is NOT a clamp for an unconditional floor. An unconditional floor
     // above a sound ceiling is the fatal bug class, and it still throws.
+    //
+    // THE ONE EXCEPTION IS ARITHMETIC, AND IT IS PRICED IN `score.ts`. The
+    // floor and the ceiling below reach the same quantity by different
+    // accumulation paths — a max over independent lower bounds against a min
+    // over independent upper bounds — so on a long-reach board they can
+    // disagree in the last few significant figures with nothing unsound
+    // anywhere. `makeScoreBounds` absorbs exactly that band
+    // (`BOUND_RELATIVE_EPSILON`, measured from the three decision errors batch
+    // 2 recorded here, all on `snake5-queen`) by weakening BOTH endpoints to
+    // their midpoint, and refuses anything above it. So this site does not
+    // need its own tolerance: it needs to not be the thing that throws for
+    // rounding, and it no longer is.
     let best = ceilPick.bounds.best;
     let widened = false;
     if (best < floorPick.bounds.worst && !floorPick.report.complete) {

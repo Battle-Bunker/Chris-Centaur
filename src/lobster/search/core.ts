@@ -499,6 +499,16 @@ interface Session {
    * turns "offer the same eight plans every slice" into "price eight plans,
    * once, in whatever order the budget allows".
    */
+  /**
+   * FALSE UNTIL THE ENUMERATION HAS BEEN ASKED FOR — see `clusterOf`.
+   *
+   * `cluster` is `null` in two different situations and they must not be
+   * confused: the layer RAN AND FOUND NO PARTITION, and the layer HAS NOT BEEN
+   * ASKED YET. This flag is the difference. It is the whole of the laziness:
+   * the enumeration is still per-session, still runs at most once, and still
+   * produces the identical partition and the identical k-best joints.
+   */
+  clusterReady: boolean;
   cluster: {
     readonly partition: Partition;
     readonly proposals: ReadonlyArray<JointPlan>;
@@ -587,6 +597,44 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
+  /**
+   * RUN A PRICE THAT MAY PROVE ITS OWN BANK UNSOUND, AND COUNT IT IF IT DOES.
+   *
+   * Null when a `BoundsInversionError` came out; the caller then keeps
+   * whatever legal plan it already held. Every other error still propagates —
+   * this absorbs one named failure, not failure in general.
+   *
+   * THE COUNT IS THE POINT. Batch 2 recorded three games whose decision died
+   * on this exception and whose `boundsInversions` telemetry read null, then
+   * folded to 0: the throw escaped `conform` entirely, so no `drainRefusals`
+   * ever saw it and no report was ever built. A counter that reads zero on the
+   * failure it names is worse than no counter, so every price inside `conform`
+   * now goes through here and the count leaves with the decision even when the
+   * bank proves one of its own members unsound.
+   *
+   * THE SEAM MUST FIRE WHERE THE INVERSION HAPPENS. The kernel keeps the
+   * identical env-gated print beside its own slice-level catch (`kernel.ts`'s
+   * `bounds-inversion` refusal), but an absorb here never reaches that catch:
+   * it is swallowed and only the COUNT survives. That asymmetry cost a whole
+   * re-measure once — the counter climbed on the shipped default and the seam
+   * stayed silent, so the class (`bank floor=… ceiling=…`, the only thing that
+   * identifies the unsound member) had to be recovered by patching a scratch
+   * worktree. Same gate, same format, so one `CENTAUR_DEBUG_INVERSION=1`
+   * covers both channels — and each names its own `where`, because the counter
+   * does not.
+   */
+  const absorbing = <T>(where: string, run: () => T): T | null => {
+    try {
+      return run();
+    } catch (err) {
+      if ((err as { code?: string }).code !== "bounds_inversion") throw err;
+      if (process.env.CENTAUR_DEBUG_INVERSION) {
+        process.stderr.write(`INVERSION ${where}: ${(err as Error).message}\n`);
+      }
+      absorbedInversions++;
+      return null;
+    }
+  };
   /**
    * WHICH SLOT OF `better()` DECIDED — the O-P1 instrument (law L17).
    *
@@ -801,6 +849,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       focus: NO_FOCUS,
       sampler: openSampler(ctx, ours, sets, decisionIndex),
       ceilings: sampling() ? unitCeilings(ctx, ours, sets) : null,
+      clusterReady: false,
       cluster: null,
       scout: new Scout(cfg.scoutTuning),
       deep: new Map<string, DeepObservation>(),
@@ -808,8 +857,65 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       shadow: null,
       held: null,
     };
-    session.cluster = openCluster(ctx, session, pins);
+    // THE ENUMERATION IS NOT OPENED HERE — see `clusterOf` for the measurement
+    // that moved it. A session is opened by `conform` as well as by `improve`,
+    // and `conform` is the call that puts the FIRST legal plan on the wire.
     return session;
+  };
+
+  /**
+   * THE ENUMERATION, MATERIALISED ON FIRST DEMAND — and why it stopped being
+   * part of opening a session.
+   *
+   * ── THE MEASUREMENT ────────────────────────────────────────────────────────
+   *
+   * Batch `20260831-batch2` mined the per-turn telemetry of 2,472 games and
+   * found that this branch takes **343 ms (p90 527 ms)** to put its first
+   * staged plan on the wire on a 25×25 mixed king board, against **46 ms** for
+   * the shipped bot. The price is FIXED — 343 / 311 / 326 ms at turn budgets of
+   * 500 / 1000 / 2000 ms — so it is a setup toll paid before the anytime kernel
+   * starts thinking, not slow thinking. At a 500 ms budget it ate the whole
+   * turn: **every one of the 100 missed deadlines in that cell was a decision
+   * still waiting for its FIRST plan**, and the baseline missed none. The cost
+   * is this pass and nothing else — `clusterEnumMs` on that board at that rung
+   * is 337 ms a decision, the first-plan latency to within rounding.
+   *
+   * An anytime kernel whose first plan costs a constant ~340 ms has no anytime
+   * behaviour at all below that.
+   *
+   * ── THE FIX, WHICH IS AN ORDERING AND NOT A REMOVAL ───────────────────────
+   *
+   * `open()` used to run this, and `conform` opens a session — so rung 0, the
+   * one call whose contract is *"a legal joint plan on the wire before any
+   * refinement runs"*, paid for the whole enumeration before it could stage
+   * anything. Nothing in `conform` reads the result: the rung-0 seed is the
+   * candidate layer's own ordered-first option for every unit with the pins
+   * spliced in, and the splice path repairs from the candidate sets. Only
+   * `improve` consumes proposals.
+   *
+   * So the enumeration moves to the first slice that actually wants it. The
+   * cheap legal plan is staged first, and the enumeration then refines it under
+   * the normal anytime discipline — which is what the design always claimed.
+   *
+   * ── WHAT DOES NOT CHANGE ──────────────────────────────────────────────────
+   *
+   * Everything about the answer. The enumeration is still per-session and still
+   * runs at most once; its inputs (the partition over the varying units, the
+   * candidate sets, the pins and reference actions, the doomed set, the salt)
+   * are per-DECISION facts that no slice moves, so the partition, the k-best
+   * joints, the scout's roots and the refine scope are identical to the byte.
+   * A decision given generous time reaches exactly the plan it reached before;
+   * a decision given 500 ms now has a plan to hand back instead of nothing.
+   *
+   * The one visible difference is honest: a decision that never runs a
+   * refinement slice reports `cluster: null` — "the layer was never reached" —
+   * where it used to report an enumeration nothing consumed.
+   */
+  const clusterOf = (s: Session, ctx: SearchContext): Session["cluster"] => {
+    if (s.clusterReady) return s.cluster;
+    s.clusterReady = true;
+    s.cluster = openCluster(ctx, s, s.pins);
+    return s.cluster;
   };
 
   /**
@@ -997,6 +1103,24 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       asTeam: ctx.asTeam,
       tuning,
       salt: cfg.seed,
+      // THE TIME RATION, ON THE TURN'S CLOCK AND NOT THE SLICE'S.
+      //
+      // This is what makes the pass interruptible rather than all-or-nothing:
+      // consulted once per cluster, and when it fires the rest of the
+      // partition keeps the seed's assignment and the pass returns what it has.
+      // Nothing upstream needs the enumeration to be complete — the proposals
+      // are proposals, priced and accepted one at a time — so a short pass
+      // costs proposals and not soundness, and the plan rung 0 already staged
+      // stands whatever happens here.
+      //
+      // THE SLICE'S OWN `shouldStop()` IS THE WRONG CLOCK, and measurably so: a
+      // slice is 25 ms and this pass is 340, so reading it truncated the
+      // enumeration on nearly every decision on every board — the layer gutted
+      // by its own safety valve. `decisionFraction` is the turn-scale handle,
+      // and `budgetFraction` of it is what this pass may spend. Absent — a
+      // harness budget that models no turn — there is no deadline at all, which
+      // is what keeps every deterministic probe a function of call count.
+      shouldStop: enumDeadline(ctx, tuning),
     };
     let { plans, stats, score } = enumerateProposals(request);
 
@@ -1039,7 +1163,26 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // one's decision sequence, it makes better decisions earlier. Under a
       // counting budget, which is the regime every deterministic probe runs
       // in, the ration is fixed and the prefix property holds exactly.
-      const decisionMs = ctx.budget.decisionFraction === undefined ? 0 : ctx.budget.remainingMs();
+      // THE TURN'S CLOCK, NOT THE SLICE'S — and this line is why
+      // `decisionRemainingMs` exists.
+      //
+      // The scout converts a millisecond budget into a counting purse exactly
+      // once, here, and `0` means "this handle models no decision-level clock,
+      // so only the ply cap binds". That contract is sound and it was being fed
+      // the wrong number the moment this pass moved off the conform path:
+      // `remainingMs()` is the SLICE's, and on an already-exhausted slice it
+      // reads 0 — which the purse correctly interprets as UNBOUNDED.
+      //
+      // So this reads the turn-scale handle, which is exactly the quantity
+      // `conform`'s own whole-decision budget used to supply. The pass costs
+      // what it always cost; what changed is only WHEN it is paid.
+      //
+      // IT IS STILL NOT A WALL-CLOCK BOUND, and that is an open item rather
+      // than an oversight — see `search/scout/schedule.ts::msPerResolution` for
+      // the measurement (7–28× optimistic on every board, so `plyCap` is the
+      // only ceiling the layer really has) and for why re-fitting it belongs in
+      // an arm of its own rather than in a latency fix.
+      const decisionMs = ctx.budget.decisionRemainingMs?.() ?? 0;
       s.scout.beginDecision(decisionMs);
       // ---- THE ACUTE READING, TAKEN ONCE PER DECISION -------------------
       //
@@ -1124,6 +1267,25 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       offeredThisSlice: 0,
       enumMs: Date.now() - started,
     };
+  };
+
+  /**
+   * THE ENUMERATION'S OWN DEADLINE, as a share of the turn spent since it began.
+   *
+   * Null-returning by construction where there is no turn to take a share of:
+   * `decisionFraction` is optional on `BudgetHandle` precisely because a probe's
+   * counting budget models no clock, and a ration read off a clock that does
+   * not exist is a ration that fires on an arbitrary call count.
+   */
+  const enumDeadline = (
+    ctx: SearchContext,
+    tuning: ClusterTuning,
+  ): (() => boolean) | undefined => {
+    const fraction = ctx.budget.decisionFraction;
+    if (fraction === undefined || !(tuning.budgetFraction > 0)) return undefined;
+    const floor = fraction.call(ctx.budget) - tuning.budgetFraction;
+    if (floor <= 0) return undefined;
+    return () => (ctx.budget.decisionFraction?.() ?? 1) <= floor;
   };
 
   /** The posture off the context's own basis. A floor proved under one
@@ -2192,6 +2354,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // settled on, because that is the plan the NEXT slice sweeps from. See
       // `speculate` for what happens when it is fired at the start instead.
       foldParallel(s);
+      // THE ENUMERATION, ASKED FOR HERE AND NOWHERE ELSE. This is the first
+      // point in a decision at which anything reads a proposal — the sweep's
+      // dirty set, the joint offers, the worker cut and the scout's roots are
+      // all below it — and it is deliberately AFTER rung 0 has staged a legal
+      // plan. See `clusterOf` for the 343 ms that bought this line.
+      clusterOf(s, ctx);
       // The slice's own length, read before any of it is spent — the only
       // honest basis for "how long may a worker spend on the NEXT one". Not
       // even a clock read on the single-threaded path: `parallel: null` is the
@@ -2333,31 +2501,36 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         // against a contract gate that requires zero. A legal conforming plan
         // on the wire beats nothing; the loud signal is the counter the kernel
         // keeps, not a dead turn.
-        let scored: BankResult | null = null;
-        try {
-          scored = s.bank.price(seed);
-        } catch (err) {
-          if ((err as { code?: string }).code !== "bounds_inversion") throw err;
-          // THE SEAM MUST FIRE WHERE THE INVERSION HAPPENS. The kernel keeps
-          // the identical env-gated print beside its own slice-level catch
-          // (`kernel.ts`'s `bounds-inversion` refusal), but a rung-0 absorb
-          // never reaches that catch: it is swallowed here and only the COUNT
-          // survives, folded in through `drainRefusals`. That asymmetry cost a
-          // whole re-measure — the counter climbed on the shipped default and
-          // the seam stayed silent, so the class (`bank floor=… ceiling=…`,
-          // which is the only thing that identifies the unsound member) had to
-          // be recovered by patching a scratch worktree. Same gate, same
-          // format, so one `CENTAUR_DEBUG_INVERSION=1` covers both channels —
-          // and each names its own, because the counter does not.
-          if (process.env.CENTAUR_DEBUG_INVERSION) {
-            process.stderr.write(`INVERSION rung-0: ${(err as Error).message}\n`);
-          }
-          absorbedInversions++;
-        }
+        // ONE PRICE, AND IT IS BOUNDED BY THE CLOCK LIKE EVERY OTHER PRICE.
+        //
+        // "Pays ONE B0-shaped `price()`" is what this function's own contract
+        // says, and what ran was the whole ladder — B1's per-enemy sweeps,
+        // B2's witness matrix, B3's 512-leaf cross-product — against a budget
+        // handle that spanned the WHOLE DECISION and therefore never stopped
+        // it. Measured on the batch-2 replay boards, this single call was
+        // 210 ms mean and 415 ms worst on a 25×25 mixed king board.
+        //
+        // The ladder is not cut here. It is cut by the handle the kernel now
+        // gives rung 0 (`KernelOptions.rungZeroFraction`), which is a real
+        // slice rather than the turn — so on a board where the ladder is
+        // affordable it completes and rung 0 stages exactly what it staged
+        // before, and on a board where it is not it degrades the way every
+        // other truncated sweep does: a lower ceiling, never a raised floor.
+        const scored = absorbing("rung-0", () => s.bank.price(seed));
         const repairing =
           cfg.rungZeroRepair ?? resolveStagingSafety(STAGING_SAFETY_DEFAULT, false) === "full";
         if (scored === null || !repairing) return seed;
-        return repairSelfHarm(s, ctx, scored).plan;
+        // THE REPAIR PRICES AGAIN, AND IT USED TO DO SO UNGUARDED. Absorbing
+        // the seed's own price and then letting the repair's throw escape
+        // left rung 0 protected in name only: `stagingSafety` resolves to
+        // `full` on every piece-bearing board, so the repair is exactly where
+        // a piece board's inversion lands. Batch 2's three decision errors all
+        // came out of this call — the turn was forfeited (`emissions: 0`) and
+        // the counter that names the failure recorded nothing, because the
+        // throw never reached a `drainRefusals`. A repair that cannot be
+        // priced leaves the seed standing, which is what rung 0 promises.
+        const repaired = absorbing("rung-0 repair", () => repairSelfHarm(s, ctx, scored));
+        return (repaired ?? scored).plan;
       }
 
       // 1. splice: pins first, then whatever of the incumbent still stands.
@@ -2368,24 +2541,36 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       let plan = seedPlan(s, incumbent, null);
 
       // 2. repair legality — only the units the splice actually disturbed.
+      //
+      // ABSORBING, on the same rule as rung 0 and for the same reason: the
+      // spliced plan is legal by construction, so a bank that cannot price it
+      // must not cost the operator their epoch. A refused price leaves the
+      // splice standing and the count on the record.
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
-        let scored = s.bank.price(plan);
+        let scored: BankResult | null = absorbing("conform splice", () => s.bank.price(plan));
         for (const unitId of disturbed) {
-          if (ctx.budget.shouldStop()) break;
+          if (scored === null || ctx.budget.shouldStop()) break;
           const set = s.sets.get(unitId) as CandidateSet;
           for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
             if (ctx.budget.shouldStop()) break;
-            const trial = s.bank.price(withMove(scored.plan, candidate));
-            if (better(trial, scored)) scored = trial;
+            const held = scored as BankResult;
+            const trial = absorbing<BankResult>("conform repair", () =>
+              s.bank.price(withMove(held.plan, candidate)),
+            );
+            if (trial !== null && better(trial, held)) scored = trial;
           }
         }
-        plan = scored.plan;
+        if (scored !== null) plan = scored.plan;
       }
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        plan = pairRepair(s, ctx.budget, s.bank.price(plan)).plan;
+        const held = plan;
+        const paired = absorbing("conform pair-repair", () =>
+          pairRepair(s, ctx.budget, s.bank.price(held)),
+        );
+        if (paired !== null) plan = paired.plan;
       }
       return plan;
     }
@@ -2521,6 +2706,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       jointsBeforeShrink: 0,
       rungThreshold: 0,
       rungIcm: 0,
+      cells: 0,
+      worstClusterCells: 0,
+      rungRation: 0,
+      clustersRationed: 0,
       merged: false,
       proposals: 0,
       proposalsPriced: 0,
@@ -2554,6 +2743,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         jointsBeforeShrink: out.jointsBeforeShrink + cluster.stats.jointsBeforeShrink,
         rungThreshold: out.rungThreshold + cluster.stats.rungThreshold,
         rungIcm: out.rungIcm + cluster.stats.rungIcm,
+        cells: out.cells + cluster.stats.cells,
+        // A MAX, not a sum: the question this row answers is "how big was the
+        // biggest single cluster", and summing it over sessions would answer a
+        // different one.
+        worstClusterCells: Math.max(out.worstClusterCells, cluster.stats.worstClusterCells),
+        rungRation: out.rungRation + cluster.stats.rungRation,
+        clustersRationed: out.clustersRationed + cluster.stats.clustersRationed,
         merged: out.merged || cluster.stats.merged,
         proposals: out.proposals + cluster.stats.proposals,
         proposalsPriced:
