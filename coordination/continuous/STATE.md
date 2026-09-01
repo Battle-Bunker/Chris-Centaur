@@ -42,6 +42,46 @@ running as cycle 5b — see §6. Exact resume instructions if paused again:
   4/4 cores). The box has not had an idle moment yet this session — the
   wait loop just keeps polling every 30s.
 
+## 7. k5 landed — cycle 5 result (2026-09-01 ~03:55)
+
+432 games, 216/arm, 0 failed. **Merged `claude/kit-depth-miner-fix`
+(639416b, fast-forward) into `$SP/ppkit` first** — `depth-ran.js` existed
+nowhere in the kit before this; do not use it on data from before this
+merge.
+
+**Verdict: NULL AT ALL THREE effectTurns SETTINGS. Queue item 9 CLOSED.**
+
+| cell (effectTurns) | G = potionOrder−plain, 24 blocks | 95% CI | potions/game potionOrder vs plain |
+|---|---:|---:|---|
+| 3 | +0.054 | [-0.053, 0.165] | 4.06 vs 2.69 (+51%) |
+| 8 | +0.049 | [-0.149, 0.264] | 3.86 vs 2.73 (+41%) |
+| 20 | +0.047 | [-0.238, 0.325] | 3.11 vs 2.40 (+30%) |
+
+Every CI contains zero at every setting; the point estimate does not rise
+with effectTurns despite potions being visibly worth more to hold (30-51%
+more collected each time, monotone with the ordering flag doing its job).
+Hazard occupancy is 0 as designed (hazards off), so this isolates the
+prize question cleanly from the hazard-chase harm found in k1/k2.
+**Standing verdict for the programme: invulnerability potions are not
+worth chasing in this game at any effectTurns the harness offers.**
+`potionOrdering` stays selectable, default OFF on hazard boards (per k1/k2's
+-0.145 replicated harm there). No replication needed — nothing crossed
+zero to replicate.
+
+## 8. Cycle 4 RERUN as 4b, in flight
+
+Box was clear (0 sibling processes) right after k5 landed — launched
+immediately. `run-cycle4b.sh` uses **bundle `b5`** (not `b4` — same
+toll-fix rebuild as k5) and reruns the hazard dose-response
+(damageRatio 0.05/0.15/0.30) that k4 aborted at 90/216 games/arm.
+Detached (`nohup`), pid in `$SP/continuous/k4.pid`, log
+`$SP/continuous/k4.log`, `$SP/continuous/k4` cleared and rebuilt from the
+same deterministic spec (same seeds as the aborted attempt).
+
+**Deferred, on purpose:** `replaymech.js` on k2/k3 (queue item 3 above)
+waits until k4b finishes — it's single-threaded but not free, and k4b is
+using all 4 cores at `--workers 2`. Do not run it concurrently.
+
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,
 findings-1..7). This file supersedes it for the continuous programme.

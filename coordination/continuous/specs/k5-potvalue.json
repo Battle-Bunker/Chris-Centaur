@@ -1,0 +1,163 @@
+{
+ "_comment": [
+  "THE POTION-VALUE SWEEP — effectTurns 3 / 8 / 20, hazards off, the working",
+  "potionOrdering flag on. Finds where collecting potions starts to pay."
+ ],
+ "sweepId": "pp-potion-value",
+ "contenders": {
+  "potionOrder": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "potionOrder",
+    "candidates": {
+     "potionOrdering": true
+    }
+   }
+  },
+  "plain": {
+   "base": "lobster-territory",
+   "bot": {
+    "name": "plain"
+   }
+  }
+ },
+ "bots": [
+  "potionOrder",
+  "plain",
+  "reflex"
+ ],
+ "seeds": [
+  102301,
+  102302,
+  102303,
+  102304,
+  102305,
+  102306,
+  102307,
+  102308,
+  102309,
+  102310,
+  102311,
+  102312,
+  102313,
+  102314,
+  102315,
+  102316,
+  102317,
+  102318,
+  102319,
+  102320,
+  102321,
+  102322,
+  102323,
+  102324
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "potion-val03-snake6",
+   "config": {
+    "name": "potion-val03-snake6",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  },
+  {
+   "cell": "potion-val08-snake6",
+   "config": {
+    "name": "potion-val08-snake6",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 8
+    }
+   }
+  },
+  {
+   "cell": "potion-val20-snake6",
+   "config": {
+    "name": "potion-val20-snake6",
+    "size": 21,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 200,
+    "turnCap": 80,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 20
+    }
+   }
+  }
+ ]
+}

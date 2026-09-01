@@ -1,18 +1,36 @@
 # SUCCESSOR — exact resume instructions
 
-**RESUMED 2026-09-01 ~02:52.** Cycle 5 (potion-VALUE sweep) relaunched as
-`run-cycle5b.sh`, bundle rebuilt from `claude/cluster-lookahead@79b5f5e`
-(the toll fix). See STATE.md §6 for exactly what changed on resume.
+**UPDATED 2026-09-01 ~03:58.** k5 (potion-VALUE sweep) landed and is
+CLOSED — null at effectTurns 3/8/20, see STATE.md §7. Cycle k4 is
+rerunning as **k4b** (hazard dose-response, bundle b5) — check it first:
 
-If this session ended and k5 is still running or done, check:
 ```
-tail -20 $SP/continuous/k5.log
-ls $SP/continuous/k5   # populated once run-pair.js starts writing
+cat $SP/continuous/k4.log | tail -20     # ends "[cycle4b] DONE" when finished
+ps -p $(cat $SP/continuous/k4.pid) 2>&1  # confirms the detached wrapper is alive
 ```
-If `k5.log` ends with `[cycle5] DONE`, analyse with the commands below and
-move to "Then, in order". If it is still in the wait loop or mid-sweep,
-either wait for it or re-launch is unnecessary — it is idempotent only via
-`--resume` on run-pair.js if genuinely dead; check `ps` first.
+
+If `k4.log` ends `[cycle4b] DONE`: analyse with
+```
+node $SP/continuous/accum.js      potionOrder plain $SP/continuous/k4
+node $SP/continuous/floorscale.js potionOrder plain $SP/continuous/k4
+node $SP/continuous/replaymech.js $SP/continuous/k4
+```
+looking for monotone harm across damageRatio 0.05/0.15/0.30 (confirms the
+chase-into-hazard mechanism) vs a flat profile (kills it). Record verdict
+in STATE.md + experiment-queue.md, push, then move to "Then, in order"
+below.
+
+If k4b is still running: **do not launch anything else concurrently**
+(`--workers 2` already uses all 4 cores). Once it's done, THEN run
+`replaymech.js` on k2 and k3 (item 3 below) — deliberately deferred so it
+doesn't steal cycles from k4b.
+
+**Launch mechanism note:** the Bash tool's `run_in_background` has a
+10-minute `timeout_ms` ceiling that applies even in background mode — a
+wait-then-run wrapper expected to run past 10 min (box-clear wait + a
+~60-90 min sweep) must be launched detached (`nohup … & disown`, pid
+recorded to a `.pid` file) or it gets silently killed mid-wait with zero
+games run. This bit k5's first launch attempt; see STATE.md §6.
 
 Read `STATE.md` for the full picture and `HANDOFF-NOTE.md` for the
 one-page summary. This file is only what you need to restart.
@@ -41,9 +59,10 @@ children of the agent process.
 | 4 | evaluator-selection ladder | untouched |
 | 5 | gainOrdering under potions | untouched |
 | 6 | focus-narrowing search | still unbuilt by the builder |
-| 7 | hazard dose-response | **PARTIAL — k4 aborted.** Rerun; see below |
+| 7 | hazard dose-response | **RERUNNING as k4b** on bundle b5, see above |
 | 8 | replay inspection | **DONE**, zero games, produced the session's best result |
-| 9 | potion-VALUE sweep | **READY TO FIRE — this is the next cycle** |
+| 9 | potion-VALUE sweep | **CLOSED — null at effectTurns 3/8/20.** See STATE.md §7 |
+| 10 | hazard dose-response rerun (k4b) | in flight, bundle b5 |
 
 `$SP/experiment-queue.md` carries the full reasoning.
 

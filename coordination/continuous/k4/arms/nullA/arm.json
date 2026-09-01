@@ -1,13 +1,13 @@
 {
  "arm": "nullA",
- "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b4",
+ "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b5",
  "bundleStamp": {
-  "ref": "7f89a74",
-  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
-  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
-  "committedAt": "2026-08-31T23:17:15+00:00",
+  "ref": "79b5f5e",
+  "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+  "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+  "committedAt": "2026-09-01T02:38:30+00:00",
   "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
-  "builtAt": "2026-08-31T23:40:24.204Z",
+  "builtAt": "2026-09-01T02:54:08.756Z",
   "node": "v22.22.2",
   "platform": "linux",
   "arch": "x64",
@@ -22,6 +22,6 @@
  "spec": "pp-hazard-dose",
  "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/k4-hazdose.json",
  "workers": 2,
- "startedAt": "2026-09-01T01:53:10.260Z",
- "note": "continuous cycle 4: hazard dose-response. k1+k2 found potionOrder -0.145 [-0.258,-0.035] against plain on the interior-hazard cell and nothing on two hazard-free cells; the proposed mechanism is that sorting a pickup as a gain walks units across hazard cells. Same cell at damageRatio 0.00 / 0.15 / 0.30, everything else fixed. Monotone harm rising with damage confirms it; a flat profile kills it."
+ "startedAt": "2026-09-01T08:29:31.641Z",
+ "note": "continuous cycle 4 rerun (b5, cluster-lookahead@79b5f5e, toll fix): hazard dose-response. k1+k2 found potionOrder -0.145 [-0.258,-0.035] on the interior-hazard cell, null on two hazard-free cells; k5 (potion-value sweep) found the prize itself null at effectTurns 3/8/20 even with hazards off. This cell: damageRatio 0.05/0.15/0.30, everything else fixed. Monotone harm rising with damage confirms the chase-into-hazard mechanism; a flat profile kills it."
 }

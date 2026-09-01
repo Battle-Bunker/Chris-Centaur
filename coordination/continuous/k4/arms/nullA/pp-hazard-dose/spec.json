@@ -351,12 +351,12 @@
  "workers": 2,
  "poolSize": 2,
  "bundle": {
-  "ref": "7f89a74",
-  "sha": "7f89a7434e6195c6dc869f6e4579d32153c34416",
-  "subject": "wip: the pickup ordering slot, selected by candidates.potionOrdering",
-  "committedAt": "2026-08-31T23:17:15+00:00",
+  "ref": "79b5f5e",
+  "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+  "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+  "committedAt": "2026-09-01T02:38:30+00:00",
   "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
-  "builtAt": "2026-08-31T23:40:24.204Z",
+  "builtAt": "2026-09-01T02:54:08.756Z",
   "node": "v22.22.2",
   "platform": "linux",
   "arch": "x64",
@@ -383,11 +383,11 @@
   "cpus": 4,
   "totalmemGb": 15.7,
   "loadavgAtStart": [
-   10.87,
-   14.59,
-   15.55
+   0.45,
+   0.49,
+   0.25
   ]
  },
- "startedAt": "2026-09-01T01:53:11.194Z",
+ "startedAt": "2026-09-01T08:29:34.993Z",
  "resumedAt": []
 }

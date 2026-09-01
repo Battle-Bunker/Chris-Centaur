@@ -1,3 +1,7 @@
+0. MERGE claude/kit-depth-miner-fix into sim/worker-kit (+potion-intel-kit) BEFORE any further mining (refuses-not-defaults miner + new columns).
+   DONE for potion-intel-kit (2026-09-01 ~03:56): fast-forward 639416b
+   into $SP/ppkit (tmp/potionplay-kit). depth-ran.js, focus-deaths.js,
+   potion-defense-mech.js, within-game.js now present and safe to use.
 # DYNAMIC EXPERIMENT QUEUE (ruling 40)
 # This sandbox runs continuously from the top; PC batches = 9h packages
 # cut from here on owner request. Keep prioritized; runner updates.
@@ -180,3 +184,18 @@
    which is a finding about the GAME and should stop the potion effort
    rather than deepen it.
    Cheap: 24 blocks x 3 rotations x 3 cells = 216 games/arm, ~68 min.
+   **RAN — CLOSED (2026-09-01 ~03:56).** 432 games, 0 failed. It never
+   crosses: G = +0.054/+0.049/+0.047 at effectTurns 3/8/20, every 95% CI
+   contains zero, no rise with effectTurns despite potionOrder collecting
+   30-51% more potions than plain at every setting (replaymech.js
+   confirms the capability is still working; the prize just never pays).
+   **Standing verdict: invulnerability potions are not worth chasing in
+   this game at any effectTurns the harness offers. potionOrdering stays
+   selectable, default OFF on hazard boards** (per item 7's replicated
+   -0.145 harm there). Full table: $SP/continuous/STATE.md §7.
+
+10. Cycle k4 RERUN as k4b (2026-09-01 ~03:57) — same hazard dose-response
+    as item 7, on bundle b5 (rebuilt from claude/cluster-lookahead@79b5f5e,
+    the first-plan toll fix) instead of the pre-fix b4. k4 was aborted at
+    90/216 games/arm on the prior pause; k4b reruns from a cleared batch
+    dir on the same deterministic seeds. In flight — see STATE.md §8.
