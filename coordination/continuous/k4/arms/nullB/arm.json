@@ -22,6 +22,6 @@
  "spec": "pp-hazard-dose",
  "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/k4-hazdose.json",
  "workers": 2,
- "startedAt": "2026-09-01T09:02:37.563Z",
- "note": "continuous cycle 4 rerun (b5): hazard dose-response, RESUMED after container recycle killed k4b at ~20/216."
+ "startedAt": "2026-09-01T09:35:51.904Z",
+ "note": "cycle 4 rerun (b5), RESUMED again after 2nd detached-process death (idle-container recycle); staying in foreground loop this time."
 }

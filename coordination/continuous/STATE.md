@@ -82,6 +82,49 @@ same deterministic spec (same seeds as the aborted attempt).
 waits until k4b finishes — it's single-threaded but not free, and k4b is
 using all 4 cores at `--workers 2`. Do not run it concurrently.
 
+## 9. k4b landed (2026-09-01, after 2 container-recycle deaths + 2 resumes)
+
+212/216 games per arm (4 permanently FAILed: same seed, both arms,
+duplicate-replay-refused from the first crash's partial writes — pairing
+stays symmetric). The 4 corresponding corrupt `.jsonl.gz` orphans (8
+files, both arms) were deleted so `replaymech.js` could run; they were
+never in the manifest.
+
+**FINDING: THE k1/k2 HAZARD-HARM RESULT DOES NOT REPLICATE ON b5
+(post-toll-fix). Likely explanation: the toll fix itself, not noise.**
+
+| damage | G = potionOrder−plain, 24 blocks | 95% CI | hazard occ. potionOrder vs plain | deaths/game |
+|---|---:|:--|---|---|
+| 0.05 | +0.032 | [-0.110, 0.183] | 1.39 vs 1.40 (same) | 2.25 vs 2.43 |
+| 0.15 | +0.015 | [-0.111, 0.134] | 1.05 vs 1.10 (same) | 2.35 vs 2.45 |
+| 0.30 | **+0.178** | **[0.021, 0.338]** | 0.89 vs 0.97 (same) | 2.44 vs **2.91** |
+
+k1+k2 (bundle `b4`, pre-toll-fix) found -0.145 [-0.258,-0.035] at damage
+0.15, replicated twice, with the mechanism fully traced: potionOrder
+walked units into hazard MORE (occupancy/head-entries elevated vs plain).
+**On b5, hazard occupancy and head-entries into hazard are statistically
+identical between potionOrder and plain at every dose** — the walking-into-
+hazard mechanism that explained the old harm is gone. At the highest dose
+the direction reverses: potionOrder now has FEWER deaths/game than plain
+(2.44 vs 2.91) and G's CI excludes zero on the positive side, though
+barely (lower bound 0.021, and this cell's own A/A floor is 0.277 — wide,
+per the corrected rule that's not disqualifying, but it means this single
+reading alone should not be over-claimed; the CLEAN NULL at 0.05/0.15 is
+the more load-bearing part of this finding).
+
+**This changes the standing recommendation from k1/k2.** The "default OFF
+on hazard boards" guidance was conditioned on the pre-toll-fix bundle. On
+the current tip (`79b5f5e`) there is no evidence of harm and weak evidence
+of a small benefit at high hazard damage. **Do not restate the old -0.145
+harm number without the bundle caveat — it was measured on `b4`,
+superseded by the toll fix.** A full k1/k2-style replication on `b5` (not
+just this dose-response cell) would be needed to positively confirm no
+harm at the original hazard-snake6 cell; this cell (interior-hazard
+snake6 at 3 doses) is the same board family but not literally the same
+cell k1/k2 used. Flag for the owner: the toll fix's scope may be broader
+than "first-plan gate" — worth a direct question to whoever landed
+`79b5f5e` about what else it touches.
+
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,
 findings-1..7). This file supersedes it for the continuous programme.

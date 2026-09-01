@@ -198,4 +198,15 @@
     as item 7, on bundle b5 (rebuilt from claude/cluster-lookahead@79b5f5e,
     the first-plan toll fix) instead of the pre-fix b4. k4 was aborted at
     90/216 games/arm on the prior pause; k4b reruns from a cleared batch
-    dir on the same deterministic seeds. In flight — see STATE.md §8.
+    dir on the same deterministic seeds.
+    **LANDED (survived 2 container-recycle deaths + --resume): 212/216.
+    DOES NOT REPLICATE item 7's harm finding.** G = +0.032/+0.015/+0.178
+    at damage 0.05/0.15/0.30 (24 blocks each); hazard occupancy and head-
+    entries into hazard are now statistically identical between
+    potionOrder and plain at every dose (were elevated for potionOrder on
+    b4). **The old -0.145 harm number was measured on b4 and is superseded
+    by the toll fix — do not quote it without that caveat.** Standing
+    recommendation changes: no evidence of harm on b5; weak evidence of a
+    small benefit at damage 0.30 (CI [0.021, 0.338], barely excludes
+    zero). Not yet a full replication of the original k1/k2 cell — flag
+    for the owner. Full table: STATE.md §9.
