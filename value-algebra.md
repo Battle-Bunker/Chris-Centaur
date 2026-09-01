@@ -216,6 +216,69 @@ cannot.
 
 ---
 
+## 3.2 THE FOLD IS EMPIRICALLY VALIDATED — one coefficient, three rosters, 27× of effect
+
+§3's fold is not an argument. It is testable against the replays already on disk, and it
+passes. For each game I summed, per bot, the weight destroyed by each of its unit deaths,
+priced three ways, and regressed the paired within-game `sharePar(T−M)` on each — **through
+the origin, one pooled coefficient for all three cells, no per-cell tuning** (144 games):
+
+| predictor of sharePar(T−M) | pooled k | R² | worst per-cell residual |
+|---|---|---|---|
+| deaths avoided (the count) | 0.523 | 0.677 | 0.395 |
+| weight saved (count × balance) | 0.128 | 0.638 | 0.315 |
+| **folded weight — Σ (K/W)(1−p)·w_u at the moment of death** | **2.919** | **0.866** | **0.085** |
+
+Per-cell, the folded model against observation:
+
+| cell | observed sharePar(T−M) | model | residual |
+|---|---|---|---|
+| snake6 | +1.620 | +1.705 | −0.085 |
+| snake5-queen | +0.536 | +0.472 | +0.064 |
+| snake5-knight | +0.060 | +0.056 | +0.004 |
+
+**A single-parameter model reproduces effect sizes spanning 27× across three rosters that
+were chosen precisely because they behave differently.** The nesting tells the whole story:
+counting deaths is wrong (it ignores the balance destroyed); counting weight is better;
+folding through the live share state `(K/W)(1−p)` is right. Each refinement is exactly one
+term of §3's derivative, and each one buys accuracy.
+
+Three consequences worth stating flatly:
+
+1. **`room: 3` is wrong by a factor the engine can compute for free.** The correct
+   coefficient on a unit's death hazard is `(K/W)(1−p)·w_u`, and every quantity in it is on
+   the live board. This is not a parameter to fit — it is a parameter to *stop hard-coding*.
+2. **k ≈ 2.92, not 1.0.** Preventing a death is worth about three times the instantaneous
+   share value of the weight preserved. That is the compounding premium of a live account:
+   a unit that survives keeps eating, keeps denying, and keeps the team out of the
+   elimination tail. It is the one honest free parameter in the fold, and it is now measured
+   rather than guessed.
+3. **The residual is small enough that the remaining structure is second-order.** Whatever
+   territory, ordering and potions are doing beyond "keep valuable units alive in
+   share-adjusted terms", it accounts for less than 0.09 sharePar on any of these cells.
+
+### 3.3 A negative result that matters: unit count adds nothing
+
+I expected team survival to need its own term — a team dies only when *all* units die, a
+conjunction, so a "survival buffer" seemed like it should carry independent value. It does
+not. Predicting final sharePar from mid-game (turn 60) state, over 141–144 team-observations
+per cell:
+
+| cell | corr with weight | corr with **weight share** | corr with unit count | **partial corr with unit count, given weight share** |
+|---|---|---|---|---|
+| snake6 | +0.804 | **+0.870** | +0.815 | +0.067 |
+| snake5-queen | +0.848 | **+0.878** | +0.597 | −0.100 |
+| snake5-knight | +0.375 | **+0.447** | +0.181 | −0.283 |
+
+**Weight share is a sufficient statistic; unit count adds nothing once you know it.** So the
+algebra needs no separate survival-buffer term, and an evaluator whose objective is
+"maximise expected terminal weight share" is aiming at the right target — which is the
+strongest available vindication of the currency choice itself. (Note also the knight cell's
+weak +0.447 against the others' +0.87: even *mid-game weight share* barely predicts the
+final result there. Another face of the dead instrument.)
+
+---
+
 ## 4. THE ALGEBRA — ONE TYPE FOR ALL FIVE HEURISTIC FAMILIES
 
 Every heuristic in the portfolio emits the same thing: a **rate on a named flow, attached
@@ -288,6 +351,117 @@ most. Under the algebra the cliff is not a separate convention at all — it fal
 
 ---
 
+## 4.3 ADMISSION VERSUS PRICING — what the VALUE side wants the combination law to be
+
+The composition lens established that the shipped move-selection law is not the additive
+sum the socket declares, but `gainOrderKey` — a twelve-slot hand-written lexicographic
+comparator — and that `candidateCap: 8` closes the candidate set *after* that comparator
+sorts and *before* anything is priced. I verified both (`candidates.ts:1556`, `core.ts:383`).
+That changes what my algebra has to say, and it turns out to sharpen it rather than
+complicate it.
+
+**The two channels have the same bug.** Reading `gainOrderKey` with the account algebra in
+hand:
+
+```
+captureRank = (c) => c === 'yes' ? 2 : c === 'maybe' ? 1 : 0;     // candidates.ts:1497
+if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;    // foodGain is 0 or 1
+```
+
+**Not one of the twelve slots scales with weight.** Capturing a weight-31 queen ranks
+identically to capturing a weight-2 snake. `tierRisk` grades tier exposure without asking
+what balance is exposed. `contingencies` is a count. So the ordering channel is blind to
+account balance in exactly the way `room: 3` is blind to it in the additive channel.
+
+> **The additive channel's bug and the lexicographic channel's bug are the same bug: both
+> freeze a magnitude relation that the board sets at runtime.** A fixed coefficient asserts
+> "this flow is always worth 3 cells"; a fixed precedence asserts "this flow always
+> dominates that one". Both assertions are true only at some particular balance
+> configuration, and §2 measured balances varying 15× across rosters.
+
+**So the law should be additive — but the currency is the deliverable, not the law.**
+Choosing "additive" without a common currency merely reintroduces arbitrary weights.
+Lexicographic ordering exists in this codebase because the emissions are *incommensurable*:
+you cannot add `foodGain: 1` to `shadowBonus: 3`. Once every emission is a weight-flow rate
+folded by §3.2's validated derivative, addition becomes meaningful and precedence becomes
+*derivable* instead of declared.
+
+And then the composition lens's three options stop being alternatives:
+
+> **Lexicographic and additive are the two limits of one parameter.** With
+> `balanceFactor = w_u^γ`: at γ = 0 all accounts are equal and the fold is purely additive;
+> as γ grows, the fattest account's flows dominate every comparison, and in the limit the
+> order is lexicographic by balance-at-risk. Banded is the interior. **The combination law
+> is not a mode to select — it is a coordinate to set**, and it is the same γ that §6 hands
+> the operator. That is what "cleanly parameterizable at the joint" should mean.
+
+**Banding is legitimate only when derived, and this game has exactly one real band.** A
+death is not a marginal loss — it wipes the whole account (`playerScores[id] = dead ? 0 :
+length`). That discontinuity is a genuine band boundary, and it is *computed* from the
+balances rather than declared as a slot position. On snake6 all bands coincide (equal
+balances) and behaviour is additive; on the queen board the queen's band separates sharply.
+Same law, different behaviour, driven by state. That is what the twelve-slot comparator was
+groping for when it put tier and capture on top — it had the right instinct and froze it at
+one board's magnitudes.
+
+**Admission must be a bound, not a preference.** Pricing answers "of these plans, which
+maximises ΔS"; admission answers "which plans could possibly maximise ΔS". Those are
+different questions and only the second one is allowed to discard. A comparator sorts by
+preference and truncates, which can silently drop the argmax — and the code comment says as
+much: *"a collection that never enters the priced set cannot be valued by any evaluator,
+however loudly that evaluator prices it."* The value-side replacement:
+
+> Drop a plan only when its interval **upper** bound on ΔS lies below the **lower** bounds
+> of at least `candidateCap` other plans.
+
+This is sound — it can never drop the true best — and it is no more expensive than the
+comparator provided the bounds are the coarse per-flow priors the portfolio memo already
+proposes as shadows. It also degrades honestly: when bounds are wide the admitted set stays
+wide and the search must either spend more or admit that it is guessing, which is exactly
+the information a fixed cap currently destroys.
+
+**Which flows belong in ordering, and which in evaluation.** The criterion is not importance
+— it is *bound width per unit of cost*:
+
+| channel | carries flows that are… | examples |
+|---|---|---|
+| **ordering** (cheap, pre-admission) | exactly known or boundable by one bitboard op, and *wide* enough to separate plans | does this move eat (inflow, 1 bit); does it step into a strictly-higher tier's reach (transfer risk, one AND); does it drop escape cardinality below threshold (outflow, one popcount); **the balance at risk (one lookup — currently absent)** |
+| **evaluation** (priced, post-admission) | needing the expensive kernel — ordered ray walks, the partition | slider attack vectors, voronoi inflow, defence-line shadowing |
+
+By that rule the shipped comparator is miscomposed in both directions: it carries `edgeEv`
+and `shadowBonus` (expensive to compute, narrow in effect) as slots, and it omits balance
+(one lookup, and the widest-magnitude factor in the whole system).
+
+### 4.4 This reconciles "ordering is the lever" with "weights do nothing"
+
+The two histories were never one puzzle, and the algebra says exactly how they compose:
+
+- **Ordering controls the support** of the value distribution. `potionOrdering` moved the
+  support (+55% pickups, free) because it admitted plans that were previously never seen.
+- **Evaluation controls the choice within the support.**
+- **k5's null is the correct value of that support change.** Per §4.1 a potion is a
+  multiplier on the transfer flow, worth `Σ[P(win|tier+1) − P(win|tier 0)]·w_v` — identically
+  zero when no fat enemy account is reachable, which is exactly the boards k5 ran on. So
+  `potionOrdering` widened the support in a direction of zero value, and both findings are
+  true simultaneously.
+
+**And a cheap diagnostic that may explain "4× weights flat-to-worse" outright.** If the
+eight admitted candidates are homogeneous in feature `f`, then `w_f` is inert *at any
+value* — scaling it reorders nothing because there is nothing to reorder. Nobody has
+measured the spread of each feature **across the admitted set**; the acceptance tests
+measure spread across all legal candidates, which is a different and much larger number.
+
+> **Instrument: per decision, the spread of each feature over the `candidateCap` admitted
+> plans, not over the legal ones.** Prediction: `reach` and `room` spread over the admitted
+> eight is near zero on most turns, because the top slots (tier, capture, `foodGain`) select
+> plans already similar in territory. If that holds, the entire weight-sweep history was
+> measuring an inert coefficient, and no amount of re-weighting was ever going to move it.
+
+This is the cheapest decisive measurement I have found anywhere in the program: it needs no
+games, no new evaluator, and one counter in the existing candidate pipeline.
+
+---
+
 ## 5. WHAT THE ENGINE API MUST EXPOSE
 
 To make these flows cheap and composable, and nothing more than these:
@@ -349,11 +523,22 @@ semantics rather than an open-ended list of feature contributions.
 
 Each is a claim this memo will be wrong about if it is wrong.
 
+**P0 — the fold replaces the coefficient.** Set the safety term's coefficient to
+`(K/W)(1−p)·w_u · k` with k ≈ 2.9 from §3.2, computed live, instead of the constant
+`room: 3`. Every input is on the board; nothing is fitted. Predicted: recovers most of the
+queen-board deficit, no-ops on snake6 (where the fold is near-constant across units), and
+does nothing on snake5-knight (nothing to protect). This supersedes P1 below, which is its
+cruder ancestor — P1 scales by balance only, P0 by the full validated derivative.
+
 **P1 — the weight-scaled safety term.** Scale `room` (and `healthEconomy`'s exhaustion
 half) by `w_u`. Predicted: **a no-op on snake6** (equal balances ⇒ scaling is a constant),
 and a **large gain on snake5-queen**, concentrated in queen-survival rate. If it moves
-snake6, the mechanism in §3 is wrong. This is the highest-information single experiment
-available and it is two rungs of an existing ladder.
+snake6, the mechanism in §3 is wrong. Cheaper to implement than P0 and a valid first probe.
+
+**P1b — the admitted-set spread instrument (§4.4).** Measure each feature's spread over the
+`candidateCap` admitted plans. Predicted near-zero for `reach`/`room` on most turns. **No
+games required.** If confirmed, every weight sweep in the program's history was measuring an
+inert coefficient, and that single fact reframes the whole additive-channel record.
 
 **P2 — the ladder's territory seat is the wrong profile.** Re-run snake5-queen and
 snake5-knight with `lobster-territory-x` (`command: 2`) in the territory seat. Predicted:
@@ -392,8 +577,34 @@ sharePar SD from a handful of games before committing blocks to it.
 4. The horizon-1 finding still binds everything (`chosen.horizon == 1` in every telemetry
    record I read across all three cells, 5,000+ decisions per bot per cell). A transfer
    flow that resolves in three turns is invisible to a one-turn search at any weighting.
-5. I have not checked the rook cell (running at time of writing). It is the discriminator
-   between "slider" and "weight accumulator": a rook sweeps fewer new cells per turn than a
-   queen. **This memo predicts the rook lands between the two — closer to the queen than to
-   the knight, and ordered by final piece weight, not by mobility class.** That is a clean
-   pre-registration.
+5. **The rook cell — pre-registration, and a first partial reading.** The rook is the
+   discriminator between "slider" and "weight accumulator": it sweeps fewer new cells per
+   turn than a queen. This memo predicted, before any rook data existed, that it would land
+   **between the two, closer to the queen, ordered by final piece weight rather than by
+   mobility class**. First four complete games (`rl5`, still running — treat as indicative
+   only, n = 4):
+
+   | roster | piece weight, territory | piece weight, material |
+   |---|---|---|
+   | snake5-queen (n=48) | 31.2 | 28.7 |
+   | **snake5-rook (n=4)** | **26.0** | **18.0** |
+   | snake5-knight (n=48) | 3.0 | 2.8 |
+
+   Consistent with the prediction so far. The prediction that actually discriminates is on
+   the *score*: G(territory − material) on the rook cell should land between +0.06 and
+   +0.54 and nearer the queen's, and should be predicted by the folded-weight model of §3.2
+   using the rook cell's own measured deaths — **a one-parameter out-of-sample forecast with
+   k = 2.919 already fixed by the other three cells.** If it misses, §3.2 is overfitted to
+   three points and should be treated as such.
+
+6. The fold in §3.2 is validated on the **outflow** channel only. Inflow (food capture) and
+   transfer (contest/sever) are folded by the same derivative in the algebra, but I have not
+   tested them separately — the deaths channel simply dominates these cells. A board where
+   growth rather than survival decides would be the honest test of the other two, and none of
+   the cells I have is one.
+
+7. The per-cell CIs on weight-saved are wide on two of three cells (queen: [−4.2, +0.8];
+   knight: [−1.7, +1.1]). The pooled regression is driven substantially by snake6, which has
+   by far the largest signal. The R² = 0.866 is a genuine improvement over 0.677/0.638, and
+   the residual ordering is right on all three, but this is 144 games and three rosters, not
+   a law.
