@@ -1,0 +1,236 @@
+# VALUE LENS — FINAL SYNTHESIS
+
+Branch `design/value-evaluation`. Companion: `value-algebra.md` (the full argument);
+`tools/` (the mining scripts, so every number here is reproducible from replays on disk).
+
+---
+
+## THE ONE-SENTENCE ANSWER TO THE MANDATE
+
+**There is one algebra, and it is not a weighted sum of positional terms: value is
+`E[terminal weight share]`, weight is held in per-unit accounts, a death wipes a whole
+account, and every heuristic is an estimator of a flow into or out of one — folded by a
+coefficient `(K/W)(1−p)·w_u` that the live board supplies and that the shipped evaluator
+does not compute at all.**
+
+The evidence is not an argument from elegance. A single-parameter version of that fold
+reproduces the evaluator ladder's effect sizes across three rosters spanning 27× — R² 0.866,
+worst residual 0.085 sharePar — where counting deaths gives 0.677 and counting weight gives
+0.638.
+
+---
+
+## 1. WHAT I FOUND, IN ORDER OF HOW MUCH IT SHOULD CHANGE
+
+### 1.1 The fold is real and measured (`value-algebra.md` §3.2)
+
+Pooled through-origin regression, 144 games, three rosters, **one coefficient, no per-cell
+tuning**, predicting paired within-game `sharePar(territory − material)`:
+
+| predictor | k | R² | worst per-cell residual |
+|---|---|---|---|
+| deaths avoided | 0.523 | 0.677 | 0.395 |
+| weight saved | 0.128 | 0.638 | 0.315 |
+| **Σ (K/W)(1−p)·w_u at the moment of death** | **2.919** | **0.866** | **0.085** |
+
+Observed vs model: snake6 +1.620/+1.705, queen +0.536/+0.472, knight +0.060/+0.056.
+
+Each refinement is exactly one term of the share derivative, and each buys accuracy. The
+practical consequence is small to state and large to act on: **`room: 3` is wrong by a
+factor the engine can compute for free**, and `k ≈ 2.9` (not 1.0) is the compounding
+premium of a live account — the one honest free parameter, now measured.
+
+### 1.2 The R1 ladder's piece verdict does not mean what it says (§1, §2)
+
+- Territory's **behavioural** edge over material is statistically identical on the queen and
+  knight boards (total deaths T−M: −0.271 [−0.61,+0.07] vs −0.167 [−0.62,+0.29]). It is
+  equally degraded by both pieces. Only the score conversion differs, 9×.
+- **The knight cell is a dead instrument.** `moveGrammar.ts:27` — *"a jump crosses no edge,
+  so a knight can never contest one"* — makes the knight unblockable and effectively
+  immortal (1 death per 48 games for territory). Team elimination requires all six units
+  dead, so it becomes impossible: 48/48 games hit the cap, 0 end by elimination,
+  `elim(T−M)` is exactly 0.000 [−0.058,+0.058], all three contenders within 0.14 of par.
+  **No evaluator could have scored positive there.**
+- **The queen board is one binary variable.** The queen holds 80–91% of team weight;
+  `sharePar` given queen-alive is 1.881 vs 0.362 dead (territory). Survival rates of 96% vs
+  84% reconstruct +0.47 against the measured +0.536 — **~88% of the effect**.
+- **And the ladder seats the wrong profile on piece boards.** `DEFAULT_WEIGHTS.command = 0`
+  is what `lobster-territory` uses, and `cells.js:184` seats it everywhere; pieces are
+  excluded from plane 1 by construction and `room` is per-trail-unit, so with `command: 0`
+  **no territory feature gives a piece any signal at all.** `lobster-territory-x`
+  (`command: 2`) ships and was never seated.
+
+### 1.3 Every `(ours − theirs)` balance is calibrated for a two-team game (§3.4)
+
+`∂S/∂w_ours = (K/W)(1−p)` and `∂S/∂w_theirs = −(K/W)p` coincide only at p = 0.5 — a
+two-team game at parity. The owner's default is three teams, where the rate is 1:2. Both
+headline balances are symmetric differences (`territory.ts:648`, `potion-control.ts:281`).
+
+Confirmed on the replays — regressing each team's `sharePar` on its own weight lost vs the
+other two teams' weight lost, 144 team-observations per cell:
+
+| cell | b(own lost) | b(others' lost) | ratio |
+|---|---|---|---|
+| snake6 | −0.0806 | **+0.0403** | 2.00 |
+| snake5-queen | −0.0946 | **+0.0473** | 2.00 |
+| snake5-knight | −0.1091 | **+0.0546** | 2.00 |
+
+The sign on third-party losses is **positive everywhere**, and the ratio is exactly 2.00.
+The exactness is the regression recovering an identity (`sharePar` *is* `K·w/W`), which
+makes a symmetric-difference evaluator **definitionally wrong, not mis-tuned** — no sweep
+can repair it. Two specific consequences: at par an enemy-controlled potion is worth **twice**
+one we control (counted 1:1), and `potion-control.ts`'s header caveat about third-party
+damage is **signed backwards** (it raises our score; `theirsAgainstUs` is the correctly
+scoped half and is not the headline).
+
+`(K, W, p)` is one pass over `roster()` from data the substrate already holds. `grep` finds
+**no team count and no share computation anywhere in the evaluator collection.**
+
+### 1.4 Where the caps actually bind (§4.7)
+
+`candidateCap: 8` is not one cap, and on the units it is usually discussed about it never
+fires. `cluster-enum.ts`'s own census: *"98.9% of team-turns have every non-slider component
+at ≤3"*, and `topCandidates` only slices when `cap < length`.
+
+| unit | options | cap | binds? |
+|---|---|---|---|
+| snake | ≤3 (98.9%) | `enumCandidateCap: 8` | essentially never |
+| slider | tens (~71 for a queen) | **`sliderCandidateCap: 4`** | always — ~94% discarded |
+| joint | product | `maxJointsPerCluster: 512` | binds at 3⁶ = 729 |
+
+**The two defects converge on one unit.** The queen is simultaneously the unit whose safety
+flat `room: 3` under-prices ~15×, the unit whose options are cut 94% by a comparator in
+which *nothing scales with weight* (`captureRank` is yes/maybe/no → 2/1/0; `foodGain` is
+0/1), and the unit holding 80–91% of its team's score. One blind spot —
+balance-insensitivity — expressed once per channel, landing on the unit that decides the
+game.
+
+---
+
+## 2. WHAT THE ALGEBRA IS
+
+```
+Contribution { unit, flow: 'in'|'out'|'transfer', side, rate: interval, horizon }
+
+ΔS = (K/W) · Σ  sign · shareFactor(side) · rate · horizon · balanceFactor
+     shareFactor(ours) = (1−p) ;  shareFactor(theirs) = p
+     balanceFactor     = w_u^γ  on outflows ;  1 otherwise
+```
+
+| family | emits |
+|---|---|
+| `material` | the balances themselves — the state, not a rate |
+| `reach` / voronoi | inflow: contested food arrival |
+| `room`, `healthEconomy` | outflow: box-in and exhaustion hazard × `w_u^γ` — **missing the `w_u` factor today** |
+| slider attack vectors | transfer, theirs→nothing — natively in weight, no conversion |
+| defence lines / shadowing | outflow reduction, ours — also needs `w_u` |
+| potion tier | **not a term** — a multiplier on `P(win)` inside every transfer |
+
+Only γ and the per-flow efficiencies stay free, and the efficiencies are fittable from the
+archive with no new games.
+
+**Why potions nulled, and where they wouldn't.** A potion is worth
+`Σ_v [P(win|tier+1) − P(win|tier 0)]·w_v`, identically zero when no fat enemy account is
+reachable — which is exactly the boards k5 ran on (§2 measured no account there exceeds ~3).
+So the null is correct *for those boards* and says nothing about `w_v ≈ 30`.
+
+---
+
+## 3. ANSWERS TO THE OTHER LENSES
+
+**To composition, on the combination law.** Additive over a weight-flow currency — but *the
+currency is the deliverable, not the law*; choosing "additive" without commensurable
+emissions just restores arbitrary weights. **I withdraw** my stronger claim that one dial
+interpolates lexicographic↔additive: γ is a risk-concentration exponent on outflows, and the
+lexicographic limit exists only at an unbounded balance ratio, of which this game supplies
+exactly one — the account wipe.
+
+**Deriving the twelve slots.** Nine of eleven are value flows the currency subsumes. The
+survivors are not value:
+
+| slot | disposition |
+|---|---|
+| `tier` (`safe`/`atRisk`/`doomed`) | **lattice bottom** — a doomed move is outside the value function's domain, not a low number. Encoding it as a large negative is exactly what would let a dial buy a suicide. Stays precedence; must never become a weight. |
+| `contingencies` | **ECONOMY (value of information)** — conceded to the composition lens against my first draft. A quantity meaning "this estimate is soft" is an input to *spending*; putting it in a preference order silently converts uncertainty into distaste. |
+| `candidate.to` | determinism |
+
+That leaves precedence with **two** residents, both type-level. Clean boundary: the currency
+governs everything denominated in weight; precedence governs what cannot take a coefficient
+without a category error.
+
+**On the potion identification — confirmed for two facts, refuted for the third.**
+
+| verdict | admission artifact? | remedy |
+|---|---|---|
+| "4× potion weights do nothing" | **yes** | withdraw as untested |
+| "potionOrdering wins +55% pickups, free" | **yes — same fact** | keep, but state it as a *support* change, not a value finding |
+| "potions never pay at any `effectTurns`" (k5) | **no — measured with `potionOrdering` already ON** | re-test on a fat-account board; do not generalise from thin-account boards |
+
+**On the inert-weight taxonomy — accepting two refinements and adding a third.** Accepted:
+measure spread **at the point of comparison** (the plans `better()` adjudicates), and **by
+unit class**. Added, because the reported data fits neither cause: **"flat-to-worse" is not
+the signature of an inert term** — a term with no admission and no gradient is flat at
+*every* multiple. Eventually-worse requires non-zero spread. That is **(c) scale
+separation**: the term's spread is so small against `material: 10` that it needs a large
+multiplier to bite, and by then it has crossed the trade-safety inequality and trades units
+for ground. No window helps. This makes the weight-response **curve shape** a diagnostic,
+computable from sweeps already run.
+
+**And (c) is dissolved by the currency, not merely diagnosed.** The cliff inequality exists
+*only because* ordering terms are in cells and material is in weight × 10 — incommensurable
+units needing a hand-set guard. Denominate safety in weight-share and **there is no cliff to
+cross**, because a death costs exactly the balance it wipes, which is what material would
+have charged. The inequality was a unit-conversion guard, not a strategy convention.
+
+---
+
+## 4. WHAT TO BUILD, AND WHAT TO MEASURE FIRST
+
+| # | action | cost | why first |
+|---|---|---|---|
+| **M1** | Form `(K, W, p)` once per turn and use it. Replace both symmetric balances with the asymmetric fold. | one pass over `roster()` | §3.4 shows the current form is *definitionally* wrong on three-team boards |
+| **M2** | Point-of-comparison feature spread, by unit class, as a standing mechanism-report column | one counter, **no games** | separates the three causes of an inert weight; may reframe the entire additive-channel record |
+| **M3** | Re-seat `lobster-territory-x` on the piece cells | two cells | the piece verdict currently measures a profile with its piece term off |
+| **M4** | Weight-scale the safety terms: `(K/W)(1−p)·w_u·k` | small | the validated fold, applied |
+| **M5** | Rank cells by measured `sharePar` SD before spending blocks | free | 0.898 / 0.998 / 0.582 — the knight cell was never going to resolve anything |
+
+---
+
+## 5. PRE-REGISTERED, BEFORE THE ROOK CELL COMPLETES
+
+Recorded at 12 of 48 games, `k = 2.9187` **fixed by the other three cells**, nothing fitted
+to the rook:
+
+| quantity | prediction | reading at n=12 |
+|---|---|---|
+| rook final weight | between queen (31.2) and knight (3.0), **nearer the queen** | **24.8** ✓ |
+| eliminations/game | well above the knight cell's 0.12 — a **live** instrument | **0.75** ✓ (snake6 0.73) |
+| **G = territory − material** | **+0.173**, from `k × the cell's own folded weight` | +0.060, CI [−1.09,+1.21] — uninformative at n=12 |
+
+The third row is the one that matters and it is a genuine out-of-sample forecast. **If the
+completed cell lands far from it, §1.1 is overfitted to three points and I will say so.**
+
+---
+
+## 6. WHAT THIS DOES NOT ESTABLISH
+
+1. **Nothing here is implemented.** Every number is a measurement of existing replays or a
+   rule read from the engine.
+2. **The fold is validated on the OUTFLOW channel only.** Inflow and transfer are folded by
+   the same derivative in the algebra but are untested — deaths simply dominate these cells.
+   A board where growth rather than survival decides would be the honest test, and I do not
+   have one.
+3. **The pooled regression is driven substantially by snake6**, which carries by far the
+   largest signal; per-cell CIs on weight-saved are wide on the other two (queen [−4.2,+0.8],
+   knight [−1.7,+1.1]). R² 0.866 against 0.677/0.638 is a real improvement and the residual
+   ordering is right on all three — but this is 144 games and three rosters, not a law.
+4. **γ has no fitted value.** γ = 1 is proposed as a first probe because it is the
+   risk-neutral point, not because it was estimated.
+5. **Horizon 1 still binds everything.** `chosen.horizon == 1` in every telemetry record
+   across all three cells, 5,000+ decisions per bot per cell. A transfer resolving in three
+   turns is invisible to a one-turn search at any weighting.
+6. **A cost that cuts against my own case.** The fold's residual is small (worst 0.085). If
+   most of the outcome is "keep valuable units alive in share-adjusted terms", then the
+   bot-vs-bot headroom for the whole positional portfolio *is that residual*. The Centaur
+   argument must therefore rest on **surfacing options a human can act on**, and must not
+   borrow the fold's evidence — those are different claims (§6.1).
