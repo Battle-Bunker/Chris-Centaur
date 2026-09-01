@@ -303,6 +303,20 @@ describe('the early stage is a checkpoint, not the answer', () => {
       expect(r.result.report?.improveCalls ?? 0).toBeGreaterThan(0);
       expect(r.wallMs).toBeGreaterThan((r.firstStageMs as number) * 3);
 
+      // AND THE SLICES REACHED THE LAYER THE DEFERRAL MOVED. `improveCalls > 0`
+      // says the loop ran; it does NOT say the enumeration was materialised,
+      // and those are the two halves of what this fix actually did. A build
+      // that ran refinement slices which never reached `clusterOf` would pass
+      // every other assertion in this file and would have deferred the layer
+      // into never — the exact failure a batch of sweep analysis spent itself
+      // wrongly believing had happened here. It is one line, so it is asserted
+      // where the trade is made rather than only next door.
+      // Full tripwire, on its own boards and budgets: `depth-engagement.test.ts`.
+      expect(r.result.mechanism?.loop?.improveCalls ?? 0).toBeGreaterThan(0);
+      expect(r.result.mechanism?.cluster).not.toBeNull();
+      expect(r.result.mechanism?.cluster?.jointsEnumerated ?? 0).toBeGreaterThan(0);
+      expect(r.result.mechanism?.scout?.plies ?? 0).toBeGreaterThan(0);
+
       // THE RATCHET, WHICH IS WHAT MAKES THE EARLY STAGE FREE. Within a BASIS
       // a plan may only replace the staged one on a provably better floor, so
       // the floor can never fall — staging sooner cannot cost the decision

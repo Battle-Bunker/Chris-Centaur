@@ -57,6 +57,7 @@
 
 import type { AdjudicationReport, ClusterReport, SearchCore } from '../contracts';
 import type { BeliefReport } from '../belief';
+import type { KernelReport } from '../kernel';
 import type { SlateStamp } from '../registry';
 import type { CandidateKnobs } from '../candidates';
 import type { AdvisoryReport, MutualWipeReport, RefineReport } from '../evaluate';
@@ -149,6 +150,54 @@ export interface BotStamp {
 }
 
 /**
+ * THE REFINEMENT LOOP'S OWN COUNTERS — the column whose absence let a whole
+ * program believe its search layer was idle.
+ *
+ * ── WHY THIS ROW EXISTS ────────────────────────────────────────────────────
+ *
+ * `clusterOf` is reached from `improve` and nowhere else, and `improve` is
+ * reached only from the kernel's refinement slice. So `improveCalls` is THE
+ * upstream cause of every cluster, scout and focus row on this report: with it
+ * at zero, all three are null by construction and no amount of staring at them
+ * says why. Without it a reader has to infer the loop from its consequences,
+ * and an investigation that did exactly that spent a batch concluding the
+ * depth layer had been broken by a latency fix when the loop had been running
+ * on every decision all along.
+ *
+ * Every field here is already on `KernelReport`; what is new is that the
+ * MECHANISM report carries them, because the mechanism report is the object a
+ * sweep manifest folds and the kernel report is not. This row is permanent for
+ * that reason: it costs five reads off a finished object, and it is the only
+ * row that distinguishes "the layer refused" from "the layer was never asked".
+ *
+ * Null only when the decision produced no kernel report at all.
+ */
+export interface LoopReport {
+  /** Refinement slices the kernel actually ran. */
+  readonly slices: number;
+  /**
+   * Slices that went to `improve` — the full search rung, which is where the
+   * cluster enumeration is materialised (`search/core.ts::clusterOf`). ZERO
+   * HERE MEANS `cluster`, `scout` AND the acute focus ARE NULL FOR A REASON
+   * THAT IS NOT ABOUT THE BOARD.
+   */
+  readonly improveCalls: number;
+  /** Slices that went to a VOC lever on a refiner instead. Zero whenever the
+   * core exposes no refiner surface, which is the shipped search core. */
+  readonly refineCalls: number;
+  /** Rung-0 conformance calls: the cheap legal plan, and every epoch repair. */
+  readonly conformCalls: number;
+  /** Slices skipped because every commandable unit was pinned. */
+  readonly idleSlices: number;
+  /**
+   * Whether the lever order was BINDING (a refiner was found) or advisory.
+   * False on the shipped core, and then `refineCalls` is zero by construction
+   * rather than by choice — the two have to be read together.
+   */
+  readonly leverOrderBinding: boolean;
+}
+
+/**
  * Everything one decision can say about what its mechanisms did.
  *
  * A `null` member means "this layer never ran", which is a distinguishable and
@@ -183,6 +232,12 @@ export interface MechanismReport {
    * of that indicator over a corpus is the DEPTH-EFFECT RATE.
    */
   readonly belief: BeliefReport | null;
+  /**
+   * THE REFINEMENT LOOP'S COUNTERS — read this before reading `cluster`,
+   * `scout` or `scout.focus`, because it says whether they had a chance to be
+   * anything. See `LoopReport`. Null only when no kernel report exists.
+   */
+  readonly loop: LoopReport | null;
   /**
    * THE ADVISORY LINEUP'S ROW — null on a bot whose slate names no advisory
    * entry, which is the shipped bot. It separates the two ways a lineup fails
@@ -244,12 +299,32 @@ export interface MechanismInputs {
   /** The kernel's folded belief row, or null when no kernel report exists. */
   readonly belief: BeliefReport | null;
   /**
+   * THE KERNEL'S OWN REPORT, for the loop counters — null when the decision
+   * produced none. Passed whole rather than pre-folded so the assembler owns
+   * which fields the mechanism row publishes, the way it already does for
+   * every other stage.
+   */
+  readonly kernel: KernelReport | null;
+  /**
    * WHERE THE ADVISORY LINEUP'S VALUE LANDED, or null on a bot with no
    * lineup. `evaluate/index.ts`'s `advisoryReportOf` builds it; it is the one
    * row that separates "the potion terms read zero" from "the potion terms
    * read large and the clamp truncated them".
    */
   readonly advisory: AdvisoryReport | null;
+}
+
+/** The loop counters, off the kernel report. Null in, null out. */
+function loopReportOf(report: KernelReport | null): LoopReport | null {
+  if (report === null) return null;
+  return {
+    slices: report.slices,
+    improveCalls: report.improveCalls,
+    refineCalls: report.refineCalls,
+    conformCalls: report.conformCalls,
+    idleSlices: report.idleSlices,
+    leverOrderBinding: report.leverOrderBinding,
+  };
 }
 
 /**
@@ -280,6 +355,7 @@ export function mechanismReportOf(inputs: MechanismInputs): MechanismReport {
     },
     slate: inputs.slate,
     belief: inputs.belief,
+    loop: loopReportOf(inputs.kernel),
     advisory: inputs.advisory,
     cluster: search.clusterReport?.() ?? null,
     selection: search.selectionReport?.() ?? null,

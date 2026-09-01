@@ -910,6 +910,12 @@ export class TeamDecisionEngine {
         // the same standing rule every per-engine option above follows.
         slate: slateStampOf(this.slate),
         belief: kernel.lastReport?.belief ?? null,
+        // THE LOOP COUNTERS. `improveCalls` is the upstream cause of the
+        // cluster, scout and focus rows below it — all three hang off
+        // `search/core.ts::clusterOf`, which only `improve` calls — so the
+        // mechanism report carries it rather than leaving a reader to infer
+        // the loop from three nulls.
+        kernel: kernel.lastReport,
         // The advisory lineup's own row, off the evaluator this engine holds
         // for its life. Null for the shipped bot, whose lineup is empty.
         advisory: advisoryReportOf(this.evaluate),

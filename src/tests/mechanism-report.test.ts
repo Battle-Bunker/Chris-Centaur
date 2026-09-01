@@ -368,6 +368,44 @@ describe('CL7: an engaged layer publishes its own promotion metrics', () => {
     expect(m.belief?.deciding).toBe(true);
   }, 20_000);
 
+  /**
+   * THE LOOP ROW — the column whose absence let a batch conclude the depth
+   * layer was dead.
+   *
+   * `cluster`, `scout` and the acute focus all hang off one call
+   * (`search/core.ts::clusterOf`) which only `improve` makes, so a reader who
+   * sees three nulls and no loop counters cannot tell "the board admitted no
+   * partition" from "the loop never ran a full slice". Both are real states
+   * and they call for opposite responses. The counters were on `KernelReport`
+   * the whole time; what was missing is that the MECHANISM report — the object
+   * a sweep manifest folds — did not carry them.
+   *
+   * Permanent, and asserted for PRESENCE and CONSISTENCY rather than for a
+   * value: how many slices a decision buys is a property of the box.
+   */
+  test('the refinement loop publishes its counters, and they agree with the kernel', async () => {
+    const { result } = await decide({});
+    const m = result.mechanism;
+    const report = result.report;
+    if (m === null || report === null) throw new Error('no report');
+    expect(m.loop).not.toBeNull();
+    expect(m.loop?.slices).toBe(report.slices);
+    expect(m.loop?.improveCalls).toBe(report.improveCalls);
+    expect(m.loop?.refineCalls).toBe(report.refineCalls);
+    expect(m.loop?.conformCalls).toBe(report.conformCalls);
+    expect(m.loop?.idleSlices).toBe(report.idleSlices);
+    expect(m.loop?.leverOrderBinding).toBe(report.leverOrderBinding);
+    // Every slice went somewhere: the two rungs partition them.
+    expect((m.loop?.improveCalls ?? 0) + (m.loop?.refineCalls ?? 0)).toBeLessThanOrEqual(
+      m.loop?.slices ?? 0
+    );
+    // The shipped search core exposes no refiner surface, so the lever order is
+    // advisory and `refineCalls` is zero BY CONSTRUCTION — which is only
+    // legible because the two fields are published together.
+    expect(m.loop?.leverOrderBinding).toBe(false);
+    expect(m.loop?.refineCalls).toBe(0);
+  }, 20_000);
+
   test('a bot that rations depth to zero buys no plies, and says so', async () => {
     const { result } = await decide({}, { bot: { name: 'shallow', depth: { plyCap: 0 } } });
     const m = result.mechanism;
