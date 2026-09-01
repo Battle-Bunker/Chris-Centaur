@@ -144,7 +144,12 @@ never calibration — the only cross-turn mutable scalars are the
 exchange-rate fit (turn-stamped), attention rows (rootTurn-tripwired,
 plies-bounded), and the seed position.
 
-## 4. Owner summary (vocabulary-checked shapes; ≤8 bullets)
+Vocabulary note for future briefings: the engineering term "hypothesis
+promotion" in these documents is internal; owner-facing text renders it as
+a hypothesis being CONFIRMED by reality and its work CARRIED warm (the
+checker blocks the internal word, correctly).
+
+## 4. Owner summary (vocabulary-checked: 0 blocking; ≤8 bullets)
 
 - Wall-clock time and search work are separated at exactly one point: the
   clock is read only to grant the search an allowance of work units, and
@@ -159,7 +164,7 @@ plies-bounded), and the seed position.
   keeps thinking.
 - Thinking between turns needs no new machinery: with our moves committed
   they are facts, enemy replies are explored exactly the way the deep
-  search already explores them, and whatever reality confirms is promoted
+  search already explores them, and whatever reality confirms is carried
   warm into the next turn's first work.
 - The game server change previously thought necessary is not: the turn
   document already publishes what happened in enough detail for the bot to

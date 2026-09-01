@@ -92,6 +92,17 @@ mechanism that produced it is removed, not explained.
    measures the result. This is the same exposure today's adaptive slice
    has; it does not get worse, it gets measured in one place.
 
+**The worker pool fits without change of law.** A parcel is a delegated
+spend: workers already check `epochLives(parcel.boardEpoch)` between plans
+against a shared table the coordinator publishes atomically, keep partial
+results, and let the coordinator drop them by epoch. Under the worldline the
+published integer becomes the FRONTIER GENERATION (bumped by `observe`), and
+"drop by epoch" becomes the same citation pass everything else takes — a
+returned evaluation is a completed evaluation of a named world and survives
+iff its coords do. Parcels are metered in quanta like any spend; the pool's
+existing memo-counter handoff (`noteSession` before release) becomes a
+ledger row.
+
 **The event-loop yield** stays wall-scheduled (Firestore listeners must
 run), INSIDE tranches, and affects only when determinations enter the
 queue — which replay takes from logged positions, not from yield timing.
