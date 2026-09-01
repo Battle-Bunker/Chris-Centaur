@@ -181,7 +181,11 @@ describe('CL7: the mechanism report is present and complete', () => {
     expect(m.config.unitFatality).toBe(false);
     expect(m.config.workers).toBe(0);
     expect(m.config.edgeEv).toBe(false);
-    expect(m.config.potionOrdering).toBe(false);
+    // TRUE ON THIS BRANCH. `candidates.potionOrdering` sorts a pickup as a gain
+    // in the candidate order, and the branch default takes it: the parent's own
+    // measurement is +55% pickups and +42% window severs for no evaluator cost.
+    // The stamp's job is to name what ran, and what runs here is that.
+    expect(m.config.potionOrdering).toBe(true);
     expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
     // DEPTH IS NOT AN ARM. What the stamp carries is its RATION, and the
@@ -260,7 +264,11 @@ describe('CL7: the mechanism report is present and complete', () => {
     const m = result.mechanism;
     if (m === null) throw new Error('no mechanism report');
     expect(m.config.edgeEv).toBe(false);
-    expect(m.config.potionOrdering).toBe(false);
+    // TRUE ON THIS BRANCH. `candidates.potionOrdering` sorts a pickup as a gain
+    // in the candidate order, and the branch default takes it: the parent's own
+    // measurement is +55% pickups and +42% window severs for no evaluator cost.
+    // The stamp's job is to name what ran, and what runs here is that.
+    expect(m.config.potionOrdering).toBe(true);
     expect(m.config.multistartSeed).toBe(false);
     expect(m.config.sampledCap).toBe(false);
     expect(m.config.depthPlyCap).toBe(DEFAULT_SCOUT_TUNING.plyCap);
