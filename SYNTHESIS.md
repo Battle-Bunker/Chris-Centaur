@@ -223,19 +223,29 @@ have charged. The inequality was a unit-conversion guard, not a strategy convent
 
 ## 5. PRE-REGISTERED, BEFORE THE ROOK CELL COMPLETES
 
-Recorded at 12 of 48 games, `k = 2.9187` **fixed by the other three cells**, nothing fitted
-to the rook:
+Recorded at 12 of 48 games, on the **final three-channel model** with `k = 1.227` **fixed by
+the other three cells**. Nothing is fitted to the rook.
 
 | quantity | prediction | reading at n=12 |
 |---|---|---|
 | rook final weight | between queen (31.2) and knight (3.0), **nearer the queen** | **24.8** ✓ |
-| eliminations/game | well above the knight cell's 0.12 — a **live** instrument | **0.75** ✓ (snake6 0.73) |
-| **G = territory − material** | **+0.173**, from `k × the cell's own folded weight` | +0.060, CI [−1.09,+1.21] — uninformative at n=12 |
+| eliminations/game | far above the knight cell's 0.12 — a **live** instrument | **0.75** ✓ (snake6 0.73) |
+| **G = territory − material** | **+0.078** = 1.227 × the cell's own net folded flow | +0.060, CI [−1.09,+1.21] — uninformative at n=12 |
 
-The third row is the one that matters and it is a genuine out-of-sample forecast. **If the
-completed cell lands far from it, §1.1 is overfitted to three points and I will say so.**
+The same model on the three cells it was fitted to, for scale: snake6 model +1.655 vs
+observed +1.620 (resid −0.035); queen +0.561 vs +0.536 (−0.025); knight +0.058 vs +0.060
+(+0.002).
 
----
+**Be precise about what this tests.** The forecast uses the rook cell's *own* measured flows,
+so it tests whether the **coefficient transports** to a roster it was not fitted on — not
+whether the flows themselves can be predicted in advance. That is the weaker of the two
+things one might want, and it is still a genuine out-of-sample test, because k is fixed
+elsewhere and the rook's account structure (a ~25-weight accumulator) is intermediate between
+two cells rather than interpolated from them. **If the completed cell's G lands far from
+`1.227 × its net folded flow`, the fold is overfitted to three points and I would want that
+said plainly rather than explained away.**
+
+Re-run with `tools/forecast-rook3.py` when the cell completes.
 
 ## 6. WHAT THIS DOES NOT ESTABLISH
 
