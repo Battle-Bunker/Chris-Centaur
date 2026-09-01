@@ -13,10 +13,11 @@ account, and every heuristic is an estimator of a flow into or out of one — fo
 coefficient `(K/W)(1−p)·w_u` that the live board supplies and that the shipped evaluator
 does not compute at all.**
 
-The evidence is not an argument from elegance. A single-parameter version of that fold
-reproduces the evaluator ladder's effect sizes across three rosters spanning 27× — R² 0.866,
-worst residual 0.085 sharePar — where counting deaths gives 0.677 and counting weight gives
-0.638.
+The evidence is not an argument from elegance. A **single-parameter** version of that fold
+reproduces the evaluator ladder's effect sizes across three rosters spanning 27× — **R²
+0.949, worst residual 0.027 sharePar** — where counting deaths gives 0.677 and counting raw
+weight gives 0.638. Inflow and outflow fold with the *same* coefficient, so they are one net
+flow rather than two terms needing two weights.
 
 ---
 
@@ -52,7 +53,7 @@ What stays genuinely empirical is which flows dominate on which roster, and the 
 
 Each refinement is exactly one term of the share derivative, and each buys accuracy. The
 practical consequence is small to state and large to act on: **`room: 3` is wrong by a
-factor the engine can compute for free**, and `k ≈ 2.9` (not 1.0) is the compounding
+factor the engine can compute for free**, and `k ≈ 2.07` (not 1.0) is the compounding
 premium of a live account — the one honest free parameter, now measured.
 
 ### 1.2 The R1 ladder's piece verdict does not mean what it says (§1, §2)
