@@ -137,15 +137,27 @@ export interface CollectorTarget {
  * be inside the window — and a plan that steps out of the line reads better than
  * one that does not, which is what "evade" means as a number.
  *
- * SUMMED, not best-of, and that is the difference from the shield's arithmetic:
- * these are not alternative outcomes of one contest, they are separate units
- * each of which can be taken, and a window three turns wide with five buffed
- * enemies in it really can take more than one of them.
+ * ── ONE VICTIM PER ATTACKER, WHICH IS WHAT A WINDOW CAN ACTUALLY TAKE ─────
+ *
+ * Summing every exposed unit would be the over-pessimism owner ruling 22 names
+ * directly: a reach map is a sound OVER-approximation, so on a board with a
+ * buffed slider on it "some enemy could be there some time in the next three
+ * turns" is close to a tautology, and charging every unit it touches would make
+ * a bot that cowers whenever anyone drinks. It would also be wrong about the
+ * rules — an attacker takes ONE unit per turn and there is one of it.
+ *
+ * So the charge is a MATCHING: each buffed enemy is assigned the heaviest of
+ * our units it can reach that no heavier-threat enemy has already claimed, and
+ * the sum is over attackers rather than over victims. Bounded by the number of
+ * buffed enemies, never double-charging one unit to two attackers, and still
+ * strictly monotone in what the plan does — stepping a head out of an
+ * attacker's reach removes it from that attacker's maximum, which is exactly
+ * the ordering the term exists to create.
  */
 export interface HeadExposure {
-  /** Our whole weight standing where a buffed enemy can arrive in the window. */
+  /** Our weight a buffed enemy can take, one victim per attacker. */
   readonly weight: number;
-  /** How many of our units are in that position. */
+  /** How many of our units are matched to an attacker. */
   readonly units: number;
   /** The heaviest of them — provenance for an operator. */
   readonly worstId: string | null;
@@ -304,29 +316,35 @@ export function potionDefense(
   let exposedUnits = 0;
   let worstId: string | null = null;
   let worstWeight = 0;
-  for (const u of board.units) {
-    if (u.team !== asTeam) continue;
-    const head = u.occupancy[0];
-    if (head === undefined) continue;
-    const ourTier = tierAt(u, fromTurn);
-    let exposed = false;
-    for (const e of buffed) {
+  // Heaviest attacker first, so the greedy matching gives the biggest threat
+  // its pick — and so the result is a pure function of the board rather than of
+  // unit order.
+  const attackers = [...buffed].sort((a, b) =>
+    b.weight - a.weight || (a.unitId < b.unitId ? -1 : a.unitId > b.unitId ? 1 : 0)
+  );
+  const claimed = new Set<string>();
+  for (const e of attackers) {
+    const eTier = tierAt(e, fromTurn);
+    let pick: RayUnit | null = null;
+    for (const u of board.units) {
+      if (u.team !== asTeam || claimed.has(u.unitId)) continue;
+      const head = u.occupancy[0];
+      if (head === undefined) continue;
       // Only a STRICTLY higher tier takes us at any weight. A buff of ours that
       // matches theirs puts weight back in charge, and weight is `material`'s
       // question and not this term's.
-      if (tierAt(e, fromTurn) <= ourTier) continue;
+      if (eTier <= tierAt(u, fromTurn)) continue;
       const at = reach.earliestAt(e.unitId, head);
-      if (at < UNREACHABLE && at >= fromTurn && at <= toTurn) {
-        exposed = true;
-        break;
-      }
+      if (at >= UNREACHABLE || at < fromTurn || at > toTurn) continue;
+      if (pick === null || u.weight > pick.weight) pick = u;
     }
-    if (!exposed) continue;
-    exposedWeight += u.weight;
+    if (pick === null) continue;
+    claimed.add(pick.unitId);
+    exposedWeight += pick.weight;
     exposedUnits += 1;
-    if (u.weight > worstWeight) {
-      worstWeight = u.weight;
-      worstId = u.unitId;
+    if (pick.weight > worstWeight) {
+      worstWeight = pick.weight;
+      worstId = pick.unitId;
     }
   }
 
@@ -426,6 +444,9 @@ export const POTION_DEFENSE_ENTRY: StrategyEntry = {
     victims: 'subject-team only',
     countHeads: true,
     channels: ['their-body-window', 'our-head-exposure', 'collector-counter'],
+    /** One victim per attacker: an attacker takes one unit a turn and there is
+     *  one of it, and a reach map is an over-approximation. Owner ruling 22. */
+    exposure: 'greedy attacker-victim matching, heaviest attacker first',
     cancellation: 'vulnerable-collision buff expiry (TeamSnekProcessor.ts:531-556)',
     currency: 'kill at sever-exchange-rate, threat and cancellation in our weight',
     weight: 0,
