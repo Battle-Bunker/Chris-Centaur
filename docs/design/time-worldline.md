@@ -168,6 +168,33 @@ The re-base path is therefore:
                  count and log a `replay-divergence` (the differential test,
                  now running once per live turn for free).
 
+**Precision on what replay covers (verified against `resolveTurn.ts:26-31`):**
+the vendorable engine deliberately excludes the game-state half of a turn —
+spawns (food/hazard/potion), potion pickup and tier/effect changes, the
+orientation rewrite, pawn promotion, scoring. The same is true of the bot's
+partial engine (the potion-intel pin: resolve never writes `U_TIER`; the
+missing ~30 lines are collection above the resolver). So `realizedResolution`
+is a SPLIT reconstruction: the movement/collision half is REPLAYED
+engine-side (paths, contests, severs, deaths, exhaustion — the half that
+needs simulation), and the game-state half is COPIED from the turn doc
+(spawn cells, tiers, `activeEffects`, `unitTypes`, `orientation` — frontier
+facts that need no simulation and are published outright). The checksum
+covers the replayed half (occupancy + health + deaths field-by-field).
+
+And a role correction relative to the first draft of this idea: under FULL
+observability the new root's CONSTRUCTOR stays the battle-tested wire
+marshal — replaying buys nothing there, since the doc determines the root
+exactly. What the replayed `Resolution` is FOR, every turn, is (a) the
+checksum (the free per-turn differential test), (b) premise-matching and
+attention carry (deaths/clashes/severs in engine vocabulary are what
+rebase-transfer §2 matches against), and (c) the semantics of "advance held
+units by what reality did" — which becomes the ROOT constructor exactly
+where observation is partial (future fog): hidden units enter as holds,
+`resolve`-with-holds and `continueFrom`'s dilation carry them, and the doc's
+visible facts intersect their clouds. The door is the advance operator
+wherever certainty is partial; the marshal is its degenerate total-knowledge
+limit.
+
 Three consequences worth stating loudly:
 
 - **The pending owner ruling "should TacticToes emit a resolution record?"
@@ -419,6 +446,16 @@ What this buys, dilemma by dilemma:
    Every estimator, threshold, and ratchet is per-tranche-context or
    per-agent. A worldline holds knowledge and appetite, never calibration.
 
+**Feasibility of the counting cut (verified):** the bank consults the clock
+at exactly five `shouldStop()` points inside its ladder (`bounds/bank.ts:688,
+716, 726, 746` + the price-entry check), all through the injected
+`BudgetHandle` — and `bounds/testkit.ts:723` already ships `countingBudget`,
+a handle that spends by count. The tranche cut is therefore a HANDLE SWAP,
+not a bank rewrite: the exchange rate grants N quanta, the handle counts
+prices, the wall clock is read only at grant and at the commitment agent's
+own deadline checks. The scout needs nothing (it already counts); the
+refiner's lever loop needs the same swap.
+
 Tranche sizing: today's adaptive slice (`sliceMs` floor, measured-cost
 factor, `maxSliceFraction` cap) translates directly — the cap becomes "no
 tranche may be granted more quanta than the exchange rate prices the
@@ -486,6 +523,75 @@ needed beyond the worldline existing.)
   sizing (agent), allowance split across phases (worldline), hypothesis
   selection (worldline), reaction table (agent) — each a config value on
   BotConfig, each sweepable as a batch arm, none a flag.
+
+---
+
+## 8½. Convergence with the epistemics carve (design/belief-fog), and one named mismatch
+
+The epistemics thread's cycle-1 object (`docs/design/belief-fog/00-THE-OBJECT.md`
+on `design/belief-fog`) — belief as **(S, w)**, support moved only by
+`condition(dilate(S), obs)`, weight moved by any evidence at earned
+precision — is the STATE this document's worldline holds. The two carves
+compose rather than compete, and the composition is sharper than either
+alone:
+
+1. **`observe(d)` decomposes into their operator plus this document's
+   survival rule.** A determination first conditions the belief object
+   (their §5 — the same bitboard intersection for a partial obs as for a
+   total one), then kills/promotes the DERIVED stores — values,
+   enumerations, attention, hypotheses — by citation (§5 here). Their doc
+   governs what the world-belief becomes; this one governs what happens to
+   everything computed FROM it. Neither half is complete without the other:
+   conditioning without citation-survival re-derives everything (today's
+   343 ms); survival without conditioning is the smuggling bug class.
+
+2. **Their reducibility tag is the TYPE of this document's spend/observe
+   dichotomy.** L5 tags every held width with its removal operation:
+   by-compute / by-observation / none-this-turn. In worldline terms:
+   by-compute widths are `spend` targets (VOI buys them down);
+   by-observation widths are FUTURE DETERMINATIONS with an arrival
+   schedule — simultaneity width resolves at the turn boundary (arrival
+   time known, value unknown), invisibility width resolves at re-sighting
+   (neither known). The allowance/hypothesis machinery is exactly the
+   economics of the second column: the ponder policy IS "how much to
+   pre-spend across hypothesized resolutions of an observation-reducible
+   width whose arrival is scheduled".
+
+   **The mismatch, named precisely:** their table's third column reads
+   "observation fog — nothing purchasable this turn". True for the width
+   itself; NOT true for compute against it. A conditional frontier lets the
+   scheduler pre-spend on hypothesized reveals — buying not width but
+   REACTION LATENCY (the branch is already explored when the reveal lands).
+   The tag must therefore gate "VOI may not claim to narrow this width by
+   compute" while leaving "the hypothesis market may hedge across its
+   outcomes" open — two different purchases, and only the first is
+   forbidden. If the tag's consumers conflate them, ponder becomes
+   untypeable the day fog lands.
+
+3. **Their declared read-sets and this document's citations are one
+   declaration record with two axes.** Their §6 has every comparator
+   declare which PROJECTIONS it reads (horizon, weight-id, basis); §5 here
+   has every store declare which WORLD VARIABLES it cites. Merge them:
+
+       ReadSet = { coords: variables of S read (unit-action@turn,
+                   position@turn, spawn-cell, …),
+                   horizon, weightId, evalVersion, hypothesisId }
+
+   Invalidation on `observe` reads `coords`; comparison refusal reads the
+   tag half (their L4); dial demotion (§7 here) reads `evalVersion`. This
+   materially improves this document's weakest point (§9.2, citation
+   completeness): the tag half already has enforcement teeth (the bank's
+   basis-mismatch refusal), so folding `coords` into the same record
+   inherits an enforced discipline instead of inventing a convention. One
+   record, three readers, no second table.
+
+4. **Their weight-supplier ladder (W0–W4) is the hypothesis-weighting
+   plug-in of §8 here.** The socket accepting "quantifiers and measures"
+   is, on this side, the hypothesis market accepting worst-case target
+   lists (W0 = witnesses), cover-counting weights (W2), and later learned
+   weights (W4) as the SAME input shape. The two documents point at one
+   joint from its two faces: what the weights MEAN (theirs), and what
+   compute they steer (this one).
 
 ---
 
