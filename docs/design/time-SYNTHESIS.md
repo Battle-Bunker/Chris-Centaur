@@ -5,7 +5,9 @@ derivations: `time-worldline.md` (the factorization and its verification),
 `time-worked-timeline.md` (two turns walked through the primitives),
 `time-agent-and-measurement.md` (the agent split, the quantum, the harness),
 `time-premise-reconciliation.md` (cross-lens algebra), `worldline.sketch.ts`
-(the seams as types). Grounded on `claude/cluster-lookahead` @ `47c983e`,
+(the seams as types), `realized-resolution.sketch.md` (the replay
+constructor's case analysis), `time-red-team.md` (the minimal-path
+alternative, the slab law, default policy numbers). Grounded on `claude/cluster-lookahead` @ `47c983e`,
 `primary` @ `66904d2`, TacticToes @ `416d9c8`.
 
 ---
