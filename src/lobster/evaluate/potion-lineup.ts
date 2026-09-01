@@ -73,7 +73,7 @@
  * no `RayBoard` is built. The lineup's cost is a cost of potion boards.
  */
 
-import { bbTest } from '../../partial-engine/index';
+import { bbForEach } from '../../partial-engine/index';
 import type { Board } from '../../partial-engine/index';
 import type { AdvisoryCache, AdvisoryTerm } from './bound';
 import type { EvalContext } from './features';
@@ -126,8 +126,32 @@ function potionCellsOf(sub: EngineSubstrate, ctx: EvalContext): ReadonlyArray<nu
   }
   sub.engine.potionBoard(ctx.resolution.state, dst);
   const cells: number[] = [];
-  for (let c = 0; c < sub.grid.cells; c++) if (bbTest(dst, c)) cells.push(c);
+  bbForEach(dst, sub.grid.words, (c) => cells.push(c));
   return cells;
+}
+
+/**
+ * THE POTION CELLS OF THE RESOLVED POSITION — read ONCE per evaluation, shared
+ * by the gate and the view.
+ *
+ * The cell-at-a-time scan above used to be a `bbTest` per cell — 441 of them on
+ * a 21x21, paid twice per evaluation of every plan whether or not a potion was
+ * standing. A sibling thread's CPU profile put that one function at 9.6% of a
+ * whole game; the word walk skips the empty words, and the cache makes the gate
+ * and the view share the one scan. Identical output by construction: same
+ * board, same ascending order.
+ *
+ * It matters more here than it did there, because this branch's lineup is SIX
+ * terms rather than four and every one of them gates on this list.
+ */
+const CELLS_KEY = 'potion-lineup:cells';
+
+function potionCellsShared(
+  sub: EngineSubstrate,
+  ctx: EvalContext,
+  shared: AdvisoryCache
+): ReadonlyArray<number> {
+  return shared.for(CELLS_KEY, () => potionCellsOf(sub, ctx));
 }
 
 /**
@@ -265,7 +289,7 @@ function viewOf(ctx: EvalContext, shared: AdvisoryCache): PotionView | null {
       reach: reachOf(ctx),
       turn,
       asTeam: ctx.asTeam,
-      potionCells: potionCellsOf(sub, ctx),
+      potionCells: potionCellsShared(sub, ctx, shared),
       exchangeRate: rate,
     };
   });
@@ -304,7 +328,7 @@ function gateOf(ctx: EvalContext, shared: AdvisoryCache): Gate {
     if (!(sub instanceof EngineSubstrate)) {
       return { potions: false, liveWindow: false, enemyWindow: false, enemyCollector: false };
     }
-    const cells = potionCellsOf(sub, ctx);
+    const cells = potionCellsShared(sub, ctx, shared);
     // `teamHasLiveWindow` wants a board; at the gate `EvalContext.standing`
     // answers the same question without building one, and it is the merged
     // view — located units and held claims together — so a buffed unit the

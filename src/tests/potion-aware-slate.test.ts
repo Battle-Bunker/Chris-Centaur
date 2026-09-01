@@ -340,9 +340,11 @@ describe('the potion-aware bot decides differently on a potion board', () => {
     expect(adv?.terms).toEqual(POTION_AWARE_SLATE.evaluators.slice(1));
     expect(adv?.evaluations ?? 0).toBeGreaterThan(0);
 
-    // The shipped bot handed the same option keeps its own path: no lineup, no
-    // meter, no row — which is what makes the row's presence a statement.
-    const plain = await decide({ name: 'default' }, defaultEvaluator);
+    // A bot on the LEGACY LINEUP handed the same option keeps its own path: no
+    // lineup, no meter, no row — which is what makes the row's presence a
+    // statement. It names its slate, because on this branch an unnamed one is
+    // `potion-intel` and would have a row of its own.
+    const plain = await decide({ name: 'default', slate: SLATE_LEGACY }, defaultEvaluator);
     expect(plain.result.mechanism?.advisory ?? null).toBeNull();
     expect(plain.staged).toEqual(DEFAULT_STAGED);
   }, 60_000);
