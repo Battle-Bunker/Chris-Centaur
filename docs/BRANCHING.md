@@ -143,13 +143,15 @@ branch and one batch arm.
 
 ---
 
-## 2. The branches as they stand, 2026-08-30
+## 2. The branches as they stand, 2026-09-01 (owner ruling, twelfth message)
 
 | branch | role |
 |---|---|
-| `claude/mid-turn-collision-logic-mkxurg` | **THE VALIDATED BASELINE.** The primary branch. Every `feature/<name>` is cut from here; every merge lands here. |
-| `claude/cluster-lookahead` | **THE SEARCH-ARCHITECTURE FEATURE BRANCH.** Depth + the entry registry + per-branch belief, accumulated before this policy existed. Declared what it factually is. Its merge decision is the pending cross-branch batch (below). |
+| `primary` | **THE PRIMARY / VALIDATED-BASELINE BRANCH, going forward.** Cut at the `claude/mid-turn-collision-logic-mkxurg` tip on 2026-09-01. Every `feature/<name>` is cut from here; every merge lands here. This is the name to use in all new work and all owner-facing text. |
+| `claude/mid-turn-collision-logic-mkxurg` | **HISTORICAL ALIAS of `primary`.** Kept, not deleted or moved, so that PR #11 and the PR-base relationships built on it stay valid. Retired once its open PRs close; do not cut new work from it — cut from `primary`. |
+| `claude/cluster-lookahead` | **THE SEARCH-ARCHITECTURE FEATURE LINE.** Depth + the entry registry + per-branch belief, accumulated before this policy existed. Declared what it factually is. Its merge decision is the pending cross-branch batch (below). Its successor work is named `feature/<name>`, cut from `primary` like every other lane-(b) change — `claude/cluster-lookahead` itself is not a place to keep adding new architecture once its own pending decision resolves. |
 | `sim/worker-kit` | **THE HARNESS BRANCH.** `tools/simworker/` — the local sim session fetches this branch and only this branch. Not an engine branch; it carries no lane-(a) or lane-(b) engine change. |
+| `coordination` | **DATA BRANCH, not a code branch.** Cut from `primary`; carries `coordination/` — synced snapshots of the coordinating agent's scratchpad knowledge artifacts, for owner access if the box that holds the live scratchpad becomes unreachable. Not intended to merge; see `coordination/README.md`. |
 
 `claude/cluster-lookahead` is a **retained parallel test arm**, which the ruling
 explicitly permits ("multiple branches may be retained in parallel for
@@ -173,11 +175,21 @@ merges on the evidence or it does not.
 
 ## 3. Going forward — the lane (b) procedure
 
-1. **Cut** `feature/<name>` from the primary branch tip
-   (`claude/mid-turn-collision-logic-mkxurg`). Not from another feature branch.
+1. **Cut** `feature/<name>` from the primary branch tip (`primary` — historical
+   alias `claude/mid-turn-collision-logic-mkxurg`). Not from another feature
+   branch.
 2. **Build it in your own worktree**, on your own temp branch, pushing with
    `git push origin HEAD:feature/<name>` and a rebase-retry on rejection. Never
    work in the main checkout.
+2b. **PUSH-EARLY RULE (owner ruling, 2026-09-01, twelfth message).** Push your
+    branch at its FIRST commit (`git push -u origin HEAD:feature/<name>`, or
+    `HEAD:<branch>` for non-feature work) and again after every cycle — a green
+    run or an explicitly WIP-marked state is fine to push, an unpushed branch is
+    not. Work must live on GitHub continuously: usage exhaustion or a container
+    interruption can lock the owner out of any one box, and a branch that only
+    exists on disk there is a branch the owner cannot see or hand to anyone
+    else. This applies to every branch an agent creates, feature or otherwise —
+    not only the ones this document's lane procedure names.
 3. **Benchmark it.** Deterministic probes, the engine suite, and the paired
    deterministic measurements the change's own claims need. Necessary, never
    sufficient — see `tools/learnloop/README.md` for the exhibit that bought that
@@ -191,7 +203,7 @@ merges on the evidence or it does not.
    The arm looks like:
 
    ```sh
-   tools/simworker/build-bot.sh origin/claude/mid-turn-collision-logic-mkxurg ~/lobster/bundles/baseline --fetch
+   tools/simworker/build-bot.sh origin/primary ~/lobster/bundles/baseline --fetch
    tools/simworker/build-bot.sh origin/feature/<name>                          ~/lobster/bundles/<name>  --fetch
 
    node tools/simworker/bin/run-pair.js --batch $BATCH \
