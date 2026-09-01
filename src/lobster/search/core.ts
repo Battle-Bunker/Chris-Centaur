@@ -1054,7 +1054,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       s.focus =
         s.scout.acute === null
           ? NO_FOCUS
-          : detectAcute(s.sub, ctx.asTeam, { ...s.scout.acute });
+          : detectAcute(s.sub, ctx.asTeam, { ...s.scout.acute }, (unitId) =>
+              s.sets.get(unitId)?.candidates
+            );
       s.scout.run({
         focus: s.focus,
         sub: s.sub,

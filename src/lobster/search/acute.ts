@@ -333,7 +333,16 @@ function magnitudeOf(u: SubstrateUnit, teamWeight: ReadonlyMap<number, number>):
 export function detectAcute(
   sub: EngineSubstrate,
   asTeam: number,
-  tuning: AcuteTuning = DEFAULT_ACUTE_TUNING
+  tuning: AcuteTuning = DEFAULT_ACUTE_TUNING,
+  /**
+   * THE OPTION COUNTS THE DECISION ALREADY BUILT, for the enclosure reading.
+   *
+   * The search generates a candidate set per unit before anything else happens,
+   * so asking the substrate to enumerate again would pay the grammar twice for
+   * one answer. Absent, the substrate is asked — which is what the unit tests
+   * do, and what a caller with no sets in hand has to do.
+   */
+  optionsOf?: (unitId: UnitId) => ReadonlyArray<{ readonly to: number }> | undefined
 ): AcuteFocus {
   const turn = sub.turn;
   const width = sub.grid.width;
@@ -468,7 +477,8 @@ export function detectAcute(
   for (const o of ours) {
     let exits = 0;
     try {
-      for (const c of sub.actionsOf(o.unitId)) {
+      const options = optionsOf?.(o.unitId) ?? sub.actionsOf(o.unitId);
+      for (const c of options) {
         if (!sub.hazardAt(c.to)) exits++;
       }
     } catch {
