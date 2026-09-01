@@ -131,7 +131,7 @@ dof-synthesis Part I §1 ruled the pawn promotion fork (cloud.ts: "a pawn held
 past the promotion food-count horizon might already be a queen") dead-premise
 scaffolding, because promotion lands publicly in `Turn.unitTypes` the turn it
 happens. Under invisibility, a HIDDEN pawn's unitTypes row is masked: a pawn
-that vanishes, eats twice in the dark (food-vanish tells us it ate — but two
+that vanishes, eats twice while hidden (food-vanish tells us it ate — but two
 food cells gone near its cloud may be attributable only as a set), and
 crosses the promotion threshold IS ambiguously a queen, in production. The
 kindSet fork is the only sound answer, and PIN 20's "do not delete the
