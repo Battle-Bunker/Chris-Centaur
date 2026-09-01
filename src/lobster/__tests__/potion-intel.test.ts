@@ -550,6 +550,70 @@ describe('eval/potion-pickup@1 — the pickup THIS PLAN makes', () => {
     expect(v.best?.gain.est).toBe(0);
   });
 
+  it('the SHIELD makes a pickup worth making when no ally has a cut', () => {
+    /*
+     * THE MEASUREMENT THIS TEST IS THE FIX FOR. Over 23 games the term's own
+     * bot collected FEWER potions than the bot with no potion reading at all —
+     * 2.48 a game against 2.87 — because on a snake board the ally body channel
+     * is structurally zero (a snake has four moves and has to reach an enemy
+     * body with one of them inside three turns) while the collector's exposure
+     * is not. A gain that cannot fire and a cost that can is a term that argues
+     * against drinking.
+     *
+     * The board here is that case exactly: nobody can cut anything, and a
+     * heavier enemy is one step from our ally's head. At tier zero our ally
+     * loses that contest and its whole weight; at +1 it wins it and takes
+     * theirs. That is what the buff is for on a snake board, and the term now
+     * reads it.
+     */
+    const ally = rayUnit({ unitId: 'ours-a', team: 0, occupancy: [at(3, 9), at(3, 10)], weight: 2 });
+    const heavy = rayUnit({ unitId: 'theirs-h', team: 1, occupancy: [at(3, 12), at(3, 13), at(3, 14)], weight: 3 });
+    const board = rayBoard([collector(POTION), ally, heavy]);
+    // No reach onto any body: the ally body channel is empty by construction.
+    const reach = reachOf({ 'theirs-h': { [at(3, 9)]: T + 1 } });
+    const v = potionPickup(board, 0, [POTION], { turn: T, reach });
+    expect(v.best?.gain.est).toBe(0);
+    expect(v.best?.shield.saved).toBe(2);
+    expect(v.best?.shield.taken).toBe(3);
+    expect(v.best?.shield.allyId).toBe('ours-a');
+    // AND THE SIGN IS THE POINT: with the shield the pickup is worth making.
+    expect(potionPickupNet(v, 1)).toBeGreaterThan(0);
+  });
+
+  it('does not count a contest our own weight already wins', () => {
+    // A LIGHTER enemy beside a heavier ally is a contest we win with no potion
+    // at all. Counting it would make every potion on the board look like a
+    // reason to drink — `potion-seek`'s own rule about head attacks, applied to
+    // the half of it that is true.
+    const ally = rayUnit({ unitId: 'ours-a', team: 0, occupancy: [at(3, 9), at(3, 10), at(3, 11)], weight: 3 });
+    const light = rayUnit({ unitId: 'theirs-l', team: 1, occupancy: [at(3, 13), at(3, 14)], weight: 2 });
+    const v = potionPickup(rayBoard([collector(POTION), ally, light]), 0, [POTION], {
+      turn: T,
+      reach: reachOf({ 'theirs-l': { [at(3, 9)]: T + 1 } }),
+    });
+    expect(v.best?.shield.saved).toBe(0);
+    expect(v.best?.shield.taken).toBe(0);
+  });
+
+  it('does not count a contest against an enemy already carrying a tier', () => {
+    // At +1 against +1 the tiers are equal again and weight decides, exactly as
+    // it did before anybody drank — so the buff flips nothing here.
+    const ally = rayUnit({ unitId: 'ours-a', team: 0, occupancy: [at(3, 9), at(3, 10)], weight: 2 });
+    const buffed = rayUnit({
+      unitId: 'theirs-b',
+      team: 1,
+      occupancy: [at(3, 12), at(3, 13), at(3, 14)],
+      weight: 3,
+      tier: 1,
+      tierExpiresAtTurn: T + 3,
+    });
+    const v = potionPickup(rayBoard([collector(POTION), ally, buffed]), 0, [POTION], {
+      turn: T,
+      reach: reachOf({ 'theirs-b': { [at(3, 9)]: T + 1 } }),
+    });
+    expect(v.best?.shield.taken).toBe(0);
+  });
+
   it('charges the collector when an enemy can stand where it stands, and not otherwise', () => {
     const base = rayBoard([collector(POTION), ally(), enemy()]);
     const safe = potionPickup(base, 0, [POTION], {

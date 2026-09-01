@@ -60,6 +60,14 @@
  *   by the same contest that charges the weight, which is why exposure is
  *   returned as a pair and folded by the caller rather than summed here.
  *
+ *   THE SHIELD — and it is the half a snake team actually buys. Tier ranks
+ *   strictly before weight, so for three turns a buffed ally does not merely
+ *   gain a body channel, it CANNOT LOSE A CONTEST. See `ShieldValue` below,
+ *   including the measurement that says why the term needed it: without this
+ *   channel the gain is structurally zero on a snake board and the exposure is
+ *   not, so the term argued against drinking and its bot collected fewer
+ *   potions than the bot with no potion reading at all.
+ *
  * ── WHAT IT DOES NOT COUNT ────────────────────────────────────────────────
  *
  * HEADS, for `potion-seek`'s reason: a head attack our weight already wins is
@@ -75,6 +83,89 @@ import type { ArrivalReach, TeamAttackWindow, WindowInterval } from './attack-wi
 import { NO_DISCOUNT, dodgeDiscount } from './dodge-discount';
 import type { DodgeDiscountOptions, DodgeInterval } from './dodge-discount';
 import type { StrategyEntry } from '../registry';
+
+/**
+ * WHAT THE BUFF SAVES, WHICH IS NOT WHAT IT CUTS.
+ *
+ * The gain channel above is `attackWindow`'s BODY reading: enemy trail weight a
+ * buffed ally can sever. On a board of pieces that is most of a window's worth.
+ * On a board of SNAKES it is very nearly zero — a snake has four moves and has
+ * to reach an enemy body with one of them inside three turns — and the
+ * consequence, measured over 23 games before this channel existed, was a term
+ * that made its own bot collect FEWER potions than the bot with no potion
+ * reading at all: 2.48 pickups a game against 2.87. A gain that is structurally
+ * zero and an exposure that is not is a term that argues against drinking.
+ *
+ * It was reading half the mechanism. Tier ranks STRICTLY before weight
+ * (`turnEngine.ts:182-188`), so for three turns a buffed ally does not merely
+ * gain a body channel — it CANNOT LOSE A CONTEST. Every head-on it would have
+ * lost on weight it now wins, and every one it would have TIED (equal weight,
+ * both die) it now survives. That is the half of a potion a snake team actually
+ * buys, and nothing in the lineup read it.
+ *
+ * So: for each teammate, the heaviest enemy that could stand where that
+ * teammate is standing inside the window AND would beat or tie it at tier zero.
+ * `saved` is our own weight that stops being on the table; `taken` is theirs
+ * that goes onto it. The BEST SINGLE PAIR rather than a sum over teammates,
+ * because two such contests rarely both happen and summing them would price a
+ * window as though every ally spent it in a duel.
+ *
+ * THE APPROXIMATION, NAMED: the ally is priced where it is STANDING, and it
+ * will have moved. That is the same approximation `potion-seek` makes about its
+ * collector (the potion cell is the one square it knows), it is a statement in
+ * an advisory term rather than in a bound, and it errs toward finding a contest
+ * that the ally can also simply walk away from — which is why it is charged at
+ * the best pair and not at their sum.
+ */
+export interface ShieldValue {
+  /** Our weight the buff takes off the table. */
+  readonly saved: number;
+  /** Their weight it puts on, in THEIR units — the caller folds. */
+  readonly taken: number;
+  readonly allyId: string | null;
+  readonly enemyId: string | null;
+}
+
+const NO_SHIELD: ShieldValue = { saved: 0, taken: 0, allyId: null, enemyId: null };
+
+function shieldOf(
+  board: RayBoard,
+  asTeam: number,
+  collectorId: string,
+  windowFrom: number,
+  windowTo: number,
+  reach: ArrivalReach
+): ShieldValue {
+  let best = NO_SHIELD;
+  let bestScore = 0;
+  for (const ally of board.units) {
+    if (ally.team !== asTeam || ally.unitId === collectorId) continue;
+    const head = ally.occupancy[0];
+    if (head === undefined) continue;
+    for (const e of board.units) {
+      if (e.team === asTeam) continue;
+      // AN ENEMY ALREADY CARRYING A TIER IS NOT A CONTEST THE BUFF FLIPS: at
+      // +1 against +1 the tiers are equal again and weight decides, exactly as
+      // it did before anybody drank.
+      if (tierAt(e, windowFrom) > 0) continue;
+      // Only contests we do NOT already win. A heavier ally beats a lighter
+      // enemy with no potion at all, and counting that here would make every
+      // potion on the board look like a reason to drink — `potion-seek`'s own
+      // rule about head attacks, applied to the half of it that is true.
+      if (e.weight < ally.weight) continue;
+      const at = reach.earliestAt(e.unitId, head);
+      if (at >= UNREACHABLE || at < windowFrom || at > windowTo) continue;
+      // Ranked on their weight, because that is the part that is not already
+      // ours: `saved` is weight we keep and `taken` is weight we remove, and the
+      // caller folds the second through the exchange rate.
+      if (e.weight > bestScore) {
+        bestScore = e.weight;
+        best = { saved: ally.weight, taken: e.weight, allyId: ally.unitId, enemyId: e.unitId };
+      }
+    }
+  }
+  return best;
+}
 
 export interface PickupValue {
   readonly collectorId: string;
@@ -95,6 +186,8 @@ export interface PickupValue {
   /** The gain the vulnerable-collision expiry cancels if the collector dies. */
   readonly windowAtRisk: number;
   readonly contested: boolean;
+  /** What the buff SAVES rather than what it cuts — see `ShieldValue`. */
+  readonly shield: ShieldValue;
 }
 
 export interface PotionPickupValue {
@@ -208,6 +301,7 @@ export function potionPickup(
       ).discount;
     }
 
+    const shield = shieldOf(board, asTeam, unit.unitId, windowFrom, windowTo, reach);
     const value: PickupValue = {
       collectorId: unit.unitId,
       team: asTeam,
@@ -222,9 +316,16 @@ export function potionPickup(
       nearDiscount,
       windowAtRisk: contested ? allies.total.est : 0,
       contested,
+      shield,
     };
     pickups.push(value);
-    if (best === null || value.gain.est > best.gain.est) best = value;
+    if (
+      best === null ||
+      value.gain.est + value.shield.saved + value.shield.taken >
+        best.gain.est + best.shield.saved + best.shield.taken
+    ) {
+      best = value;
+    }
   }
   return { turn, pickups, best };
 }
@@ -255,7 +356,13 @@ export function potionPickupNet(
     // decided is one-in-n likely would put the pessimism back in through a
     // second door.
     const share = p.weightAtRisk === 0 ? 0 : risk / p.weightAtRisk;
-    net += exchangeRate * (p.gain.est - share * p.windowAtRisk) - risk;
+    // THE THREE CHANNELS, IN OUR UNITS. `gain` and `taken` are enemy weight and
+    // fold through the rate; `saved` and the exposure are already ours. The
+    // shield is charged by the same `share` the window is, because the same
+    // collision that cancels the window cancels the shield with it — one event,
+    // priced once.
+    const theirs = p.gain.est + p.shield.taken;
+    net += exchangeRate * (theirs - share * p.windowAtRisk) + (1 - share) * p.shield.saved - risk;
   }
   return net;
 }
@@ -270,7 +377,10 @@ export const POTION_PICKUP_ENTRY: StrategyEntry = {
     /** THE PICKUP THIS PLAN MAKES, read off the resolved board's own heads. */
     subject: 'realised-pickup',
     window: 'begins on the resolved turn, not the turn after',
-    countHeads: false,
+    /** Heads we already win are not a reason to drink; heads the TIER flips are
+     *  the whole of what a snake team buys. See `ShieldValue`. */
+    countHeads: 'tier-flipped only',
+    channels: ['ally-body-window', 'contest-shield', 'collector-exposure'],
     countDenial: false,
     exposure: 'near, dodge-discounted when eval/dodge-discount@2 is seated',
     weight: 0,

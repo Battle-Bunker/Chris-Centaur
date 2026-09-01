@@ -962,7 +962,11 @@ const EVAL_POTION_PICKUP = potionEntry(
     windowTurns: POTION_WINDOW_TURNS,
     subject: 'realised-pickup',
     window: 'begins on the resolved turn',
-    countHeads: false,
+    /** Heads we already win are not a reason to drink; heads the TIER flips
+     *  are the whole of what a snake team buys — `evaluate/potion-pickup.ts`
+     *  `ShieldValue`, and the measurement that says why. */
+    countHeads: 'tier-flipped only',
+    channels: ['ally-body-window', 'contest-shield', 'collector-exposure'],
     countDenial: false,
     exposure: 'near, dodge-discounted when eval/dodge-discount@2 is seated',
     currency: 'gain at sever-exchange-rate, exposure in our weight',

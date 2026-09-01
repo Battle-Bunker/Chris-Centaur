@@ -364,7 +364,7 @@ describe('the potion entries are members of the evaluator collection', () => {
       // The two this branch added. The four above are unchanged, which is the
       // claim that matters here: adding members to a collection moved nothing
       // that was already in it.
-      'eval/potion-pickup@1': 'df4c500b',
+      'eval/potion-pickup@1': '61724054',
       'eval/potion-defense@1': '142a2449',
     };
     expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
