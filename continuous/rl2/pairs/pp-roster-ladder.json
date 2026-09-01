@@ -1,0 +1,352 @@
+{
+ "batch": "rl2",
+ "sweepId": "pp-roster-ladder",
+ "startedAt": "2026-09-01T19:50:12.545Z",
+ "finishedAt": "2026-09-01T20:04:53.810Z",
+ "note": "",
+ "workersPerArm": 2,
+ "arms": [
+  {
+   "arm": "nullA",
+   "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b5",
+   "bundleStamp": {
+    "ref": "79b5f5e",
+    "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+    "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+    "committedAt": "2026-09-01T02:38:30+00:00",
+    "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+    "builtAt": "2026-09-01T02:54:08.756Z",
+    "node": "v22.22.2",
+    "platform": "linux",
+    "arch": "x64",
+    "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+    "lockfileHash": "53fbfa4116fe6a3f",
+    "tscErrors": 6
+   },
+   "botConfig": null,
+   "seatConfigs": {},
+   "envOverrides": {},
+   "legacyEnv": false,
+   "exit": {
+    "arm": "nullA",
+    "code": 0,
+    "signal": null,
+    "logPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/rl2/arms/nullA/pp-roster-ladder.log"
+   },
+   "games": 22
+  },
+  {
+   "arm": "nullB",
+   "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b5",
+   "bundleStamp": {
+    "ref": "79b5f5e",
+    "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+    "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+    "committedAt": "2026-09-01T02:38:30+00:00",
+    "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+    "builtAt": "2026-09-01T02:54:08.756Z",
+    "node": "v22.22.2",
+    "platform": "linux",
+    "arch": "x64",
+    "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+    "lockfileHash": "53fbfa4116fe6a3f",
+    "tscErrors": 6
+   },
+   "botConfig": null,
+   "seatConfigs": {},
+   "envOverrides": {},
+   "legacyEnv": false,
+   "exit": {
+    "arm": "nullB",
+    "code": 0,
+    "signal": null,
+    "logPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/rl2/arms/nullB/pp-roster-ladder.log"
+   },
+   "games": 22
+  }
+ ],
+ "host": {
+  "hostname": "vm",
+  "platform": "linux",
+  "arch": "x64",
+  "cpus": 4,
+  "cpuModel": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "totalmemGb": 15.7,
+  "node": "v22.22.2"
+ },
+ "loadavg": {
+  "before": [
+   0.37,
+   0.43,
+   0.2
+  ],
+  "after": [
+   1.05,
+   1.85,
+   1.77
+  ],
+  "trace": [
+   {
+    "t": "2026-09-01T19:50:42.759Z",
+    "load": [
+     2.46,
+     0.93,
+     0.38
+    ],
+    "freeGb": 14.08
+   },
+   {
+    "t": "2026-09-01T19:51:12.786Z",
+    "load": [
+     3.32,
+     1.29,
+     0.52
+    ],
+    "freeGb": 13.82
+   },
+   {
+    "t": "2026-09-01T19:51:42.814Z",
+    "load": [
+     4.03,
+     1.66,
+     0.66
+    ],
+    "freeGb": 13.56
+   },
+   {
+    "t": "2026-09-01T19:52:12.846Z",
+    "load": [
+     4.99,
+     2.11,
+     0.85
+    ],
+    "freeGb": 13.31
+   },
+   {
+    "t": "2026-09-01T19:52:42.874Z",
+    "load": [
+     5.16,
+     2.42,
+     0.99
+    ],
+    "freeGb": 13.2
+   },
+   {
+    "t": "2026-09-01T19:53:12.902Z",
+    "load": [
+     5.1,
+     2.67,
+     1.12
+    ],
+    "freeGb": 13.12
+   },
+   {
+    "t": "2026-09-01T19:53:42.930Z",
+    "load": [
+     5.33,
+     2.96,
+     1.27
+    ],
+    "freeGb": 13.11
+   },
+   {
+    "t": "2026-09-01T19:54:12.958Z",
+    "load": [
+     5.29,
+     3.18,
+     1.4
+    ],
+    "freeGb": 13.1
+   },
+   {
+    "t": "2026-09-01T19:54:42.986Z",
+    "load": [
+     4.99,
+     3.31,
+     1.5
+    ],
+    "freeGb": 13.07
+   },
+   {
+    "t": "2026-09-01T19:55:13.014Z",
+    "load": [
+     4.86,
+     3.44,
+     1.6
+    ],
+    "freeGb": 13.06
+   },
+   {
+    "t": "2026-09-01T19:55:43.042Z",
+    "load": [
+     4.93,
+     3.59,
+     1.71
+    ],
+    "freeGb": 13.05
+   },
+   {
+    "t": "2026-09-01T19:56:13.070Z",
+    "load": [
+     5.04,
+     3.76,
+     1.83
+    ],
+    "freeGb": 13.04
+   },
+   {
+    "t": "2026-09-01T19:56:43.098Z",
+    "load": [
+     5.21,
+     3.93,
+     1.94
+    ],
+    "freeGb": 13.01
+   },
+   {
+    "t": "2026-09-01T19:57:13.126Z",
+    "load": [
+     4.8,
+     3.95,
+     2.02
+    ],
+    "freeGb": 12.99
+   },
+   {
+    "t": "2026-09-01T19:57:43.135Z",
+    "load": [
+     5.01,
+     4.1,
+     2.13
+    ],
+    "freeGb": 13
+   },
+   {
+    "t": "2026-09-01T19:58:13.150Z",
+    "load": [
+     3.6,
+     3.85,
+     2.1
+    ],
+    "freeGb": 13.97
+   },
+   {
+    "t": "2026-09-01T19:58:43.168Z",
+    "load": [
+     2.58,
+     3.57,
+     2.07
+    ],
+    "freeGb": 13.97
+   },
+   {
+    "t": "2026-09-01T19:59:13.173Z",
+    "load": [
+     1.95,
+     3.33,
+     2.03
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T19:59:43.191Z",
+    "load": [
+     1.64,
+     3.12,
+     2
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:00:13.221Z",
+    "load": [
+     1.71,
+     2.99,
+     2
+    ],
+    "freeGb": 14.34
+   },
+   {
+    "t": "2026-09-01T20:00:43.250Z",
+    "load": [
+     1.43,
+     2.8,
+     1.96
+    ],
+    "freeGb": 14.34
+   },
+   {
+    "t": "2026-09-01T20:01:13.281Z",
+    "load": [
+     1.26,
+     2.63,
+     1.93
+    ],
+    "freeGb": 14.34
+   },
+   {
+    "t": "2026-09-01T20:01:43.310Z",
+    "load": [
+     1.16,
+     2.47,
+     1.9
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:02:13.339Z",
+    "load": [
+     1.34,
+     2.39,
+     1.89
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:02:43.369Z",
+    "load": [
+     1.46,
+     2.32,
+     1.89
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:03:13.399Z",
+    "load": [
+     1.25,
+     2.19,
+     1.86
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:03:43.429Z",
+    "load": [
+     1.15,
+     2.08,
+     1.83
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:04:13.458Z",
+    "load": [
+     1.09,
+     1.97,
+     1.8
+    ],
+    "freeGb": 14.33
+   },
+   {
+    "t": "2026-09-01T20:04:43.486Z",
+    "load": [
+     1.05,
+     1.88,
+     1.77
+    ],
+    "freeGb": 14.33
+   }
+  ]
+ }
+}

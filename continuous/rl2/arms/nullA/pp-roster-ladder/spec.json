@@ -1,0 +1,177 @@
+{
+ "spec": {
+  "_comment": [
+   "Evaluator-selection ladder, overnight R1: is lobster-territory the right",
+   "default once a piece is fielded? [territory, material, reflex] within one",
+   "game, rotateSeats. Two identical arms self-floor. Owner shape, potions ON,",
+   "hazard interior (cross). Chunked one cell per batch."
+  ],
+  "sweepId": "pp-roster-ladder",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   32101,
+   32102,
+   32103,
+   32104,
+   32105,
+   32106,
+   32107,
+   32108
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-ladder-queen2-snake4",
+    "config": {
+     "name": "potion-ladder-queen2-snake4",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "pp-roster-ladder",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "contenders": {},
+  "seeds": [
+   32101,
+   32102,
+   32103,
+   32104,
+   32105,
+   32106,
+   32107,
+   32108
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "potion-ladder-queen2-snake4",
+    "config": {
+     "name": "potion-ladder-queen2-snake4",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "queen",
+      "queen",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": true,
+      "spawnRate": 0.15,
+      "initial": 2,
+      "effectTurns": 3
+     }
+    }
+   }
+  ]
+ },
+ "games": 24,
+ "workers": 2,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "79b5f5e",
+  "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+  "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+  "committedAt": "2026-09-01T02:38:30+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-09-01T02:54:08.756Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.22.2",
+  "platform": "linux",
+  "cpus": 4,
+  "totalmemGb": 15.7,
+  "loadavgAtStart": [
+   0.5,
+   0.45,
+   0.21
+  ]
+ },
+ "startedAt": "2026-09-01T19:50:18.836Z",
+ "resumedAt": [
+  {
+   "at": "2026-09-01T19:50:18.835Z",
+   "had": 20,
+   "playing": 4,
+   "loadavg": [
+    0.5,
+    0.45,
+    0.21
+   ]
+  }
+ ]
+}
