@@ -692,6 +692,54 @@ describe('eval/potion-defense@1 — their window, and the answer to it', () => {
     expect(w.threat).toBe(0);
   });
 
+  it('prices OUR HEAD standing where a buffed enemy can arrive — and not otherwise', () => {
+    /*
+     * The plan-discriminating channel, and the measurement it is the fix for:
+     * over 23 games the body reading left our cells-cut-inside-an-enemy-window
+     * IDENTICAL between the bot carrying this term and the bot carrying no
+     * potion reading at all (2.478 a game, both), because a trail barely moves
+     * in one turn and a near-constant settles nothing.
+     */
+    const hunted = rayBoard([ourSnake(), buffedRook()]);
+    const ourHead = ourBody[0] as number;
+    const exposed = potionDefense(hunted, 0, {
+      turn: T,
+      reach: reachOf({ 'theirs-r': { [ourHead]: T + 1 } }),
+    });
+    expect(exposed.heads.units).toBe(1);
+    expect(exposed.heads.weight).toBe(ourBody.length);
+    expect(exposed.heads.worstId).toBe('ours-s');
+
+    // THE SAME BOARD with our head one cell out of their line: same units, same
+    // tiers, same window — and the term now says something different, which is
+    // the whole property the body channel does not have.
+    const clear = potionDefense(hunted, 0, {
+      turn: T,
+      reach: reachOf({ 'theirs-r': { [at(1, 1)]: T + 1 } }),
+    });
+    expect(clear.heads.units).toBe(0);
+    expect(potionDefenseNet(clear, 1)).toBeGreaterThan(potionDefenseNet(exposed, 1));
+  });
+
+  it('does not charge a head an enemy of EQUAL tier can reach — that is weight, not tier', () => {
+    // Only a strictly higher tier takes us at any weight. When our own buff
+    // matches theirs, weight is in charge again and weight is `material`'s
+    // question, not this term's.
+    const buffedUs = rayUnit({
+      unitId: 'ours-s',
+      team: 0,
+      occupancy: ourBody,
+      weight: ourBody.length,
+      tier: 1,
+      tierExpiresAtTurn: T + 2,
+    });
+    const v = potionDefense(rayBoard([buffedUs, buffedRook()]), 0, {
+      turn: T,
+      reach: reachOf({ 'theirs-r': { [ourBody[0] as number]: T + 1 } }),
+    });
+    expect(v.heads.units).toBe(0);
+  });
+
   it('the counter-attack on their collector cancels the window it bought', () => {
     const board = rayBoard([ourSnake(), ourHunter(at(11, 12)), buffedRook(), theirCollector()]);
     const reach = {

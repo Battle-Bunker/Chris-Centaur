@@ -27,6 +27,10 @@
  *      filtered to the cuts and contests whose victim is ours. Everything
  *      needed was already here and pointed the other way.
  *
+ *      AND OUR HEADS, SEPARATELY, because the body reading is nearly a constant
+ *      across our own plans and a head is exactly what a plan chooses. See
+ *      `HeadExposure` and the measurement that made it necessary.
+ *
  *   2. THE COLLECTOR IS FREE. It sits at −1 for the same three turns, which is
  *      the strict minimum of every contest it can enter: any unit of ours takes
  *      it at any weight. Nothing else on a potion board is ever this cheap.
@@ -114,11 +118,48 @@ export interface CollectorTarget {
   readonly cancels: number;
 }
 
+/**
+ * ONE OF OUR UNITS STANDING WHERE A BUFFED ENEMY CAN BE — the plan-discriminating
+ * half, and the reason it exists.
+ *
+ * The body channel above is a statement about our TRAIL, and a trail barely
+ * moves in one turn: two plans that differ in where a snake's head goes carry
+ * almost the same body threat, so the term is very nearly a constant across the
+ * comparison it is meant to settle. Measured over 23 games on the build without
+ * this channel: our cells cut inside an enemy window were IDENTICAL between the
+ * bot carrying the defensive term and the bot carrying no potion reading at all
+ * — 2.478 a game, both — which is what a constant looks like from the outside.
+ *
+ * A HEAD is the opposite. It is exactly what the plan chooses, and at a tier
+ * below theirs it is the whole unit rather than a slice of it: a buffed enemy
+ * arriving on our head takes the unit at any weight. So this channel asks, per
+ * unit of ours, whether its POST-MOVE head cell is somewhere a buffed enemy can
+ * be inside the window — and a plan that steps out of the line reads better than
+ * one that does not, which is what "evade" means as a number.
+ *
+ * SUMMED, not best-of, and that is the difference from the shield's arithmetic:
+ * these are not alternative outcomes of one contest, they are separate units
+ * each of which can be taken, and a window three turns wide with five buffed
+ * enemies in it really can take more than one of them.
+ */
+export interface HeadExposure {
+  /** Our whole weight standing where a buffed enemy can arrive in the window. */
+  readonly weight: number;
+  /** How many of our units are in that position. */
+  readonly units: number;
+  /** The heaviest of them — provenance for an operator. */
+  readonly worstId: string | null;
+}
+
+const NO_EXPOSURE: HeadExposure = { weight: 0, units: 0, worstId: null };
+
 export interface PotionDefenseValue {
   readonly fromTurn: number;
   readonly toTurn: number;
   /** Our weight at risk from every enemy window on the board. */
   readonly threat: number;
+  /** Our units standing in a buffed enemy's reach — see `HeadExposure`. */
+  readonly heads: HeadExposure;
   readonly threats: ReadonlyArray<WindowThreat>;
   /** The best collector answer available to us, or null. */
   readonly best: CollectorTarget | null;
@@ -148,6 +189,7 @@ export interface PotionDefenseOptions {
 
 const EMPTY: Omit<PotionDefenseValue, 'fromTurn' | 'toTurn'> = {
   threat: 0,
+  heads: NO_EXPOSURE,
   threats: [],
   best: null,
   targets: [],
@@ -254,6 +296,40 @@ export function potionDefense(
     byTeam.set(u.team, rows);
   }
 
+  // ---- our heads, where the plan put them -------------------------------
+  //
+  // One reach lookup per (buffed enemy, unit of ours), and only on a board that
+  // already has a buffed enemy on it.
+  let exposedWeight = 0;
+  let exposedUnits = 0;
+  let worstId: string | null = null;
+  let worstWeight = 0;
+  for (const u of board.units) {
+    if (u.team !== asTeam) continue;
+    const head = u.occupancy[0];
+    if (head === undefined) continue;
+    const ourTier = tierAt(u, fromTurn);
+    let exposed = false;
+    for (const e of buffed) {
+      // Only a STRICTLY higher tier takes us at any weight. A buff of ours that
+      // matches theirs puts weight back in charge, and weight is `material`'s
+      // question and not this term's.
+      if (tierAt(e, fromTurn) <= ourTier) continue;
+      const at = reach.earliestAt(e.unitId, head);
+      if (at < UNREACHABLE && at >= fromTurn && at <= toTurn) {
+        exposed = true;
+        break;
+      }
+    }
+    if (!exposed) continue;
+    exposedWeight += u.weight;
+    exposedUnits += 1;
+    if (u.weight > worstWeight) {
+      worstWeight = u.weight;
+      worstId = u.unitId;
+    }
+  }
+
   // ---- the answer ------------------------------------------------------
   //
   // A collector is taken by standing on its head cell. `reach` is the same
@@ -307,6 +383,7 @@ export function potionDefense(
     fromTurn,
     toTurn,
     threat,
+    heads: { weight: exposedWeight, units: exposedUnits, worstId },
     threats,
     best,
     targets,
@@ -328,7 +405,7 @@ export function potionDefense(
 export function potionDefenseNet(value: PotionDefenseValue, exchangeRate: number): number {
   if (!Number.isFinite(exchangeRate)) return 0;
   const counter = value.best === null ? 0 : exchangeRate * value.best.weight + value.best.cancels;
-  return counter - value.threat;
+  return counter - value.threat - value.heads.weight;
 }
 
 /**
@@ -348,6 +425,7 @@ export const POTION_DEFENSE_ENTRY: StrategyEntry = {
     targetGate: 'live-tier < 0',
     victims: 'subject-team only',
     countHeads: true,
+    channels: ['their-body-window', 'our-head-exposure', 'collector-counter'],
     cancellation: 'vulnerable-collision buff expiry (TeamSnekProcessor.ts:531-556)',
     currency: 'kill at sever-exchange-rate, threat and cancellation in our weight',
     weight: 0,

@@ -365,7 +365,7 @@ describe('the potion entries are members of the evaluator collection', () => {
       // claim that matters here: adding members to a collection moved nothing
       // that was already in it.
       'eval/potion-pickup@1': '61724054',
-      'eval/potion-defense@1': '142a2449',
+      'eval/potion-defense@1': '95ac7ba8',
     };
     expect(Object.keys(PINNED_POTION).sort()).toEqual(POTION_ENTRIES.map((e) => e.id).sort());
     for (const e of POTION_ENTRIES) {

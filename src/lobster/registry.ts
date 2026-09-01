@@ -984,6 +984,9 @@ const EVAL_POTION_DEFENSE = potionEntry(
     targetGate: 'live-tier < 0',
     victims: 'subject-team only',
     countHeads: true,
+    /** The head channel is the plan-discriminating one — see
+     *  `evaluate/potion-defense.ts` `HeadExposure`. */
+    channels: ['their-body-window', 'our-head-exposure', 'collector-counter'],
     cancellation: 'vulnerable-collision buff expiry',
     currency: 'kill at sever-exchange-rate, threat and cancellation in our weight',
     weight: POTION_ADVISORY_WEIGHTS.potionDefense,
