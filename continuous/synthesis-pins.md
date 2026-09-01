@@ -3941,3 +3941,19 @@ how a false crisis reads as data.
 - Steps 1-4 of its build sequence (typed est fix, advisory ObservationKind,
   weight-supplier socket + exposure repair, epsilon dial) pay off pre-fog and
   match already-queued pin items.
+- Time lens FINAL on design/time-interruption (tip 5d895ab; entry
+  time-SYNTHESIS.md, glossary-clean). Ponder-paradigm rulings scorecard:
+  pending ruling #1 (resolution-record emission) DISSOLVED — Turn doc already
+  carries the record, re-base replays realized orders through the bot's own
+  engine, wire doc becomes checksum (verified to order-encoding level);
+  #2 (dial latency) dissolved into "next tranche, softly" via
+  evaluator-version demotion; #3 (ponder determinism) dissolved into the
+  logged allowance ledger. ONE question still needs the owner: the
+  measurement denominator under carried compute (proposal: targetTurn
+  stamps + carriedQuanta column; arms compared at equal refine-quanta AND
+  equal total-quanta).
+- Merged cross-lens discipline (time+joints+belief): ONE declaration record
+  (coords, horizon, frame, weightId, evalVersion, hypothesisId), FIVE
+  readers (comparison refusal, invalidation, transport, dial demotion,
+  miner refuse-unknown); three operations spend/observe/ADVANCE; economy
+  with two purchase columns (buy-the-meet vs anticipatory meet).
