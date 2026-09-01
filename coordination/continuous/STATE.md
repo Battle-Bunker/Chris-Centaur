@@ -21,11 +21,26 @@ running as cycle 5b — see §6. Exact resume instructions if paused again:
   another agent thread's acceptance-game work, per STATE's standing box
   note. `run-cycle5b.sh` **waits** (`pgrep -f 'run-sweep\.js|run-pair\.js'`,
   30s poll) for the box to clear before launching k5's `run-pair.js`, so
-  it does not stack a third pair on top. **Launched as a Bash
-  `run_in_background` job (tracked by the tool), not `nohup … &
-  disown`** — the first launch attempt used the untracked-detached-shell
-  pattern this file already flags as a hazard (PPID 1, no completion
-  notice); it was killed and relaunched tracked.
+  it does not stack a third pair on top.
+- **Correction on launch mechanism.** First attempt used a tracked Bash
+  `run_in_background` job — but that job's `timeout_ms` ceiling (max
+  600000 = 10 min) applies EVEN IN BACKGROUND MODE, and the box-clear wait
+  ran past it: the job was silently `killed` by the tool at 10 minutes,
+  still inside the `pgrep` wait loop, no sweep games run. Confirmed no
+  orphaned child survived the kill (clean). Relaunched as detached
+  `nohup … & disown` (pid recorded in `$SP/continuous/k5.pid`) — the
+  pattern this file's §0 flags as a hazard, but the only one that survives
+  a wait longer than 10 minutes. Trade-off: no automatic completion
+  notice, so this session polls periodically instead (see below) rather
+  than assuming the tool will wake it. **A successor: check
+  `$SP/continuous/k5.pid` against `ps` before assuming a fresh detached
+  shell is safe to ignore — this one is expected and is not the
+  duplicate-run-pair hazard from §0, it's the mechanism now standard for
+  any cycle expected to run past 10 minutes.**
+- Second sibling pair rotation observed while waiting: `piruns/a3`+`l1`
+  finished and were replaced by `piruns/l3`+`l4` (still 4 processes,
+  4/4 cores). The box has not had an idle moment yet this session — the
+  wait loop just keeps polling every 30s.
 
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,
