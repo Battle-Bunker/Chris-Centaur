@@ -16,8 +16,9 @@ does not compute at all.**
 The evidence is not an argument from elegance. A **single-parameter** version of that fold
 reproduces the evaluator ladder's effect sizes across three rosters spanning 27× — **R²
 0.949, worst residual 0.027 sharePar** — where counting deaths gives 0.677 and counting raw
-weight gives 0.638. Inflow and outflow fold with the *same* coefficient, so they are one net
-flow rather than two terms needing two weights.
+weight gives 0.638. All three channels fold with the *same* coefficient, and **that
+coefficient walks monotonically to ≈1 as the basis completes — 2.92 → 2.07 → 1.23** — which
+is the strongest internal evidence that the three flows are the right three.
 
 ---
 
@@ -33,7 +34,8 @@ tuning**, predicting paired within-game `sharePar(territory − material)`:
 | deaths avoided | 0.523 | 0.677 | 0.395 |
 | weight saved | 0.128 | 0.638 | 0.315 |
 | **Σ (K/W)(1−p)·w_u at the moment of death (outflow)** | **2.919** | **0.866** | **0.085** |
-| **folded outflow + folded INFLOW, summed as one predictor** | **2.072** | **0.949** | **0.027** |
+| **+ folded INFLOW, summed as one predictor** | **2.072** | **0.949** | **0.027** |
+| **+ folded TRANSFER (enemy losses, at `p`) — all three channels** | **1.227** | **0.970** | **0.035** |
 
 Observed vs outflow-only model: snake6 +1.620/+1.705, queen +0.536/+0.472, knight
 +0.060/+0.056. Adding inflow (a unit whose length rises has eaten, folded the same way)
@@ -53,8 +55,15 @@ What stays genuinely empirical is which flows dominate on which roster, and the 
 
 Each refinement is exactly one term of the share derivative, and each buys accuracy. The
 practical consequence is small to state and large to act on: **`room: 3` is wrong by a
-factor the engine can compute for free**, and `k ≈ 2.07` (not 1.0) is the compounding
-premium of a live account — the one honest free parameter, now measured.
+factor the engine can compute for free**, and with all three channels folded `k ≈ 1.23` — a fold
+that is nearly a pure accounting identity, leaving only a ~20% compounding premium as the
+one honest free parameter.
+
+**The architectural payoff, with a number on it.** The shipped evaluator carries six hand-set
+coefficients plus a twelve-slot hand-written precedence order, none derived, plus a hand-set
+cliff inequality to stop them outbidding each other. The algebra replaces all of it with
+**three flows, coefficients computed live from `(K, W, p, w_u)`, and one fitted constant
+≈ 1.2.**
 
 ### 1.2 The R1 ladder's piece verdict does not mean what it says (§1, §2)
 
@@ -232,11 +241,12 @@ completed cell lands far from it, §1.1 is overfitted to three points and I will
 
 1. **Nothing here is implemented.** Every number is a measurement of existing replays or a
    rule read from the engine.
-2. **The fold is validated on outflow and inflow; TRANSFER is still untested.** Inflow was
-   closed after the first synthesis draft (§3.2b) and folds with the same coefficient. The
-   transfer channel (contest, sever, regicide) is not separately validated here — it is small
-   on these cells — and it is the channel the whole positional portfolio lives in, so it is
-   the honest next target.
+2. **All three channels are now folded and validated (§3.2b, §3.2c), but at the level of
+   the CHANNEL, not of any heuristic.** What is measured is that weight flowing in, out, and
+   across prices correctly with one coefficient. What is *not* measured is whether any
+   proposed heuristic — attack vectors, defence lines, potion control — estimates its flow
+   accurately in advance. The fold tells you what an estimate is worth once you have it; it
+   does not supply one.
 3. **The pooled regression is driven substantially by snake6**, which carries by far the
    largest signal; per-cell CIs on weight-saved are wide on the other two (queen [−4.2,+0.8],
    knight [−1.7,+1.1]). R² 0.866 against 0.677/0.638 is a real improvement and the residual

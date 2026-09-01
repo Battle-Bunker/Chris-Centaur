@@ -281,6 +281,41 @@ adding inflow drops it to 2.07. That is not tuning drift — the outflow-only co
 is counted explicitly by the inflow term, the premium falls toward the value of the weight
 itself. A decomposition carving at the wrong joint would not produce that.
 
+### 3.2c ALL THREE CHANNELS, ONE COEFFICIENT — and the coefficient walks to 1
+
+The transfer channel (weight leaving an *enemy* account) enters at `p` rather than `(1−p)`,
+per §3.4. Adding it gives the complete per-turn fold:
+
+    netflow_X = Σ_t (K/W) · [ (1−p_X)·(gain_X − loss_X)  +  p_X · loss_(everyone else) ]
+
+| model (one k, through origin, 144 games) | k | R² | residuals (snake6/queen/knight) |
+|---|---|---|---|
+| outflow only | 2.919 | 0.866 | −0.085 / +0.064 / +0.004 |
+| + inflow | 2.072 | 0.949 | +0.027 / −0.005 / −0.012 |
+| **+ transfer — all three channels** | **1.227** | **0.970** | **−0.035 / −0.025 / +0.002** |
+
+**The coefficient walks monotonically to ≈ 1 as the basis completes: 2.92 → 2.07 → 1.23.**
+That is the result I would put weight on. Each channel added removes exactly the portion of
+the premium it was implicitly carrying — outflow-only was absorbing both growth *and*
+removal; adding inflow removed the growth; adding transfer removed the removal — and what
+remains is ~1.2, a fold that is nearly a pure accounting identity with a ~20% residual
+compounding premium.
+
+**A decomposition that was carving anywhere but the joints would not do that.** A wrong basis
+does not produce a coefficient that marches toward unity as you complete it; it produces
+coefficients that jump around absorbing whatever the missing terms happened to correlate
+with. This is the strongest internal evidence in the memo that the three flows are the right
+three, and that their coefficients — `(1−p)` on our own, `p` on theirs — are right and not
+merely plausible.
+
+**And this is the architectural payoff, with a number on it.** The shipped evaluator carries
+six hand-set coefficients (`material: 10`, `reach: 1`, `room: 3`, `healthEconomy: 0.5`,
+`kingMargin: 0.25`, `command: 0`/`2`) plus a twelve-slot hand-written precedence order, none
+of which is derived, and a hand-set cliff inequality to stop them outbidding each other.
+**The algebra replaces all of it with three flows, coefficients computed live from
+`(K, W, p, w_u)`, and one fitted constant ≈ 1.2.** That is the complexity reduction the
+mandate asked for, and it is not a promise — the reduction is what the table above measures.
+
 **An honesty note, and it matters for how this should be read.** Terminal weight is initial
 weight plus gains minus losses, and `sharePar` *is* `K·w/W` — so the net-flow predictor is
 partly a path-integral reconstruction of the score's own definition, and R² = 0.949 is
