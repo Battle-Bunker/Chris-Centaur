@@ -1,0 +1,27 @@
+{
+ "arm": "nullB",
+ "bundle": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppruns/b5",
+ "bundleStamp": {
+  "ref": "79b5f5e",
+  "sha": "79b5f5e4e7bd1f209d3e2490aebdf2f9b65844d9",
+  "subject": "The first-plan gate states its tail as a RATIO, so a shared box cannot fail it",
+  "committedAt": "2026-09-01T02:38:30+00:00",
+  "repo": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/ppkit",
+  "builtAt": "2026-09-01T02:54:08.756Z",
+  "node": "v22.22.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "a83d5a9337474f4db27005228b3078ee1b26c0ad",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": null,
+ "seatConfigs": {},
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "pp-roster-ladder",
+ "specPath": "/tmp/claude-0/-home-user/efbea15c-4c87-5ce1-959f-b7a3435c8e01/scratchpad/continuous/specs/rl-queen2.json",
+ "workers": 2,
+ "startedAt": "2026-09-01T12:30:00.273Z",
+ "note": "queue item 4, cell 2/6 (queen2-snake4, rank 1 by expected info): overnight found the only outright reversal here (G=-0.465, didn't clear its own floor at 15x15/250ms). Re-reading at owner shape, 8 blocks first pass."
+}

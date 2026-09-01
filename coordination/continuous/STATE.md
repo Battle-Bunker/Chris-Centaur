@@ -197,16 +197,28 @@ than this cell needs** (CI half-width 0.17-0.21 against an effect over
 advantage shrinking toward zero and are the ones actually worth the next
 ~1.5hr chunk each.
 
-**OPEN DECISION FOR THE COORDINATOR/OWNER: continue funding ~1.5hr/cell
-x 5 remaining cells (`snake5-knight`, `snake5-rook`, `snake5-queen`,
-`queen2-snake4`, `mix-king`) at 8 blocks first (a fast, cheap first read
-on all five, ~7.5hr total), vs going straight to R1's full 32 blocks on
-just the highest-value rung, vs pausing here.** Recommend the former —
-snake6 shows 8 blocks is already generous when the effect is large, and
-the piece cells are exactly where a SMALL or NULL effect (which needs
-more blocks to resolve) is the interesting outcome, so an 8-block first
-pass on all five tells us fast which rungs need the extra 24 blocks and
-which don't.
+**APPROVED by coordinator: run the 8-block first pass on all 5 remaining
+cells, in order of expected information (where overnight already showed
+territory's advantage shrinking/reversing, biggest deviation from the
+all-snake +1.39 baseline first) — so a cut-short run keeps the
+highest-value verdicts. Order, from `overnight/findings-3-roster-ladder.md`
+(a smaller/cheaper shape, 15x15/250ms — not directly comparable in floor
+size, but the ranking signal is what matters):**
+
+| rank | cell | overnight G (territory-material) | deviation from +1.39 baseline |
+|---:|---|---:|---:|
+| 1 | queen2-snake4 | **-0.465** (only outright reversal, doesn't clear its own floor there) | 1.855 |
+| 2 | snake5-knight | -0.058 ("the decisive row" per finding-3) | 1.448 |
+| 3 | snake5-queen | +0.018 | 1.372 |
+| 4 | snake5-rook | +0.134 (retains the most advantage of the four) | 1.256 |
+| 5 | mix-king | no overnight number (new cell for R1) — runs last, no prior signal to rank it by | — |
+
+After this pass: rank rungs by CI-width-vs-effect and PROPOSE (do not
+launch) which if any deserve the extra 24 blocks — quota is at 94%,
+extra blocks need a case, per the coordinator.
+
+(Resolved — the coordinator approved the 8-block-first-pass plan above;
+this superseded paragraph is left deleted rather than renumbered.)
 
 A successor reads this file top to bottom and can resume cold.
 Predecessor method: `$SP/overnight/STATE.md` (cycles c1..c6,
