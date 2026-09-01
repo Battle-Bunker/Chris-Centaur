@@ -3988,3 +3988,17 @@ how a false crisis reads as data.
   (slider-only; cap 4 of ~71) vs cause (b) no-gradient (term constant at
   the point of comparison); opposite remedies; instrument must measure
   spread at better()'s comparisons, by unit class.
+- Value lens FINAL (design/value-evaluation, 26986a3; SYNTHESIS.md).
+  Unified net weight-share flow: inflow+outflow folded by (K/W)(1-p), ONE
+  k=2.072, R²=0.949, worst residual 0.027 (k moved 2.92→2.07 exactly as
+  the decomposition predicts — strongest internal validity evidence).
+  Claim type: score DECOMPOSES into share-folded per-unit flows (basis
+  completeness), not "surprising predictor". Transfer channel
+  (contest/sever/regicide — the whole positional portfolio) named untested.
+  Third inert-weight cause: (c) SCALE SEPARATION (flat-to-worse signature);
+  dissolved by common currency — the trade-safety cliff inequality was a
+  unit-conversion guard, not strategy. M1 (no games needed): symmetric
+  balance form definitionally wrong on 3-team boards (exactly 2.00 all
+  cells). Residual precedence = tier bottom + determinism only.
+  PRE-REGISTERED rook forecast, k frozen: G=+0.173 (n=12 interim: rook
+  weight 24.8, 0.75 elim/game — live instrument). Check vs rl5 when done.
