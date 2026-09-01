@@ -171,6 +171,21 @@ export interface SeatCounters {
     advisoryMeanAsked: number | null;
     advisoryMeanApplied: number | null;
     advisoryMeanWidth: number | null;
+    /**
+     * THE FOCUS ROWS SUM, and `focusDecisions` is the denominator that makes
+     * the sum readable: the scout is per-decision, so `focusFired /
+     * focusDecisions` is the rate at which this bot narrowed, and
+     * `focusPlies / (focusPlies + outsidePlies)` is the share of depth the
+     * focus actually took — the breadth reserve, measured rather than
+     * declared. `focusAcuteness` is a MEAN and is accumulated as a sum here,
+     * divided by `focusDecisions` at read time.
+     */
+    focusDecisions: number | null;
+    focusFired: number | null;
+    focusUnits: number | null;
+    focusAcuteness: number | null;
+    focusPlies: number | null;
+    outsidePlies: number | null;
   } | null;
   errors: string[];
 }
@@ -522,6 +537,13 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
                 advisoryMeanAsked: mech.advisoryMeanAsked ?? prev.advisoryMeanAsked,
                 advisoryMeanApplied: mech.advisoryMeanApplied ?? prev.advisoryMeanApplied,
                 advisoryMeanWidth: mech.advisoryMeanWidth ?? prev.advisoryMeanWidth,
+                // Per-decision, like the adjudication ladder above: they sum.
+                focusDecisions: addNullable(prev.focusDecisions, mech.focusDecisions),
+                focusFired: addNullable(prev.focusFired, mech.focusFired),
+                focusUnits: addNullable(prev.focusUnits, mech.focusUnits),
+                focusAcuteness: addNullable(prev.focusAcuteness, mech.focusAcuteness),
+                focusPlies: addNullable(prev.focusPlies, mech.focusPlies),
+                outsidePlies: addNullable(prev.outsidePlies, mech.outsidePlies),
               };
       }
       if (out.telemetry.error !== null) {

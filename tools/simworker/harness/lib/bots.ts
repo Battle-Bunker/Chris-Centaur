@@ -293,6 +293,28 @@ export interface DecisionTelemetry {
     readonly advisoryMeanAsked: number | null;
     readonly advisoryMeanApplied: number | null;
     readonly advisoryMeanWidth: number | null;
+    /**
+     * THE ACUTE FOCUS (`mechanism.scout.focus`), null on a bot that does not
+     * narrow — which is every bot before `feature/potion-intel` and every arm
+     * that sets `depth.acute: null`.
+     *
+     * NULL AND ZERO ARE DIFFERENT FACTS and the ingest may not fold them: null
+     * is "this bot has no focus layer", `focusFired: 0` is "it has one and the
+     * board was quiet". A narrowing arm whose `focusFired` is zero across a
+     * cell did not narrow, and reading that as a null about the layer is how a
+     * threshold that never fires gets reported as a treatment that did not
+     * help.
+     *
+     * `focusAcuteness` is the PEAK reading on the board whether or not it
+     * cleared the threshold, so a sweep can see how far a threshold is from
+     * firing without racing a second arm for it.
+     */
+    readonly focusDecisions: number | null;
+    readonly focusFired: number | null;
+    readonly focusUnits: number | null;
+    readonly focusAcuteness: number | null;
+    readonly focusPlies: number | null;
+    readonly outsidePlies: number | null;
   } | null;
   /** The decision threw. Production logs and moves on; so does this harness. */
   readonly error: string | null;
@@ -342,6 +364,15 @@ function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
     advisoryMeanAsked: n(m.advisory?.meanAsked),
     advisoryMeanApplied: n(m.advisory?.meanApplied),
     advisoryMeanWidth: n(m.advisory?.meanWidth),
+    // One decision, so `focusDecisions` is 1 whenever the layer is present at
+    // all — it is the DENOMINATOR the accumulator needs, because summing
+    // `focusFired` over a game without it cannot be turned back into a rate.
+    focusDecisions: m.scout?.focus == null ? null : 1,
+    focusFired: m.scout?.focus == null ? null : m.scout.focus.fired === true ? 1 : 0,
+    focusUnits: n(m.scout?.focus?.units),
+    focusAcuteness: n(m.scout?.focus?.acuteness),
+    focusPlies: n(m.scout?.focus?.focusPlies),
+    outsidePlies: n(m.scout?.focus?.outsidePlies),
   };
 }
 
