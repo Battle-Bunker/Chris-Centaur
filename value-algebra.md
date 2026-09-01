@@ -277,6 +277,67 @@ strongest available vindication of the currency choice itself. (Note also the kn
 weak +0.447 against the others' +0.87: even *mid-game weight share* barely predicts the
 final result there. Another face of the dead instrument.)
 
+### 3.4 EVERY `(ours − theirs)` BALANCE IS CALIBRATED FOR A TWO-TEAM GAME
+
+The share derivative is **asymmetric**, and the asymmetry is forced by the metric rather
+than chosen:
+
+    ∂S/∂w_ours = (K/W)(1 − p)        ∂S/∂w_theirs = −(K/W)·p
+
+At three teams at par (p = 1/3) that is **2 : 1** — a unit of our own weight is worth twice
+a unit removed from an enemy. The two coincide only at p = 0.5, i.e. **a two-team game at
+parity**. The owner's default shape is three teams.
+
+Now grep the evaluator collection for how the two sides are combined:
+
+```
+territory.ts:648       balance: open === 0 ? 0 : (ours - theirs) / open
+potion-control.ts:281  balance: reachable === 0 ? 0 : (ours - theirs) / reachable
+```
+
+**A symmetric difference hard-codes an exchange rate of 1 : 1.** Both of the collection's
+headline positional balances are therefore calibrated for a two-team game and are being run
+on three-team boards, where the correct rate is 1 : 2. This is not a weighting preference
+that a sweep could discover — it is a coefficient the metric determines and the live board
+supplies.
+
+**And in `potionControl` the error compounds, because the two sides are not even the same
+channel.** A potion *we* control opens a window in which we **remove enemy weight** — the
+`p` channel. A potion *they* control opens one in which they **remove our weight** — the
+`(1 − p)` channel. So:
+
+> **At three-team par, a potion the enemy controls is worth twice a potion we control**, and
+> the module counts them 1 : 1. Threats are systematically under-weighted by 2×.
+
+**A separate sign error, in the same module's own caveat.** The header states:
+
+> *"Their window counts weight they could remove from ANY team that is not theirs, third
+> parties included. Under the share metric that still costs us — their share rises when
+> anyone else's weight leaves the board…"*
+
+That is signed backwards. If team B removes δ from third party C, then W falls by δ and
+
+    ΔS_ours = −∂S/∂w_C · δ = +(K/W)·p·δ  >  0
+
+**Third-party damage raises our score.** Our share rises too, for the same reason theirs
+does. So the third-party component of "their window" is a small *positive* for us, and
+entering the whole of their window negatively over-values denial on exactly the multi-team
+boards the owner plays. (The portfolio memo's §1 has this right — `∂S/∂w_enemy = −(K/W)·p`
+for *any* other team — so the two artifacts disagree and the module is the one that is
+wrong. Worth reconciling explicitly, since `theirsAgainstUs` already exists as the
+correctly-scoped half and is simply not the headline.)
+
+This does **not** license free-riding, and the distinction matters: the measured null on
+free-riding (0.274 against 0.333 by chance) is about *declining to fight*, which forgoes our
+own `p`-channel gains and lets a searcher prey on us. Third-party damage being mildly good
+for us is a statement about the *sign of a term*, not a strategy.
+
+**The fix is one derived quantity, and the data is already held.** The substrate carries
+team numbering (`teamNumbers`/`teamLabels`) and per-unit `weight`, so `(K, W, p)` is one
+pass over `roster()`. But `grep` finds **no team count and no share computation anywhere in
+the evaluator collection** — the share state is simply never formed. That single missing
+triple is exactly the difference §3.2 measured between R² = 0.638 and R² = 0.866.
+
 ---
 
 ## 4. THE ALGEBRA — ONE TYPE FOR ALL FIVE HEURISTIC FAMILIES
