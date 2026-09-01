@@ -1,0 +1,87 @@
+{
+ "_comment": [
+  "Evaluator-selection ladder, overnight R1: is lobster-territory the right",
+  "default once a piece is fielded? [territory, material, reflex] within one",
+  "game, rotateSeats. Two identical arms self-floor. Owner shape, potions ON,",
+  "hazard interior (cross). Chunked one cell per batch."
+ ],
+ "sweepId": "pp-roster-ladder",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  32101,
+  32102,
+  32103,
+  32104,
+  32105,
+  32106,
+  32107,
+  32108,
+  32109,
+  32110,
+  32111,
+  32112,
+  32113,
+  32114,
+  32115,
+  32116,
+  32117,
+  32118,
+  32119,
+  32120,
+  32121,
+  32122,
+  32123,
+  32124,
+  32125,
+  32126,
+  32127,
+  32128,
+  32129,
+  32130,
+  32131,
+  32132
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "potion-ladder-snake6",
+   "config": {
+    "name": "potion-ladder-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": true,
+     "spawnRate": 0.15,
+     "initial": 2,
+     "effectTurns": 3
+    }
+   }
+  }
+ ]
+}
