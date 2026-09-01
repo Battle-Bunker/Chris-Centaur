@@ -263,7 +263,44 @@ export interface DecisionTelemetry {
     readonly refineInverted: number | null;
     readonly scoutThreads: number | null;
     readonly scoutPlies: number | null;
+    /**
+     * THE HONEST HORIZON — turns of play actually simulated, and the count of
+     * deepened lines whose value reached a branch belief. `scoutPlies` is what
+     * the purse SPENT; these two are what it bought, and a sweep that reads
+     * only the spend cannot tell a layer that ran deep from one that ran wide
+     * and shallow.
+     */
+    readonly scoutDeepestPlies: number | null;
+    readonly scoutObservations: number | null;
     readonly scoutRefusals: number | null;
+    /**
+     * THE REFINEMENT LOOP (`mechanism.loop`) — THE UPSTREAM CAUSE OF EVERY
+     * CLUSTER, SCOUT AND FOCUS COLUMN ON THIS ROW.
+     *
+     * `clusterOf` is reached from `improve` and nowhere else, so with
+     * `improveCalls` at zero all three are null BY CONSTRUCTION and say
+     * nothing about the board. Without this column a reader who sees three
+     * nulls has to guess which of the two happened, and the first reader who
+     * had to guess retracted a third of a batch on the wrong answer.
+     *
+     * Null on a bundle built before `MechanismReport.loop` existed, which is
+     * every bundle before 2026-09-01: absent, not zero.
+     */
+    readonly slices: number | null;
+    readonly improveCalls: number | null;
+    readonly refineCalls: number | null;
+    readonly conformCalls: number | null;
+    readonly idleSlices: number | null;
+    readonly leverOrderBinding: boolean | null;
+    /**
+     * WHETHER DEPTH WAS LOAD-BEARING ON THIS DECISION
+     * (`mechanism.belief.depthChangedStaging`): would removing every deep
+     * observation have staged a different move? The mean of this indicator
+     * over a corpus IS the depth-effect rate, and it was unmineable from a
+     * replay until this column existed — every reading of it in this program
+     * so far has come from a unit test.
+     */
+    readonly depthChangedStaging: boolean | null;
     readonly ceilingDecided: number | null;
     /**
      * THE ADJUDICATION LADDER, ALL OF IT — which slot of `better()` decided.
@@ -333,6 +370,7 @@ export interface DecisionTelemetry {
 function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
   if (m === null || m === undefined) return null;
   const n = (x: unknown): number | null => (typeof x === 'number' ? x : null);
+  const b = (x: unknown): boolean | null => (typeof x === 'boolean' ? x : null);
   const refusalCount = (r: unknown): number | null =>
     r === null || r === undefined || typeof r !== 'object'
       ? null
@@ -349,7 +387,16 @@ function foldMechanism(m: any): DecisionTelemetry['mechanism'] {
     refineInverted: n(m.refine?.inverted),
     scoutThreads: n(m.scout?.threads),
     scoutPlies: n(m.scout?.plies),
+    scoutDeepestPlies: n(m.scout?.deepestPlies),
+    scoutObservations: n(m.scout?.observations),
     scoutRefusals: refusalCount(m.scout?.refusals),
+    slices: n(m.loop?.slices),
+    improveCalls: n(m.loop?.improveCalls),
+    refineCalls: n(m.loop?.refineCalls),
+    conformCalls: n(m.loop?.conformCalls),
+    idleSlices: n(m.loop?.idleSlices),
+    leverOrderBinding: b(m.loop?.leverOrderBinding),
+    depthChangedStaging: b(m.belief?.depthChangedStaging),
     ceilingDecided: n(m.adjudication?.ceilingDecided),
     estDecided: n(m.adjudication?.estDecided),
     floorDecided: n(m.adjudication?.floorDecided),

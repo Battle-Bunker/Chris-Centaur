@@ -666,6 +666,79 @@ section('5. THE NOISE FLOOR IS A PROPERTY OF ONE SEAT — verify-null.js');
   );
 }
 
+section('6. A MINER READS THE FOLD, NOT THE RAW REPORT — depth-ran.js');
+
+{
+  /*
+   * THE DEFECT ITSELF, AND IT COST A BATCH.
+   *
+   * `depth-ran.js` shipped reading `mechanism.cluster`, `mechanism.scout.plies`
+   * and `mechanism.scout.focus.fired` — the RAW `MechanismReport` paths. The
+   * replay stream carries the FOLD (`harness/lib/bots.ts::foldMechanism`):
+   * `clusterJoints`, `scoutPlies`, `focusFired`. Every lookup was `undefined`,
+   * every `??` defaulted to 0, and the tool reported the depth layer running on
+   * 0.0% of 7,680 decisions — for the treatment arm AND the control, at three
+   * budgets. A third of a batch's conclusions were retracted on that reading
+   * before anyone opened a replay.
+   *
+   * So the fixture is a replay whose depth layer plainly RAN, and the assertion
+   * is that the miner says so. A field-name drift of any kind fails it.
+   */
+  const dir = path.join(FIX, 'depth-ran', 'arms', 'tip', 'sw');
+  fs.mkdirSync(dir, { recursive: true });
+  const folded = {
+    clusterJoints: 512,
+    clusterEnumMs: 40,
+    scoutThreads: 18,
+    scoutPlies: 24,
+    scoutDeepestPlies: 3,
+    scoutObservations: 16,
+    slices: 6,
+    improveCalls: 6,
+    refineCalls: 0,
+    focusDecisions: 1,
+    focusFired: 1,
+  };
+  const lines = [
+    { kind: 'header', config: { name: 'c', budgetMs: 1000 }, seats: [{ teamID: 'red', bot: 'subject' }] },
+    { kind: 'turn', turn: 1, telemetry: { red: { mechanism: folded } } },
+    { kind: 'turn', turn: 2, telemetry: { red: { mechanism: folded } } },
+  ];
+  fs.writeFileSync(
+    path.join(dir, 'g.jsonl.gz'),
+    require('zlib').gzipSync(lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  );
+
+  const r = run(path.join(__dirname, 'depth-ran.js'), [path.join(FIX, 'depth-ran')]);
+  ok(r.code === 0, 'depth-ran reads a replay whose rows carry the folded shape');
+  ok(/\*\*100\.0%\*\*/.test(r.out), 'THE REGRESSION: a layer that ran reads 100.0%, not 0.0%');
+  ok(/\| 24\.00 \|/.test(r.out), 'and the scout plies come back as 24, not as a defaulted 0');
+  ok(/\| 6\.00 \|/.test(r.out), 'and the loop column reports the improve calls that caused them');
+
+  /*
+   * AND THE OTHER HALF: a row this miner cannot read must be REFUSED, not
+   * counted as a zero. That is the property the original lacked — it had no way
+   * to tell "the layer did not run" from "I am looking at the wrong field".
+   */
+  const dir2 = path.join(FIX, 'depth-ran-raw', 'arms', 'tip', 'sw');
+  fs.mkdirSync(dir2, { recursive: true });
+  const raw = { cluster: { jointsEnumerated: 512 }, scout: { plies: 24, threads: 18 } };
+  fs.writeFileSync(
+    path.join(dir2, 'g.jsonl.gz'),
+    require('zlib').gzipSync(
+      [
+        { kind: 'header', config: { name: 'c', budgetMs: 1000 }, seats: [{ teamID: 'red', bot: 'subject' }] },
+        { kind: 'turn', turn: 1, telemetry: { red: { mechanism: raw } } },
+      ]
+        .map((l) => JSON.stringify(l))
+        .join('\n') + '\n'
+    )
+  );
+  const r2 = run(path.join(__dirname, 'depth-ran.js'), [path.join(FIX, 'depth-ran-raw')]);
+  ok(r2.code !== 0, 'a row whose shape this miner does not understand is REFUSED');
+  ok(/REFUSED/.test(r2.err + r2.out), 'and the refusal says so rather than printing a zero');
+}
+
 fs.rmSync(FIX, { recursive: true, force: true });
 
 // ------------------------------------------------------------------ verdict

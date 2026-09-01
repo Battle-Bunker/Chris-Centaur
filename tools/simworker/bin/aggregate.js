@@ -357,7 +357,22 @@ function metricsFor(row, subjectBot) {
     refineInverted: h && h.mechanism ? h.mechanism.refineInverted : null,
     scoutThreads: h && h.mechanism ? h.mechanism.scoutThreads : null,
     scoutPlies: h && h.mechanism ? h.mechanism.scoutPlies : null,
+    scoutDeepestPlies: h && h.mechanism ? h.mechanism.scoutDeepestPlies ?? null : null,
+    scoutObservations: h && h.mechanism ? h.mechanism.scoutObservations ?? null : null,
     scoutRefusals: h && h.mechanism ? h.mechanism.scoutRefusals : null,
+    // THE REFINEMENT LOOP — read these BEFORE the cluster and scout rows above.
+    // `clusterOf` is reached from `improve` and nowhere else, so `improveCalls`
+    // is the upstream cause of every one of them: at zero they are null by
+    // construction and say nothing about the board. A batch was retracted for
+    // want of exactly this column.
+    slices: h && h.mechanism ? h.mechanism.slices ?? null : null,
+    improveCalls: h && h.mechanism ? h.mechanism.improveCalls ?? null : null,
+    refineCalls: h && h.mechanism ? h.mechanism.refineCalls ?? null : null,
+    conformCalls: h && h.mechanism ? h.mechanism.conformCalls ?? null : null,
+    idleSlices: h && h.mechanism ? h.mechanism.idleSlices ?? null : null,
+    // The depth-effect rate's numerator, at last mineable from a replay.
+    depthChangedStagingCount:
+      h && h.mechanism ? h.mechanism.depthChangedStagingCount ?? null : null,
     ceilingDecided: h && h.mechanism ? h.mechanism.ceilingDecided : null,
     // THE REST OF THE ADJUDICATION LADDER. `est` is the ONLY channel an
     // advisory lineup has, and it is the fifth rung: a comparison the witness
@@ -397,7 +412,10 @@ const METRIC_KEYS = [
   'deathsContest', 'deathsTeammate',
   'wasmRuns', 'wasmRefused', 'clusterJoints', 'clusterEnumMs',
   'selectionFar', 'selectionDraws', 'refineMovedLo', 'refineInverted',
-  'scoutThreads', 'scoutPlies', 'scoutRefusals', 'ceilingDecided',
+  'scoutThreads', 'scoutPlies', 'scoutDeepestPlies', 'scoutObservations',
+  'scoutRefusals', 'ceilingDecided',
+  'slices', 'improveCalls', 'refineCalls', 'conformCalls', 'idleSlices',
+  'depthChangedStagingCount',
   'estDecided', 'floorDecided', 'depthDecided', 'tieKeyDecided', 'vetoed', 'refused',
   'advisoryEvaluations', 'advisoryEngaged', 'advisoryClamped',
   'advisoryMeanAsked', 'advisoryMeanApplied', 'advisoryMeanWidth',

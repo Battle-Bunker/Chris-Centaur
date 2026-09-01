@@ -148,7 +148,34 @@ export interface SeatCounters {
     refineInverted: number | null;
     scoutThreads: number | null;
     scoutPlies: number | null;
+    /** `scoutObservations` SUMS like every other per-decision counter;
+     * `scoutDeepestPlies` is a MAX, because the question it answers is "how
+     * far did this bot ever see in this game" and a sum answers a different
+     * one. */
+    scoutDeepestPlies: number | null;
+    scoutObservations: number | null;
     scoutRefusals: number | null;
+    /**
+     * THE REFINEMENT LOOP — per-decision counters, so they sum, except
+     * `leverOrderBinding`, which is a property of the search core and is a
+     * last-write-wins stamp like `slate`.
+     *
+     * `improveCalls` is the upstream cause of the cluster, scout and focus
+     * columns: all three hang off `search/core.ts::clusterOf`, which only
+     * `improve` calls. A game whose `clusterJoints` is null and whose
+     * `improveCalls` is zero never reached the layer; one whose `improveCalls`
+     * is large is telling you about the BOARD. Nothing could tell those apart
+     * before this column, and a batch was retracted on the difference.
+     */
+    slices: number | null;
+    improveCalls: number | null;
+    refineCalls: number | null;
+    conformCalls: number | null;
+    idleSlices: number | null;
+    leverOrderBinding: boolean | null;
+    /** Decisions on which removing every deep observation would have staged a
+     * different move — the depth-effect rate's numerator, summed. */
+    depthChangedStagingCount: number | null;
     ceilingDecided: number | null;
     estDecided: number | null;
     floorDecided: number | null;
@@ -195,6 +222,13 @@ function addNullable(a: number | null, b: number | null): number | null {
   if (a === null) return b;
   if (b === null) return a;
   return a + b;
+}
+
+/** The same discipline for a counter whose game-level fold is a MAX. */
+function maxNullable(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.max(a, b);
 }
 
 function emptyCounters(): SeatCounters {
@@ -506,7 +540,15 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
         const prev = c.mechanism;
         c.mechanism =
           prev === null
-            ? { ...mech, flags: { ...mech.flags } }
+            ? // The one field whose SHAPE differs between the per-decision row
+              // and the per-game fold: a decision carries the indicator,
+              // a game carries how many decisions raised it.
+              {
+                ...mech,
+                flags: { ...mech.flags },
+                depthChangedStagingCount:
+                  mech.depthChangedStaging === null ? null : mech.depthChangedStaging ? 1 : 0,
+              }
             : {
                 // The stamp is a property of the engine, not of the decision:
                 // last write wins, and they must all agree.
@@ -521,7 +563,21 @@ export async function runMatch(opts: RunMatchOptions): Promise<MatchOutcome> {
                 refineInverted: addNullable(prev.refineInverted, mech.refineInverted),
                 scoutThreads: addNullable(prev.scoutThreads, mech.scoutThreads),
                 scoutPlies: addNullable(prev.scoutPlies, mech.scoutPlies),
+                // A MAX, not a sum — see the field's own note.
+                scoutDeepestPlies: maxNullable(prev.scoutDeepestPlies, mech.scoutDeepestPlies),
+                scoutObservations: addNullable(prev.scoutObservations, mech.scoutObservations),
                 scoutRefusals: addNullable(prev.scoutRefusals, mech.scoutRefusals),
+                slices: addNullable(prev.slices, mech.slices),
+                improveCalls: addNullable(prev.improveCalls, mech.improveCalls),
+                refineCalls: addNullable(prev.refineCalls, mech.refineCalls),
+                conformCalls: addNullable(prev.conformCalls, mech.conformCalls),
+                idleSlices: addNullable(prev.idleSlices, mech.idleSlices),
+                // A property of the core, not of the decision: last write wins.
+                leverOrderBinding: mech.leverOrderBinding ?? prev.leverOrderBinding,
+                depthChangedStagingCount: addNullable(
+                  prev.depthChangedStagingCount,
+                  mech.depthChangedStaging === null ? null : mech.depthChangedStaging ? 1 : 0
+                ),
                 ceilingDecided: addNullable(prev.ceilingDecided, mech.ceilingDecided),
                 estDecided: addNullable(prev.estDecided, mech.estDecided),
                 floorDecided: addNullable(prev.floorDecided, mech.floorDecided),
