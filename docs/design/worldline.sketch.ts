@@ -26,6 +26,10 @@ export type Coord =
 export interface ReadSet {
   readonly coords: ReadonlyArray<Coord>;
   readonly horizon: number; // plies the value spans (1 = this turn)
+  /** Which evaluator terms were computed (pending complement carries spans).
+   * Adopted from the premise lattice's §3 — two numbers equal on every other
+   * tag are still incomparable across frames. */
+  readonly frame: string;
   readonly weightId: string | null; // null = sound (quantified over S)
   readonly evalVersion: number; // objective/dial version (§7)
   readonly hypothesisId: string | null; // null = the actual frontier
