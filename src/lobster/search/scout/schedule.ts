@@ -531,7 +531,13 @@ export interface ScoutReport {
     readonly acuteness: number;
     readonly horizon: number;
     readonly kinds: ReadonlyArray<string>;
-    /** Plies spent inside the focus, and outside it — the reserve, measured. */
+    /**
+     * Plies spent inside the focus and outside it, ON DECISIONS THAT NARROWED —
+     * the reserve, measured. Scoped to fired decisions because the alternative
+     * reports the split as a share of every ply on the board, and a bot that
+     * narrows a fifth of the time then reads 12% when the split it is measuring
+     * is 65/35. The unconditional total is `plies`, on the same report.
+     */
     readonly focusPlies: number;
     readonly outsidePlies: number;
   } | null;

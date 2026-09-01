@@ -328,8 +328,16 @@ export class Scout {
   private readonly focused = new Set<string>();
   /** The focus this decision is narrowing on — telemetry, and the option caps. */
   private focus: AcuteFocus = NO_FOCUS;
-  /** Plies spent inside the focus and outside it. The reserve is a ratio, and a
-   *  ratio needs both numerators. */
+  /**
+   * PLIES SPENT INSIDE THE FOCUS AND OUTSIDE IT, ON DECISIONS THAT NARROWED.
+   *
+   * Counted only while `focus.fired`, and that is the whole of what makes the
+   * pair readable. A decision on a quiet board spends every ply outside a focus
+   * that does not exist, so summing those in would report the reserve as a
+   * share of ALL plies — which on a board that narrows a fifth of the time
+   * reads as 12% when the split it is measuring is 65/35. The total is on the
+   * same report as `plies`, so nothing is lost by scoping these two.
+   */
   private focusPlies = 0;
   private outsidePlies = 0;
 
@@ -502,8 +510,10 @@ export class Scout {
       if (next === null) break;
       const focused = this.focused.has(next.key);
       this.deepen(next, req);
-      if (focused) this.focusPlies++;
-      else this.outsidePlies++;
+      if (this.focus.fired) {
+        if (focused) this.focusPlies++;
+        else this.outsidePlies++;
+      }
       const verdict = shouldPark(next, this.tuning, this.purse);
       if (verdict.park) this.ledger.park(next, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');
     }
@@ -653,8 +663,10 @@ export class Scout {
         const before = depthOf(entry);
         this.deepen(entry, req);
         if (depthOf(entry) === before) break;
-        if (this.focused.has(entry.key)) this.focusPlies++;
-        else this.outsidePlies++;
+        if (this.focus.fired) {
+          if (this.focused.has(entry.key)) this.focusPlies++;
+          else this.outsidePlies++;
+        }
         const verdict = shouldPark(entry, this.tuning, this.purse);
         if (verdict.park) {
           this.ledger.park(entry, verdict.reason === 'flat' ? 'parked-flat' : 'parked-budget');

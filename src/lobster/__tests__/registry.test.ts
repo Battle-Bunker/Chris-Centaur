@@ -489,6 +489,14 @@ describe('PRECONDITION: per-feature parts on the fold path', () => {
 
     const engine = new TeamDecisionEngine(ports, {
       evaluate: counter,
+      // THE LEGACY LINEUP, NAMED. `DoorCounter` is a wrapper and not a
+      // `BoundEvaluator`, and this branch's default slate names six advisory
+      // entries — which have no feature fold to overlay onto a wrapper, so
+      // `evaluatorForSlate` refuses rather than silently dropping them. That
+      // refusal is correct and is the point of this probe naming its slate: a
+      // caller that hands in an evaluator the lineup cannot compose with is
+      // asking about the DOOR, not about the potion doctrine.
+      bot: { slate: SLATE_LEGACY },
       kernel: { reserveMs: 20, sliceMs: 10 },
     });
     const view = (snakeId: string): GameState =>
