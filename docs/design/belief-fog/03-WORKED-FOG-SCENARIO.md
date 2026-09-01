@@ -29,8 +29,13 @@ gains `{unitId: K, lastSeenTurn: 10}`.
 Bot ingestion: `PartialEngine.hold(K, { heldAtTurn: 10 })` — a FrozenRecord
 from the last-seen state, exactly the constructor the mask row is. The
 reducibility tag on this hold: `observation` (not `compute`). The scheduler's
-un-hold lever is disabled for K; VOI over K's width prices only C2 deduction,
-never enumeration.
+un-hold lever is disabled for K — enumeration cannot REMOVE this width, only
+C2 deduction or the reveal itself can. What stays purchasable is preparation
+AGAINST the width: pre-spending compute on conditional frontiers per possible
+reveal (per surviving cloud cell class) buys reaction latency for the turn K
+reappears, without narrowing anything. Removal and hedging are two different
+purchases with two different prices; the tag governs only the first (see
+04-doc §3 — the time lens's correction).
 
 **T11 — first hidden turn.** View shows no K. S(K) = the knight cloud at
 turnsHeld 1: the 8 L-cells plus (5,5) itself (`stayLegal` — pieces may hold;

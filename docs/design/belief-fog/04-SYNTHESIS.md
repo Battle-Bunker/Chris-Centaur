@@ -41,7 +41,10 @@ S; sound statements survive any change of w, advised statements are exactly
 as good as w. Consequences: the advisoryEst clamp is a missing type (a
 declared same-horizon expectation under an in-support weight is in [lo,hi] by
 theorem); the deep channel's escape from the interval is a horizon tag, not
-an exception; and the potion-play defect is PRECISION LAUNDERING — an
+an exception (and the projection tags are now ONE declaration with the time
+lens's citation records — coordinates drive invalidation, tags drive
+comparison-refusal; the two designs share the mechanism and must keep
+sharing it); and the potion-play defect is PRECISION LAUNDERING — an
 advisory opinion inheriting interval-earned proof-grade precision by riding
 the est scalar (02-doc §1). The repair is the value table: BankResult carries
 {envelope, estSound, estAdvised, advisoryPrecision}; belief folds advisory as
@@ -84,7 +87,21 @@ the voc lever menu (catch-up → preview → narrow → advance → deepen) assu
 un-holding is purchasable with compute; for a game-held unit those levers do
 not exist and only C2-deduction and weight-refinement do. One provenance enum
 on the hold record, read by the lever menu and nothing else (respecting voc's
-two-currencies-no-scalar law). This joint is why cross-turn fog is an
+two-currencies-no-scalar law).
+
+**The tag's contract, stated precisely (per the time lens's correction —
+their design/time-interruption line absorbed this joint and caught the
+mismatch):** the tag answers "what can REMOVE this width" (compute-meet /
+observation / nothing-this-turn) and gates only removal levers. It never
+answers "what may be bought AGAINST this width": hedged preparation —
+pre-spending compute on conditional frontiers per possible reveal — does not
+narrow anything; it buys REACTION LATENCY for the turn the determination
+arrives, and it is always open and priced by the scheduler, not the tag. A
+consumer that conflates the two reads observation-reducible width as
+"compute may do nothing here" and forecloses exactly the pondering that fog
+makes valuable. Two purchases, two prices; the tag governs one of them.
+
+This joint is why cross-turn fog is an
 ingestion feature, not a rewrite — the falsifiable claim of the whole line:
 **if building invisibility potions requires touching bounds, bank, risk,
 search, scout, postures or belief.ts, this factorization was wrong.**
