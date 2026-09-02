@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Nine domains, surveyed against the four lens syntheses as they stood at
+Ten domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -22,6 +22,7 @@ case.*
 | 7 | community practice as a member mine | `07-community-practice-member-mine.md` |
 | 8 | partial observability, POMDPs and one-sided POSGs vs the fog programme | `08-partial-observability-and-posgs.md` |
 | 9 | evaluation, population distortion, and how to grow a roster (**ruling 49**) | `09-evaluation-and-population-distortion.md` |
+| 10 | the Centaur surface: mixed-initiative control and explanation | `10-centaur-mixed-initiative-and-explanation.md` |
 
 ---
 
@@ -69,6 +70,19 @@ and unbounded — on the unit holding 80–91% of team weight.
 
 ---
 
+**R-4. REDUCTION must return a SET of options with the conditions under which
+each dominates — three unrelated fields converge on the same type.** Imprecise
+probability calls the set **maximal** and proves that Γ-maximin's set does not
+shrink as beliefs sharpen (domain 3); one-sided POSG value theory shows the value
+over belief space is **PWLC — a max over α-vectors with dominance regions**
+(domain 8); the psychology of explanation shows a "why" question is always
+**contrastive, a (fact, foil) pair** (domain 10). A scalar reduction discards the
+Centaur surface, the value of information, and the record of what the search
+learned, all at once. This is the survey's strongest single architectural
+conclusion.
+
+---
+
 ## Contradiction register
 
 Ordered by how much they should change lens work. **C** = contradicts our carve;
@@ -84,6 +98,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C12** | BELIEF / VALUE | Γ-maximin's optimal set **does not shrink as beliefs sharpen** (Troffaes) — it returns one option even under complete ignorance. That is the one property a Centaur option-surfacer must have. **Maximality** returns it natively. Strongest architectural argument for the Centaur direction in the survey. |
 | **C25** | BELIEF | **Nothing in the architecture makes information valuable.** No action is ever valued for what it reveals — VOI sits half in ECONOMY and half nowhere — which is QMDP's named failure mode. Prediction: under invisibility potions the bot will never spend a move to scout. C12 is the dual (the reduction cannot express "I now know more"); two mechanisms, one symptom, in the programme whose flagship feature is fog. |
 | **C26** | BELIEF | **Marginal clouds cannot store what the conditioning ladder computes.** C1 (item-vanish) is a *disjunction across units* and C2 a *joint exclusion*; per-unit marginals hold neither, so both rungs evaporate at the moment of storage and will measure as worthless when they are merely unstorable. The trace needs a constraint store; marginals are the query surface, not the state. |
+| **C31/C32** | VALUE / COMPOSITION | Our apparatus emits **numbers with provenance**, which Miller's survey identifies as the *least effective* form of explanation ("statistical generalisations are unsatisfying unless accompanied by an underlying causal explanation"). The fold's **per-unit flows are the causal vocabulary** — so the surface must be built on flows, never the aggregate, and flows must not be summed before caching. And nothing produces a **foil**: `better()` computes the deciding rung and margin on every decision and throws them away. |
+| **C33** | BELIEF / TIME | **"Ask the operator" is a purchasable observation with no row in the economy.** There are three ways to remove width — deduce, observe, ask. We have the first, are missing the second (C25), and have not conceived the third. Under game-held width it is the *only* available lever. |
 | **C9/C10** | BELIEF / JOINTS | Our ε class is Walley's linear-vacuous mixture, and **that class dilates**: conditioning can widen the credal set *for every possible observation*. So `meet = narrow` holds for S (deduction only) and **fails for w**. You can pay for an observation that provably makes you less certain. |
 | **C7** | COMPOSITION | "Law per joint kind" **is** Zilberstein's local compilation — a theorem whose optimality hypothesis is a **tree**. Our manifest is a DAG. Declare the allocation projection or drop the claim. |
 | **C8** | TIME / BELIEF | The hypothesis market lacks its second factor. Russell & Wefald: a computation's value comes entirely from its ability to **change the chosen action**. `P(refinement flips better())` is computable from interval overlap at the deciding rung, which `BankResult` already carries. Corollary: narrowing an uncontested rung is worth exactly zero. |
