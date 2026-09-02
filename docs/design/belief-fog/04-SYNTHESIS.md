@@ -195,7 +195,12 @@ slot is also read by step 7's mixture dodge.
    harness), not owned by anyone as a dial; the per-term mean-vs-worst
    choices still fold into the single blend, and the operator-facing D3
    control that REMAINS is appetite only (utility curvature — the
-   tournament-context call that was always the operator's). What needs the
+   tournament-context call that was always the operator's). This is a real
+   SIMPLIFICATION OF THE OWNER'S DECISION SURFACE: of the two fear-shaped
+   controls the joint frame anticipated, one is now a measurement with
+   provenance, and the operator's whole risk surface is a single legible
+   dial whose meaning ("gamble / ice the game") never mixes with model
+   error. What needs the
    owner's eyes is no longer "who holds ε" but the fit-transport rule:
    an ε̂ fitted on the population refuses per-opponent use until ruling 13
    lifts.

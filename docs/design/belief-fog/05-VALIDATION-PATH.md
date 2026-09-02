@@ -99,8 +99,12 @@ accumulated while hidden. Properties that keep it honest:
    widens, and without this column an entropy drift reads as ε drift.
 7. **The three pre-registered bands** (09-doc §9): posture residency,
    lever-spend shift (catchup on game-held units predicted ZERO), and
-   frozen-slot occupancy (TooManyHeldError predicted ZERO) — published in
-   the fog-cell spec before the first run.
+   frozen-slot occupancy (TooManyHeldError predicted ZERO) — WITH NUMBERS,
+   published in 12-doc §3 for scenario families 1 and 2 before any fog run.
+8. **The compounding tripwire** (12-doc §2): (demotions × VACUOUS-residency)
+   jointly per game with within-game timing; residency predicted to rise at
+   most LINEARLY with demotion count (citation-scoped vacuity); superlinear
+   rise indicts the demotion policy, not the posture governor.
 
 ## 5. What this doc deliberately does not add
 

@@ -72,6 +72,7 @@ value; V_d = value on a board d turns of play ahead). Then:
 | sigmaOfPly | dispersion of w accumulated along a trajectory of belief states |
 | posture | a regime classification of (S, envelope): support saturated? envelope separating? |
 | basis / Assumption set | the NAME of which S a number was computed over |
+| stage-0 safe draw domain | the rules-certain-safe subset of the action coordinate of S (the search lens's C-B3 — a ninth projection this table originally missed; its degradation ladder as the set empties is the correct behavior of a projection) |
 
 Nothing in that table is a new mechanism. The claim is about the joints: once
 the object is named, the sound/advised split, the opponent-model socket, the

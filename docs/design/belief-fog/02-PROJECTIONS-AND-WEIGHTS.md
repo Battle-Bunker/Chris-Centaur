@@ -206,6 +206,18 @@ whose blended value is high but whose floor is DEAD is still vetoed — the
 lattice bottom is not blendable (DEAD·ε is still DEAD; the blend is defined
 only over finite floors, and the veto fires before the blend is read).
 
+FAMILY STATEMENT (search lens, adopted — 12-doc §5): every reading on the
+ambiguity axis is a lower prevision over a closed convex reply-set; the
+ε-blend is the Huber/contamination ball's, and maximin is the VACUOUS member
+of the same family — so the sound floor and the blended reading are one
+mathematical family, endpoints of one parameter, which is why ε→1 degrades
+gracefully to today's bot. (The unification is of the mathematics, not the
+authority: the floor's kernel roles — veto, staging law, refusal — are not
+readings and do not move.) A third derived w-constructor also lands here:
+`opp/equilibrium@1`, the restricted stage matrix's fixed point, premise =
+the restriction record; admission gated on the search lens's restrictedGap
+telemetry (12-doc §4).
+
 THIRD PASS (11-doc Part A): ε is no longer a swept dial at all. Read
 generatively, the contamination class makes ε a population parameter of
 logged play with a closed-form estimator, ε_min = 1 − min_a p(a)/w(a),

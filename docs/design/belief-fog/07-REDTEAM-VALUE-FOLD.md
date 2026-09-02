@@ -168,6 +168,31 @@ among complete bases deserves a concrete protocol, so here it is:
 4. Cost: zero new games. The same script that fitted k computes r; the
    strata are columns the replays already carry.
 
+## 4c. OUTCOME — the test was run, and it worked (third pass)
+
+The value lens ran §4b's protocol (their reply-to-epistemics-redteam.md and
+basis-audit.md @ 031700c). Recording the outcome here because an instrument's
+validation is what happened when it met its target:
+
+- **It killed their v1 basis, as designed.** The residual was NOT white: it
+  loaded on severs at −0.407 — a real omission (sever-truncation weight was
+  counted by neither channel, and severs moved 3× the kill channel on their
+  corpus). The re-carve whitened that stratum to +0.063.
+- **It caught an instrument artifact of their own** (clock-mixing in the
+  extraction — board vs standings read one turn apart), correcting the
+  headline to R² 0.9101 at zero-fit, with the game-length residual still
+  open and known.
+- **Adopted across the seam:** outflow now prices at `w_closure(event)` —
+  one rule covering sever truncation and regicide (§3's fix, generalized);
+  their Contribution carries the (horizon, weight-id, basis) tags; γ is
+  swept with ε, never independent (§4's collision resolved their side).
+
+A residual-structure test that forced a re-carve of the basis it audited,
+exposed a clock bug in its own target's tooling, and left the surviving
+model honestly weaker (0.9101, one named open residual) is a validated
+instrument. It should run again after every basis change, which is now its
+standing role rather than a one-shot audit.
+
 ## 5. What survives the red team (said plainly)
 
 The fold's arithmetic core — live (K, W, s) forming, the asymmetric
