@@ -187,20 +187,25 @@ cleaner result: the fold is an accounting device. Its flow *content* does explai
 (+0.131 over a distance-to-food heuristic on coupled decisions); the *folding* explains none of it.
 `MEAS-2`.
 
-**The fold's error is a mechanism step, not a distance slope.** `corr(king present, residual) =
-+0.954` against `corr(distance, residual) = +0.423`; king-present cells carry **9.7×** the residual,
-and the six *farthest* cells have the *lowest*. Cause: a last king's death removes the whole team,
-which the fold does not model — the wipe-closure defect, named in cycle 4 and now measured.
-**Coverage must be declared over mechanisms, not a distance metric.** `MEAS-3`.
+**The fold's error is a step on a board property, not a distance slope.** `corr(king present,
+residual) = +0.954` against `corr(distance, residual) = +0.423`; king-present cells carry **9.7×**
+the residual, and the six *farthest* cells have the *lowest*. **Coverage must therefore be declared
+over board properties, not a distance metric** — distance warned hardest where the fold is most
+accurate. **But the CAUSE is not established** (`MEAS-5` §0): the flows are fully accounted on king
+cells (0.00% audit gap), and king presence is **perfectly confounded with piece density** in the
+archive — no 4-piece cell lacks a king, no king cell has few pieces. My earlier attribution to
+regicide is withdrawn; `MEAS-5` §3b specs the two cells that would settle it. `MEAS-3`, `MEAS-5`.
 
 **Member selection: the null survived its strongest test.** A conditional selector keyed on board
 family (roster-determined, cross-validated) **loses** to a single arm (−0.013); the per-cell oracle
 gains +0.020 against a +0.002 floor. And POP-1's published +0.071 was in-sample — cross-validated it
 is **+0.020**. `M64`.
 
-**Cyclicity is real but small and not selectable.** Two triangles significant in logit space
-(p=0.000 at n=4,841); the sign flips between snake and piece boards and largely cancels on pooling,
-so a single pooled rating is not a sufficient statistic. `POP-3`.
+**Cyclicity is real but small, and it is not selectability.** Two triangles significant in logit
+space (p=0.000 at n=4,841); the sign flips between snake and piece boards and largely cancels on
+pooling, so a single pooled rating is not a sufficient statistic. But per-cell,
+`corr(|logit cycle|, selection gain) = −0.127` — a large cycle coexists with a completely stable arm
+ordering, so the two are different properties. `POP-3`, `MEAS-5` §2.
 
 **Measurement instruments built.** A dead-cell detector (deadness = between-arm signal ÷ the A/A
 floor **at a fixed spend**) — ~1,350–2,232 archive games were spent on cells dead at their budget.
