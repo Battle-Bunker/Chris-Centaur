@@ -371,3 +371,14 @@
       co-change over 4 months of history; test whether the five-kind carve
       aligns with the DESIGN's joints (Parnas) or only the domain's.
       Zero games, pure git.
+- [ ] Cause-(d) argmax-jump scan (librarian C53): one pass over existing
+      weight sweeps — under non-convexity the argmax jumps between two
+      plans as w crosses a threshold, never resting on intermediates;
+      distinguishes (d) from causes a/b/c in data already held.
+- [ ] Decoupled-vs-joint minimum gap by unit count (librarian domain 23):
+      compute both on the archive; growing-with-unit-count = direct
+      measurement of ordering information the floor discards (the
+      six-phantom-enemies mechanism two literatures now predict); small =
+      the line is moot. Remedy on file: affine-style shared noise symbols —
+      ScoreBounds.assumptions as INFORMATION that tightens combinations,
+      not only refuses them (one new op on the existing type).
