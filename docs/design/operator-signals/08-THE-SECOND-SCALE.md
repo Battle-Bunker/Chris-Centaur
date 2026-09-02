@@ -80,6 +80,27 @@ question space "what changed that bears on my open decisions" is a better
 owner brief than any status page the program has produced — and it is the
 same code path as the live operator brief with different anchors.
 
+## 3½. The second scale's presentation templates exist now (value lens MEAS-4)
+
+The value lens's reporting retrofit is, in this vocabulary, the second
+scale's presentation-template set: **P(A beats B) with a stratified
+interval** on every verdict (it exposed three of five standing verdicts as
+coin flips), **performance profiles** for cross-cell comparison (the shape
+a mean hides: territory broad-but-bounded, reflex's cliff), **IQM only**
+for across-cell aggregates (the mean was 2.8× the median), and **seed
+population as a premise coordinate** (pinned ≠ representative; the
+0.427→0.530 spawn-geometry swing makes it load-bearing). Adopted here as
+the HELD-payload presentation forms for cell verdicts and population
+findings.
+
+One scoping note this forces on my own rules: **"statistics never
+headline" is a live-scale law, not a universal one.** At the second scale
+the audience is deciding *between measurement programs*, and P(A beats B)
+with its interval is exactly the honest headline — the Miller rule
+governs explanations of *decisions in a game*, not summaries of
+evidence. The two scales share shapes and differ in templates; that is
+the templates doing their job.
+
 ## 4. What stays different, honestly
 
 - **No realtime cadence.** Frames are per-session or per-batch; the

@@ -27,6 +27,18 @@ to move off Γ-maximin (search 09 §5) — this surface is that case's
 consumer, so its requirements (dominance conditions, shrinkage traces) are
 the member's acceptance criteria.
 
+UPDATE (cycle 7): prior-art 33 supplies the member's engineering story,
+and it is good news for the wire: the expected undominated set is
+**O((ln n)^(d−1))** — about nine of a queen's 71 options at three
+objectives — so SET payloads are frame-sized by theorem, not by cap; the
+ε-dominance grid gives a size-chosen, loss-stated restriction (their R-3
+form of my selected-externally discipline, converging); the pruning LP's
+feasible region IS the dominance condition and its witness point IS the
+foil — the two fields my SetPayload wanted arrive as by-products of the
+pruner. And the set shrinks monotonically under refinement (never
+re-grows), so the shrinkage progress meter is theorem-backed monotone —
+an interrupted set is a sound superset, never a wrong pick.
+
 ## 2. Flow retention vs the memo boundary (value)
 
 The fold telescopes; the engine only ever needed the sum. This surface
