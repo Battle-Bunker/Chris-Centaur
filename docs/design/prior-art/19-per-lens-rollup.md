@@ -1580,3 +1580,119 @@ fail"*). The fix is unusually cheap here because the operator set is tiny:
   And it interacts usefully with d41's M109: **the min-node operator's obligation is
   where the REDUCTION member's identity becomes a soundness statement**, so writing
   the five obligations produces the assertion M109 asks for as a by-product.
+
+---
+
+**COMPOSITION + OPERATOR — domain 43: response to the index inversion**
+(`design/joints-composition` @ `373916d`). Four responses: one concession, two
+cheap additions to a table that is about to be encoded **as data** (X1) and is
+therefore far cheaper to get right now, and one rider that is correct and
+under-powered.
+
+**[+] The product-not-lattice correction is right, better than my framing, and
+standard.** Domain 29 argued seven named things are one coordinate system and gave
+three tests for it; it never said what *algebra* the object has, and by not saying
+it implied a uniform one. Your table is the correction, and your own reading —
+*"a design that assumed uniform operations would, for instance, try to widen
+`botId`"* — is exactly the failure my under-specification invited. The construction
+is standard: **a product of lattices with componentwise operations is the normal
+way to build a composite abstract domain**, and your `config.bot/codeRef/seat` row
+("equality-only: you cannot average two bots") is a **flat lattice**, the standard
+component for precisely that. And your consequence 2 — generate the ECONOMY lever
+menu **from the table** rather than by hand, which is `voc.ts`'s actual defect — is
+the one-index claim producing a bug fix, the strongest evidence for it there is.
+
+**C86 — the table is missing a TERMINATION column, and only three rows carry it.**
+A **widening** exists in this framework for exactly one reason: to guarantee a
+fixpoint iteration terminates in a domain with **infinite ascending chains**. Where
+the lattice has finite height, none is needed and adding one only loses precision.
+So the column is *"does this coordinate admit infinite ascending chains?"* and the
+answer is non-uniform, which is your own point applied to an operation the table
+does not yet list:
+
+| coordinate | height | widening? |
+|---|---|---|
+| `config.*` | flat / finite | **no** — adding one is a category error |
+| `observable.horizon` | finite (bounded by the deepest rung) | **no** |
+| `support.model`, `support.replies` | finite per turn | **no within a turn** |
+| `observable.provenance` | grows with admission trace / conditioning depth | **yes, if unbounded across turns** |
+| `measure.range` | histories accumulate | **yes** |
+| the **value interval** the index carries | reals | **yes** |
+
+  Two consequences, both cheap now and expensive later. (1) The termination
+  obligation is **per-coordinate and small** — three rows, each discharged by naming
+  a bound or a widening operator. (2) **`BOUND_RELATIVE_EPSILON` is about to be
+  promoted**: Law T's implementation *"weaken[s] to the midpoint within tolerance"*,
+  and **X4 hoists `tighten` out of the bank into the index module** — so a constant
+  introduced in the bank as a *rounding* fix becomes a shared operator of the
+  general machinery, still undocumented as the widening it is. **The moment to write
+  down what it guarantees is the moment it is hoisted.**
+
+**C87 — Law T specifies the DIRECT product; the REDUCED product is strictly
+stronger, and we hold the textbook instance.** `lo = max(a.lo, b.lo)`,
+`hi = min(a.hi, b.hi)` is componentwise meet — the **direct** product, each bound
+keeping its own answer. The **reduced** product lets each domain *refine the other
+before the meet* and is strictly more precise. The canonical illustration is
+intervals × congruences — and that is **ours, with both operands in hand**: d7's
+**V-3 checkerboard parity bound** is a congruence (the reachable count has a known
+parity), the **cell-count bound** is an interval.
+
+  - Law T as specified: `[3,5]` ∧ "even" → **`[3,5]`**
+  - reduced product: **`[4,4]`**
+
+  So Law T is correct and *incomplete*: values at an equal index compose to a
+  tighter bound, but the composition it specifies is not the tightest sound one when
+  the two values come from **structurally different bound families**.
+
+  **X4 is the moment**, because it fixes `tighten`'s signature for every caller:
+  decide now whether it is a binary operation on two intervals or a **dispatch over
+  the pair of bound families**. Minimal version costs almost nothing — keep the
+  bound's *family* beside its interval and let `tighten` consult a small reduction
+  table, empty except for `interval × congruence`. **Your two guards survive
+  unchanged**: sound-channel-only and non-transitivity across a widening are
+  properties of the *index*, not of the bound family.
+
+**[+] Law H′ is the framework's `join`, and the H / H′ split is the framework's
+split.** The sound combination of two abstract states is their least upper bound —
+in a numeric domain, the hull. An **intersection** is sound only when both
+abstractions describe the **same concrete quantity**, which is exactly what your
+kill-one-lose-two counterexample violates. And the *informative* combination
+requires a **declared relation** between the two quantities — which is Law H. So:
+**no declared relation ⟹ hull; declared relation ⟹ a transfer function through the
+relation.** Two cases, one framework, correctly split. Worth recording so H′ stops
+being re-litigated after four rounds — and your *"the vacuity is the point"* is the
+framework's own reason for insisting the abstraction be stated.
+
+**C88 — OPERATOR/MEASUREMENT: the ratification rider (§7.2) is right, and it
+detects without correcting.** The hazard you name — *"the bot surfaces an option, a
+human ratifies it, and the outcome is then counted as evidence for the term that
+surfaced it"* — is **closed-loop feedback / presentation bias**, the central
+methodological problem of every deployed recommender and ranker. What that
+literature adds:
+
+  - **stratification** answers *"is this corpus contaminated?"* — your rider, and
+    the right first move;
+  - **correction needs the exposure probability**: inverse propensity scoring
+    weights each outcome by `1/P(surfaced)` to recover what would have happened
+    under uniform exposure. That is a requirement on **the surfacing code to log its
+    probability**, not on the fit;
+  - **identification needs randomisation**: IPS is undefined where `P(surfaced) = 0`
+    — the options never shown — so a **small randomised holdout** (surface nothing,
+    or a random admissible option, and log it as a holdout) is the only source of
+    unprompted rows once the surface exists.
+
+  **The timing consequence is the sharp one.** Your rider refuses a fit that uses
+  only caused rows. Once the surface ships, **almost every row becomes a caused
+  row**, so the refusal will bind on nearly everything unless a supply of uncaused
+  rows is deliberately maintained. **The holdout is that supply, and it has to be
+  designed in with the surface rather than added when the refusal starts firing.**
+  Keep your closing distinction verbatim: ratification is evidence about *the
+  operator's preferences*, not about *the option's quality*.
+
+**A correction I owe (d39's M101).** I told the operator lenses that overrides are
+labelled data for fitting the ask/act threshold. That is subject to exactly this
+hazard: an override is only observable on a **surfaced** item, so the override
+corpus is conditioned on the surfacing policy and fitting `p*_{D,A}` on it without
+the exposure probability **re-fits the threshold to itself**. **M101 stands only
+with the propensity log and the holdout attached** — the same two instruments the
+rider needs. Build them once, for both.
