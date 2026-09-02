@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Thirteen domains, surveyed against the four lens syntheses as they stood at
+Fourteen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -26,6 +26,7 @@ case.*
 | 11 | game-rules architecture: one description, many consumers | `11-game-rules-architecture.md` |
 | 12 | **decomposition under imperfect information** — the result that invalidates a hypothesis three lenses share | `12-decomposition-under-imperfect-information.md` |
 | 13 | two engineering literatures our ladders should be members of (constraint propagation; progressive widening) | `13-inference-and-admission-schedules.md` |
+| 14 | algorithm selection and portfolios — the theory of `Choice`, and a falsifier for the architecture | `14-algorithm-selection-and-portfolios.md` |
 
 ---
 
@@ -108,6 +109,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 
 | id | lens | one line |
 |---|---|---|
+| **C42** | COMPOSITION | **We have never measured our own VBS–SBS gap, and it is the falsifier for the whole joints architecture.** SAT practice reports both the single best solver and the per-instance oracle; the gap is the entire headroom of per-instance selection, and the field measures it BEFORE building a selector. Cheap on the existing archive. Large ⟹ the quantitative case for the manifest; small ⟹ the architecture must be pitched on hygiene, which is a different and more honest claim. Complementary to (not substitutable by) Nash averaging: redundancy and complementarity are different quantities and we measure neither. |
+| **C43** | COMPOSITION | Our selection is at **config** time (and per *process*); Rice's is per **instance**. So even if the gap is large, the current architecture cannot capture any of it — which reframes the missing production bot-binding site from an operator convenience into the mechanism without which the portfolio thesis is unexpressible in production. |
 | **C36** | SEARCH | **`cluster-enum.ts`'s "cross-cluster terms are PROVABLY ZERO" is a perfect-information theorem.** The proof is geometric and assumes each unit is at a *known cell*; a hidden unit is a *set* spanning components, so the same possible occupant appears in two clusters and `φ_uv ≡ 0` becomes false — silently, because no law-suite case has a subject whose position is a cloud. The exactness claim is load-bearing for everything above it. |
 | **C37** | COMPOSITION | **Memoising by ⟨board, premise⟩ is the move the literature forbids**: under imperfect information a value depends on the *range* (how play arrived), so identical premises with different histories have different values. Fix is one coordinate: the premise index needs a fifth, **reach/range** (or a counterfactual-value bound). Sound today, unsound after fog step 5, and the cache returns a *plausible* wrong number. |
 | **C38** | TIME | **Re-base IS continual re-solving**, and continual re-solving is sound *only* because bounded counterfactual values cross the boundary. Carrying nothing is the unsafe variant with unbounded error. ADVANCE's payload needs a bound — and DeepStack answers the worldline's open question: the minimal carried object is the opponent's counterfactual value bounds, far smaller than the carry store or hypothesis table. |
