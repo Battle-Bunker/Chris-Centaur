@@ -609,3 +609,28 @@ arguments and one open objection: cost. It does not survive.
   chosen from a member collection with a reachability theorem per member (the
   policy lever)*. The scalar collapse happens only at the last layer, and only if a
   collapsing member is selected.
+
+**TIME — the hypothesis market's missing algorithm** (d34). The market is
+specified as a policy with no algorithm. Weitzman's Pandora's box gives the clean
+version an **optimal INDEX policy**: each alternative has a **reservation value**
+`σ` solving `E[max(x − σ, 0)] = cost` — *the value at which the expected gain from
+opening equals the cost* — depending **only on that alternative's own distribution
+and cost**; open in decreasing `σ`; **stop when the best in hand exceeds the
+largest remaining `σ`**. Every term is now available: the **CPP** supplies the
+improvement distribution, the **ledger** supplies the cost. So CPP + Weitzman is
+the market's first actual algorithm, and the stopping rule is the one the economy
+lacks (today only the deadline stops it).
+
+Adopt it as a **member with a known failure direction, not as optimal** — our
+problem leaves the regime in three places: **repeated inspection** (Gittins rather
+than Pandora; condition the index on quanta already spent, which the CPP does),
+**correlation** (the index **over-values the second of two correlated
+hypotheses**; discount by read-set overlap, which the declaration record can
+compute), and **non-obligatory inspection** — the reaction table's "conform now"
+row makes ours the *provably harder* variant, and the index degrades exactly near
+the deadline, which is when the market matters most.
+
+Correction to **C8**: the two probabilities are the *payoff distribution*, not the
+score. The score also needs the **tranche's price** — so an expensive
+high-flip-probability hypothesis can correctly rank below a cheap low-flip one,
+which the product formulation cannot express.

@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Thirty-three domains, surveyed against the four lens syntheses as they stood at
+Thirty-four domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -48,6 +48,7 @@ finding by whose design it changes. This index is organised by domain.
 | 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | 27 | few-run statistics — what to report when you cannot afford many games | `27-few-run-statistics.md` |
 | 28 | fitting a stochastic choice model to a deterministic agent — the V-alignment meter needs an order statistic | `28-fitting-a-stochastic-model-to-a-deterministic-agent.md` |
+| 34 | index policies — the hypothesis market's missing algorithm | `34-index-policies-for-the-hypothesis-market.md` |
 | **33** | **computing the set — R-4's missing engineering half** (the cost objection answered) | `33-computing-the-set.md` |
 | 32 | accounting devices and policy levers — Ng's converse, and where policy actually lives | `32-accounting-devices-and-policy-levers.md` |
 | 31 | extrapolation error — fitting on played games, pricing unplayed plans | `31-extrapolation-error-and-the-fold.md` |
