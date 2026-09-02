@@ -1462,3 +1462,121 @@ has undefined behaviour (C82). **And the cheap measurement settles the rest**:
 count nodes per rung under the two operators on the existing archive — it resolves
 whether the asymptotic gap bites at our depths with three players, and it is an
 afternoon.
+
+---
+
+**SEARCH / COMPOSITION / BELIEF — domain 42: abstract interpretation. The bounds
+bank has a formal identity, and its domain is the field's canonical weak one.**
+
+`[worst, best]` per option, propagated through `backupMax`/`backupMin`, joined by
+`tighten`, relaxed by `BOUND_EPSILON`, conditionally tightened by `withNarrowing`
+— every one of those is a named object in a fifty-year-old framework with theorems
+attached. With d38 (the annotation is a why-provenance semiring) and d41 (the min
+node is a multi-player backup), **the bank now has three formal identities and had
+been given none.**
+
+**The ladder, which is the frame.** *"An abstract domain … together with a fixed
+set of operators and transfer functions (union, intersection, widening,
+assignment, guard)."* The numeric domains:
+
+| domain | invariants | cost |
+|---|---|---|
+| **intervals** | `v ∈ [c₁,c₂]` | *"very efficient — linear memory and time cost — **but not very precise**"* |
+| **octagons** | `±x ± y ≤ c` | **O(n²) memory, O(n³) time** |
+| **polyhedra** | `α₁v₁ + … ≤ c` | *"much more precise"*, exponential |
+
+*"The octagon domain is in between the well-known fast but imprecise interval
+domain and the costly polyhedron domain."*
+
+**C83 — we are on the bottom rung, and the value model above it is RELATIONAL.**
+`cluster-enum.ts` computes `Ṽ(x) = Σφ_u(x_u) + ½Σφ_uv(x_u,x_v)` — explicitly
+**pairwise**. The bound travelling with it is `[worst,best]` per option —
+**non-relational by construction**. So:
+
+  > **The value model is pairwise; the bound model cannot express a pair.** The
+  > bank is structurally unable to represent the couplings the search is organised
+  > around.
+
+  And the octagon's constraint form is exactly that shape: `±x ± y ≤ c` reads as
+  *"unit A's gain plus unit B's gain is at most `c`"* (they contest the same cells)
+  or *"A's share minus B's share is at most `c`"*. **Octagons are the abstract
+  domain of a pairwise factor graph.** Scoping that matters: apply them **per
+  unit-contribution, not per plan** — 5 units is `5³ = 125`, but 5 units × 8
+  candidates is `40³ = 64,000`, worse than the enumeration. The cheap granularity
+  is the one `φ_uv` already uses. **Trigger to look for:** bounds much looser than
+  the surrogate's own pairwise term implies — that is d23's dependency problem, and
+  at that point it is fixable *by construction* rather than by tuning.
+
+**C84 — `tighten` is the DIRECT product, and we already hold both halves of the
+textbook case where the REDUCED product is strictly stronger.** The bank's own
+words: *"two INDEPENDENT sound statements about the SAME quantity, joined into the
+tightest one: floor rises to the better floor, ceiling falls to the better
+ceiling."* That is the direct product — each domain's answer kept as-is. The
+**reduced product** lets each domain *refine* the other before the meet, and is
+strictly more precise.
+
+  The canonical illustration is **intervals × congruences** — and this is not an
+  analogy, it is our case: **d7's V-3 checkerboard parity bound is a congruence**
+  (the reachable count has a known parity) and **the cell-count bound is an
+  interval**. Direct product of `[3,5]` with "even" reports `[3,5]`. **Reduced
+  product reports `[4,4]`.** We hold both operands and compose them with the weaker
+  operator.
+
+  Generalised: **every time the bank gains a second, structurally different bound**
+  (parity, a conservation identity, a monotonicity), the question is not only *is
+  it tighter* but **does it let the other bounds get tighter**. `tighten`'s
+  same-basis refusal is exactly right for soundness and says nothing about this —
+  the reduction step is a separate operation the bank does not have.
+
+**C85 — TIME/SEARCH: `BOUND_EPSILON` is a WIDENING, and a widening exists for one
+reason: to guarantee a fixpoint iteration terminates.** Our bounds are refined
+iteratively — tranches within a turn, re-base and carry across turns. Two questions
+the framework forces and the design has not asked:
+  - **does the refinement iteration reach a fixpoint?** Within a turn, with a finite
+    option set and monotone tightening, yes. **Across turns it is a genuine loop and
+    nobody has argued it terminates.**
+  - **is `BOUND_EPSILON` doing widening's job accidentally?** If the cross-turn loop
+    converges only because each pass relaxes by an epsilon, then a constant
+    introduced as a *rounding fix* is load-bearing for **termination**. That is R-6
+    in its purest form: a correctness property resting on a constant introduced for
+    an unrelated reason.
+
+  Also a **C11-style terminology collision**: `withNarrowing` does not do what
+  narrowing does. In the framework, narrowing *recovers precision that widening
+  discarded*; ours *conditionally tightens and records the condition as an
+  assumption*. Both recover precision, which is why the name is tempting — but
+  anyone reading both expects the fixpoint partner of widening. Rename or document,
+  as C11 recommends for "dilation".
+
+**M110 — BELIEF/COMPOSITION: trace partitioning is C37's fifth coordinate, and it
+makes the coordinate CHEAPER than C37 implied.** Static analysis has the same
+defect (merging abstract states where paths join loses what the path knew) and the
+same fix under its own name. Two refinements transfer:
+  - **the coordinate must be a bounded abstraction of the history, not the
+    history.** Partitioning by the full trace is unbounded and useless; the entire
+    engineering content is choosing a small abstraction that separates the cases
+    that matter. C37 asks for "reach/range"; this says *which* bounded abstraction
+    is a first-class design choice with a literature behind it.
+  - **partitioning is parameterised per site.** You partition where precision is
+    needed and merge where it is not — so **carry the range coordinate where the
+    memo is hot and the histories differ, and merge elsewhere**, rather than adding
+    a coordinate to every key. That is a much cheaper answer than C37 implied.
+
+  This is the **third independent field** to arrive at C37's conclusion
+  (imperfect-information decomposition; provenance's *which inputs and how*; static
+  analysis) — worth having, because C37 asks for a change to a cache key and cache
+  keys get defended on performance grounds.
+
+**M111 — ALL: soundness is a PER-OPERATOR obligation, and our operator set is
+five.** The framework's discipline: state the abstraction once, then discharge one
+obligation per abstract operator (the abstract function over-approximates the
+concrete one). **Soundness of every composite then follows** — the composite never
+has to be argued about. Our bank argues soundness *per site, in prose, in module
+headers*, which is exactly the pattern R-6 names as the disease (*"prose does not
+fail"*). The fix is unusually cheap here because the operator set is tiny:
+`backupMax`, `backupMin`, `tighten`, the epsilon relaxation, `withNarrowing`.
+**Five obligations, stated once, cover every composite bound in the system.**
+
+  And it interacts usefully with d41's M109: **the min-node operator's obligation is
+  where the REDUCTION member's identity becomes a soundness statement**, so writing
+  the five obligations produces the assertion M109 asks for as a by-product.
