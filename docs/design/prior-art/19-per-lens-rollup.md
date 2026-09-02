@@ -1347,3 +1347,118 @@ separate. The other real counter-argument, from the literature itself: Luštrek,
 Gams & Bratko show that **real-valued** position values (rather than win/loss) are
 enough to remove the pathology on their own — which is why C77 scopes the worry to
 the **discontinuous** cells, where exactly that real-valued smoothness fails.
+
+---
+
+**SEARCH / REDUCTION / VALUE — domain 41: multi-player search, the pruning wall,
+and the precondition our currency already supplies.** Our game has three teams and
+REDUCTION's member list is `{paranoid, MaxN, share-weighted asymmetric fold}` —
+the two canonical algorithms of a literature nobody had surveyed. What is known
+about them is sharp, and it is bad news for one member on **three independent
+axes**.
+
+**C80 — COMPOSITION/SEARCH: C22 is a theorem, not a bug.** Korf (1991): given an
+upper bound on the *sum* of players' evaluations and a lower bound on each,
+**shallow** alpha-beta pruning is possible in MaxN — **but deep pruning is not**.
+Deep pruning in MaxN is not hard, it is *unsound*: a bound on my component says
+nothing about the component the intervening player is maximising.
+
+  So d6's C22 — *"interval dominance is sound at the leaf and unsound propagated up
+  the deep channel"* — is not an artifact of our bound arithmetic. **It is the
+  correct behaviour of the algorithm the REDUCTION joint selected.** Stop looking
+  for the arithmetic that would make deep propagation sound; either accept
+  shallow-only as the licensed regime, or change the member.
+
+  **And the cost is not marginal.** Best case under shallow pruning is
+  `(1 + √(4b−3))/2 ≈ √b`, but *"an average case model predicts that even under
+  shallow pruning, the asymptotic branching factor will be **b**"* — no asymptotic
+  gain at all — which *"compares poorly with the 2-player best-case asymptotic
+  branching factor of √b, which can very nearly be achieved in two-player games"*.
+  Roughly **squaring the node count for a given depth**, with the `512` joint cap
+  already binding on 5–6-unit components (d17), is the difference between the cap
+  binding sometimes and binding always.
+
+**C81 — REDUCTION: the member whose model is WRONG wins, and for our own reason.**
+Sturtevant's measurement: *"paranoid widely outperforms maxn in Chinese Checkers,
+by a lesser amount in Hearts, and they are evenly matched in Spades."* Paranoid
+assumes all opponents conspire against you — which is **false** — and wins anyway,
+because the pruning it enables buys depth and the depth is worth more than the
+modelling error.
+
+  That reframes the member choice: **not "which model of the opponents is truer"
+  but "which model buys more depth per unit of modelling error"** — which is the
+  discipline the sound floor already embodies at the value layer ("a pessimistic
+  statement you can compute cheaply beats an accurate one you cannot"), now
+  governing the search operator, with a measurement behind it.
+
+  **The gap is domain-dependent** (wide / small / nil across the three games), so
+  this is a member selection with a condition, not a verdict. The condition is
+  roughly *how far the third team's interests diverge from adversarial* — and it is
+  **measurable on the archive**: does third-team behaviour correlate with harming
+  the leader?
+
+**C82 — REDUCTION: the kingmaker, and a third independent argument for paranoid.**
+*"A player's move can determine another player's victory without affecting their
+own standing"* — so no score-maximising model predicts them, and *"opponent
+modeling becomes crucial"* but is *"largely unsolved"*.
+
+  The programme already has the symptom: **the three-team balance bug**, which R-1
+  reframed as a member selection. The reframing is right but incomplete —
+  **neither canonical member can express the kingmaker case, and only one fails
+  safely.** MaxN assumes the third team maximises its own score; in a kingmaker
+  position that score is unaffected either way, so **MaxN's prediction is arbitrary
+  — it falls to whatever the tie-break does**. Paranoid assumes the third team is
+  against us, which is at least *defined*, *falsifiable*, and *safe*.
+
+**M107 — VALUE/SEARCH: the share currency supplies the precondition multi-player
+pruning REQUIRES, and nobody has said so.** Korf's shallow-pruning result is
+conditional on **an upper bound on the sum of the players' evaluations** and **a
+lower bound on each individual evaluation**. In a general multi-player game those
+are extra assumptions. **In the share currency they are identities**:
+`sharePar = K·w/W` is non-negative and sums to a constant by construction.
+
+  > **Pricing in shares is not only an accounting convenience. It is the condition
+  > under which multi-player pruning is licensed at all.** An unnormalised
+  > evaluation has no sum bound, and without a sum bound MaxN cannot be pruned even
+  > shallowly.
+
+  Two follow-ons. It **upgrades the currency from "inert accounting"** (d32's
+  verdict, correct on its own terms) to *enabling the search* — because it acts on
+  **what gets computed** rather than on the ordering of what is computed, which is
+  a category d32's accounting/policy test does not have. And it makes constant-sum
+  a property to **preserve deliberately**: any future term that breaks the sum (a
+  bonus not taken from another team's share; an unnormalised safety penalty)
+  silently removes the pruning licence and nothing would report it. **R-6: assert
+  `Σ shares = K`.**
+
+**M108 — SEARCH: speculative pruning is a member with a stated failure direction,
+and our game qualifies.** *"The first multi-player pruning algorithm that can prune
+any **constant-sum** multi-player game"* — and per M107 ours is constant-sum in the
+fold's own currency. It prunes branches that are only *probably* irrelevant, so it
+can return a wrong answer, with a speculation parameter as the dial. Ruling 49's
+shape exactly. And it fits this architecture unusually well because the bank
+already separates a **sound** reading from an **advised** one: **speculative
+pruning belongs in the advised path, and the sound path keeps shallow-only.** The
+two-reading split is what makes an unsound-but-fast pruner safe to adopt — another
+payoff from a decision made for other reasons.
+
+**M109 — SEARCH: the member choice is not a module, it is the min-node operator.**
+`backupMin` over the enemies **jointly** is paranoid; a per-enemy maximisation is
+MaxN. So REDUCTION's member selection cannot be layered on top of the bounds bank
+— it *is* the definition of the min-node operator. The **pruning licence** (C80),
+**deep-propagation soundness** (C80), **kingmaker behaviour** (C82) and **pathology
+exposure** (d40's C78) all follow from which operator sits there, and none of them
+is stated where that operator is written. **One comment at `backupMin` naming which
+member it implements and what that licenses would carry four separate results** —
+the highest-leverage R-6 assertion the survey has found.
+
+**The honest scoping.** MaxN and paranoid are defined on *alternating-move* trees
+and our game is simultaneous, so the min node is a matrix game (d1's C1) and the
+pruning *theorems* need re-derivation rather than citation. But the two results
+that matter survive the translation because they are about the structure of the
+**value**, not the move order: a bound on my component still says nothing about the
+component another player maximises (C80), and a third player with no stake still
+has undefined behaviour (C82). **And the cheap measurement settles the rest**:
+count nodes per rung under the two operators on the existing archive — it resolves
+whether the asymptotic gap bites at our depths with three players, and it is an
+afternoon.
