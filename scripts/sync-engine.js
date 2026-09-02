@@ -37,6 +37,7 @@ const VENDOR_ROOT = path.resolve(__dirname, '..', 'src', 'engine-vendor');
  * failing test rather than as a silent omission.
  */
 const VENDORED_FILES = [
+  { from: 'functions/src/gameprocessors/engine/settleTurn.ts', to: 'engine/settleTurn.ts' },
   { from: 'functions/src/gameprocessors/engine/resolveTurn.ts', to: 'engine/resolveTurn.ts' },
   { from: 'functions/src/gameprocessors/engine/turnEngine.ts', to: 'engine/turnEngine.ts' },
   { from: 'functions/src/gameprocessors/engine/moveGrammar.ts', to: 'engine/moveGrammar.ts' },

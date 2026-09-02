@@ -20,7 +20,8 @@ Copy exactly these, together, keeping their relative layout:
 
 | File | What it is |
 | --- | --- |
-| `resolveTurn.ts` | **The public entry point.** One pure function, `resolveTurn`, covering everything from "the staged moves are known" to "the board has settled". |
+| `settleTurn.ts` | **The public entry point.** One pure function, `settleTurn`, covering everything from "the staged moves are known" to "the turn has closed" — `resolveTurn` plus the end-of-turn effect bookkeeping. |
+| `resolveTurn.ts` | The board half of settlement, callable on its own: grammar, collisions, food, exhaustion, sever, regicide. |
 | `turnEngine.ts` | The snapshot-adjudicated sub-step collision engine. |
 | `moveGrammar.ts` | The movement grammar: staged cell → the path a unit of that kind walks, plus spawn orientation and the per-kind property flags. |
 | `VENDOR.md` | This file. |
@@ -66,10 +67,9 @@ npx tsc --noEmit -p /tmp/vendorcheck/tsconfig.json   # must be silent
 These need game-level state the module does not carry, and stay in
 `TeamSnekProcessor`:
 
-- spawning food, hazards and potions (all of it random);
-- invulnerability potions, active effects, and the tier changes they cause —
-  **tier is an input**, which already captures their effect at the moment
-  adjudication reads it;
+- SPAWNING food, hazards and potions (all of it random — collecting a potion
+  is a rule and lives here; putting one on the board is a die roll and does
+  not);
 - the per-turn orientation rewrite (the module does report `rotations`, since
   choosing to rotate is a grammar outcome);
 - pawn promotion;
@@ -79,9 +79,9 @@ These need game-level state the module does not carry, and stay in
 ## Using it
 
 ```ts
-import { resolveTurn } from "./engine/resolveTurn"
+import { settleTurn } from "./engine/settleTurn"
 
-const settled = resolveTurn({
+const settled = settleTurn({
   units: [
     { id, type, teamID, isKing, tier, health, occupancy, orientation, stagedMove },
     // ...one per unit alive at the start of the turn
@@ -89,12 +89,30 @@ const settled = resolveTurn({
   boardWidth, boardHeight, walls, hazards, hazardDamage, food,
   maxHealth,          // per-kind overrides; the rest default to 100
   regicideTeamIDs,    // teams configured with at least one king
+  turn,               // the turn being resolved
+  teamOf,             // unit id -> team id, for every configured unit
+  effects,            // the invulnerability effect schedule as the turn opened
+  potions,            // potion cells on the board as the turn opened
+  potionsEnabled,     // off: potions are inert scenery
+  potionWindowTurns,  // how long a pickup's debuff and ally buffs last (3)
 })
 
 settled.board          // survivors: final occupancy and health
 settled.deaths         // every unit removed, with cell / subStep / cause
 settled.eliminatedTeamIDs
+settled.effects        // the schedule as the turn closed
+settled.tiers          // per-unit tier the NEXT turn starts from
+settled.potions        // potion cells left once every collector has taken one
 ```
+
+**`tier` is an input AND an output.** A caller hands settlement the tiers a
+turn is adjudicated at and reads back the tiers the next turn starts from.
+Deriving the second set yourself — charging a pickup, giving a level back on
+expiry — is writing a second encoding of the rules, which is the one thing
+this directory exists to prevent. Read `tiers`.
+
+`resolveTurn` remains exported for a caller that wants the board half alone;
+it does not touch effects or tiers.
 
 Pass `path` instead of `stagedMove` on a unit if you have already planned it.
 Read outcomes off `board` and `deaths` — they are authoritative, and they are
