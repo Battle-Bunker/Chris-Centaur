@@ -270,3 +270,16 @@
 - [ ] B-4 free alpha-beta cut: worstHi<=bestLo row cut in scoreOptions —
       sound, changes no published value, converts directly to more plies
       at the same tithe. Per-row theirCoverage reporting required.
+- [ ] Pentanomial paired seat-swapped scoring (Fishtest, librarian): the
+      pentanomial-vs-trinomial gap estimates the population's own bias —
+      an INSTRUMENT for ruling 49's distortion worry; makes seat asymmetry
+      visible in the score. Retrofit to existing paired batches.
+- [ ] Per-unit flow telemetry (promote mining script to standing columns):
+      144 games → thousands of unit-observations at zero play cost.
+- [ ] room refit as K1*cells + K2*edges (a1k0n: edges carry 3.5x cells —
+      the quantity counted is wrong, not just the coefficient).
+- [ ] Checkerboard parity bound: red/black counted separately = strictly
+      tighter SOUND reachability ceiling; belongs in the bounds bank. Free.
+- [ ] C13 incrementalisability check (no games): fraction of fold terms
+      changing when exactly one unit's action is determined — decides
+      whether citation-scoping can pay on whole-board (K,W,p) coefficients.
