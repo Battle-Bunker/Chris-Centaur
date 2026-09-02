@@ -289,12 +289,16 @@ export function oracleOutcome(tc: OracleCase): Outcome {
   return oracleSettlement(tc).outcome;
 }
 
-/** Resolve one case with the possibility-cloud engine, through the same translation. */
-export function engineOutcome(engine: PartialEngine, tc: OracleCase): Outcome {
-  // The other direction of the adapter: wire occupancy -> UnitSpec. Building
-  // the spec by hand here would let this harness disagree with what the bot
-  // does at runtime, which is the one thing a differential must not permit.
-  const specs: UnitSpec[] = tc.units.map((u) => {
+/**
+ * The other direction of the adapter: wire occupancy -> UnitSpec, in the roster
+ * ORDER that becomes the engine's slot order. Building the spec by hand
+ * anywhere would let a harness disagree with what the bot does at runtime,
+ * which is the one thing a differential must not permit — so every suite that
+ * puts one of these boards into the possibility-cloud engine comes through
+ * here.
+ */
+export function engineSpecs(tc: OracleCase): UnitSpec[] {
+  return tc.units.map((u) => {
     const type = wireTypeOfKind(u.kind);
     return toUnitSpec(
       {
@@ -309,6 +313,11 @@ export function engineOutcome(engine: PartialEngine, tc: OracleCase): Outcome {
       { unitId: u.unitId, team: u.team, defaultOrientation: u.orientation }
     );
   });
+}
+
+/** Resolve one case with the possibility-cloud engine, through the same translation. */
+export function engineOutcome(engine: PartialEngine, tc: OracleCase): Outcome {
+  const specs = engineSpecs(tc);
 
   const state: StateHandle = engine.create(specs, tc.food, tc.potions ?? [], tc.turn ?? 0);
   const orders = ordersForSlots(specs, engine.config.maxUnits, tc.orders);
