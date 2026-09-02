@@ -109,6 +109,35 @@ Phase rows, in the order the agent/worldline consults them:
     of an argmax over scalars — same seeded draw for ties, still
     ledger-replayable.
 
+    THE FLIP FACTOR'S CHEAP ESTIMATORS (librarian d36-37, cannot-wait
+    relay — the survey's cheapest open item, now specified): two shipped
+    implementations of P(refinement flips the choice) run on byproducts
+    the loop already produces and discards —
+
+        · tranches since the incumbent last changed
+        · incumbent changes this tranche
+        · the incumbent's value trend (a 4-slot ring of recent readings)
+        · share of work landing under the incumbent's subtree
+
+    No model, no intervals, usable BEFORE the bank completes (the
+    interval-overlap form of the flip factor needs priced bounds; these
+    need only the loop's own history). The kernel already half-counts
+    them: StickyStager flips, depthChangedLeader, emissions-per-slice —
+    increment 2 promotes them to per-hypothesis ledger fields. Three of
+    the four double as C48's margin discriminator, giving the interim
+    proxy real teeth before the runner-up field lands:
+    stopped-changing-its-mind + value trend flat = exhausted (reading a);
+    flipping-at-the-same-score = the evaluator cannot separate the plans
+    (reading b — coarse evaluator).
+
+    THE PER-HYPOTHESIS CAVEAT (ours, and it is load-bearing): count
+    per hypothesis, NEVER globally — a plan reads "stable" exactly when
+    the market stopped funding its revision, so a global counter turns
+    defunding into fake convergence and the market talks itself into
+    starving whatever it already starves. Each hypothesis's stability
+    counters are denominated in ITS OWN granted quanta (the ledger's
+    hypothesisId stamp makes this free).
+
 ## 4. Falsifier deltas introduced by this sketch
 
 - commit-agree cutoff: measured time-to-conform ≈ 0 AND zero killed

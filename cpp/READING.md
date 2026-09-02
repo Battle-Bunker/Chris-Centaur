@@ -102,6 +102,22 @@ arbitration INVERTS to fix-evaluator-first):
   rows per rung (recorded but discarded by the v0 script), which is
   where the margin column comes from without new machinery.
 
+## RE-CLASSIFICATION (librarian d36-37, cannot-wait relay — before any consumer reads these files)
+
+These two v0 files are **machine-local calibration artifacts, not
+profiles**. A wall-clock-denominated curve is a property of the machine:
+"snake6 saturates at 500 ms" is unfalsifiable across hardware, and every
+ms-keyed profile would have to be redone on any box change. What the v0
+compile legitimately delivered: the one-time arbitration reading (queen
+climbs, snake6 flattens — SHAPE claims, ordinal across rungs on one box,
+still valid), the noise-ceiling methodology, and this box's rate
+calibration. What it must never be used for: cross-machine claims,
+consumer reads through the CPP interface, or budget policy. **No further
+CPPs are compiled in milliseconds** — the quanta denominator
+(nodestime shape: deterministic work unit + one measured machine-local
+rate constant set below real throughput) is now a PREREQUISITE of any
+further compile, not a v1 follow-up.
+
 ## Limitations (stamped in provenance)
 
 Agreement conflates "converged" with "matches the 4,000 ms draw" — safe

@@ -98,7 +98,13 @@ awaits the margin-at-deciding-rung column (M47) before any budget moves:
 wide margin + saturation confirms it; near-zero margin + saturation
 inverts the snake6 reading to fix-the-evaluator-first (weak-evaluator
 masking, Thompson's lesson — and our snake6/queen split matches that
-signature). Profiles are keyed on evalVersion (M48). As measured:
+signature). Profiles are keyed on evalVersion (M48). A second
+denomination correction (d36-37, cannot-wait): the v0 files are
+RE-CLASSED as machine-local calibration artifacts — a ms-keyed curve is
+a property of the box, so the shape/ordinal readings on one box stand
+but no consumer reads them as profiles, and NO further CPPs are
+compiled in milliseconds (the quanta denominator is now a prerequisite,
+`cpp/READING.md`). As measured on this box:
 snake6 saturates at ≤ 500 ms (0.95 agreement at 125 ms; zero staging
 changes from 500 ms to 4 s across 9,000+ extra priced plans — the
 invariance, now a curve); the queen cell CLIMBS THROUGH THE TOP RUNG

@@ -23,14 +23,21 @@ bundle's `bot.decide`.
 For a sampled (game, turn, seat): re-decide at rungs
 `q ∈ {q0, 2q0, 4q0, …, Q}` (geometric, ratio 2 — the theorem default).
 
-- **v0 (runnable today):** rungs in milliseconds on an idle box, with the
-  box-noise caveat stamped into provenance (batch 2 measured wall floors
-  widening ×17.76 under load — v0 profiles are provisional by
-  construction and say so).
-- **v1 (after increment 2's handle swap):** rungs in quanta via the
-  counting budget — deterministic, box-independent; prefix determinism
-  makes the ladder cheap (a larger rung's decision sequence EXTENDS the
-  smaller's, so one top-rung run with checkpoints yields every rung).
+- **v0 (ms — DEPRECATED as a profile class, librarian d36-37 via the
+  cannot-wait relay):** a wall-clock-denominated profile is a property of
+  the MACHINE, not the search — "saturates at 500 ms" is unfalsifiable
+  across hardware, and every ms-keyed profile must eventually be redone.
+  The two shipped v0 files are re-classed MACHINE-LOCAL CALIBRATION
+  ARTIFACTS (useful for fitting this box's rate constant and for the
+  one-time arbitration they performed; never to be read as profiles by
+  any consumer). **No further CPPs are compiled in milliseconds.**
+- **v1 (quanta — now the PREREQUISITE of any further compiles, not a
+  follow-up):** rungs in quanta via the counting budget — deterministic,
+  machine-independent; prefix determinism makes the ladder cheap (one
+  top-rung run with checkpoints yields every rung). The denominator
+  follows the nodestime shape exactly: a deterministic work unit plus ONE
+  measured machine-local rate constant, set BELOW real throughput (the
+  safe direction), and only the rate constant is machine-local.
 
 ## 2½. The second quality axis: maxGap (search-theory doc 07, adopted)
 
@@ -77,7 +84,12 @@ increment 2's ledger schema.
   increment 2's emitted fields, not a miner-only v0.1. Interim proxy
   available today: the adjudication-rung MIX per rung
   (floorDecided/estDecided/tieKeyDecided counts) — coarse, direction
-  only, stated as such.
+  only, stated as such — now JOINED by the stability counters
+  (`time-scheduler-sketch.md` §3, cannot-wait relay): tranches since the
+  incumbent changed, flips-at-same-score, incumbent value trend — which
+  discriminate reading (a) from (b) without the runner-up field
+  (stopped-changing + flat trend = exhausted; flipping-at-same-score =
+  coarse evaluator), counted PER HYPOTHESIS in its own granted quanta.
 - **Every CPP is keyed on evalVersion** (M48): saturation is a property
   of the evaluator; profile reuse across evaluators is a silent premise
   crossing, and the coordinate already exists in the declaration record.
