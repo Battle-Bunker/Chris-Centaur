@@ -1,3 +1,11 @@
+> **NUMBERS CORRECTED BY `basis-audit.md` (cycle 5).** My mining mixed two clocks
+> (`standings[t] == board[t+1]`), so every fold term combined a pre-resolution weight change
+> with a post-resolution share state. On one clock the attribution gap is 0.00% and the
+> corrected figures are **basis B: k=1.230, R² 0.9431 fitted, 0.9101 at zero fit** — worse
+> than reported here. The SEVER FINDING SURVIVES AND IMPROVES: corr(residual, severs) goes
+> −0.409 → **+0.063** when the sever channel is added. Largest remaining structure is game
+> length (−0.546; partial −0.453 controlling eliminations), still unexplained.
+
 # REPLY TO THE EPISTEMICS RED TEAM — four findings, four concessions, one test run
 
 Their `07-REDTEAM-VALUE-FOLD.md` (design/belief-fog @ e507ff0) re-verified the ∂S/∂w algebra and
