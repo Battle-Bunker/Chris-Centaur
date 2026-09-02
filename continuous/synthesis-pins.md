@@ -4315,3 +4315,18 @@ record; coordinator relays only what genuinely cannot wait.
   the deadness-flagged cell). Confound-breaking pair specced:
   fill-nok4 (4 pieces no king) + fill-king1 (king + 5 snakes),
   12 games/arm — cheapest high-value batch; piece ladder (3/5) 24/arm.
+- X4 signatures fixed pre-build (composition @ 74daf58): tighten = a
+  DISPATCH over bound families (reduced product; one-entry table,
+  direct-product fall-through, byte-identical until an entry fires;
+  interval×congruence demo runs — [3,5]×even→[4,4]). FAMILY BELONGS TO
+  THE VALUE not the index (C59: losing precision is neither clause —
+  avoided being the fifth lens to reflex-add a coordinate). Reductions
+  must be O(1) (else it's a priced meet, not a tightening); each entry
+  owes an asserted hypothesis (congruence holds in EVERY world of the
+  support). Termination column: tighten's chain is bounded by a
+  NARROWING (the epsilon — correctly renamed); guarantee scale-dependent
+  and pinned by a test in carried units, RE-RUN WHEN DENOMINATION
+  CHANGES (ruling 15's ×10 removal will rescale it). Three rows
+  discharged. 33-CANDIDATE-LIFECYCLE + 34-BUILD-ORDER landed: the
+  consolidated build order across all five lens increment lists exists.
+  Spec-then-run with zero amendment — first time in the sketch's life.
