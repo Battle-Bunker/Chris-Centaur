@@ -1,0 +1,116 @@
+{
+  "stratum": "snake5queen-3t-25x25",
+  "bot": "lobster-territory",
+  "profile": [
+    {
+      "rungMs": 125,
+      "n": 60,
+      "prAgree": 0.733,
+      "hammingRate": 0.114,
+      "meanWallMs": 74.9,
+      "meanFirstStageMs": 14.9,
+      "meanPlans": 5.4,
+      "meanSlices": 3.9,
+      "meanScoutPlies": 9.6,
+      "meanClusterJoints": 40.1,
+      "errors": 0
+    },
+    {
+      "rungMs": 250,
+      "n": 60,
+      "prAgree": 0.8,
+      "hammingRate": 0.087,
+      "meanWallMs": 183.1,
+      "meanFirstStageMs": 9.6,
+      "meanPlans": 18.8,
+      "meanSlices": 16.8,
+      "meanScoutPlies": 14.6,
+      "meanClusterJoints": 73.9,
+      "errors": 0
+    },
+    {
+      "rungMs": 500,
+      "n": 60,
+      "prAgree": 0.833,
+      "hammingRate": 0.067,
+      "meanWallMs": 404,
+      "meanFirstStageMs": 10.2,
+      "meanPlans": 70.3,
+      "meanSlices": 68.3,
+      "meanScoutPlies": 23.6,
+      "meanClusterJoints": 92,
+      "errors": 0
+    },
+    {
+      "rungMs": 1000,
+      "n": 60,
+      "prAgree": 0.85,
+      "hammingRate": 0.064,
+      "meanWallMs": 935.7,
+      "meanFirstStageMs": 9.6,
+      "meanPlans": 198.7,
+      "meanSlices": 196.7,
+      "meanScoutPlies": 23.6,
+      "meanClusterJoints": 92,
+      "errors": 0
+    },
+    {
+      "rungMs": 2000,
+      "n": 60,
+      "prAgree": 0.883,
+      "hammingRate": 0.04,
+      "meanWallMs": 1939.2,
+      "meanFirstStageMs": 9.4,
+      "meanPlans": 449.5,
+      "meanSlices": 447.5,
+      "meanScoutPlies": 23.6,
+      "meanClusterJoints": 92,
+      "errors": 0
+    },
+    {
+      "rungMs": 4000,
+      "n": 60,
+      "prAgree": 1,
+      "hammingRate": 0,
+      "meanWallMs": 3940.9,
+      "meanFirstStageMs": 9.6,
+      "meanPlans": 962.4,
+      "meanSlices": 960.4,
+      "meanScoutPlies": 23.6,
+      "meanClusterJoints": 92,
+      "errors": 0
+    }
+  ],
+  "noiseCeiling": {
+    "note": "A/A agreement of a repeated top-rung decision on the same position — the ceiling any rung can be read against under v0 wall-clock noise",
+    "n": 12,
+    "prAgree": 1,
+    "hammingRate": 0
+  },
+  "provenance": {
+    "clock": "ms-v0 PROVISIONAL (wall-clock, box-noise; deterministic quanta rungs are v1)",
+    "quality": "agreement-only (priced regret deferred to v1)",
+    "corpus": "continuous/rl4 (one arm, paired seeds)",
+    "corpusPlayedAt": "2000ms budget, 3 teams, 25x25, turnCap 120, potions on 0.15",
+    "lineage": "b5 = claude/cluster-lookahead @ 79b5f5e (toll fix; predates 47c983e loop telemetry)",
+    "rungs": [
+      125,
+      250,
+      500,
+      1000,
+      2000,
+      4000
+    ],
+    "targetTurns": [
+      6,
+      18,
+      34,
+      52
+    ],
+    "engineWarmth": "fresh engine per decide (no stepCost carry); geometry cache kept warm across decides",
+    "seedNote": "facade mints matchSeed internally; wall-clock anytime loop is not run-reproducible — hence the noise ceiling",
+    "fitDate": "2026-09-02T01:05:34.663Z",
+    "class": "inherited-unfitted -> first-fit",
+    "compileWallMinutes": 8.3
+  }
+}

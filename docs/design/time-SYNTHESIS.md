@@ -90,12 +90,23 @@ coordinate so verdicts under different profiles never compare silently.
 
 The 10×-budget invariance of the evaluator ladder is evidence about
 breadth-at-horizon-1 and confirms the base rate against plumbing-only
-claims; the queen board's 16× throughput collapse (216 plans/decision) is
-the motivating case; and the piece-board tension (ponder value-survival
-worst where compute starves most) resolves into policy: piece boards
-front-load STRUCTURAL pre-build in the ponder ladder (structure survives
-~always and enumeration is the starved good), snake boards front-load
-deep value. The CPP's queen-cell curve arbitrates empirically.
+claims; the queen board's 16× throughput collapse is the motivating case.
+
+**THE CPP HAS NOW ARBITRATED (first v0 compile, `cpp/READING.md`):**
+snake6 saturates at ≤ 500 ms (0.95 agreement at 125 ms; zero staging
+changes from 500 ms to 4 s across 9,000+ extra priced plans — the
+invariance, now a curve); the queen cell CLIMBS THROUGH THE TOP RUNG
+(0.883 at its own played budget of 2 s vs the 4 s reference; 15% of
+decisions differ 1 s → 4 s; noise ceiling 12/12 exact) — **starved, not
+overhead-bound: fund ponder-class carried VALUE work.** Enumeration and
+threads saturate by 500 ms (joints 92, plies ~24; first-stage 9.6 ms),
+so the structural-pre-build rung covers only a turn's first ~500 ms and
+the earlier guess in `time-response-value-redteam.md` §2 is amended: the
+scarce good on piece boards is PRICED PLANS (449 vs 5,079 at 2 s), and
+the window policy front-loads carried/warmed value work everywhere, with
+structural pre-build as the short first rung. Live piece-cell games at
+≤ 2 s budgets were staged measurably off-curve — a standing caveat on
+every strength verdict from those cells.
 
 Build order (each a feature branch; two-lane compliant; no flags):
 
@@ -118,7 +129,17 @@ Build order (each a feature branch; two-lane compliant; no flags):
 4. **feature/commit-scope** — citation-scoped commit invalidation +
    cutoff + reaction table; honestly labeled a latency/operator-experience
    claim (conform ≤ 1 tranche under intervention; commit-agree ≈ free),
-   with the first operator event ever fired in a harness game.
+   with the first operator event ever fired in a harness game. FALSIFIER
+   REFRAMED (librarian C13 correction): the recovery lever is
+   CLUSTER/READING-granularity invalidation — `partitionOf` (whole-board
+   set-cover) is the genuinely un-incrementalisable floor, so the
+   falsifier reports the partition-rebuild share separately, and a
+   partial recovery reads as that floor, not as refuting
+   citation-scoping. Also inherits W-2 (adopt worker-banked witnesses at
+   tranche boundaries — near-free under the counting cut) and states W-1
+   as a hazard: B2 cost grows with the uncapped witness set within a
+   decision, so any fixed-ms latency cap drifts late in the turn until
+   support-based pruning lands.
 5. **feature/evaluator-version** — version stamps + next-tranche-softly
    re-pricing + the dial acceptance game.
 
@@ -144,7 +165,13 @@ dividend (per-variable survival) load-bearing.
   membership-re-checked; advised precision-decayed; observe() conditions
   S first, then the citation pass); untouched → live — **plus cutoff and
   durability strata** (invalidation);
-  **transport law** (A1.1-scoped value crossing); **quarantine** (fibers
+  **transport law** (A1.1-scoped value crossing, plus its payload theorem
+  — librarian C38, DeepStack continual re-solving: ADVANCE carries
+  opponent counterfactual BOUNDS at the public state which the re-solve
+  may not increase; empty under full observability, hence today's re-base
+  is sound as-is; load-bearing at fog step 5, exercised by the fog
+  timeline; the constraint lands in better()'s floor discipline and the
+  bank already produces the type); **quarantine** (fibers
   never reach the wire — misprediction costs compute only, no rollback
   operation exists); **incumbent witness**; **revalidation for
   bot-authored carries**; **obligation-by-MIN** with humans-always-win at
