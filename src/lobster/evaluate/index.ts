@@ -71,6 +71,8 @@ export {
 export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
+export { CONTEST_LOSS, contestFeature, contestField, winsContest } from './contest';
+export type { ContestField } from './contest';
 export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
 export type { Admission, Partition, TrailRoom } from './territory';

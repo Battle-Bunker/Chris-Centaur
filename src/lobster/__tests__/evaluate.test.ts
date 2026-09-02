@@ -20,6 +20,7 @@ import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
   BoundEvaluator,
   CLIFF_MATERIAL_WEIGHT,
+  CONTEST_LOSS,
   DEAD,
   DEFAULT_PROFILE,
   DEFAULT_WEIGHTS,
@@ -32,6 +33,8 @@ import {
   checkMonotone,
   checkSoundness,
   clampEst,
+  contestFeature,
+  contestField,
   defaultEvaluator,
   makeContext,
   materialBounds,
@@ -472,6 +475,123 @@ describe('this fold and the engine’s own agree, contested or not', () => {
   });
 });
 
+// --------------------------------------------------------- contest avoidance
+
+/**
+ * CONTEST AVOIDANCE, against the rule it prices.
+ *
+ * `turnEngine`'s arrival tier hands the cell to the UNIQUE strict maximum on
+ * frozen tier and then frozen weight, so at equal tier a heavier enemy kills
+ * us, an equal-weight one kills us both, and a lighter one dies to us. These
+ * cases are that sentence, one clause at a time.
+ */
+describe('contest avoidance prices the rule turnEngine adjudicates', () => {
+  /** The contest term alone, for one staged destination. */
+  function contestOf(
+    board: Board,
+    ours: string,
+    to: Coord,
+    asTeam = 'red'
+  ): { lo: number; est: number; hi: number } {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam, modeled: [ours] });
+    try {
+      const unit = sub.unitOfWireId(ours)?.unitId as UnitId;
+      const dest = at(board, to);
+      const plan: JointPlan = new Map([
+        [unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] }],
+      ]);
+      const team = sub.teamNumber(asTeam);
+      const b = sub.withResolution(plan, team, ({ resolution, bounds }) =>
+        contestFeature.evaluate(makeContext(sub, resolution, bounds, team, 0, DEFAULT_PROFILE))
+      );
+      return { lo: b.lo, est: b.est, hi: b.hi };
+    } finally {
+      sub.release();
+    }
+  }
+
+  /** Our snake of weight two at (3,3); an enemy head two cells east of it. */
+  const facing = (theirWeight: number): Board =>
+    boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 3, y: 3 },
+          { x: 2, y: 3 },
+        ],
+        { teamID: 'red', orientation: { dx: 1, dy: 0 } }
+      ),
+      makeSnake(
+        'them',
+        Array.from({ length: theirWeight }, (_, i) => ({ x: 5 + i, y: 3 })),
+        { teamID: 'blue', orientation: { dx: -1, dy: 0 } }
+      ),
+    ]);
+
+  test('a square a HEAVIER enemy head can reach is penalised', () => {
+    // Their head at (5,3) can step to (4,3), and three beats our two: the cell
+    // is theirs and we die on it.
+    const contested = contestOf(facing(3), 'me', { x: 4, y: 3 });
+    expect(contested.lo).toBeLessThan(0);
+    expect(contested.est).toBeLessThan(0);
+    // One unit of ours, so the charge is the whole CONTEST_LOSS.
+    expect(contested.lo).toBeCloseTo(-CONTEST_LOSS, 9);
+  });
+
+  test('an EQUAL-weight enemy is penalised too, because a tie kills everyone', () => {
+    expect(contestOf(facing(2), 'me', { x: 4, y: 3 }).lo).toBeCloseTo(-CONTEST_LOSS, 9);
+  });
+
+  test('a square only a LIGHTER enemy can reach is not penalised', () => {
+    // The same geometry with their weight one against our two: the cell is
+    // ours, we survive it, and a trade we win is not a thing to avoid.
+    expect(contestOf(facing(1), 'me', { x: 4, y: 3 })).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('a square no enemy can reach is untouched', () => {
+    const board = facing(3);
+    expect(contestOf(board, 'me', { x: 3, y: 4 })).toEqual({ lo: 0, est: 0, hi: 0 });
+    // And the field agrees about which cells those are, and how heavy.
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const field = contestField(sub, sub.teamNumber('red'));
+      expect(field.reached[at(board, { x: 4, y: 3 })]).toBe(1);
+      expect(field.weight[at(board, { x: 4, y: 3 })]).toBe(3);
+      expect(field.reached[at(board, { x: 3, y: 4 })]).toBe(0);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('the term is zero on a board with no enemies', () => {
+    const alone = boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 3, y: 3 },
+          { x: 2, y: 3 },
+        ],
+        { teamID: 'red', orientation: { dx: 1, dy: 0 } }
+      ),
+      makeSnake(
+        'mate',
+        [
+          { x: 1, y: 1 },
+          { x: 1, y: 0 },
+        ],
+        { teamID: 'red', orientation: { dx: 0, dy: 1 } }
+      ),
+    ]);
+    for (const to of [
+      { x: 4, y: 3 },
+      { x: 3, y: 4 },
+      { x: 3, y: 2 },
+    ]) {
+      expect([to, contestOf(alone, 'me', to)]).toEqual([to, { lo: 0, est: 0, hi: 0 }]);
+    }
+  });
+});
+
 // --------------------------------------------------------------- terminal clamps
 
 describe('terminal clamps are ORDERED, not additive', () => {
@@ -719,6 +839,8 @@ describe('calibration is data', () => {
     expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual([
       // The slider repair, seated — see calibration.ts.
       'command',
+      // Contest avoidance: the dominant remaining death cause.
+      'contest',
       // The distance gradient to the nearest meal, and the anti-dither term.
       'food',
       'healthEconomy',

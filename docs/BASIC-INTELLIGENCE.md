@@ -342,4 +342,42 @@ re-measured rather than assumed either way.
 
 **Contests are the remaining death cause**, and a large one on the mixed board
 (14 of 16 deaths). Two mirror-symmetric bots walking into the same square is a
-genuinely hard problem for a floor-adjudicated search and is out of scope here.
+genuinely hard problem for a floor-adjudicated search.
+
+---
+
+## The first member of contest avoidance
+
+`contest` (`src/lobster/evaluate/contest.ts`, weight 3 in `DEFAULT_WEIGHTS`) is
+the cheap half of that problem: a unit is charged for ending the turn on a cell
+an enemy could also end its turn on and would not lose there. The rule it
+prices is `turnEngine`'s arrival tier — the cell goes to the unique strict
+maximum on frozen tier then frozen weight — so equal-or-heavier kills us and
+equal weight kills us both, which is where the "equal-or-heavier" test comes
+from. The enemy's reach is the engine's own move enumerator over the turn-start
+board, run once per decision and cached; the feature itself is one array read
+per unit of ours.
+
+Ten seeds x 100 turns at a 150 ms budget, the same build with the weight at
+zero against the weight at three, per board class and never pooled:
+
+    mixed    contest deaths  47 -> 37     all deaths 54 -> 45   meals/100 27.5 -> 24.5
+             dither 0.40% -> 0.27%        starvation 0 -> 0     unit-turns 4042 -> 5188
+    snakes   contest deaths  15 ->  7     all deaths 43 -> 43   meals/100 12.8 -> 13.7
+             dither 0.00% -> 0.00%        starvation 0 -> 0     unit-turns 3155 -> 3375
+
+Unit-turns are an OUTCOME here, not a denominator the arms share: units that
+stop dying keep playing. Per hundred unit-turns the contest death rate falls
+39% on `mixed` and 56% on `snakes`. On `snakes` the total is a wash — body
+blocks went 19 -> 23 and self-collisions 6 -> 8 as the snakes that survived
+grew longer — so what this member bought there is length and meals, not fewer
+funerals. That is the honest reading and it is why this is the FIRST member and
+not the last: nothing here helps two units that must cross the same square, and
+nothing here coordinates our own team.
+
+The weight is 3 rather than anything measured to a tenth: it clears `momentum`
+(1) and the spread of `reach` and `room` over one unit's own options, and it
+sits under `food` (4), whose pull reaches 1 for a starving unit — so a hungry
+unit still takes a contested meal and a healthy one declines it. Weights of 2
+and 5 were both watched over five seeds; 2 is inert on contests and 5 buys
+nothing 3 does not.

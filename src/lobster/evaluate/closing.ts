@@ -322,6 +322,7 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     command: 0,
     food: 0,
     momentum: 0,
+    contest: 0,
     regicideCascade: 10,
     approach: 0,
   },
