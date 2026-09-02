@@ -42,8 +42,7 @@ import type { Evaluation, Feature, Weights } from './bound';
 import {
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
-  TERRITORY_SLIDER_PROFILE,
-  TERRITORY_SLIDER_ROYAL_PROFILE,
+  ROYAL_COMMAND_PROFILE,
 } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
@@ -72,6 +71,8 @@ export {
 export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
+export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
+export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
@@ -207,16 +208,6 @@ export const territoryEvaluator = defaultEvaluator;
  * explicit fallback profile if territory ever has to be backed out. */
 export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);
 
-/**
- * THE SLIDER-REPAIR PROFILE — territory plus the two terms the budget ladder's
- * replays say are missing, both gated on class properties so a board with no
- * piece on it scores identically to `territoryEvaluator`. See
- * `TERRITORY_SLIDER_PROFILE` for the measurement that motivates it.
- */
-export const territorySliderEvaluator = new BoundEvaluator(TERRITORY_SLIDER_PROFILE);
-
-/** The ablation arm — the repair with the royal exclusion lifted. Measured
- * against `territorySliderEvaluator`; never a production default. */
-export const territorySliderRoyalEvaluator = new BoundEvaluator(
-  TERRITORY_SLIDER_ROYAL_PROFILE
-);
+/** The ablation arm — the production profile with the royal exclusion lifted.
+ * Measured against `defaultEvaluator`; never a production default. */
+export const royalCommandEvaluator = new BoundEvaluator(ROYAL_COMMAND_PROFILE);

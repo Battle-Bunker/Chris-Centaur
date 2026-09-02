@@ -23,6 +23,7 @@ import {
   DEAD,
   DEFAULT_PROFILE,
   DEFAULT_WEIGHTS,
+  FEATURES,
   REACH_HORIZON_TURNS,
   SPECIALIST_FACTS,
   TERRITORY_PROFILE,
@@ -36,7 +37,7 @@ import {
   materialBounds,
   materialEvaluator,
   scale,
-  territorySliderEvaluator,
+  royalCommandEvaluator,
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
 
@@ -289,15 +290,15 @@ describe('the admission laws, over the real world set', () => {
     // brute-force enumeration the shipped profile is held to. The repair's own
     // fixtures live in src/tests/territory-slider.test.ts.
     for (const c of LAW_CASES) {
-      expect([c.name, checkSoundness(territorySliderEvaluator, c).violations]).toEqual([
+      expect([c.name, checkSoundness(royalCommandEvaluator, c).violations]).toEqual([
         c.name,
         [],
       ]);
-      expect([c.name, checkCollapse(territorySliderEvaluator, c).violations]).toEqual([
+      expect([c.name, checkCollapse(royalCommandEvaluator, c).violations]).toEqual([
         c.name,
         [],
       ]);
-      expect([c.name, checkMonotone(territorySliderEvaluator, c).violations]).toEqual([
+      expect([c.name, checkMonotone(royalCommandEvaluator, c).violations]).toEqual([
         c.name,
         [],
       ]);
@@ -712,20 +713,25 @@ describe('calibration is data', () => {
     expect(TERRITORY_PROFILE.weights.room).toBe(3);
     expect(TERRITORY_PROFILE.reachHorizonTurns).toBe(REACH_HORIZON_TURNS);
     expect(REACH_HORIZON_TURNS).toBe(4);
-    // No food weight on territory, and no horizon discount: both measured
-    // worthless at the sound floor, and both are absent rather than zeroed.
+    // Every feature the shipped fold evaluates is named here, and no others: a
+    // weight left unnamed silently takes the feature's `defaultWeight`, which
+    // is how a profile ends up carrying a term nobody chose for it.
     expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual([
-      // `command` is present at weight ZERO: the slider repair is a profile of
-      // its own (TERRITORY_SLIDER_PROFILE), and this one names it off rather
-      // than leaving a reader to wonder whether it was forgotten.
+      // The slider repair, seated — see calibration.ts.
       'command',
+      // The distance gradient to the nearest meal, and the anti-dither term.
+      'food',
       'healthEconomy',
       'kingMargin',
       'material',
+      'momentum',
       'reach',
       'room',
     ]);
-    expect(TERRITORY_PROFILE.weights.command).toBe(0);
+    expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual(
+      FEATURES.map((f) => f.key).sort()
+    );
+    expect(TERRITORY_PROFILE.weights.command).toBeGreaterThan(0);
     // The fallback profile is a real, reachable profile — not a comment.
     expect(materialEvaluator.profile.weights.reach).toBe(0);
     expect(materialEvaluator.profile.weights.room).toBe(0);

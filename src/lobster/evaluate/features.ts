@@ -63,6 +63,8 @@ import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
+import { foodFeature } from './food';
+import { momentumFeature } from './momentum';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -928,6 +930,8 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   healthEconomyFeature,
   kingMarginFeature,
   commandFeature,
+  foodFeature,
+  momentumFeature,
 ];
 
 /** Re-exported so a consumer can read a held unit's interval without the engine. */

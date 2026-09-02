@@ -26,6 +26,7 @@ import type { Evaluator, JointPlan, Candidate, UnitId, KernelInput } from '../lo
 import { makeSearchCore } from '../lobster/search';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
+import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/piece-moves';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,13 @@ export interface CandidateTrace {
   readonly to: Coord;
   readonly est: number;
   readonly lo: number;
+  /** The BANK's proved floor — the number `SearchCore.better` actually reads. */
+  readonly floor: number;
+  /** The basis key that floor is priced under. Two different keys are not
+   * comparable at all, and `better` keeps the incumbent when they differ. */
+  readonly basis: string;
+  /** The generator did not offer this option to the search at all. */
+  readonly pruned: boolean;
 }
 
 export interface UnitTrace {
@@ -147,6 +155,8 @@ export interface UnitTrace {
   readonly to: Coord;
   /** The chosen move's rank among candidates, ordered by evaluated `est`. */
   readonly top: ReadonlyArray<CandidateTrace>;
+  /** The chosen move is the generator's FIRST candidate — the search's seed. */
+  readonly seeded: boolean;
   readonly reversed: boolean;
 }
 
@@ -165,7 +175,10 @@ export async function decideTeam(
   teamId: string,
   budgetMs: number,
   evaluate: Evaluator = defaultEvaluator,
-  trace = true
+  /** Score every option of every unit. Exact, and slow: it prices each option
+   * through a bound bank of its own. Off for the multi-seed counters, on when
+   * a human is going to read the trace. */
+  scores = true
 ): Promise<TeamDecision> {
   const ourIds = (board.snakes ?? [])
     .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
@@ -214,8 +227,15 @@ export async function decideTeam(
       const unit = sub.unitOf(unitId);
       if (unit === undefined) continue;
       staged.set(unit.wireId, cand.to);
-      if (!trace) continue;
-      traces.push(traceFor(sub, evaluate, plan, asTeam, unitId, cand, w, h));
+      const bank = scores
+        ? new BoundBank({ sub, gen, evaluate, asTeam, basis: [], budget: FOREVER })
+        : null;
+      const offer = gen.candidatesFor(sub, unitId).candidates;
+      const offered = new Set(offer.map((c) => c.to));
+      const seed = offer.length > 0 ? (offer[0] as Candidate).to : -1;
+      traces.push(
+        traceFor(sub, evaluate, bank, plan, asTeam, unitId, cand, w, h, offered, seed)
+      );
     }
     return { staged, traces, horizon };
   } finally {
@@ -226,31 +246,57 @@ export async function decideTeam(
 /** Score every option this unit had, with the rest of the plan fixed. That is
  * exactly the comparison the evaluator makes when the sweep re-optimises this
  * unit, so a trace row shows what the bot BELIEVED about the move it took. */
+const FOREVER = {
+  remainingMs: () => 1e9,
+  elapsedMs: () => 0,
+  shouldStop: () => false,
+  now: monotonic,
+};
+
 function traceFor(
   sub: EngineSubstrate,
   evaluate: Evaluator,
+  bank: BoundBank | null,
   plan: JointPlan,
   asTeam: number,
   unitId: UnitId,
   chosen: Candidate,
   w: number,
-  h: number
+  h: number,
+  offered: ReadonlySet<number>,
+  seed: number
 ): UnitTrace {
   const unit = sub.unitOf(unitId);
   const from = (unit?.cells[0] ?? 0) as number;
   const scored: Array<CandidateTrace & { to_: number }> = [];
-  for (const option of sub.actionsOf(unitId).slice(0, 24)) {
+  for (const option of bank === null ? [] : sub.actionsOf(unitId).slice(0, 24)) {
     const trial = new Map(plan);
     trial.set(unitId, option);
     let bound;
+    let floor = Number.NaN;
+    let basis = '';
     try {
       bound = evaluate.scorePlan(sub, trial, asTeam);
+      const priced = (bank as BoundBank).price(withMove(plan, option));
+      floor = priced.bounds.worst;
+      basis = basisKeyOf(priced.bounds.assumptions);
     } catch {
       continue;
     }
-    scored.push({ to: toApiCoord(option.to, w, h), est: bound.est, lo: bound.lo, to_: option.to });
+    scored.push({
+      to: toApiCoord(option.to, w, h),
+      est: bound.est,
+      lo: bound.lo,
+      floor,
+      basis,
+      pruned: !offered.has(option.to),
+      to_: option.to,
+    });
   }
-  scored.sort((a, b) => b.est - a.est || b.lo - a.lo);
+  // The SEARCH's own order: the proved floor first, `est` only among floor
+  // ties. Reading a trace sorted by `est` is what makes an evaluator look
+  // ignored when it is merely outranked.
+  scored.sort((a, b) => b.floor - a.floor || b.est - a.est);
   return {
     wireId: unit?.wireId ?? '?',
     letter: unit?.wireId.split('-')[1] ?? '?',
@@ -259,6 +305,7 @@ function traceFor(
     from: toApiCoord(from, w, h),
     to: toApiCoord(chosen.to, w, h),
     top: scored.slice(0, 3),
+    seeded: chosen.to === seed,
     reversed: false,
   };
 }
@@ -374,6 +421,8 @@ export interface GameMetrics {
   dithers: number;
   /** Unit-turns that actually changed the unit's cell. */
   movesWithChoice: number;
+  /** Unit-turns where the chosen move was just the generator's first option. */
+  seedKept: number;
   starvationDeaths: number;
   otherDeaths: number;
   deathsByCause: Record<string, number>;
@@ -392,7 +441,7 @@ export interface GameResult {
 
 export async function runGame(
   spec: GameSpec,
-  opts: { evaluate?: Evaluator; trace?: boolean; onTurn?: (line: string) => void } = {}
+  opts: { evaluate?: Evaluator; scores?: boolean; onTurn?: (line: string) => void } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
   const budget = spec.budgetMs ?? 150;
@@ -413,6 +462,7 @@ export async function runGame(
     stationary: 0,
     dithers: 0,
     movesWithChoice: 0,
+    seedKept: 0,
     starvationDeaths: 0,
     otherDeaths: 0,
     deathsByCause: {},
@@ -442,7 +492,7 @@ export async function runGame(
           teamId,
           budget,
           opts.evaluate ?? defaultEvaluator,
-          opts.trace ?? true
+          opts.scores ?? true
         );
         metrics.worstDecisionMs = Math.max(metrics.worstDecisionMs, monotonic() - t0);
         for (const [id, to] of decision.staged) staged.set(id, to);
@@ -457,16 +507,22 @@ export async function runGame(
           }
           if (moved && prev !== undefined && prev === key(tr.to)) metrics.reversals++;
           previousStage.set(tr.wireId, key(tr.to));
+          if (tr.seeded) metrics.seedKept++;
           metrics.unitTurns++;
           const opts3 = tr.top
-            .map((c) => `(${c.to.x},${c.to.y})=${c.est.toFixed(2)}`)
+            .map(
+              (c) =>
+                `(${c.to.x},${c.to.y})${c.pruned ? '!' : ''}=` +
+                `${c.floor.toFixed(2)}|${c.est.toFixed(2)}` +
+                `${c.basis === '' ? '' : `{${c.basis.length}}`}`
+            )
             .join(' ');
           rows.push(
             `  T${String(turn).padStart(3)} ${tr.wireId.padEnd(10)} ${tr.kind.padEnd(6)} ` +
               `hp${String(tr.health).padStart(3)} (${tr.from.x},${tr.from.y})->(${tr.to.x},${tr.to.y})` +
               `${prev === key(tr.to) && moved ? ' REVERSAL' : ''}` +
               `${!moved && lastStage !== undefined && lastStage !== key(tr.to) ? ' DITHER' : ''}` +
-              `  top3: ${opts3}`
+              `${tr.seeded ? ' [seed]' : ''}  top3: ${opts3}`
           );
           previousCell.set(tr.wireId, key(tr.from));
         }
@@ -588,7 +644,60 @@ export const SCENARIOS: Record<string, GameSpec> = {
   sparse: SPARSE_SCENARIO,
 };
 
+/** Aggregate several seeds of one scenario — the counters, not the traces. */
+async function summarise(
+  spec: GameSpec,
+  turns: number,
+  seeds: number,
+  budget: number
+): Promise<void> {
+  const totals: Record<string, number> = {
+    unitTurns: 0,
+    foodEaten: 0,
+    reversals: 0,
+    stationary: 0,
+    dithers: 0,
+    seedKept: 0,
+    starvationDeaths: 0,
+    otherDeaths: 0,
+  };
+  const causes: Record<string, number> = {};
+  let worst = 0;
+  for (let seed = 1; seed <= seeds; seed++) {
+    const r = await runGame(
+      { ...spec, maxTurns: turns, seed, budgetMs: budget },
+      { scores: false }
+    );
+    for (const k of Object.keys(totals)) {
+      totals[k] = (totals[k] as number) + ((r.metrics as unknown as Record<string, number>)[k] ?? 0);
+    }
+    for (const [c, n] of Object.entries(r.metrics.deathsByCause)) causes[c] = (causes[c] ?? 0) + n;
+    worst = Math.max(worst, r.metrics.worstDecisionMs);
+    if (r.metrics.crashed !== null) console.log(`seed ${seed} CRASHED: ${r.metrics.crashed}`);
+  }
+  const ut = totals.unitTurns as number;
+  const per = (n: number): string => (ut === 0 ? '0.00' : ((100 * n) / ut).toFixed(2));
+  console.log(
+    `seeds=${seeds} unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
+      `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
+      `stationary%=${per(totals.stationary as number)} seedKept%=${per(totals.seedKept as number)} ` +
+      `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
+      `causes=${JSON.stringify(causes)} worstMs=${worst.toFixed(0)}`
+  );
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'sum') {
+    const spec = SCENARIOS[process.argv[3] ?? 'snakes'];
+    if (spec === undefined) throw new Error(`unknown scenario ${process.argv[3]}`);
+    await summarise(
+      spec,
+      Number(process.argv[4] ?? 60),
+      Number(process.argv[5] ?? 5),
+      Number(process.argv[6] ?? 100)
+    );
+    return;
+  }
   const which = process.argv[2] ?? 'snakes';
   const turns = Number(process.argv[3] ?? 30);
   const seed = Number(process.argv[4] ?? 1);

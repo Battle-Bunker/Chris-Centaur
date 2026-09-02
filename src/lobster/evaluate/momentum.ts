@@ -1,0 +1,115 @@
+/**
+ * MOMENTUM — the cheapest thing that stops a unit undoing itself.
+ *
+ * ── THE PATHOLOGY ──────────────────────────────────────────────────────────
+ *
+ * Nothing in this objective had any preference between "carry on" and "go
+ * back". Where two options tie on every term — which, before the slider repair
+ * was seated, was EVERY option a piece had, every turn — the winner is settled
+ * by `SearchCore.better`'s last resort, a hash of the whole joint plan. That
+ * hash changes whenever any teammate's candidate changes, so a unit with tied
+ * options gets a fresh answer each turn. Recorded, from `local-game` on the
+ * `mixed` board:
+ *
+ *     T  1 red-B pawn (2,1)->(1,1)   rotate left
+ *     T  3 red-B pawn (2,1)->(1,2)   rotate the other way
+ *     T  4 red-B pawn (2,1)->(1,1)   and back
+ *     T  6 red-B pawn (2,1)->(2,2)   and away again — six turns, no square gained
+ *
+ * ── WHAT IT READS ──────────────────────────────────────────────────────────
+ *
+ * The board already remembers last turn's move, in the one place the rules put
+ * it: `orientation`. Every unit's orientation is the direction it last MOVED
+ * (`Turn.orientation`, and `translate.ts` carries it verbatim), so the cell a
+ * unit came from is `cell - orientation`, exactly. No history, no state carried
+ * between decisions, nothing to get out of step with the board.
+ *
+ * Two terms, both small, both negative:
+ *
+ *   REVERSAL   the move lands on the cell the unit came from. Undoing last
+ *              turn's move is not forbidden — a unit that must retreat must be
+ *              able to — it is merely made to cost something, so it happens for
+ *              a reason and not because a hash changed.
+ *
+ *   IDLENESS   a unit that CAN move ends the turn on the square it started on.
+ *              For a trail unit this never fires (they cannot stay). For a
+ *              piece it is the hold, and for a pawn it is the rotation — the
+ *              two shapes the trace above is made of. It is charged at half a
+ *              reversal, because standing still is sometimes right and going
+ *              backwards almost never is.
+ *
+ * ── WHY THIS IS AN EVALUATOR TERM AND NOT A FILTER ─────────────────────────
+ *
+ * It is weighted, and it is small: one whole unit reversing costs
+ * `w / |ours|` of a scale on which the lightest unit alive is worth 10. It can
+ * therefore break a tie and it can never outrank anything real — not a capture,
+ * not a meal, and above all not the survival cliff, which lives inside
+ * `material` at a magnitude this term cannot reach. A unit backing out of a
+ * trap still backs out of the trap. That is the whole design constraint: the
+ * safety floor is not negotiable, and hysteresis is not allowed to negotiate
+ * with it.
+ */
+
+import { profileOf, vectorOf } from '../../partial-engine/index';
+import { type Feature, bound, point } from './bound';
+import type { EvalContext, Standing } from './features';
+
+/** Cost of landing back where you came from. */
+export const REVERSAL_COST = 1;
+/** Cost of a unit that could have acted ending the turn where it began. */
+export const IDLE_COST = 0.5;
+
+function costOf(ctx: EvalContext, s: Standing): number {
+  const unit = ctx.sub.unitOf(s.unitId);
+  if (unit === undefined) return 0;
+  const from = unit.cells[0] as number;
+  if (s.cell === from) {
+    // A trail unit has no stay in its grammar, so an unchanged cell for one of
+    // those is not idleness — it is a reading of a unit that never moved
+    // because it was never asked to. Only a kind that CAN decline is charged.
+    return profileOf(unit.kind).stayLegal ? IDLE_COST : 0;
+  }
+  const { dx, dy } = vectorOf(unit.orientation);
+  const came = from - (dy * ctx.sub.grid.width + dx);
+  return s.cell === came ? REVERSAL_COST : 0;
+}
+
+/**
+ * F8 — momentum.
+ *
+ * OURS ONLY: it is a statement about the moves this decision is choosing, and
+ * an enemy's momentum is not ours to price. The two readings differ only in
+ * which of our contingent units are counted; a dead unit costs nothing, which
+ * is the one direction that could invert the bound, so the WORST reading counts
+ * the SUPERSET (best-world alive) and the best reading the subset — the
+ * opposite way round from a positive term, because this one is negative.
+ */
+export const momentumFeature: Feature<EvalContext> = {
+  key: 'momentum',
+  defaultWeight: 1,
+  contract: {
+    reads: [{ input: 'contingent-survival', monotone: 'up' }],
+    cliff: false,
+    dischargeable: true,
+  },
+  evaluate(ctx) {
+    let worst = 0;
+    let best = 0;
+    let ours = 0;
+    for (const s of ctx.standing) {
+      if (s.team !== ctx.asTeam || s.held) continue;
+      ours++;
+      const cost = costOf(ctx, s);
+      if (cost === 0) continue;
+      // Charged where the unit is ALIVE to have made the move. Our best world
+      // keeps more units standing, so it carries at least as much cost — hence
+      // it is the LO endpoint of a term that is never positive.
+      if (s.bestAlive) worst -= cost;
+      if (s.worstAlive) best -= cost;
+    }
+    if (ours === 0) return point(0);
+    const lo = worst / ours;
+    const hi = best / ours;
+    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+  },
+};

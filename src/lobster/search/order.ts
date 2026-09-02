@@ -32,11 +32,29 @@ export function tieKey(key: string, salt: number): number {
   return ((h ^ Math.imul(salt + 1, 40503)) >>> 0) % 1000003;
 }
 
+/**
+ * The plan's tie key: a SUM of its candidates' own keys, not a hash of the
+ * whole joint string.
+ *
+ * The difference is the entire anti-dither fix. A hash of the joined plan is a
+ * key in which every unit's contribution depends on every other unit's choice,
+ * so a teammate moving one square re-rolls the tie-break for every unit whose
+ * own options are tied — and a unit whose options are tied every turn (a piece,
+ * before the command term was seated) then gets a fresh answer every turn. The
+ * recorded signature is a pawn rotating left, right, left, right for six turns
+ * without gaining a square (docs/BASIC-INTELLIGENCE.md).
+ *
+ * A sum DECOMPOSES. Two plans that differ only in unit A's candidate differ by
+ * exactly the difference of A's two keys, whatever the rest of the plan is
+ * doing — so the ordering among A's tied options is a property of A alone and
+ * is the same this turn as it was last turn. It desymmetrises mirror matches
+ * exactly as well as the hash did, because the per-candidate keys are still
+ * salted, and it is still a total order over plans up to genuine collisions.
+ */
 export function planTieKey(plan: JointPlan, salt: number): number {
-  const parts: string[] = [];
-  for (const c of plan.values()) parts.push(candidateKey(c));
-  parts.sort();
-  return tieKey(parts.join("|"), salt);
+  let total = 0;
+  for (const c of plan.values()) total += tieKey(candidateKey(c), salt);
+  return total;
 }
 
 /** Every unit the resolution recorded as removed this turn. */

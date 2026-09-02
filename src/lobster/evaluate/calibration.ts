@@ -67,11 +67,27 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
   /**
-   * The piece-command term — OFF here, and off is the honest default: it is
-   * the slider repair, and it has its own profile so the two can be measured
-   * against each other. See `TERRITORY_SLIDER_PROFILE`.
+   * The piece-command term — SEATED. See THE SLIDER REPAIR below for the
+   * measurement, and `docs/BASIC-INTELLIGENCE.md` for why it was promoted from
+   * an unseated arm to the production default: with it at zero, every option a
+   * piece has scores identically, and a pawn spends the game rotating on the
+   * spot because the tie-break is all that is left to decide anything.
    */
-  command: 0,
+  command: 2,
+  /**
+   * The food gradient. Four, because the term's whole range is [0, 1] by
+   * construction — so 4 x 1 still sits well inside the cliff ceiling of
+   * `10 x lightest unit weight` and can never buy a unit's life — while the
+   * per-STEP signal it has to beat is the spread of `reach` and `room` across
+   * one unit's own options, which is around a tenth. See `./food.ts`.
+   */
+  food: 4,
+  /**
+   * Momentum: the anti-dither term. One, on the same argument — a whole unit
+   * reversing costs `1 / |ours|`, which breaks a tie and cannot reach anything
+   * real. See `./momentum.ts`.
+   */
+  momentum: 1,
 };
 
 /**
@@ -216,30 +232,6 @@ export interface CommandKnobs {
 }
 
 /**
- * THE PRODUCTION PROFILE. Territory-carrying, because the deficit against the
- * legacy path was measured to be in the OBJECTIVE and not in the search: a
- * material-only maximin is blind to food more than one move away and to a unit
- * suffocating five turns before it dies, and it plays positionally passive over
- * thirty turns as a result.
- *
- * No food weight on territory: measured worthless at the sound floor, because a
- * floor concedes every cell an optimistic enemy could beat you to and food is
- * precisely what both sides run at (the floor owned 0.08 food cells per board
- * and conceded 0.62; the argmax moved in 1 of 48 samples). The food race is
- * bought INDIRECTLY, through the ordering.
- *
- * No horizon discounting: Kendall τ 0.96–1.00 against the undiscounted argmin.
- * It is a re-parameterisation of the same ordering, not information.
- */
-export const TERRITORY_PROFILE: CriterionProfile = {
-  name: 'lobster-territory',
-  weights: DEFAULT_WEIGHTS,
-  reachHorizonTurns: REACH_HORIZON_TURNS,
-};
-
-export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
-
-/**
  * ── THE SLIDER REPAIR ──────────────────────────────────────────────────────
  *
  * The territory profile beats material on every board with no slider on it and
@@ -280,8 +272,8 @@ export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
  *      reserve the term is sharper than it was; above it, flat.
  *
  * Both are gated on class properties the rules already carry (`leavesTrail`,
- * `stayLegal`), so on an all-snake board this profile is bit-identical to
- * `TERRITORY_PROFILE` — asserted, not asserted-by-comment, in
+ * `stayLegal`), so a board with no piece on it scores exactly as it did
+ * before either knob existed — asserted, not asserted-by-comment, in
  * `src/tests/territory-slider.test.ts`.
  */
 export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
@@ -293,23 +285,52 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false }
  */
 export const HEALTH_RESERVE_RATIO = 0.5;
 
-export const TERRITORY_SLIDER_PROFILE: CriterionProfile = {
-  name: 'lobster-territory-x',
-  weights: { ...DEFAULT_WEIGHTS, command: 2 },
+/**
+ * THE PRODUCTION PROFILE. Territory-carrying, because the deficit against the
+ * legacy path was measured to be in the OBJECTIVE and not in the search: a
+ * material-only maximin is blind to food more than one move away and to a unit
+ * suffocating five turns before it dies, and it plays positionally passive over
+ * thirty turns as a result.
+ *
+ * No food weight ON TERRITORY, and that measurement stands: a floor concedes
+ * every cell an optimistic enemy could beat you to, and food is precisely what
+ * both sides run at, so a territory reading of food collapses (the floor owned
+ * 0.08 food cells per board and conceded 0.62; the argmax moved in 1 of 48
+ * samples). What did NOT follow, and was wrongly concluded, is that food needs
+ * no term at all. `food` (`./food.ts`) is not a territory reading and does not
+ * ask who wins the race — it is a distance gradient over our own units' own
+ * positions, and it is what a horizon-1 search cannot discover for itself. See
+ * `docs/BASIC-INTELLIGENCE.md` for the traces that made the case.
+ *
+ * No horizon discounting: Kendall τ 0.96–1.00 against the undiscounted argmin.
+ * It is a re-parameterisation of the same ordering, not information.
+ */
+export const TERRITORY_PROFILE: CriterionProfile = {
+  name: 'lobster-territory',
+  weights: DEFAULT_WEIGHTS,
   reachHorizonTurns: REACH_HORIZON_TURNS,
+  // THE SLIDER REPAIR, SEATED. It used to live in a profile of its own so the
+  // two could be measured against each other; the measurement is below, and
+  // watching one game (docs/BASIC-INTELLIGENCE.md) settled the rest — with
+  // `command` at zero a piece's options are indistinguishable and the bot
+  // dithers. Both knobs are gated on class properties the rules already carry,
+  // so a board with no piece on it is unaffected by either.
   command: COMMAND_KNOBS,
   healthReserveRatio: HEALTH_RESERVE_RATIO,
 };
 
+export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
+
+
 /**
- * THE ABLATION ARM. Identical to the repair except that a royal unit earns
- * command too. It exists so `CommandKnobs.royal` is a measured ruling rather
- * than an argued one — the king is the one piece whose activity trades against
- * a terminal, and a knob that is off on reasoning alone is a knob nobody has
- * checked. Not a production profile.
+ * THE ABLATION ARM. Identical to the production profile except that a royal
+ * unit earns command too. It exists so `CommandKnobs.royal` is a measured
+ * ruling rather than an argued one — the king is the one piece whose activity
+ * trades against a terminal, and a knob that is off on reasoning alone is a
+ * knob nobody has checked. Not a production profile.
  */
-export const TERRITORY_SLIDER_ROYAL_PROFILE: CriterionProfile = {
-  ...TERRITORY_SLIDER_PROFILE,
+export const ROYAL_COMMAND_PROFILE: CriterionProfile = {
+  ...TERRITORY_PROFILE,
   name: 'lobster-territory-a',
   command: { ...COMMAND_KNOBS, royal: true },
 };
@@ -318,6 +339,15 @@ export const TERRITORY_SLIDER_ROYAL_PROFILE: CriterionProfile = {
  * the explicit fallback if the territory profile ever has to be backed out. */
 export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
   name: 'material-only',
-  weights: { material: 10, reach: 0, room: 0, healthEconomy: 0, kingMargin: 0, command: 0 },
+  weights: {
+    material: 10,
+    reach: 0,
+    room: 0,
+    healthEconomy: 0,
+    kingMargin: 0,
+    command: 0,
+    food: 0,
+    momentum: 0,
+  },
   reachHorizonTurns: 0,
 };

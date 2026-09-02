@@ -245,8 +245,35 @@ export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: numb
  * horizon (RESULTS F1). Raw anytime streams without it had mid-budget regret
  * spikes of ~1000 from tie-flips and ≤4-point h=1 refutations that reversed at
  * h=2.
+ *
+ * ── WHY IT IS NOT FIVE ANY MORE ────────────────────────────────────────────
+ *
+ * Five was calibrated against material, and against a stream that reached
+ * horizon 2. Neither holds. On this build the horizon is always 1
+ * (`kernel.ts` reads `run.lastView?.horizon ?? 1` and the production search
+ * core is not a `Refiner`, so the view is never built) — so the "refutation
+ * that reverses at h=2" the margin was protecting against cannot occur. And the
+ * whole POSITIONAL vocabulary — reach, room, command, food, momentum,
+ * healthEconomy — spans about four points at its widest, against material's ten
+ * per unit of weight. A margin of five therefore did not damp positional churn:
+ * it made positional value UNSTAGEABLE. Nothing the evaluator could say about
+ * where a unit should go was ever worth five, so the staged plan was whatever
+ * `seedPlan` picked first — the generator's ordered-first candidate — for the
+ * whole game unless half a unit of material changed hands.
+ *
+ * That is what a bot looks like when its snakes walk in straight lines past the
+ * food and its pieces never move: the traces are in
+ * `docs/BASIC-INTELLIGENCE.md`, and 80% of all staged moves in a recorded game
+ * were the seed, untouched.
+ *
+ * The margin's real job is to refuse a switch that is worth nothing — floating
+ * point noise, and exact ties. Exact ties are already refused by the strict
+ * `>`; noise is bounded well below a hundredth. So the margin is now one
+ * thousandth of the lightest unit's material: large enough that no rounding
+ * difference can restage a move, small enough that every distinction the
+ * criterion profile is capable of drawing can.
  */
-export const DEFAULT_SWITCH_MARGIN = 5
+export const DEFAULT_SWITCH_MARGIN = 0.01
 
 export interface StagingDecision {
   readonly staged: StagingCandidate

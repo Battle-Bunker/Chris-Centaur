@@ -12,15 +12,18 @@
  *   and the only term left with dynamic range is `healthEconomy`, which is a
  *   linear travel tax.
  *
- * `TERRITORY_SLIDER_PROFILE` adds the missing gradient (`command`) and takes
- * the tax off a unit whose budget does not bind (`healthReserveRatio`). What
- * this file pins:
+ * The repair adds the missing gradient (`command`) and takes the tax off a unit
+ * whose budget does not bind (`healthReserveRatio`). It is SEATED — the shipped
+ * `TERRITORY_PROFILE` carries both, because with `command` at zero every option
+ * a piece has scores identically and the bot dithers (see
+ * `docs/BASIC-INTELLIGENCE.md`). What this file pins:
  *
- *   1. the admission laws R1/R2/R3 for the new profile, by the same brute-force
- *      harness the shipped one is held to;
+ *   1. the admission laws R1/R2/R3 for the shipped profile, by the same
+ *      brute-force harness it has always been held to;
  *   2. the cliff inequality for `command`, by sample AND by construction;
- *   3. BIT-IDENTITY with the shipped profile on a board with no piece on it —
- *      the property that protects the measured snake-only win;
+ *   3. INERTNESS on a board with no piece on it, against a profile with the two
+ *      knobs taken back out — the property that protects the measured snake-only
+ *      win, now that the knobs are the default rather than an arm;
  *   4. that the repair does what it says: `command` separates a slider's own
  *      options where `reach` and `room` are flat;
  *   5. the budget share's shape, per class.
@@ -36,17 +39,28 @@ import {
   COMMAND_KNOBS,
   HEALTH_RESERVE_RATIO,
   TERRITORY_PROFILE,
-  TERRITORY_SLIDER_PROFILE,
   budgetShare,
   checkCollapse,
   checkMonotone,
   checkSoundness,
   defaultEvaluator,
   pieceScaleOf,
-  territorySliderEvaluator,
 } from '../lobster/evaluate';
-import type { LawCase } from '../lobster/evaluate';
+import type { CriterionProfile, LawCase } from '../lobster/evaluate';
 import { profileOf } from '../partial-engine/index';
+
+/**
+ * The profile the repair replaced: territory with `command` back at zero and no
+ * health reserve. Nothing ships it — it exists here so "inert on a snake-only
+ * board" stays an ASSERTION about the two knobs rather than a claim, now that
+ * the shipped profile is the one that carries them.
+ */
+const NO_REPAIR_PROFILE: CriterionProfile = {
+  name: 'lobster-territory-norepair',
+  weights: { ...TERRITORY_PROFILE.weights, command: 0 },
+  reachHorizonTurns: TERRITORY_PROFILE.reachHorizonTurns,
+};
+const noRepairEvaluator = new BoundEvaluator(NO_REPAIR_PROFILE);
 
 // --------------------------------------------------------------------- fixtures
 
@@ -211,7 +225,7 @@ describe('the admission laws hold for the slider profile', () => {
   test('R1 soundness: every world lies inside the interval', () => {
     let worlds = 0;
     for (const c of LAW_CASES) {
-      const result = checkSoundness(territorySliderEvaluator, c);
+      const result = checkSoundness(defaultEvaluator, c);
       expect([c.name, result.violations]).toEqual([c.name, []]);
       expect(result.checked).toBeGreaterThan(0);
       worlds += result.checked;
@@ -222,7 +236,7 @@ describe('the admission laws hold for the slider profile', () => {
   test('R2 refinement-monotonicity: narrowing only ever shrinks the interval', () => {
     let refinements = 0;
     for (const c of LAW_CASES) {
-      const result = checkMonotone(territorySliderEvaluator, c);
+      const result = checkMonotone(defaultEvaluator, c);
       expect([c.name, result.violations]).toEqual([c.name, []]);
       refinements += result.checked;
     }
@@ -231,7 +245,7 @@ describe('the admission laws hold for the slider profile', () => {
 
   test('R3 collapse: nothing held is a point', () => {
     for (const c of LAW_CASES) {
-      const result = checkCollapse(territorySliderEvaluator, c);
+      const result = checkCollapse(defaultEvaluator, c);
       expect([c.name, result.violations]).toEqual([c.name, []]);
     }
   });
@@ -248,7 +262,7 @@ describe('the profile is inert on a board with no piece on it', () => {
    * be an assertion and not a claim, because the +0.50 on `r01-snakes6` is the
    * thing this repair must not spend.
    */
-  test('every bound is bit-identical to the shipped territory profile', () => {
+  test('every bound is bit-identical to the profile without the repair', () => {
     withSubstrate(SNAKE_ONLY_BOARD, 'red', ['mySnake', 'mySnake2'], (sub) => {
       const asTeam = sub.teamNumber('red');
       const base = basePlan(sub, asTeam);
@@ -260,8 +274,8 @@ describe('the profile is inert on a board with no piece on it', () => {
           (varying as { unitId: UnitId }).unitId,
           cand
         );
-        const a = defaultEvaluator.evaluatePlan(sub, plan, asTeam);
-        const b = territorySliderEvaluator.evaluatePlan(sub, plan, asTeam);
+        const a = noRepairEvaluator.evaluatePlan(sub, plan, asTeam);
+        const b = defaultEvaluator.evaluatePlan(sub, plan, asTeam);
         expect([cand.to, b.bound]).toEqual([cand.to, a.bound]);
         compared++;
       }
@@ -272,7 +286,7 @@ describe('the profile is inert on a board with no piece on it', () => {
   test('and the command term is identically zero there', () => {
     withSubstrate(SNAKE_ONLY_BOARD, 'red', ['mySnake', 'mySnake2'], (sub) => {
       const asTeam = sub.teamNumber('red');
-      const ev = territorySliderEvaluator.evaluatePlan(sub, basePlan(sub, asTeam), asTeam);
+      const ev = defaultEvaluator.evaluatePlan(sub, basePlan(sub, asTeam), asTeam);
       expect(ev.parts.command).toEqual({ lo: 0, est: 0, hi: 0 });
     });
   });
@@ -335,7 +349,7 @@ describe('the repair supplies the gradient the partition cannot', () => {
   });
 
   test('command separates options the partition scores identically', () => {
-    const o = options(territorySliderEvaluator);
+    const o = options(defaultEvaluator);
     // Pairs the WHOLE partition — both planes, both features — cannot tell
     // apart. If `command` is doing its job there is at least one such pair it
     // does tell apart, and that is precisely the gradient plane 2 throws away.
@@ -360,8 +374,8 @@ describe('the repair supplies the gradient the partition cannot', () => {
     // still separates them, and it separates them BY TRAVEL. Under the repair
     // it says nothing, because a queen at 90 of 100 has a budget that does not
     // bind.
-    const before = options(defaultEvaluator).filter((x) => x.survives);
-    const after = options(territorySliderEvaluator).filter((x) => x.survives);
+    const before = options(noRepairEvaluator).filter((x) => x.survives);
+    const after = options(defaultEvaluator).filter((x) => x.survives);
     const quiet = (o: Option[]): Option[] => {
       const modal = o
         .map((x) => x.material)
@@ -397,14 +411,14 @@ describe('the cliff inequality, for the command term', () => {
       const los: number[] = [];
       for (const cand of sub.actionsOf(queen.unitId)) {
         const plan: JointPlan = new Map(base).set(queen.unitId, cand);
-        const parts = territorySliderEvaluator.evaluatePlan(sub, plan, asTeam).parts as Record<
+        const parts = defaultEvaluator.evaluatePlan(sub, plan, asTeam).parts as Record<
           string,
           { lo: number }
         >;
         los.push(parts.command?.lo ?? 0);
       }
       const span = Math.max(...los) - Math.min(...los);
-      const cost = (TERRITORY_SLIDER_PROFILE.weights.command as number) * span;
+      const cost = (TERRITORY_PROFILE.weights.command as number) * span;
       expect(cost).toBeLessThan(ceiling);
     });
   });
@@ -419,21 +433,17 @@ describe('the cliff inequality, for the command term', () => {
     // lives in [-(teams - 1), +1] and its span is at most `teams`. Checked at
     // four, one more than the rules field.
     const teams = 4;
-    expect((TERRITORY_SLIDER_PROFILE.weights.command as number) * teams).toBeLessThan(
-      ceiling
-    );
+    expect((TERRITORY_PROFILE.weights.command as number) * teams).toBeLessThan(ceiling);
   });
 
-  test('and the two profiles agree about everything else', () => {
+  test('and the repair moved nothing else', () => {
     for (const key of ['material', 'reach', 'room', 'healthEconomy', 'kingMargin']) {
-      expect([key, TERRITORY_SLIDER_PROFILE.weights[key]]).toEqual([
+      expect([key, NO_REPAIR_PROFILE.weights[key]]).toEqual([
         key,
         TERRITORY_PROFILE.weights[key],
       ]);
     }
-    expect(TERRITORY_SLIDER_PROFILE.reachHorizonTurns).toBe(
-      TERRITORY_PROFILE.reachHorizonTurns
-    );
+    expect(NO_REPAIR_PROFILE.reachHorizonTurns).toBe(TERRITORY_PROFILE.reachHorizonTurns);
   });
 });
 
@@ -495,14 +505,9 @@ describe('the piece scale is a board constant', () => {
 // ---------------------------------------------------------------------------
 
 describe('the knobs are data', () => {
-  test('the shipped profile leaves the repair switched off', () => {
-    expect(TERRITORY_PROFILE.command).toBeUndefined();
-    expect(TERRITORY_PROFILE.healthReserveRatio).toBeUndefined();
-    expect(TERRITORY_PROFILE.weights.command).toBe(0);
-  });
-
-  test('and the repair profile names both of them', () => {
-    expect(TERRITORY_SLIDER_PROFILE.command).toEqual(COMMAND_KNOBS);
-    expect(TERRITORY_SLIDER_PROFILE.healthReserveRatio).toBe(HEALTH_RESERVE_RATIO);
+  test('the shipped profile names both knobs and weights the term', () => {
+    expect(TERRITORY_PROFILE.command).toEqual(COMMAND_KNOBS);
+    expect(TERRITORY_PROFILE.healthReserveRatio).toBe(HEALTH_RESERVE_RATIO);
+    expect(TERRITORY_PROFILE.weights.command).toBeGreaterThan(0);
   });
 });
