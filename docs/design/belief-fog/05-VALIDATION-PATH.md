@@ -72,10 +72,12 @@ accumulated while hidden. Properties that keep it honest:
    capability may cost nothing while unused — same bar the teardown work
    held.
 2. **Reappearance oracle = 0 violations** over every fog game the harness
-   runs, asserted per game, thrown not logged (04-doc §4.4). This single
-   gate transitively audits dilation, the trace, C0/C1, and the time-indexed
-   premise, because any unsound narrowing eventually contradicts a
-   reappearance.
+   runs — thrown IN HARNESS AND TESTS ONLY; in production it QUARANTINES
+   (rebuild from the reveal, log, count) rather than forfeiting a turn
+   (09-doc §6, the rounding-forfeit lesson). Its coverage is highest exactly
+   where conditioning was aggressive, so the harness adds seeded
+   narrow-cloud scenarios; the soundness burden stays on the per-rung
+   arguments, with the oracle as the always-on audit.
 3. **Hedged-preparation telemetry** (the removal/hedging split, 04-doc §3):
    when the scheduler pre-spends against a game-held width — conditional
    frontiers per possible reveal — record the spend and, on reveal, whether
@@ -92,6 +94,13 @@ accumulated while hidden. Properties that keep it honest:
 5. **Mechanism report rows:** the belief provenance column (02-doc step 2)
    plus mask size and ledger age — so a sweep can tell "played blind and
    wide" from "played blind and narrow" without reading source.
+6. **Weight-entropy column** (09-doc §5): entropy of the supplied weight vs
+   mask size per decision — cover weights legitimately flatten as fog
+   widens, and without this column an entropy drift reads as ε drift.
+7. **The three pre-registered bands** (09-doc §9): posture residency,
+   lever-spend shift (catchup on game-held units predicted ZERO), and
+   frozen-slot occupancy (TooManyHeldError predicted ZERO) — published in
+   the fog-cell spec before the first run.
 
 ## 5. What this doc deliberately does not add
 

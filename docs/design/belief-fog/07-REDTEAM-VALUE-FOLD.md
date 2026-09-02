@@ -147,6 +147,27 @@ variance-aversion content. The dof synthesis puts ALL fear in one surface
 is a D3 parameter swept with ε in the same grid. Two fear dials that
 compensate is the exact configuration the joint frame exists to forbid.
 
+## 4b. The residual-structure test, specified (runnable on replays they hold)
+
+The §2 claim that residual structure — not the k→1 walk — is what can select
+among complete bases deserves a concrete protocol, so here it is:
+
+1. Per game, per team: residual r = observed sharePar − k·(net folded flow),
+   with k fixed at the pooled 1.227.
+2. Stratify r by: roster cell; ending kind (cap vs elimination vs mutual);
+   turn-band of the game's decisive flow (first/middle/final third); potion
+   window activity (any window-sever in game yes/no); and closure events
+   (any regicide, any collector death — expected zero in the fitted cells,
+   load-bearing in new ones).
+3. The basis passes if r is centered and comparably dispersed across every
+   stratum (no stratum's |mean r| clears its own A/A floor). It fails
+   interestingly if r loads on a stratum — e.g. positive residuals
+   concentrated in elimination endings would say the premium is
+   ending-conditional (k(t) schedule, §1 row 1); loading on window-active
+   games would say a transfer channel is mispriced.
+4. Cost: zero new games. The same script that fitted k computes r; the
+   strata are columns the replays already carry.
+
 ## 5. What survives the red team (said plainly)
 
 The fold's arithmetic core — live (K, W, s) forming, the asymmetric

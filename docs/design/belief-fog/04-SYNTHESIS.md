@@ -102,9 +102,17 @@ consumer that conflates the two reads observation-reducible width as
 makes valuable. Two purchases, two prices; the tag governs one of them.
 
 This joint is why cross-turn fog is an
-ingestion feature, not a rewrite — the falsifiable claim of the whole line:
-**if building invisibility potions requires touching bounds, bank, risk,
-search, scout, postures or belief.ts, this factorization was wrong.**
+ingestion feature, not a rewrite — the falsifiable claim of the whole line,
+AS AMENDED under the composition red team (09-doc, adopted verbatim):
+**invisibility changes no soundness law and no bound arithmetic, but WILL
+change modal posture, lever set, and frozen-slot occupancy — three
+pre-registered numbers that must move within a predicted band** (09-doc §9).
+The tag above is the operation-set form of 09-doc §4 (C0–C2 are compute that
+removes observation-tagged width — the enum form mis-gated exactly them);
+the FOGGED-VACUOUS regime shift makes the value-table fix a PREREQUISITE of
+the fog programme (09-doc §1), and the observation-held units publish
+simStale = 0 so the voc catchup lever never leeches on an impossible repair
+(09-doc §2).
 
 ## 4. Findings that amend standing verdicts (for the pins)
 
@@ -159,8 +167,11 @@ search, scout, postures or belief.ts, this factorization was wrong.**
 
 Steps 1–4 pay off TODAY (they are the potion-intelligence est-value fix and
 the D2 socket the pins already queue); steps 5–8 are the fog programme.
-Nothing in 5–8 blocks on 1–4 except the supplier slot (step 3) which the
-mixture dodge (step 7's consumer) reads.
+DEPENDENCY AMENDED under the composition red team (09-doc §1): steps 1–2 are
+PREREQUISITES of 5–8, not a parallel track — under fog the FOGGED-VACUOUS
+posture makes est the modal ordering channel, and shipping fog against a
+precision-laundered est is shipping the defect at scale. Step 3's supplier
+slot is also read by step 7's mixture dodge.
 
 ## 7. Dilemmas for the owner (rulings needed before the affected step)
 

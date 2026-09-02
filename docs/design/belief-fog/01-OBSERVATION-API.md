@@ -187,6 +187,38 @@ why it must ride the basis (`ClaimBasis: "narrowed"`) while observation
 entries must NOT (evidence is unconditional). One mechanism, two provenance
 tags, and the existing basis-refusal law already polices the difference.
 
+### 5b. Disjunctive support — the box-union upgrade (second pass, 06-doc §4)
+
+A single cloud is a BOX: per-coordinate sets (position board × health
+interval × tier endpoints × kindSet) whose cross-product over-approximates
+the true joint. Boxes lose correlations: after a turn where food vanished at
+A *or* B with no visible eater, the truth is "head at A with health h_A, or
+head at B with health h_B", and one box must widen to {A,B} × [min h, max h]
+— pricing worlds that cannot exist ("at A but hungry"). The box-particle-
+filter literature (fetched: Gning et al., IEEE SPM 2013) says the fix is a
+small UNION of boxes, and the (S, w) laws admit it without amendment:
+
+- **Spawn**: only a C1/C2 disjunctive deduction may split a box (evidence
+  with k explanations → k child boxes, each conditioned on its explanation).
+  Compute never spawns; assumptions never spawn (they narrow, on the basis).
+- **Never drop**: deleting a box is particle deprivation — the support stops
+  covering the truth and every floor built on it is unsound. The only
+  permitted forgetting is **hull-merge**: replace two boxes by their
+  per-coordinate union hull. Sound (superset), monotone-lossy, and its limit
+  is today's single cloud — graceful degradation built in.
+- **Budget**: a per-unit box cap (2–4) with hull-merge on overflow, merging
+  the pair whose hull inflates least (minimal added volume). The cap is a
+  compute knob, not a soundness knob.
+- **Consumption, zero-touch**: existing consumers (risk layer, bounds,
+  postures) read the HULL — bit-for-bit today's behavior. New consumers that
+  declare box-awareness (the mixture dodge, exposure pricing, C2) iterate
+  boxes and fold soundly (worst over boxes for floors; weight-per-box for
+  advised readings — the box weights are the advised channel's, supplied by
+  the D2 socket like any other weight over S-coordinates).
+- **Timeline purity holds**: a box is (record, premise, trace); a union is a
+  small set of traces sharing one record. The cache key extends per box; the
+  hot path holds the current fronts, O(boxes).
+
 ## 6. The mirror: Belief is observer-indexed, and invisibility's payoff needs the enemy's S
 
 Everything above is Belief(us). The same object, parameterized by observer,
@@ -224,6 +256,11 @@ The socket shape (§00-4) admits them later without a rewrite.
 | Scheduler/VOI | read the reducibility tag | small |
 | C2 inverse-dynamics | later, priced as a VOI-purchasable narrowing | deferred |
 
-The bottom row of zeros is the factorization's claim made falsifiable: if
-building invisibility potions requires touching the bounds layer or the
-search, the (S, w) carving was wrong.
+The bottom row of zeros is the factorization's claim made falsifiable — as
+AMENDED under the composition lens's red team (09-doc): zero soundness laws
+and zero bound arithmetic change, but the bot's MODAL BEHAVIOR shifts
+(posture residency, lever spend, frozen-slot occupancy) and those three are
+pre-registered bands, not surprises (09-doc §9). Two rows above also gain
+riders: the frozen-slot field needs the priority partition + saturation
+relief of 09-doc §3, and the scheduler row's tag is the operation-set form of
+09-doc §4.
