@@ -142,6 +142,21 @@ nothing to the sound channel, which is exactly the claim Law H′ makes and the
 reason depth's value has to travel in the advisory channel. Seeing it return the
 input is more convincing than the argument for it.
 
+**Cycle 14b — the reduced product and the termination operator run:**
+
+```
+reduced product:
+  direct  [3,5] x [3,5]  -> [3,5]
+  reduced [3,5] x (even) -> [4,4]      <-- Cousot's reduction, not max/min
+termination:
+  gain below eps -> unchanged           (the tightening is NOT TAKEN, so the chain is finite)
+  gain above eps -> [4,7]
+```
+
+The reduction is nine lines and O(1); the termination operator is four. Both
+were specified before they were written and neither needed the spec amended,
+which is the first time in this sketch's life that has happened.
+
 ## What the sketch deliberately does not do
 
 No joint semantics. A manifest row carries a codec and a law; what a move

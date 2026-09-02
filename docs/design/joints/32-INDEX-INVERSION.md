@@ -37,16 +37,16 @@ The three-operation algebra (`join` / `meet` / `advance`), plus `tighten`
 available**. Each coordinate carries its own structure, and the index's
 operations are those structures **lifted componentwise**:
 
-| coordinate | join (widen) | meet (narrow) | tighten at equality | advance | notes |
-|---|---|---|---|---|---|
-| `support.model` | drop assumptions → more worlds | simulate / enumerate — **compute-priced** | **yes** — two floors compose by max | clouds dilate, then condition on the new observation | the lattice everything else is modelled on |
-| `support.replies` | union of reply sets | restrict to a modelled set — compute-priced | **yes** | **discarded**: this turn's replies do not survive the turn | |
-| `observable.horizon` | **hull only** (§4) | deepen — compute-priced | **NO** | re-root (h decrements) | no tightening — but see §2.3: `measure.weight` also lacks it, for a different reason |
-| `observable.provenance` (frame · admission trace · conditioning depth · resolved selections) | widen by the pending spans | compute the missing terms — compute-priced | **yes**, at equal frame | discarded — a new decision recomputes | |
-| `measure.weight` | credal union | **a choice, not a purchase** — no compute buys it; ruling 13 pins it | **no** — two weights give two expectations; their meet is a credal set, not a tighter number | persists (it is config) | |
-| `measure.range` | mixture over histories | **conditioning on observed history — free at resolution** | via counterfactual-value bounds at the boundary | **updates** — the only coordinate whose `advance` is a real computation | `24 §1` |
-| `config.bot / codeRef / seat` | **none** | **none** | **no** | persists | equality-only: you cannot average two bots |
-| `config.opponents / corpus / regime` | — | — | — | persists | **experiment scale**: `pool` at equality, `stratify` otherwise |
+| coordinate | join (widen) | meet (narrow) | tighten at equality | advance | **termination** (§10) | notes |
+|---|---|---|---|---|---|---|
+| `support.model` | drop assumptions → more worlds | simulate / enumerate — **compute-priced** | **yes** — two floors compose by max | clouds dilate, then condition on the new observation | bounded: finitely many units × `MAX_FROZEN` slots | the lattice everything else is modelled on |
+| `support.replies` | union of reply sets | restrict to a modelled set — compute-priced | **yes** | **discarded**: this turn's replies do not survive the turn | bounded: finitely many legal replies | |
+| `observable.horizon` | **hull only** (§4) | deepen — compute-priced | **NO** | re-root (h decrements) | bounded: `plyCap` | no tightening — but see §2.3: `measure.weight` also lacks it, for a different reason |
+| `observable.provenance` (frame · admission trace · conditioning depth · resolved selections) | widen by the pending spans | compute the missing terms — compute-priced | **yes**, at equal frame | discarded — a new decision recomputes | **bounded**: the term set and the C-rung set are finite | |
+| `measure.weight` | credal union | **a choice, not a purchase** — no compute buys it; ruling 13 pins it | **no** — two weights give two expectations; their meet is a credal set, not a tighter number | persists (it is config) | bounded: finitely many supplier members | |
+| `measure.range` | mixture over histories | **conditioning on observed history — free at resolution** | via counterfactual-value bounds at the boundary | **updates** — the only coordinate whose `advance` is a real computation | **needs an operator**: compaction to *k* components with conservative union beyond (§10) | `24 §1` |
+| `config.bot / codeRef / seat` | **none** | **none** | **no** | persists | trivial: no chain | equality-only: you cannot average two bots |
+| `config.opponents / corpus / regime` | — | — | — | persists | trivial | **experiment scale**: `pool` at equality, `stratify` otherwise |
 
 Three consequences worth stating plainly:
 
@@ -167,7 +167,7 @@ cautionary exhibit):
 | **X1** | the index module: coordinate declarations, canonicalisation, the operations table as data | unit tests over the table; no consumer changes |
 | **X2** | `basisKeyOf` and `evaluationIdentity` re-expressed as projections | character-identical keys on a replay corpus; suites green |
 | **X3** | the memo namespace and the worker protocol key follow | worker-parity soak unchanged; `EvaluationDivergenceError` never fires |
-| **X4** | `tighten` lifted out of the bank as an index operation; the bank calls it | bank suites bit-identical; a cross-horizon `tighten` is now a **type error** (Law H′) |
+| **X4** | `tighten` lifted out of the bank as an index operation, **as a dispatch over bound families** (§9) with the termination operator named (§10); the bank calls it | bank suites bit-identical; a cross-horizon `tighten` is a **type error** (Law H′); the reduction table's one entry has a soundness argument with an asserted hypothesis |
 | **X5** | CI checks 1–3 with their falsification tests | each check demonstrably fails when its rule is violated |
 | **X6** | the CPP conditioning variable and the trace key adopt the index | fitted-number reads carry a transfer penalty computed from two index values (`08`, `15 §B1`) |
 
@@ -251,6 +251,92 @@ tuples. `7.1` removes one duplicate lifetime spelling.
 purchasable by compute. The economy can buy less than half the index's width;
 everything else is a choice, an observation, or fixed. That is the number the
 lever menu should have been generated from all along.
+
+---
+
+## 9. `tighten` is a DISPATCH over bound families, not a binary on intervals
+
+Law T's `max`/`min` is the **direct product** of abstract domains. Cousot's
+**reduced product** is strictly tighter whenever the operands come from
+different bound *families*, and this game supplies the canonical pair: a
+checkerboard-parity **congruence** (a bishop never changes cell colour; a path
+length has a parity) reduced against a cell-count **interval** gives `[4,4]`
+where the direct product gives `[3,5]`.
+
+**Decided at X4, because it fixes the signature:**
+
+```ts
+type BoundFamily = 'interval' | 'congruence'          // open, but grown one at a time
+interface SoundValue { readonly family: BoundFamily; readonly bound: Bound; … }
+
+tighten(a: SoundValue, b: SoundValue): SoundValue      // dispatch on (a.family, b.family)
+//  default            → direct product (max/min), i.e. today's behaviour exactly
+//  interval×congruence → the one reduction entry
+```
+
+Three placements, each of which keeps this from spreading:
+
+1. **`family` belongs to the VALUE, not the index.** Run it through C59
+   (`30 §6`): dropping it lets nothing incomparable compare (both are bounds on
+   the same quantity), and forces no recomputation — it only *loses precision*,
+   which is neither clause. So it is a property of the value like `lo` and `hi`,
+   and **the visible-layer budget is untouched.**
+2. **Both of Law T's guards survive unchanged**, because they are *index*
+   properties rather than family properties: `tighten` is still sound-channel
+   only, and it is still not transitive across a widening.
+3. **Each reduction-table entry is a soundness argument, so Law A applies**
+   (`25`): its hypothesis is named and asserted at the consuming site. For
+   interval×congruence the hypothesis is *"the congruence holds in every world
+   of `S`"* — a real obligation, since a congruence that holds only in the
+   modelled worlds is not sound over the support.
+
+**And the cost bound that keeps `tighten` cheap:** a reduction must be O(1)
+arithmetic. Anything that needs search to reduce is **a priced meet in the
+economy**, not a tightening — otherwise the operator at the centre of every
+comparison acquires an unbounded cost. Interval×congruence is two modular
+arithmetic steps; it qualifies.
+
+Launch state: **one entry, and the table is otherwise empty.** The direct
+product is today's behaviour, so X4 is still byte-identical until an entry
+fires.
+
+---
+
+## 10. The termination column — what the epsilon guarantees, written when it is hoisted
+
+X4 hoists `BOUND_RELATIVE_EPSILON` from a bank-local rounding fix to a shared
+operator. In the framework's terms that makes it a **termination operator**, and
+the operations table was missing the column that says so.
+
+**Which direction can fail to terminate.** Order by *precision*. `join` loses
+precision and is bounded below by the no-information element, so it terminates
+trivially. **`tighten` gains precision and is the risky direction** — a chain of
+ever-smaller improvements need never converge. (In the standard vocabulary the
+operator that bounds the precision-increasing direction is a *narrowing*; the
+coordinator's "widening" is right about the role — an operator whose only
+purpose is termination — and this note names which chain it bounds.)
+
+> **The epsilon's guarantee, stated at the moment of hoisting.** A tightening
+> whose improvement is below `ε · scale` is **not taken**, and an inversion
+> within `ε · scale` weakens both endpoints to the midpoint rather than throwing.
+> Therefore every chain of tightenings on one value is finite: each step
+> improves by at least `ε · scale`, and the interval has finite width. Genuine
+> inversions — beyond tolerance — still throw.
+
+**And the caveat that must travel with it, because it is easy to lose:** ε is
+**relative**, so the guarantee is *scale-dependent*. Any re-denomination changes
+what "below tolerance" means — and one is already ruled: removing the ×10
+internal multiplier (ruling 15) rescales every bound by an order of magnitude.
+So the epsilon's hoisting owes a test pinning the guarantee **in the units the
+values actually carry**, re-run when the denomination changes.
+
+The three rows that needed the column, discharged:
+
+| row | discharge |
+|---|---|
+| `observable.provenance` | **a bound**: the evaluator term set and the C-rung set are finite, so the frame can only be refined finitely often |
+| `measure.range` | **an operator**: compaction to *k* components with conservative union beyond — otherwise the mixture-over-histories representation grows without bound each turn. (Within a decision it is fixed; across turns the turn limit bounds the count but not the representation.) |
+| the value interval | **the epsilon**, as stated above |
 
 **Limits.** The operations table is a claim about what is *sound*, not a promise
 that each operation is *cheap*: `support.model`'s meet is the expensive one and

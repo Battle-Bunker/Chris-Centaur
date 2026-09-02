@@ -667,6 +667,53 @@ export function purchasableMeets(): ReadonlyArray<{ path: string; by: string }> 
 
 export interface Bound { readonly lo: number; readonly hi: number }
 
+/** A bound's FAMILY — the abstract domain it lives in. Cousot's reduced product
+ * is strictly tighter than the direct product when the operands differ, and the
+ * canonical pair here is a checkerboard-parity congruence against a cell-count
+ * interval: [3,5] with "even" reduces to [4,4].
+ *
+ * Family belongs to the VALUE, not the index: dropping it lets nothing
+ * incomparable compare and forces no recomputation — it only loses precision,
+ * so it fails C59 as a coordinate and costs no visible-layer budget. */
+export type BoundFamily = 'interval' | 'congruence';
+
+export interface SoundValue {
+  readonly family: BoundFamily;
+  readonly bound: Bound;
+  /** congruence only: the value is ≡ residue (mod modulus). */
+  readonly congruence?: { readonly modulus: number; readonly residue: number };
+}
+
+/** The reduction table: ONE entry, everything else falls through to the direct
+ * product. Each entry is a soundness argument and owes an asserted hypothesis
+ * (Law A) — here, that the congruence holds in EVERY world of the support, not
+ * merely in the modelled ones. Reductions must be O(1); anything needing search
+ * is a priced meet in the economy, not a tightening. */
+export function reduceProduct(a: SoundValue, b: SoundValue): Bound {
+  const direct: Bound = { lo: Math.max(a.bound.lo, b.bound.lo), hi: Math.min(a.bound.hi, b.bound.hi) };
+  const cong = a.family === 'congruence' ? a.congruence : b.family === 'congruence' ? b.congruence : undefined;
+  if (cong === undefined || a.family === b.family) return direct;
+  let lo = direct.lo;
+  let hi = direct.hi;
+  while (lo <= hi && ((lo % cong.modulus) + cong.modulus) % cong.modulus !== cong.residue) lo += 1;
+  while (hi >= lo && ((hi % cong.modulus) + cong.modulus) % cong.modulus !== cong.residue) hi -= 1;
+  return { lo, hi };
+}
+
+/** THE TERMINATION OPERATOR, named at the moment it is hoisted. `tighten` is
+ * the precision-INCREASING direction and is the one that can fail to terminate;
+ * `join` loses precision and is bounded below by no-information. A tightening
+ * improving by less than eps*scale is NOT TAKEN, so every chain is finite.
+ * The guarantee is SCALE-DEPENDENT because eps is relative — a re-denomination
+ * (e.g. removing the x10 internal multiplier) changes what "below tolerance"
+ * means, so the pinning test must be written in the units values carry. */
+export const BOUND_RELATIVE_EPSILON = 1e-3;
+
+export function takeTightening(before: Bound, after: Bound, scale: number): Bound {
+  const gain = (after.lo - before.lo) + (before.hi - after.hi);
+  return gain < BOUND_RELATIVE_EPSILON * scale ? before : after;
+}
+
 /**
  * LAW T — index equality licenses TIGHTENING. Sound channel only, and not
  * transitive across a widening (the caller must pass indices that were never

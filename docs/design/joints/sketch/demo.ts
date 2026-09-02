@@ -396,3 +396,16 @@ for (const f of cloneFindings([
   { name: 'BoardHash', fields: ['bot'], usedAsKey: true, allowed: 'experiment-scale row key, reviewed' },
   { name: 'PlanKey', fields: ['unitId', 'to'], usedAsKey: true },
 ])) console.log(`  [${f.law}] ${f.detail}`);
+
+// ---- cycle 14b: reduced product + the termination operator ------------------
+import { reduceProduct, takeTightening } from './manifest.ts';
+import type { SoundValue } from './manifest.ts';
+
+const cells: SoundValue = { family: 'interval', bound: { lo: 3, hi: 5 } };
+const parity: SoundValue = { family: 'congruence', bound: { lo: 0, hi: 99 }, congruence: { modulus: 2, residue: 0 } };
+console.log('\nreduced product:');
+console.log('  direct  [3,5] x [3,5]      ->', JSON.stringify(reduceProduct(cells, { ...cells })));
+console.log('  reduced [3,5] x (even)     ->', JSON.stringify(reduceProduct(cells, parity)), '<-- Cousot, not max/min');
+console.log('\ntermination:');
+console.log('  gain below eps  ->', JSON.stringify(takeTightening({ lo: 2, hi: 9 }, { lo: 2.0001, hi: 9 }, 1)), '(refused: chain would not terminate)');
+console.log('  gain above eps  ->', JSON.stringify(takeTightening({ lo: 2, hi: 9 }, { lo: 4, hi: 7 }, 1)));
