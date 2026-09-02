@@ -61,23 +61,33 @@ brief", and it is the single most important composite on the surface.
 The ADVICE kind's composition law, applied: a value over *sets* of items,
 monotone submodular, greedy under an attention budget.
 
-**The value function, concretely.** An item's marginal value to a shown set:
+**The value function, concretely — facility-location form.** (Corrected in
+cycle 4: my first draft scored `Σ relevance(i) × novelty(i | shown)`, which
+is not monotone — adding an item can lower the total through others'
+novelty. The standard coverage form is both monotone and submodular, and it
+is also the honest model of what a briefing is *for*.)
+
+Let Q be the question space: (anchor, question-kind) pairs — ("queen",
+safety), ("staged plan", why), ("clock", worth-more-thinking), … Each item
+covers some questions with some quality:
 
 ```
-gain(item | shown) = relevance(item) × novelty(item | shown)
-relevance  = decisionRelevance (WIDTH), margin-at-stake (SET), rate × horizon (FLOW),
-             health-degradation (HELD), predicate severity (edges)
-             — each in weight units where possible, so relevance is
-             cross-shape comparable in the one currency the operator learns
-novelty    = 1 − max overlap(item, s ∈ shown), overlap measured on
-             (anchor × question) — two items about the same unit answering
-             the same question ("is the queen safe") are near-substitutes
+value(shown) = Σ_{q ∈ Q}  weight(q) × max_{i ∈ shown} answers(i, q)
+
+weight(q)     relevance of the question NOW, in weight units where possible:
+              margin-at-stake (SET questions), decisionRelevance (WIDTH),
+              rate × horizon (FLOW), health-degradation (HELD)
+answers(i,q)  ∈ [0,1] — how completely item i answers q; an item may
+              answer several questions (a coincidence bundle answers three)
 ```
 
-Submodularity holds because novelty only falls as the shown set grows;
-greedy then carries the (1−1/e) guarantee and — more importantly — is
-incremental: one more attention unit = one more greedy step, so the budget
-is genuinely a dial, not a re-plan.
+`max` is where the submodularity lives (a question already answered well
+gains little from a second answerer — two items on "is the queen safe" are
+near-substitutes), and it is provably monotone submodular, so greedy
+carries the (1−1/e) guarantee and — more importantly — is incremental: one
+more attention unit = one more greedy step, so the budget is genuinely a
+dial, not a re-plan. The question space is small and generated (anchors ×
+a fixed kind list), not authored per decision.
 
 **The bottom element (humans always win).** The selection meet has the
 operator's own subscriptions as its bottom: a **pinned signal class is
