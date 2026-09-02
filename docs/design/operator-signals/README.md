@@ -26,7 +26,10 @@ provenance caveats (ruling 49).
 | `08-THE-SECOND-SCALE.md` | the landscape OF strategies: same shapes at the per-experiment scale; three currencies, zero exchange rates; the owner's decision queue as the ask surface |
 | `09-REFUTATION-AND-AUTHORITY.md` | refutation-led presentation and the authority-collapse ask (the machine's own leverage map) |
 | `10-SELF-RED-TEAM.md` | nine attacks on this design; five amendments; the what-if hole and `signals.quote` |
+| `11-O0-RETENTION-SPEC.md` | the unlock increment specified against the real code sites (`better()`, the B2 loop, `prunedLedger`, the term vectors), with cost gates and falsifiers |
+| `12-OVERRIDE-LEDGER.md` | the surface measuring its own distortion: intervention join keys, counterfactual anchors, the credit-assignment refusal, owner-scale-first custody |
 | `contracts.sketch.ts` | the whole wire in one builder-facing file |
+| `SYNTHESIS.md` | the standalone summary (start here for the whole argument) |
 
 ## Inputs (branch @ tip, at time of writing)
 

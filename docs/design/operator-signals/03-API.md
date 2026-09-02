@@ -51,10 +51,13 @@ signals.trace(ref, axis, range): Trace                // curves are pull
 signals.contrast(setRef, a, b): Foil                  // the foil projection, server-computed
 signals.digest(cursor): DigestSlot                    // re-derivable on demand (read-time fold)
 signals.quote(hypothetical): QuoteTicket              // operator-initiated what-if (10 §7): compiles to
-      // an A0 speculation utterance, priced in quanta by the metareasoning
-      // meter, answered with ordinary signals on the HYPOTHETICAL fiber
-      // (quarantined — can never reach play); the platform's worst-case
-      // preview is the precomputed degenerate case
+      // an A0 speculation request on the guidance lens's SPECULATION
+      // stream (ephemeral: true — NO guidance-table row, NO guidanceId
+      // change; interrogation must never invalidate caches, per their
+      // 06 §2), priced in quanta by the metareasoning meter, answered
+      // with ordinary signals on the HYPOTHETICAL fiber (quarantined —
+      // can never reach play, and yields no HELD echo); the platform's
+      // worst-case preview is the precomputed degenerate case
 ```
 
 The client never recomputes and never diff-merges: every query is answered

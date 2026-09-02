@@ -159,3 +159,40 @@ the input my support-demand echo renders; their u4 belief-weight's
 "ordering flip cites u4" feeds the calibration trace. No seam gaps found
 on the third pass; the two lenses' worked examples could be merged into
 one Centaur turn trace when a synthesis round wants it.
+
+## 7. Loop closed (their 06-OUT-HANDSHAKE-CLOSURE @ b815a8b) — adoptions back
+
+The IN lens answered every ask; three of their sharpenings bind this
+branch and are adopted:
+
+1. **The two-channel wire physics** for quotes: a quote rides their
+   SPECULATION stream (`ephemeral: true`), produces **no guidance-table
+   row and no guidanceId change** — interrogation must not invalidate
+   caches or demote dials, or asking becomes expensive exactly when it
+   should be free. My 03 §1 quote note now says so; a quote yields no
+   HELD echo (nothing durable to echo).
+2. **Ratification semantics pinned**: template submitted as-is or with
+   magnitude-only edits → `ratified`; any structural edit (port, scope,
+   referent, lifecycle) → `authored`. This is the line the override
+   ledger's strata (doc 12 §3) use — one distinction, three duties
+   (provenance, uptake honesty, measurement strata), reusing their wire's
+   retarget/reweight taxonomy.
+3. **The A2 discrimination price closes a loop neither lens drew on
+   purpose**: a support-demand widens the gate; a wider gate refutes more
+   plans and pushes decisions to est/tie rungs (search v2); est/tie
+   decisions raise the authority-collapse rate; collapse asks return the
+   pick to the human who marked the danger. *The human flags the threat;
+   the machine honestly reports its proofs cannot pick among the
+   survivors; the pick comes back to the human.* Ruling 13's division of
+   labour as an emergent circuit. Consequences adopted: the
+   support-demand echo renders the **deciding-rung shift** (their
+   retention column feeds it); the demand cap should be tuned on the
+   authority-collapse rate, not compute alone (their Q7, co-signed); and
+   a standing demand that keeps a board est-decided feeds the furniture
+   rule's "this board type is being played on estimates" HELD — which is
+   second-scale (doc 08) evidence the owner sees.
+
+Their M10 (echo obligations are port contract, co-owned) is the seam's
+final form: the echo theorem is mine, the retention column is theirs,
+and a port is not done until both halves exist. Falsifier 3 stays
+textually identical in both build orders.
