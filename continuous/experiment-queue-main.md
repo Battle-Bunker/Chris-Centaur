@@ -238,3 +238,11 @@
       across the 8 ADMITTED candidates (not all legal moves); near-zero
       spread makes its weight inert at any value — candidate mechanism for
       "weights do nothing".
+- [ ] restrictedGap instrument (search-theory lens): per-decision V_mixed −
+      V_pure on the bank's own restricted matrix (tiny LP / regret-matching+,
+      microseconds). Zero games; retires or prices the mixed-strategy
+      direction on evidence. Standing mechanism-report column candidate.
+- [ ] accept() comparator-cycle instrument: count accept-events per planKey
+      within one improve() call; max>1 = the two-comparator cycle is live
+      (structurally reachable whenever the scout has spoken). Repair law on
+      record (search-theory doc 00 §3).
