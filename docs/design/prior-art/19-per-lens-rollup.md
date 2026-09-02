@@ -30,6 +30,16 @@ finding and the `φ_uv` hypothesis assertion; F carries the six instruments that
 between them make both halves of ruling 49's concern quantitative. If capacity
 frees up, those are the gaps.
 
+**OPERATOR-INBOUND and OPERATOR-OUTBOUND**: your prior art is **domain 39**
+(`39-mixed-initiative-the-two-operator-lenses.md`), delivered in §G. Read it
+together — the headline is that **you are designing one decision with three
+outcomes and two thresholds**, not two designs, and neither half can be set
+without the other's utilities. Also relevant to you: **d10** (the Centaur surface;
+contrastive explanation; complete internally / selected externally), **d35** (why
+a *safety* closure is a shield and guidance must not be), **d33** (the
+non-dominated set is what you have to show, and ε is the legibility budget), and
+**d15**'s ε-as-a-ledger.
+
 ## Running log — index by lens
 
 Later additions live in **§G**, appended in order. Index:
@@ -1102,3 +1112,121 @@ from the inputs it had; it does not tell you what the inputs should have been, a
 it does not price a computation you did not do. So this answers the **bank's**
 bookkeeping question and the **Centaur surface's** foil question — not the
 economy's allocation question, which stays with domains 34 and 37.
+
+---
+
+**OPERATOR-INBOUND + OPERATOR-OUTBOUND — domain 39, and the headline is that you
+are ONE decision.** Prior art for the two new lenses. It also closes **C33**
+("ask the operator is a purchasable observation with no row in the economy") in a
+stronger form than C33 stated.
+
+**The construction both of you are inside (Horvitz, CHI 1999).** Four utilities
+over {act, don't act} × {the operator wanted it, they didn't}, plus one belief
+`p(G|E)`, give two crossing lines and a **threshold** `p*`. Add a *third* option —
+**dialog** — and you get **two thresholds**, because asking when the operator did
+*not* want the action is better than acting wrongly, while asking when they *did*
+is worse than just acting:
+
+  > **silence** below `p*_{A,D}` · **ask** between · **act unilaterally** above
+  > `p*_{D,A}`.
+
+**C75 — the outbound surface is missing the middle band's existence.** Today it has
+"show" and "don't show". The correct structure has three regions, and the middle
+band's *width* is set by how much a needless interruption costs relative to a
+needless mistake. **And this sharpens d37's C69 rather than contradicting it.**
+Horvitz: thresholds *"can be directly assessed by designers or users"*, and doing
+so *"implies a deeper implicitly assumed expected-utility model"*. So:
+
+  > **A number that encodes a MEASUREMENT belongs in source with its provenance. A
+  > number that encodes a PREFERENCE belongs in config — and its provenance is the
+  > four utilities it is a shadow of.**
+
+  `keepQuiet: 2` and the four caps are on the first side; your thresholds are
+  legitimately knobs on the second. But name the four outcomes, or the knob is a
+  claim nobody has made after all.
+
+**C73 — INBOUND: asking is a STRATEGY, not a purchase.** Scerri, Pynadath & Tambe
+(JAIR 2002) replace the one-shot ask with a **transfer-of-control strategy**: a
+conditional sequence of *(who decides, for how long, what to do meanwhile)*, e.g.
+`H D A` — ask the human, take an action that buys time, then take control back.
+Three results that bind on us:
+  - **every viable strategy ends in `A`** — the agent must eventually decide, and
+    the trigger is stated: when the expected cost of continued waiting exceeds the
+    decision-quality difference. A design where a pending query can leave the bot
+    without a move is not a strategy;
+  - their diagnosis is aimed at our configuration exactly — prior work used *"rigid
+    one-shot transfers of control that can result in unacceptable coordination
+    failures in **multiagent** settings"* and *"ignore costs … to an agent's
+    **team**"*; from the deployment, one-shot transfer in a teams-plus-human domain
+    *"failed dramatically"*. **Our units act jointly**, so a stalled query costs
+    **miscoordination**, not just delay;
+  - **no strategy dominates** — but three Lemmas prune the space **offline** from
+    three parameters we can estimate (M102): wait-cost shape (cliff-shaped, at our
+    deadline), response probability (measurable from the archive), relative decision
+    quality (what the evaluation programme already measures). Ship a **member
+    collection** of named strategies with a selection rule, not one interaction
+    model. Ruling 49's shape applied to the interaction design itself.
+
+**C74 — INBOUND / ACTION: the third action neither lens has conceived — change the
+plan to make waiting cheaper.** The `D` action is *"reordering tasks to **buy
+time** to make the decision"*, a first-class action beside ask and act. In our
+vocabulary: **prefer a plan whose commitment point is later**, so the operator's
+answer arrives before it binds — a slider that advances two cells instead of four,
+a unit that holds a fork instead of resolving it, a re-base that defers the
+irreversible half. The programme has the taste for this ("keep options open") and
+no lever; this is the lever, with a decision rule instead of an aesthetic.
+
+  Two things make it concrete rather than encouraging: it turns **option value into
+  a term in the interaction decision** (the consumer d22's Baldwin–Clark pricing
+  lacked), and it has a **window** — *"`D`s become valueless after the deadline,
+  when wait costs stop accruing"*, and a second `D` is worth less than the first
+  when wait costs accelerate. **Worth exactly one application, early.**
+
+**C76 — BOTH: every threshold moves with operator state, and we model none.**
+Horvitz gives the directions explicitly: the cost of unwanted action *"diminishes
+significantly with increases in the depth of a user's focus on another task"* —
+which **raises** the act threshold — and the cost of inaction *"may decrease as a
+user becomes more rushed"* — which **lowers** it. In this game both modifiers are
+the **standing condition**, not the exception: there is a clock so the operator is
+always rushed, and a board so their focus is always on some particular unit. Both
+thresholds are permanently displaced from their defaults, in known directions, by
+an amount nobody tracks. Per d29 this is a **premise coordinate for the interaction
+decision**, and the cheapest version is two proxies the harness already sees:
+**which unit last received a manual command** (focus) and **elapsed fraction of the
+deadline** (rush).
+
+**M99 — INBOUND: guidance is a MEMBER, not a SHIELD, and this is the whole design.**
+d35 established our closures are **pre-decision shields**, and that a shield is not
+tradeable at any weight. Guidance is the opposite case. Advice-taking systems
+(Maclin & Shavlik's RATLE) compile advice somewhere *"subsequent reinforcement
+learning further integrates and **refines**"* it, so wrong advice degrades the
+agent rather than crippling it.
+
+  > **A safety closure is a shield: not tradeable at any weight. Operator guidance
+  > is a member: admitted with provenance, priced, overridable by evidence.**
+
+  Concretely: guidance may **price** plans, seed an order, or open a hypothesis in
+  the market — it must **never remove** plans from the admitted set. A wrong
+  removal is unrecoverable and, per d38's C70, invisible downstream. A wrong price
+  is recoverable by the same mechanism that prices everything else.
+
+**M100 — OUTBOUND: "do less, but do it correctly under uncertainty."** Horvitz's
+principle 8 (*scoping precision of service to match uncertainty*) is a rule about
+**the granularity of what you commit to and show**, and it says granularity should
+shrink as uncertainty grows: a direction rather than a cell, a role rather than a
+path, the non-dominated set rather than a pick. This is **R-4's Centaur half as an
+interface rule** — d33's ε is the dial, and this is the rule for setting it.
+
+**M101 — BOTH: the overrides are labelled data and the archive already has them.**
+Every operator override is a human-labelled example of a decision the bot got
+wrong; every non-override on a surfaced signal is a weak positive. Three uses, all
+cheap: it **fits `p*_{D,A}` instead of guessing it**; override clusters mark the
+instance-space cells where the evaluator is worst (d26); and it is the **only**
+signal anywhere in the programme about *what the operator actually wanted*, which
+is the quantity both of you exist to serve and nothing else measures.
+
+**The honest possibility, stated up front.** Our turn deadline may be too short for
+a dialog turn at all. If so, the Lemmas point at *ask rarely, and act* — and that
+is a **finding, not a failure**: it would say the inbound channel belongs
+**between** turns, as standing guidance, rather than **within** one. Settle that
+first, because it is the question that decides what the inbound lens is for.
