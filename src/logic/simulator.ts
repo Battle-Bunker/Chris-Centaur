@@ -125,7 +125,7 @@ export class Simulator {
         body: piece ? [cells[0]] : cells,
         head: { ...cells[0] },
         length: settled.occupancy.length,
-        health: settled.health,
+        health: settled.energy,
         customizations: { ...snake.customizations },
         // Orientation and KIND are settlement outputs too: the engine rewrites
         // facing and promotes pawns itself, so the bot reads both back rather

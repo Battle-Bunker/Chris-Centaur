@@ -305,7 +305,7 @@ function buildSnake(
     id: playerID,
     name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : playerID,
     latency: '0',
-    health: turn.playerHealth[playerID] ?? 0,
+    health: turn.playerEnergy[playerID] ?? 0,
     body,
     head: body.length > 0 ? { ...body[0] } : { x: 0, y: 0 },
     length,
@@ -327,7 +327,7 @@ function buildSnake(
   // Per-type max health from the setup config, resolved against the unit's
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
   // default is 100 when the map or key is absent.
-  snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
+  snake.maxHealth = setup.maxEnergyPerUnit?.[unitType] ?? 100;
   const expiry = aggregateExpiryTurn(turn.activeEffects, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
@@ -391,7 +391,8 @@ export function buildBoardState(
   // (weight -> 1, health clamped to the queen's configured max) in
   // lookahead; readers default an absent field to the engine's values.
   if (setup.pawnPromotionWeight !== undefined) board.pawnPromotionWeight = setup.pawnPromotionWeight;
-  if (setup.maxHealthPerUnit !== undefined) board.maxHealthPerUnit = setup.maxHealthPerUnit;
+  if (setup.maxEnergyPerUnit !== undefined) board.maxHealthPerUnit = setup.maxEnergyPerUnit;
+  if (setup.foodEnergy !== undefined) board.foodEnergy = setup.foodEnergy;
   // Collisions resolved into this board, mapped into api coords like every
   // other positional field. They ride on the board (not on a per-snake view)
   // because a clash is a fact about the board, readable by any spectator.

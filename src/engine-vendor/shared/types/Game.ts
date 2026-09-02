@@ -63,8 +63,8 @@ export interface UnitCounts {
   king?: number
 }
 
-// Per-type max health. Absent keys (or the whole map) mean 100.
-export interface UnitMaxHealth {
+// Per-type max energy. Absent keys (or the whole map) mean 100.
+export interface UnitMaxEnergy {
   snake?: number
   pawn?: number
   knight?: number
@@ -79,7 +79,7 @@ export interface GameSetup {
   snakesPerTeam: number
   unitsPerTeam?: UnitCounts // When present, snakesPerTeam is ignored by expansion
   pawnPromotionWeight?: number // Pawns promote to queens at this weight (default 10)
-  maxHealthPerUnit?: UnitMaxHealth // per-type max health, default 100
+  maxEnergyPerUnit?: UnitMaxEnergy // per-type max energy, default 100
   boardWidth: number
   boardHeight: number
   maxTurnTime: number // Time limit per turn in seconds
@@ -95,7 +95,18 @@ export interface GameSetup {
    */
   maxTurns?: number | null
   hazardPercentage?: number // Percentage of the board to fill with hazards (defaults to 0)
-  hazardDamage?: number // health lost per hazard square entered (default 100)
+  hazardDamage?: number // energy lost per hazard square entered (default 100)
+  /**
+   * Energy one food replenishes, added to the eater and clamped to its kind's
+   * max. Defaults to 100 — the default `maxEnergyPerUnit` — so an unconfigured
+   * game plays food's old meaning: one meal fills the tank.
+   *
+   * A meal grows the eater by one weight/length ONLY when it brings the unit
+   * TO its max, so growth is what a full tank costs. Set this below a kind's
+   * max and that kind needs several meals to fill and grows only on the one
+   * that fills it.
+   */
+  foodEnergy?: number
   teamClustersEnabled?: boolean
   fertileGroundEnabled?: boolean
   fertileGroundDensity?: number // Percentage of tiles that are fertile (0-100)
@@ -158,7 +169,7 @@ export interface Centaur {
 }
 
 export interface Turn {
-  playerHealth: { [playerID: string]: number }
+  playerEnergy: { [playerID: string]: number }
   startTime: Timestamp
   endTime: Timestamp
   scores: { [playerID: string]: number }
@@ -170,11 +181,11 @@ export interface Turn {
   /**
    * Authoritative death registry for this turn — the ONLY source renderers
    * use to draw deaths. Every unit removed this turn appears here. Exhaustion
-   * (health at or below zero mid-turn) is PROVISIONAL death: the unit halts
+   * (energy at or below zero mid-turn) is PROVISIONAL death: the unit halts
    * where it stood and remains a collision object, but it appears here only
-   * if its health is still at or below zero at end of turn — an exhausted
-   * unit whose halt cell holds food eats, recovers, and survives. Empty
-   * object when nobody died.
+   * if its energy is still at or below zero at end of turn — an exhausted
+   * unit whose halt cell holds food eats, and survives if that meal carries
+   * it back above zero. Empty object when nobody died.
    */
   deaths: { [playerID: string]: UnitDeath }
   /**

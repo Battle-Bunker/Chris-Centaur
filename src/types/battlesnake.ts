@@ -73,6 +73,11 @@ export interface Board {
   // The turn count the game is adjudicated at (GameSetup.maxTurns): absent
   // means the engine's default limit, null means unlimited.
   maxTurns?: number | null;
+  // Energy one food replenishes (GameSetup.foodEnergy), added to the eater and
+  // clamped to its kind's max. Absent means the engine default of 100 — one
+  // meal, a full tank — which is the rule food has always played by. A meal
+  // grows the eater only when it FILLS it, so this is what growth costs.
+  foodEnergy?: number;
   // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
   // keyed by unit type regardless of whether that type is currently fielded —
   // a pawns-only setup can still configure the queen's max for the moment a
