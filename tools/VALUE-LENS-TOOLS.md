@@ -55,3 +55,22 @@ python3 forecast-rook3.py  # the out-of-sample test, once rl5 has games
 **Clock rule for any new script:** `standings[t] == board[t+1]`. Read `W`, `p`, gains and losses
 from ONE of them, never both. `events[t]` resolve `board[t] → board[t+1]`. Assert the conservation
 check (`mine20`/`mine21`'s 0.00% gap) inside any new extraction before trusting its output.
+
+## M3 — the admitted-set instrument (cycle 8)
+
+| script | produces |
+|---|---|
+| `m3-instrument.py` | cause (a) exactly (legal-move cardinality vs the shipped caps, by unit class), the `room` spread at the point of comparison, and potion reachability |
+
+Two measurement notes, both learned the hard way:
+
+- **Do not use a bounded flood fill as the `room` proxy.** Capped at 60 on a 25×25 board it
+  saturates and reports 93–100% zero spread, which is the cap, not the board. Use the horizon-4
+  strict-first-arrival count (`owned_room`), which matches plane-1 ownership and does not saturate.
+- **The refusal spectrum in `telemetry[team].refusals` is the better half of M3** and needs no
+  reconstruction: it partitions every priced plan by why it lost, and the partition is exact
+  (refusals sum to 1.000 × `plansEvaluated`). `telemetry[team].mechanism.flags` also records the
+  arm's flags per game — use it to confirm which channels were live rather than assuming.
+
+**Saturation rule, to sit beside the conservation rule:** any statistic with a bound must be
+checked against its own bound before it is reported.
