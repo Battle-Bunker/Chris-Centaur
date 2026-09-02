@@ -4384,3 +4384,13 @@ record; coordinator relays only what genuinely cannot wait.
   disambiguation events) — the fog family we're building toward is the
   one that WORKS in games shaped like ours; test = information-set size
   vs turn number on the archive (fast decay confirms).
+
+## PAUSED (owner order, 2026-09-02 ~03:00Z)
+All agents stopped; keep-alive trigger deleted; every branch pushed.
+State at pause: 9 design branches (5 lenses + prior-art + red-team +
+2 operator lenses) all current; consolidated build order in
+design/joints-composition 34-BUILD-ORDER (critical path E1→E2→B6→L3→B5,
+E2 keystone); owner decision file: Q11, Q12, sacrifice-disclosure
+(Option A), denominator rule, cover-counting-for-deterrence
+confirmation. Experiment queue current in coordination branch. Resume
+by re-reading pins + 34-BUILD-ORDER + the decision items.
