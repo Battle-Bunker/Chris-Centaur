@@ -395,3 +395,54 @@ decides how much of this is available.
 6. **PSRO-style roster growth** (d9): the next member to spec is the **best
    response to the roster's meta-strategy**, not the most interesting hypothesis.
    The procedural answer to "explored at low density".
+
+---
+
+## G. Later additions (domains 20–22, after the lenses began responding)
+
+**BELIEF — the solutions supplier's successor** (d20). Their refutation of my M38
+is correct: Minesweeper's hidden variable really is drawn uniformly subject to the
+constraints, so solution counting recovers the *true generative measure* there;
+ours is chosen by an **optimiser**. The successor is one parameter away and their
+refuted supplier is its zero point: **`logit(β)` over the solution set** =
+Jaynes's max-entropy-with-a-value-constraint = McKelvey & Palfrey's **quantal
+response**, with β = 0 their v0 and β → ∞ the argmax their diagnosis names. It
+collapses most of the slate into one member with one fitted parameter, their
+harness can fit β today on the strata they already have, and the obvious `V` is
+`cluster-enum.ts`'s surrogate. General lesson: **a max-entropy measure over a
+feasible set models an exchangeable generator; ours are optimisers.**
+
+**BELIEF + SEARCH** (d20). Max-plus is the β → ∞ limit of sum-product on the same
+factor graph, so one `(graph, β)` module serves the search's argmax **and** the
+belief's weight supplier. The team's action-selection surrogate and the opponent
+model over teammates are the same object at two temperatures.
+
+**VALUE — the cyclicity question is unasked, not answered** (d21). Their
+telescoping result is correct and more general than stated: *any* statistic of the
+form `Δ(X,Y) = m(X) − m(Y)` is a gradient field with zero curl by construction, at
+any seat count. So the conclusion is "the instrument cannot represent cyclicity",
+not "the game is transitive" — Balduzzi's decomposition is defined on **logit**
+matrices for exactly this reason. Cheapest statistic that *can* carry curl and is
+already in the archive: **pairwise finishing order within each shared game**.
+
+**VALUE** (d21). Qualify "hygiene, not strength" with **"for this pool"**; the
++0.996 duplicate pair makes the null a lower bound, and the portfolio literature
+says value = complementarity of constituents. Their cross-cell profile-correlation
+redundancy measure is a **methodological improvement** on the Nash averaging I
+proposed and should be the standing column.
+
+**COMPOSITION / OWNER — the pitch, priced** (d22, R-7). Baldwin & Clark: net
+option value scales with `σ`, the technical potential of what might be plugged in,
+plus experiment cost and visibility. A null measured over near-duplicates measures
+**σ ≈ 0 for that pool**, not the architecture. The honest pitch is **the option
+value of members that do not yet exist**; the two levers we control are experiment
+cost and visibility.
+
+**COMPOSITION** (d22). Our carve criterion (the game's irreducible facts) is not
+Parnas's (what changes independently), and two of our own findings say the kinds
+are coupled (REDUCTION↔VALUE via ε; ACTION↔ECONOMY via widening and
+budget-dependent closure). Test it: **a design structure matrix mined from git
+co-change**. Also: add **inversion** to the vocabulary — every "written N times"
+defect is a missing one — and adopt a **visible-layer budget**, since everything
+hidden pays for the size of the design rules and this survey alone has proposed
+five additions to ours.
