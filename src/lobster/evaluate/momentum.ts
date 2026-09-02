@@ -46,6 +46,25 @@
  *              reversal, because standing still is sometimes right and going
  *              backwards almost never is.
  *
+ * ── AND WHAT IDLENESS COSTS IS SCALED BY THE TANK ──────────────────────────
+ *
+ * The idleness charge prices one fact: that standing still gains nothing. For
+ * a unit with a full tank that is true — every square it can reach it can
+ * still reach next turn, so declining to act buys it nothing at all. For a
+ * unit nearly out of health it is false: standing still buys the only thing it
+ * has left, because health is a movement budget that a `stayLegal` kind may
+ * decline to spend (`./energy.ts`, and `budgetShare`'s own argument in
+ * `./features.ts`). Charging a full anti-dither penalty there prices the same
+ * fact twice and in opposite directions: `energy` charges the move for the
+ * budget it burns, and this would charge the alternative for not burning it.
+ *
+ * So the charge is scaled by the tank — `health / max`, read at the START of
+ * the turn like every other per-unit constant in this fold. FULL at full
+ * health, which is where the dither trace above was recorded and where the
+ * regression fence pins it; sliding to nothing as the tank empties. The
+ * REVERSAL charge is untouched: going backwards is wrong whatever the tank
+ * says.
+ *
  * ── WHY THIS IS AN EVALUATOR TERM AND NOT A FILTER ─────────────────────────
  *
  * It is weighted, and it is small: one whole unit reversing costs
@@ -96,7 +115,10 @@ function costOf(ctx: EvalContext, s: Standing): number {
     // A trail unit has no stay in its grammar, so an unchanged cell for one of
     // those is not idleness — it is a reading of a unit that never moved
     // because it was never asked to. Only a kind that CAN decline is charged.
-    return profileOf(unit.kind).stayLegal ? IDLE_COST : 0;
+    if (!profileOf(unit.kind).stayLegal) return 0;
+    const config = ctx.sub.engine.config;
+    const cap = Math.max(1, config.maxHealthPerKind?.[unit.kind] ?? config.maxHealth);
+    return IDLE_COST * Math.min(1, Math.max(0, unit.health / cap));
   }
   const came = cameFrom(ctx.sub).get(s.unitId);
   return came !== undefined && s.cell === came ? REVERSAL_COST : 0;

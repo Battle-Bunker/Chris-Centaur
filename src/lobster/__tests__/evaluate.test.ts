@@ -841,6 +841,8 @@ describe('calibration is data', () => {
       'command',
       // Contest avoidance: the dominant remaining death cause.
       'contest',
+      // The price of a move, in the health the rules charge for it.
+      'energy',
       // The distance gradient to the nearest meal, and the anti-dither term.
       'food',
       'healthEconomy',
