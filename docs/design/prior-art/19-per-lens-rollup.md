@@ -583,3 +583,29 @@ over it is the policy lever**, and that law is a member collection with a
 reachability theorem per member. Which resolves why the fold's excellent R² and
 its policy-inertness are both true, and says the remaining design attention
 belongs in the combination law rather than in more flow channels.
+
+**COMPOSITION / TIME / SEARCH — R-4's cost objection answered** (d33). R-4 had four
+arguments and one open objection: cost. It does not survive.
+- **Size**: expected non-dominated set is `O((ln n)^{d−1})` (Bentley–Kung, JACM
+  1978) — **~9 of a queen's 71 options at three objectives**; small exactly when
+  the objectives are few, which is where the currency work is heading.
+- **When it blows up** (anti-correlated objectives, i.e. real trade-offs — the
+  honest counterweight): **Papadimitriou–Yannakakis** guarantee a
+  **polynomially-sized ε-approximate Pareto set** with a stated (1+ε) bound. That
+  is **R-3 satisfied for the reduction's OUTPUT** rather than its input. Default
+  implementation is **ε-dominance grid pruning** — O(1) per candidate, no LP.
+- **Dominance conditions are free**: they are the pruning LP's own witness, and
+  that LP is the standard POMDP α-vector usefulness test. Pipeline: pointwise
+  dominance → **interval dominance** (2n vs maximality's n²−n, sound as a
+  pre-filter) → LP on survivors only.
+- **TIME**: the set is *better* under interruption than a scalar argmax — it
+  shrinks **monotonically** under refinement, so an interrupted reduction returns a
+  **sound superset** rather than a possibly-wrong pick. And it supplies the spend
+  target C8 asked for and could not compute: **the pair whose dominance is closest
+  to decided, measured by the LP's slack.**
+- **Joint reading with d32**: the VALUE joint's shape is now fully specified —
+  *flows in a common currency (accounting, near-definitional) → a non-dominated set
+  with dominance regions (computable, ~9 members, ε-bounded) → a combination law
+  chosen from a member collection with a reachability theorem per member (the
+  policy lever)*. The scalar collapse happens only at the last layer, and only if a
+  collapsing member is selected.
