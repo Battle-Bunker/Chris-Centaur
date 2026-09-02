@@ -164,13 +164,13 @@ export interface MarshalledBoard {
    * The turn the STAGED moves resolve into — `currentTurn + 1`, the turn every
    * contest on this board is adjudicated at. `settleTurn` reads it for effect
    * expiry and for the potion window's arithmetic, and it is the same figure
-   * `tierAtArrival` tests a level against, so the two cannot drift.
+   * each unit's input tier is read at, so the two cannot drift.
    */
   arrivalTurn: number;
   /**
    * The invulnerability effect schedule that still governs `arrivalTurn`, as
-   * settlement takes it — the board's own `activeEffects`, filtered to the
-   * effects `tierAtArrival` counted into each unit's tier.
+   * settlement takes it — the board's own `activeEffects`, filtered to exactly
+   * the effects counted into each unit's input tier.
    *
    * EMPTY when the board carries no schedule (hand-built fixtures, documents
    * predating the field). Nothing is invented to fill the gap: a settlement
@@ -226,6 +226,52 @@ export interface MarshalledBoard {
  * alive — the rule would already have eliminated it. So "this team plays under
  * regicide" is exactly "this team has a living king".
  */
+/**
+ * THE EXACT TIER A UNIT CARRIES INTO THE ARRIVAL TURN, read off the schedule.
+ *
+ * `tierAtArrival` (simulator.ts) reads the two fields the WIRE collapses the
+ * schedule into: an aggregate `invulnerabilityLevel` and a single
+ * `invulnerabilityExpiryTurn`, which `translate.ts::aggregateExpiryTurn` sets
+ * to the EARLIEST expiry among the unit's effects. That collapse is lossy the
+ * moment a unit carries two effects with different expiries: a unit holding a
+ * +1 buff to turn 20 and a -1 debuff to turn 12 has aggregate level 0 and
+ * earliest expiry 12, so at turn 15 the collapsed reading says "level 0, and
+ * it lapsed anyway" — tier 0 — when the buff is still live and the unit is
+ * genuinely at tier 1. Tier is the FIRST key `strictMaximum` orders a contest
+ * on, so reading it a level low is the sharpest possible error to make.
+ *
+ * The schedule is the non-lossy source and settlement's own convention is the
+ * one applied here: an effect due at turn E still decides every contest
+ * resolved during turn E (settleTurn expires at the END of the turn), so an
+ * effect governs the arrival turn exactly when `expiryTurn >= arrivalTurn` —
+ * the same predicate `MarshalledBoard.effects` is filtered on below, which is
+ * what keeps the tier handed to settlement and the schedule handed to
+ * settlement talking about the same set of effects.
+ *
+ * THE RESIDUAL is the part of the wire's aggregate level that the schedule
+ * does not account for, and it exists so that this reading is bit-for-bit the
+ * old one on every board carrying at most one effect per unit — including the
+ * boards where the two disagree. A fixture that states a level and lists no
+ * effect for it keeps the level, on the wire's own expiry rule; a board with
+ * no schedule at all (`activeEffects` absent: hand-built fixtures, documents
+ * predating the field) never reaches here and keeps `tierAtArrival` verbatim.
+ */
+function tierFromSchedule(
+  snake: Snake,
+  currentTurn: number,
+  governing: ReadonlyMap<string, number>,
+  listed: ReadonlyMap<string, number>
+): number {
+  const fromSchedule = governing.get(snake.id) ?? 0;
+  const residual = (snake.invulnerabilityLevel ?? 0) - (listed.get(snake.id) ?? 0);
+  if (residual === 0) return fromSchedule;
+  // The wire's own gate, applied to the wire's own leftover: `tierAtArrival`
+  // keeps a level while `currentTurn + 1 <= invulnerabilityExpiryTurn`, and a
+  // unit with no expiry at all keeps nothing.
+  const expiry = snake.invulnerabilityExpiryTurn ?? currentTurn;
+  return currentTurn + 1 <= expiry ? fromSchedule + residual : fromSchedule;
+}
+
 export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard {
   const fullWidth = board.width + 2;
   const fullHeight = board.height + 2;
@@ -242,6 +288,27 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
   }
 
   const living = (board.snakes ?? []).filter((s) => s.health > 0 && s.body.length > 0);
+
+  // The staged moves resolve INTO the next turn: that is the turn a contest is
+  // adjudicated at, the turn a level is tested against, and the turn settlement
+  // expires effects at. Keeping the three on one figure is the whole reason it
+  // is named here rather than recomputed at each use.
+  const arrivalTurn = currentTurn + 1;
+
+  // The effect schedule, tallied per unit ONCE: what still governs the arrival
+  // turn, and what the schedule says in total. Absent (not merely empty) means
+  // the board carries no schedule and every tier falls back to the wire's
+  // collapsed reading.
+  const schedule = board.activeEffects;
+  const governing = new Map<string, number>();
+  const listed = new Map<string, number>();
+  for (const effect of schedule ?? []) {
+    listed.set(effect.playerID, (listed.get(effect.playerID) ?? 0) + effect.level);
+    if (effect.expiryTurn >= arrivalTurn) {
+      governing.set(effect.playerID, (governing.get(effect.playerID) ?? 0) + effect.level);
+    }
+  }
+
   const tierExpiry: (number | null)[] = [];
   const startWeight = new Map<string, number>();
   const startHealth = new Map<string, number>();
@@ -270,7 +337,14 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
       type,
       teamID,
       isKing: isKingUnit(snake),
-      tier: tierAtArrival(snake, currentTurn),
+      // EXACT at the arrival turn, from the schedule where there is one. The
+      // wire's collapsed (aggregate level, earliest expiry) pair cannot express
+      // a unit holding two effects that lapse on different turns; the schedule
+      // can, and settlement is handed both halves of the same reading.
+      tier:
+        schedule === undefined
+          ? tierAtArrival(snake, currentTurn)
+          : tierFromSchedule(snake, currentTurn, governing, listed),
       health: snake.health,
       occupancy,
       orientation: { ...snake.orientation },
@@ -305,16 +379,11 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
 
   const potions = (board.invulnerabilityPotions ?? []).map(toIndex);
 
-  // The staged moves resolve INTO the next turn: that is the turn a contest is
-  // adjudicated at, the turn `tierAtArrival` tests a level against, and the
-  // turn settlement expires effects at. Keeping the three on one figure is the
-  // whole reason it is named here rather than recomputed at each use.
-  const arrivalTurn = currentTurn + 1;
   const alive = new Set(living.map((s) => s.id));
-  const effects = (board.activeEffects ?? [])
+  const effects = (schedule ?? [])
     // Effects that lapsed before the arrival turn are already out of every
-    // unit's tier (`tierAtArrival` zeroes a lapsed level), so handing them to
-    // settlement would subtract a level nothing put in.
+    // unit's tier (`tierFromSchedule` counts exactly the ones that govern it),
+    // so handing them to settlement would subtract a level nothing put in.
     .filter((e) => e.expiryTurn >= arrivalTurn && alive.has(e.playerID))
     .map((e) => ({ ...e }));
 
