@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-three domains, surveyed against the four lens syntheses as they stood at
+Twenty-four domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -38,6 +38,7 @@ finding by whose design it changes. This index is organised by domain.
 | 21 | response to the population instruments — the cyclicity question is *unasked*, not answered | `21-response-to-the-population-instruments.md` |
 | 22 | **the theory of carving at joints** — Parnas's criterion, and modularity's option-value formula | `22-the-theory-of-carving-at-joints.md` |
 | 23 | the dependency problem, and where our floor meets it twice | `23-the-dependency-problem-and-the-floor.md` |
+| 24 | scalarization — the plans no weighting can reach (R-4's fourth and sharpest argument) | `24-scalarization-and-the-unreachable-plans.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
@@ -148,7 +149,14 @@ and unbounded — on the unit holding 80–91% of team weight.
 ---
 
 **R-4. REDUCTION must return a SET of options with the conditions under which
-each dominates — three unrelated fields converge on the same type.** Imprecise
+each dominates — FOUR unrelated fields converge on the same type, and the fourth
+makes it an impossibility result rather than a preference.** Multi-objective
+optimization: **weighted-sum scalarization can only recover Pareto-optimal points
+on the CONVEX HULL of the front; points in non-convex regions are unattainable
+for every positive weight vector** (domain 24). The VALUE kind's declared law is a
+weighted monoid — a weighted sum — so some good plans are unreachable at *any*
+weight, and we have been sweeping weights looking for them. Chebyshev
+scalarization reaches all of them and is nearly a drop-in. Imprecise
 probability calls the set **maximal** and proves that Γ-maximin's set does not
 shrink as beliefs sharpen (domain 3); one-sided POSG value theory shows the value
 over belief space is **PWLC — a max over α-vectors with dominance regions**

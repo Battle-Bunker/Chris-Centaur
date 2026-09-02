@@ -461,3 +461,18 @@ theory. Remedy fits the existing type: affine arithmetic's shared **noise
 symbols** are structurally our `assumptions`, and the missing capability is to let
 a shared basis **tighten** a combination rather than only refuse one. Cheap test
 on the existing archive: decoupled vs exact joint minimum, gap by unit count.
+
+**VALUE / COMPOSITION — the plans no weighting can reach** (d24). Weighted-sum
+scalarization provably recovers only Pareto points on the **convex hull**; the
+rest are unattainable at every weight. The VALUE kind's law is a weighted monoid,
+so **"we swept the weight and found nothing" is not evidence a term is
+worthless** — add **(d) non-convexity** to the inert-weight taxonomy, whose
+signature (real spread at the comparison, no monotone-then-worse curve, option
+admitted, and the argmax **jumping** between plans as `w` crosses a threshold) is
+visible in sweep data already held. The combination law should be a member
+collection {weighted sum, Chebyshev, ε-constraint, lexicographic} with known
+reachability per member; Chebyshev reaches everything and is `max` for `Σ` against
+the bank's ceiling as reference point. And migrating lexicographic → additive is
+an improvement in derivability and legibility, **not in expressiveness** — the two
+have different reachable sets, which is also *why* the value lens's withdrawn
+"one dial interpolates lexicographic↔additive" claim had to be withdrawn.
