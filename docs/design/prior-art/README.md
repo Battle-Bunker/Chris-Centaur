@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Seventeen domains, surveyed against the four lens syntheses as they stood at
+Eighteen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -30,6 +30,7 @@ case.*
 | 15 | opponent modelling and safe exploitation — **ε is a ledger, not a dial** | `15-opponent-modelling-and-safe-exploitation.md` |
 | 16 | diminishing returns, and how to read a performance profile (response to the first compiled CPPs) | `16-diminishing-returns-and-reading-a-profile.md` |
 | 17 | **coordination graphs** — the exact algorithm `cluster-enum.ts` is missing | `17-coordination-graphs-and-the-joint-argmax.md` |
+| 18 | guarding a theorem's hypothesis — one law that unifies five recorded defects | `18-guarding-a-theorems-hypothesis.md` |
 
 ---
 
@@ -163,6 +164,18 @@ premise-keyed memoisation, re-base/ADVANCE, and depth threads. The constructive
 fix (DeepStack's continual re-solving) needs exactly one new object crossing each
 decomposition boundary: **a bound on the opponent's counterfactual value** —
 which is a type our bounds bank already produces. See domain 12.
+
+**R-6. Every soundness argument names a hypothesis, and that hypothesis must be
+an executable assertion — or the argument will outlive its truth.** Five recorded
+defects and two predicted ones are one disease: `φ_uv ≡ 0` (assumes point
+positions), the static `CloudPremise` (assumes a sim covenant), premise-keyed
+memoisation (assumes perfect information), the switch silently overridden per
+engine, the miner reading an unpublished field, `MechanismReport.loop` before its
+retrofit. The programme's own diagnosis — "a value and the premise it was computed
+under travel separately" — is right and its remedy protects **values**; every one
+of these was an **argument**, and arguments have premises too. The hypotheses are
+already written down, as prose, in module headers and law suites. Prose does not
+fail. See domain 18.
 
 ---
 
