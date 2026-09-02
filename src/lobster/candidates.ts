@@ -299,9 +299,10 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
   // per-engine override exists to guarantee is that it does not.
   //
   // `auto` is board-conditional and this function has no board, so it resolves
-  // OFF here — see `resolveStagingSafety`. A caller that HAS a board resolves
-  // the level first and passes the answer; `TeamDecisionEngine` does exactly
-  // that, so the shipped path never reaches this fallback with 'auto'.
+  // to the SNAKE-ONLY answer here — `guard`, the weaker of the two — see
+  // `resolveStagingSafety`. A caller that HAS a board resolves the level first
+  // and passes the answer; `TeamDecisionEngine` does exactly that, so the
+  // shipped path never reaches this fallback with 'auto'.
   const on = resolveStagingSafety(level, false) !== 'off';
   return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
 }

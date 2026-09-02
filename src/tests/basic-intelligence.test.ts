@@ -293,6 +293,34 @@ describe('the bot does the obvious things', () => {
     }
   });
 
+  /**
+   * THE SAME CLAIM ABOUT THE SEED ITSELF.
+   *
+   * `play` above budgets 120 ms, which is enough to search; this budget is
+   * below the kernel's 40 ms flush reserve, so the decision IS `seedPlan`'s
+   * ordered-first option and nothing refines it. That is the cell where the
+   * staging guard is not a wash — `auto` resolves to `guard` on a snake-only
+   * board (`resolveStagingSafety`, re-measured; see docs/BASIC-INTELLIGENCE.md)
+   * and the seed is what the level changes.
+   *
+   * `wall` IS THE PERIMETER AND `edge` IS NOT. `edge` is the head-on edge
+   * exchange of `turnEngine.ts` c1 — two units traversing one edge in opposite
+   * directions — which is settled between two movers and which no predicate in
+   * `staging-safety.ts` can reach, every one of them being a statement about
+   * ONE mover's own body and the terrain. Do not gate `edge` here; it is not
+   * this layer's counter and it is not zero.
+   */
+  test('and the seed alone does not walk into it either', async () => {
+    for (const seed of [1, 2, 3]) {
+      const { metrics } = await runGame(
+        { ...SNAKE_SCENARIO, maxTurns: 40, seed, budgetMs: 20 },
+        { scores: false }
+      );
+      expect([seed, metrics.crashed]).toEqual([seed, null]);
+      expect([seed, metrics.deathsByCause.wall ?? 0]).toEqual([seed, 0]);
+    }
+  });
+
   test('pieces act: they do not spend the game turning on the spot', async () => {
     const { metrics } = await play(MIXED_SCENARIO, 1);
     expect(metrics.crashed).toBeNull();
