@@ -4088,3 +4088,30 @@ final synthesis prematurely.
   boards. STANDING CAVEAT: every piece-cell strength verdict at ≤2s
   budgets was measured on off-curve staging (queen/rook ladder cells
   qualified). v1 (quanta-denominated) specced, waits on handle swap.
+- POPULATION INSTRUMENTS MEASURED (value lens @ 159adb9; 18,302 games,
+  conservation-asserted extraction, 6 games dropped):
+  * VBS−SBS: no evidence the selection gap clears its floor on this pool —
+    with qualifier (b) live: pool holds near-duplicates (slider/territory
+    +0.996, plain/potionOrder +0.879), so this measures the pool's σ≈0,
+    not the architecture (option-value framing, librarian R-7). Standing
+    column; re-run on any non-lineage member = the only (a)-vs-(b)
+    discriminator. One real signal: potion block +0.034, all on hazard
+    boards (k1/k2 recovered via a different statistic).
+  * THE GAME IS NOT TRANSITIVE, measured: two triangles significant on the
+    logit statistic (material/territory/reflex −0.297, p=0.000, n=4841).
+    Magnitude modest (odds ~1.35) — does NOT yet license roster mixtures.
+    SHARPEST: cyclicity FLIPS SIGN snake (+0.60) vs piece (−0.43..−0.55)
+    boards and cancels on pooling → A SINGLE POOLED RATING IS NOT A
+    SUFFICIENT STATISTIC for this population; per-cell reporting is a
+    REQUIREMENT. (POP-2's transitivity conclusion withdrawn by author.)
+  * Tournament density 25% (23/91 pairs); archive = near-disjoint 3-seat
+    experiments chained through reflex; cross-block ratings confounded
+    with cell.
+  * a1k0n edge-vs-cell room correction DOES NOT TRANSFER (tested: AUC
+    0.6232 vs 0.6223; our first-arrival regions are compact).
+  * Slider-cap test refuted its own hypothesis: the filter preserves value
+    the comparator can NAME (food-on-ray taken 75%) and discards only
+    value it CANNOT (no positional slot above healthSpent) — the defect is
+    the missing slot, not the cap ordering.
+  * Third bounded-statistic trap caught pre-publication (saturating win
+    probabilities); logit form correct.
