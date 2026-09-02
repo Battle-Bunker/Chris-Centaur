@@ -31,6 +31,11 @@ import { defaultEvaluator } from '../evaluate';
 
 const TURN = 22;
 const RM_ITERS = 2000;
+/** WIDE GATE: the red team's confirmatory run. `gateOnEntanglement: false`
+ *  admits every held unit to B1/B3 rather than only those meeting a staged
+ *  path, and a raised `enemyCap` enumerates more of them — the one lever that
+ *  enlarges the column set and the live-row set together. */
+const WIDE = process.env.WIDE_GATE === '1';
 const MAX_ROWS = 24;
 const EPS = 1e-9;
 /** A mixture weight below this is not in the support. */
@@ -307,6 +312,7 @@ function columnsOf(b: Bench, rows: ReadonlyArray<JointPlan>): {
     asTeam: b.asTeam,
     budget: unbounded(),
     basis: [],
+    ...(WIDE ? { config: { gateOnEntanglement: false, enemyCap: 8 } } : {}),
   });
   let resolutions = 0;
   for (const row of rows) resolutions += bank.price(row).resolutions;
@@ -322,6 +328,11 @@ interface Matrix {
   readonly finiteMin: number;
   readonly finiteMax: number;
   readonly resolves: number;
+  /** How many rows each column refutes (drives its floor to DEAD). A column
+   *  that refutes every row is a UNIVERSAL REFUTER: it alone collapses the
+   *  live sub-matrix, and the floor's ability to order plans is exactly the
+   *  absence of such a column from the banked set. */
+  readonly refutedBy: number[];
 }
 
 /**
@@ -385,7 +396,8 @@ function matrixOf(
     lo.push(lineLo);
     hi.push(lineHi);
   }
-  return { lo, hi, deadCells, finiteMin, finiteMax, resolves };
+  const refutedBy = cols.map((_, j) => lo.filter((r) => !Number.isFinite(r[j] as number)).length);
+  return { lo, hi, deadCells, finiteMin, finiteMax, resolves, refutedBy };
 }
 
 /** DEAD is −∞ and a matrix game needs finite payoffs. Map it to a sentinel
@@ -527,6 +539,7 @@ interface Row {
   rows: number;
   cols: number;
   deadFrac: string;
+  refuters: string;
   readings: Reading[];
   cellResolves: number;
   bankResolves: number;
@@ -609,7 +622,7 @@ function probe(name: string, board: Board): void {
     const { witnesses, resolutions, bank } = columnsOf(b, rows);
     if (witnesses.length === 0) {
       table.push({
-        board: name, rows: rows.length, cols: 0, deadFrac: '—', readings: [],
+        board: name, rows: rows.length, cols: 0, deadFrac: '—', refuters: '—', readings: [],
         cellResolves: 0, bankResolves: resolutions, solveMs: 0,
         stable: 'no columns — no contact, so no opponent choice matters',
       });
@@ -636,6 +649,7 @@ function probe(name: string, board: Board): void {
       rows: rows.length,
       cols: witnesses.length,
       deadFrac: `${((100 * mat.deadCells) / (rows.length * witnesses.length)).toFixed(0)}%`,
+      refuters: `${mat.refutedBy.filter((n) => n === rows.length).length}/${witnesses.length}u ${mat.refutedBy.join(',')}`,
       readings,
       cellResolves: mat.resolves,
       bankResolves: resolutions,
@@ -679,7 +693,7 @@ afterAll(() => {
         pad(g.rowSupport, 7) + pad(g.colSupport, 7) +
         (k === 0
           ? (r.cols < 2 ? 'STRUCTURAL ZERO (1 column: no duality gap is possible for ANY payoffs); ' : '') +
-            `${r.stable}; cells=${r.cellResolves} bankRes=${r.bankResolves} rm+=${r.solveMs}ms`
+            `${r.stable}; refuters=${r.refuters}`
           : '')
       );
     });
@@ -687,6 +701,7 @@ afterAll(() => {
   // eslint-disable-next-line no-console
   console.log(
     '\n=== restrictedGap probe (S0) ===\n' +
+      (WIDE ? 'GATE: WIDE (gateOnEntanglement:false, enemyCap:8) — confirmatory run\n' : 'GATE: shipped\n') +
       'PREMISE: hand-built scenario boards, turn 22, seat red, shipped bank config\n' +
       '         and cluster tuning, defaultEvaluator, RM+ ' + RM_ITERS + ' iters,\n' +
       '         rows = enumeration proposals + ordered-first seed + contact seed + 1-opt\n' +

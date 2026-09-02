@@ -187,6 +187,71 @@ right in substance: B1/B3 bank the argmin per group, and where that argmin is
 plan-independent the column set converges to one dominant reply no matter how
 many rows are priced.
 
+## 4½. The confirmatory run, and the one mechanism that explains everything
+
+The red team asked for a widened gate before the retirement is quoted. Run
+(`gateOnEntanglement: false`, `enemyCap: 8`), and it is decisive in a direction
+neither of us predicted.
+
+**Under the wide gate, EVERY contacting board has ALL ROWS REFUTED** —
+`contested-3`, `contested-queen`, `corridor`, `mutual-kill-1v1`,
+`mutual-kill-2v2`, `king-contest`, `king-in-ray`. The only boards that keep a
+live row are the ones the wide gate gives a single column (structural zeros) and
+`slider-dodge-1`, whose two live rows differ by 0.005.
+
+**It is not a soundness problem — I checked.** On `contested-3` the same plan
+prices at floor `−0.252` (B0) under the shipped gate and `−0.047` (B3, complete)
+under the wide one: enumerating more gives a **higher** floor, exactly as
+max-over-members requires, with no inversion thrown. The refutations come from
+the extra **columns**, not from the cell configuration — adding columns to a
+restricted game lowers every row's security value, which is the standard
+double-oracle direction.
+
+**And attributing refutations per column names the mechanism outright.** For each
+banked column, how many rows it refutes:
+
+```
+contested-3      (shipped gate)   15, 4, 4, 4, 4, 4      of 17 rows
+mutual-kill-2v2  (shipped gate)   12, 3, 3, 3, 3         of 13 rows
+mutual-kill-1v1  (shipped gate)    2                     of  4 rows
+```
+
+**One column refutes almost everything.** That is the same dominant column as
+§4.3, seen from the other side: it is dominant *because* it kills nearly every
+plan we propose. So one mechanism accounts for every result in this document:
+
+> 1. the opponent has a **plan-independent best reply** (`#argCol = 1`);
+> 2. that reply **refutes the overwhelming majority of our rows** (15/17, 12/13);
+> 3. so the **live sub-matrix is tiny** (2/17, 1/13) and a pure saddle over what
+>    remains is close to forced — which is why `pureDuality = 0` everywhere;
+> 4. and **widening the gate finds more such columns and refutes the rest.**
+
+### The consequence, and it is the largest finding in this lens
+
+> **The proved floor's ability to order plans is an artifact of incomplete column
+> generation, and it degrades monotonically as the double oracle does its job.**
+
+The two halves of the bank work against each other: B1/B3 exist to find the
+replies that punish us, and every reply they find removes a plan from the set the
+floor can rank. Run the column generator well enough and the security value
+orders nothing at all — which is what the wide gate demonstrates on every
+contacting board.
+
+**One reading discipline, because the phrasing invites an error.** A floor of
+`−∞` means **"cannot prove anything better than catastrophe"**, *not*
+"catastrophe is certain". `DEAD` is the bottom of the bound lattice, and a plan
+sitting there may well be fine — we simply have no proof. So this is a finding
+about **the reduction**, not about the positions: pure maximin against a
+competent column generator stops discriminating, and the bot on contacting boards
+is in practice choosing by `est`, then the declared O-P1 ceiling hole, then the
+salted tie key. That is §2.3 confirmed at full strength and generalised past
+contested cells to *any* board where contact occurs.
+
+It also gives the passivity verdict a deeper account than the pure-vs-mixed gap
+ever did. Passivity is not (only) that maximin picks the safe option; it is that
+**maximin frequently cannot tell the options apart**, so the choice falls to
+rungs nobody designed to carry it.
+
 ## 5. Honest limits (v2)
 
 1. **Two informative boards.** §4.1. The retirement is weak, not final.
@@ -200,7 +265,13 @@ many rows are priced.
    tie-break ladder is and exactly what §4.2 says is doing the work today.
 4. **Fifteen hand-built boards, one turn, one seat, not sampled from play.**
 5. **The entanglement gate shapes the column set** and is a shipped policy, not a
-   law of the game. §4.1's confirmatory run is the test.
+   law of the game. §4½ runs the test and the answer inverts the usual worry:
+   the gate is not hiding a mixing opportunity, it is **holding the floor's
+   informativeness up** by not looking too hard.
+6. **`refutedBy` counts rows in MY row set.** A different generator proposes
+   different rows and would be refuted at a different rate. The claim is about
+   the plans this bot chooses among, which is the actionable scope, not about
+   all legal plans.
 
 ## 6. The corrected S0 specification
 
