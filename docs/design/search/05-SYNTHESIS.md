@@ -420,6 +420,45 @@ docs 04, 07 and 08 is that *the parts of this architecture that refuse to invent
 a number are consistently its strongest, and the parts that invent fourteen are
 consistently where the literature's named failure modes are live.*
 
+### 2.4⁹ The candidate set has no owner, and several of these findings are symptoms of that
+
+The composition lens's weighted DSM ran the distinguishing test on ACTION, got
+**distribute rather than split**, and named the missing abstraction: the
+candidate set's lifecycle — generate → order → close → factor → sample → admit →
+**emit** — runs across six files and *nothing sees the whole pipeline*. Their two
+exhibits are that admission turns out to operate at **three granularities nobody
+had enumerated**, and that **15–43% of every plan priced is refused at
+emission** — a lifecycle whose last stage is invisible to its first.
+
+Doc 10 designs the object. Three things about it are worth carrying here.
+
+**It is a protocol, not a module of members.** ACTION stays a kind with no module
+of its own and *nothing relocates*: six files gain a registration and a slightly
+wider output type. What appears is a small types-registry-ledger file that hides
+exactly one design decision — **what the stages are and in what order they run**
+— which is today replicated implicitly across six files and inside `improve()`'s
+control flow. That is a module in Parnas's sense; a file that *executed* the
+stages would be the god module the distribute verdict argues against.
+
+**The emission obligation becomes a read of the METALEVEL, not of the
+comparator.** Composition's rule is *"a plan that cannot be emitted this slice is
+not admitted and not priced"*. The literal form is too strong — sub-threshold
+improvements *accumulate*, and a threshold inside `better()` re-opens exactly
+what Law A1 closes. The right consumer is `voc.ts`: a computation whose only
+product is an improvement the wire will refuse has low value **because the wire
+will refuse it**, and `estimates()` has no such term. So the kernel publishes an
+`EmissionWindow` and the metalevel reads it — which also lets the search
+distinguish "no improvement available" from "an improvement is available and the
+wire is closed for 40 ms", two states that want opposite behaviour and are
+indistinguishable today.
+
+**And it collapses six separate items on this lens's own books into reads of one
+ledger** — `proposedBy`, the coverage oracle, D-1's `planDistance`, the eight
+operators' `cost(state)`, the prefix-determinism pool cost, and the three
+inert-weight causes (a)/(d)/(e), which turn out to be `admit@A1`, `admit@A2` and
+`admit@A3` of one pipeline. That collapse is the test that the object is real
+rather than a container.
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
@@ -653,7 +692,7 @@ whose population is modest variations of one lineage.
 | **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
 | **S0¾** | **the performance profile**: emit `basis.maxGap` with each emission's timestamp and plot it per board class from the replay corpus (doc 07 §3) | one field, then analysis on existing replays | diminishing returns, and it converts every allocation constant into a calculation. We already have a **proved, monotone, recognizable** quality measure — `maxGap` is simultaneously the ratchet's enforcement variable, the hand-built proxy for the option set Γ-maximin refuses to produce, and the anytime y-axis — and have never drawn the curve |
 | **S0⅞** | **`(family, cost, Δ maxGap)`** recorded after each applied lever, on top of S0¾ (doc 08, Finding M-4) | no | the *measured* value-per-cost of each lever family against the fourteen *assumed* ones. This layer decides what got computed before anything was compared, so it is upstream of every measurement the program takes — and it is one subtraction per slice |
-| **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
+| **S1** | **the lifecycle ledger** (doc 10, L0): `search/lifecycle.ts` types + stage registry + one ledger; `disposition` added to the three existing removal records. **`proposedBy` is a read of it, not a new field** | no — L0 should be byte-identical, and that is the point | one place that sees the pipeline. It subsumes `proposedBy`, D-1's `planDistance` and the coverage oracle's comparison target, and it enumerates the three admission points so a fourth cannot appear unnoticed |
 | **S2** | **`planDistance(staged, nearestProposal)`** per decision | no | whether the enumeration reaches the plan we stage. No decomposition design survives a bad answer |
 | **S2½** | **a law-suite subject with a set-valued position** (§2.4⅚b) | one fixture | the cheapest prophylactic on the books. It makes `cluster-enum`'s cross-cluster-zero identity break *inside the suite and localised* on the day the observation model changes, instead of surfacing as an unlocalisable regression alongside six other changes |
 | **S3** | **split `adjudication.*Decided` by contested-vs-quiet** | no | Prediction P-1: whether the floor really goes flat where the decision is hardest (§2.3) |
