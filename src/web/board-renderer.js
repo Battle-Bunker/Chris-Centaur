@@ -308,6 +308,81 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
+  // ── Hold badge ───────────────────────────────────────────────────────────
+  // A unit under the operator's HOLD order (intent mode 'hold' — see
+  // ActiveGameManager.toggleHold) carries a shield ABOVE its head cell: it is
+  // standing its ground this turn and every turn until the order is lifted.
+  // Above the head deliberately, because the cell itself is already spoken
+  // for — the piece icon owns the middle, the health bar the bottom edge, the
+  // rotation badge the top-left corner — and because a held unit stages a
+  // STAY, which draws no destination arrow at all, leaving the space over the
+  // head the one place a standing order can live without crowding anything.
+
+  // Where the shield goes for a head cell whose top-left corner is (hx, hy),
+  // in CSS px on the same canvas the cell was drawn on. Pure geometry, so it
+  // is the one definition both the live and the replay draw paths use (and
+  // the one the tests pin).
+  //
+  // Two things it must not collide with:
+  //  - The ORIENTATION EYE. Its brow bulges out of the FACED edge by ~0.24 of
+  //    a cell; when the unit faces upward that is the very edge the shield
+  //    sits over, so the badge is lifted clear by the part of that bulge the
+  //    facing actually spends going up (a straight-up facing gets the whole
+  //    clearance, a knight's shallow L-facing proportionally less, a
+  //    downward-facing unit none — its brow is on the far side).
+  //  - The CANVAS TOP. A unit on the board's top row has no room above it, so
+  //    the badge is clamped to stay wholly on the canvas rather than being
+  //    silently cropped to nothing; it then overlaps the top of its own cell,
+  //    which still reads.
+  function holdShieldPlacement(hx, hy, cellSize, orientation) {
+    // Floored so the shield stays a recognisable silhouette on a small board.
+    const size = Math.max(cellSize * 0.4, 10);
+    const u = orientationUnitVector(orientation);
+    const browClear = u && u.uy < 0 ? cellSize * 0.24 * -u.uy : 0;
+    const y = hy - (size / 2 + cellSize * 0.08 + browClear);
+    return {
+      x: hx + cellSize / 2,
+      // Half the badge plus a hairline, so its rim is never clipped.
+      y: Math.max(size / 2 + 1, y),
+      size,
+    };
+  }
+
+  // Amber over a near-black rim: the same "bright fill, dark outline" contract
+  // the unit icons use, so the badge keeps its edge on a dark board, on a pale
+  // unit icon, and on a light theme alike. Amber is also the one signal colour
+  // left unclaimed on this board — sky blue is facing, green is goto, blue is
+  // near, red is death.
+  const HOLD_SHIELD_COLORS = {
+    fill: "#ffca28",
+    line: "rgba(16, 20, 26, 0.9)",
+  };
+
+  // The badge itself: a heater shield — flat top, straight shoulders, flanks
+  // curving to a point — centred on (x, y) at `size` px across.
+  function drawHoldShield(ctx, x, y, size) {
+    const w = size * 0.86;
+    const halfW = w / 2;
+    const top = y - size / 2;
+    const bottom = y + size / 2;
+    const shoulder = top + size * 0.36;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x - halfW, top);
+    ctx.lineTo(x + halfW, top);
+    ctx.lineTo(x + halfW, shoulder);
+    ctx.quadraticCurveTo(x + halfW, bottom - size * 0.06, x, bottom);
+    ctx.quadraticCurveTo(x - halfW, bottom - size * 0.06, x - halfW, shoulder);
+    ctx.closePath();
+    ctx.fillStyle = HOLD_SHIELD_COLORS.fill;
+    ctx.fill();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(size * 0.12, 1.2);
+    ctx.strokeStyle = HOLD_SHIELD_COLORS.line;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Unit icons: custom-drawn marks (SVG path data in a 24×24 box) that stay
   // distinctive at ~20px, where the old Unicode chess glyphs blurred together.
   // Each icon is an ordered list of layers; a layer is either a filled shape
@@ -2508,6 +2583,12 @@ const BoardRenderer = (function () {
     // the staged rotation flag (pawn rotation badge) before the arrow block
     // reads the same map.
     const stagedMovesMap = options?.stagedMoves || {};
+    // Which units are under a standing HOLD order. Read from the SAME
+    // per-unit intent-mode map live play broadcasts and the per-turn command
+    // snapshot records (CommandTurnState.activeIntentModes), so the shield is
+    // drawn from server truth on both paths and a replayed turn shows exactly
+    // the units that were holding when it resolved.
+    const intentModesMap = options?.intentModes || {};
 
     // ONE body-information plan per unit, built before anything is written on
     // a body: the pass below paints it, and the tag pass asks the same object
@@ -2542,6 +2623,14 @@ const BoardRenderer = (function () {
           drawHeadGlyph(ctx, snake, hx, hy, cellSize, {
             stagedRotation: stagedForThisSnake?.rotation || null,
           });
+        }
+        // The hold badge last of the head-cell marks and OUTSIDE any cell
+        // clip: it deliberately floats above the cell. Driven by the intent
+        // map rather than by the unit's kind, so it says what the operator
+        // ordered, not what the unit could in principle be ordered.
+        if (intentModesMap[snake.id] === "hold") {
+          const at = holdShieldPlacement(hx, hy, cellSize, snake.orientation);
+          drawHoldShield(ctx, at.x, at.y, at.size);
         }
       }
 
@@ -4853,6 +4942,7 @@ const BoardRenderer = (function () {
     renderClashDetails,
     drawClashCellMark,
     drawClashCellHandle,
+    holdShieldPlacement,
   };
 })();
 

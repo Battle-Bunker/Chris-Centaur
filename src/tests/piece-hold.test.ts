@@ -17,7 +17,9 @@
  *  - the refusals: snakes, unselected units, dead units;
  *  - death: a unit gone from the canonical board loses its hold;
  *  - the command log: hold / unhold events with operator attribution, and the
- *    per-turn snapshot carrying the held set through activeIntentModes.
+ *    per-turn snapshot carrying the held set through activeIntentModes;
+ *  - the shield's placement geometry (src/web/board-renderer.js), the one
+ *    definition the live and replay draw paths share.
  *
  * Board: api 11x11 (full board 13x13 with the perimeter wall).
  */
@@ -355,5 +357,43 @@ describe('Hold command (ActiveGameManager.toggleHold)', () => {
     // stay must ride along with it in the same snapshot.
     expect(state.stagedMoves['R'].requestedMove).toBe(fullIdx({ x: 5, y: 5 }));
     expect(state.operators['R']).toMatchObject({ userId: 'u1', name: 'Alice' });
+  });
+});
+
+describe('Hold shield placement (src/web/board-renderer.js)', () => {
+  const BoardRenderer = require('../web/board-renderer.js');
+  const place = BoardRenderer.holdShieldPlacement as (
+    hx: number, hy: number, cellSize: number, orientation: { dx: number; dy: number } | null
+  ) => { x: number; y: number; size: number };
+
+  const CELL = 40;
+
+  test('the shield is centred on the head cell and sits clear ABOVE it', () => {
+    const at = place(200, 200, CELL, { dx: 0, dy: 1 });
+    expect(at.x).toBe(200 + CELL / 2);
+    // Wholly above the cell's top edge: centre plus half its height.
+    expect(at.y + at.size / 2).toBeLessThan(200);
+  });
+
+  test('it scales with the cell but never shrinks below a legible floor', () => {
+    expect(place(0, 400, 80, null).size).toBeCloseTo(32);
+    expect(place(0, 400, 10, null).size).toBe(10);
+  });
+
+  test('an upward-facing unit gets the badge lifted clear of its orientation eye', () => {
+    // The eye's brow bulges out of the FACED edge; facing up puts it exactly
+    // where the shield would otherwise sit, so the shield rises.
+    const up = place(200, 200, CELL, { dx: 0, dy: -1 });
+    const down = place(200, 200, CELL, { dx: 0, dy: 1 });
+    const knight = place(200, 200, CELL, { dx: 1, dy: -2 });
+    expect(up.y).toBeLessThan(down.y);
+    // A shallower upward facing needs proportionally less clearance.
+    expect(knight.y).toBeGreaterThan(up.y);
+    expect(knight.y).toBeLessThan(down.y);
+  });
+
+  test('a unit on the board top row keeps the whole badge on the canvas', () => {
+    const at = place(0, 0, CELL, { dx: 0, dy: -1 });
+    expect(at.y - at.size / 2).toBeGreaterThanOrEqual(0);
   });
 });

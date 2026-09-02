@@ -205,6 +205,9 @@
     .intent-mode-badge.mode-manual { background: #9c27b0; }
     .intent-mode-badge.mode-goto { background: #4CAF50; }
     .intent-mode-badge.mode-near { background: #1565c0; }
+    /* Amber, matching the on-board hold shield. Dark text: amber is too light
+       to carry white lettering at 11px. */
+    .intent-mode-badge.mode-hold { background: #ffca28; color: #1b1b1b; }
     .no-selection-msg {
       text-align: center; padding: 20px; color: #666; font-size: 14px;
     }
@@ -568,7 +571,7 @@
             <dt>opposite key</dt>
             <dd>Retracts one square per press, through hold and out the other side &mdash; crossing hold flips the axis to the direction of travel.</dd>
             <dt><kbd>5</kbd></dt>
-            <dd><b>Hold</b> (no change): selects the stay candidate and resets the axis to the unit&rsquo;s own orientation.</dd>
+            <dd><b>Hold</b> (no change): selects the stay candidate and resets the axis to the unit&rsquo;s own orientation. This is a candidate for <em>this</em> turn; <kbd>H</kbd> below makes standing still a standing order.</dd>
             <dt>pawns</dt>
             <dd><kbd>7</kbd>/<kbd>9</kbd> diagonal-forward, <kbd>4</kbd>/<kbd>6</kbd> rotate, <kbd>8</kbd> forward, <kbd>2</kbd> retract to hold.</dd>
           </dl>
@@ -578,6 +581,8 @@
         <div class="shortcuts-group">
           <h3>Commanding a unit</h3>
           <dl>
+            <dt><kbd>H</kbd></dt>
+            <dd><b>Hold</b> &mdash; the selected unit stands its ground: it stages a stay every turn, outranking the engine, until you press <kbd>H</kbd> again, clear its commands, or give it another one. A <b>shield above its head</b> marks it, live and in replay. Moving costs health and standing still does not, so this is how a piece with nothing worth reaching stops paying for pointless steps. Chess pieces only &mdash; a snake&rsquo;s head has to vacate its square every turn, so it cannot hold.</dd>
             <dt><kbd>Del</kbd></dt>
             <dd><b>Clear every command</b> given to the selected unit &mdash; staged move, goto queue, near target, staged rotation &mdash; reverting it to no human input at all. It then does whatever no input means for it (a snake follows the bot; a piece holds).</dd>
             <dt>Right-click</dt>
@@ -1354,6 +1359,26 @@
             : 'Please enter a valid name.');
           break;
 
+        case 'toggle-hold-result': {
+          // The server owns every hold rule; this only names the outcome. A
+          // refusal is worth saying out loud — pressing h on a snake looks
+          // exactly like pressing it on a piece until something answers.
+          const REASONS = {
+            'cannot-hold': 'Only chess pieces can hold \u2014 a snake must move every turn',
+            'not-selected': 'Select the unit before holding it',
+            'dead': 'That unit is gone \u2014 nothing left to hold',
+            'unknown-unit': 'Unknown unit',
+          };
+          if (msg.ok) {
+            showBannerNotice(msg.held
+              ? 'Holding \u2014 this unit stands still until you lift it'
+              : 'Hold lifted \u2014 back to no human input');
+          } else {
+            showBannerNotice(REASONS[msg.reason] || 'Cannot hold that unit');
+          }
+          break;
+        }
+
         case 'game-subscribed':
           myColor = msg.userColor || '#888888';
           if (msg.playerName) {
@@ -1887,6 +1912,7 @@
         manual: 'Manual',
         goto: 'Goto',
         near: 'Near',
+        hold: 'Hold',
       };
       badge.textContent = labels[mode] || 'Heuristic';
       badge.className = `intent-mode-badge mode-${mode}`;
@@ -2013,6 +2039,9 @@
         // the same pointer the cursor shape is already answering.
         clashHoverCell: clashHoverCell,
         stagedMoves: stagedMoves,
+        // Standing-order state per unit: the renderer reads 'hold' out of it
+        // to draw the shield above a held unit's head.
+        intentModes: activeIntentModes,
         previousBoard: previousGameState?.board || null,
         // Authoritative per-snake moves from the engine → solid death heads.
         lastMoves: currentGameState?.lastMoves || null,
@@ -2145,7 +2174,7 @@
           (label
             ? `Selected <b>${escapeHtml(label)}</b> \u2014 press <kbd>Space</kbd> to stage it.`
             : 'Pick a destination on the board, or steer with the arrow pad / numpad, then <kbd>Space</kbd> to stage.') +
-          ' <kbd>Del</kbd> clears every command. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
+          ' <kbd>H</kbd> holds position, <kbd>Del</kbd> clears every command. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
         );
       }
 
@@ -3196,6 +3225,29 @@
       showBannerNotice('Commands cleared \u2014 back to no human input');
     }
 
+    // ── Hold ────────────────────────────────────────────────────────────────
+    // Toggle the standing "stand still" order on the units the operator has
+    // selected. Written over a LIST because that is what the command means —
+    // apply it to each eligible unit and leave the rest alone — even though
+    // this page's selection model holds one unit at a time; when it grows a
+    // multi-select there is nothing here to revisit.
+    //
+    // No eligibility test lives here on purpose. Whether a unit can hold, and
+    // whether this operator may command it, is the server's answer
+    // (ActiveGameManager.toggleHold), which replies per unit with the reason
+    // it refused; a second copy of that rule on the client could only drift
+    // from it. Ineligible units therefore cost one message and produce one
+    // status line, which is exactly the "ignore the rest, say so briefly"
+    // behaviour asked of it.
+    function toggleHold(snakeIds) {
+      const ids = (snakeIds || []).filter(Boolean);
+      if (ids.length === 0) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      for (const snakeId of ids) {
+        ws.send(JSON.stringify({ type: 'toggle-hold', snakeId }));
+      }
+    }
+
     document.addEventListener('keydown', (e) => {
       // Ctrl+/ is global: it works with a text field focused, over a dialog,
       // in history mode, and while the pane itself is open (it closes it).
@@ -3303,6 +3355,17 @@
       if (e.key === 'Delete') {
         e.preventDefault();
         if (selectedSnakeId) clearHumanInput(selectedSnakeId);
+        return;
+      }
+
+      // h: toggle the standing hold order. Above the moveSubmitted gate for
+      // the same reason Delete is — hold is not a move for this turn, it is a
+      // standing order that governs every turn after it, so a turn already
+      // committed is no reason to refuse it. Bare key, no modifier, so a
+      // browser/OS chord (Ctrl+H, Cmd+H) still belongs to the browser.
+      if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleHold([selectedSnakeId]);
         return;
       }
 
@@ -4653,6 +4716,9 @@
         deathCells: turn.game_state?.deathCells || null,
         fatalConsented: !!(own && own.fatal_consent),
         stagedMoves: cmd ? cmd.stagedMoves : null,
+        // The recorded hold set for this turn — the same map, from the same
+        // snapshot, so a replayed hold draws the identical shield.
+        intentModes: cmd ? cmd.activeIntentModes : null,
         owners: cmd ? cmd.owners : null,
         // Unit tags render here through the same shared path as live play;
         // both hover inputs + the Alt-tap display mode apply identically.
@@ -4841,6 +4907,8 @@
         const cell = cmd.waypoints && cmd.waypoints[snakeId] && cmd.waypoints[snakeId].cells
           ? cmd.waypoints[snakeId].cells[0] : null;
         label = cell ? `near (${cell.x},${cell.y})` : 'near';
+      } else if (mode === 'hold') {
+        label = 'hold';
       } else if (mode === 'manual') {
         const staged = cmd.stagedMoves && cmd.stagedMoves[snakeId];
         let moveLabel = staged && staged.requestedMove != null ? staged.requestedMove : null;
