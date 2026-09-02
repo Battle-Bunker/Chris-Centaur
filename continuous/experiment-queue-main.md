@@ -297,3 +297,10 @@
       record (runner-up plan, deciding rung, margin) for top-k on every
       decision — one column, three consumers (Centaur contrastive surface,
       P(flip) for the hypothesis market, M2 point-of-comparison spread).
+- [UPGRADE] restrictedGap (S0) is now FREE, not cheap: bank B2 already
+      computes the full payoff row per priced plan and keeps only the min —
+      retention change + ~40 lines of regret-matching+, zero new
+      resolutions. Measures three things: rowSupport (retires or funds the
+      mixed direction), restrictedGap in weight units (prices passivity),
+      colSupport (unlocks sound witness pruning → fixes the late-turn
+      price() cost growth / operator-latency drift, W-1).
