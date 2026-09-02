@@ -7,7 +7,8 @@
  * END VENDORED HEADER
  */
 
-import { ActiveEffect } from "@shared/types/Game"
+import { ActiveEffect, UnitType } from "@shared/types/Game"
+import { Orientation, toXY } from "./moveGrammar"
 import { ResolveTurnInput, TurnResolution, resolveTurn } from "./resolveTurn"
 
 /**
@@ -36,8 +37,7 @@ import { ResolveTurnInput, TurnResolution, resolveTurn } from "./resolveTurn"
  *
  * Still deliberately absent, because they need state this module does not
  * carry: SPAWNING food, hazards and potions (all random — collection is a
- * rule, spawning is a die roll); the orientation rewrite; pawn promotion;
- * scoring, winners and MMR; anything Firestore.
+ * rule, spawning is a die roll); scoring, winners and MMR; anything Firestore.
  */
 
 export interface SettleInput extends ResolveTurnInput {
@@ -63,6 +63,12 @@ export interface SettleInput extends ResolveTurnInput {
    * It is a number now, so the sweep is a config change on both sides.
    */
   readonly potionWindowTurns: number
+
+  /**
+   * The weight at which a pawn becomes a queen. Reached, and the pawn's stack
+   * collapses to the single square it stands on.
+   */
+  readonly pawnPromotionWeight: number
 }
 
 /** The window a setup that names none plays with. */
@@ -81,6 +87,21 @@ export interface Settlement extends TurnResolution {
   tiers: { [unitID: string]: number }
   /** Potion cells still on the board once every collector has taken one. */
   potions: number[]
+  /**
+   * Facing as the turn closed, survivors only — the dead drop out of the map
+   * rather than lingering in it. A caller that keeps its own copy of the
+   * previous turn's facings and patches it is writing the rule twice; take
+   * this map whole, as the server does.
+   */
+  orientation: { [unitID: string]: Orientation }
+  /**
+   * Kind per surviving unit as the turn closed — promotion applied. The only
+   * kind change in the game, and the reason a caller cannot treat the kinds it
+   * sent in as still current when the next turn opens.
+   */
+  unitTypes: { [unitID: string]: UnitType }
+  /** Units that promoted this turn, for anything that wants to announce it. */
+  promoted: string[]
 }
 
 export const settleTurn = (input: SettleInput): Settlement => {
@@ -176,5 +197,68 @@ export const settleTurn = (input: SettleInput): Settlement => {
     effects = effects.filter((e) => alive.has(e.playerID))
   }
 
-  return { ...resolution, effects, tiers, potions }
+  // 4. Orientation, rewritten from the units still standing — which is why it
+  // runs here, after every phase that can kill: the map holds exactly the
+  // board, and the dead take their facing off it with them. A unit that moved
+  // faces the direction of its FIRST step: sliders and kings the unit step
+  // (e.g. {1,0}, {1,1}), knights their exact L-offset (e.g. {1,-2}) since
+  // signing one would collapse every jump to a diagonal, trail units head
+  // minus the cell the head left — which is why the origin square is read off
+  // the unit's start-of-turn occupancy rather than its body, so the rule holds
+  // for a snake severed down to its head or one that grew this turn. Pawns are
+  // the exception: they change facing ONLY through their rotation action, so a
+  // pawn that walked diagonally forward still points the way it pointed.
+  // Units that held keep what they had.
+  const orientation: { [unitID: string]: Orientation } = {}
+  input.units.forEach((u) => {
+    if (!alive.has(u.id)) return
+    orientation[u.id] = resolution.rotations[u.id] ?? u.orientation
+    if (u.type === "pawn") return
+
+    const traversed = resolution.traversed[u.id]
+    if (!traversed || traversed.length === 0) return // held
+    const from = u.occupancy[0]
+    const to = traversed[0]
+    if (from === to) return
+
+    const f = toXY(from, input.boardWidth)
+    const t = toXY(to, input.boardWidth)
+    const dx = t.x - f.x
+    const dy = t.y - f.y
+    orientation[u.id] =
+      u.type === "knight" ? { dx, dy } : { dx: Math.sign(dx), dy: Math.sign(dy) }
+  })
+
+  // 5. Promotion, last of all. A pawn that reached the configured weight
+  // becomes a queen: after the food phase, so a pawn that ATE its way to the
+  // threshold promotes on the very turn it did, and after the orientation
+  // rewrite, so it was still a pawn when its facing was decided and kept it.
+  // Promotion trades the accumulated mass for the queen's mobility — the
+  // stack collapses to the single square the unit occupies, weight 1 and
+  // never 0, so nothing is ever eliminated by promoting; only its score
+  // drops. A promoted pawn may also be carrying more health than a queen is
+  // allowed, so it is clamped to the queen's max; nothing else in settlement
+  // touches health.
+  //
+  // A piece's occupancy is N copies of ONE square, never a body, so the
+  // collapse frees no cell. That is what lets a caller run its own item
+  // spawning after settlement, as the server does, and still see the same
+  // free-cell set it would have seen before.
+  const unitTypes: { [unitID: string]: UnitType } = {}
+  const promoted: string[] = []
+  const queenMaxHealth = input.maxHealth?.queen ?? input.defaultMaxHealth ?? 100
+  input.units.forEach((u) => {
+    if (!alive.has(u.id)) return
+    unitTypes[u.id] = u.type
+    const settled = resolution.board[u.id]
+    if (!settled) return
+    if (u.type !== "pawn" || settled.occupancy.length < input.pawnPromotionWeight) return
+
+    unitTypes[u.id] = "queen"
+    promoted.push(u.id)
+    settled.occupancy = [settled.occupancy[0]]
+    if (settled.health > queenMaxHealth) settled.health = queenMaxHealth
+  })
+
+  return { ...resolution, effects, tiers, potions, orientation, unitTypes, promoted }
 }

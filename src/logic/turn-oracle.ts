@@ -46,6 +46,7 @@
  * numbers come from a fully-resolved real turn either way.
  */
 
+import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
 import { Board, Coord, Snake } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { TeamDetector } from './team-detector';
@@ -190,6 +191,8 @@ export interface MarshalledBoard {
   potionsEnabled: boolean;
   /** GameSetup.invulnerabilityPotionWindowTurns, or the engine's default. */
   potionWindowTurns: number;
+  /** Meals a pawn needs to promote; settlement promotes at this weight. */
+  pawnPromotionWeight: number;
   /**
    * Per unit, PARALLEL TO `units`: the first absolute turn at which the unit's
    * tier no longer governs a contest, or null when the wire carries no effect
@@ -328,6 +331,7 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     effects,
     potionsEnabled: board.invulnerabilityPotionsEnabled ?? potions.length > 0,
     potionWindowTurns: board.invulnerabilityPotionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS,
+    pawnPromotionWeight: board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT,
     tierExpiry,
     startWeight,
     startHealth,
@@ -522,6 +526,7 @@ export function resolvePartialTurn(
     potions: offered,
     potionsEnabled: marshalled.potionsEnabled,
     potionWindowTurns: marshalled.potionWindowTurns,
+    pawnPromotionWeight: marshalled.pawnPromotionWeight,
   });
   result.potions.push(...withheld);
 

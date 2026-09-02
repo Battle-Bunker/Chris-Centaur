@@ -831,6 +831,7 @@ export class EngineSubstrate implements Substrate {
       potions: [collector.cells[0] as number],
       potionsEnabled: m.potionsEnabled,
       potionWindowTurns: m.potionWindowTurns,
+      pawnPromotionWeight: m.pawnPromotionWeight,
     });
 
     const out = new Map<UnitId, number>();
