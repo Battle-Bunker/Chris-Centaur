@@ -20,6 +20,8 @@ check.
 | the potion term's support is rare | a potion at a legal destination on **8.17%** of unit-decisions | value lens, `23` | ~92% of that null is a zero no weight can scale |
 | the interior fold is complete; the residual is at the boundary | 0.00% attribution gap; game-length dependence **+0.969** in the residual | value lens, `16` | |
 | four reduction/ratchet mechanisms never fire | **0 in 192 games** | value lens, `23` | Law R's first exhibit |
+| the declared config space is largely unexercised | **6 of 41** coordinates set in an emitted spec; 13 of 41 named anywhere; **28 never named outside their own definition** | this lens, `36` | counts the recorded corpus, not command-line arms nobody wrote down |
+| the validator key-checks one of three nested objects | **30 of 42 leaves (71%)** accept an arbitrary key and an arbitrary type | this lens, `36` | run against the shipped `botConfigFromJson`, not read |
 
 ## 2. Verified against source (not measured — read)
 
@@ -35,6 +37,10 @@ check.
 | both reduced-product operands ship | `grammar.ts` `colourBound`; `bank.ts`'s "parity-exact" argument |
 | a `no-restricted-imports` ban exists and **does not fire** | shadowed by a later flat-config block; recorded, still open |
 | `colourBound` (bishop-only exact narrowing) has **never run in a measured game** | bishop appears in 0 batch specs; Law R's runtime clause would flag it |
+| the slate socket's alternative has **never been in an arm** | `slate` appears in zero specs and zero kit files; `'potion-aware'` is referenced only by the registry that defines it and its own tests |
+| the ledger contradicts the code on whether `clusterEnum` is selectable | ledger row says "NOT SELECTABLE… a hard error"; `botConfigFromJson` accepts `search.clusterEnum` — verified by execution |
+| the ledger records a coordinate `BotConfig` does not contain | row `TERRITORY_SLIDER_PROFILE` names `TeamDecisionOptions.evaluate` — the second channel found in cycle 2 |
+| an arm's treatment is prose, and the tutorial is the same syntax | `bot={"territoryRefine":true}` occurs in four batch-2 specs: the arm in one, the copy-pasted instruction example in three |
 
 ## 3. Assumed — and what would refute each
 
