@@ -1,7 +1,6 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { aggregateExpiryTurn } from '../firebase/translate';
 import { isPieceUnit } from './piece-threats';
-import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
 import { StagedAction, marshalBoard, resolvePartialTurn } from './turn-oracle';
 
 // MoveSet type definition (previously from move-enumerator)
