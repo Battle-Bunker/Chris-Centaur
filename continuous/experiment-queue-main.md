@@ -304,3 +304,10 @@
       mixed direction), restrictedGap in weight units (prices passivity),
       colSupport (unlocks sound witness pruning → fixes the late-turn
       price() cost growth / operator-latency drift, W-1).
+- [ ] VBS−SBS gap (librarian C42 — THE falsifier for the joints
+      architecture, never run, on-disk): SBS = best-aggregate arm; VBS =
+      per-scenario best arm averaged. Large gap = quantitative case for the
+      whole member-selection architecture + per-joint decomposition ranks
+      the build increments; small gap = architecture must be pitched on
+      hygiene, not strength. Complementary to Nash averaging (redundancy vs
+      complementarity). One script.
