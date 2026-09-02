@@ -283,3 +283,17 @@
 - [ ] C13 incrementalisability check (no games): fraction of fold terms
       changing when exactly one unit's action is determined — decides
       whether citation-scoping can pay on whole-board (K,W,p) coefficients.
+- [ ] NASH AVERAGING over the arm population (Balduzzi et al. '18; librarian
+      C28-30): build the arm-vs-arm antisymmetric payoff matrix from
+      existing replays, take maxent Nash — mass concentration = a NUMBER for
+      lineage redundancy (ruling 49's published instrument). Plus the
+      transitive/cyclic Schur decomposition: if the cyclic fraction is
+      non-negligible, "which bot is better" is ill-posed over our roster and
+      rosters must be MIXTURES (production one-bot binding becomes a
+      blocker, not a gap). Singular values answer "what does this cell
+      test" (would have flagged the dead knight cell automatically).
+      Precedent: Atari "superhuman" REVERSED under Nash averaging.
+- [ ] Contrastive foil column (librarian C32, cheapest high-value item):
+      record (runner-up plan, deciding rung, margin) for top-k on every
+      decision — one column, three consumers (Centaur contrastive surface,
+      P(flip) for the hypothesis market, M2 point-of-comparison spread).
