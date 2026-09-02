@@ -261,3 +261,12 @@
 - [ ] Adjudication split contested-vs-quiet: floorDecided/estDecided/
       ceilingDecided/tieKeyDecided by cell class — tests "saturated maximin
       floor carries no ordering info on contested cells" for free.
+- [ ] B-3' odometer-prefix fix + falsifier (search lens doc 04): scout
+      scoreOptions enumerates a contiguous odometer prefix, pinning all but
+      the last unit at the generator's first option — degenerate exactly on
+      slider boards; ~15-line round-robin single-unit fix is CHEAPER for
+      ≤3 members. Falsifier: fixed slider-board scenario set, compare
+      argmaxMoved/estSpread per ply, both versions.
+- [ ] B-4 free alpha-beta cut: worstHi<=bestLo row cut in scoreOptions —
+      sound, changes no published value, converts directly to more plies
+      at the same tithe. Per-row theirCoverage reporting required.
