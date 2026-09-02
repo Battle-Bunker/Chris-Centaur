@@ -117,9 +117,15 @@ a counter taxonomy, both cheap:
   rot, and each rule's coverage is individually recoverable at the price
   of one published field.
 
-## Optional TacticToes polish (additive, non-blocking)
+## TacticToes asks (amended per rollup fold §4 — localization promoted)
 
-`Turn.subStepCount`, `Turn.exhaustions` (settled events verbatim), and a
-`Turn.stateDigest` (hash of occupancy+health in a declared order) — the
-digest turns the checksum into one string compare and gives the fog
-programme a redactable integrity anchor. None of it gates any increment.
+Still additive, but no longer uniformly "polish": `Turn.subStepCount` AND
+per-sub-step digests are PROMOTED to the replay-rebase increment's
+engine-ask list — a per-turn checksum detects divergence but cannot
+localize it, and GGPO's named desync causes (unordered-collection
+iteration first) are this path's hazards verbatim; a divergence that
+names its sub-step names its adjudication tier. Remaining true polish:
+`Turn.exhaustions` (settled events verbatim) and a whole-turn
+`stateDigest` (one string compare; a redactable integrity anchor for the
+fog programme). None of it BLOCKS any increment — the marshal fallback
+stands either way.

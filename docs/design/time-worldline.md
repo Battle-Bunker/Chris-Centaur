@@ -379,6 +379,16 @@ nothing else.** Consequences, in order of value:
    change mid-season, or a mid-turn reveal) needs a variables-determined
    list and nothing else; no handler taxonomy grows.
 
+**EXECUTION AMENDED — LAZY (rollup fold §1–§3):** the verdicts below are
+unchanged, but observe() no longer applies them eagerly: it appends the
+determination and marks dirty along the durability index (O(edges));
+verification runs on demand with hash-based early cutoff (ReadSet gains a
+per-edge `valueHash`, rollup fold §2), and the synchronous slice of a
+re-base is quanta-capped with overflow degrading to lazy verification
+(§3 — GGPO caps its rollback; our quarantine lets the cap degrade
+gracefully instead of stalling). Conform-now remains eager: it is a
+demand arriving immediately after the commit.
+
 **The third verdict — NARROWED (belief-lens fill, their 11-doc Part B,
 adopted as a theorem, not a policy).** The law as first drafted was
 binary: a variable is determined (citing state dies) or untouched (state

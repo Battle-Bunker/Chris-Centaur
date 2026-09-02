@@ -81,6 +81,12 @@ increment 2's ledger schema.
 - **Every CPP is keyed on evalVersion** (M48): saturation is a property
   of the evaluator; profile reuse across evaluators is a silent premise
   crossing, and the coordinate already exists in the declaration record.
+  ASSERTED, not documented (rollup fold §8, the metamorphic
+  hypothesis-assertion pattern): the profile READER refuses on
+  `consumer.evalVersion !== profile.evalVersion` — a stale curve can
+  never silently price a re-dialed bot, and the first evaluator change
+  trips the assertion loudly instead of degrading every consumer's
+  numbers quietly.
 
 ## 3. Quality, scored two ways (both reported, neither alone)
 
