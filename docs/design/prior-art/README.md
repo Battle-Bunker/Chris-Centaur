@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Forty-eight domains, surveyed against the four lens syntheses as they stood at
+Forty-nine domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -48,6 +48,7 @@ finding by whose design it changes. This index is organised by domain.
 | 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | 27 | few-run statistics — what to report when you cannot afford many games | `27-few-run-statistics.md` |
 | 28 | fitting a stochastic choice model to a deterministic agent — the V-alignment meter needs an order statistic | `28-fitting-a-stochastic-model-to-a-deterministic-agent.md` |
+| 49 | answering the guidance lens's residue — **two of three are covered, and one says do not want an exchange rate** | `49-answering-the-guidance-lenss-residue.md` |
 | 48 | response to the red team — **R-5 has an airtight exemption, C59 is dead, and the algebra has a fourth operation** | `48-response-to-the-red-team.md` |
 | **47** | **THE FOURTEEN LAWS ARE THREE DISCIPLINES** — the survey's second synthesis document, and the taxonomy finds two gaps (**R-15**) | `47-the-fourteen-laws-are-three-disciplines.md` |
 | **46** | **determinization — the two pathologies, three measurable properties, and R-14: ONE parameter decides whether more search helps** | `46-determinization-and-the-one-parameter.md` |

@@ -2209,3 +2209,95 @@ found the basis ambiguity in d38's code reading without recognising it as the
 documents' ambiguity. At forty-eight domains **that is structural rather than
 careless** — an argument for d47's law map, and against adding further domains
 without cross-checking the earlier claims they bear on.
+
+---
+
+**OPERATOR-GUIDANCE — domain 49: answering your residue** (`04-PRIOR-ART` §8, @
+`90fd424`). You listed three things you searched for and did not find. **Two are
+covered, one of them by a result saying you should not want what you were looking
+for; the third is partly covered by this survey's own domains and partly stands as
+genuinely yours.**
+
+**Residue 1 (simultaneous-move floors under guidance) — half covered, and it is the
+half you needed.** **Devlin & Kudenko, AAMAS 2011**: *potential-based reward shaping
+does not alter the Nash equilibria of a stochastic game — only the exploration of
+the shaped agent.* So Ng's guarantee generalises past MDP argmax, and what is
+preserved is **the equilibrium set** — which is exactly the object d1's **C1** says
+our zero point is (the stage game's NE, not a scalar security level). **A
+potential-shaped guidance payload provably cannot move it**: the strongest available
+statement of A0 purity at the value layer, and a theorem rather than a design
+intention. Their second result — shaping of this form **cannot be reduced to
+parameter initialisation** (contra Wiewiora) — refutes *"it is just a warm start"* by
+citation, which is the natural objection to A0's separateness.
+
+  **The Γ-maximin / widen-only half genuinely stands as yours.** Γ-maximin is a
+  decision rule over a credal set, not an equilibrium concept, and Devlin & Kudenko
+  say nothing about it. Nearest external constraint: d3's **C12** — Γ-maximin's
+  optimal set **does not shrink as beliefs sharpen** — which limits what guidance
+  can achieve through a floor at all, and belongs in the A2 discussion even though it
+  is not the precedent you wanted.
+
+**Residue 2 (two currencies, no exchange rate) — there IS a literature, and its
+answer is that you should not want an exchange rate.** Three pieces that compose
+into a design:
+  - **DRF** (Ghodsi, Zaharia, Hindman, Konwinski, Shenker & Stoica, NSDI 2011)
+    exists *precisely* for **non-substitutable** resource types with no exchange
+    rate: it generalises max-min fairness by allocating on each consumer's
+    **dominant share**, under four axioms — sharing incentive, **strategy-proofness**
+    (*a consumer cannot increase its allocation by lying about its requirements*),
+    envy-freeness, Pareto efficiency. **Strategy-proofness is the one that bears on
+    your surface tithe** (d43 §7.3): a **fixed** partition share is safe against
+    misreporting *because it ignores demand*, and therefore cannot let a quiet member
+    lend its share to a loud one. The moment the tithe becomes demand-responsive,
+    members have an incentive to overstate — and **DRF is the known allocation that
+    is both demand-responsive and strategy-proof without an exchange rate.**
+  - **The ε-constraint form** (d24), which you already have and may not have
+    connected: a weighted sum of two objectives reaches only the **convex hull** of
+    the Pareto front; **fix one resource as a constraint and optimise the other**
+    reaches all of it. So: **attention is the constraint, compute is optimised inside
+    it**, and no exchange rate is ever formed.
+  - **R-15** (d47) supplies the window — *hold a set-level quantity as a constraint
+    over a window, measure it there, optimise inside it* — and **d44's C90** supplies
+    the statistic: the surfaced set's **PPV**, a portfolio property that collapses the
+    channel when it drifts.
+
+  **In one line:** *the attention currency is a windowed constraint, not a priced
+  good; compute is optimised subject to it; and if the constraint must be shared on
+  demand rather than by fixed share, DRF's dominant-share rule does it
+  strategy-proofly without inventing an exchange rate.* **The ECONOMY law does not
+  have to stand on the programme's own argument alone.**
+
+**Residue 3 (guidance provenance as premise coordinates) — partly covered, and the
+covered part contains a one-way door.** `guidanceId` is a **provenance token** in
+d38's technical sense: annotate an input, propagate it with the two operations, and
+*"which of these numbers did the operator influence, and how"* becomes a **query**.
+**The universality theorem is the actionable part** — annotate **with structure**
+now, because every coarser reading (influenced-at-all / how-much / by-which) is a
+**homomorphic image computable later**, whereas collapsing to a boolean
+"operator-touched" flag is **irreversible**. Much cheaper to get right before the
+field exists than after.
+
+  And d43's **C88** says *why* it must be measurable and supplies the missing half.
+  Your observation that the human-guidance literature *"mostly laments lacking"* this
+  is right, and the reason is instructive: **measuring influence requires the
+  counterfactual**, and the counterfactual only exists if something was withheld at
+  random. **The token records that guidance was used; only the randomised holdout
+  says what would have happened otherwise.** Two mechanisms, and you need both.
+
+  **What stands as genuinely yours**: guidance provenance as a **coordinate of the
+  premise index** rather than an annotation on a value. Neither domain says that, and
+  it is right under d29's surviving core (*do not build a seventh parallel key;
+  extend the one index*) — and it inherits **d48's amendment**: earn the coordinate's
+  seat with a **recorded witness**, which for guidance is easy to produce.
+
+**`[+]` Your §6 correction is right and has two independent supports.** *"Bounty-only
+guidance changes work distribution, never a staged plan — that is true only past
+saturation"* is the same statement as **d45's C93** (under a finite budget, *where*
+you spend **is** *what* you compute — a depth-`d` search run every `d` moves is the
+same compute rearranged) and is something a **shipped engine relies on** (**d37's
+`highBestMoveEffort`** reads the share of nodes spent under the incumbent as a
+stopping signal). So it is not merely a theoretical concession. And your per-stratum
+restatement — byte-identity on saturated cells, work-shift plus emit-record on
+starved ones — is **R-11's discipline applied to a falsifier**: worth naming as such,
+because a falsifier that holds only on one stratum will otherwise be quoted as
+holding everywhere.
