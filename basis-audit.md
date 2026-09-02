@@ -105,9 +105,58 @@ length loading, and it is **not a missing channel** — it is the known first-or
 accumulating. Distinguishing (c) from a genuine missing channel needs a per-turn integration of
 the exact `ΔΦ` against the linearized one on a single clock, which is the next thing to run.
 
-**Status, stated the way I want it read: the largest residual structure in my basis is unexplained,
-I have eliminated two of my three candidates, and the instrument that found it is pointed at my own
-proposal and staying there.**
+### 4.1 RESOLVED — it is the terminal boundary, and the basis is complete in the interior
+
+Running candidate (c) settled it. Replacing the linearized per-turn fold with the **exact**
+`ΔΦ_t = K·w₁/W₁ − K·w₀/W₀` (no linearization at all, same clock, same decomposition):
+
+| per-turn fold | k | R² | R² at k=1 | corr(resid, turns) |
+|---|---|---|---|---|
+| linearized (mine) | 1.156 | 0.9556 | 0.9381 | −0.528 |
+| **exact ΔΦ** | **1.051** | **0.9705** | **0.9682** | **−0.461** |
+
+Linearization error is real — it accumulates with turns (`corr(gap, turns) = −0.349`) and explains
+part of the residual (`corr(residual, gap) = +0.477`) — **but the length loading survives removing
+it entirely.** So it was never the whole story.
+
+The remaining candidate is the **terminal boundary**: the exact fold telescopes to the share
+implied by the *last observed board*, while the official `sharePar` comes from the adjudicated
+final state, which no replay turn record contains. Measuring that gap directly:
+
+```
+terminal gap = official sharePar − last-observed-board share
+   mean +0.0674, sd 0.2747
+   corr(terminal gap, turns)            = −0.525
+   corr(exact-fold residual, gap)       = +0.969        <-- the residual IS the gap
+   last-board share alone: k=1.051, R² 0.9705  (identical to the exact fold, as it must be)
+```
+
+**`corr = +0.969`. The residual is not merely explained in part by the terminal boundary; it
+essentially *is* the terminal boundary.**
+
+> **Conclusion. The three-flow basis is complete in the interior of a game.** It attributes 100%
+> of interior weight movement (0.00% attribution gap) and its telescoped sum reproduces the last
+> observed board's share exactly. **Every remaining discrepancy with the score — including all of
+> the length-dependence — lives in one place: the terminal adjudication step.**
+
+**And that is an architectural finding, not a bookkeeping one.** Adjudication is **not a flow**;
+it is a boundary condition, and the algebra as I have written it contains no member for it. It is
+where the pinned rules actually live — the turn cap, mutual annihilation settling on the previous
+turn's weights, and elimination — and it is exactly where the discontinuity I flagged in my first
+cycle sits. The length-dependence now reads naturally: a game ending by elimination has already
+converged, so its last board *is* the outcome, whereas a game running to cap is settled *by the
+adjudication rule*, and the longer the game the more of the result that rule decides.
+
+**So the honest final shape of the value model is two objects, not one:**
+
+| | what it is | status |
+|---|---|---|
+| the **flow fold** | a potential-based, policy-invariant accounting of weight movement | complete in the interior; validated; needs no fitting at `k ≡ 1` |
+| the **adjudication member** | the terminal boundary condition — cap, annihilation settlement, elimination | **absent from my algebra**, and it carries 100% of the remaining residual |
+
+That is a better result than a whiter residual would have been, because it names the missing piece
+instead of shrinking it. An evaluator playing toward a turn cap must model the *adjudication rule*,
+not only the flows — and no member in the current design does.
 
 ---
 

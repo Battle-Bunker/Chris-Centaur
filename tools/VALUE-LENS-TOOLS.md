@@ -37,3 +37,21 @@ pre-registration in the git history can be reproduced.
 python3 mine15.py          # the three-channel fold: k=1.227, R^2=0.970
 python3 forecast-rook3.py  # the out-of-sample test, once rl5 has games
 ```
+
+## Cycle 4-5 additions (clock-corrected; prefer these over mine9-15)
+
+| script | produces |
+|---|---|
+| `mine17.py` | residual-structure test (epistemics red team's prescription) — **mixed clocks, superseded** |
+| `mine18.py` | deaths-vs-deaths+severs basis comparison — **mixed clocks, superseded** |
+| `mine19.py` | exact vs linearized fold, team level |
+| `mine20.py` | **the attribution audit that caught the clock bug** (alternating ±1 signature) |
+| `mine21.py` | **basis test on ONE clock** — 0.00% attribution gap; sever loading −0.409 → +0.063 |
+| `mine22.py` | horizon weighting (rejected: moves the loading, costs more fit) |
+| `mine23.py` | elimination-discontinuity test (rejected: length survives the control) |
+| `mine24.py` | exact ΔΦ vs linearized on one clock — linearization error is real but not sufficient |
+| `mine25.py` | **the resolution**: corr(residual, terminal gap) = +0.969 |
+
+**Clock rule for any new script:** `standings[t] == board[t+1]`. Read `W`, `p`, gains and losses
+from ONE of them, never both. `events[t]` resolve `board[t] → board[t+1]`. Assert the conservation
+check (`mine20`/`mine21`'s 0.00% gap) inside any new extraction before trusting its output.
