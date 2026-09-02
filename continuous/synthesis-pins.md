@@ -4330,3 +4330,14 @@ record; coordinator relays only what genuinely cannot wait.
   discharged. 33-CANDIDATE-LIFECYCLE + 34-BUILD-ORDER landed: the
   consolidated build order across all five lens increment lists exists.
   Spec-then-run with zero amendment — first time in the sketch's life.
+- Propensity/holdout co-adopted (outbound @ 17 commits,
+  13-PROPENSITY-AND-HOLDOUT.md): FrameLedger with per-eligible-item
+  P(surfaced) ships with the FIRST frame (O1 obligation); two budget-
+  charged epsilons (offer + ask-boundary), ledger-seeded replay-exact
+  draws; holdout renders identically (exposure variation, not
+  disclosure); standing rule: a selection-affected outcome row without
+  its propensity column is REFUSED by every fitter (miner-refuse
+  extended from schemas to EXPOSURE); fit provenance names the exposure
+  model (policyId+epsilons) so fits refuse silent transport across
+  selection policies. Override ledger IPS-corrected. Second scale:
+  the owner-brief selector logs the same record.
