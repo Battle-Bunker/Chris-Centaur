@@ -204,6 +204,87 @@ Three things make this worth fixing rather than noting:
 > currently derive the same partition twice (`openMultiStart` and `openCluster`
 > both call `partitionOf`) and then use it in opposite orders.
 
+### 2b¾. Finding P-9: the sample count is sized from TIME and never from the size of the space
+
+`multiStartSeed` sizes each group's sample count like this:
+
+```ts
+const totalEvals   = Math.max(1, Math.round(req.budgetMs * tuning.evalsPerMs))
+const perSample    = 1 + tuning.climbSteps * optionSlots
+const share        = Math.floor((totalEvals * vars.length) / units.length / perSample)
+const budgetSamples = Math.min(tuning.maxSamples, Math.max(tuning.minSamples, share))
+```
+
+There is **no term for how many distinct assignments the group actually has.**
+The pool de-duplicates on `comboKey` and `admit` early-returns on a repeat, so
+once the pool holds every distinct combo, every further sample is drawn,
+climbed, scored — and discarded.
+
+The group's distinct-combo count is exactly `∏_v |choose_v|`, which is small:
+`choose` is capped at `candidateCap` and 88.7% of components are singletons.
+
+At the shipped defaults (`budgetFraction: 0.1`, `maxBudgetMs: 120`,
+`evalsPerMs: 600`, `climbSteps: 2`, `poolCap: 512`, `maxSamples: 4096`) on a
+one-second turn, `totalEvals = 60 000`:
+
+| group shape (6 free units) | evals/sample | samples drawn | distinct combos | evaluations that bought nothing |
+|---|---|---|---|---|
+| singleton, 5 options | 11 | **909** | **5** | ~9 900 |
+| singleton, 8 options | 17 | **588** | **8** | ~9 900 |
+| pair, 5 options each | 21 | **952** | **25** | ~19 500 |
+| triple, 5 options each | 31 | **967** | **125** | ~26 100 |
+| slider rest-group of 3, 8 each | 49 | **612** | 512 (pool cap binds) | ~4 900 |
+
+> **Finding P-9.** On a scattered board — the 88.7% case — the multi-start's
+> stage 1 draws roughly nine hundred samples per group over a space of five to
+> eight distinct assignments. Across five or six singleton groups that is on the
+> order of **fifty thousand of the sixty thousand budgeted evaluations spent
+> re-drawing assignments already in the pool.** The layer's own header states the
+> requirement it violates: *"the whole point of a cheap multi-start is that it
+> runs BEFORE the expensive machinery and leaves that machinery its budget."*
+
+Three honest qualifications, because the finding should survive scrutiny:
+
+1. **The waste is denominated in evaluations, and whether it converts to wall
+   time depends on `evalsPerMs: 600`.** That constant is a *conversion rate*
+   chosen to be conservative ("over-estimating the cost spends less than the
+   slice"). If the true rate is higher, the loop finishes early and hands time
+   back; if lower, the `CLOCK_STRIDE` backstop truncates at the deadline. Either
+   way the *evaluations* bought nothing, and `evalsPerMs` is itself an
+   unprovenanced fitted constant — a second Ruling-49 case in this module beside
+   the temperature (Finding P-2).
+2. **The pool's first-come-capped policy is NOT the problem and the comment
+   defending it is right.** Samples are i.i.d. draws from the
+   uniform-over-safe-options distribution followed by a climb, so the first 512
+   distinct ones are an *unbiased* sample of that distribution; evicting the
+   worst would indeed be "a deterministic filter wearing a lottery's clothes"
+   and would break the prefix property. The defect is the absence of a **stopping
+   rule**, not the presence of an ordering.
+3. **The layer is dark by default** (`multistartSeed: undefined → false`), so
+   this is not costing production today. It is costing the *redesign the owner
+   ruled binding*, and it would land the moment the flag is seated.
+
+**The fix is two lines and it is a pure win.**
+
+```ts
+let space = 1
+for (let v = 0; v < vars.length; v++) space *= opts[vars[v]].choose.length
+const budgetSamples = Math.min(tuning.maxSamples, tuning.poolCap, space,
+                               Math.max(tuning.minSamples, share))
+```
+
+plus an early exit when `k` consecutive draws produce no new pool entry (which
+also handles the case where the climb makes the reachable set smaller than
+`space`). And critically: **hand the unspent budget back** rather than letting
+the clock stride consume it — the module's stated contract is to leave the
+ascent its budget, and on 88.7% of boards it could return nearly all of it.
+
+> **P-9 as a joint statement.** This is the PROPOSAL joint's `cost(state)` method
+> missing. An operator that cannot say what it will cost *given the state* gets
+> its budget from a clock, and a clock does not know that a five-point space has
+> been exhausted. Every one of the nine constants in §5 has this shape; this is
+> just the one where the gap is arithmetically visible.
+
 ### 2c. Restart *timing*, which nobody has considered
 
 Luby, Sinclair & Zuckerman's result is that when a randomised search has a
@@ -441,6 +522,7 @@ action set*.
 | **P0** | `proposedBy` on every priced trial; report accepted-trial counts by operator (Finding P-7) | one tag | which of the eight operators does any work. Prerequisite for everything adaptive, and it will probably retire two of them outright |
 | **P1** | measure the gap-scale distribution in the multi-start pool and normalise `t₀` by spread (Finding P-2) | analysis + one line | removes a constant whose meaning varies by board class |
 | **P2** | charge the candidate cap: emit `1 − admitted/available` per unit; do not yet fold it (Finding P-5) | one counter | makes Law P1's violation visible per board class, which is what decides whether the slider case is a real capability loss or a 98.9%-inert ration like `maxClusterCells` |
+| **P0½** | **bound `budgetSamples` by the space** (Finding P-9): `min(maxSamples, poolCap, ∏\|choose_v\|, max(minSamples, share))`, plus a no-new-entry early exit, plus **returning the unspent budget** | two lines | nothing to decide — it is a pure win, and on 88.7% of boards it hands most of a 100 ms slice back to the ascent. Do it before the flag is ever seated |
 | **P2½** | **hub-first group order** in `groupsOf` (Finding P-8) — emit the slider group before the components | one line | whether the seed's cluster-level conditioning order matters. Falsifier: the multi-start's own separation regression test, on a slider board rather than a trail board |
 | **P3** | **conflict-chain repair** as an eighth operator (§4) | small, self-contained, existing `ConflictIndex` | the corridor lock-in hypothesis. Falsifier already written (the multi-start's separation regression test, generalised) |
 | **P4** | seat the dark operators: `multistartSeed` and `sampledCap` get roster bots (the composition lens's reachability law) | config | they are built, argued and unmeasured |

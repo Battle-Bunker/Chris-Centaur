@@ -268,6 +268,40 @@ correctly stopped the rejected seed's *unit-level* committed greedy argmax, and
 left the *cluster-level* one standing — at exactly the level where the coupling
 is strongest, because that is where the sliders are.
 
+### 2.4⅞ The seed's sample count is sized from time and never from the size of the space
+
+`multiStartSeed` computes `budgetSamples` from `budgetMs × evalsPerMs` divided by
+per-sample cost, with **no term for how many distinct assignments the group
+has** — while the pool de-duplicates on `comboKey` and `admit` early-returns on
+a repeat. So once every distinct combo is in the pool, each further sample is
+drawn, climbed, scored and discarded.
+
+At the shipped defaults on a one-second turn (`totalEvals = 60 000`), a
+**singleton group with five options draws ~909 samples over a five-point
+space**; a pair group draws ~952 over 25; a triple ~967 over 125. Across five or
+six singleton groups on the 88.7% scattered board that is on the order of
+**fifty thousand of sixty thousand budgeted evaluations spent re-drawing
+assignments already in the pool** — against the module's own stated contract,
+*"the whole point of a cheap multi-start is that it runs BEFORE the expensive
+machinery and leaves that machinery its budget."*
+
+Three qualifications kept because the finding should survive scrutiny: the waste
+is in *evaluations* and its conversion to wall time runs through `evalsPerMs:
+600`, itself an unprovenanced constant (a second Ruling-49 case in this module
+beside the temperature); the pool's first-come-capped policy is **not** the
+problem and its defence is correct (i.i.d. draws make the first 512 an unbiased
+sample; evicting the worst would break the prefix property); and the layer is
+**dark by default**, so this is a cost to the redesign the owner ruled binding
+rather than to production today.
+
+The fix is two lines — bound `budgetSamples` by `∏_v |choose_v|` and `poolCap`,
+exit when the pool stops growing, and **hand the unspent budget back**. As a
+joint statement it is the PROPOSAL joint's `cost(state)` method missing: an
+operator that cannot say what it will cost *given the state* takes its budget
+from a clock, and a clock does not know a five-point space has been exhausted.
+All nine constants in §3.3 have that shape; this is the one where the gap is
+arithmetically visible.
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
@@ -492,6 +526,7 @@ whose population is modest variations of one lineage.
 | # | increment | changes behaviour? | what it decides |
 |---|---|---|---|
 | **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
+| **S0½** | **bound the seed's sample count by the size of the space** (§2.4⅞) and return the unspent budget | yes, but strictly less work for the same output | nothing to decide — a pure win, and it must land before `multistartSeed` is ever seated or the redesign ships spending most of a 100 ms slice re-drawing five options |
 | **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
 | **S2** | **`planDistance(staged, nearestProposal)`** per decision | no | whether the enumeration reaches the plan we stage. No decomposition design survives a bad answer |
 | **S3** | **split `adjudication.*Decided` by contested-vs-quiet** | no | Prediction P-1: whether the floor really goes flat where the decision is hardest (§2.3) |
