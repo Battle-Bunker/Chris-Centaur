@@ -136,7 +136,15 @@ exact case the red team names — *"surface the sacrifice the human can authoris
 that the bot may not"* — and D1 plus D3 together make it expressible for the
 first time.
 
-## D4 — The linearity finding. Partly conceded, partly wrong, and the honest limit stated.
+## D4 — The linearity finding.
+
+> *Measurement note (`23-ADMISSION-REVISED.md`): the admission half of this
+> section's argument has since been measured. The cap binds on sliders only
+> (100% vs 0%), the discarded set is the most differentiated one, and a fifth
+> cause of an inert weight was found — 15–43% of priced plans are refused by the
+> emission rate limiter, which no evaluator weight can move. My
+> "one fact measured twice" identification is withdrawn there.*
+ Partly conceded, partly wrong, and the honest limit stated.
 
 > "the five composition laws are all *linear* (join, weighted sum, partition),
 > and strategy is mostly *non-linear*… the manifest will show a beautiful

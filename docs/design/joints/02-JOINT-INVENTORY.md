@@ -338,7 +338,13 @@ adjudicates between, not only across the admitted candidate set — and reported
 **by unit class**, or a slider-board hit and a snake-board null average into a
 misleading nothing.
 
-**7.4 The identification, split by the evidence.** My "same fact measured twice"
+**7.4 The identification, split by the evidence.** *(SUPERSEDED by measurement —
+see `23-ADMISSION-REVISED.md`. The per-unit cap is now measured to bind on 100%
+of slider decisions and 0% of snake/leaper ones, so the "confirmed" half below
+is WITHDRAWN: on snake boards the cap never binds, and the ordering win there is
+joint-level admission plus incumbency, not per-unit admission. The general
+claim — what is admitted dominates what is valued — survives with three
+granularities instead of one.)* My "same fact measured twice"
 claim survives for one pair and is refuted for the other:
 
 - **CONFIRMED** for the *4× weights null vs the ordering win*: the pickup slot
