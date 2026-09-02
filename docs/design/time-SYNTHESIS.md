@@ -123,23 +123,63 @@ foundations in four places:
    Verified feasible: five shouldStop consultation points in the bank, all
    via the injected handle; countingBudget already in the testkit.
 
+## 2½. The prior-art verdict (extended mandate; details in time-prior-art.md, red team of the sibling carve in redteam-joints-composition.md)
+
+The carve was checked against Stockfish/Leela/KataGo time management and
+ponder, GGPO-style rollback, the incremental-computation lineage
+(Salsa / Adapton / Jane Street Incremental), and the Zilberstein anytime
+school. It survives everywhere, and each field paid an amendment:
+Stockfish's `nodestime` is a shipped allowance ledger (with the
+conservative-fit direction in a comment); the AlphaZero family's tree
+reuse scopes the no-values-cross rule (exact-premise, same-objective
+values DO cross — attention-only is the law for inexact premises);
+Salsa/Incremental contribute the cutoff law (which exposed the
+approve-the-bot's-move epoch teardown) and durability strata; GGPO
+contributes the sync-test gate and the quarantine contrast (fibers make
+rollback unnecessary by construction); the anytime literature solves the
+ponder-window sizing problem outright (geometric contract ladder under a
+stochastic deadline) and licenses tranche atomicity at a bounded constant
+factor.
+
 ## 3. The build path (feature branches, each standalone, ordered by value)
 
 1. **feature/commit-scope** — citation-scoped commit invalidation over the
-   toll fix's per-cluster seam + reaction table + the first operator event
-   ever fired in a harness game. Falsifier: if it does not recover most of
-   the 343 ms, the central economy is wrong — stop here.
+   toll fix's per-cluster seam + the CUTOFF check (a commit of the
+   already-staged destination costs one equality test, not an epoch
+   teardown) + reaction table + the first operator event ever fired in a
+   harness game. Falsifier: if scoping + cutoff do not recover most of the
+   343 ms, the central economy is wrong — stop here.
 2. **feature/allowance-ledger** — quanta accounting, exchange rate, ledger
-   replay rows, harness virtual clock. Falsifier: A/A floors must tighten
-   on a loaded box.
+   replay rows, harness virtual clock, and the sync-test gate (every
+   decision run twice from the ledger, byte-compared). Falsifiers: A/A
+   floors must tighten on a loaded box; sync-test must hold.
 3. **feature/replay-rebase** — realizedResolution + checksum + divergence
    counter. Standalone: the free live differential test.
 4. **feature/worldline** — the per-game object absorbing GameState_, the
-   hypothesis table, attention carry, ponder tranches on the
+   hypothesis table, attention carry + exact-premise value transport
+   (A1.1), ponder grants as a geometric ladder (A4.1) on the
    everythingPinned condition. Falsifier: warm promotion must beat the
    scalar carry bridge on the two-turn acceptance games.
 5. **feature/evaluator-version** — version stamps + soft re-price + the
    dial acceptance game.
+
+### 3½. Ruling-49 self-audit (which of this line's own numbers are lineage-conditioned)
+
+Applying the fitted-constants-are-members rule to this branch's own text:
+the 343 ms toll and the msPerResolution measurements (1.1–4.2) are
+this-lineage, this-shape measurements — mechanics, not strategy, but their
+MAGNITUDES condition increment-1's falsifier and must be re-measured on
+whatever lineage builds it. The red-team doc's default numbers (tithe 0.2,
+reserve 0.5, 1-in-4 speculative share, rungZero 0.1, the W0/W2 market
+weights 1.0/0.25) are inherited or invented constants with NO fit
+provenance: every one enters as a member with provenance
+"inherited-unfitted", and none is a commitment. Two claims in this line
+are arguments, not measurements, and are marked as such: "exact-hit mass
+is structurally lower here than chess's ~50%" (a product-space argument),
+and "a human approving the bot's staged move is the most common operator
+action" (UNMEASURED — no operator event has ever fired in a harness game;
+the cutoff win is real regardless, but its PRIORITY rests on live
+operator telemetry that increment 1 itself is what starts collecting).
 
 Anti-latch law throughout: the worldline holds knowledge and appetite,
 never calibration — the only cross-turn mutable scalars are the

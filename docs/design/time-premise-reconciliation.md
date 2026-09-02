@@ -80,6 +80,15 @@ values do not survive transport (re-walk, never splice); attention and
 identity do; sigma ledgers pop the resolved ply; fibers whose premise the
 transport contradicts die.
 
+AMENDED by the prior-art pass (`time-prior-art.md` A1.1, the AlphaZero
+tree-reuse / KataGo re-denomination precedent): the no-values rule is
+scoped, not absolute — a value crosses ADVANCE iff its premise is
+point-exact at the new frontier (an exactly-matched full-joint hypothesis,
+ply-1-resolved), its evalVersion is unchanged, and no citation names a
+spawn-patched cell. Everything with clouds, advisory ceilings or I7/I8
+residue in its premise — i.e. everything rebase-transfer's three reasons
+actually cover — still carries attention only.
+
 Naming ADVANCE as a first-class third operation matters for the same
 reason join and meet mattered: every existing cross-turn behavior is an
 instance (ponder harvest, carry matching, fog dilation-and-intersection,

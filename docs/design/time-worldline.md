@@ -379,6 +379,22 @@ nothing else.** Consequences, in order of value:
    change mid-season, or a mid-turn reveal) needs a variables-determined
    list and nothing else; no handler taxonomy grows.
 
+Two laws added by the prior-art pass (`time-prior-art.md` A3.1–A3.2):
+
+- **CUTOFF.** Invalidation stops where recomputation yields an equal value
+  (Salsa backdating, Incremental cutoff). Where re-derivation is cheap,
+  observe() recomputes-and-compares BEFORE propagating; equal ⇒ downstream
+  stands. The paying case: an operator commit of a unit's ALREADY-STAGED
+  destination — a human approving the bot's move — contradicts nothing and
+  must cost one equality check plus removing a variable; today it pays a
+  full epoch teardown (applyPinEvents sets epochChanged unconditionally).
+- **DURABILITY STRATA.** Citations are grouped by change-frequency class —
+  geometry (game-constant) / positions (per-turn) / actions (per-event) /
+  objective (per-dial) — and observe() walks only the touched class's
+  index. Granularity is class + cluster + unit, never per-cell
+  (Incremental's node-cost warning; also discharges the joints lens's
+  premise-id churn risk, their §5.1 stable/volatile split).
+
 What stays declared rather than derived: the REACTION policy — how fast a
 commitment agent must respond (conform-now / next-tranche /
 next-commitment). That is genuinely a policy about obligations to humans,

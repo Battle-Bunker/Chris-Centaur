@@ -75,12 +75,16 @@ and the code path.
   0.2 with reserve 0.5 (unchanged), hypothesis (speculative) share 1-in-4
   tranches ONLY while tentative pins exist (unchanged behavior, new
   clothes).
-- Window (ponder) policy: sweeps run fixed grants = the exchange-rate's
-  fitted quanta for the observed median inter-turn gap of the previous 5
-  turns (per-game adaptive, still deterministic given the ledger); live
-  runs opportunistic. Target order: floor-witness replies, then concern
-  rows by floor damage, then dodge-cover ordering — rebase-transfer §6.2
-  verbatim, as market weights (W0 rows weight 1.0, W2 tail weight 0.25).
+- Window (ponder) policy — SUPERSEDED by `time-prior-art.md` A4.1: not one
+  grant sized to the fitted median gap, but a GEOMETRIC LADDER of grants
+  (the stochastic-deadline contract-sequencing result, IJCAI-99), each
+  harvested whole when the resolution lands, bounded-close to the
+  known-window optimum at any window length; the ladder's base and ratio
+  tighten against live window telemetry as a fitted member with
+  provenance (ruling 49). Target order unchanged: floor-witness replies,
+  then concern rows by floor damage, then dodge-cover ordering —
+  rebase-transfer §6.2 as market weights (W0 rows weight 1.0, W2 tail
+  weight 0.25).
 - Reaction table: operator commit → conform-now; unpin/tentative →
   next-tranche; dial → next-tranche (soft re-price); goto →
   next-commitment; resolution → advance-now.

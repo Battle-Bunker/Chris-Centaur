@@ -103,6 +103,18 @@ iff its coords do. Parcels are metered in quanta like any spend; the pool's
 existing memo-counter handoff (`noteSession` before release) becomes a
 ledger row.
 
+**Prior-art additions to the grant policy** (`time-prior-art.md` §1, §4):
+a tranche is a CONTRACT in the anytime-literature sense, and tranche-based
+interruptibility carries the classical bounded constant-factor penalty —
+the theoretical license for atomicity. Two new ECONOMY rows with engine
+precedent: carried-quanta anticipation (Stockfish raises per-move optimum
+time 25% when pondering is on — grants may anticipate the window's
+subsidy, never rely on it), and instability extension (best-move-flip
+telemetry extends the soft grant, bounded by the deadline — the
+StickyStager's flip counter is the signal, and Hansen–Zilberstein's
+costly-monitoring result says to sweep tranche size as the one axis this
+trades on).
+
 **The event-loop yield** stays wall-scheduled (Firestore listeners must
 run), INSIDE tranches, and affects only when determinations enter the
 queue — which replay takes from logged positions, not from yield timing.
@@ -124,7 +136,11 @@ worldline driver per seat:
    arm's window policy (fixed; or sampled from a recorded live-window
    distribution — the arm says which, the ledger records what);
 4. replay rows: the WorldlineLedger verbatim (`{"kind":"grant"}`,
-   `{"kind":"determination"}`), additive JSONL.
+   `{"kind":"determination"}`), additive JSONL;
+5. a SYNC-TEST mode (GGPO's backend, our vocabulary): every decision run
+   twice from the same ledger, reports byte-compared — the standing
+   tripwire that the ledger captures all nondeterminism, cheaper and
+   stricter than the cross-build gate for this machinery.
 
 **Denominators (the DILEMMA-4 accounting, restated as the proposal to the
 owner):** per-turn metrics denominate over grants with `targetTurn = N`.
