@@ -128,9 +128,13 @@ export class Simulator {
         length: settled.occupancy.length,
         health: settled.health,
         customizations: { ...snake.customizations },
-        orientation: result.rotations[snake.id]
-          ? { ...result.rotations[snake.id] }
+        // Orientation and KIND are settlement outputs too: the engine rewrites
+        // facing and promotes pawns itself, so the bot reads both back rather
+        // than re-deriving either.
+        orientation: result.orientation[snake.id]
+          ? { ...result.orientation[snake.id] }
           : { ...snake.orientation },
+        unitType: result.unitTypes[snake.id] ?? snake.unitType,
         invulnerabilityLevel: result.tiers[snake.id] ?? 0,
       };
       // How long that level is safe to bank on: the earliest expiry among the
@@ -139,7 +143,6 @@ export class Simulator {
       // number, which the passing of a turn does not move — rides across.
       const expiry = aggregateExpiryTurn(result.effects, snake.id);
       if (hadSchedule && expiry !== null) next.invulnerabilityExpiryTurn = expiry;
-      Simulator.promoteIfDue(next, board);
       snakes.push(next);
     }
 
@@ -164,25 +167,6 @@ export class Simulator {
       },
       deadSnakeIds,
     };
-  }
-
-  /**
-   * Pawn promotion — one of the few things `resolveTurn` deliberately leaves
-   * to its caller, because it is a game-level rule rather than a turn-
-   * resolution one. Applied after growth, so a pawn that eats into the
-   * threshold promotes the same turn: it RESETS to weight 1 as a queen,
-   * keeping id/letter/orientation, and its health is clamped DOWN (never
-   * raised) to the queen's configured max.
-   */
-  private static promoteIfDue(snake: Snake, board: Board): void {
-    if (snake.unitType !== 'pawn') return;
-    const threshold = board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT;
-    if (snake.length < threshold) return;
-    snake.unitType = 'queen';
-    snake.body = [snake.head];
-    snake.length = 1;
-    const queenMax = board.maxHealthPerUnit?.['queen'];
-    if (queenMax !== undefined) snake.health = Math.min(snake.health, queenMax);
   }
 
   /** The api cell one step in `move` from `head`. */
