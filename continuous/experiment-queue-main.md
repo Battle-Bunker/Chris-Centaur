@@ -320,3 +320,10 @@
       makes it cheap). Six sites pay for this invariant; today it is a
       convention six comments believe in. Then elite-512-vs-first-come-512
       at the pool becomes measurable rather than frightening.
+- [ ] S0.875 lever-outcome ledger (search doc 08): record (family, cost,
+      delta-maxGap) after each applied refinement lever — one subtraction
+      per slice turns voc.ts's FOURTEEN assumed value-per-cost constants
+      into measured ratios per board class, off the corpus. If measured
+      ranks match the formulas, the constants stop mattering; if not, the
+      metalevel has been choosing computations by a model that disagrees
+      with its own outcomes.
